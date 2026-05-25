@@ -46,6 +46,10 @@ Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
 If a prior `.turingmind/REVIEW.md` exists for a DIFFERENT phase, archive it first:
 ````bash
 PRIOR_PHASE=$(grep -oE 'Phase [^ ]+' .turingmind/REVIEW.md | head -1 | cut -d' ' -f2)
+# Defense in depth: REVIEW.md is parsed input — don't trust it. Same allowlist as Phase 0.
+if [[ ! "$PRIOR_PHASE" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  PRIOR_PHASE="unknown"
+fi
 if [ -n "$PRIOR_PHASE" ] && [ "$PRIOR_PHASE" != "$PHASE_ID" ]; then
   mv .turingmind/REVIEW.md ".turingmind/REVIEW-${PRIOR_PHASE}-$(date +%Y-%m-%d).md"
 fi
@@ -78,19 +82,40 @@ Parse `$ARGUMENTS`:
    ```
    Stateless.
 
-4. **GSD phase mode** — `$ARGUMENTS` is a phase identifier (a directory name under `.planning/phases/` like `02-code-review` or just `02`). Resolve:
+4. **GSD phase mode** — `$ARGUMENTS` is a phase identifier (a directory name under `.planning/phases/` like `02-code-review` or just `02`).
+
+   **Validate first (sandbox guard).** Before any path lookup, reject `$ARGUMENTS` if it does not match `^[A-Za-z0-9._-]+$` — no slashes, no `..`, no spaces, no shell metacharacters. On reject, error: "Invalid phase id — must match `[A-Za-z0-9._-]+` (no slashes, no `..`)." and stop. This prevents `../../etc/passwd`-style escapes from the `.planning/` namespace, which would otherwise be propagated into shell commands, state file paths, and intent-doc reads.
+
+   Then resolve:
    - If exact dir exists at `.planning/phases/<arg>/`, use it.
    - Else if a unique dir starts with `<arg>-`, use it (e.g. `02` → `02-code-review`).
    - Else error: "Phase '<arg>' not found under .planning/phases/. Available: <ls>".
+
+   **After resolution, verify containment.** Confirm the realpath of the resolved phase dir is a descendant of the realpath of `.planning/phases/`:
+   ```bash
+   PHASES_ROOT=$(cd .planning/phases && pwd -P)
+   PHASE_REAL=$(cd ".planning/phases/<resolved-name>" && pwd -P)
+   case "$PHASE_REAL/" in
+     "$PHASES_ROOT/"*) : ;;  # ok, contained
+     *) echo "Phase resolution escaped .planning/phases/ — refusing."; exit 1 ;;
+   esac
+   ```
 
    Compute phase commit range:
    ```bash
    PHASE_DIR=".planning/phases/<resolved-name>"
    PHASE_START=$(git log --reverse --format=%H -- "$PHASE_DIR" | head -1)
+   if [ -z "$PHASE_START" ]; then
+     echo "ℹ Phase dir '$PHASE_DIR' has no commit history yet — using staged + unstaged diff only for this pass."
+     # Skip the $PHASE_START..HEAD portion below; fall back to staged + unstaged only.
+     PHASE_RANGE=""
+   else
+     PHASE_RANGE="$PHASE_START..HEAD"
+   fi
    ```
-   Diff = `$PHASE_START..HEAD` + staged + unstaged.
+   Diff = `$PHASE_RANGE` (if non-empty) + staged + unstaged.
 
-   Set `$PHASE_ID = <resolved-name>` for state and intent context.
+   Set `$PHASE_ID = <resolved-name>` for state and intent context. (Validated above to be a safe slug.)
 
 ## Phase 0.5 — Multi-pass state check
 
