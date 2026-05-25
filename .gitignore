@@ -1,2 +1,9 @@
 # Ignore zip files (auto-generated skill packages)
 *.zip
+
+# Tool-owned working state (per fork architecture — .turingmind/ is gitignored;
+# user cp's REVIEW.md somewhere persistent if they want it tracked)
+.turingmind/
+
+# GSD planning artifacts (kept out of the fork repo itself)
+.planning/
