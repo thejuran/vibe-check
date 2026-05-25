@@ -106,6 +106,14 @@ Single assistant turn, parallel `Task` calls:
 |  | `.ts/.tsx/.js/.jsx/.mjs/.cjs` in diff | `language-typescript` |
 |  | `.py` in diff | `language-python` |
 
+### Model tiering for `/review`
+
+All agents in `/review` use the model from their frontmatter (`model: sonnet`). No extended thinking. No Opus. Cheap iteration — typical pass ~$0.50.
+
+For Opus on `architecture` + thinking on `security`/`architecture`/`impact`, use `/deep-review`.
+
+Per-call override (e.g. large-diff Haiku downgrade in M5): pass `model: "haiku"` in the Task call. Otherwise omit — agent frontmatter wins.
+
 Per-agent prompt template:
 ```
 You are the {{agent_name}} agent. Review this diff per your subagent instructions.
