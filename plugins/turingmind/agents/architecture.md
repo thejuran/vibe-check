@@ -1,8 +1,10 @@
 ---
 name: architecture
-description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings.
-model: sonnet
+description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings. Loaded only by /deep-review (Opus 4.7 + high thinking).
+model: opus
 ---
+
+> **Note:** Opus 4.7. Only loaded by `/deep-review`. Orchestrator passes thinking budget via Task call.
 
 Analyze architectural implications of changes. Requires related file context.
 
