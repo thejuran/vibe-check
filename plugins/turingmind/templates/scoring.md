@@ -17,9 +17,18 @@ orchestrator_score = agent_confidence
   − 100 if intent_doc_match.confidence > 0.9  (intent-doc strong match — REPLACES the −30 above, does not stack)
   + 10  if cross-confirmed by 2+ agents
   + 15  if persisted from previous pass
+
+  + severity weight (applied last, before clamp):
+       severity == "critical" →  +0
+       severity == "high"     →  −5
+       severity == "medium"   →  −15
+       severity == "low"      →  −25
+       severity unset / other →  −10  (treat as medium-equivalent fallback)
 ```
 
 Clamp to `[0, 100]`. Filter entirely if pre-clamp score < 0.
+
+**Why the severity weight:** `agent_confidence` measures *how sure the agent is that the finding is real*, NOT *how bad it is if true*. A confident catch of a code-style nit (severity=low) shouldn't score the same as a confident catch of a security vulnerability (severity=critical). Without this weight, easy-to-verify low-severity findings (e.g. "this constant is computed twice") inflate to Critical band and block `--finalize`. The agent supplies `severity` per `templates/agent-output-schema.md`; the orchestrator honors it.
 
 ## Bands
 
