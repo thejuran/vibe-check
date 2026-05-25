@@ -5,7 +5,5 @@
   "author": { "name": "TuringMind (local fork by thejuran)" },
   "repository": "https://github.com/turingmindai/turingmind-code-review",
   "license": "MIT",
-  "keywords": ["code-review", "git", "security", "bugs", "architecture", "typescript", "python", "gsd"],
-  "commands": "./commands/",
-  "agents": "./agents/"
+  "keywords": ["code-review", "git", "security", "bugs", "architecture", "typescript", "python", "gsd"]
 }
