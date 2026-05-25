@@ -3,6 +3,27 @@ allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write,
 description: Quick code review for uncommitted local changes
 ---
 
+## HARD CONTRACT (read this before doing anything)
+
+This command is an **orchestrator** — its sole job is to execute the phases below in order. The phases are NOT optional, NOT a menu, and NOT a template for inspiration. If you find yourself "skipping ahead to the report" or "improvising a summary file," STOP — that is a failure mode. Follow the prose step-by-step, in numerical phase order, top to bottom.
+
+**Output paths — non-negotiable:**
+
+- **WRITE only to `.turingmind/`** in the user's project. Specifically: `.turingmind/state/<id>.json` (Phase 4.5), optional `.turingmind/reviews/<timestamp>/` (Phase 4.5 snapshot), and `.turingmind/REVIEW.md` (only via Finalize mode).
+- **NEVER write to `.planning/`** — that namespace belongs to GSD. The tool READS PLAN.md/SPEC.md/RESEARCH.md from there (Phase 1.5) but writes nothing.
+- **NEVER write per-phase review files** like `.planning/phases/<id>/<NN>-REVIEW.md` or `<NN>-DEEP-REVIEW.md` even if you see GSD/other plugins creating files in that location. **This tool does not produce per-phase artifacts in `.planning/`.** The single authoritative artifact is `.turingmind/REVIEW.md`, written by `--finalize`.
+- Mid-loop `/review` and `/deep-review` invocations **print findings to the chat transcript only**. No file write of the report itself. State file under `.turingmind/state/` is the only thing persisted by a non-finalize pass.
+
+**Phase progression — non-negotiable:**
+
+- Announce each phase as you enter it with one line: `✓ Phase N — <name>` (or `⊘ Phase N — <name> (skipped: <reason>)` if a skip condition fires). The user reads these announcements to verify the orchestrator is on track.
+- Phase 4 (Render) MUST be followed by Phase 4.5 (Persist state). Phase 4.5 MUST be followed by Phase 5 (Interactive fix loop) UNLESS one of Phase 5's documented skip conditions applies.
+- The presence of Phase 5 as the next step is non-negotiable for any stateful invocation with findings. "I already rendered the report so I'm done" is the failure mode — Phase 5 is part of the user-facing contract, not a polish step.
+
+**If unsure, surface the uncertainty rather than improvise.** Print "I'm uncertain about <specific phase or step> — orchestrator prose is ambiguous here" and stop. That is always preferable to inventing behavior that violates the contract above.
+
+---
+
 ## Finalize mode
 
 If `$ARGUMENTS` contains `--finalize`:
@@ -357,6 +378,8 @@ If zero findings after filtering:
 [counts and reasons]
 ```
 
+**→ Proceed immediately to Phase 4.5 (Persist pass state). Do not stop here. The report you just rendered is NOT a complete output — Phase 4.5 writes the state file, and Phase 5 drives the fix loop. Both are mandatory.**
+
 ## Phase 4.5 — Persist pass state
 
 Compute `stable_hash = sha256(file + "\n" + canonical_line_content + "\n" + title)`.
@@ -388,6 +411,8 @@ Then prune: keep last 10 dirs under `.turingmind/reviews/`, delete older:
 ```bash
 ls -t .turingmind/reviews/ 2>/dev/null | tail -n +11 | xargs -I {} rm -rf ".turingmind/reviews/{}"
 ```
+
+**→ Proceed immediately to Phase 5 (Interactive fix loop). Do not stop here. State has been persisted; the user is still in the conversation waiting for the AskUserQuestion that Phase 5 dispatches. Skipping Phase 5 means the user has to manually invoke the command again to engage the fix workflow — that's a contract violation.**
 
 ## Phase 5 — Interactive fix loop
 
