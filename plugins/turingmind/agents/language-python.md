@@ -1,7 +1,7 @@
 ---
-name: Python Issues
+name: language-python
+description: Python-specific review — type hints, mutable defaults, bare except, context managers, common pitfalls. Returns JSON findings.
 model: sonnet
-applies_to: ["*.py"]
 ---
 
 Language-specific checks for Python.

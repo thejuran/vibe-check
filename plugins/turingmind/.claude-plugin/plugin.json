@@ -1,12 +1,11 @@
 {
   "name": "turingmind-code-review",
-  "description": "AI-powered code review for uncommitted local changes. Catches bugs, security vulnerabilities, and CLAUDE.md compliance issues.",
-  "version": "1.0.0",
-  "author": {
-    "name": "TuringMind"
-  },
-  "repository": "https://github.com/turingmind/turingmind-code-review",
+  "description": "Personal local fork: GSD-aware parallel code review with model tiering and intent-doc awareness.",
+  "version": "2.0.0-local",
+  "author": { "name": "TuringMind (local fork by thejuran)" },
+  "repository": "https://github.com/turingmindai/turingmind-code-review",
   "license": "MIT",
-  "keywords": ["code-review", "git", "security", "bugs", "architecture", "typescript", "python"],
-  "commands": "./commands/"
+  "keywords": ["code-review", "git", "security", "bugs", "architecture", "typescript", "python", "gsd"],
+  "commands": "./commands/",
+  "agents": "./agents/"
 }

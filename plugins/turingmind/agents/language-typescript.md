@@ -1,7 +1,7 @@
 ---
-name: TypeScript/JavaScript Issues
+name: language-typescript
+description: TypeScript/JavaScript-specific review — type safety, async discipline, React hook rules, common pitfalls. Returns JSON findings.
 model: sonnet
-applies_to: ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"]
 ---
 
 Language-specific checks for TypeScript and JavaScript.

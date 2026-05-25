@@ -49,64 +49,35 @@ Load when: Deep review mode (`/turingmind-code-review:deep-review`)
 @agents/architecture.md
 ```
 
-## Progressive Loading Pattern
+## Dispatch Pattern
 
-```
-Step 1: Detect languages from git diff
-        └─ Extract file extensions from changed files
+The orchestrator command dispatches agents via the `Task` tool — one parallel call per agent — in a single assistant turn. Each agent runs in its own context window and returns a JSON findings object per `templates/agent-output-schema.md`. The orchestrator merges, scores, filters, and renders.
 
-Step 2: Check for CLAUDE.md
-        └─ Look in root and directories with changes
+This file is the routing reference: which agents load under which conditions. The orchestrator reads this matrix at Phase 2 of every review.
 
-Step 3: Load minimum required agents
-        └─ Core: bugs + security (always)
-        └─ Language: based on Step 1
-        └─ Compliance: if Step 2 found CLAUDE.md
-        └─ Architecture: only for deep review
+## Why Per-Domain Subagents?
 
-Step 4: Run agents in parallel
-        └─ Each agent returns structured issues
+| Approach | Quality | Cost | Attribution |
+|----------|---------|------|-------------|
+| One mega-prompt | Generalist | Low | Conflated |
+| Per-domain subagent (Task dispatch) | Specialist per domain | Higher | Per-agent attribution in output |
 
-Step 5: Score and filter
-        └─ Apply confidence scoring
-        └─ Filter based on threshold
-```
-
-## Why Progressive Loading?
-
-| Approach | Context Size | Accuracy |
-|----------|--------------|----------|
-| Load all agents | Large | Lower (noise) |
-| Progressive load | Minimal | Higher (focused) |
-
-By only loading relevant agents:
-- Faster reviews (less to process)
-- Fewer false positives (no irrelevant checks)
-- Better fixes (language-specific suggestions)
+Each subagent has its own checklist, examples, and scoring norms. Cross-agent dedup is handled by the orchestrator (see scoring.md +10 cross-confirmation bonus).
 
 ## Adding New Agents
 
-To add support for a new language or framework:
-
 1. Create `agents/language-{name}.md` or `agents/framework-{name}.md`
-2. Add entry to the selection matrix above
-3. Update `commands/review.md` Step 3 with detection logic
+2. Add entry to the Agent Selection Matrix
+3. Update `commands/review.md` Phase 2 dispatch table (and deep-review.md if applicable)
 
-Template for new language agent:
+Template:
 ```markdown
 ---
-name: {Language} Issues
+name: language-{name}
+description: {Language}-specific review — [key checks]. Returns JSON findings.
 model: sonnet
-applies_to: ["*.ext"]
 ---
 
-Language-specific checks for {Language}.
-
-## Checks
-- [Check 1]
-- [Check 2]
-
-## Output Format
-(Use same format as bugs.md with diff-style fixes)
+[Agent prompt body — see bugs.md for the full template including JSON output schema reference.]
 ```
 

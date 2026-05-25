@@ -1,5 +1,6 @@
 ---
-name: CLAUDE.md Compliance
+name: compliance
+description: Reviews a diff against project-specific rules from CLAUDE.md and AGENTS.md. Returns JSON findings citing the exact rule violated.
 model: sonnet
 ---
 

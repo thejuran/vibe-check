@@ -1,5 +1,6 @@
 ---
-name: Architecture & Design
+name: architecture
+description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings.
 model: sonnet
 ---
 

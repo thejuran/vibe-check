@@ -1,5 +1,6 @@
 ---
-name: Security (OWASP Top 10+)
+name: security
+description: Reviews a diff for OWASP Top 10 vulnerabilities (injection, XSS, auth bypass, secrets, data exposure). Returns JSON findings with CWE references.
 model: sonnet
 ---
 

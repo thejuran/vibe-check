@@ -1,5 +1,6 @@
 ---
-name: Bugs & Logic Errors
+name: bugs
+description: Reviews a diff for runtime bug risks (null access, off-by-one, race conditions, resource leaks, error-handling gaps). Returns JSON findings.
 model: sonnet
 ---
 
