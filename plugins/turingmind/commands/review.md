@@ -89,10 +89,33 @@ If `.turingmind/` does NOT exist in this repo, this is first use:
 
 ## Phase 1 — Triage
 
-(Triage agent lands in M5. For M3, derive inline from the diff:
-- `languages`: distinct file extensions
-- `total_lines`: from `git diff --stat`
-- `files_to_skip`: hardcoded list — `*.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`, `*.snap`, `*.min.js`, `*.map`. Filter from dispatch.)
+Dispatch a single Task call to `triage` agent. Prompt:
+
+````
+You are the triage agent. Classify this diff.
+
+<diff-stat>
+{{git diff --stat <range>}}
+</diff-stat>
+
+<changed-files>
+{{git diff --name-only output}}
+</changed-files>
+
+<repo-root-files>
+{{ls of repo root, immediate level}}
+</repo-root-files>
+
+{{if $PHASE_ID set: <phase-dir>.planning/phases/$PHASE_ID/</phase-dir>}}
+
+Return JSON per your subagent instructions.
+````
+
+Parse JSON. Use:
+- `languages` + `frameworks` → Phase 2 agent selection
+- `files_to_skip` → exclude from diff sent to other agents
+- `size_tier` → large-diff auto-downgrade in Phase 2
+- `intent_docs_found` → Phase 1.5 (M6)
 
 ## Phase 2 — Dispatch agents in parallel
 
@@ -113,6 +136,12 @@ All agents in `/review` use the model from their frontmatter (`model: sonnet`). 
 For Opus on `architecture` + thinking on `security`/`architecture`/`impact`, use `/deep-review`.
 
 Per-call override (e.g. large-diff Haiku downgrade in M5): pass `model: "haiku"` in the Task call. Otherwise omit — agent frontmatter wins.
+
+### Large-diff auto-downgrade
+
+If `triage.size_tier == "large"`, override `model` in Task calls for `language-typescript`, `language-python` (and any other `language-*`/`framework-*`) to `"haiku"`. Tell the user once: "⚠ Large diff (>2000 LOC) — language agents downgraded to Haiku. Bugs, security, compliance keep Sonnet."
+
+Bugs, security, compliance keep Sonnet regardless of size.
 
 Per-agent prompt template:
 ```

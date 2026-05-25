@@ -12,6 +12,7 @@ Only load agents that are relevant to reduce context and improve accuracy.
 
 | Detected | Load Agents |
 |----------|-------------|
+| Always (Phase 1, before others) | `triage` |
 | Any code | `@agents/bugs.md`, `@agents/security.md` |
 | Has CLAUDE.md | `@agents/compliance.md` |
 | TypeScript/JavaScript | `@agents/language-typescript.md` |
