@@ -41,13 +41,13 @@ Written by `--finalize` to `.turingmind/REVIEW.md` (single file, fork schema onl
 See `.turingmind/state/<phase-id>.json.archived-{{date}}` for full per-pass history.
 ````
 
-`{{scope_label}}` is the phase ID (e.g. "Phase 02 — code-review") in GSD mode, or "<repo>/<branch>" otherwise.
+`{{scope_label}}` is `"Phase <PHASE_ID>"` in GSD mode (e.g. `"Phase 02-code-review"` for phase dir `02-code-review`), or `"<repo>/<branch>"` otherwise. The PHASE_ID is the raw directory name under `.planning/phases/` — not a human-formatted title — so the cross-phase archive logic in `commands/review.md` can round-trip it via regex.
 
 ## Where it goes
 
 - GSD phase mode: `.turingmind/REVIEW.md` (single artifact per repo — the latest finalize overwrites)
 
-  Alternative for users who want per-phase history: archive previous REVIEW.md to `.turingmind/REVIEW-<phase-id>-<date>.md` before overwrite. (Implementation detail in M8.3.)
+  Alternative for users who want per-phase history: archive previous REVIEW.md to `.turingmind/REVIEW-<phase-id>-<date>.md` before overwrite. The Writing-REVIEW.md subsection in `commands/review.md` implements this (cross-phase auto-archive on finalize).
 
 - Other modes: `.turingmind/REVIEW.md` same location.
 
