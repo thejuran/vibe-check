@@ -9,7 +9,7 @@ This command is an **orchestrator** — its sole job is to execute the phases be
 
 **Output paths — non-negotiable:**
 
-- **WRITE only to `.turingmind/`** in the user's project. Specifically: `.turingmind/state/<id>.json` (Phase 4.5), optional `.turingmind/reviews/<timestamp>/` (Phase 4.5 snapshot), and `.turingmind/REVIEW.md` (only via Finalize mode).
+- **WRITE only to `.turingmind/`** in the user's project. Specifically: `.turingmind/state/<$PHASE_ID>.json` where `<$PHASE_ID>` is the full resolved phase directory name (Phase 4.5; see Phase 0.5 for the exact filename rule — never abbreviate), optional `.turingmind/reviews/<ISO timestamp>/` (Phase 4.5 snapshot), and `.turingmind/REVIEW.md` (only via Finalize mode).
 - **NEVER write to `.planning/`** — that namespace belongs to GSD. The tool READS PLAN.md/SPEC.md/RESEARCH.md from there (Phase 1.5) but writes nothing.
 - **NEVER write per-phase review files** like `.planning/phases/<id>/<NN>-REVIEW.md` or `<NN>-DEEP-REVIEW.md` even if you see GSD/other plugins creating files in that location. **This tool does not produce per-phase artifacts in `.planning/`.** The single authoritative artifact is `.turingmind/REVIEW.md`, written by `--finalize`.
 - Mid-loop `/review` and `/deep-review` invocations **print findings to the chat transcript only**. No file write of the report itself. State file under `.turingmind/state/` is the only thing persisted by a non-finalize pass.
@@ -46,7 +46,7 @@ If `$ARGUMENTS` contains `--finalize`:
     - Any "Will fix" → routed to Phase 5 above; finalize does NOT proceed this invocation.
     - All dismissed/acknowledged → `medium_acknowledgments` written; proceed.
 - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
-- Archive state: `mv .turingmind/state/<id>.json .turingmind/state/<id>.json.archived-$(date +%Y-%m-%d)`.
+- Archive state: `mv .turingmind/state/<$PHASE_ID>.json .turingmind/state/<$PHASE_ID>.json.archived-$(date +%Y-%m-%d)` — using the full resolved phase ID, same name as the file Phase 4.5 wrote (see Phase 0.5 filename rule).
 - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
 
 If `--finalize` NOT in `$ARGUMENTS`: proceed with normal Phase 0 → 4.5 flow.
@@ -141,7 +141,9 @@ Parse `$ARGUMENTS`:
 ## Phase 0.5 — Multi-pass state check
 
 State file path:
-- GSD phase mode: `.turingmind/state/<$PHASE_ID>.json`
+- GSD phase mode: `.turingmind/state/<$PHASE_ID>.json` where `$PHASE_ID` is the **full resolved directory name** from Phase 0 (e.g. `02-real-data-path`, NOT `02`). Use the resolved name verbatim — do NOT abbreviate to the prefix the user typed. Abbreviating means a second invocation looking for `02-real-data-path.json` won't find a state written as `02.json`, and carry-forward silently restarts from pass 1.
+  - ✓ Correct: `.turingmind/state/02-real-data-path.json`, `.turingmind/state/31-cache-invalidation-renderer-config-epoch-and-awaited-purge-a.json`
+  - 🚫 Wrong: `.turingmind/state/02.json`, `.turingmind/state/31.json`
 - Other modes (no args / PR / range): `.turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json`
 
 1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`. Proceed to Phase 0.7 (first-run setup will create `.turingmind/state/` if needed), then to Phase 1. Skip the rest of Phase 0.5.
@@ -500,7 +502,7 @@ Regardless of Step A's choice, end the iteration with AskUserQuestion:
 > **Options:**
 > 1. **Rerun review on the new diff (Recommended if any fixes were applied)** — Re-enter the orchestrator at Phase 0 with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0.5 detects new commits since last pass's `head_sha`; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; M7 multi-pass summary shows the diff.
 > 2. **Close out and document** — Re-enter the orchestrator with `$ARGUMENTS = "${original_args} --finalize"`. The Finalize mode section at the top of this file takes over: blocks on outstanding C/W (loop returns to Step A so user can address them), AskUserQuestion loop on unacknowledged Medium, writes `.turingmind/REVIEW.md`, archives state.
-> 3. **Abandon for now** — Stop. State file remains at `.turingmind/state/<id>.json` for resume. Print: "Paused. Resume with `/turingmind-code-review:{{command}} {{original_args}}` or close out later with `--finalize`."
+> 3. **Abandon for now** — Stop. State file remains at `.turingmind/state/<$PHASE_ID>.json` (full resolved phase dir name per Phase 0.5) for resume. Print: "Paused. Resume with `/turingmind-code-review:{{command}} {{original_args}}` or close out later with `--finalize`."
 
 If the user picked option 1, loop back to Phase 0 of the current command (do not re-run Phase 0.7 first-run setup since state exists). If option 2, route to Finalize mode. If option 3, stop.
 
