@@ -17,6 +17,9 @@ Only load agents that are relevant to reduce context and improve accuracy.
 | Has CLAUDE.md | `@agents/compliance.md` |
 | TypeScript/JavaScript | `@agents/language-typescript.md` |
 | Python | `@agents/language-python.md` |
+| `.go` files | `language-go` |
+| `.rs` files | `language-rust` |
+| React imports detected | `framework-react` |
 | Deep review mode | `@agents/architecture.md` |
 
 ## Core Agents (Always Load)

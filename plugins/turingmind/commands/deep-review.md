@@ -20,9 +20,9 @@ Shares Phases 0, 0.5, 0.7, 1, 1.5, 3, 4, 4.5, and finalize with `commands/review
 |  | `CLAUDE.md`/`AGENTS.md` exists | `compliance` | sonnet | low |
 |  | TS/JS in diff | `language-typescript` | sonnet | none |
 |  | Python in diff | `language-python` | sonnet | none |
-|  | Go in diff (M10) | `language-go` | sonnet | none |
-|  | Rust in diff (M10) | `language-rust` | sonnet | none |
-|  | React imports (M10) | `framework-react` | sonnet | none |
+|  | Go in diff | `language-go` | sonnet | none |
+|  | Rust in diff | `language-rust` | sonnet | none |
+|  | React imports | `framework-react` | sonnet | none |
 
 Pass thinking budget explicitly in Task calls:
 

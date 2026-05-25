@@ -200,6 +200,9 @@ Single assistant turn, parallel `Task` calls:
 |  | `CLAUDE.md` or `AGENTS.md` in repo root or changed dir | `compliance` |
 |  | `.ts/.tsx/.js/.jsx/.mjs/.cjs` in diff | `language-typescript` |
 |  | `.py` in diff | `language-python` |
+|  | any `.go` in diff | `language-go` |
+|  | any `.rs` in diff | `language-rust` |
+|  | triage.frameworks includes "react" | `framework-react` |
 
 ### Model tiering for `/review`
 
