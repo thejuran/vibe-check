@@ -52,11 +52,11 @@ Populated by architecture and compliance only, when intent context provided:
 }
 ```
 
-Orchestrator score impact: >0.7 → −30, >0.9 → −100 (filter entirely).
+Orchestrator score impact: confidence >0.9 → −100 (filter entirely); else confidence >0.7 → −30. The two thresholds are mutually exclusive.
 
 ## Hard rules
 
 1. **JSON only.** No findings → `{"agent":"<name>","findings":[],"agent_notes":[]}`.
 2. **`suggested_fix` mandatory.** Drop findings you can't fix concretely.
-3. **Agents don't band themselves.** `agent_confidence` is input; orchestrator computes band.
+3. **Agents don't classify severity bands themselves.** `agent_confidence` is input; the orchestrator computes the band per `templates/scoring.md`.
 4. **Orchestrator verifies `in_diff` and `silenced_marker_nearby`** against the actual diff and overrides.

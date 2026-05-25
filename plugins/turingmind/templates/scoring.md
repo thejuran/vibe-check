@@ -12,9 +12,9 @@ Applied by the orchestrator after agents return findings.
 orchestrator_score = agent_confidence
   + 20  if in_diff (orchestrator-verified)
   − 50  if silenced_marker_nearby (orchestrator-verified)
-  + 20  if compliance matched a rule in CLAUDE.md/AGENTS.md
-  − 30  if intent_doc_match.confidence > 0.7
-  − 100 if intent_doc_match.confidence > 0.9
+  + 20  if finding.agent == "compliance"  (rule-citation bonus — the compliance agent quotes the rule in `problem`)
+  − 30  if intent_doc_match.confidence > 0.7  (intent-doc partial match)
+  − 100 if intent_doc_match.confidence > 0.9  (intent-doc strong match — REPLACES the −30 above, does not stack)
   + 10  if cross-confirmed by 2+ agents
   + 15  if persisted from previous pass
 ```

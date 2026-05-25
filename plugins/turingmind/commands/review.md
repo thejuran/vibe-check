@@ -50,7 +50,9 @@ State file path:
 - GSD phase mode: `.turingmind/state/<$PHASE_ID>.json`
 - Other modes (no args / PR / range): `.turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json`
 
-1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`, skip to Phase 1.
+1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`. Proceed to Phase 0.7 (first-run setup will create `.turingmind/state/` if needed), then to Phase 1. Skip the rest of Phase 0.5.
+
+   If state file present: skip Phase 0.7 (already initialized) and continue with step 2 below.
 
 2. If present: parse it.
    - `$PASS_NUMBER = state.passes[-1].pass_number + 1`
@@ -81,7 +83,7 @@ If `.turingmind/` does NOT exist in this repo, this is first use:
 
    Question: "Found old TuringMind state under `.gsd/`. Move to `.turingmind/`?"
    Options:
-     - "Yes, move it" → `mv .gsd/turingmind-review .turingmind/reviews-archived-from-gsd && mv .gsd/reviews .turingmind/reviews-old`
+     - "Yes, move it" → `[ -d .gsd/turingmind-review ] && mv .gsd/turingmind-review .turingmind/reviews-archived-from-gsd; [ -d .gsd/reviews ] && mv .gsd/reviews .turingmind/reviews-old`
      - "No, leave it" → do nothing
      - "Delete the old state" → `rm -rf .gsd/turingmind-review .gsd/reviews`
 
@@ -119,6 +121,11 @@ You are the {{agent_name}} agent. Review this diff per your subagent instruction
 Use Read if you need full file context. Return ONE JSON object per templates/agent-output-schema.md. JSON only.
 ```
 
+**Substitution bindings:**
+- `{{agent_name}}` — name of the agent receiving this prompt (e.g. `bugs`, `security`).
+- `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed.
+- `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed.
+
 `<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence differs.
 
 ALL Task calls in ONE assistant message → parallel execution.
@@ -131,6 +138,8 @@ ALL Task calls in ONE assistant message → parallel execution.
    - Canonical content matches `finding.details.current_code` first line → `status: "persisted"`, +15 score, include in reported findings.
    - File:line exists but content changed → `status: "needs-recheck"`, add hint to relevant agent's prompt: `<recheck>Previously flagged {{title}} at {{file}}:{{line}}. Verify it still applies.</recheck>`. Include in this pass's dispatch.
 
+   **Note:** Persisted findings still flow through steps 2 (verify in_diff / silenced_marker_nearby), 3 (scoring), and 5 (filter) below. The +15 persistence modifier stacks with the rest of the score formula; persisted findings can still drop below threshold or get silenced.
+
 1. Parse each agent response as JSON. Malformed → log "Agent {name} returned unparseable: {first 200 chars}" and skip.
 
 2. For each finding, verify orchestrator-side:
@@ -139,7 +148,7 @@ ALL Task calls in ONE assistant message → parallel execution.
 
 3. Apply scoring per `templates/scoring.md`.
 
-4. Cross-agent dedup: group by `(file, line ±2)` AND title substring match. Keep highest-scored, set `attribution = [agents]`, +10 cross-confirmation bonus.
+4. Cross-agent dedup: group by `(file, line ±2)` AND title substring match. Keep highest-scored, set `attribution = [agents]`. The +10 cross-confirmation bonus is then applied per `templates/scoring.md` (apply once during scoring; not added separately here).
 
 5. Filter `orchestrator_score < 80`. Track filtered counts by reason (silenced, intent-doc-match, sub-threshold).
 
