@@ -40,89 +40,39 @@ Check for security vulnerabilities. Focus on issues in the changed code.
 - Insecure deserialization
 - Mass assignment vulnerabilities
 
-## Output Format
+## Output
 
-For each issue, return structured output with **diff-style fix**:
+Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` values: `injection`, `xss`, `secrets`, `auth`, `data-exposure`, `path-traversal`, `ssrf`, `deserialization`, `mass-assignment`. Always populate `cwe`.
 
-```markdown
-### 🔐 {{issue_title}}
+If no findings: `{"agent":"security","findings":[],"agent_notes":[]}`. JSON only.
 
-**Location:** `{{file}}:{{line}}`
-**Severity:** {{critical|high|medium}} | **CWE:** {{cwe_id}}
-**Confidence:** {{score}}/100
+## Example
 
-**Vulnerability:**
-{{description}}
-
-**Current Code:**
-```{{language}}
-{{vulnerable_code}}
+```json
+{
+  "agent": "security",
+  "findings": [
+    {
+      "id": "sec-001",
+      "file": "src/api/auth.ts",
+      "line": 23,
+      "title": "SQL injection via string interpolation",
+      "category": "injection",
+      "cwe": "CWE-89",
+      "severity": "critical",
+      "agent_confidence": 98,
+      "in_diff": true,
+      "intent_doc_match": null,
+      "problem": "User input directly interpolated into SQL query.",
+      "current_code": "const query = `SELECT * FROM users WHERE email = '${email}'`;",
+      "suggested_fix": {
+        "old": "const query = `SELECT * FROM users WHERE email = '${email}'`;\nconst result = await db.query(query);",
+        "new": "const query = 'SELECT * FROM users WHERE email = $1';\nconst result = await db.query(query, [email]);"
+      },
+      "why_it_matters": "Attacker input like `'; DROP TABLE users; --` would execute. Parameterized queries treat input as data.",
+      "silenced_marker_nearby": false
+    }
+  ],
+  "agent_notes": []
+}
 ```
-
-**Suggested Fix:**
-```diff
-- {{vulnerable_line}}
-+ {{secure_line}}
-```
-
-**Why this matters:**
-{{impact_explanation}}
-```
-
-## Example Outputs
-
-### 🔐 SQL Injection vulnerability
-
-**Location:** `src/api/auth.ts:23`
-**Severity:** critical | **CWE:** CWE-89
-**Confidence:** 98/100
-
-**Vulnerability:**
-User input directly interpolated into SQL query allows attacker to execute arbitrary SQL.
-
-**Current Code:**
-```typescript
-const query = `SELECT * FROM users WHERE email = '${email}'`;
-const result = await db.query(query);
-```
-
-**Suggested Fix:**
-```diff
-- const query = `SELECT * FROM users WHERE email = '${email}'`;
-- const result = await db.query(query);
-+ const query = `SELECT * FROM users WHERE email = $1`;
-+ const result = await db.query(query, [email]);
-```
-
-**Why this matters:**
-Attacker can input `'; DROP TABLE users; --` to delete your database. Parameterized queries prevent this by treating input as data, not code.
-
----
-
-### 🔐 Hardcoded API key
-
-**Location:** `src/services/payment.ts:12`
-**Severity:** critical | **CWE:** CWE-798
-**Confidence:** 99/100
-
-**Vulnerability:**
-API key committed to source code. Anyone with repo access can use your Stripe account.
-
-**Current Code:**
-```typescript
-const stripe = new Stripe('sk_live_abc123xyz');
-```
-
-**Suggested Fix:**
-```diff
-- const stripe = new Stripe('sk_live_abc123xyz');
-+ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-```
-
-**Also required:**
-1. Add to `.env`: `STRIPE_SECRET_KEY=sk_live_abc123xyz`
-2. Ensure `.env` is in `.gitignore`
-3. Rotate the exposed key immediately
-
-**Why this matters:**
-Exposed production keys can lead to unauthorized charges, data theft, and account compromise.

@@ -31,9 +31,7 @@ Language-specific checks for Python.
 
 ## Output
 
-For each issue, return:
-- `file`: File path
-- `line`: Line number
-- `issue`: Brief description
-- `fix`: Suggested fix with code
+Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` values: `type-hints`, `mutable-default`, `bare-except`, `is-vs-eq`, `context-manager`, `perf`.
+
+No findings → `{"agent":"language-python","findings":[],"agent_notes":[]}`. JSON only.
 

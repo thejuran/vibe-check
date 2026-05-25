@@ -24,10 +24,9 @@ Check adherence to project guidelines defined in CLAUDE.md files.
 
 ## Output
 
-For each violation, return:
-- `file`: File path
-- `line`: Line number
-- `rule`: The CLAUDE.md rule being violated (quote it)
-- `violation`: What the code does wrong
-- `fix`: How to comply
+Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` value `rule-violation`. Quote the exact rule text in `problem` (e.g. "CLAUDE.md says 'never use bare except:'").
+
+Set `intent_doc_match` if PLAN.md/SPEC.md explicitly covers the violation.
+
+No findings → `{"agent":"compliance","findings":[],"agent_notes":[]}`. JSON only.
 

@@ -3,101 +3,206 @@ allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write,
 description: Quick code review for uncommitted local changes
 ---
 
-Quick code review for uncommitted changes. Fast, focused on critical issues.
+Quick code review for the current diff. Parallel per-domain subagents return JSON findings; orchestrator merges, scores, filters, renders.
 
-## Step 1: Gather Context (Haiku Agent)
+## Phase 0 — Resolve scope
 
-Detect what needs to be reviewed:
+Parse `$ARGUMENTS`:
 
+1. **No args (default)**: review all uncommitted changes. Assemble diff via:
+   ```bash
+   git diff HEAD
+   git diff --staged
+   git status --short
+   ```
+   If empty: print "No changes to review." and stop.
+
+2. **PR mode** — `$ARGUMENTS` matches `^[0-9]+$` or contains `/pull/`:
+   ```bash
+   gh pr diff <ref> --patch
+   gh pr view <ref> --json title,body,author,headRefName
+   ```
+   Stateless. No intent context.
+
+3. **Range mode** — `$ARGUMENTS` matches `<ref>..<ref>`:
+   ```bash
+   git diff <range>
+   ```
+   Stateless.
+
+4. **GSD phase mode** — `$ARGUMENTS` is a phase identifier (a directory name under `.planning/phases/` like `02-code-review` or just `02`). Resolve:
+   - If exact dir exists at `.planning/phases/<arg>/`, use it.
+   - Else if a unique dir starts with `<arg>-`, use it (e.g. `02` → `02-code-review`).
+   - Else error: "Phase '<arg>' not found under .planning/phases/. Available: <ls>".
+
+   Compute phase commit range:
+   ```bash
+   PHASE_DIR=".planning/phases/<resolved-name>"
+   PHASE_START=$(git log --reverse --format=%H -- "$PHASE_DIR" | head -1)
+   ```
+   Diff = `$PHASE_START..HEAD` + staged + unstaged.
+
+   Set `$PHASE_ID = <resolved-name>` for state and intent context.
+
+## Phase 0.5 — Multi-pass state check
+
+State file path:
+- GSD phase mode: `.turingmind/state/<$PHASE_ID>.json`
+- Other modes (no args / PR / range): `.turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json`
+
+1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`, skip to Phase 1.
+
+2. If present: parse it.
+   - `$PASS_NUMBER = state.passes[-1].pass_number + 1`
+   - `$LAST_REVIEWED_SHA = state.passes[-1].head_sha`
+   - `$CARRYFORWARD = state.passes[-1].findings` filtered to status in `["new", "persisted", "needs-recheck"]`
+
+3. Narrow diff to incremental: `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged.
+
+4. If incremental diff empty AND `$CARRYFORWARD` empty: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop.
+
+5. If incremental diff empty but `$CARRYFORWARD` non-empty: skip agent dispatch, proceed directly to Phase 3 carry-forward check.
+
+## Phase 0.7 — First-run setup
+
+If `.turingmind/` does NOT exist in this repo, this is first use:
+
+1. Create dirs:
+   ```bash
+   mkdir -p .turingmind/state .turingmind/reviews
+   ```
+
+2. Check `.gitignore` for `.turingmind/` entry. If absent, print one-line suggestion to user (do NOT auto-edit):
+   ```
+   ℹ Tip: add `.turingmind/` to your .gitignore (working state, not artifact). The REVIEW.md from --finalize is the only thing meant to be committed.
+   ```
+
+3. Migration check: if `.gsd/turingmind-review/` or `.gsd/reviews/` exists, surface ONE AskUserQuestion:
+
+   Question: "Found old TuringMind state under `.gsd/`. Move to `.turingmind/`?"
+   Options:
+     - "Yes, move it" → `mv .gsd/turingmind-review .turingmind/reviews-archived-from-gsd && mv .gsd/reviews .turingmind/reviews-old`
+     - "No, leave it" → do nothing
+     - "Delete the old state" → `rm -rf .gsd/turingmind-review .gsd/reviews`
+
+## Phase 1 — Triage
+
+(Triage agent lands in M5. For M3, derive inline from the diff:
+- `languages`: distinct file extensions
+- `total_lines`: from `git diff --stat`
+- `files_to_skip`: hardcoded list — `*.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`, `*.snap`, `*.min.js`, `*.map`. Filter from dispatch.)
+
+## Phase 2 — Dispatch agents in parallel
+
+Single assistant turn, parallel `Task` calls:
+
+| Always | Condition | Agent |
+|--------|-----------|-------|
+| ✓ | — | `bugs` |
+| ✓ | — | `security` |
+|  | `CLAUDE.md` or `AGENTS.md` in repo root or changed dir | `compliance` |
+|  | `.ts/.tsx/.js/.jsx/.mjs/.cjs` in diff | `language-typescript` |
+|  | `.py` in diff | `language-python` |
+
+Per-agent prompt template:
 ```
-1. Run `git status` and `git diff` / `git diff --staged`
-2. If no changes → inform user and stop
-3. Extract:
-   - Files changed (list)
-   - Languages detected (from extensions)
-   - Line counts (additions/deletions)
-   - Has CLAUDE.md? (root or in changed directories)
+You are the {{agent_name}} agent. Review this diff per your subagent instructions.
+
+<diff>
+{{git_diff_output}}
+</diff>
+
+<changed-files>
+{{filtered_file_list}}
+</changed-files>
+
+Use Read if you need full file context. Return ONE JSON object per templates/agent-output-schema.md. JSON only.
 ```
 
-## Step 2: Load Agents (Progressive)
+`<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence differs.
 
-Only load agents relevant to detected context:
+ALL Task calls in ONE assistant message → parallel execution.
 
-| Condition | Load Agent |
-|-----------|------------|
-| Always | `@agents/bugs.md` |
-| Always | `@agents/security.md` |
-| CLAUDE.md exists | `@agents/compliance.md` |
-| `.ts/.tsx/.js/.jsx` files | `@agents/language-typescript.md` |
-| `.py` files | `@agents/language-python.md` |
+## Phase 3 — Collect, verify, merge, score
 
-See `@agents/index.md` for full routing logic.
+0. **Carry-forward check (multi-pass only).** For each finding in `$CARRYFORWARD`:
+   - Compute canonical line content at `finding.file:finding.line` in HEAD (strip trailing whitespace).
+   - File/line gone → `status: "fixed-since-last"`, exclude from this pass's reported findings.
+   - Canonical content matches `finding.details.current_code` first line → `status: "persisted"`, +15 score, include in reported findings.
+   - File:line exists but content changed → `status: "needs-recheck"`, add hint to relevant agent's prompt: `<recheck>Previously flagged {{title}} at {{file}}:{{line}}. Verify it still applies.</recheck>`. Include in this pass's dispatch.
 
-## Step 3: Run Review (Parallel Sonnet Agents)
+1. Parse each agent response as JSON. Malformed → log "Agent {name} returned unparseable: {first 200 chars}" and skip.
 
-Launch loaded agents in parallel. Each agent:
-1. Reads full file context for changed files
-2. Analyzes only the diff (not pre-existing code)
-3. Returns structured issues with **diff-style fixes**
+2. For each finding, verify orchestrator-side:
+   - `in_diff`: is `line` in changed-line ranges? Override agent claim if wrong.
+   - `silenced_marker_nearby`: grep for `eslint-disable`, `# noqa`, `// nolint`, `@SuppressWarnings`, `#[allow(` within ±2 lines.
 
-Output format per agent (see `@agents/bugs.md` for example):
-```markdown
-### 🐛 {{issue_title}}
-**Location:** `{{file}}:{{line}}`
-**Confidence:** {{score}}/100
+3. Apply scoring per `templates/scoring.md`.
 
-**Problem:** {{reason}}
+4. Cross-agent dedup: group by `(file, line ±2)` AND title substring match. Keep highest-scored, set `attribution = [agents]`, +10 cross-confirmation bonus.
 
-**Suggested Fix:**
-```diff
-- {{old_code}}
-+ {{new_code}}
-```
-```
+5. Filter `orchestrator_score < 80`. Track filtered counts by reason (silenced, intent-doc-match, sub-threshold).
 
-## Step 4: Score & Filter (Haiku Agents)
+## Phase 4 — Render results
 
-For each issue, score confidence 0-100:
-
-| Factor | Points |
-|--------|--------|
-| In the diff (new code) | +20 |
-| Would cause failure | +30 |
-| In CLAUDE.md rules | +20 |
-| Senior engineer would flag | +20 |
-| Has ignore comment | -50 |
-
-Apply filters from `@templates/false-positive-rules.md`:
-- Filter issues with score < 80
-- Track filtered count by reason
-
-## Step 5: Present Results
-
-Format output using `@templates/output-format.md`:
+Per `templates/output-format.md`:
 
 ```
 ## Code Review
 
-**Summary:** Reviewed X files, Y lines changed
+**Summary:** Reviewed {{N}} files, {{L}} lines changed
 
 | Found | Reported | Filtered |
 |-------|----------|----------|
-| total | ≥80 score | <80 score |
-
-### Critical (95-100) 🔴
-[Issues with diff-style fixes]
-
-### Warning (80-94) 🟠  
-[Issues with diff-style fixes]
-
-### Filtered Issues 🔇
-[Count by reason, expandable details]
+| {{total}} | {{reported}} | {{filtered}} |
 ```
 
-## Output Rules
+Then Critical and Warning sections. Always include "Filtered Issues 🔇" summary.
 
-- **Always** include filtered issues summary (builds trust)
-- **Always** use diff-style fixes (actionable)
-- **Never** report pre-existing issues (not in diff)
-- **Never** report linter territory (ESLint will catch)
-- If no issues found, confirm code looks good for commit
+If zero findings after filtering:
+```
+✅ No significant issues found.
+
+### Filtered Issues 🔇
+[counts and reasons]
+```
+
+## Phase 4.5 — Persist pass state
+
+Compute `stable_hash = sha256(file + "\n" + canonical_line_content + "\n" + title)`.
+
+Build pass entry:
+
+````json
+{
+  "pass_number": $PASS_NUMBER,
+  "head_sha": "<current HEAD>",
+  "timestamp": "<ISO 8601 UTC>",
+  "mode": "review",
+  "diff_range": "<resolved range>",
+  "agents_run": [<dispatched agents>],
+  "findings": [...]
+}
+````
+
+Append to `state.passes`, write to state file. Create parent dirs as needed (`.turingmind/state/`).
+
+Optional: snapshot this run for debugging:
+```bash
+RUN_DIR=".turingmind/reviews/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$RUN_DIR"
+# Write: diff.patch, agents-dispatched.txt, findings.json
+```
+
+Then prune: keep last 10 dirs under `.turingmind/reviews/`, delete older:
+```bash
+ls -t .turingmind/reviews/ 2>/dev/null | tail -n +11 | xargs -I {} rm -rf ".turingmind/reviews/{}"
+```
+
+## Output rules
+
+- Always include filtered-issues summary
+- Always show per-agent attribution
+- Diff-style fixes only — never prose
+- Never report pre-existing (orchestrator verifies in_diff)
+- Mid-loop /review prints findings, NEVER writes REVIEW.md — that's --finalize's job

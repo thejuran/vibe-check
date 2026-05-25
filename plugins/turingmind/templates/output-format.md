@@ -19,36 +19,41 @@ Use this template for presenting review results. Always show what was filtered t
 
 ---
 
-### Critical (95-100) 🔴
-Must fix before committing:
+### Critical 🔴
+Must fix before commit:
 
-1. **{{file}}:{{line}}** - {{issue}}
+| Agent(s) | File:Line | Issue | Conf | Status |
+|----------|-----------|-------|------|--------|
+| {{agents_csv}} | `{{file}}:{{line}}` | {{title}} | {{score}} | {{status}} |
 
-   {{reason}}
-   
-   ```diff
-   - {{old_code}}
-   + {{new_code}}
-   ```
+After the table, for each Critical finding render:
 
-### Warning (80-94) 🟠
+**`{{file}}:{{line}}` — {{title}}** (found by: {{agents_csv}})
+
+{{problem}}
+
+```diff
+- {{suggested_fix.old}}
++ {{suggested_fix.new}}
+```
+
+Why: {{why_it_matters}}
+
+---
+
+### Warning 🟠
 Should fix:
 
-1. **{{file}}:{{line}}** - {{issue}}
+[same table + per-finding format as Critical]
 
-   {{reason}}
-   
-   ```diff
-   - {{old_code}}
-   + {{new_code}}
-   ```
+### Medium 🟡 *(deep review only)*
+Consider fixing or acknowledge in `--finalize`:
 
-### Medium (70-79) 🟡 *(deep review only)*
-Consider fixing:
+[same table + per-finding format as Critical]
 
-1. **{{file}}:{{line}}** - {{issue}}
+**Status values:** `NEW`, `PERSISTED (pass N)`, `FIXED-SINCE-LAST`, `NEEDS-RECHECK`. Single-pass mode: always `NEW`.
 
-   {{reason}}
+**`{{agents_csv}}`:** comma-separated agents that flagged it (after dedup).
 
 ---
 

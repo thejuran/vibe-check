@@ -36,9 +36,13 @@ Analyze architectural implications of changes. Requires related file context.
 
 ## Output
 
-Return observations (not necessarily issues):
-- `type`: pattern | abstraction | duplication | dependency | separation
-- `observation`: What was noticed
-- `severity`: issue | suggestion | note
-- `recommendation`: What to consider (if applicable)
+Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` values: `pattern-consistency`, `abstraction`, `duplication`, `dependency`, `separation-of-concerns`.
+
+This agent uses `agent_notes` heavily — surface observations that aren't findings (e.g. "consistent with existing pattern in src/services/").
+
+If `<intent-context>` block was provided, attempt `intent_doc_match` for every finding. Quote the doc section verbatim. Only assign confidence >0.9 when the doc explicitly authorizes the exact pattern flagged.
+
+No findings → `{"agent":"architecture","findings":[],"agent_notes":[...]}` — notes still useful.
+
+JSON only.
 

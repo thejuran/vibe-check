@@ -33,9 +33,7 @@ Language-specific checks for TypeScript and JavaScript.
 
 ## Output
 
-For each issue, return:
-- `file`: File path
-- `line`: Line number
-- `issue`: Brief description
-- `fix`: Suggested fix with code
+Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` values: `type-safety`, `async-discipline`, `react-hook`, `equality`, `mutable-default`, `dep-array`, `perf`.
+
+No findings → `{"agent":"language-typescript","findings":[],"agent_notes":[]}`. JSON only.
 

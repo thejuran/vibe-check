@@ -16,58 +16,39 @@ Focus on significant bugs that would cause runtime failures. Avoid nitpicks.
 - **Infinite Loops**: Missing base cases, unreachable break conditions
 - **State Mutation**: Unexpected side effects, mutating shared state
 
-## Output Format
+## Output
 
-For each issue, return structured output with **diff-style fix**:
+Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` values: `null-access`, `off-by-one`, `race-condition`, `resource-leak`, `error-handling`, `infinite-loop`, `state-mutation`.
 
-```markdown
-### 🐛 {{issue_title}}
+If no findings: `{"agent":"bugs","findings":[],"agent_notes":[]}`. JSON only.
 
-**Location:** `{{file}}:{{line}}`
-**Confidence:** {{score}}/100
+## Example
 
-**Problem:**
-{{reason}}
-
-**Current Code:**
-```{{language}}
-{{problematic_code}}
+```json
+{
+  "agent": "bugs",
+  "findings": [
+    {
+      "id": "bugs-001",
+      "file": "src/api/users.ts",
+      "line": 45,
+      "title": "Null reference on user object",
+      "category": "null-access",
+      "cwe": null,
+      "severity": "high",
+      "agent_confidence": 95,
+      "in_diff": true,
+      "intent_doc_match": null,
+      "problem": "Accessing user.email without null check. Will throw if findUser returns null.",
+      "current_code": "const user = await findUser(id);\nsendEmail(user.email);",
+      "suggested_fix": {
+        "old": "const user = await findUser(id);\nsendEmail(user.email);",
+        "new": "const user = await findUser(id);\nif (!user) throw new NotFoundError(`User ${id} not found`);\nsendEmail(user.email);"
+      },
+      "why_it_matters": "Early return with explicit error prevents runtime crash.",
+      "silenced_marker_nearby": false
+    }
+  ],
+  "agent_notes": []
+}
 ```
-
-**Suggested Fix:**
-```diff
-- {{old_line}}
-+ {{new_line}}
-```
-
-**Why this fix works:**
-{{explanation}}
-```
-
-## Example Output
-
-### 🐛 Null reference on user object
-
-**Location:** `src/api/users.ts:45`
-**Confidence:** 95/100
-
-**Problem:**
-Accessing `user.email` without null check. Will throw if `findUser` returns null.
-
-**Current Code:**
-```typescript
-const user = await findUser(id);
-sendEmail(user.email);  // 💥 Throws if user is null
-```
-
-**Suggested Fix:**
-```diff
-  const user = await findUser(id);
-+ if (!user) {
-+   throw new NotFoundError(`User ${id} not found`);
-+ }
-  sendEmail(user.email);
-```
-
-**Why this fix works:**
-Early return with explicit error prevents runtime crash and provides meaningful error message.
