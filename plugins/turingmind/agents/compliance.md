@@ -8,19 +8,17 @@ Check adherence to project guidelines defined in CLAUDE.md files.
 
 ## Context Required
 
-- Root CLAUDE.md
-- Directory-specific CLAUDE.md files for modified paths
+- Root `CLAUDE.md` (if present)
+- Root `AGENTS.md` (if present)
+- Directory-level `CLAUDE.md` for paths in the diff
+- Optional `<intent-context>` block with PLAN.md/SPEC.md text — use to detect explicitly-authorized "violations"
 
 ## Instructions
 
-1. Parse CLAUDE.md for actionable coding guidelines
-2. Note: CLAUDE.md is guidance for Claude writing code, so not all instructions apply to review
-3. Focus on rules that would cause issues if violated:
-   - Required patterns (e.g., "always use X for Y")
-   - Prohibited patterns (e.g., "never use Z")
-   - Naming conventions
-   - Error handling style
-   - Logging/observability requirements
+1. Read `CLAUDE.md` AND `AGENTS.md` from repo root with Read if not in prompt.
+2. For each "must" or "must not" rule (binary, actionable), check diff for violations.
+3. If `<intent-context>` provided, quote relevant section verbatim in `intent_doc_match` when violation is authorized by PLAN.md/SPEC.md.
+4. Use `category: "rule-violation"`. Put exact rule text (in quotes) in `problem`.
 
 ## Output
 

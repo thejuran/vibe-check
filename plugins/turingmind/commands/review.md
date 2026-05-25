@@ -117,6 +117,30 @@ Parse JSON. Use:
 - `size_tier` → large-diff auto-downgrade in Phase 2
 - `intent_docs_found` → Phase 1.5 (M6)
 
+## Phase 1.5 — Load intent context
+
+Only runs if `$PHASE_ID` is set (GSD phase mode from Phase 0) and triage's `intent_docs_found` includes any of `PLAN.md`, `SPEC.md`, `RESEARCH.md`.
+
+1. Read each from `.planning/phases/$PHASE_ID/<doc>`. Cap each at 3000 chars (truncate with `[…truncated]`).
+
+2. Assemble `<intent-context>`:
+   ````
+   <intent-context phase="{{$PHASE_ID}}">
+     <doc name="PLAN.md">
+       {{plan_text_truncated}}
+     </doc>
+     <doc name="SPEC.md">
+       {{spec_text_truncated}}
+     </doc>
+   </intent-context>
+   ````
+
+3. Inject into `architecture` and `compliance` prompts ONLY (Phase 2). NOT bugs/security/language — they don't benefit; tokens aren't free.
+
+Skip Phase 1.5 entirely if not in GSD phase mode.
+
+This is a READ-ONLY operation. The tool NEVER writes to `.planning/`.
+
 ## Phase 2 — Dispatch agents in parallel
 
 Single assistant turn, parallel `Task` calls:
@@ -162,6 +186,30 @@ Use Read if you need full file context. Return ONE JSON object per templates/age
 - `{{agent_name}}` — name of the agent receiving this prompt (e.g. `bugs`, `security`).
 - `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed.
 - `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed.
+
+### Intent context injection
+
+For `architecture` and `compliance` ONLY, prepend `<intent-context>` block (from Phase 1.5) BEFORE the `<diff>` block. Other agents: omit.
+
+Updated prompt for architecture and compliance:
+
+````
+You are the {{agent_name}} agent. Review per your subagent instructions.
+
+{{intent_context_block_if_present}}
+
+<diff>
+{{git_diff_output}}
+</diff>
+
+<changed-files>
+{{filtered_file_list}}
+</changed-files>
+
+If `<intent-context>` present, attempt `intent_doc_match` for findings the docs cover. Be conservative with confidence.
+
+Return ONE JSON per templates/agent-output-schema.md. JSON only.
+````
 
 `<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence differs.
 
