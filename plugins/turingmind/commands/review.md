@@ -3,6 +3,54 @@ allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write,
 description: Quick code review for uncommitted local changes
 ---
 
+## Finalize mode
+
+If `$ARGUMENTS` contains `--finalize`:
+- Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents.
+- If no state file: error "No prior review passes. Run `/review` first."
+- Compute current state:
+  - `outstanding_cw` = last pass's findings with band ∈ {critical, warning} AND status ≠ fixed-since-last
+  - `unacknowledged_medium` = last pass's findings with band == medium AND no entry in state's `medium_acknowledgments`
+- If `outstanding_cw` non-empty:
+  - Print: "Cannot finalize — {{N}} Critical/Warning findings remain:"
+  - List each: `{{file}}:{{line}} — {{title}}`
+  - Tell user: "Fix these, re-run `/review <phase>` to verify, then `/review <phase> --finalize`."
+  - Stop. No writes.
+- If `unacknowledged_medium` non-empty, enter acknowledgment loop. For each:
+  - AskUserQuestion: "{{title}} at {{file}}:{{line}} — action?"
+    - "Will fix" → mark for fixing (treats as outstanding, blocks)
+    - "Dismiss" → follow-up AskUserQuestion for reason, mark acknowledged
+    - "Look again" → display `problem` + `current_code` + `suggested_fix`, then re-ask
+  - After loop:
+    - Any "Will fix" → block finalize, tell user to fix and re-run.
+    - All dismissed/acknowledged → write `medium_acknowledgments` to state, proceed.
+- Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
+- Archive state: `mv .turingmind/state/<id>.json .turingmind/state/<id>.json.archived-$(date +%Y-%m-%d)`.
+- Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
+
+If `--finalize` NOT in `$ARGUMENTS`: proceed with normal Phase 0 → 4.5 flow.
+
+### Writing REVIEW.md
+
+Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`. Fill from state:
+
+- `{{scope_label}}`: if GSD phase mode, "Phase {{$PHASE_ID}}"; else "<repo>/<branch>"
+- `{{passes}}`: length of `state.passes`
+- `{{deep_count}}` / `{{quick_count}}`: count passes by `mode`
+- `{{commits}}`: `git rev-list --count $baseline..HEAD`
+- `{{loc}}`: sum of additions+deletions across all passes
+- Coverage table: aggregate `agents_run` and `findings` across passes
+- "Critical issues resolved": findings with band=critical, status=fixed-since-last across all passes. Best-effort fix-commit lookup: `git log -L <line>,<line>:<file> | head -20` to find a commit that touched that line.
+- "Medium findings — dismissed": from `state.passes[-1].medium_acknowledgments` with decision=dismiss
+
+If a prior `.turingmind/REVIEW.md` exists for a DIFFERENT phase, archive it first:
+````bash
+PRIOR_PHASE=$(grep -oE 'Phase [^ ]+' .turingmind/REVIEW.md | head -1 | cut -d' ' -f2)
+if [ -n "$PRIOR_PHASE" ] && [ "$PRIOR_PHASE" != "$PHASE_ID" ]; then
+  mv .turingmind/REVIEW.md ".turingmind/REVIEW-${PRIOR_PHASE}-$(date +%Y-%m-%d).md"
+fi
+````
+
 Quick code review for the current diff. Parallel per-domain subagents return JSON findings; orchestrator merges, scores, filters, renders.
 
 ## Phase 0 — Resolve scope
