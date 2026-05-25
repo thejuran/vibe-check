@@ -14,16 +14,16 @@ If `$ARGUMENTS` contains `--finalize`:
 - If `outstanding_cw` non-empty:
   - Print: "Cannot finalize — {{N}} Critical/Warning findings remain:"
   - List each: `{{file}}:{{line}} — {{title}}`
-  - Tell user: "Fix these, re-run `/review <phase>` to verify, then `/review <phase> --finalize`."
-  - Stop. No writes.
+  - **Route into Phase 5 Step A** with the outstanding findings as the candidate set, so the user can apply fixes (auto / selected / by hand) and then choose at Step C whether to rerun or abandon. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation finds `outstanding_cw` empty.
+  - If Phase 5 is unavailable (e.g. `$TURINGMIND_NONINTERACTIVE` is set, or PR/range mode), fall back to the legacy behavior: tell user "Fix these, re-run with `--finalize`." and stop.
 - If `unacknowledged_medium` non-empty, enter acknowledgment loop. For each:
   - AskUserQuestion: "{{title}} at {{file}}:{{line}} — action?"
-    - "Will fix" → mark for fixing (treats as outstanding, blocks)
-    - "Dismiss" → follow-up AskUserQuestion for reason, mark acknowledged
-    - "Look again" → display `problem` + `current_code` + `suggested_fix`, then re-ask
+    - "Will fix" → defer to Phase 5: collect all "Will fix" Medium findings, then route into Phase 5 Step A with that set as the candidates. After Phase 5's Step C, the user picks rerun (loop continues) or abandon (state preserved, no REVIEW.md).
+    - "Dismiss" → follow-up AskUserQuestion for reason, write `medium_acknowledgments[stable_hash] = {decision: "dismiss", reason: "<text>", at_pass: N}` to state root.
+    - "Look again" → display `problem` + `current_code` + `suggested_fix`, then re-ask.
   - After loop:
-    - Any "Will fix" → block finalize, tell user to fix and re-run.
-    - All dismissed/acknowledged → write `medium_acknowledgments` to state, proceed.
+    - Any "Will fix" → routed to Phase 5 above; finalize does NOT proceed this invocation.
+    - All dismissed/acknowledged → `medium_acknowledgments` written; proceed.
 - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
 - Archive state: `mv .turingmind/state/<id>.json .turingmind/state/<id>.json.archived-$(date +%Y-%m-%d)`.
 - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
@@ -389,6 +389,80 @@ Then prune: keep last 10 dirs under `.turingmind/reviews/`, delete older:
 ls -t .turingmind/reviews/ 2>/dev/null | tail -n +11 | xargs -I {} rm -rf ".turingmind/reviews/{}"
 ```
 
+## Phase 5 — Interactive fix loop
+
+After Phase 4 renders the report and Phase 4.5 persists state, run an interactive loop so the user can iterate without re-typing the slash command. The loop terminates on "close out" (routes to `--finalize`) or "abandon" (stops, leaves state for later resume).
+
+### Skip conditions
+
+Phase 5 runs ONLY when ALL of these are true:
+
+- `$ARGUMENTS` does NOT contain `--finalize` (finalize has its own dedicated flow above)
+- At least one finding was reported in Phase 4 (no findings → nothing to fix; print "✅ No issues to fix. Re-run when you've changed code, or run with `--finalize` to ship." and stop)
+- Scope mode is `default` (uncommitted) or `GSD phase mode` — stateful modes where rerun-with-carry-forward makes sense. **Skip Phase 5 entirely in PR mode and range mode** (both are stateless — print a one-liner pointing the user at `--finalize` if they want a REVIEW.md artifact, then stop)
+- The `$TURINGMIND_NONINTERACTIVE` env var is NOT set to a truthy value (CI / scripted runs disable the loop; print a one-line summary instead)
+
+If any skip condition fires, print the contextual one-liner and stop normally.
+
+### Step A — Decide how fixes will be applied
+
+AskUserQuestion (one question, 4 options — "auto-apply all" listed first per the user's stated workflow preference):
+
+> **Question:** "How do you want to handle the {{reported_count}} finding(s) above?"
+> **Options:**
+> 1. **Apply all auto-fixable findings (Recommended)** — Tool dispatches a fix-implementer subagent that applies every finding's `suggested_fix.old/new` diff and commits each fix atomically with message `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`. Findings without a complete `suggested_fix` are skipped and reported.
+> 2. **Apply selected findings only** — Follow-up AskUserQuestion (multiSelect=true) lets the user pick a subset. Subagent applies only those.
+> 3. **I'll apply them myself** — Tool pauses. User edits + commits in their own session/tools, then comes back to Step C.
+> 4. **Skip fixes this pass** — No fixes applied. Skip directly to Step C (typical when the user wants to acknowledge-and-move-on without changes).
+
+### Step B — Apply fixes (if Step A chose 1 or 2)
+
+Dispatch a single `Task` call to a `general-purpose` subagent with this prompt template:
+
+```
+You are the fix-implementer for the turingmind-code-review tool, working in {{repo_root}}.
+
+The following findings were reported in pass {{$PASS_NUMBER}} of a code review. For each, apply the `suggested_fix.old` → `suggested_fix.new` transformation EXACTLY using the Edit tool (find `old` substring, replace with `new`). Then commit each fix atomically with the message: `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`.
+
+If a finding's `suggested_fix.old` does not appear verbatim in the file (drift since the review), skip that finding and report it as 'drifted' — do NOT attempt to interpret or repair the intent.
+
+If a finding has no `suggested_fix.old` and `suggested_fix.new` populated, skip and report 'no-fix-available'.
+
+Do NOT skip hooks (--no-verify). If a pre-commit hook fails, fix the hook complaint and create a NEW commit (do not amend).
+
+<findings>
+{{JSON array of selected findings from Phase 3 — each has file/line/title/suggested_fix/why_it_matters}}
+</findings>
+
+Report back as JSON:
+{
+  "applied": [{"id": "<finding-id>", "commit_sha": "<sha>"}],
+  "drifted": [{"id": "<finding-id>", "reason": "..."}],
+  "no_fix": [{"id": "<finding-id>"}],
+  "errored": [{"id": "<finding-id>", "error": "..."}]
+}
+```
+
+Render the implementer's report verbatim under a `### Fixes applied` heading. Append applied commit SHAs to `state.passes[-1].fixes_applied[]` so Phase 0.5 carry-forward sees them on next pass.
+
+### Step C — Decide what to do next
+
+Regardless of Step A's choice, end the iteration with AskUserQuestion:
+
+> **Question:** "Pass {{$PASS_NUMBER}} loop — what's next?"
+> **Options:**
+> 1. **Rerun review on the new diff (Recommended if any fixes were applied)** — Re-enter the orchestrator at Phase 0 with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0.5 detects new commits since last pass's `head_sha`; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; M7 multi-pass summary shows the diff.
+> 2. **Close out and document** — Re-enter the orchestrator with `$ARGUMENTS = "${original_args} --finalize"`. The Finalize mode section at the top of this file takes over: blocks on outstanding C/W (loop returns to Step A so user can address them), AskUserQuestion loop on unacknowledged Medium, writes `.turingmind/REVIEW.md`, archives state.
+> 3. **Abandon for now** — Stop. State file remains at `.turingmind/state/<id>.json` for resume. Print: "Paused. Resume with `/turingmind-code-review:{{command}} {{original_args}}` or close out later with `--finalize`."
+
+If the user picked option 1, loop back to Phase 0 of the current command (do not re-run Phase 0.7 first-run setup since state exists). If option 2, route to Finalize mode. If option 3, stop.
+
+### Loop termination guarantees
+
+- Loop terminates on user choice (option 2 or 3) or on Finalize mode's natural completion (REVIEW.md written → done).
+- Loop does NOT terminate just because a pass had zero new findings — the skip condition in Phase 5 step "Skip conditions" handles that case by printing the no-findings one-liner once per pass.
+- Loop has no fixed iteration cap — the user controls when to stop. If a runaway scenario seems possible (e.g. fixes keep introducing new findings), tell the user at the start of pass 5+: "ℹ This is pass {{N}}. If findings keep regenerating, consider abandoning and re-scoping."
+
 ## Output rules
 
 - Always include filtered-issues summary
@@ -396,3 +470,4 @@ ls -t .turingmind/reviews/ 2>/dev/null | tail -n +11 | xargs -I {} rm -rf ".turi
 - Diff-style fixes only — never prose
 - Never report pre-existing (orchestrator verifies in_diff)
 - Mid-loop /review prints findings, NEVER writes REVIEW.md — that's --finalize's job
+- Phase 5 fix-loop runs after every non-finalize, non-stateless invocation that has at least one finding

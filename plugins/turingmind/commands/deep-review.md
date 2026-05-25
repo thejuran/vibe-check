@@ -5,7 +5,9 @@ description: Deep comprehensive code review with full context analysis
 
 Comprehensive review with architecture + impact analysis + intent-doc alignment. Use for pre-PR or final-pass review.
 
-Shares Phases 0, 0.5, 0.7, 1, 1.5, 3, 4, 4.5, and finalize with `commands/review.md`. Differences below.
+Shares Phases 0, 0.5, 0.7, 1, 1.5, 3, 4, 4.5, 5 (interactive fix loop), and finalize with `commands/review.md`. Differences below.
+
+Phase 5 is shared verbatim — when the loop's "rerun" option fires, it re-enters this command (`/deep-review`), not `/review`. State carry-forward + finalize work identically.
 
 ## Differences from /review
 
