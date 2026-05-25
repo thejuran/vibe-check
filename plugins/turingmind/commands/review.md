@@ -239,6 +239,26 @@ ALL Task calls in ONE assistant message → parallel execution.
 
 ## Phase 4 — Render results
 
+### Multi-pass status summary (only in pass >1)
+
+If `$PASS_NUMBER > 1`:
+
+Count carry-forward results:
+- `fixed_count` = findings with status `fixed-since-last` in this pass's carry-forward
+- `persisted_count` = findings with status `persisted`
+- `new_count` = brand-new findings this pass
+
+Render before the per-band sections:
+
+````
+**Pass {{$PASS_NUMBER}}** — {{fixed_count}} fixed since last, {{persisted_count}} still present, {{new_count}} new
+
+✅ Fixed since last pass:
+- `{{file}}:{{line}}` — {{title}} (was {{band}} pass {{N}})
+````
+
+Findings marked `persisted` go into the regular per-band tables with `Status: PERSISTED (pass N)` where N is when they first appeared.
+
 Per `templates/output-format.md`:
 
 ```
