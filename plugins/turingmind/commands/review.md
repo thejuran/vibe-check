@@ -237,7 +237,15 @@ This is a READ-ONLY operation. The tool NEVER writes to `.planning/`.
 
 ## Phase 2 — Dispatch agents in parallel
 
-Single assistant turn, parallel `Task` calls:
+**MANDATORY DISPATCH SHAPE: ONE assistant turn that emits N parallel `Task` tool calls — and zero other tool calls in that turn (no Bash, Read, Grep, or preamble Task). N is the number of agents passing the selection table below. Brief text announcing the dispatch (the `✓ Phase 2 — Dispatching N agents` line) is fine because it's text, not a tool call. The whole point of Phase 2 is wall-clock parallelism and prompt-cache reuse on the `<diff>` block; both are lost if dispatches are split into multiple turns or interleaved with other tool calls.**
+
+🚫 **ANTI-PATTERN (observed failure mode):** "Let me dispatch `bugs` first to see what the output shape looks like, then fan out the rest in parallel." — This is sequential, not parallel. If you find yourself reasoning this way, STOP. Dispatch all N agents in one tool-use block immediately.
+
+🚫 **ANTI-PATTERN:** Dispatching agents in two batches (e.g. "always agents" then "conditional agents" as separate turns). Both batches share the same `<diff>` block; both belong in the same turn.
+
+✓ **Correct shape:** your single assistant turn renders as N parallel Task tool calls visible to the user as concurrent execution. The next assistant turn (after all N return) is Phase 3 (collect/verify/merge/score). Nothing else happens between them.
+
+### Selection table
 
 | Always | Condition | Agent |
 |--------|-----------|-------|
@@ -249,6 +257,8 @@ Single assistant turn, parallel `Task` calls:
 |  | any `.go` in diff | `language-go` |
 |  | any `.rs` in diff | `language-rust` |
 |  | triage.frameworks includes "react" | `framework-react` |
+
+Before composing the dispatch block: announce `✓ Phase 2 — Dispatching N agents in parallel: [list]` so the user can see the shape. Then immediately fire all N Task calls in one block. Do NOT use a separate Bash/Read tool call between the announcement and the dispatch — that would split the turn.
 
 ### Model tiering for `/review`
 
@@ -308,9 +318,9 @@ If `<intent-context>` present, attempt `intent_doc_match` for findings the docs 
 Return ONE JSON per templates/agent-output-schema.md. JSON only.
 ````
 
-`<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence differs.
+`<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
 
-ALL Task calls in ONE assistant message → parallel execution.
+**→ Recall the MANDATORY DISPATCH SHAPE at the top of this Phase 2 section: all N Task calls go in ONE assistant turn as a single tool-use block. After they all return, proceed to Phase 3.**
 
 ## Phase 3 — Collect, verify, merge, score
 
