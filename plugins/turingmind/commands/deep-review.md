@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write, Grep, Glob, Task, AskUserQuestion
+allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write, Edit, Grep, Glob, Task, AskUserQuestion
 description: Deep comprehensive code review with full context analysis
 ---
 

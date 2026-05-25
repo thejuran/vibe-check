@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write, Grep, Glob, Task, AskUserQuestion
+allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write, Edit, Grep, Glob, Task, AskUserQuestion
 description: Quick code review for uncommitted local changes
 ---
 
@@ -417,33 +417,45 @@ AskUserQuestion (one question, 4 options — "auto-apply all" listed first per t
 
 ### Step B — Apply fixes (if Step A chose 1 or 2)
 
-Dispatch a single `Task` call to a `general-purpose` subagent with this prompt template:
+**Default: orchestrator applies fixes directly inline** (the orchestrator's `allowed-tools` includes `Edit` and `Bash(git:*)` exactly so this can happen without a Task hop).
+
+For each selected finding, in order:
+
+1. **Pre-flight check.** If the finding has no concrete `suggested_fix.old` or `suggested_fix.new` populated → record `no-fix-available`, skip.
+2. **Drift check.** Read `finding.file`. If `suggested_fix.old` does not appear verbatim in the file (whitespace-exact substring match) → record `drifted` with the file path and the first 80 chars of `suggested_fix.old`, skip. Do NOT attempt to interpret or repair intent — the safer outcome is to surface the drift back to the user.
+3. **Apply.** Use the `Edit` tool with `file_path = finding.file`, `old_string = finding.suggested_fix.old`, `new_string = finding.suggested_fix.new`. If the edit fails (multiple matches, file changed since read, etc.) → record `errored` with the error message, skip.
+4. **Commit.** Run:
+   ```bash
+   git add "<finding.file>"
+   git commit -m "fix(review-pass-<$PASS_NUMBER>): <finding.title>"
+   ```
+   Do NOT use `--no-verify`. If a pre-commit hook fails, fix the complaint and create a NEW commit (don't amend). Capture the resulting commit SHA for reporting.
+
+**Fallback: dispatch a Task subagent for large batches.** If the selected set has more than 8 findings, OR if any finding's `suggested_fix.new` exceeds ~200 lines, OR if multiple findings touch the same file in interleaved ways (apply-order matters), prefer dispatching a single `general-purpose` Task call with this prompt to keep the orchestrator's context lean:
 
 ```
 You are the fix-implementer for the turingmind-code-review tool, working in {{repo_root}}.
 
-The following findings were reported in pass {{$PASS_NUMBER}} of a code review. For each, apply the `suggested_fix.old` → `suggested_fix.new` transformation EXACTLY using the Edit tool (find `old` substring, replace with `new`). Then commit each fix atomically with the message: `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`.
+For each finding below, apply the `suggested_fix.old` → `suggested_fix.new` transformation EXACTLY using the Edit tool (whitespace-exact substring match — do not normalize). Skip with reason 'drifted' if `old` does not appear verbatim. Skip with reason 'no-fix-available' if `suggested_fix` fields are incomplete.
 
-If a finding's `suggested_fix.old` does not appear verbatim in the file (drift since the review), skip that finding and report it as 'drifted' — do NOT attempt to interpret or repair the intent.
-
-If a finding has no `suggested_fix.old` and `suggested_fix.new` populated, skip and report 'no-fix-available'.
-
-Do NOT skip hooks (--no-verify). If a pre-commit hook fails, fix the hook complaint and create a NEW commit (do not amend).
+After each successful edit, commit atomically: `git add <file>; git commit -m "fix(review-pass-{{$PASS_NUMBER}}): <title>"`. No --no-verify. On hook failure, fix and NEW commit (no amend).
 
 <findings>
-{{JSON array of selected findings from Phase 3 — each has file/line/title/suggested_fix/why_it_matters}}
+{{JSON array of selected findings — each has id/file/line/title/suggested_fix/why_it_matters}}
 </findings>
 
 Report back as JSON:
 {
-  "applied": [{"id": "<finding-id>", "commit_sha": "<sha>"}],
-  "drifted": [{"id": "<finding-id>", "reason": "..."}],
-  "no_fix": [{"id": "<finding-id>"}],
-  "errored": [{"id": "<finding-id>", "error": "..."}]
+  "applied":  [{"id": "<id>", "commit_sha": "<sha>"}],
+  "drifted":  [{"id": "<id>", "reason": "<truncated old substring>"}],
+  "no_fix":   [{"id": "<id>"}],
+  "errored":  [{"id": "<id>", "error": "<message>"}]
 }
 ```
 
-Render the implementer's report verbatim under a `### Fixes applied` heading. Append applied commit SHAs to `state.passes[-1].fixes_applied[]` so Phase 0.5 carry-forward sees them on next pass.
+**Render results either way.** Render the applied/drifted/no_fix/errored arrays verbatim under a `### Fixes applied` heading. For each applied entry, link the commit SHA. For each drifted/errored entry, briefly explain so the user can pick "I'll apply them myself" at the next Step A iteration if they want to address them by hand.
+
+Append applied commit SHAs to `state.passes[-1].fixes_applied[]` so Phase 0.5 carry-forward sees them on next pass.
 
 ### Step C — Decide what to do next
 
