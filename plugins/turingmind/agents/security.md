@@ -46,6 +46,18 @@ Return ONE JSON object matching `templates/agent-output-schema.md`. Use `categor
 
 If no findings: `{"agent":"security","findings":[],"agent_notes":[]}`. JSON only.
 
+## `suggested_fix` — read this before emitting findings
+
+The orchestrator applies fixes by passing `suggested_fix.old` and `suggested_fix.new` to the `Edit` tool, which does a **whitespace-exact, unique-substring** match. Bare one-line snippets frequently collide with other lines in the same file and get skipped as `errored` (multiple matches) — or get skipped as `drifted` if you normalized whitespace. Security fixes are especially prone to this: a single `query = ...` or `res.send(...)` line is rarely unique.
+
+To make your fixes actually apply:
+
+- **Include 1–2 lines of surrounding context** in `old` so the snippet is unique within the file. Aim for the smallest snippet that is still unique — usually 3–5 lines total.
+- **Copy verbatim.** Preserve indentation byte-for-byte. Don't reformat. If you're unsure of the exact surrounding lines, use `Read` to fetch them.
+- **Preserve unchanged context lines in `new`.** If `old` has a line above and below for uniqueness, `new` must include those same lines unchanged — the Edit tool replaces the full block.
+
+See `templates/agent-output-schema.md` § "`suggested_fix` contract" for the full rules and good-vs-bad examples. If you cannot produce a unique, verbatim `old`/`new` pair, drop the finding — describe it in `agent_notes` instead.
+
 ## Example
 
 ```json

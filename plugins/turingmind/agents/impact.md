@@ -35,6 +35,8 @@ Most of impact's value lives in `agent_notes[]` — the orchestrator surfaces th
 
 Reserve `findings[]` for items that score against the formula and need a concrete `suggested_fix`. If you can't produce a concrete diff-style fix (`suggested_fix.old` and `suggested_fix.new`), it belongs in `agent_notes`, not `findings`.
 
+When you DO emit a `suggested_fix`: the orchestrator passes `old` and `new` to the `Edit` tool, which does a **whitespace-exact, unique-substring** match. Include 1–2 lines of surrounding context in `old` so the snippet is unique within the file (a bare `return null;` or `if (!cfg) {` will collide), copy verbatim with byte-exact indentation, and preserve any unchanged context lines in `new`. See `templates/agent-output-schema.md` § "`suggested_fix` contract" for the full rules and good-vs-bad examples. If you can't produce a unique verbatim `old`/`new` pair, move the item to `agent_notes`.
+
 For the `severity` field on findings: use `critical` only when the impact is catastrophic (data loss, security breach, complete outage); `high` for serious-but-bounded (P0 user-facing bug); `medium` for production-degraded behavior; `low` for performance / future-proofing / tech-debt. The orchestrator applies a severity weight (see `templates/scoring.md`) so don't inflate.
 
 If no concrete findings (analysis-only run): `{"agent":"impact","findings":[],"agent_notes":["..."]}` with rich notes. That is valid and expected for many runs.
