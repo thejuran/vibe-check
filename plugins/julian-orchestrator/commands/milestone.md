@@ -12,6 +12,8 @@ This command is an **orchestrator** — its only job is to invoke other skills i
 
 **The wrapper writes nothing of its own, with ONE exception:** on cold start, it writes `.planning/MILESTONE-CONTEXT.md` as the input contract for `/gsd:new-milestone`. That is the only file this orchestrator creates. Everything else is delegated to upstream skills.
 
+**The wrapper NEVER runs `git commit`, `git add`, or any other write-side git operation.** Each sub-skill (GSD's planner/executor, turingmind's fix loop, codex, walkthrough) owns its own commits. If a sub-skill leaves uncommitted changes in the working tree and the orchestrator is about to invoke another sub-skill, **surface the dirty state to the user** with `AskUserQuestion` — do NOT commit on the sub-skill's behalf. Inventing a commit because "I edited files and should clean up" is a contract violation: the orchestrator doesn't know whether those edits belong with the upcoming sub-skill's work, the prior sub-skill's work, or a separate logical change.
+
 **State of truth:**
 - `.planning/STATE.md` — phase progress (GSD-owned)
 - `.planning/ROADMAP.md` — phase list (GSD-owned)
@@ -157,20 +159,52 @@ If no incomplete phases remain, exit the loop and proceed to Phase 4 (milestone-
 
 Announce: `▶ Phase loop — running phase $NEXT_PHASE`.
 
+### Sub-step 0: Detect prior progress (skip-ahead check)
+
+Before invoking DISCUSS or PLAN, check whether the phase already has those artifacts on disk. Re-running discuss/plan when they're already done either duplicates work (cost) or overwrites finished artifacts (regression). Resolve the phase directory and check artifact presence:
+
+```bash
+# Use ${NEXT_PHASE}-* (literal dash) so phase 1 doesn't accidentally match 10-foo, 11-bar, etc.
+PHASE_DIR=$(ls -d .planning/phases/${NEXT_PHASE}-* 2>/dev/null | head -1)
+if [ -z "$PHASE_DIR" ]; then
+  echo "✗ No phase directory found for phase $NEXT_PHASE under .planning/phases/. Aborting."
+  exit 1
+fi
+
+# DISCUSSION artifact — GSD writes either DISCUSSION.md or <N>-DISCUSSION-LOG.md
+HAS_DISCUSSION=0
+[ -f "$PHASE_DIR/DISCUSSION.md" ] && HAS_DISCUSSION=1
+ls "$PHASE_DIR/${NEXT_PHASE}-DISCUSSION-LOG.md" 2>/dev/null >/dev/null && HAS_DISCUSSION=1
+
+# PLAN artifact — GSD writes either PLAN.md (single) or <N>-NN-PLAN.md (per-plan, multi-file)
+HAS_PLAN=0
+[ -f "$PHASE_DIR/PLAN.md" ] && HAS_PLAN=1
+ls "$PHASE_DIR/${NEXT_PHASE}"-*-PLAN.md 2>/dev/null | grep -q . && HAS_PLAN=1
+```
+
+Branching logic (announce each branch as you take it):
+
+- `HAS_DISCUSSION=1 && HAS_PLAN=1` → both done. Announce: `  ⊘ DISCUSS, PLAN — skipped (artifacts already present)`. Jump directly to Sub-step 3 (ADVERSARIAL). Do NOT ask the user — this is the common case for resumed phases.
+- `HAS_DISCUSSION=1 && HAS_PLAN=0` → partial. Announce: `  ⊘ DISCUSS — skipped (artifact present)`. Run Sub-step 2 (PLAN) only, then Sub-step 3.
+- `HAS_DISCUSSION=0 && HAS_PLAN=1` → unusual. AskUserQuestion: "Phase $NEXT_PHASE has PLAN but no DISCUSSION — was discuss-phase skipped intentionally, or is this an artifact drift?" Options: "Run discuss-phase to backfill" / "Continue — skip discuss" / "Stop".
+- Both absent → standard flow. Continue to Sub-step 1.
+
 ### Sub-step 1: DISCUSS
+
+**Skip this sub-step if Sub-step 0 set `HAS_DISCUSSION=1`.**
 
 Invoke `/gsd:discuss-phase $NEXT_PHASE` via `Skill()`.
 
 GSD's discuss-phase may pause for user input on gray-area decisions. **Let it.** The wrapper does not wrap GSD's prompts.
 
-After it returns, verify `DISCUSSION.md` exists for the phase:
+After it returns, re-check `HAS_DISCUSSION` (the artifact should now exist):
 
 ```bash
-# Use ${NEXT_PHASE}-* (literal dash) so phase 1 doesn't accidentally match 10-foo, 11-bar, etc.
-# GSD names phase directories like `1-some-name/` or `01-some-name/` — either works with this glob.
-PHASE_DIR=$(ls -d .planning/phases/${NEXT_PHASE}-* 2>/dev/null | head -1)
-if [ -z "$PHASE_DIR" ] || [ ! -f "$PHASE_DIR/DISCUSSION.md" ]; then
-  echo "✗ /gsd:discuss-phase did not produce DISCUSSION.md for phase $NEXT_PHASE. Aborting."
+HAS_DISCUSSION=0
+[ -f "$PHASE_DIR/DISCUSSION.md" ] && HAS_DISCUSSION=1
+ls "$PHASE_DIR/${NEXT_PHASE}-DISCUSSION-LOG.md" 2>/dev/null >/dev/null && HAS_DISCUSSION=1
+if [ "$HAS_DISCUSSION" -eq 0 ]; then
+  echo "✗ /gsd:discuss-phase did not produce a DISCUSSION artifact for phase $NEXT_PHASE. Aborting."
   exit 1
 fi
 ```
@@ -179,21 +213,26 @@ Announce: `  ✓ DISCUSS — $PHASE_DIR/DISCUSSION.md`.
 
 ### Sub-step 2: PLAN
 
+**Skip this sub-step if Sub-step 0 set `HAS_PLAN=1`.**
+
 Invoke `/gsd:plan-phase $NEXT_PHASE` via `Skill()`.
 
-`/gsd:plan-phase` internally runs researcher → planner → plan-checker. It produces both `RESEARCH.md` and `PLAN.md`. **Do not call `/gsd:research-phase` separately** — research is already inside plan.
+`/gsd:plan-phase` internally runs researcher → planner → plan-checker. It produces `RESEARCH.md` plus either a single `PLAN.md` OR per-plan files named `<N>-NN-PLAN.md` (GSD's choice depends on granularity settings). **Do not call `/gsd:research-phase` separately** — research is already inside plan.
 
-After it returns, verify both files exist:
+After it returns, re-check `HAS_PLAN`:
 
 ```bash
-if [ ! -f "$PHASE_DIR/PLAN.md" ] || [ ! -f "$PHASE_DIR/RESEARCH.md" ]; then
-  echo "✗ /gsd:plan-phase did not produce PLAN.md and RESEARCH.md for phase $NEXT_PHASE."
-  echo "  PHASE_DIR=$PHASE_DIR"
+HAS_PLAN=0
+[ -f "$PHASE_DIR/PLAN.md" ] && HAS_PLAN=1
+ls "$PHASE_DIR/${NEXT_PHASE}"-*-PLAN.md 2>/dev/null | grep -q . && HAS_PLAN=1
+if [ "$HAS_PLAN" -eq 0 ]; then
+  echo "✗ /gsd:plan-phase did not produce a PLAN artifact for phase $NEXT_PHASE."
+  echo "  Expected one of: $PHASE_DIR/PLAN.md OR $PHASE_DIR/${NEXT_PHASE}-NN-PLAN.md"
   exit 1
 fi
 ```
 
-Announce: `  ✓ PLAN — $PHASE_DIR/PLAN.md`.
+Announce: `  ✓ PLAN — $PHASE_DIR/`.
 
 ### Sub-step 3: ADVERSARIAL
 
@@ -211,6 +250,19 @@ MAX_REWRITES=${MAX_REWRITES:-2}
 Invoke `/codex:adversarial-review` via `Skill()`. Pass a focus argument that points codex at the phase's PLAN.md plus its supporting context:
 
 > "--wait --scope working-tree challenge the implementation plan at $PHASE_DIR/PLAN.md against the research findings at $PHASE_DIR/RESEARCH.md and the discussion notes at $PHASE_DIR/DISCUSSION.md. Focus on: assumptions the plan depends on, where the design could fail under real-world conditions, and any research findings the plan ignored."
+
+**Stall watchdog (observed failure mode):** Codex tasks occasionally return "running" indefinitely because the completion notification gets dropped. Treat **15 minutes of no output activity** as a stall signal. Do NOT poll codex's status file (codex's own skill instructions explicitly forbid that). Instead:
+
+- Before invoking codex, capture the start time as a mental anchor.
+- After invoking, while waiting for codex to return, do NOT do other unrelated work. The orchestrator's job is to wait for this specific tool result.
+- If you (Claude) become aware that significant wall-clock time has elapsed without codex returning (e.g., the user has typed something, or you receive a system reminder, or you otherwise have an opportunity to check), use `AskUserQuestion` to escalate:
+  > Question: "Codex adversarial review for phase $NEXT_PHASE has been running for an unusually long time with no result. The completion notification may have been dropped. What now?"
+  > Options:
+  >   1. "Wait — codex is genuinely still working" (continue waiting)
+  >   2. "Treat as a pass — skip adversarial for this phase" (proceed to EXECUTE; document the skip in summary)
+  >   3. "Cancel and abort milestone:run" (stop cleanly; user can resume later)
+
+This watchdog is best-effort, not a true wall-clock timeout — the orchestrator is markdown prose, not a process. The user is also a fallback: if they notice the session is stalled, they can interrupt and tell the orchestrator to escalate.
 
 Codex returns its review verbatim. **Parse the output for severity terms using codex's vocabulary** (`critical`, `blocker`). If neither appears, the plan passes — proceed to EXECUTE.
 
