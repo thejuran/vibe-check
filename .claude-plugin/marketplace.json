@@ -9,6 +9,11 @@
       "name": "turingmind",
       "source": "./plugins/turingmind",
       "description": "Catch bugs before they catch you. AI-powered code review for your uncommitted changes."
+    },
+    {
+      "name": "julian-orchestrator",
+      "source": "./plugins/julian-orchestrator",
+      "description": "Personal milestone orchestrator: sequences brainstorming, GSD, codex adversarial review, turingmind deep-review, and walkthrough into one /milestone:run command."
     }
   ]
 }

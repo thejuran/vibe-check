@@ -1,0 +1,8 @@
+{
+  "name": "julian-orchestrator",
+  "description": "Personal milestone orchestrator: sequences brainstorming, GSD, codex adversarial review, turingmind deep-review, and walkthrough into one /milestone:run command.",
+  "version": "0.1.0",
+  "author": { "name": "thejuran" },
+  "license": "MIT",
+  "keywords": ["orchestrator", "workflow", "gsd", "milestone", "personal"]
+}
