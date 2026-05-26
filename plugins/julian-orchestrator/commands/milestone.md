@@ -245,6 +245,21 @@ MAX_REWRITES=$(echo "$CONFIG" | grep -oE '"adversarial_max_rewrites":[0-9]+' | c
 MAX_REWRITES=${MAX_REWRITES:-2}
 ```
 
+**What counts as a "rewrite" (explicit definition — DO NOT improvise alternatives):**
+
+Any of the following increments `REWRITE_COUNT` by exactly 1:
+
+- One re-invocation of `/gsd:plan-phase $NEXT_PHASE` with codex critique embedded (full planner re-spawn).
+- One targeted-edit pass on the PLAN files in response to a codex finding (e.g., a surgical `Edit` against `30-03-PLAN.md` to address residual F2 wording without re-spawning the planner). Even though this is "lighter" than a planner re-spawn, it consumes the same affordance and reaches the same anchor.
+- Any other path that lands plan edits in response to codex findings and then re-enters the Inner adversarial loop.
+
+**What does NOT count as a rewrite:**
+
+- Re-invoking codex with the SAME plan to confirm a finding (e.g., to double-check a borderline severity). Use this sparingly — codex calls are not free — but the count does not increment because no plan edits occurred.
+- Codex's own retries or stalls (the stall watchdog is a separate concern).
+
+**Tracking convention:** announce `↻ ADVERSARIAL — rewrite $REWRITE_COUNT/$MAX_REWRITES triggered` immediately before EACH rewrite path begins (whether full re-spawn or targeted edit). After the rewrite lands and you re-enter the Inner adversarial loop, the next codex invocation is the verification of that rewrite — not a new rewrite.
+
 **Inner adversarial loop (this is the loop re-entry anchor — when a rewrite completes, return HERE, not to the Initialize block above):**
 
 Invoke `/codex:adversarial-review` via `Skill()`. Pass a focus argument that points codex at the phase's PLAN.md plus its supporting context:
@@ -315,35 +330,55 @@ Announce: `  ✓ EXECUTE — phase commits landed (HEAD: $PHASE_HEAD)`.
 
 ### Sub-step 5: DEEP REVIEW
 
-Invoke `/turingmind-code-review:deep-review $NEXT_PHASE` via `Skill()`. Turingmind's GSD phase mode resolves the phase directory and scopes the review to that phase's commit range automatically (see `<turingmind>/plugins/turingmind/commands/review.md` Phase 0, GSD phase mode).
+🚫 **ANTI-PATTERN — observed failure mode that this prose is explicitly written to prevent:** GSD's `/gsd:execute-phase` invokes its own internal `gsd-code-reviewer` agent as part of its workflow, which produces `.planning/phases/<N>/<N>-REVIEW.md`. **That is NOT a substitute for this sub-step.** GSD's reviewer and turingmind's deep-review are different tools:
+- GSD's reviewer writes to `.planning/phases/<N>/`. Turingmind's deep-review writes to `.turingmind/state/<phase>.json` AND `.turingmind/reviews/<timestamp>/`.
+- GSD's reviewer is a single sequential pass. Turingmind dispatches parallel multi-domain agents (bugs / security / architecture / language-specific) with model tiering — different findings, different severity vocabulary.
+- The orchestrator's per-phase quality gate is **the union of both**, not either alone.
 
-**Severity gate (turingmind vocabulary: critical/warning vs medium/low):**
+If you see `.planning/phases/<N>/<N>-REVIEW.md` already exists when this sub-step starts, that's GSD's output — **proceed with turingmind anyway**. If you do not see `.turingmind/state/<phase-dir-name>.json` after invoking turingmind, the deep-review has NOT run and this sub-step is incomplete.
 
-Turingmind's Phase 4 renders the report and Phase 4.5 persists state. Turingmind's Phase 5 then runs its **interactive fix loop** automatically. Within that loop:
+✓ **Correct shape:**
 
-- If the user (or auto-apply default) successfully fixes all critical/warning findings → turingmind commits the fixes atomically. Re-run `/turingmind-code-review:deep-review $NEXT_PHASE` to verify the second pass is clean.
-- If turingmind reports drifted or no-fix-available findings → it pauses inside its own Step C with three options. The orchestrator does not need to inject its own prompt — turingmind already handles this.
+1. **Pre-flight check (BEFORE invoking turingmind):** confirm whether turingmind state already exists for this phase. If a prior pass exists, the sub-step is a re-run; if not, this is the first pass.
 
-The orchestrator's responsibility is to **wait for turingmind's loop to terminate** and then check the outcome. Read the most recent state file under `.turingmind/state/`:
+   ```bash
+   STATE_FILE=".turingmind/state/${PHASE_DIR##*/}.json"
+   PRE_EXISTING_STATE=0
+   [ -f "$STATE_FILE" ] && PRE_EXISTING_STATE=1
+   ```
 
-```bash
-STATE_FILE=".turingmind/state/${PHASE_DIR##*/}.json"
-if [ ! -f "$STATE_FILE" ]; then
-  echo "✗ Turingmind did not produce state file at $STATE_FILE."
-  exit 1
-fi
-```
+2. **Invoke** `/turingmind-code-review:deep-review $NEXT_PHASE` via `Skill()`. Turingmind's GSD phase mode resolves the phase directory and scopes the review to that phase's commit range automatically (see `<turingmind>/plugins/turingmind/commands/review.md` Phase 0, GSD phase mode).
 
-Parse the latest pass from the state file for unfixed critical/warning findings. Turingmind's state schema (from its `review.md` Phase 4.5 + Finalize sections): `state.passes[]` is an array of review passes; each pass has a `findings[]` array; each finding has `band` (`"critical"`, `"warning"`, `"medium"`, `"low"`), `status` (`"new"`, `"persisted"`, `"needs-recheck"`, `"fixed-since-last"`), and a `stable_hash`. Medium acknowledgments live at `state.medium_acknowledgments[stable_hash]` (not on the finding itself).
+3. **Wait for turingmind to terminate.** Turingmind's Phase 4 renders the report, Phase 4.5 persists state, Phase 5 runs its interactive fix loop. Within that loop:
 
-A concrete check using `jq`:
+   - If all critical/warning findings get fixed (via auto-apply or user) → turingmind commits the fixes atomically and exits cleanly.
+   - If turingmind reports drifted or no-fix-available findings → it pauses inside its own Step C with three options. The orchestrator does not need to inject its own prompt — turingmind already handles this.
 
-```bash
-UNFIXED_CW=$(jq '[.passes[-1].findings[]
-                  | select(.band == "critical" or .band == "warning")
-                  | select(.status != "fixed-since-last")]
-                 | length' "$STATE_FILE")
-```
+4. **Post-flight verification (MANDATORY — do not skip):**
+
+   ```bash
+   if [ ! -f "$STATE_FILE" ]; then
+     echo "✗ /turingmind-code-review:deep-review did not produce state file at $STATE_FILE."
+     echo "  This sub-step is INCOMPLETE. Do NOT mark phase $NEXT_PHASE done."
+     echo "  Likely cause: turingmind was not actually invoked (e.g., a GSD internal review was mistaken for this sub-step)."
+     exit 1
+   fi
+   if [ "$PRE_EXISTING_STATE" -eq 1 ]; then
+     # State existed before; verify a new pass was appended this invocation
+     PASS_COUNT_NOW=$(jq '.passes | length' "$STATE_FILE")
+     # The orchestrator should ensure PASS_COUNT_NOW > the pre-flight value.
+     # If state existed but no new pass landed, turingmind didn't actually run.
+   fi
+   ```
+
+5. **Parse the latest pass** for unfixed critical/warning findings. Turingmind's state schema (from its `review.md` Phase 4.5 + Finalize sections): `state.passes[]` is an array of review passes; each pass has a `findings[]` array; each finding has `band` (`"critical"`, `"warning"`, `"medium"`, `"low"`), `status` (`"new"`, `"persisted"`, `"needs-recheck"`, `"fixed-since-last"`), and a `stable_hash`. Medium acknowledgments live at `state.medium_acknowledgments[stable_hash]` (not on the finding itself).
+
+   ```bash
+   UNFIXED_CW=$(jq '[.passes[-1].findings[]
+                     | select(.band == "critical" or .band == "warning")
+                     | select(.status != "fixed-since-last")]
+                    | length' "$STATE_FILE")
+   ```
 
 If `UNFIXED_CW > 0`, this is a blocking condition. Use AskUserQuestion:
 
