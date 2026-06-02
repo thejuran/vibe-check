@@ -7,3 +7,6 @@
 
 # GSD planning artifacts (kept out of the fork repo itself)
 .planning/
+
+# macOS Finder metadata
+.DS_Store
