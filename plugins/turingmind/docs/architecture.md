@@ -4,7 +4,7 @@ Local-only fork of `turingmindai/turingmind-code-review`.
 
 ## Why a fork
 
-Upstream was active for two days in January 2026, then dormant. Useful core (per-domain agents, confidence scoring, diff-style fixes, filtered-issues transparency) but missing modern infrastructure.
+Upstream was active for two days in January 2026, then dormant. Useful core (per-domain agents, confidence scoring, filtered-issues transparency) but missing modern infrastructure.
 
 ## Two-layer design
 
@@ -17,8 +17,9 @@ New languages/frameworks are pure agent additions.
 
 1. **Confidence-scoring rubric with asymmetric penalties** (−50 pre-existing, −50 silenced).
 2. **Filtered-issues transparency.**
-3. **Diff-style fixes required.**
-4. **Per-domain agents.**
+3. **Per-domain agents.**
+
+(Upstream's *diff-style fixes required* property was dropped in this fork: detection agents report findings only — patching is decoupled into the semantic `fix` agent (`agents/fix.md`), dispatched in Phase 5.)
 
 ## New
 
