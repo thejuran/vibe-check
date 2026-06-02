@@ -329,7 +329,7 @@ Return ONE JSON per templates/agent-output-schema.md. JSON only.
 0. **Carry-forward check (multi-pass only).** For each finding in `$CARRYFORWARD`:
    - Compute canonical line content at `finding.file:finding.line` in HEAD (strip trailing whitespace).
    - File/line gone → `status: "fixed-since-last"`, exclude from this pass's reported findings.
-   - Canonical content matches `finding.details.current_code` first line → `status: "persisted"`, +15 score, include in reported findings.
+   - Canonical content matches `finding.current_code` first line → `status: "persisted"`, +15 score, include in reported findings.
    - File:line exists but content changed → `status: "needs-recheck"`, add hint to relevant agent's prompt: `<recheck>Previously flagged {{title}} at {{file}}:{{line}}. Verify it still applies.</recheck>`. Include in this pass's dispatch.
 
    **Note:** Persisted findings still flow through steps 2 (verify in_diff / silenced_marker_nearby), 3 (scoring), and 5 (filter) below. The +15 persistence modifier stacks with the rest of the score formula; persisted findings can still drop below threshold or get silenced.
