@@ -487,7 +487,7 @@ Parse the returned `results[]`. Each has `status ∈ {applied, obsolete, needs-h
 **The fix agent is the only apply path.** Do NOT apply fixes inline from the orchestrator. The orchestrator's `allowed-tools` retains `Edit`/`Bash(git:*)` only for the documented inline-fallback case below; everything else — including findings the user hand-specifies after a `needs-human` — is re-dispatched to the `fix` agent so there is exactly one commit-message convention and one `fixes_applied[]` write site.
 
 **Inline fallback (narrow, fully specified).** Apply a fix inline from the orchestrator ONLY when re-dispatching the agent is impossible for this invocation (e.g. the finding edits the `fix` agent's own spec, or `$TURINGMIND_NONINTERACTIVE` blocks a sub-dispatch). When you do:
-- Use the SAME commit step as `agents/fix.md` (message via `-F` file built with `printf`, paths after `--`, no `--no-verify`).
+- Use the SAME commit step as `agents/fix.md` — copy it in full, including `msgfile=$(mktemp)` and the `trap 'rm -f "$msgfile"' EXIT` cleanup, the `finding.file`/`finding.title` validation, message via `-F "$msgfile"`, paths after `--`, and no `--no-verify`. Do not abbreviate it to an inline `-m` (that reintroduces the title-injection vector).
 - Record a synthetic result `{id, status: "applied", commit_sha, files_touched, summary}` so it renders and persists identically to agent results.
 - It MUST append to `state.passes[-1].fixes_applied[]` exactly like agent results (see below) — an inline fix that skips this write breaks Phase 0.5 carry-forward (the fix won't be seen next pass and the finding gets re-flagged as still-present).
 
