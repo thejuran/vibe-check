@@ -20,8 +20,8 @@ Return ONE JSON object per `templates/agent-output-schema.md`. Use `category` va
 
 - Top-level object MUST have exactly: `agent` (string), `findings` (array), `agent_notes` (array of strings).
 - `agent_notes` MUST be an `array of strings`, NOT a single multi-paragraph string. If you have a long blast-radius narrative, split it into multiple bullet-shaped strings inside the array.
-- Each entry in `findings[]` MUST include EVERY required field per `templates/agent-output-schema.md` (`id`, `file`, `line`, `title`, `category`, `cwe`, `severity`, `agent_confidence`, `in_diff`, `intent_doc_match`, `problem`, `current_code`, `suggested_fix.old`, `suggested_fix.new`, `why_it_matters`, `silenced_marker_nearby`).
-- Do NOT introduce alternative field names like `description`, `fix`, `lines`, `confidence` at the finding level — those are not in the schema. Use `problem`, `suggested_fix`, `line`, `agent_confidence`.
+- Each entry in `findings[]` MUST include EVERY required field per `templates/agent-output-schema.md` (`id`, `file`, `line`, `title`, `category`, `cwe`, `severity`, `agent_confidence`, `in_diff`, `intent_doc_match`, `problem`, `current_code`, `fix_hint`, `why_it_matters`, `silenced_marker_nearby`). `fix_hint` is optional (string or `null`) — do NOT write `old`/`new` patches.
+- Do NOT introduce alternative field names like `description`, `fix`, `lines`, `confidence` at the finding level — those are not in the schema. Use `problem`, `fix_hint`, `line`, `agent_confidence`.
 - Do NOT add top-level fields like `summary` or `schema_version`.
 
 **Where to put your analysis:**
@@ -33,9 +33,9 @@ Most of impact's value lives in `agent_notes[]` — the orchestrator surfaces th
 - Test coverage gaps
 - Overall verdict (one short line at the end like "Phase X is shippable as-is" or "Blocking issue: <name>")
 
-Reserve `findings[]` for items that score against the formula and need a concrete `suggested_fix`. If you can't produce a concrete diff-style fix (`suggested_fix.old` and `suggested_fix.new`), it belongs in `agent_notes`, not `findings`.
+Use `findings[]` for specific, located, actionable problems (a concrete file:line with a concrete defect). Use `agent_notes[]` for diffuse blast-radius narrative that isn't tied to one line. The deciding factor is **"is this a located, actionable defect?"** — NOT "can I write a patch for it?" Do not demote a real located finding to `agent_notes` just because it's hard to patch; patching is the `fix` agent's job, not yours.
 
-When you DO emit a `suggested_fix`: the orchestrator passes `old` and `new` to the `Edit` tool, which does a **whitespace-exact, unique-substring** match. Include 1–2 lines of surrounding context in `old` so the snippet is unique within the file (a bare `return null;` or `if (!cfg) {` will collide), copy verbatim with byte-exact indentation, and preserve any unchanged context lines in `new`. See `templates/agent-output-schema.md` § "`suggested_fix` contract" for the full rules and good-vs-bad examples. If you can't produce a unique verbatim `old`/`new` pair, move the item to `agent_notes`.
+Detection agents do NOT write patches. Set `fix_hint` to a one-line direction if obvious, else `null`. See `templates/agent-output-schema.md` § "`fix_hint`".
 
 For the `severity` field on findings: use `critical` only when the impact is catastrophic (data loss, security breach, complete outage); `high` for serious-but-bounded (P0 user-facing bug); `medium` for production-degraded behavior; `low` for performance / future-proofing / tech-debt. The orchestrator applies a severity weight (see `templates/scoring.md`) so don't inflate.
 

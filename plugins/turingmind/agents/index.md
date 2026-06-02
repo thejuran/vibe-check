@@ -29,6 +29,8 @@ These agents apply to all code reviews:
 1. **`bugs.md`** - Logic errors, null access, race conditions
 2. **`security.md`** - OWASP Top 10, injection, XSS, secrets
 
+> **`fix.md` is not a detection agent** and is never dispatched in Phase 2. It runs only in Phase 5 (interactive fix loop) on findings the user accepts — it reads the file and applies the change semantically, then commits. Detection agents only *find* and optionally leave a one-line `fix_hint`; they never produce patches.
+
 ## Conditional Agents (Load When Relevant)
 
 ### Compliance Agent

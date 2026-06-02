@@ -32,12 +32,15 @@ After the table, for each Critical finding render:
 
 {{problem}}
 
-```diff
-- {{suggested_fix.old}}
-+ {{suggested_fix.new}}
+```
+{{current_code}}
 ```
 
+{{#if fix_hint}}Fix direction: {{fix_hint}}{{/if}}
+
 Why: {{why_it_matters}}
+
+*The actual patch is produced by the `fix` agent when you accept this finding in the fix loop — it reads the file and edits it semantically, so no diff is pre-baked here.*
 
 ---
 

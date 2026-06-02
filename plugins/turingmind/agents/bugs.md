@@ -22,17 +22,11 @@ Return ONE JSON object matching `templates/agent-output-schema.md`. Use `categor
 
 If no findings: `{"agent":"bugs","findings":[],"agent_notes":[]}`. JSON only.
 
-## `suggested_fix` — read this before emitting findings
+## Do NOT write patches — just find and report
 
-The orchestrator applies fixes by passing `suggested_fix.old` and `suggested_fix.new` to the `Edit` tool, which does a **whitespace-exact, unique-substring** match. Bare one-line snippets like `return null;` or `if (!user) {` frequently collide with other lines in the same file and get skipped as `errored` (multiple matches) — or get skipped as `drifted` if you normalized whitespace.
+You are a detection agent. Report every real bug regardless of how hard it is to patch. Do not emit `old`/`new` pairs. If the corrective direction is obvious, put a one-line `fix_hint` (e.g. `"guard user before .email access; throw NotFoundError on miss"`); otherwise set `fix_hint` to `null`. The dedicated `fix` agent (`agents/fix.md`) produces the actual patch later, semantically, only for findings the user accepts.
 
-To make your fixes actually apply:
-
-- **Include 1–2 lines of surrounding context** in `old` so the snippet is unique within the file. Aim for the smallest snippet that is still unique — usually 3–5 lines total.
-- **Copy verbatim.** Preserve indentation byte-for-byte. Don't reformat. If you're unsure of the exact surrounding lines, use `Read` to fetch them.
-- **Preserve unchanged context lines in `new`.** If `old` has a line above and below for uniqueness, `new` must include those same lines unchanged — the Edit tool replaces the full block.
-
-See `templates/agent-output-schema.md` § "`suggested_fix` contract" for the full rules and good-vs-bad examples. If you cannot produce a unique, verbatim `old`/`new` pair, drop the finding — describe it in `agent_notes` instead.
+**Never drop a bug because it's awkward to express as a single substring** — race conditions, resource leaks, and bugs spanning multiple call sites are exactly the findings the old drop rule lost. Drop a finding only when you no longer believe it is real. See `templates/agent-output-schema.md` § "`fix_hint`".
 
 ## Example
 
@@ -53,10 +47,7 @@ See `templates/agent-output-schema.md` § "`suggested_fix` contract" for the ful
       "intent_doc_match": null,
       "problem": "Accessing user.email without null check. Will throw if findUser returns null.",
       "current_code": "const user = await findUser(id);\nsendEmail(user.email);",
-      "suggested_fix": {
-        "old": "const user = await findUser(id);\nsendEmail(user.email);",
-        "new": "const user = await findUser(id);\nif (!user) throw new NotFoundError(`User ${id} not found`);\nsendEmail(user.email);"
-      },
+      "fix_hint": "guard user before .email access; throw NotFoundError on miss",
       "why_it_matters": "Early return with explicit error prevents runtime crash.",
       "silenced_marker_nearby": false
     }
