@@ -4,7 +4,7 @@ description: Reviews a diff for runtime bug risks (null access, off-by-one, race
 model: sonnet
 ---
 
-Focus on significant bugs that would cause runtime failures. Avoid nitpicks.
+Find bugs that would cause runtime failures or incorrect behavior. (Do not pre-filter for significance — see "Coverage, not filtering" below; the orchestrator's scorer handles that.)
 
 ## Checks
 
@@ -15,6 +15,10 @@ Focus on significant bugs that would cause runtime failures. Avoid nitpicks.
 - **Error Handling Gaps**: Unhandled promise rejections, swallowed exceptions
 - **Infinite Loops**: Missing base cases, unreachable break conditions
 - **State Mutation**: Unexpected side effects, mutating shared state
+
+## Coverage, not filtering
+
+Report every issue you find, including ones you are uncertain about or consider low-severity. Do not self-filter for importance or confidence — the orchestrator scores every finding (`templates/scoring.md`) and filters downstream; your honest `agent_confidence` and `severity` are what make that filter work. A surfaced finding that gets filtered out costs nothing; a silently dropped real issue is unrecoverable. (Pure style/naming preferences remain out of scope — report defects, not taste.)
 
 ## Output
 
