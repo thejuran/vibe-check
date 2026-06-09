@@ -392,7 +392,7 @@ Per `templates/output-format.md`:
 | {{total}} | {{reported}} | {{filtered}} |
 ```
 
-Then Critical and Warning sections. Always include "Filtered Issues 🔇" summary.
+Then the **Bottom line** block (plain-language ship/fix verdict — see `templates/output-format.md`; it exists so a non-engineer can make the fix/skip/ship call without parsing the technical sections), then Critical and Warning sections (each finding leads with its *In plain terms:* impact line per the template). Always include "Filtered Issues 🔇" summary.
 
 If zero findings after filtering:
 ```
