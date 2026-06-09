@@ -103,28 +103,38 @@ Parse `$ARGUMENTS`:
    ```
    Stateless.
 
-4. **GSD phase mode** — `$ARGUMENTS` is a phase identifier (a directory name under `.planning/phases/` like `02-code-review` or just `02`).
+4. **GSD phase mode** — `$ARGUMENTS` is a phase identifier (a phase directory name like `02-code-review` or just `02`).
+
+   **⚠ GSD projects use TWO phase-dir layouts — resolve across both, never assume the flat one.** Phases live either flat under `.planning/phases/<N>-<slug>/` or **milestone-nested** under `.planning/milestones/<milestone>-phases/<N>-<slug>/` (common once a project has shipped milestones; some projects have NO `.planning/phases/` dir at all). Resolving only the flat layout makes this mode fail with "phase not found" on milestone-nested projects even though the phase plainly exists.
 
    **Validate first (sandbox guard).** Before any path lookup, reject `$ARGUMENTS` if it does not match `^[A-Za-z0-9._-]+$` — no slashes, no `..`, no spaces, no shell metacharacters. On reject, error: "Invalid phase id — must match `[A-Za-z0-9._-]+` (no slashes, no `..`)." and stop. This prevents `../../etc/passwd`-style escapes from the `.planning/` namespace, which would otherwise be propagated into shell commands, state file paths, and intent-doc reads.
 
-   Then resolve:
-   - If exact dir exists at `.planning/phases/<arg>/`, use it.
-   - Else if a unique dir starts with `<arg>-`, use it (e.g. `02` → `02-code-review`).
-   - Else error: "Phase '<arg>' not found under .planning/phases/. Available: <ls>".
-
-   **After resolution, verify containment.** Confirm the realpath of the resolved phase dir is a descendant of the realpath of `.planning/phases/`:
+   Then resolve across both layouts — exact name first, then unique `<arg>-` prefix (e.g. `02` → `02-code-review`). The literal dash in `<arg>-*` keeps phase `1` from matching `10-foo`/`11-bar`; `-maxdepth 2` keeps find from descending into nested artifact trees:
    ```bash
-   PHASES_ROOT=$(cd .planning/phases && pwd -P)
-   PHASE_REAL=$(cd ".planning/phases/<resolved-name>" && pwd -P)
+   PHASE_DIR=$(find .planning/phases .planning/milestones -maxdepth 2 -type d \
+                 -name "<arg>" 2>/dev/null | head -1)
+   if [ -z "$PHASE_DIR" ]; then
+     MATCHES=$(find .planning/phases .planning/milestones -maxdepth 2 -type d \
+                 -name "<arg>-*" 2>/dev/null)
+     [ "$(printf '%s\n' "$MATCHES" | grep -c .)" = "1" ] && PHASE_DIR="$MATCHES"
+   fi
+   ```
+   - Unique match → `$PHASE_DIR` is set; continue.
+   - Zero matches → error: "Phase '<arg>' not found under .planning/phases/ or .planning/milestones/. Available: <list dirs from both roots>".
+   - Multiple matches → error listing them and stop — do not guess between an archived and an active copy of the same phase number.
+
+   **After resolution, verify containment.** Confirm the realpath of the resolved phase dir is a descendant of the realpath of `.planning/` (the common root of both layouts):
+   ```bash
+   PLANNING_ROOT=$(cd .planning && pwd -P)
+   PHASE_REAL=$(cd "$PHASE_DIR" && pwd -P)
    case "$PHASE_REAL/" in
-     "$PHASES_ROOT/"*) : ;;  # ok, contained
-     *) echo "Phase resolution escaped .planning/phases/ — refusing."; exit 1 ;;
+     "$PLANNING_ROOT/"*) : ;;  # ok, contained
+     *) echo "Phase resolution escaped .planning/ — refusing."; exit 1 ;;
    esac
    ```
 
-   Compute phase commit range:
+   Compute phase commit range (`$PHASE_DIR` is the path resolved above):
    ```bash
-   PHASE_DIR=".planning/phases/<resolved-name>"
    PHASE_START=$(git log --reverse --format=%H -- "$PHASE_DIR" | head -1)
    if [ -z "$PHASE_START" ]; then
      echo "ℹ Phase dir '$PHASE_DIR' has no commit history yet — using staged + unstaged diff only for this pass."
@@ -136,7 +146,7 @@ Parse `$ARGUMENTS`:
    ```
    Diff = `$PHASE_RANGE` (if non-empty) + staged + unstaged.
 
-   Set `$PHASE_ID = <resolved-name>` for state and intent context. (Validated above to be a safe slug.)
+   Set `$PHASE_ID = $(basename "$PHASE_DIR")` for state and intent context — the directory *name*, layout-independent, so state files are identical whether the phase lives flat or milestone-nested. `$PHASE_DIR` (the full resolved path) is reused by Phase 1 (triage prompt) and Phase 1.5 (intent docs) — those phases must NOT re-derive it from `.planning/phases/`.
 
 ## Phase 0.5 — Multi-pass state check
 
@@ -202,7 +212,7 @@ You are the triage agent. Classify this diff.
 {{ls of repo root, immediate level}}
 </repo-root-files>
 
-{{if $PHASE_ID set: <phase-dir>.planning/phases/$PHASE_ID/</phase-dir>}}
+{{if $PHASE_ID set: <phase-dir>{{$PHASE_DIR}}/</phase-dir>}}
 
 Return JSON per your subagent instructions.
 ````
@@ -217,7 +227,7 @@ Parse JSON. Use:
 
 Only runs if `$PHASE_ID` is set (GSD phase mode from Phase 0) and triage's `intent_docs_found` includes any of `PLAN.md`, `SPEC.md`, `RESEARCH.md`.
 
-1. Read each from `.planning/phases/$PHASE_ID/<doc>`. Cap each at 3000 chars (truncate with `[…truncated]`).
+1. Read each from `$PHASE_DIR/<doc>` (the phase dir resolved in Phase 0 — correct for both flat and milestone-nested layouts). Cap each at 3000 chars (truncate with `[…truncated]`).
 
 2. Assemble `<intent-context>`:
    ````
