@@ -49,16 +49,18 @@ Concretely, your execution order is:
 
 | Always | Condition | Agent | Model | Thinking |
 |--------|-----------|-------|-------|----------|
-| ✓ | — | `bugs` | sonnet | none |
+| ✓ | — | `bugs` | **fable** (per-call override) | none |
 | ✓ | — | `security` | sonnet | medium |
-| ✓ | — | `architecture` | **opus** | **high** |
-| ✓ | — | `impact` | sonnet | medium |
+| ✓ | — | `architecture` | **fable** (frontmatter) | **high** |
+| ✓ | — | `impact` | opus (frontmatter) | medium |
 |  | `CLAUDE.md`/`AGENTS.md` exists | `compliance` | sonnet | low |
 |  | TS/JS in diff | `language-typescript` | sonnet | none |
 |  | Python in diff | `language-python` | sonnet | none |
 |  | Go in diff | `language-go` | sonnet | none |
 |  | Rust in diff | `language-rust` | sonnet | none |
 |  | React imports | `framework-react` | sonnet | none |
+
+**Why Fable on `bugs` and `architecture`:** these are the two agents whose judgment gates what ships — missed real bugs and intent-vs-implementation drift are the costliest failure modes, and each is a single dispatch per pass so the upgrade cost is bounded. `bugs` keeps `model: sonnet` in its frontmatter (that's what `/review` uses for cheap iteration); `/deep-review` upgrades it by passing `model: "fable"` in the Task call — the same per-call override mechanism as the large-diff Haiku downgrade in `commands/review.md` M5. `architecture` and `impact` are deep-only, so their frontmatter carries the model and no override is needed.
 
 Pass thinking budget explicitly in Task calls:
 
@@ -142,4 +144,4 @@ Same flow as review.md.
 
 ## Cost note
 
-Typical deep pass ~$1.80 (Opus + thinking on architecture is the driver). Use sparingly — final pass before PR/finalize. Mid-loop should use `/review`.
+Typical deep pass ~$3–4 (Fable on `architecture` + `bugs` is the driver; Fable is ~2× Opus and ~3.3× Sonnet per token). Use sparingly — final pass before PR/finalize. Mid-loop should use `/review`.

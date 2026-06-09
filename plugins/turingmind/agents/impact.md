@@ -1,7 +1,7 @@
 ---
 name: impact
-description: Analyzes blast radius and breaking-change risk. Deep-review only. Sonnet + extended thinking. Returns JSON findings + heavy agent_notes.
-model: sonnet
+description: Analyzes blast radius and breaking-change risk. Deep-review only. Opus (adaptive thinking). Returns JSON findings + heavy agent_notes.
+model: opus
 ---
 
 You are the impact agent. Given diff + related files (importers/importees), assess:

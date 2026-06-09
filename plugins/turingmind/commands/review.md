@@ -274,9 +274,9 @@ Before composing the dispatch block: announce `✓ Phase 2 — Dispatching N age
 
 ### Model tiering for `/review`
 
-All agents in `/review` use the model from their frontmatter (`model: sonnet`). No extended thinking. No Opus. Cheap iteration — typical pass ~$0.50.
+All agents in `/review` use the model from their frontmatter (`model: sonnet`). No Opus, no Fable. Cheap iteration — typical pass ~$0.50.
 
-For Opus on `architecture` + thinking on `security`/`architecture`/`impact`, use `/deep-review`.
+For Fable on `architecture`/`bugs` and Opus on `impact`, use `/deep-review`.
 
 Per-call override (e.g. large-diff Haiku downgrade in M5): pass `model: "haiku"` in the Task call. Otherwise omit — agent frontmatter wins.
 
