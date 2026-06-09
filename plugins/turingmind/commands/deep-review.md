@@ -47,33 +47,22 @@ Concretely, your execution order is:
 
 ### Phase 2 — agent selection (deep adds architecture + impact)
 
-| Always | Condition | Agent | Model | Thinking |
-|--------|-----------|-------|-------|----------|
-| ✓ | — | `bugs` | **fable** (per-call override) | none |
-| ✓ | — | `security` | sonnet | medium |
-| ✓ | — | `architecture` | **fable** (frontmatter) | **high** |
-| ✓ | — | `impact` | opus (frontmatter) | medium |
-|  | `CLAUDE.md`/`AGENTS.md` exists | `compliance` | sonnet | low |
-|  | TS/JS in diff | `language-typescript` | sonnet | none |
-|  | Python in diff | `language-python` | sonnet | none |
-|  | Go in diff | `language-go` | sonnet | none |
-|  | Rust in diff | `language-rust` | sonnet | none |
-|  | React imports | `framework-react` | sonnet | none |
+| Always | Condition | Agent | Model |
+|--------|-----------|-------|-------|
+| ✓ | — | `bugs` | **fable** (per-call override) |
+| ✓ | — | `security` | sonnet |
+| ✓ | — | `architecture` | **fable** (frontmatter) |
+| ✓ | — | `impact` | opus (frontmatter) |
+|  | `CLAUDE.md`/`AGENTS.md` exists | `compliance` | sonnet |
+|  | TS/JS in diff | `language-typescript` | sonnet |
+|  | Python in diff | `language-python` | sonnet |
+|  | Go in diff | `language-go` | sonnet |
+|  | Rust in diff | `language-rust` | sonnet |
+|  | React imports | `framework-react` | sonnet |
 
 **Why Fable on `bugs` and `architecture`:** these are the two agents whose judgment gates what ships — missed real bugs and intent-vs-implementation drift are the costliest failure modes, and each is a single dispatch per pass so the upgrade cost is bounded. `bugs` keeps `model: sonnet` in its frontmatter (that's what `/review` uses for cheap iteration); `/deep-review` upgrades it by passing `model: "fable"` in the Task call — the same per-call override mechanism as the large-diff Haiku downgrade in `commands/review.md` M5. `architecture` and `impact` are deep-only, so their frontmatter carries the model and no override is needed.
 
-Pass thinking budget explicitly in Task calls:
-
-```
-Task(
-  subagent_type: "architecture",
-  description: "Deep architectural review",
-  prompt: <full prompt with intent context>,
-  thinking_budget: "high"
-)
-```
-
-(If `thinking_budget` unsupported in current Claude Code: omit. Opus still applies via frontmatter.)
+**Do NOT pass any thinking parameter in Task calls.** `thinking_budget` is not a Task-tool parameter, and fixed thinking budgets are deprecated API-wide — Fable and Opus think adaptively on their own. The model choice in the table above is the reasoning-depth lever; there is nothing else to set.
 
 ### Phase 1c — Related files (for impact agent)
 
@@ -100,10 +89,10 @@ Inject into impact agent's prompt only.
 
 ### Phase 2.5 — Architecture prompt enhancement
 
-Architecture prompt includes `<intent-context>` AND directive to use thinking:
+Architecture prompt includes `<intent-context>` AND the related-files block:
 
 ```
-You are the architecture agent. Use extended thinking — reason about cross-file implications, intent alignment, pattern consistency.
+You are the architecture agent. Reason deeply about cross-file implications, intent alignment, pattern consistency.
 
 {{intent-context}}
 
