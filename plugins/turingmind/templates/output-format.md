@@ -17,6 +17,10 @@ Use this template for presenting review results. Always show what was filtered t
 |-------|----------|----------|
 | {{total_issues}} | {{reported_issues}} | {{filtered_issues}} |
 
+### Bottom line
+
+{{2–4 sentences, plain language, zero jargon — written for a non-engineer making the fix/skip/ship call. Answer two questions: would you ship this as-is, and what breaks for users if you do? Group findings by product consequence, not by category. e.g. "Two of these can crash the app for real users — the missing null check and the race condition — fix those before shipping. The other three won't be felt by users today but make future changes riskier. Verdict: fix the first two, ship, defer the rest."}}
+
 ---
 
 ### Critical 🔴
@@ -29,6 +33,8 @@ Must fix before commit:
 After the table, for each Critical finding render:
 
 **`{{file}}:{{line}}` — {{title}}** (found by: {{agents_csv}})
+
+*In plain terms:* {{one sentence of user/product impact — what breaks, for whom, when. No jargon, no CWE numbers, no restating the technical problem. Translate, don't summarize: "users who hit this endpoint with an expired session see a crash instead of a login prompt", not "null reference on user object". Derive from problem + why_it_matters.}}
 
 {{problem}}
 
@@ -134,6 +140,7 @@ Consider fixing or acknowledge in `--finalize`:
 
 | Section | Quick Review | Deep Review |
 |---------|--------------|-------------|
+| Bottom line (plain language) | ✅ | ✅ |
 | Critical (95-100) | ✅ | ✅ |
 | Warning (80-94) | ✅ | ✅ |
 | Medium (70-79) | ❌ | ✅ |

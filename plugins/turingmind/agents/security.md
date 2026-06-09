@@ -40,6 +40,10 @@ Check for security vulnerabilities. Focus on issues in the changed code.
 - Insecure deserialization
 - Mass assignment vulnerabilities
 
+## Coverage, not filtering
+
+Report every issue you find, including ones you are uncertain about or consider low-severity. Do not self-filter for importance or confidence — the orchestrator scores every finding (`templates/scoring.md`) and filters downstream; your honest `agent_confidence` and `severity` are what make that filter work. A surfaced finding that gets filtered out costs nothing; a silently dropped real issue is unrecoverable. (Pure style/naming preferences remain out of scope — report defects, not taste.)
+
 ## Output
 
 Return ONE JSON object matching `templates/agent-output-schema.md`. Use `category` values: `injection`, `xss`, `secrets`, `auth`, `data-exposure`, `path-traversal`, `ssrf`, `deserialization`, `mass-assignment`. Always populate `cwe`.

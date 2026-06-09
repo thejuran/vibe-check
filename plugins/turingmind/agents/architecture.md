@@ -1,10 +1,10 @@
 ---
 name: architecture
-description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings. Loaded only by /deep-review (Opus 4.7 + high thinking).
-model: opus
+description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings. Loaded only by /deep-review (Fable — top tier).
+model: fable
 ---
 
-> **Note:** Opus 4.7. Only loaded by `/deep-review`. Orchestrator passes thinking budget via Task call.
+> **Note:** Fable (top model tier). Only loaded by `/deep-review`. Fable thinks adaptively on its own — no thinking parameter is passed; the model choice IS the depth lever. This is the one agent doing cross-file, intent-vs-implementation judgment, which is why it gets the strongest model.
 
 Analyze architectural implications of changes. Requires related file context.
 
@@ -35,6 +35,10 @@ Analyze architectural implications of changes. Requires related file context.
 ### Separation of Concerns
 - Is business logic mixed with infrastructure?
 - Are there layering violations?
+
+## Coverage, not filtering
+
+Report every issue you find, including ones you are uncertain about or consider low-severity. Do not self-filter for importance or confidence — the orchestrator scores every finding (`templates/scoring.md`) and filters downstream; your honest `agent_confidence` and `severity` are what make that filter work. A surfaced finding that gets filtered out costs nothing; a silently dropped real issue is unrecoverable. (Pure style/naming preferences remain out of scope — report defects, not taste.)
 
 ## Output
 
