@@ -1,6 +1,6 @@
-# Architecture — Personal Fork (v2.0.0-local)
+# Architecture (v2.0.0)
 
-Local-only fork of `turingmindai/turingmind-code-review`.
+Adapted from the upstream `turingmindai/turingmind-code-review` project.
 
 ## Why a fork
 
@@ -46,7 +46,7 @@ The tool reads from `.planning/` and the repo but **only writes to `.turingmind/
 
 Typical loop (3 quick + 1 deep) ≈ $3.30.
 
-## Where the design lives
+## Design history
 
-- Spec: `/Users/julianamacbook/docs/superpowers/specs/2026-05-24-turingmind-fork-design.md`
-- Plan: `/Users/julianamacbook/docs/superpowers/plans/2026-05-24-turingmind-fork.md`
+This fork was designed spec-first and plan-first; those documents are kept in the
+author's private notes and are not part of this repository.

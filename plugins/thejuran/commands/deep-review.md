@@ -32,7 +32,7 @@ Comprehensive review with architecture + impact analysis + intent-doc alignment.
 
 Concretely, your execution order is:
 
-1. Read `commands/review.md` end-to-end (it lives next to this file under `plugins/turingmind/commands/review.md`). That file is the authoritative spec for the shared phases AND for the HARD CONTRACT above (which applies identically to `/deep-review`).
+1. Read `commands/review.md` end-to-end (it lives next to this file under `plugins/thejuran/commands/review.md`). That file is the authoritative spec for the shared phases AND for the HARD CONTRACT above (which applies identically to `/deep-review`).
 2. Execute Phase 0, 0.5, 0.7, 1, 1.5 per `commands/review.md`.
 3. Execute Phase 2 (agent selection) per the "Differences from /review" section below — this command DIFFERS from `/review` in agent dispatch (adds architecture+impact, lowers threshold). Use the table in "Differences" below, NOT the Phase 2 table in `commands/review.md`.
 4. Execute Phase 1c (Related files) per "Differences" below — this is a NEW phase that /review doesn't have.
@@ -47,11 +47,13 @@ Concretely, your execution order is:
 
 ### Phase 2 — agent selection (deep adds architecture + impact)
 
+**Top-tier model resolution (do this first, once per run).** Read the env var `$THEJURAN_TOP_MODEL`. If it is set to a non-empty value, that is `<TOP>` (e.g. `fable`). If unset or empty, `<TOP>` defaults to `opus`. Use `<TOP>` wherever the table below says **top** below. Only `opus` and `fable` are supported values; if it's set to anything else, fall back to `opus` and tell the user once: "⚠ Unrecognized $THEJURAN_TOP_MODEL — using opus." Do NOT print anything when it resolves normally.
+
 | Always | Condition | Agent | Model |
 |--------|-----------|-------|-------|
-| ✓ | — | `bugs` | **fable** (per-call override) |
+| ✓ | — | `bugs` | **top** (per-call override) |
 | ✓ | — | `security` | sonnet |
-| ✓ | — | `architecture` | **fable** (frontmatter) |
+| ✓ | — | `architecture` | **top** (per-call override) |
 | ✓ | — | `impact` | opus (frontmatter) |
 |  | `CLAUDE.md`/`AGENTS.md` exists | `compliance` | sonnet |
 |  | TS/JS in diff | `language-typescript` | sonnet |
@@ -60,9 +62,11 @@ Concretely, your execution order is:
 |  | Rust in diff | `language-rust` | sonnet |
 |  | React imports | `framework-react` | sonnet |
 
-**Why Fable on `bugs` and `architecture`:** these are the two agents whose judgment gates what ships — missed real bugs and intent-vs-implementation drift are the costliest failure modes, and each is a single dispatch per pass so the upgrade cost is bounded. `bugs` keeps `model: sonnet` in its frontmatter (that's what `/review` uses for cheap iteration); `/deep-review` upgrades it by passing `model: "fable"` in the Task call — the same per-call override mechanism as the large-diff Haiku downgrade in `commands/review.md` M5. `architecture` and `impact` are deep-only, so their frontmatter carries the model and no override is needed.
+**Why the top tier on `bugs` and `architecture`:** these are the two agents whose judgment gates what ships — missed real bugs and intent-vs-implementation drift are the costliest failure modes, and each is a single dispatch per pass so the upgrade cost is bounded. `bugs` keeps `model: sonnet` in its frontmatter (that's what `/review` uses for cheap iteration); `/deep-review` upgrades it by passing `model: "<TOP>"` in the Task call — the same per-call override mechanism as the large-diff Haiku downgrade in `commands/review.md` M5. `architecture` defaults to `opus` in its frontmatter but `/deep-review` likewise passes `model: "<TOP>"` per-call so the env var governs it too. `impact` is deep-only and stays on `opus` via its frontmatter — no override.
 
-**Do NOT pass any thinking parameter in Task calls.** `thinking_budget` is not a Task-tool parameter, and fixed thinking budgets are deprecated API-wide — Fable and Opus think adaptively on their own. The model choice in the table above is the reasoning-depth lever; there is nothing else to set.
+**Default is Opus; Fable is opt-in.** Out of the box `<TOP>` is `opus`, which every paid tier can reach with no retry delay. Users whose subscription includes Fable can set `THEJURAN_TOP_MODEL=fable` to upgrade the two gating agents to the strongest tier. See the README's Configuration section.
+
+**Do NOT pass any thinking parameter in Task calls.** `thinking_budget` is not a Task-tool parameter, and fixed thinking budgets are deprecated API-wide — both Opus and Fable think adaptively on their own. The model choice in the table above is the reasoning-depth lever; there is nothing else to set.
 
 ### Phase 1c — Related files (for impact agent)
 
@@ -133,4 +137,4 @@ Same flow as review.md.
 
 ## Cost note
 
-Typical deep pass ~$3–4 (Fable on `architecture` + `bugs` is the driver; Fable is ~2× Opus and ~3.3× Sonnet per token). Use sparingly — final pass before PR/finalize. Mid-loop should use `/review`.
+Typical deep pass ~$2–4 (the top-tier model on `architecture` + `bugs` is the driver). On the default Opus tier that's roughly the low end; opting up to Fable (`THEJURAN_TOP_MODEL=fable`) raises it — Fable is ~2× Opus and ~3.3× Sonnet per token. Use sparingly — final pass before PR/finalize. Mid-loop should use `/review`.

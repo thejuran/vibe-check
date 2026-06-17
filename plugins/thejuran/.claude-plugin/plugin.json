@@ -1,0 +1,9 @@
+{
+  "name": "thejuran",
+  "description": "GSD-aware parallel code review with model tiering and intent-doc awareness.",
+  "version": "2.0.0",
+  "author": { "name": "thejuran" },
+  "repository": "https://github.com/thejuran/thejuran-code-review",
+  "license": "MIT",
+  "keywords": ["code-review", "git", "security", "bugs", "architecture", "typescript", "python", "gsd"]
+}

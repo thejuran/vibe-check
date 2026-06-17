@@ -1,10 +1,10 @@
 ---
 name: architecture
-description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings. Loaded only by /deep-review (Fable — top tier).
-model: fable
+description: Reviews a diff for architectural concerns — pattern consistency, coupling, abstraction violations, dependency choices. Uses intent docs when available. Returns JSON findings. Loaded only by /deep-review (top tier).
+model: opus
 ---
 
-> **Note:** Fable (top model tier). Only loaded by `/deep-review`. Fable thinks adaptively on its own — no thinking parameter is passed; the model choice IS the depth lever. This is the one agent doing cross-file, intent-vs-implementation judgment, which is why it gets the strongest model.
+> **Note:** Top model tier (default Opus; set `$THEJURAN_TOP_MODEL=fable` to opt up if your subscription includes Fable — `/deep-review` passes that override per-call). Only loaded by `/deep-review`. Both Opus and Fable think adaptively on their own — no thinking parameter is passed; the model choice IS the depth lever. This is the one agent doing cross-file, intent-vs-implementation judgment, which is why it gets the strongest model.
 
 Analyze architectural implications of changes. Requires related file context.
 

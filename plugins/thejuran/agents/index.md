@@ -49,7 +49,7 @@ Load based on file extensions detected in diff:
 | `.py` | `@agents/language-python.md` |
 
 ### Architecture Agent
-Load when: Deep review mode (`/turingmind-code-review:deep-review`)
+Load when: Deep review mode (`/thejuran:deep-review`)
 
 ```
 @agents/architecture.md

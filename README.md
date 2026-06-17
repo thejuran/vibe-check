@@ -1,16 +1,15 @@
 <div align="center">
 
-# 🧠 TuringMind Code Review
+# 🧠 thejuran Code Review
 
 **Catch bugs before they catch you.**
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill for AI-powered code review of your uncommitted changes. Install from the marketplace, review instantly.
+A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for AI-powered code review of your uncommitted changes. Install from the marketplace, review instantly.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Claude Code Skill](https://img.shields.io/badge/Claude_Code-Skill-blueviolet)](https://docs.anthropic.com/en/docs/claude-code)
-[![Install from Marketplace](https://img.shields.io/badge/Marketplace-Install-green)](https://github.com/turingmindai/turingmind-code-review)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://docs.anthropic.com/en/docs/claude-code)
 
-[Quick Start](#-quick-start) • [Features](#-features) • [Examples](#-example-output) • [Contributing](#-contributing)
+[Quick Start](#-quick-start) • [Configuration](#%EF%B8%8F-configuration) • [Features](#-features) • [Examples](#-example-output)
 
 </div>
 
@@ -18,95 +17,61 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill for AI-pow
 
 ## 📦 What is This?
 
-**TuringMind Code Review** is a **Claude Code skill** — a reusable, shareable plugin that extends Claude Code with specialized code review capabilities. 
+A **Claude Code plugin** that adds two code-review slash commands — a fast pre-commit pass and a deep pre-PR pass. It runs specialized per-domain reviewer agents in parallel, scores and filters their findings, and shows you only what's worth your attention *in your diff* — not pre-existing tech debt.
 
-Claude Code skills are installed via the built-in plugin marketplace and add new slash commands to your Claude Code environment.
+It is GSD-aware: if your project uses [GSD](https://github.com/jnuyens/gsd-plugin) phase planning, it reads the phase's intent docs (`PLAN.md` / `SPEC.md` / `RESEARCH.md`) to judge implementation-vs-intent. If you don't use GSD, it falls back to plain git-diff review with zero setup.
 
----
-
-## 💡 Why TuringMind?
-
-You're about to commit. ESLint passes. Types check. Tests are green.
-
-**But there's a SQL injection on line 23.**
-
-TuringMind catches what linters miss:
-- 🐛 Logic errors that compile but fail at runtime
-- 🔐 Security vulnerabilities (OWASP Top 10)
-- 📐 Architecture violations your team agreed to avoid
-- 🎯 Issues *in your diff*, not pre-existing tech debt
-
-> "Like having a senior engineer review every commit — in seconds."
+> Adapted from the upstream [`turingmindai/turingmind-code-review`](https://github.com/turingmindai/turingmind-code-review) project, with real parallel agent dispatch, model tiering, intent-doc awareness, and a stateful multi-pass review loop.
 
 ---
 
 ## 🚀 Quick Start
 
-### Install from Marketplace
-
-Open Claude Code in your terminal and run:
+Open Claude Code and run:
 
 ```bash
-# Step 1: Add the TuringMind marketplace
-/plugin marketplace add turingmindai/turingmind-code-review
+# Step 1: Add the marketplace
+/plugin marketplace add thejuran/thejuran-code-review
 ```
 
 ```bash
-# Step 2: Install the skill
-/plugin install turingmind@turingmind
+# Step 2: Install the plugin
+/plugin install thejuran@thejuran
 ```
 
-### Use the Commands
+Then use the commands:
 
 ```bash
-# Quick review — fast, pre-commit check
-/turingmind-code-review:review
+# Quick review — fast, pre-commit check (Sonnet agents)
+/thejuran:review
 
-# Deep review — thorough analysis before PRs
-/turingmind-code-review:deep-review
+# Deep review — thorough pre-PR analysis (adds architecture + impact)
+/thejuran:deep-review
 ```
-
-That's it. No config files. No setup. Just code review.
 
 ### Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and configured
-- Git repository with uncommitted changes
+- A git repository with changes to review
 
-### Optional: Git Hooks
+---
 
-#### Pre-Commit Hook (Recommended)
+## ⚙️ Configuration
 
-Automatically run code review on **staged changes** before every commit:
+The plugin works out of the box with no configuration. One optional knob controls the **top model tier** used by the two judgment-gating agents (`bugs` and `architecture`) during `/deep-review`:
 
-```bash
-# Manual install
-cp hooks/pre-commit .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
-```
+| Env var | Default | Values | Effect |
+|---|---|---|---|
+| `THEJURAN_TOP_MODEL` | `opus` | `opus`, `fable` | Model used for the `bugs` + `architecture` agents in `/deep-review`. |
 
-What it does:
-- 🔴 **Critical issues (95-100)** → Blocks the commit
-- 🟠 **Warning issues (80-94)** → Shows warning, allows commit
-- ✅ **No issues** → Commit proceeds normally
+- **Default (`opus`)** — works on every paid Claude tier with no delay. Leave it unset and you're fine.
+- **`fable`** — opt up to the strongest tier *only if your subscription includes Fable*. Set it in your shell or Claude Code env:
 
-To uninstall: `rm .git/hooks/pre-commit`
+  ```bash
+  export THEJURAN_TOP_MODEL=fable
+  ```
 
-#### Pre-Push Hook
-
-Automatically run code review before every `git push`:
-
-```bash
-# One-liner install (run in your project)
-curl -sSL https://raw.githubusercontent.com/turingmindai/turingmind-code-review/main/scripts/install-hooks.sh | bash
-```
-
-What it does:
-- 🔴 **Critical issues (95-100)** → Blocks the push
-- 🟠 **Warning issues (80-94)** → Shows warning, allows push
-- ✅ **No issues** → Push proceeds normally
-
-To uninstall: `rm .git/hooks/pre-push`
+`/review` always uses Sonnet (and downgrades language agents to Haiku on very large diffs) regardless of this setting — it's tuned for cheap iteration.
 
 ---
 
@@ -116,13 +81,13 @@ To uninstall: `rm .git/hooks/pre-push`
 
 | | Quick Review | Deep Review |
 |---|---|---|
-| **Command** | `/turingmind-code-review:review` | `/turingmind-code-review:deep-review` |
+| **Command** | `/thejuran:review` | `/thejuran:deep-review` |
 | **Speed** | ⚡ Fast | 🔍 Thorough |
 | **Best for** | Pre-commit checks | Before PRs |
-| **Agents** | 4 Sonnet | 6 Sonnet + 3 Haiku |
+| **Top-tier agents** | — | `bugs` + `architecture` (Opus/Fable), `impact` (Opus) |
 | **Architecture analysis** | — | ✅ |
-| **Impact analysis** | — | ✅ |
-| **Test coverage check** | — | ✅ |
+| **Impact / blast-radius analysis** | — | ✅ |
+| **Intent-doc alignment (GSD)** | — | ✅ |
 
 ### What Gets Checked
 
@@ -159,9 +124,8 @@ To uninstall: `rm .git/hooks/pre-push`
 <td>
 
 **🎯 Project Rules**
-- CLAUDE.md compliance
+- CLAUDE.md / AGENTS.md compliance
 - Team conventions
-- Naming standards
 
 </td>
 </tr>
@@ -169,11 +133,13 @@ To uninstall: `rm .git/hooks/pre-push`
 
 ### Smart Filtering
 
-TuringMind won't waste your time. It automatically filters:
-- ❌ Pre-existing issues (not your fault)
+Findings are confidence-scored and filtered so you don't drown in noise:
+- ❌ Pre-existing issues (not introduced by your diff)
 - ❌ Linter territory (let ESLint handle it)
-- ❌ Pedantic nitpicks (no "add semicolon" spam)
-- ❌ Intentional changes (you meant to do that)
+- ❌ Pedantic nitpicks
+- ❌ Intentional changes near `// review-silenced`-style markers
+
+Filtered findings stay visible in a transparency section — nothing is dropped silently.
 
 ---
 
@@ -192,7 +158,7 @@ Must fix before committing:
 1. **api/auth.ts:23** - SQL injection vulnerability
 
    User input directly interpolated into SQL query.
-   
+
    ```diff
    - const query = `SELECT * FROM users WHERE email = '${email}'`;
    + const query = `SELECT * FROM users WHERE email = $1`;
@@ -205,7 +171,7 @@ Should fix:
 1. **utils/parse.ts:15** - Unchecked null access
 
    `data.user.name` accessed without null check. Will throw if user is undefined.
-   
+
    Suggested fix: `data.user?.name ?? 'Unknown'`
 ```
 
@@ -217,46 +183,41 @@ Includes everything above, plus:
 ### Architectural Notes 📐
 - Pattern consistency: ✅ Follows existing patterns
 - Test coverage: ⚠️ No tests for new `validateEmail` function
-- Documentation: ✅ JSDoc comments present
 
 ### Impact Analysis 💥
 - **Affected files:** `routes/login.ts`, `middleware/auth.ts`
-- **Blast radius:** Auth flow - high business impact
+- **Blast radius:** Auth flow — high business impact
 - **Breaking changes:** None detected
 ```
+
+The deep review then runs an **interactive fix loop**: accept a finding and a dedicated fix agent applies the change semantically and commits it atomically.
 
 ---
 
 ## 🏗️ Architecture
 
-Modular design for easy customization:
-
 ```text
-plugins/turingmind/
-├── commands/           # Review orchestration
+plugins/thejuran/
+├── commands/           # Review orchestration (/review, /deep-review)
 │   ├── review.md
 │   └── deep-review.md
-├── agents/             # Specialized reviewers
+├── agents/             # Specialized parallel reviewers
+│   ├── triage.md       # Haiku — fast diff classification
 │   ├── bugs.md
 │   ├── security.md
 │   ├── compliance.md
-│   ├── architecture.md
-│   └── language-*.md
-└── templates/          # Output & filtering
-    ├── output-format.md
-    └── false-positive-rules.md
+│   ├── architecture.md # deep only
+│   ├── impact.md       # deep only
+│   ├── fix.md          # applies accepted fixes
+│   └── language-*.md / framework-*.md
+└── templates/          # Output schema, scoring, false-positive rules
 ```
+
+The plugin reads from `.planning/` (GSD intent docs) and the repo, but **only writes to `.turingmind/`** — it never touches the `.planning/` namespace. `.turingmind/` is gitignored by default; copy `REVIEW.md` somewhere persistent if you want it tracked.
 
 ### Extending
 
-```bash
-# Add Go support
-cp agents/language-typescript.md agents/language-go.md
-# Edit with Go-specific checks
-
-# Add custom security rules
-# Edit agents/security.md
-```
+Add a language: copy an existing `agents/language-*.md` and adjust its checklist. Tune detection by editing the relevant agent prompt; tune noise via `templates/false-positive-rules.md`.
 
 ---
 
@@ -265,34 +226,21 @@ cp agents/language-typescript.md agents/language-go.md
 This is **AI-assisted** code review. It's powerful, but:
 
 - 🔧 **Complements, doesn't replace** SAST tools (Semgrep, CodeQL, Snyk)
-- 🔗 Can't trace complex multi-file data flows
+- 🔗 Can't trace every complex multi-file data flow
 - 🧪 Doesn't run tests or type checking
 
 For security-critical code, layer this with dedicated security scanners.
 
 ---
 
-## 🤝 Contributing
-
-Contributions welcome! Here's how:
-
-1. **Add language support** — Create `agents/language-{lang}.md`
-2. **Improve detection** — Enhance agent prompts in `agents/`
-3. **Fix false positives** — Tune `templates/false-positive-rules.md`
-4. **Report issues** — Open a GitHub issue
-
----
-
 ## 📄 License
 
-MIT © [TuringMind](LICENSE)
+MIT — adapted from [`turingmindai/turingmind-code-review`](https://github.com/turingmindai/turingmind-code-review) (also MIT). See [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-**[⬆ Back to top](#-turingmind-code-review)**
-
-Made with 🧠 by developers, for developers.
+**[⬆ Back to top](#-thejuran-code-review)**
 
 </div>

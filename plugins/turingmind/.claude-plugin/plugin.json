@@ -1,9 +1,0 @@
-{
-  "name": "turingmind-code-review",
-  "description": "Personal local fork: GSD-aware parallel code review with model tiering and intent-doc awareness.",
-  "version": "2.0.0-local",
-  "author": { "name": "TuringMind (local fork by thejuran)" },
-  "repository": "https://github.com/turingmindai/turingmind-code-review",
-  "license": "MIT",
-  "keywords": ["code-review", "git", "security", "bugs", "architecture", "typescript", "python", "gsd"]
-}

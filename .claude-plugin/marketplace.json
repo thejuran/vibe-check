@@ -1,13 +1,13 @@
 {
-  "name": "turingmind",
+  "name": "thejuran",
   "version": "0.2.0",
   "owner": {
-    "name": "TuringMind"
+    "name": "thejuran"
   },
   "plugins": [
     {
-      "name": "turingmind",
-      "source": "./plugins/turingmind",
+      "name": "thejuran",
+      "source": "./plugins/thejuran",
       "description": "Catch bugs before they catch you. AI-powered code review for your uncommitted changes."
     }
   ]
