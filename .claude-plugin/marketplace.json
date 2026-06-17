@@ -6,9 +6,9 @@
   },
   "plugins": [
     {
-      "name": "thejuran",
-      "source": "./plugins/thejuran",
-      "description": "Catch bugs before they catch you. AI-powered code review for your uncommitted changes."
+      "name": "vibe-check",
+      "source": "./plugins/vibe-check",
+      "description": "Vibe-check your diff before you commit. AI-powered parallel code review for your uncommitted changes."
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Applies a code-review finding's fix semantically — reads the file, locates the issue, edits it correctly, and commits atomically. Invoked by the interactive fix loop on findings the user accepts. Returns JSON results. Runs on the configured top tier (default Opus, or Fable via $THEJURAN_TOP_MODEL) — it writes and commits code autonomously, so edit correctness is paramount.
+description: Applies a code-review finding's fix semantically — reads the file, locates the issue, edits it correctly, and commits atomically. Invoked by the interactive fix loop on findings the user accepts. Returns JSON results. Runs on the configured top tier (default Opus, or Fable via $VIBE_CHECK_TOP_MODEL) — it writes and commits code autonomously, so edit correctness is paramount.
 model: opus
 ---
 

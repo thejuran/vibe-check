@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧠 thejuran Code Review
+# 🧠 vibe-check
 
 **Catch bugs before they catch you.**
 
@@ -31,22 +31,22 @@ Open Claude Code and run:
 
 ```bash
 # Step 1: Add the marketplace
-/plugin marketplace add thejuran/thejuran-code-review
+/plugin marketplace add thejuran/vibe-check
 ```
 
 ```bash
 # Step 2: Install the plugin
-/plugin install thejuran@thejuran
+/plugin install vibe-check@thejuran
 ```
 
 Then use the commands:
 
 ```bash
 # Quick review — fast, pre-commit check (Sonnet agents)
-/thejuran:review
+/vibe-check:review
 
 # Deep review — thorough pre-PR analysis (adds architecture + impact)
-/thejuran:deep-review
+/vibe-check:deep-review
 ```
 
 ### Requirements
@@ -62,13 +62,13 @@ The plugin works out of the box with no configuration. One optional knob control
 
 | Env var | Default | Values | Effect |
 |---|---|---|---|
-| `THEJURAN_TOP_MODEL` | `opus` | `opus`, `fable` | Model used for the `bugs` + `architecture` agents in `/deep-review`. |
+| `VIBE_CHECK_TOP_MODEL` | `opus` | `opus`, `fable` | Model used for the `bugs` + `architecture` agents in `/deep-review`. |
 
 - **Default (`opus`)** — works on every paid Claude tier with no delay. Leave it unset and you're fine.
 - **`fable`** — opt up to the strongest tier *only if your subscription includes Fable*. Set it in your shell or Claude Code env:
 
   ```bash
-  export THEJURAN_TOP_MODEL=fable
+  export VIBE_CHECK_TOP_MODEL=fable
   ```
 
 `/review` always uses Sonnet (and downgrades language agents to Haiku on very large diffs) regardless of this setting — it's tuned for cheap iteration.
@@ -81,7 +81,7 @@ The plugin works out of the box with no configuration. One optional knob control
 
 | | Quick Review | Deep Review |
 |---|---|---|
-| **Command** | `/thejuran:review` | `/thejuran:deep-review` |
+| **Command** | `/vibe-check:review` | `/vibe-check:deep-review` |
 | **Speed** | ⚡ Fast | 🔍 Thorough |
 | **Best for** | Pre-commit checks | Before PRs |
 | **Top-tier agents** | — | `bugs` + `architecture` (Opus/Fable), `impact` (Opus) |
@@ -197,7 +197,7 @@ The deep review then runs an **interactive fix loop**: accept a finding and a de
 ## 🏗️ Architecture
 
 ```text
-plugins/thejuran/
+plugins/vibe-check/
 ├── commands/           # Review orchestration (/review, /deep-review)
 │   ├── review.md
 │   └── deep-review.md
@@ -241,6 +241,6 @@ MIT — adapted from [`turingmindai/turingmind-code-review`](https://github.com/
 
 <div align="center">
 
-**[⬆ Back to top](#-thejuran-code-review)**
+**[⬆ Back to top](#-vibe-check)**
 
 </div>
