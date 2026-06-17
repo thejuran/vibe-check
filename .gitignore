@@ -8,5 +8,8 @@
 # GSD planning artifacts (kept out of the fork repo itself)
 .planning/
 
+# Private design docs (spec/plan notes — kept local, not shared)
+docs/superpowers/
+
 # macOS Finder metadata
 .DS_Store
