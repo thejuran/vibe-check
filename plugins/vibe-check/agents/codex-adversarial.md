@@ -65,7 +65,7 @@ The remaining schema fields are **not** Codex's to supply — the orchestrator c
 
 | vibe-check field         | Who supplies it | Rule |
 |--------------------------|-----------------|------|
-| `current_code`           | orchestrator    | backfilled from the diff/file at `file:line_start`. |
+| `current_code`           | orchestrator    | backfilled from the **post-image / HEAD of the reviewed range** (the same revision the diff's changed lines refer to) at `file:line_start` — pinning this revision keeps the carry-forward persistence compare (`commands/review.md` Phase 3 step 0, which keys on `current_code`'s first line) behaving identically for Codex and native findings. |
 | `in_diff`                | orchestrator    | verified against the actual diff. Per `templates/agent-output-schema.md` **hard rule #4**, the orchestrator **overrides** whatever any agent claimed. |
 | `silenced_marker_nearby` | orchestrator    | verified by grepping ±2 lines. Same hard-rule-#4 override applies. |
 | `intent_doc_match`       | —               | `null` for Codex (Codex has no intent-doc context). |
