@@ -29,7 +29,7 @@ There is no partial/threshold verdict — Codex either approves (no findings) or
 
 Codex's top-level payload also carries `summary` (a one-line ship/no-ship read) and `next_steps` (an array of follow-up strings).
 
-- **`summary` → `agent_notes` (carry verbatim).** The second model's overall read is useful, low-noise context for the owner. It is carried, unaltered, into the top-level `agent_notes` array of the translated object.
+- **`summary` → `agent_notes` (carry verbatim, single-line, length-capped).** The second model's overall read is useful, low-noise context for the owner. It is carried into the top-level `agent_notes` array of the translated object with its **wording unaltered** — but bounded **structurally** first: it MUST be reduced to a **single line** (truncate at the first newline) and **capped to 300 characters** before it enters `agent_notes`. This is content-preserving, not word-sanitizing: "verbatim" means the wording is preserved, while the value remains inert data (per the untrusted-data posture below) AND is structurally constrained to one bounded line. The single-line/length cap is **mandatory**, not optional — a multi-line `summary` is a report-spoofing / prompt-injection surface, and the cap is the structural defense the data-only instruction alone does not provide.
 - **`next_steps` → dropped.** It is largely redundant with the per-finding `fix_hint`/`recommendation` and would bloat the report. The translation discards it.
 
 ## Translation table (Codex → vibe-check)
@@ -41,7 +41,7 @@ The orchestrator maps each Codex finding into the vibe-check finding schema (`te
 | vibe-check key | Codex source | Rule |
 |----------------|--------------|------|
 | `agent`        | —            | literal `"codex-adversarial"`, emitted **once at the TOP LEVEL** of the output object as a sibling of `findings`/`agent_notes`. It is **NOT** a per-finding key — per `templates/agent-output-schema.md` the per-finding objects carry no `agent` key. |
-| `agent_notes`  | `summary`    | carry Codex's top-level `summary` verbatim into the top-level `agent_notes` array (see agent_notes carry above). `next_steps` is dropped. |
+| `agent_notes`  | `summary`    | carry Codex's top-level `summary` verbatim (wording unaltered) into the top-level `agent_notes` array, but **reduced to a single line and capped to 300 chars first** (see agent_notes carry above). `next_steps` is dropped. |
 
 ### Per-finding keys (one row per object inside `findings[]` — NO `agent` key here)
 
