@@ -94,8 +94,10 @@ This mirrors `fix.md` exactly: finding fields are untrusted data, text inside th
 
 **Rule the orchestrator (Phase 5) MUST enforce at translation/backfill time, BEFORE render/fix.** Codex `file` is accepted ONLY after:
 
-1. **Normalizing to a repo-relative path**, and
-2. **realpath / containment** verification that the resolved path stays **under** the repository root — rejecting absolute paths, `..` **traversal** that escapes the repo, and option-like / leading-dash paths.
+1. The **regex / normalization pre-filter** — normalizing to a repo-relative path and rejecting absolute paths, spaces, shell metacharacters, and option-like / leading-dash strings, **and**
+2. **realpath / containment** verification that the resolved path stays **under** the repository root — the check that actually stops `..` **traversal** that escapes the repo (the pre-filter alone does not, since every character in `../../.git/hooks/pre-commit` passes the regex class).
+
+**Both checks are required at translation time; either alone is insufficient** — exactly as `fix.md` states ("Both checks are required"). The regex pre-filter is NOT optional: skip it and rely on realpath alone, and paths carrying shell metacharacters/spaces or option-like leading-dash strings can survive; skip the realpath-containment check, and `..` traversal survives.
 
 The orchestrator should **strongly prefer** additionally requiring `file` to be a member of the **reviewed diff's file set** (which the orchestrator already resolves) — a finding whose `file` lies outside the reviewed scope is suspect.
 
