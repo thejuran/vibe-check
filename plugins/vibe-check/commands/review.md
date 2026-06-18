@@ -271,6 +271,7 @@ This is a READ-ONLY operation. The tool NEVER writes to `.planning/`.
 |  | any `.go` in diff | `language-go` |
 |  | any `.rs` in diff | `language-rust` |
 |  | triage.frameworks includes "react" | `framework-react` |
+|  | triage.frameworks includes "fastapi" | `framework-fastapi` |
 
 Before composing the dispatch block: announce `✓ Phase 2 — Dispatching N agents in parallel: [list]` so the user can see the shape. Then immediately fire all N Task calls in one block. Do NOT use a separate Bash/Read tool call between the announcement and the dispatch — that would split the turn.
 
