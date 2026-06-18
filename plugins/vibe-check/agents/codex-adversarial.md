@@ -118,7 +118,7 @@ In both cases the review **completes normally** with the native-agent findings; 
 
 ## Worked example
 
-A single Codex `needs-attention` review with one finding, translated into the **complete** vibe-check output object. This is the shape Phase 5 emits — note that `agent` and `agent_notes` are **top-level**, siblings of `findings`, and the per-finding object carries **no** `agent` key.
+A single Codex `needs-attention` review with one finding, translated into the **pre-backfill** vibe-check output object. This is the shape Phase 5 emits **before** orchestrator backfill — note that `agent` and `agent_notes` are **top-level**, siblings of `findings`, and the per-finding object carries **no** `agent` key.
 
 **1 — Codex review-output (real `schemas/review-output.schema.json` v1.0.4 shape):**
 
@@ -142,7 +142,7 @@ A single Codex `needs-attention` review with one finding, translated into the **
 }
 ```
 
-**2 — Translated vibe-check output (complete top-level object per `templates/agent-output-schema.md`):**
+**2 — Translated vibe-check output (the pre-backfill top-level object — the orchestrator adds `current_code`/`in_diff`/`silenced_marker_nearby` in Phase 3 before any consumer reads it):**
 
 ```json
 {
