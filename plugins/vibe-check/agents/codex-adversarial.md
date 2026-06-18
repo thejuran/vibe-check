@@ -48,7 +48,7 @@ The orchestrator maps each Codex finding into the vibe-check finding schema (`te
 | vibe-check field   | Codex source        | Rule |
 |--------------------|---------------------|------|
 | `id`               | finding index       | `"codex-001"`, `"codex-002"`, … (1-based index within this run). |
-| `file`             | `file`              | **NOT a blind pass-through.** Accepted ONLY after repo-relative normalization **and** realpath/containment under the repo root (see the path trust-boundary rule below); on failure the finding is **dropped or downgraded to a non-blocking `agent_note`**, never emitted with an unvalidated path. |
+| `file`             | `file`              | **NOT a blind pass-through.** Accepted ONLY after repo-relative normalization **and** realpath/containment under the repo root (see the path trust-boundary rule below); on failure the canonical behavior is to **downgrade the finding to a non-blocking `agent_note` that does NOT echo the rejected path verbatim** (outright drop is a permitted variant) — never emitted with an unvalidated path. |
 | `line`             | `line_start`        | direct. When the range matters, mention `line_end` in `problem`. |
 | `title`            | `title`             | direct, **strip a trailing period**. Phrase plainly (see cross-confirm note). |
 | `category`         | —                   | literal `"adversarial"`. |
@@ -101,7 +101,7 @@ This mirrors `fix.md` exactly: finding fields are untrusted data, text inside th
 
 The orchestrator should **strongly prefer** additionally requiring `file` to be a member of the **reviewed diff's file set** (which the orchestrator already resolves) — a finding whose `file` lies outside the reviewed scope is suspect.
 
-**Failure behavior:** on any of these checks failing, the finding is **DROPPED** (or downgraded to a non-blocking `agent_note`) — **never** emitted with an unvalidated path.
+**Failure behavior (deterministic):** on any of these checks failing, the canonical rule is to **DOWNGRADE the finding to a non-blocking `agent_note`** so a suspicious path stays visible to the owner rather than vanishing silently; outright **dropping** the finding is a permitted variant when visibility is not wanted. Either way it is **never** emitted with an unvalidated path. The downgrade `agent_note` **MUST NOT contain the raw rejected path verbatim** — describe the failure without echoing the unvalidated path (e.g. `"Codex flagged a finding whose file path failed repo-containment validation and was withheld"`), or include the path only with its offending portion clearly marked/escaped so it cannot re-smuggle the bad path back into `agent_notes`. (This mirrors `fix.md`, which resolves its analogous case deterministically — record `errored` and skip — rather than leaving an unresolved either/or.)
 
 This is the **same** repo-relative + realpath-containment check `fix.md` already applies to `finding.file`: a regex pre-filter (`^[A-Za-z0-9._/-]+$`) is only a fast filter — it denies absolute paths, spaces, and shell metacharacters but does **not** stop `..` traversal (every character in `../../.git/hooks/pre-commit` is in that class). The realpath-**containment** compare under `git rev-parse --show-toplevel`, using the trailing-slash form `case "$REAL/" in "$ROOT/"*` (mirroring `commands/review.md` Phase 0's `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*`), is what blocks traversal and stops a sibling dir like `/repo-other` from masquerading as `/repo`. This contract requires Phase 5 to apply that check at **translation time** (defense before render/fix), not only at the fix agent's last line of defense.
 
@@ -175,7 +175,7 @@ What this demonstrates, mapping back to the rules above:
 - **`summary` → `agent_notes`** carried verbatim; **`next_steps` dropped** (the regression-test note does not appear).
 - **`title` trailing period stripped** (`"…after refresh."` → `"…after refresh"`).
 - **`agent_confidence` = `round(0.82 × 100)` = `82`** (integer, verbatim — no floor).
-- **`file` carried through ONLY because it passed** repo-relative normalization + realpath containment. A `file` that failed containment (e.g. an absolute path or one with escaping `..`) would instead be **dropped or downgraded to an `agent_note`** — it would NOT appear here as a valid finding's `file`.
+- **`file` carried through ONLY because it passed** repo-relative normalization + realpath containment. A `file` that failed containment (e.g. an absolute path or one with escaping `..`) would instead be **downgraded to a non-blocking `agent_note` that does not echo the rejected path verbatim** (canonical), or dropped (permitted variant) — it would NOT appear here as a valid finding's `file`.
 - **`current_code`, `in_diff`, `silenced_marker_nearby`** are absent from the translation because the **orchestrator backfills/verifies them** in Phase 3 for every agent (not Codex's to supply); `intent_doc_match` is `null` for Codex.
 
 ## Output
