@@ -1,4 +1,4 @@
-# Architecture (v2.0.0)
+# Architecture (v2.1.0)
 
 Adapted from the upstream `turingmindai/turingmind-code-review` project.
 
