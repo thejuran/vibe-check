@@ -20,6 +20,7 @@ Only load agents that are relevant to reduce context and improve accuracy.
 | `.go` files | `language-go` |
 | `.rs` files | `language-rust` |
 | React imports detected | `framework-react` |
+| FastAPI imports detected | `framework-fastapi` |
 | Deep review mode | `@agents/architecture.md` |
 
 ## Core Agents (Always Load)

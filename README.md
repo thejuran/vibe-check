@@ -129,6 +129,18 @@ The plugin works out of the box with no configuration. One optional knob control
 
 </td>
 </tr>
+<tr>
+<td>
+
+**⚛️ Frameworks (React + FastAPI)**
+- React: hook rules, key prop, stale closures
+- FastAPI: DI misuse, async/blocking discipline
+- FastAPI: Pydantic/validation gaps
+- FastAPI: `response_model` data exposure, auth gaps
+
+</td>
+<td width="50%"></td>
+</tr>
 </table>
 
 ### Smart Filtering
