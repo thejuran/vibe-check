@@ -3,7 +3,7 @@ name: codex-adversarial
 description: Contract agent for Codex (GPT-5-codex) adversarial review — defines how the orchestrator translates Codex's review-output findings into the vibe-check schema for /deep-review. Not a Task reviewer; a translation contract.
 ---
 
-This is a **contract document**, not a `Task` reviewer. Unlike the native vibe-check agents (`security`, `bugs`, `framework-react`, …), this file does not reason over a `<diff>` block and it never shells out. It is the **spec-of-record** for treating Codex as one more reviewer: the orchestrator wired in Phase 5 (`commands/deep-review.md`) runs Codex's `adversarial-review` on this agent's behalf, then translates the output into the vibe-check finding schema exactly as documented below. Phase 5 implements against this written contract so the mapping is never re-derived ad hoc. The selection matrix (`agents/index.md`) points here for the same reason.
+This is a **contract document**, not a `Task` reviewer. Unlike the native vibe-check agents (`security`, `bugs`, `framework-react`, …), this file does not reason over a `<diff>` block and it never shells out. It is the **spec-of-record** for treating Codex as one more reviewer: the orchestrator (in `/deep-review`, `commands/deep-review.md`) runs Codex's `adversarial-review` on this agent's behalf — kickoff in **Phase 2c**, collection/translation in **Phase 3** — then translates the output into the vibe-check finding schema exactly as documented below. (Note: `/deep-review`'s **Phase 5** is the interactive FIX LOOP, NOT the Codex integration — do not place the Codex runtime there.) The orchestrator implements against this written contract so the mapping is never re-derived ad hoc. The selection matrix (`agents/index.md`) points here for the same reason.
 
 Codex is a **second model** (GPT-5-codex) whose review prompt is explicitly adversarial — "break confidence in the change, not validate it" — so it weights auth/trust boundaries, data loss, rollback safety, races, partial failure, and schema drift. It runs **only in `/deep-review`** (never the fast `/review` path) and its findings flow through the existing merge / dedup / score / render pipeline like any native reviewer. No scoring, triage, or schema changes accompany it.
 
@@ -12,7 +12,7 @@ Codex is a **second model** (GPT-5-codex) whose review prompt is explicitly adve
 - **Name:** `codex-adversarial` (matches the frontmatter `name`, and is the literal value of the top-level `agent` key in the translated output).
 - **What runs it:** the **orchestrator**, not this doc. The orchestrator probes Codex availability, runs `adversarial-review --json --wait` against the diff range it already resolved in Phase 0, parses the `--json` payload (conforming to Codex's `schemas/review-output.schema.json`), and applies the translation table here.
 - **What this doc owns:** the Codex→vibe-check field mapping, the verdict rule, the `agent_notes` carry decision, the orchestrator-backfill delegation, the untrusted-data posture (including the path trust boundary on `file`), the unavailable/timeout fallback contract, and one worked example.
-- **What this doc does NOT own:** any runtime mechanics — plugin-path resolution, the exact timeout value, the probe/run sequencing, the skip-line wording. Those are Phase 5. This phase writes the contract; no code executes here.
+- **What this doc does NOT own:** any runtime mechanics — plugin-path resolution, the exact timeout value, the probe/run sequencing, the skip-line wording. Those live in the orchestrator's runtime wiring (`commands/deep-review.md` Phase 2c kickoff + Phase 3 collection), NOT here and NOT in Phase 5 (the fix loop). This phase writes the contract; no code executes here.
 
 ## Verdict handling
 
@@ -70,7 +70,7 @@ The remaining schema fields are **not** Codex's to supply — the orchestrator c
 | `silenced_marker_nearby` | orchestrator    | verified by grepping ±2 lines. Same hard-rule-#4 override applies. |
 | `intent_doc_match`       | —               | `null` for Codex (Codex has no intent-doc context). |
 
-**Cross-confirm enabler (forward-looking, enforced in Phase 5):** phrase Codex titles **plainly** so they share a substring with the likely native title at the same site — the same technique `framework-fastapi.md` uses for its security twin. Phase 3 dedups by `(file, line ±2)` + title-substring (not by `category`), so a plain shared substring is what fires the +10 cross-model confirmation when Codex and a native agent flag the same defect.
+**Cross-confirm enabler (forward-looking, enforced in `/deep-review` Phase 3 dedup):** phrase Codex titles **plainly** so they share a substring with the likely native title at the same site — the same technique `framework-fastapi.md` uses for its security twin. Phase 3 dedups by `(file, line ±2)` + title-substring (not by `category`), so a plain shared substring is what fires the +10 cross-model confirmation when Codex and a native agent flag the same defect.
 
 ## Untrusted-data posture
 
@@ -92,7 +92,7 @@ This mirrors `fix.md` exactly: finding fields are untrusted data, text inside th
 
 `file` is untrusted model output that is **path-sensitive**. The real Codex schema only guarantees `file` is a **non-empty string** — it is **not** validated as repo-relative; it could be an absolute path, contain `..`, or be option-like (leading dash). The vibe-check schema, by contrast, requires a **repo-relative path**, and that value ultimately drives the fix agent's file reads/edits. So the value MUST cross a validation boundary **before** it is ever emitted as a finding's `file`.
 
-**Rule the orchestrator (Phase 5) MUST enforce at translation/backfill time, BEFORE render/fix.** Codex `file` is accepted ONLY after:
+**Rule the orchestrator MUST enforce at translation/backfill time (`/deep-review` Phase 3), BEFORE render/fix.** Codex `file` is accepted ONLY after:
 
 1. The **regex / normalization pre-filter** — normalizing to a repo-relative path and rejecting absolute paths, spaces, shell metacharacters, and option-like / leading-dash strings, **and**
 2. **realpath / containment** verification that the resolved path stays **under** the repository root — the check that actually stops `..` **traversal** that escapes the repo (the pre-filter alone does not, since every character in `../../.git/hooks/pre-commit` passes the regex class).
@@ -103,24 +103,24 @@ The orchestrator should **strongly prefer** additionally requiring `file` to be 
 
 **Failure behavior (deterministic):** on any of these checks failing, the canonical rule is to **DOWNGRADE the finding to a non-blocking `agent_note`** so a suspicious path stays visible to the owner rather than vanishing silently; outright **dropping** the finding is a permitted variant when visibility is not wanted. Either way it is **never** emitted with an unvalidated path. The downgrade `agent_note` **MUST NOT contain the raw rejected path verbatim** — describe the failure without echoing the unvalidated path (e.g. `"Codex flagged a finding whose file path failed repo-containment validation and was withheld"`), or include the path only with its offending portion clearly marked/escaped so it cannot re-smuggle the bad path back into `agent_notes`. (This mirrors `fix.md`, which resolves its analogous case deterministically — record `errored` and skip — rather than leaving an unresolved either/or.)
 
-This is the **same** repo-relative + realpath-containment check `fix.md` already applies to `finding.file`: a regex pre-filter (`^[A-Za-z0-9._/-]+$`) is only a fast filter — it denies absolute paths, spaces, and shell metacharacters but does **not** stop `..` traversal (every character in `../../.git/hooks/pre-commit` is in that class). The realpath-**containment** compare under `git rev-parse --show-toplevel`, using the trailing-slash form `case "$REAL/" in "$ROOT/"*` (mirroring `commands/review.md` Phase 0's `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*`), is what blocks traversal and stops a sibling dir like `/repo-other` from masquerading as `/repo`. This contract requires Phase 5 to apply that check at **translation time** (defense before render/fix), not only at the fix agent's last line of defense.
+This is the **same** repo-relative + realpath-containment check `fix.md` already applies to `finding.file`: a regex pre-filter (`^[A-Za-z0-9._/-]+$`) is only a fast filter — it denies absolute paths, spaces, and shell metacharacters but does **not** stop `..` traversal (every character in `../../.git/hooks/pre-commit` is in that class). The realpath-**containment** compare under `git rev-parse --show-toplevel`, using the trailing-slash form `case "$REAL/" in "$ROOT/"*` (mirroring `commands/review.md` Phase 0's `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*`), is what blocks traversal and stops a sibling dir like `/repo-other` from masquerading as `/repo`. This contract requires the orchestrator to apply that check at **translation time** (`/deep-review` Phase 3, defense before render/fix), not only at the fix agent's last line of defense.
 
-**Scope boundary (constraint):** this doc only **documents** the path boundary as part of the contract — it states that the orchestrator MUST normalize-and-contain `file`. It does **not** itself implement the check; that runtime enforcement is **Phase 5**, not this phase.
+**Scope boundary (constraint):** this doc only **documents** the path boundary as part of the contract — it states that the orchestrator MUST normalize-and-contain `file`. It does **not** itself implement the check; that runtime enforcement lives in the orchestrator's translation step (`commands/deep-review.md` Phase 3), not this phase.
 
 ## Fallback policy (unavailable / timeout)
 
-Codex is a **prerequisite, not a hard dependency**. A Codex outage must NEVER block, fail, or stall a `/deep-review`. The fallback contract the orchestrator (Phase 5) enforces:
+Codex is a **prerequisite, not a hard dependency**. A Codex outage must NEVER block, fail, or stall a `/deep-review`. The fallback contract the orchestrator (in `/deep-review` Phase 2c/3) enforces:
 
 - **Unavailable** — Codex is not installed, not authenticated, or the `setup --json` probe (gated on `.ready == true`, i.e. `.codex.available == true && .auth.loggedIn == true`) is NOT-GO: the orchestrator prints **one** skip-and-note line and proceeds with the native agents only. (The probe is `setup --json`, NOT `status --json` — `status --json` exits 0 even when Codex is absent/logged-out and checks no auth, so it cannot gate; the runtime wiring lives in `commands/deep-review.md` Phase 2c.)
 - **Timeout** — a synchronous `adversarial-review --json --wait` run exceeds the timeout cap: identical handling — skip-and-note, native findings still render.
 
 In both cases the review **completes normally** with the native-agent findings; the only difference from a Codex-available run is the absence of `codex-adversarial` findings and the presence of the one-line skip note.
 
-**Scope boundary (constraint):** this doc only **defines** the fallback contract. The actual enforcement — the probe sequencing, the chosen timeout value, the exact skip-line wording, the plugin-path resolution — is **Phase 5** (`commands/deep-review.md`), not this phase. This phase writes the contract Phase 5 honors.
+**Scope boundary (constraint):** this doc only **defines** the fallback contract. The actual enforcement — the probe sequencing, the chosen timeout value, the exact skip-line wording, the plugin-path resolution — lives in the orchestrator's runtime wiring (`commands/deep-review.md` Phase 2c kickoff + Phase 3 collection), not this phase. This phase writes the contract that wiring honors.
 
 ## Worked example
 
-A single Codex `needs-attention` review with one finding, translated into the **pre-backfill** vibe-check output object. This is the shape Phase 5 emits **before** orchestrator backfill — note that `agent` and `agent_notes` are **top-level**, siblings of `findings`, and the per-finding object carries **no** `agent` key.
+A single Codex `needs-attention` review with one finding, translated into the **pre-backfill** vibe-check output object. This is the shape the orchestrator's translation step (`/deep-review` Phase 3) emits **before** orchestrator backfill — note that `agent` and `agent_notes` are **top-level**, siblings of `findings`, and the per-finding object carries **no** `agent` key.
 
 **1 — Codex review-output (real `schemas/review-output.schema.json` v1.0.4 shape):**
 
@@ -180,4 +180,4 @@ What this demonstrates, mapping back to the rules above:
 
 ## Output
 
-Return ONE JSON object per `templates/agent-output-schema.md`: `{ "agent": "codex-adversarial", "findings": [ … ], "agent_notes": [ … ] }`. No findings (Codex `verdict: approve`) → `{"agent":"codex-adversarial","findings":[],"agent_notes":[]}`. The orchestrator (Phase 5) produces this object by translating Codex's output per the table above; this contract doc is the spec it follows. JSON only — no prose, no markdown, no preamble.
+Return ONE JSON object per `templates/agent-output-schema.md`: `{ "agent": "codex-adversarial", "findings": [ … ], "agent_notes": [ … ] }`. No findings (Codex `verdict: approve`) → `{"agent":"codex-adversarial","findings":[],"agent_notes":[]}`. The orchestrator (in `/deep-review` Phase 3) produces this object by translating Codex's output per the table above; this contract doc is the spec it follows. JSON only — no prose, no markdown, no preamble.
