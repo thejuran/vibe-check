@@ -167,23 +167,37 @@ In order:
 
    **On ANY mode whose representable-range==Phase-0-diff check fails — or cannot be cheaply verified — FAIL CLOSED** (emit the skip-and-note line with the appropriate reason slug, set `CODEX_SKIPPED`, do not launch, run native-only). This ties CODEX-01 to the FULL right diff uniformly: Codex runs ONLY when its representable range provably equals the orchestrator's resolved Phase-0 diff, or it transparently skips — never a silent wrong/partial diff. `--base` is always the orchestrator's OWN resolved ref (D-08), NEVER derived from Codex output, and `--base <ref>` forces branch mode regardless of `--scope`. **This tightens D-04/D-05 from "best-effort superset/subset with the `in_diff` safety net" to "EXACT-or-skip"** — a deliberate, strictly safer enforcement consistent with the locked intent (skip-and-note is the SAFE-01 posture); the `in_diff` override (D-05) remains defense-in-depth on the RUN paths but is no longer relied on to paper over a partial/wrong range. *(DEFERRED future enhancement: a temp-worktree checkout of the target head — which would also let Codex review a literal non-ancestor `A..B` AND a committed+dirty union — note it, do NOT implement here.)* The PR/range `merge-base` base-ref-must-exist-locally degradation is expected (→ skip-and-note), not a bug.
 
-5. **Background launch with a SELF-CONTAINED 300s watchdog (RESEARCH CORRECTION 2).** Only reached on a RUN mode (a skip-and-note mode never launches). Record `started_at` (`date +%s`) at this kickoff. Make ONE `Bash(run_in_background: true)` call whose COMMAND wraps the codex invocation so the cap is enforced by the launched shell ITSELF, independent of when the orchestrator next polls. The single named constant is **`CODEX_TIMEOUT_SECONDS = 300`** (one named value, not scattered magic numbers). The background command must: (a) run `node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" adversarial-review --json --base "$BASE" --scope "$SCOPE"` under a **whole-tree** timeout (for working-tree mode omit `--base` and pass `--scope working-tree`); (b) enforce the cap with `timeout`/`gtimeout` (NOT a bare `sleep 300; kill <pid>`, which kills only the `node` wrapper and ORPHANS the spawned `codex`/GPT-5-codex child, so a hang INSIDE the child could outlive the cap). `timeout` propagates the kill to the spawned child tree — and signals the timeout via **exit code 124**, not a separately-echoed line, so there is no "payload printed then sentinel echoed" race; (c) on the timeout exit (124) the shell prints the stable **timeout sentinel** `__CODEX_TIMEOUT__`; on normal completion within the cap it prints the codex `--json` payload and exits 0. Capture the returned shell id for the Phase 3 collect step.
+5. **Background launch with a SELF-CONTAINED 300s watchdog (RESEARCH CORRECTION 2).** Only reached on a RUN mode (a skip-and-note mode never launches). Record `started_at` (`date +%s`) at this kickoff. Make ONE `Bash(run_in_background: true)` call whose COMMAND wraps the codex invocation so the cap is enforced by the launched shell ITSELF, independent of when the orchestrator next polls. The single named constant is **`CODEX_TIMEOUT_SECONDS = 300`** (one named value, not scattered magic numbers). The background command must: (a) run `node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" adversarial-review --json --base "$BASE" --scope "$SCOPE"` under a **whole-tree** timeout (for working-tree mode omit `--base` and pass `--scope working-tree`); (b) enforce the cap with `timeout`/`gtimeout` (NOT a bare `sleep 300; kill <pid>`, which kills only the `node` wrapper and ORPHANS the spawned `codex`/GPT-5-codex child, so a hang INSIDE the child could outlive the cap). `timeout` propagates the kill to the spawned child tree — and signals the timeout via **exit code 124**, not a separately-echoed line, so there is no "payload printed then sentinel echoed" race; (c) on the timeout exit (124) the shell prints the stable **timeout sentinel** `__CODEX_TIMEOUT__`; on normal completion within the cap it prints the codex `--json` payload and exits 0. Capture the returned shell id for the Phase 3 collect step. **No `timeout`/`gtimeout` binary present (empty `TIMEOUT_BIN`) → SAFE-01/SAFE-02 skip, NOT a launch.** The 300s watchdog is the ONLY thing that keeps a hung Codex from running unbounded, and it is built from `timeout`/`gtimeout`; if NEITHER binary exists (a bare macOS host without GNU coreutils — and macOS is this project's primary platform), the self-contained watchdog is inexpressible. So guard for empty `TIMEOUT_BIN` BEFORE the launch: emit the skip-and-note line with the DISTINCT reason slug `no-timeout-binary` (do NOT reuse the `timeout` slug, which means "Codex ran and hit the 300s cap" — a different outcome), set `CODEX_SKIPPED=1`, and run native-only — an EXPLICIT, correctly-labeled degradation rather than launching `"" -k 10 300 node …` (which fails with exit 127 and silently never runs Codex even when it is installed and authenticated). `timeout` ships with GNU coreutils; on macOS `brew install coreutils` installs it as `gtimeout`, so the skip-and-note SHOULD tell the operator how to enable Codex if they want it. This is the same skip-and-note / `CODEX_SKIPPED` pattern already used for not-installed and unauthenticated. Capture the returned shell id (when a launch occurs) for the Phase 3 collect step.
    ```bash
    # ONE run_in_background:true call. CODEX_TIMEOUT_SECONDS=300 (single named value).
    # RUN-mode branch + scope already resolved above ($BASE/$SCOPE; omit --base for working-tree).
    # timeout/gtimeout kills the WHOLE child tree (node + the codex child it spawns), unlike a
    # `sleep; kill <node-pid>` watchdog which would orphan the spawned codex process.
    TIMEOUT_BIN=$(command -v timeout || command -v gtimeout)
+   # NO timeout binary → the self-contained watchdog is INEXPRESSIBLE, so running Codex would
+   # mean running it UNBOUNDED (SAFE-02 violation). FAIL CLOSED instead: skip-and-note native-only
+   # with a DISTINCT slug, set the AUTHORITATIVE skip flag, and do NOT launch. Distinct slug so the
+   # skip is correctly labeled (NOT mislabeled as a real `timeout`, which means "Codex ran and hit
+   # the 300s cap"). `timeout` ships with GNU coreutils; on macOS `brew install coreutils` provides
+   # `gtimeout` — note this so the operator can enable Codex if they want it.
+   if [ -z "$TIMEOUT_BIN" ]; then
+     echo "__CODEX_NO_TIMEOUT_BIN__"  # → skip-and-note, native-only (reason slug: no-timeout-binary)
+     CODEX_SKIPPED=1                   # AUTHORITATIVE skip flag — do NOT launch unbounded
+   fi
    # --base is CONDITIONAL: only branch/PR/range modes pass it. In working-tree mode $BASE is
    # empty, and passing `--base ""` would force branch mode → review the WRONG range. Build an
    # args list and append --base ONLY when SCOPE != working-tree.
    ARGS=(adversarial-review --json --scope "$SCOPE")
    [ "$SCOPE" != working-tree ] && ARGS+=(--base "$BASE")
-   # -k 10 sends SIGKILL 10s after the initial SIGTERM in case the tree ignores TERM.
-   "$TIMEOUT_BIN" -k 10 300 node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" "${ARGS[@]}"
-   rc=$?
-   # timeout signals the cap via exit 124 (NOT an echoed sentinel) → no completion-vs-echo race.
-   [ "$rc" = 124 ] && echo __CODEX_TIMEOUT__
+   # ONLY launch when not skipped (TIMEOUT_BIN present). The guard makes the shell enforce the
+   # skip, not just the LLM reading the sentinel.
+   if [ -z "$CODEX_SKIPPED" ]; then
+     # -k 10 sends SIGKILL 10s after the initial SIGTERM in case the tree ignores TERM.
+     "$TIMEOUT_BIN" -k 10 300 node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" "${ARGS[@]}"
+     rc=$?
+     # timeout signals the cap via exit 124 (NOT an echoed sentinel) → no completion-vs-echo race.
+     [ "$rc" = 124 ] && echo __CODEX_TIMEOUT__
+   fi
    ```
    **The 300s ceiling is enforced by the background command's own watchdog, so a hung Codex self-terminates at `CODEX_TIMEOUT_SECONDS` even if the orchestrator does not poll for minutes** — the cap holds independent of poll timing; the orchestrator's later `BashOutput` read just observes the result-or-sentinel. *(If a fully self-contained `kill`/`timeout` watchdog were genuinely not expressible in this command's Bash surface, state SAFE-02 honestly as "max ADDITIONAL wait measured from collection start is 300s" and gate on `(now - started_at) >= CODEX_TIMEOUT_SECONDS` — but the self-contained watchdog above is REQUIRED unless that impossibility is documented.)*
 
