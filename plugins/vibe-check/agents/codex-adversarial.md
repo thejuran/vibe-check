@@ -111,7 +111,7 @@ This is the **same** repo-relative + realpath-containment check `fix.md` already
 
 Codex is a **prerequisite, not a hard dependency**. A Codex outage must NEVER block, fail, or stall a `/deep-review`. The fallback contract the orchestrator (Phase 5) enforces:
 
-- **Unavailable** — Codex is not installed, not authenticated, or the `status --json` probe fails: the orchestrator prints **one** skip-and-note line and proceeds with the native agents only.
+- **Unavailable** — Codex is not installed, not authenticated, or the `setup --json` probe (gated on `.ready == true`, i.e. `.codex.available == true && .auth.loggedIn == true`) is NOT-GO: the orchestrator prints **one** skip-and-note line and proceeds with the native agents only. (The probe is `setup --json`, NOT `status --json` — `status --json` exits 0 even when Codex is absent/logged-out and checks no auth, so it cannot gate; the runtime wiring lives in `commands/deep-review.md` Phase 2c.)
 - **Timeout** — a synchronous `adversarial-review --json --wait` run exceeds the timeout cap: identical handling — skip-and-note, native findings still render.
 
 In both cases the review **completes normally** with the native-agent findings; the only difference from a Codex-available run is the absence of `codex-adversarial` findings and the presence of the one-line skip note.
