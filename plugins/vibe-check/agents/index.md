@@ -22,6 +22,7 @@ Only load agents that are relevant to reduce context and improve accuracy.
 | React imports detected | `framework-react` |
 | FastAPI imports detected | `framework-fastapi` |
 | Deep review mode | `@agents/architecture.md` |
+| Deep review mode + Codex available | codex-adversarial (orchestrator-run) |
 
 ## Core Agents (Always Load)
 
@@ -31,6 +32,8 @@ These agents apply to all code reviews:
 2. **`security.md`** - OWASP Top 10, injection, XSS, secrets
 
 > **`fix.md` is not a detection agent** and is never dispatched in Phase 2. It runs only in Phase 5 (interactive fix loop) on findings the user accepts — it reads the file and applies the change semantically, then commits. Detection agents only *find* and optionally leave a one-line `fix_hint`; they never produce patches.
+
+> **`codex-adversarial` is orchestrator-run, not a `Task` dispatch.** It is a contract agent, not a native reviewer: the orchestrator runs Codex (`adversarial-review`) on its behalf in `/deep-review` when Codex is available, then translates the output into the vibe-check schema per `agents/codex-adversarial.md`. It is never one of the parallel Phase 2 `Task` calls.
 
 ## Conditional Agents (Load When Relevant)
 
