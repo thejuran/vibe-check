@@ -125,6 +125,57 @@ Record the smoke-check result (PASS/FAIL, and that `__SMOKE_OK__` was observed) 
 
 > A live **authenticated** probe→launch→collect against real Codex is deferred to the efficacy phase (Phase 6, EFF-01). The `BashOutput` **callability** smoke-check above is NOT deferred — it is a structural gate run here with a trivial `echo` (no Codex auth required).
 
+### Phase 2c — Codex kickoff (probe + launch)
+
+**Run this as its OWN turn(s) BEFORE the Phase 2 native fan-out turn. It is text + Bash only — it never adds a tool call to the pure-Task Phase 2 turn.** Phase 2's **MANDATORY DISPATCH SHAPE** (`commands/review.md`: one assistant turn = exactly N parallel `Task` calls, zero other tool calls) forbids any non-Task tool call in that turn, so the probe/launch Bash MUST live in a prior turn. Codex is a separate orchestrator-run step launched here and **collected at Phase 3** — never one of the parallel `Task` calls.
+
+**Two corrections baked in (do NOT revert them to older wording).** Probe with `setup --json` and gate on `.ready == true` — **NOT** `status --json` (which exits 0 even when Codex is uninstalled/logged-out and checks no auth, so it cannot gate). Background the launch with Claude Code `Bash(run_in_background: true)`, **NOT** the companion's `--background`/`--wait` (which `adversarial-review` ignores — it always foregrounds and prints no job-id). The 300s cap is enforced by a self-contained watchdog **INSIDE** the backgrounded command, not by orchestrator poll timing.
+
+In order:
+
+1. **Resolve `${CODEX_PLUGIN_ROOT}` (versioned-cache glob → `sort -V` → marketplace fallback → not-installed guard).** Author this fresh (no in-repo analog). The cache path nests under `…/codex/<version>/`, so the glob is two levels:
+   ```bash
+   CODEX_PLUGIN_ROOT=$(ls -d "$HOME"/.claude/plugins/cache/openai-codex/codex/*/ 2>/dev/null | sort -V | tail -1)
+   CODEX_PLUGIN_ROOT="${CODEX_PLUGIN_ROOT%/}"
+   if [ -z "$CODEX_PLUGIN_ROOT" ] || [ ! -f "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" ]; then
+     CODEX_PLUGIN_ROOT="$HOME/.claude/plugins/marketplaces/openai-codex/plugins/codex"
+   fi
+   if [ ! -f "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" ]; then
+     echo "__CODEX_NOT_INSTALLED__"   # → skip-and-note, native-only (reason slug: not-installed)
+   fi
+   ```
+
+2. **Probe + GO/skip gate (RESEARCH CORRECTION 1).** Run `node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" setup --json`. **GO** iff exit 0 AND stdout parses AND `.ready == true` (≡ `.codex.available == true && .auth.loggedIn == true`). **NOT-GO** → print the one skip-and-note line, set a `CODEX_SKIPPED` marker, do **not** launch (Phase 3 collect becomes a no-op). NOT-GO triggers, all converging on the one skip line (only the `<reason>` slug varies): non-zero exit (`unavailable`); unparseable JSON (`unavailable`); `.ready == false`; `.codex.available == false` (`not-installed`); `.auth.loggedIn == false` (`unauthenticated`). `setup --json` is read-only (no flags), so it is side-effect-free as a probe.
+
+3. **Disclosure line (CODEX-04) — print ONCE at kickoff, as text (not a tool call, not per poll):**
+   `▶ Running Codex adversarial review in parallel (GPT-5-codex, ~1–3 min, deep-review only)…`
+
+4. **Diff-targeting — ONE GENERAL, mode-agnostic RULE (stated FIRST), then every mode as a CONSEQUENCE.** This is the load-bearing gate; do **not** write four independent per-mode branches.
+
+   **The general rule.** Run Codex ONLY when Codex's **representable review range** can be shown to **EXACTLY EQUAL** the Phase-0-resolved diff set for the active mode. Codex can represent exactly **two** ranges: `--scope working-tree` (= the uncommitted working tree: staged + unstaged + untracked) and `--base <ref> --scope branch` (= `merge-base(HEAD,<ref>)..HEAD`, **COMMITTED ONLY**, always diffed against HEAD). It has **no** way to represent an arbitrary non-ancestor left boundary, a right side ≠ HEAD, or the **UNION** of a committed range PLUS a dirty (staged/unstaged) tail. If neither representable range provably equals the mode's Phase-0 diff, **FAIL CLOSED**: emit the skip-and-note line, set `CODEX_SKIPPED`, do **not** launch, run native-only — Codex never reviews a partial or different diff. **Skip-and-note-on-non-representable-diff is the DEFAULT/fallback for ANY mode — including future modes — whose Phase-0 diff Codex cannot exactly represent.** Why this matters: the later Phase 3 step-2 `in_diff` clip can drop EXTRA (out-of-diff) Codex findings but **cannot recover defects Codex never reviewed**, so a non-representable range would silently miss real defects while CODEX-01 looked satisfied (a wrong/partial diff). Tie to SAFE-01: a Codex limitation degrades to a clean skip, never a silent wrong/partial review, and never blocks the native review.
+
+   **Each mode is a CONSEQUENCE of the one rule (not a separate special case):**
+   - **default mode** — Phase-0 diff IS the uncommitted working tree → `--scope working-tree` (omit `--base`) represents it EXACTLY → **RUN**. The **identity** case; no dirty/committed mismatch is possible.
+   - **GSD phase mode, empty `PHASE_RANGE`** (`review.md` Phase 0 fallback) — Phase-0 diff = staged + unstaged only = the working tree → `--scope working-tree` → **RUN**.
+   - **GSD phase mode, non-empty `PHASE_RANGE` AND a CLEAN working tree (no staged/unstaged) AND `$PHASE_START` is an ANCESTOR of HEAD** (i.e. `git merge-base HEAD "$PHASE_START"` == `git rev-parse "$PHASE_START"`, so `merge-base(HEAD,$PHASE_START)==$PHASE_START`) — Phase-0 diff = exactly `$PHASE_START..HEAD` → `--base "$PHASE_START" --scope branch` represents it exactly → **RUN**.
+   - **GSD phase mode, non-empty `PHASE_RANGE` AND there ARE staged/unstaged changes** (Phase-0 diff = the committed range `$PHASE_START..HEAD` PLUS a dirty tail; Codex branch mode reviews ONLY the committed range and OMITS the tail, and working-tree mode reviews ONLY the tree and omits the committed range — Codex can represent NEITHER the union NOR exactly either part) → **FAIL CLOSED: skip-and-note native-only** (reason slug `phase-diff-has-uncommitted-tail`). This is the COMMON in-progress case (a phase with uncommitted edits). *(DEFERRED future enhancement: a mechanism that hands Codex the full committed+dirty union — note it, do NOT implement.)*
+   - **PR mode / range mode** — `--base <base-ref> --scope branch`, run ONLY if `merge-base(HEAD,base)..HEAD` provably EQUALS the resolved Phase-0 diff — the FULL comparison boundary, BOTH the upper ref AND the base/left-ref identity, NOT just `HEAD == upper-ref`:
+     - **Range mode `A..B`** (`/review` resolves the LITERAL two-dot `A..B`): require BOTH (i) `git rev-parse HEAD` == `git rev-parse <B>` (the upper ref), AND (ii) `A` is an **ANCESTOR** of `B`, i.e. `git merge-base HEAD <A>` (== `merge-base(B,A)`) equals `git rev-parse <A>` — so Codex's `merge-base(HEAD,A)..HEAD` is exactly the literal `A..B`. If `A` is NOT an ancestor of `B`, Codex would review `merge-base(B,A)..B` → **FAIL CLOSED** (slug `range-not-identical`).
+     - **PR mode** (`gh pr diff <ref>`): require `git rev-parse HEAD` == the **PR head SHA** AND that the local merge-base against the PR base (`git merge-base HEAD <pr-base>`) equals the PR's ACTUAL diff base (the head/base `gh pr view <ref> --json` reports). If local HEAD != PR head OR the local merge-base against the PR base != the PR's diff base (e.g. a stale/mismatched local base ref) → **FAIL CLOSED** (slug `head-not-at-target`).
+
+   **On ANY mode whose representable-range==Phase-0-diff check fails — or cannot be cheaply verified — FAIL CLOSED** (emit the skip-and-note line with the appropriate reason slug, set `CODEX_SKIPPED`, do not launch, run native-only). This ties CODEX-01 to the FULL right diff uniformly: Codex runs ONLY when its representable range provably equals the orchestrator's resolved Phase-0 diff, or it transparently skips — never a silent wrong/partial diff. `--base` is always the orchestrator's OWN resolved ref (D-08), NEVER derived from Codex output, and `--base <ref>` forces branch mode regardless of `--scope`. **This tightens D-04/D-05 from "best-effort superset/subset with the `in_diff` safety net" to "EXACT-or-skip"** — a deliberate, strictly safer enforcement consistent with the locked intent (skip-and-note is the SAFE-01 posture); the `in_diff` override (D-05) remains defense-in-depth on the RUN paths but is no longer relied on to paper over a partial/wrong range. *(DEFERRED future enhancement: a temp-worktree checkout of the target head — which would also let Codex review a literal non-ancestor `A..B` AND a committed+dirty union — note it, do NOT implement here.)* The PR/range `merge-base` base-ref-must-exist-locally degradation is expected (→ skip-and-note), not a bug.
+
+5. **Background launch with a SELF-CONTAINED 300s watchdog (RESEARCH CORRECTION 2).** Only reached on a RUN mode (a skip-and-note mode never launches). Record `started_at` (`date +%s`) at this kickoff. Make ONE `Bash(run_in_background: true)` call whose COMMAND wraps the codex invocation so the cap is enforced by the launched shell ITSELF, independent of when the orchestrator next polls. The single named constant is **`CODEX_TIMEOUT_SECONDS = 300`** (one named value, not scattered magic numbers). The background command must: (a) run `node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" adversarial-review --json --base "$BASE" --scope "$SCOPE"` in the background of that shell, capturing its PID (for working-tree mode omit `--base` and pass `--scope working-tree`); (b) run a watchdog bound (`sleep 300; kill <pid>` style, or `timeout 300`/`gtimeout 300` if available) so that at `CODEX_TIMEOUT_SECONDS` the codex process is killed and the shell emits the stable **timeout sentinel** `__CODEX_TIMEOUT__` on stdout before exiting; (c) on normal completion within the cap, print the codex `--json` payload to stdout and exit 0. Capture the returned shell id for the Phase 3 collect step.
+   ```bash
+   # ONE run_in_background:true call. CODEX_TIMEOUT_SECONDS=300 (single named value).
+   # RUN-mode branch + scope already resolved above ($BASE/$SCOPE; omit --base for working-tree).
+   ( node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" adversarial-review --json \
+       --base "$BASE" --scope "$SCOPE" & CODEX_PID=$!
+     ( sleep 300; kill "$CODEX_PID" 2>/dev/null; echo __CODEX_TIMEOUT__ ) & WD_PID=$!
+     wait "$CODEX_PID" 2>/dev/null; kill "$WD_PID" 2>/dev/null )
+   ```
+   **The 300s ceiling is enforced by the background command's own watchdog, so a hung Codex self-terminates at `CODEX_TIMEOUT_SECONDS` even if the orchestrator does not poll for minutes** — the cap holds independent of poll timing; the orchestrator's later `BashOutput` read just observes the result-or-sentinel. *(If a fully self-contained `kill`/`timeout` watchdog were genuinely not expressible in this command's Bash surface, state SAFE-02 honestly as "max ADDITIONAL wait measured from collection start is 300s" and gate on `(now - started_at) >= CODEX_TIMEOUT_SECONDS` — but the self-contained watchdog above is REQUIRED unless that impossibility is documented.)*
+
 ### Phase 3 — Filter threshold
 
 Use ≥70 (Critical + Warning + Medium) instead of ≥80.
