@@ -196,8 +196,14 @@ This override **AUGMENTS the INPUT** to `review.md`'s unchanged Phase 3 (the age
 
 5. **Path two-check — HARDENED, at translation time, BEFORE the finding is emitted (SAFE-03).** For each finding's `file`, apply ALL of the following; on ANY failure DOWNGRADE (see (f)), never emit with an unvalidated `file`:
    - **(a) Mandatory diff-set membership (REQUIRED, not "preferred").** `file` MUST be a member of the reviewed diff's file set (the orchestrator already resolved it in Phase 0). A Codex finding whose file is not in the reviewed diff is DOWNGRADED. This is an **INTENTIONAL HARDENING** of the Phase 4 contract: the contract says the orchestrator "should strongly prefer" diff-set membership; Phase 5 enforcing it **mandatorily** is allowed and stricter — consistent with the contract's intent, NOT a contract violation.
-   - **(b) Explicit pre-containment rejections.** BEFORE running containment, REJECT the path outright if it has a leading `/` (absolute path), a leading `-` (option-like), or any `..` path segment (any .. segment, e.g. `../`, `a/../b`, or a trailing `/..`, is rejected).
-   - **(c) Regex pre-filter.** `^[A-Za-z0-9._/-]+$` (denies spaces and shell metacharacters; combined with (b) also denies absolute/option-like). NOT sufficient alone.
+   - **(b) Explicit pre-containment rejections (REQUIRED — the regex in (c) does NOT cover these).** BEFORE running containment, REJECT the path outright if it has a leading `/` (absolute path), a leading `-` (option-like), or any `..` path segment (any .. segment, e.g. `../`, `a/../b`, or a trailing `/..`, is rejected). This is an explicit structural reject, not just a regex side effect:
+     ```bash
+     case "$CODEX_FILE" in
+       /* | -* | *..* ) : downgrade per (f) ;;   # absolute, option-like, or ANY dot-dot → reject
+       *) : ;;                                    # otherwise continue to (c)/(d)
+     esac
+     ```
+   - **(c) Regex pre-filter.** `^[A-Za-z0-9._/-]+$` (denies spaces and shell metacharacters; combined with (b) also denies absolute/option-like). **NOT sufficient alone, and in particular does NOT stop `..` traversal** — every character in `../../.git/hooks/pre-commit` is in this class, so the regex matches it fully. The explicit `..`/leading-`/`/leading-`-` reject in (b) is therefore REQUIRED, not optional, and must run before (d).
    - **(d) realpath-containment.** Under `ROOT=$(git rev-parse --show-toplevel)`, using the trailing-slash `case` form mirroring `review.md` Phase 0 + `fix.md`:
      ```bash
      ROOT=$(git rev-parse --show-toplevel)
