@@ -142,10 +142,12 @@ In order:
    fi
    if [ ! -f "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" ]; then
      echo "__CODEX_NOT_INSTALLED__"   # → skip-and-note, native-only (reason slug: not-installed)
+     CODEX_SKIPPED=1                  # AUTHORITATIVE skip flag — do NOT fall through to the probe
    fi
    ```
+   The `CODEX_SKIPPED=1` assignment is **load-bearing, not cosmetic**: the companion file is absent, so the `setup --json` probe in step 2 (and every later Codex step) MUST be guarded by `[ -z "$CODEX_SKIPPED" ]` and is skipped here — the shell enforces the skip, not just the LLM reading the sentinel. Without the flag, control would fall through to `node "$CODEX_PLUGIN_ROOT/…" setup --json` against a path proven not to exist.
 
-2. **Probe + GO/skip gate (RESEARCH CORRECTION 1).** Run `node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" setup --json`. **GO** iff exit 0 AND stdout parses AND `.ready == true` (≡ `.codex.available == true && .auth.loggedIn == true`). **NOT-GO** → print the one skip-and-note line, set a `CODEX_SKIPPED` marker, do **not** launch (Phase 3 collect becomes a no-op). NOT-GO triggers, all converging on the one skip line (only the `<reason>` slug varies): non-zero exit (`unavailable`); unparseable JSON (`unavailable`); `.ready == false`; `.codex.available == false` (`not-installed`); `.auth.loggedIn == false` (`unauthenticated`). `setup --json` is read-only (no flags), so it is side-effect-free as a probe.
+2. **Probe + GO/skip gate (RESEARCH CORRECTION 1).** **Guard this whole step with `[ -z "$CODEX_SKIPPED" ]`** — if step 1 set `CODEX_SKIPPED=1` (companion file absent), do NOT run the probe at all (the not-installed skip is already decided). Otherwise run `node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" setup --json`. **GO** iff exit 0 AND stdout parses AND `.ready == true` (≡ `.codex.available == true && .auth.loggedIn == true`). **NOT-GO** → print the one skip-and-note line, set a `CODEX_SKIPPED` marker, do **not** launch (Phase 3 collect becomes a no-op). NOT-GO triggers, all converging on the one skip line (only the `<reason>` slug varies): non-zero exit (`unavailable`); unparseable JSON (`unavailable`); `.ready == false`; `.codex.available == false` (`not-installed`); `.auth.loggedIn == false` (`unauthenticated`). `setup --json` is read-only (no flags), so it is side-effect-free as a probe.
 
 3. **Disclosure line (CODEX-04) — print ONCE at kickoff, as text (not a tool call, not per poll):**
    `▶ Running Codex adversarial review in parallel (GPT-5-codex, ~1–3 min, deep-review only)…`
