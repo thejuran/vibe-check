@@ -174,9 +174,13 @@ In order:
    # timeout/gtimeout kills the WHOLE child tree (node + the codex child it spawns), unlike a
    # `sleep; kill <node-pid>` watchdog which would orphan the spawned codex process.
    TIMEOUT_BIN=$(command -v timeout || command -v gtimeout)
+   # --base is CONDITIONAL: only branch/PR/range modes pass it. In working-tree mode $BASE is
+   # empty, and passing `--base ""` would force branch mode → review the WRONG range. Build an
+   # args list and append --base ONLY when SCOPE != working-tree.
+   ARGS=(adversarial-review --json --scope "$SCOPE")
+   [ "$SCOPE" != working-tree ] && ARGS+=(--base "$BASE")
    # -k 10 sends SIGKILL 10s after the initial SIGTERM in case the tree ignores TERM.
-   "$TIMEOUT_BIN" -k 10 300 node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" \
-     adversarial-review --json --base "$BASE" --scope "$SCOPE"
+   "$TIMEOUT_BIN" -k 10 300 node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" "${ARGS[@]}"
    rc=$?
    # timeout signals the cap via exit 124 (NOT an echoed sentinel) → no completion-vs-echo race.
    [ "$rc" = 124 ] && echo __CODEX_TIMEOUT__
