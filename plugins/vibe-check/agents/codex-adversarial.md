@@ -10,7 +10,7 @@ Codex is a **second model** (GPT-5-codex) whose review prompt is explicitly adve
 ## Identity and role
 
 - **Name:** `codex-adversarial` (matches the frontmatter `name`, and is the literal value of the top-level `agent` key in the translated output).
-- **What runs it:** the **orchestrator**, not this doc. The orchestrator probes Codex availability, runs `adversarial-review --json --wait` against the diff range it already resolved in Phase 0, parses the `--json` payload (conforming to Codex's `schemas/review-output.schema.json`), and applies the translation table here.
+- **What runs it:** the **orchestrator**, not this doc. The orchestrator probes Codex availability, runs `adversarial-review --json` (with `--base`/`--scope`) against the diff range it already resolved in Phase 0, parses the `--json` payload (conforming to Codex's `schemas/review-output.schema.json`), and applies the translation table here. The call does **NOT** pass `--wait`/`--background` — `adversarial-review` ignores them (it always foregrounds and prints no job-id); backgrounding is Claude Code's `run_in_background`, capped by a self-contained timeout watchdog (see `commands/deep-review.md` Phase 2c).
 - **What this doc owns:** the Codex→vibe-check field mapping, the verdict rule, the `agent_notes` carry decision, the orchestrator-backfill delegation, the untrusted-data posture (including the path trust boundary on `file`), the unavailable/timeout fallback contract, and one worked example.
 - **What this doc does NOT own:** any runtime mechanics — plugin-path resolution, the exact timeout value, the probe/run sequencing, the skip-line wording. Those live in the orchestrator's runtime wiring (`commands/deep-review.md` Phase 2c kickoff + Phase 3 collection), NOT here and NOT in Phase 5 (the fix loop). This phase writes the contract; no code executes here.
 
@@ -112,7 +112,7 @@ This is the **same** repo-relative + realpath-containment check `fix.md` already
 Codex is a **prerequisite, not a hard dependency**. A Codex outage must NEVER block, fail, or stall a `/deep-review`. The fallback contract the orchestrator (in `/deep-review` Phase 2c/3) enforces:
 
 - **Unavailable** — Codex is not installed, not authenticated, or the `setup --json` probe (gated on `.ready == true`, i.e. `.codex.available == true && .auth.loggedIn == true`) is NOT-GO: the orchestrator prints **one** skip-and-note line and proceeds with the native agents only. (The probe is `setup --json`, NOT `status --json` — `status --json` exits 0 even when Codex is absent/logged-out and checks no auth, so it cannot gate; the runtime wiring lives in `commands/deep-review.md` Phase 2c.)
-- **Timeout** — a synchronous `adversarial-review --json --wait` run exceeds the timeout cap: identical handling — skip-and-note, native findings still render.
+- **Timeout** — the backgrounded `adversarial-review --json` run exceeds the timeout cap (enforced by the orchestrator's `run_in_background` + self-contained timeout watchdog, NOT by a companion `--wait`): identical handling — skip-and-note, native findings still render.
 
 In both cases the review **completes normally** with the native-agent findings; the only difference from a Codex-available run is the absence of `codex-adversarial` findings and the presence of the one-line skip note.
 
