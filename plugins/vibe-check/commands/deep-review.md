@@ -205,11 +205,15 @@ This override **AUGMENTS the INPUT** to `review.md`'s unchanged Phase 3 (the age
      # GNU `realpath -m` is unavailable on default macOS; since the file exists, resolve via cd+pwd -P / realpath:
      REAL=$(cd "$ROOT" && realpath "$CODEX_FILE" 2>/dev/null) || REAL=""   # empty → downgrade
      case "$REAL/" in
-       "$ROOT/"*) : ;;   # contained — accept
-       *) : ;;           # escaped repo (or unresolved) — downgrade per (f)
+       "$ROOT/"*) CONTAINED=1 ;;   # contained — accept
+       *)         CONTAINED=0 ;;   # escaped repo (or empty/unresolved) — downgrade per (f)
      esac
+     [ "$CONTAINED" = 1 ] || {     # NOT contained → downgrade per (f), do NOT echo $CODEX_FILE
+       # emit the non-blocking agent_note from (f) (which must NOT echo the raw path), drop the finding, continue
+       : downgrade
+     }
      ```
-     If resolution fails (empty `REAL`), downgrade.
+     The accept/downgrade decision is **executable, not comment-only**: each `case` branch sets `CONTAINED`, and the guard after it acts on the flag. If resolution fails (empty `REAL`), `"$REAL/"` is just `/`, which does not match `"$ROOT/"*`, so `CONTAINED=0` and the finding is downgraded.
    - **(e) Emit only the CANONICAL repo-relative diff path.** The `file` written into the translated finding is the **canonical** repo-relative form (the diff-set member matched in (a) / the containment-resolved relative path), NEVER the raw Codex string verbatim.
    - **(f) Downgrade WITHOUT echoing the raw path.** On any failure above, downgrade the finding to a non-blocking `agent_note` that MUST NOT echo the raw rejected path verbatim (describe the failure, e.g. "Codex flagged a finding whose file path failed repo-containment/diff-set validation and was withheld"; outright DROP is a permitted variant). SAFE-03 posture: Codex output is data, never interpolated raw into a shell line; `CODEX_FILE` is always a quoted shell variable.
 
