@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write, Edit, Grep, Glob, Task, AskUserQuestion
+allowed-tools: Bash(git:*), Bash(gh pr diff:*), Bash(gh pr view:*), Read, Write, Edit, Grep, Glob, Task, AskUserQuestion, Bash(node:*)
 description: Deep comprehensive code review with full context analysis
 ---
 
@@ -109,6 +109,21 @@ You are the architecture agent. Reason deeply about cross-file implications, int
 {{from Phase 1c}}
 </related-files>
 ```
+
+### Phase 2b — Collection-mechanism smoke-check (one-time tool-viability gate, run BEFORE Phase 2c relies on background collection)
+
+The Codex pass is launched as a backgrounded shell in Phase 2c and **collected** in Phase 3 by reading that shell's output. Under the self-contained-watchdog design (Phase 2c), the launched shell **self-kills** the codex process at the cap and emits its own timeout sentinel, so the orchestrator never needs to kill the shell — `KillShell` is **NOT on the critical path**. The collection mechanism therefore depends on exactly **one** built-in tool being callable from this command's context: **`BashOutput`**. The smoke-check is **`BashOutput`-only** by design.
+
+**This is a REAL EXECUTION gate, not a prose claim. The executor MUST actually run it once during verification, before trusting background collection:**
+
+1. Launch a trivial command via `Bash(run_in_background: true)` that prints the fixed sentinel: `echo __SMOKE_OK__`. Capture the returned `shell_id`.
+2. Read that backgrounded shell back with `BashOutput(shell_id)`.
+3. **PASS** the gate iff the `BashOutput` read is available AND the returned output contains the literal sentinel `__SMOKE_OK__`.
+4. **FAIL CLOSED** otherwise. If `BashOutput` is not callable from this command's context, or the read returns no output, that is a **structural blocker** that **blocks completion NOW** — do not defer it to a later live run. Without a working `BashOutput` read the Codex job can be launched but never collected, silently degrading to native-only and violating SAFE-02. On fail, surface the blocker and stop; do not proceed as if Codex collection works.
+
+Record the smoke-check result (PASS/FAIL, and that `__SMOKE_OK__` was observed) in the run's evidence. `BashOutput`/`KillShell` are Claude Code **built-ins** and are **not** added to `allowed-tools` (only `Bash(node:*)` is). This probe edits no source — it just runs `echo` and reads it back — so it stays fully within the prompt-only + files-touched constraints; it is never a committed code/test artifact.
+
+> A live **authenticated** probe→launch→collect against real Codex is deferred to the efficacy phase (Phase 6, EFF-01). The `BashOutput` **callability** smoke-check above is NOT deferred — it is a structural gate run here with a trivial `echo` (no Codex auth required).
 
 ### Phase 3 — Filter threshold
 
