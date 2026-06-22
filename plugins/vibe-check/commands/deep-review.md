@@ -110,7 +110,7 @@ You are the architecture agent. Reason deeply about cross-file implications, int
 </related-files>
 ```
 
-**`--all` mode (`$ALL_MODE` set) — `<files>` swap (REVIEW-01, D-07/D-08).** When `$ALL_MODE` is set (inherited from `review.md` Phase 0 mode 5 — see the recognition note in the Phase-contract section above), swap this deep-only architecture prompt's `<diff>` block for a `<files>` block in the EXACT same position (after `{{intent-context}}`, before `<related-files>`) — identically to `review.md`'s base/intent template swap. Reuse `review.md`'s `$ALL_MODE` flag and its `<files>` block format/`$FILES_BLOCK` string verbatim; do NOT redefine the `<files>` format here. So in `--all` this prompt reads:
+**`--all` mode (`$ALL_MODE` set) — `<files>` swap (REVIEW-01, D-07/D-08).** When `$ALL_MODE` is set (inherited from `review.md` Phase 0 mode 5 — see the recognition note in the Phase-contract section above), swap this deep-only architecture prompt's `<diff>` block for a `<files>` block in the EXACT same position (after `{{intent-context}}`, before `<related-files>`) — identically to `review.md`'s base/intent template swap. Reuse `review.md`'s `$ALL_MODE` flag and its `<files>` block format/`$FILES_BLOCK` string verbatim; do NOT redefine the `<files>` format here. NOTE the placeholder: the diff-mode block above uses `{{git_diff}}`, but the `--all` block's content is `$FILES_BLOCK` (the same string `review.md` binds to `{{git_diff_output}}` in mode 5) — substitute `$FILES_BLOCK` here, NOT a diff token, so the architecture agent receives the byte-identical position-stable block the other agents get (D-08). So in `--all` this prompt reads:
 
 ```
 You are the architecture agent. Reason deeply about cross-file implications, intent alignment, pattern consistency.
@@ -118,7 +118,7 @@ You are the architecture agent. Reason deeply about cross-file implications, int
 {{intent-context}}
 
 <files>
-{{git_diff}}
+$FILES_BLOCK
 </files>
 
 <related-files>

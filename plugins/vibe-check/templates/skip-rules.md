@@ -10,11 +10,14 @@ and before the `<files>` block is built.
 ## Single source of truth
 
 This file is the **canonical, single source of truth** for the skip patterns the `--all`
-whole-codebase mode applies. Both `commands/review.md` and `commands/deep-review.md` reference
-this list from their `--all` selection step (via the plugin's prose-pointer convention — e.g.
-"apply the skip rules in `templates/skip-rules.md`"). **Do NOT duplicate this list inline** in
-either command. A skip-rule change lands here, once, and both commands inherit it — so the two
-files cannot silently drift apart (the exact cross-file drift bug this review tool exists to catch).
+whole-codebase mode applies. `commands/review.md` references this list DIRECTLY from its Phase-0
+mode-5 `--all` selection step (via the plugin's prose-pointer convention — e.g. "apply the skip
+rules in `templates/skip-rules.md`"). `commands/deep-review.md` references it INDIRECTLY, by
+INHERITANCE: `/deep-review` executes `review.md`'s Phase 0 verbatim (it has no separate `--all`
+selection step of its own), so the same pointer applies through that delegation. **Do NOT
+duplicate this list inline** in either command. A skip-rule change lands here, once, and both
+commands inherit it — so the two files cannot silently drift apart (the exact cross-file drift
+bug this review tool exists to catch).
 
 ## Relationship to triage
 

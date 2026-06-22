@@ -172,18 +172,25 @@ Parse `$ARGUMENTS`:
       printf '%s' "$NARROW" | grep -Eq '^[A-Za-z0-9._*/-]+$' || { echo "Invalid --all path/glob (allowed: letters digits . _ * / -) — refusing."; exit 1; }
       ```
 
-      (iii) **realpath-contain the LITERAL PREFIX of `$NARROW`** under `$(git rev-parse --show-toplevel)`. For a plain path the literal prefix is the whole value; for a glob it is the portion BEFORE the first `*` (e.g. for `src/**/*.ts` the literal prefix is `src/`; for a bare `*.md` the literal prefix is empty → resolves to the repo root, which IS contained). Mirror the GSD-mode containment (lines above) / `deep-review.md` (d): set `CONTAINED` in each `case` arm, then act on the flag — a non-empty literal prefix that resolves OUTSIDE the toplevel (or to an empty resolution) is NOT contained → refuse.
+      (iii) **realpath-contain the LITERAL PREFIX of `$NARROW`** under `$(git rev-parse --show-toplevel)`. For a plain path the literal prefix is the whole value; for a glob it is the portion BEFORE the first `*` (e.g. for `src/**/*.ts` the literal prefix is `src/`; for a bare `*.md` the literal prefix is empty → resolves to the repo root, which IS contained). Mirror the GSD-mode containment (lines above) / `deep-review.md` (d): set `CONTAINED` in each `case` arm, then act on the flag — a non-empty literal prefix that resolves OUTSIDE the toplevel is NOT contained → refuse.
+
+      **Resolve WITHOUT requiring the prefix to exist on disk.** A legal in-repo glob can name a directory that is tracked-but-not-checked-out, or simply not materialized — BSD `realpath` (the macOS default, and macOS is this project's primary host) exits non-zero and prints nothing for a non-existent path, so `realpath "$LITERAL_PREFIX"` would yield an EMPTY `$REAL` and falsely refuse a legal scope like `src/**/*.ts`. The actual traversal guard is stage (i)'s explicit `..`/leading-`/` reject (already run); this stage only needs a missing-path-TOLERANT canonicalization. Use Python's `os.path.realpath` (canonicalizes a non-existent path lexically, no existence requirement) rooted at the repo top, then containment-check the result. Do NOT gate containment on the path existing.
       ```bash
       ROOT=$(git rev-parse --show-toplevel)
       LITERAL_PREFIX="${NARROW%%\**}"          # everything before the first '*' ('' for a bare glob like *.md)
       if [ -z "$LITERAL_PREFIX" ]; then
         CONTAINED=1                            # empty prefix → repo root → contained
       else
-        REAL=$(cd "$ROOT" && realpath "$LITERAL_PREFIX" 2>/dev/null) || REAL=""
-        case "$REAL/" in
-          "$ROOT/"*) CONTAINED=1 ;;            # contained — accept
-          *)         CONTAINED=0 ;;            # escaped repo (or empty/unresolved) — refuse
-        esac
+        # Missing-path-tolerant canonicalization (BSD realpath has no -m; python realpath needs no existence).
+        REAL=$(ROOT="$ROOT" LP="$LITERAL_PREFIX" python3 - <<'PY' 2>/dev/null
+import os, sys
+root = os.path.realpath(os.environ["ROOT"])
+real = os.path.realpath(os.path.join(root, os.environ["LP"]))
+# Contained iff real == root or a descendant of root (string-safe with separator).
+sys.stdout.write(real if (real == root or real.startswith(root + os.sep)) else "")
+PY
+        )
+        if [ -n "$REAL" ]; then CONTAINED=1; else CONTAINED=0; fi   # empty ⇒ escaped repo (the `..`-traversal case stage (i) already rejected; this is belt-and-suspenders)
       fi
       [ "$CONTAINED" = 1 ] || { echo "--all narrow scope escaped the repo root — refusing."; exit 1; }
       ```
@@ -205,6 +212,7 @@ Parse `$ARGUMENTS`:
 
    e. **Set downstream variables.** After the symlink filter and skip rules, the surviving regular files are the reviewed set:
       - `$REVIEW_SET` = the surviving regular files (the membership set; later phases will use it, but do NOT build any `in_reviewed_set` filter now).
+      - **Empty-set guard (early exit).** If `$REVIEW_SET` is EMPTY after selection + symlink filter + skip rules — a glob that matched nothing (e.g. `--all '*.nonexistent'`), a narrow path containing only symlinks/skipped files, or an all-skipped tree — print `No files matched the --all scope (the path/glob matched nothing, or every match was filtered as a symlink/skipped file).` and STOP, BEFORE the Phase-2 fan-out. Do NOT dispatch agents over an empty `<files>` block (wasted fan-out + a misleading "reviewed 0 files" report); this mirrors the four diff modes bottoming out on "no changes".
       - `$ALL_MODE=1` — the flag that gates the Phase-0.5 fresh-snapshot branch, the Phase-2 `<diff>`→`<files>` block swap, and the Phase-4 coverage note.
       - The existing Phase-2 bindings are REUSED via a conditional (not a rewrite): `{{filtered_file_list}}` ← `$REVIEW_SET` rendered as a name list, and `{{git_diff_output}}` ← the `<files>` block string (`$FILES_BLOCK`, built in Phase 2).
       - Leave `$PHASE_ID` / `$PHASE_DIR` UNSET — `--all` has no single-phase intent doc, so this correctly skips Phase 1.5 intent loading.
@@ -219,13 +227,16 @@ State file path:
 
 **`--all` mode (`$ALL_MODE` set) — reserved-subdirectory fresh-snapshot branch (additive; the two key lines above are byte-untouched).** When `$ALL_MODE` is set, do BOTH of the following INSTEAD of the default state-key resolution and INSTEAD of Phase 0.5 steps 2-5:
 
-  (i) **Structurally separate state key.** `--all` state lives under a RESERVED SUBDIRECTORY: `.turingmind/state/by-mode/all/<scope-hash>.json`. WHY a subdirectory and not a filename prefix: the default "other modes" key is a FLAT filename `<repo>-<branch>.json` directly under `.turingmind/state/`, so ANY flat all-mode filename — even `all-<hash>.json` — shares that grammar and CAN collide (a repo named `all` on branch `whole-tree` produces the default key `all-whole-tree.json`, byte-identical to a whole-tree `--all` key; git accepts both `whole-tree` and 12-hex branch names). A filename prefix is NOT a namespace. A subdirectory `by-mode/all/` can NEVER equal a flat filename no matter the repo/branch name, so the two namespaces are STRUCTURALLY disjoint. Define `<scope-hash>`: when `$NARROW` is empty use the literal token `whole-tree`, else hash `$NARROW`:
+  (i) **Structurally separate state key.** `--all` state lives under a RESERVED SUBDIRECTORY: `.turingmind/state/by-mode/all/<scope-hash>.json`. WHY a subdirectory and not a filename prefix: the default "other modes" key is a FLAT filename `<repo>-<branch>.json` directly under `.turingmind/state/`, so ANY flat all-mode filename — even `all-<hash>.json` — shares that grammar and CAN collide (a repo named `all` on branch `whole-tree` produces the default key `all-whole-tree.json`, byte-identical to a whole-tree `--all` key; git accepts both `whole-tree` and 12-hex branch names). A filename prefix is NOT a namespace. A subdirectory `by-mode/all/` can NEVER equal a flat filename no matter the repo/branch name, so the two namespaces are STRUCTURALLY disjoint. Define `<scope-hash>` so it (a) is a single deterministic value the code actually produces — comment and code must AGREE — and (b) includes repo+branch context so two repos sharing a `.turingmind/` (e.g. a mounted/NAS-shared state dir) do NOT collide on an identical `whole-tree` key. The scope-hash is ALWAYS a 12-hex digest of `<repo>:<branch>:<narrow-or-whole-tree-token>` — there is no verbatim-`whole-tree` filename:
   ```bash
-  SCOPE_HASH=$(printf '%s' "${NARROW:-whole-tree}" | shasum | cut -c1-12)   # 'whole-tree' verbatim when $NARROW empty
-  ALL_STATE_FILE=".turingmind/state/by-mode/all/${SCOPE_HASH}.json"          # e.g. by-mode/all/whole-tree.json or by-mode/all/<12hex>.json
+  REPO=$(basename "$(git rev-parse --show-toplevel)")
+  BRANCH=$(git branch --show-current)
+  SCOPE_TOKEN="${NARROW:-whole-tree}"                                        # the literal token 'whole-tree' ONLY when $NARROW is empty
+  SCOPE_HASH=$(printf '%s' "${REPO}:${BRANCH}:${SCOPE_TOKEN}" | shasum | cut -c1-12)   # ALWAYS a 12-hex digest (repo+branch+scope) — never the bare 'whole-tree' string
+  ALL_STATE_FILE=".turingmind/state/by-mode/all/${SCOPE_HASH}.json"          # always by-mode/all/<12hex>.json
   mkdir -p .turingmind/state/by-mode/all
   ```
-  (`whole-tree` is short enough to use verbatim, or hash it too — either yields a `by-mode/all/` key.) **Reserved-path guard (state in prose, enforced structurally):** default-mode state resolution (the GSD-mode and "other modes" branches above) MUST NOT read or write anything under `.turingmind/state/by-mode/` — that subtree is reserved for mode-scoped state — and conversely the `--all` branch MUST NOT read or write a flat `.turingmind/state/<repo>-<branch>.json` file. Because the default branches build a FLAT filename and the `--all` branch builds a `by-mode/all/` path, a plain `/review` can NEVER resolve INTO the `by-mode/all/` subtree (and `--all` can never resolve out of it). The disjointness is a structural property of the path grammar, restated here as the guard.
+  (Hashing repo+branch+scope means a whole-tree `--all` in repo A and in repo B yield DIFFERENT keys even in a shared `.turingmind/`, and the code's output matches the comment exactly — one deterministic key, read and written the same way within a run.) **Reserved-path guard (state in prose, enforced structurally):** default-mode state resolution (the GSD-mode and "other modes" branches above) MUST NOT read or write anything under `.turingmind/state/by-mode/` — that subtree is reserved for mode-scoped state — and conversely the `--all` branch MUST NOT read or write a flat `.turingmind/state/<repo>-<branch>.json` file. Because the default branches build a FLAT filename and the `--all` branch builds a `by-mode/all/` path, a plain `/review` can NEVER resolve INTO the `by-mode/all/` subtree (and `--all` can never resolve out of it). The disjointness is a structural property of the path grammar, restated here as the guard.
 
   (ii) **Carry-forward bypass (fresh snapshot).** FORCE pass-1 / fresh-snapshot behavior UNCONDITIONALLY: `$PASS_NUMBER = 1`, `$LAST_REVIEWED_SHA = null`, `$CARRYFORWARD = []`, and SKIP Phase 0.5 steps 2-5 (parse / incremental-narrow / carry-forward) EVEN IF a `by-mode/all/<scope-hash>.json` file already exists from a prior run. This realizes design-spec §4 ("each `--all` run is a fresh snapshot — no carry-forward, no diff against a previous snapshot") and D-09's fresh-snapshot posture. The run still PROCEEDS to write its state file at `$ALL_STATE_FILE` in Phase 4.5 (so a same-run `--fix`/`--finalize` works), but it never diffs against a previous snapshot.
 
