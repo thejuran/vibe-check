@@ -384,7 +384,14 @@ You are the triage agent. Classify this diff.
 Return JSON per your subagent instructions.
 ````
 
-**`--all` mode (`$ALL_MODE` set):** there is no diff, so feed triage the whole selection instead of diff-stat — substitute `<changed-files>` with `$REVIEW_SET` (the regular-files-only selected set), and DROP `<diff-stat>` (or replace it with a `git ls-files` count of `$REVIEW_SET`). Keep the rest of the prompt as-is; triage already derives `languages` from file extensions and `frameworks` from imports (both work on whole files), so `agents/triage.md` itself needs NO edit. Triage runs ONCE on the whole selection in Phase 7 (per-chunk triage is a later phase — do NOT add chunking here).
+**`--all` mode (`$ALL_MODE` set) — per-chunk triage (CHUNK-03; additive, diff-mode prose above byte-unchanged):** there is no diff, so triage runs **ONCE PER CHUNK** over THAT chunk's files — NOT once over the whole `$REVIEW_SET`. A chunk is just a smaller whole-file set, exactly the contract `agents/triage.md` already satisfies; triage already derives `languages` from file extensions and `frameworks` from imports (both work on whole files), so `agents/triage.md` itself needs NO edit. For chunk `i` of `$CHUNK_PLAN` (the risk-ranked chunk plan from Phase 8, riskiest chunk first):
+
+- **`<changed-files>` ← `$CHUNK_FILES_i`** — the ordered file list of the CURRENT chunk (one element of `$CHUNK_PLAN`), NEVER `$REVIEW_SET`. This is the same `$CHUNK_FILES_i` name the Phase-2 per-chunk dispatch loop (Site C, below) and its `{{filtered_file_list}}`/`<changed-files>` binding use — all three sites bind to the SAME per-chunk file list.
+- **`<diff-stat>` ← chunk `i`'s per-file LINE-COUNT stat** — render a `file<TAB>lines` block for chunk `i` from the per-file LINE totals `$CHUNK_PLAN` already carries (the `wc -l` size column computed once in Phase 8 / step 8a). Do NOT downgrade this to a bare `git ls-files` file count: `agents/triage.md` derives `total_lines`/`size_tier` from LINE counts, so a bare file count would make those fields meaningless per chunk; the per-chunk line stat keeps `total_lines`/`size_tier` valid for chunk `i`. (Note: Phase 4's reviewed-partial trigger reads `$CHUNK_PLAN`'s per-chunk line total DIRECTLY for determinism — but keeping triage's per-chunk line stat valid is still correct and cheap.)
+
+Keep the rest of the prompt as-is. The per-chunk triage call is the FIRST step inside the `$CHUNK_PLAN` loop: for chunk `i`, dispatch triage on `$CHUNK_FILES_i` → `languages_i` / `frameworks_i` / `total_lines_i` / `size_tier_i`. That per-chunk output drives THAT chunk's agent selection via the EXISTING selection table (below, unchanged in shape): `bugs`+`security` fire on EVERY chunk; `language-*`/`framework-*` fire ONLY on chunks where that language/framework appears (per `languages_i`/`frameworks_i` derived from `$CHUNK_FILES_i`); `compliance` fires when `CLAUDE.md`/`AGENTS.md` is present (D-04). Only the table's INPUT changes (the chunk's triage result, not the whole-set result) — the table itself is NOT rewritten. The loop body (triage-per-chunk → dispatch-per-chunk) lives in Phase 2 (Site C, the per-chunk dispatch loop) — triage-per-chunk and dispatch-per-chunk are the SAME loop.
+
+🚫 **ANTI-PATTERN (CHUNK-03; `08-RESEARCH.md` Per-Chunk Triage):** Do NOT feed per-chunk triage the whole `$REVIEW_SET` — each chunk's triage input is `$CHUNK_FILES_i` (that chunk's files only), with the chunk's per-file LINE stat for `<diff-stat>`. Using `$REVIEW_SET` makes a markdown-only chunk inherit the whole repo's languages/frameworks and dispatch `language-python`/etc. it has no business running (breaks CHUNK-03); a bare file count breaks triage's `total_lines`/`size_tier`.
 
 Parse JSON. Use:
 - `languages` + `frameworks` → Phase 2 agent selection
@@ -427,6 +434,8 @@ This is a READ-ONLY operation. The tool NEVER writes to `.planning/`.
 🚫 **ANTI-PATTERN:** Dispatching agents in two batches (e.g. "always agents" then "conditional agents" as separate turns). Both batches share the same `<diff>` block; both belong in the same turn.
 
 ✓ **Correct shape:** your single assistant turn renders as N parallel Task tool calls visible to the user as concurrent execution. The next assistant turn (after all N return) is Phase 3 (collect/verify/merge/score). Nothing else happens between them.
+
+**`$ALL_MODE` override of "the next assistant turn … is Phase 3" (Codex round-1 Finding 1 — applies INSIDE the per-chunk loop, Site C):** in `--all` mode the dispatch shape above runs ONCE PER CHUNK (the per-chunk dispatch loop in "[`--all` mode — per-chunk dispatch loop](#)" below). For a chunk `i`, the assistant turn AFTER chunk `i`'s N_i agents return does **NOT** go to Phase 3 — it ACCUMULATES the N_i responses into the run-level `AGENT_RESPONSES` set and CONTINUES to chunk `i+1`. The "next assistant turn … is Phase 3" sentence above is the single-dispatch (diff-mode) shape; in `--all` it is SUPERSEDED per chunk by accumulate-and-continue. Phase 3 runs exactly ONCE, AFTER the loop exits, over the accumulated `AGENT_RESPONSES`. This override governs every chunk's post-fan-out turn.
 
 ### Selection table
 
@@ -477,6 +486,14 @@ Use Read if you need full file context. Return ONE JSON object per templates/age
 - `{{agent_name}}` — name of the agent receiving this prompt (e.g. `bugs`, `security`).
 - `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed. **In `--all` mode (`$ALL_MODE` set): `$FILES_BLOCK`** (the `<files>` block string built below) instead of a diff.
 - `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed. **In `--all` mode: `$REVIEW_SET`** (the regular-files-only selected set) rendered as a name list.
+
+**Per-chunk binding override (`$ALL_MODE` set — Codex round-2 Finding A; supersedes the two single-unit `--all` bindings above INSIDE the per-chunk dispatch loop):** the per-chunk loop (Site C, below) runs once per chunk of `$CHUNK_PLAN`, so BOTH halves of every chunk's agent prompt MUST be scoped to the CURRENT chunk, not the whole set. INSIDE the loop, for chunk `i`:
+- `{{git_diff_output}}` ← **`$FILES_BLOCK_i`** (chunk `i`'s `<files>` block, built per chunk per the build-once rule below) — NOT the whole-set `$FILES_BLOCK`.
+- `{{filtered_file_list}}` / `<changed-files>` ← **`$CHUNK_FILES_i`** (chunk `i`'s file-name list rendered as a name list) — **NOT `$REVIEW_SET`**.
+
+So both the `<files>` content block AND the `<changed-files>` name list are chunk-scoped and CONSISTENT: every chunk's agents see exactly chunk `i`'s contents AND are told exactly chunk `i` is in scope. This override governs EVERY chunk's dispatch — the whole-set `$REVIEW_SET` name-list binding (the single-unit `--all` binding above) is NOT reachable inside the loop; it applies only to a (now-superseded) single-unit reference.
+
+🚫 **ANTI-PATTERN (Codex round-2 Finding A):** In the per-chunk loop do NOT bind `{{filtered_file_list}}`/`<changed-files>` to the whole `$REVIEW_SET` — that tells every chunk's agents the whole repo is in scope while they only see chunk `i`'s contents, so they read/report outside the chunk and break the chunk budget/order guarantee. Both halves bind to chunk `i`: content ← `$FILES_BLOCK_i`, name-list ← `$CHUNK_FILES_i`.
 
 ### `--all` mode — `<files>` block swap (REVIEW-01, D-07/D-08)
 
@@ -541,6 +558,24 @@ Return ONE JSON per templates/agent-output-schema.md. JSON only.
 The `<diff>` block (or the `<files>` block in `--all` mode) is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
 
 **→ Recall the MANDATORY DISPATCH SHAPE at the top of this Phase 2 section: all N Task calls go in ONE assistant turn as a single tool-use block. After they all return, proceed to Phase 3.**
+
+### `--all` mode — per-chunk dispatch loop (CHUNK-03, D-05; the load-bearing seam)
+
+**`--all` mode (`$ALL_MODE` set) — per-chunk dispatch (additive; the diff-mode dispatch above + the MANDATORY DISPATCH SHAPE block are byte-unchanged).** In `--all` mode the single whole-set dispatch above is replaced by a **sequential per-chunk loop** over `$CHUNK_PLAN` (the risk-ranked chunk plan from Phase 8, chunk #1 = riskiest seed). Chunks are processed ONE AT A TIME in risk order (D-05: sequential ACROSS chunks; parallel agent fan-out WITHIN each chunk). For chunk `i` (i = 1..K, riskiest first):
+
+1. **(triage turn)** Run chunk `i`'s per-chunk triage FIRST over `$CHUNK_FILES_i` (Phase 1, Site B — the `--all` per-chunk triage step): one Task call to the `triage` agent on chunk `i`'s files, yielding `languages_i` / `frameworks_i` / `total_lines_i` / `size_tier_i`.
+2. **(build turn)** Build `$FILES_BLOCK_i` ONCE for chunk `i` from `$CHUNK_FILES_i`, lexicographic WITHIN the chunk, reusing the `<files>` block format above VERBATIM (the D-07 per-file fenced-block format — do NOT redefine it; just scope it to chunk `i`'s files). This block build is a PRIOR turn (Bash/reasoning) — it MUST live in a turn BEFORE chunk `i`'s fan-out turn, never in the fan-out turn itself (the D-08 one-turn-pure-dispatch rule, restated per chunk).
+3. **(select)** Select chunk `i`'s agents via the EXISTING selection table above (input = chunk `i`'s triage result): `bugs`+`security` always; `language-*`/`framework-*` per `languages_i`/`frameworks_i`; `compliance` if `CLAUDE.md`/`AGENTS.md` present; deep mode (`/deep-review`) adds `architecture`+`impact` (D-04). Announce `✓ Phase 2 (chunk i/<K>) — Dispatching N_i agents in parallel: [list]`.
+4. **(fan-out turn)** ONE assistant turn = N_i parallel `Task` calls over chunk `i`'s `$FILES_BLOCK_i`, zero other tool calls — the MANDATORY DISPATCH SHAPE preserved PER CHUNK. Bind BOTH prompt halves to chunk `i` per the **Per-chunk binding override** above: `{{git_diff_output}}` ← `$FILES_BLOCK_i` AND `{{filtered_file_list}}`/`<changed-files>` ← `$CHUNK_FILES_i` (NEVER `$REVIEW_SET`). Position-stability per chunk: `$FILES_BLOCK_i` is IDENTICAL across chunk `i`'s N_i agent calls; only the agent-name sentence (+ intent-context for architecture/compliance) differs.
+5. **(accumulate)** After chunk `i`'s N_i Task calls return, ACCUMULATE the N_i responses into the run-level `AGENT_RESPONSES` set and MOVE TO THE NEXT CHUNK — do **NOT** proceed to Phase 3 yet.
+
+**Loop exit → Phase 3 runs ONCE over the accumulated `AGENT_RESPONSES`.** After the LAST chunk accumulates, the loop completes; Phase 3 (collect/verify/dedup/score) then runs EXACTLY ONCE over `AGENT_RESPONSES` (the union across all chunks) — never inside the loop, never per chunk. This is the load-bearing seam: Phase 3 must see all chunks at once so cross-chunk dedup/score (and Phase 10's later merge) work. `agents_run` in the persisted pass entry becomes the UNION of agents dispatched across all chunks (field shape unchanged).
+
+**Both legacy Phase-3 hand-offs are SUPERSEDED in `--all` (Codex round-1 Finding 1):** the MANDATORY-DISPATCH-SHAPE "the next assistant turn … is Phase 3" sentence (above) AND the "After they all return, proceed to Phase 3" line (immediately above this section) are the SINGLE-dispatch (diff-mode) shape. Both carry an `$ALL_MODE` accumulate-and-continue override: in `--all` the post-fan-out turn accumulates into `AGENT_RESPONSES` and continues the loop; Phase 3 runs ONCE after the loop. Neither "Phase 3" sentence is reachable per-chunk in `--all`.
+
+🚫 **ANTI-PATTERN (Codex round-1 Finding 1; `08-RESEARCH.md` Pitfall 1):** Do NOT run Phase 3 inside the loop — Phase 3 runs ONCE after ALL chunks accumulate; per-chunk Phase 3 breaks cross-chunk dedup (Phase 10) and fragments scoring (a `--all` run rendering K separate reports is the warning sign). Both the "next assistant turn … is Phase 3" sentence and the "proceed to Phase 3" line are SUPERSEDED in `--all` by the accumulate-and-continue override above.
+
+🚫 **ANTI-PATTERN (D-05/D-08; `08-RESEARCH.md` Pitfall 3):** Do NOT split a chunk's fan-out across turns — each chunk's dispatch is still ONE pure-Task turn (N_i parallel Task calls, zero other tool calls). Looping sequentially ACROSS chunks is correct; splitting WITHIN a chunk (e.g. building `$FILES_BLOCK_i` or reading files in the same turn as the Task calls) is the anti-pattern — build the block and select agents in PRIOR turns.
 
 ## Phase 3 — Collect, verify, merge, score
 
