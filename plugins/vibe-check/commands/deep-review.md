@@ -33,7 +33,7 @@ Comprehensive review with architecture + impact analysis + intent-doc alignment.
 Concretely, your execution order is:
 
 1. Read `commands/review.md` end-to-end (it lives next to this file under `plugins/vibe-check/commands/review.md`). That file is the authoritative spec for the shared phases AND for the HARD CONTRACT above (which applies identically to `/deep-review`).
-2. Execute Phase 0, 0.5, 0.7, 1, 1.5 per `commands/review.md`.
+2. Execute Phase 0, 0.5, 0.7, 1, 1.5 per `commands/review.md`. **`--all` is recognized here by inheritance:** because `/deep-review` executes Phase 0 per `commands/review.md`, the `--all` branch-flip — whole-tree selection (mode 5), the narrow-arg containment guard, the skip rules, and the `$ALL_MODE`/`$REVIEW_SET` bindings — is INHERITED through this delegation. `/deep-review` does NOT re-author selection; it reuses `review.md`'s `$ALL_MODE` flag and `<files>` block format verbatim (the only deep-specific `--all` touch is the Phase-2.5 architecture-prompt swap in "Differences" below).
 3. Execute Phase 2 (agent selection) per the "Differences from /review" section below — this command DIFFERS from `/review` in agent dispatch (adds architecture+impact, lowers threshold). Use the table in "Differences" below, NOT the Phase 2 table in `commands/review.md`.
 4. Execute Phase 1c (Related files) per "Differences" below — this is a NEW phase that /review doesn't have.
 5. Execute Phase 2.5 (Architecture prompt enhancement) per "Differences" below.
@@ -109,6 +109,24 @@ You are the architecture agent. Reason deeply about cross-file implications, int
 {{from Phase 1c}}
 </related-files>
 ```
+
+**`--all` mode (`$ALL_MODE` set) — `<files>` swap (REVIEW-01, D-07/D-08).** When `$ALL_MODE` is set (inherited from `review.md` Phase 0 mode 5 — see the recognition note in the Phase-contract section above), swap this deep-only architecture prompt's `<diff>` block for a `<files>` block in the EXACT same position (after `{{intent-context}}`, before `<related-files>`) — identically to `review.md`'s base/intent template swap. Reuse `review.md`'s `$ALL_MODE` flag and its `<files>` block format/`$FILES_BLOCK` string verbatim; do NOT redefine the `<files>` format here. So in `--all` this prompt reads:
+
+```
+You are the architecture agent. Reason deeply about cross-file implications, intent alignment, pattern consistency.
+
+{{intent-context}}
+
+<files>
+{{git_diff}}
+</files>
+
+<related-files>
+{{from Phase 1c}}
+</related-files>
+```
+
+The impact agent's `<related-files>` block (Phase 1c above) is diff-oriented; in `--all` it stays AS-IS / is best-effort (its deeper `--all` behavior is a later phase — NOT Phase 7).
 
 ### Phase 2b — Collection-mechanism smoke-check (one-time tool-viability gate, run BEFORE Phase 2c relies on background collection)
 
