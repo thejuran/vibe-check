@@ -100,3 +100,10 @@ Both `<verify>` automated blocks return PASS:
 
 - `f3c1f42` — feat(07-02): add Phase-0 --all mode 5 + reserved-subdir fresh-snapshot state + --all triage input
 - `d89460b` — feat(07-02): swap Phase-2 dispatch to <files> under $ALL_MODE + add Phase-4 coverage note
+- `45bbffc` — docs(07-02): add 07-02-SUMMARY.md (force-added; .planning gitignored)
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/07-walking-skeleton-selection-end-to-end-all/07-02-SUMMARY.md`
+- FOUND commits: `f3c1f42`, `d89460b`, `45bbffc`
+- STATE.md / ROADMAP.md NOT modified (orchestrator owns those writes after wave merge)
