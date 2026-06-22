@@ -82,6 +82,8 @@ Quick code review for the current diff. Parallel per-domain subagents return JSO
 
 Parse `$ARGUMENTS`:
 
+**Branch-flip guard (`--all`, evaluated FIRST):** if `$ARGUMENTS` contains the `--all` token anywhere, go DIRECTLY to **mode 5** below and SKIP modes 1-4 entirely. `--all` is a branch-flip flag — it WINS over all four diff detectors (no-args / PR number / `..` range / GSD phase). In particular, a bare number after `--all` (e.g. `--all 42`) is a PATH, never a PR ref — the guard firing first prevents PR mode from matching. Modes 1-4 are reached ONLY when `--all` is absent (no regression: a non-`--all` invocation resolves a diff exactly as before).
+
 1. **No args (default)**: review all uncommitted changes. Assemble diff via:
    ```bash
    git diff HEAD
@@ -148,6 +150,65 @@ Parse `$ARGUMENTS`:
 
    Set `$PHASE_ID = $(basename "$PHASE_DIR")` for state and intent context — the directory *name*, layout-independent, so state files are identical whether the phase lives flat or milestone-nested. `$PHASE_DIR` (the full resolved path) is reused by Phase 1 (triage prompt) and Phase 1.5 (intent docs) — those phases must NOT re-derive it from `.planning/phases/`.
 
+5. **`--all` mode** — reached only via the branch-flip guard above (the `--all` token is present in `$ARGUMENTS`). Whole-codebase selection over tracked files instead of a diff. Resolve scope as follows:
+
+   a. **Narrow parse (`$NARROW`).** The first non-flag token after `--all` (if any) is `$NARROW` — the path OR glob to narrow to (e.g. `--all src/api`, `--all '*.md'`, `--all 'src/**/*.ts'`). `--full` and `--fix` are recognized as independent composable flags and are NOT the narrow token (their `--all`-specific semantics land in later phases; Phase 7 just must not misparse them as the path). If there is no non-flag token, `$NARROW` is EMPTY → review the whole tree. A `$NARROW` MAY legitimately contain `*` — a glob like `*.md` or `src/**/*.ts` is contractual input, so the guard below validates-and-passes a glob; it never silently drops a glob's matches.
+
+   b. **Hardened containment guard for `$NARROW`** (skip this entire sub-step when `$NARROW` is empty — the whole-tree case has no user path to validate). This is a three-stage validate-then-contain guard modeled on the most-hardened in-repo example (the `deep-review.md` Codex path two-check, steps (b)→(d)). All three stages run, in order:
+
+      (i) **Explicit `case` pre-reject (REQUIRED — the regex in (ii) does NOT cover `..`).** Reject `$NARROW` outright (clear error + stop) on ANY of: a leading `/` (absolute), a leading `-` (option-like), any `..` path segment (traversal), a leading `:` or ANY occurrence of a Git PATHSPEC-MAGIC token (`:`, `:(`, `:!`, `:^`) anywhere in the value, spaces, or shell metacharacters (`;` `|` `&` `$` backtick, plus `(` `)` `!` `^`):
+      ```bash
+      case "$NARROW" in
+        /* | -* | *..* ) echo "Invalid --all path/glob (absolute, option-like, or '..' traversal) — refusing."; exit 1 ;;
+        :* | *:\(* | *:!* | *:^* ) echo "Invalid --all path/glob (Git pathspec magic is not allowed) — refusing."; exit 1 ;;
+        *' '* | *';'* | *'|'* | *'&'* | *'$'* | *'`'* | *'('* | *')'* | *'!'* | *'^'* ) echo "Invalid --all path/glob (shell metacharacter) — refusing."; exit 1 ;;
+        *) : ;;   # OK so far: relative, no traversal, no pathspec magic, no metachar — continue to (ii)
+      esac
+      ```
+      The leading-`:` and the `:(` / `:!` / `:^` arms are what FAIL CLOSED on Git pathspec-magic input: `--all ':(top)*'` (selects the whole repo) and `--all ':!plugins/**'` (excludes a subtree) PASS a guard that only checks `..`/absolute/metachar, silently broadening or narrowing the audit. They are now REJECTED, not expanded. NOTE: `*` is NOT in any reject arm — a glob is legal input; only the pathspec-magic chars (`:` `(` `)` `!` `^`) and the other shell metachars are rejected.
+
+      (ii) **Regex allowlist pre-filter.** Additionally require `$NARROW` to match the EXACT allowlist `^[A-Za-z0-9._*/-]+$` — letters, digits, dot, underscore, **star** (so globs pass), slash, hyphen ONLY. Every character outside that class — including every pathspec-magic char (`:` `(` `)` `!` `^`) and every shell metachar — is rejected. The `*` IS in the allowlist on purpose (globs must narrow); the pathspec-magic chars are NOT, so an allowlisted value can NEVER carry its own pathspec magic — that invariant is what makes the orchestrator-supplied `:(literal)` / `:(glob)` prefix in (d) safe. As in the `deep-review.md` model, this regex is NOT sufficient alone — it does NOT stop `..` (every char of `a/../b` is in the class) — so the explicit (i) reject is REQUIRED and runs first.
+      ```bash
+      printf '%s' "$NARROW" | grep -Eq '^[A-Za-z0-9._*/-]+$' || { echo "Invalid --all path/glob (allowed: letters digits . _ * / -) — refusing."; exit 1; }
+      ```
+
+      (iii) **realpath-contain the LITERAL PREFIX of `$NARROW`** under `$(git rev-parse --show-toplevel)`. For a plain path the literal prefix is the whole value; for a glob it is the portion BEFORE the first `*` (e.g. for `src/**/*.ts` the literal prefix is `src/`; for a bare `*.md` the literal prefix is empty → resolves to the repo root, which IS contained). Mirror the GSD-mode containment (lines above) / `deep-review.md` (d): set `CONTAINED` in each `case` arm, then act on the flag — a non-empty literal prefix that resolves OUTSIDE the toplevel (or to an empty resolution) is NOT contained → refuse.
+      ```bash
+      ROOT=$(git rev-parse --show-toplevel)
+      LITERAL_PREFIX="${NARROW%%\**}"          # everything before the first '*' ('' for a bare glob like *.md)
+      if [ -z "$LITERAL_PREFIX" ]; then
+        CONTAINED=1                            # empty prefix → repo root → contained
+      else
+        REAL=$(cd "$ROOT" && realpath "$LITERAL_PREFIX" 2>/dev/null) || REAL=""
+        case "$REAL/" in
+          "$ROOT/"*) CONTAINED=1 ;;            # contained — accept
+          *)         CONTAINED=0 ;;            # escaped repo (or empty/unresolved) — refuse
+        esac
+      fi
+      [ "$CONTAINED" = 1 ] || { echo "--all narrow scope escaped the repo root — refusing."; exit 1; }
+      ```
+
+      **Then drive git with an ORCHESTRATOR-OWNED pathspec-magic prefix chosen by SCOPE SHAPE** (this is what fixes both the magic-injection vector AND keeps globs working — the orchestrator OWNS the `:(literal)`/`:(glob)` prefix; it is a fixed string the orchestrator selects by detecting `*`, and the user input can never supply its own magic because (i)+(ii) reject any `:`/`(`/`)`/`!`/`^`):
+      - If `$NARROW` contains NO `*` (a plain path): use `:(literal)` — `git ls-files -s -z -- ":(literal)$NARROW"` — exact-path, wildcard-free, magic-free.
+      - If `$NARROW` contains `*` (a glob): use `:(glob)` — `git ls-files -s -z -- ":(glob)$NARROW"` — so `*` / `**` perform standard glob matching. (LIVE-VERIFIED in this repo: `:(glob)*.md` and `:(glob)plugins/**/*.md` select correctly, whereas `:(literal)*.md` returns NOTHING — forcing `:(literal)` on a glob would silently under-select, so the prefix MUST be split by shape.)
+
+      The `--` terminates option parsing; `$NARROW` is always double-quoted inside the pathspec and is NEVER interpolated into a command line. Net invariant: user-supplied pathspec magic stays REJECTED (fail closed), but a normal glob like `*.md` / `src/**/*.ts` narrows correctly.
+
+   c. **Selection + symlink filter (the candidate tracked set).** Resolve the candidate set with `git ls-files -s -z` — the `-s`/`--stage` form prints the git mode bits, and `-z` is NUL-delimited for robustness to odd filenames:
+      - whole tree (empty `$NARROW`): `git ls-files -s -z`
+      - plain-path `$NARROW`: `git ls-files -s -z -- ":(literal)$NARROW"`
+      - glob `$NARROW`: `git ls-files -s -z -- ":(glob)$NARROW"`
+
+      Then **FILTER TO REGULAR FILES ONLY**: keep entries whose mode is `100644` (regular file) or `100755` (executable), and **DROP entries whose mode is `120000` (symlink)**. This filter runs BEFORE any file-content read, so a tracked symlink can NEVER contribute its target's contents to the `<files>` block — `git ls-files` includes tracked symlinks, and reading one could follow a link OUTSIDE the repo and disclose local files. Dropped symlinks are noted as skipped/non-regular in the Phase-4 coverage note (their link text is not read in Phase 7 either). `Bash(git:*)` already permits `git ls-files -s` — no allowed-tool change.
+
+   d. **Skip rules.** Apply the skip rules in `templates/skip-rules.md` (the canonical list — do not duplicate it inline). That shared snippet is the single source of truth both `commands/review.md` and `commands/deep-review.md` reference; it supersedes/extends triage's inline `files_to_skip` baseline.
+
+   e. **Set downstream variables.** After the symlink filter and skip rules, the surviving regular files are the reviewed set:
+      - `$REVIEW_SET` = the surviving regular files (the membership set; later phases will use it, but do NOT build any `in_reviewed_set` filter now).
+      - `$ALL_MODE=1` — the flag that gates the Phase-0.5 fresh-snapshot branch, the Phase-2 `<diff>`→`<files>` block swap, and the Phase-4 coverage note.
+      - The existing Phase-2 bindings are REUSED via a conditional (not a rewrite): `{{filtered_file_list}}` ← `$REVIEW_SET` rendered as a name list, and `{{git_diff_output}}` ← the `<files>` block string (`$FILES_BLOCK`, built in Phase 2).
+      - Leave `$PHASE_ID` / `$PHASE_DIR` UNSET — `--all` has no single-phase intent doc, so this correctly skips Phase 1.5 intent loading.
+
 ## Phase 0.5 — Multi-pass state check
 
 State file path:
@@ -155,6 +216,20 @@ State file path:
   - ✓ Correct: `.turingmind/state/02-real-data-path.json`, `.turingmind/state/31-cache-invalidation-renderer-config-epoch-and-awaited-purge-a.json`
   - 🚫 Wrong: `.turingmind/state/02.json`, `.turingmind/state/31.json`
 - Other modes (no args / PR / range): `.turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json`
+
+**`--all` mode (`$ALL_MODE` set) — reserved-subdirectory fresh-snapshot branch (additive; the two key lines above are byte-untouched).** When `$ALL_MODE` is set, do BOTH of the following INSTEAD of the default state-key resolution and INSTEAD of Phase 0.5 steps 2-5:
+
+  (i) **Structurally separate state key.** `--all` state lives under a RESERVED SUBDIRECTORY: `.turingmind/state/by-mode/all/<scope-hash>.json`. WHY a subdirectory and not a filename prefix: the default "other modes" key is a FLAT filename `<repo>-<branch>.json` directly under `.turingmind/state/`, so ANY flat all-mode filename — even `all-<hash>.json` — shares that grammar and CAN collide (a repo named `all` on branch `whole-tree` produces the default key `all-whole-tree.json`, byte-identical to a whole-tree `--all` key; git accepts both `whole-tree` and 12-hex branch names). A filename prefix is NOT a namespace. A subdirectory `by-mode/all/` can NEVER equal a flat filename no matter the repo/branch name, so the two namespaces are STRUCTURALLY disjoint. Define `<scope-hash>`: when `$NARROW` is empty use the literal token `whole-tree`, else hash `$NARROW`:
+  ```bash
+  SCOPE_HASH=$(printf '%s' "${NARROW:-whole-tree}" | shasum | cut -c1-12)   # 'whole-tree' verbatim when $NARROW empty
+  ALL_STATE_FILE=".turingmind/state/by-mode/all/${SCOPE_HASH}.json"          # e.g. by-mode/all/whole-tree.json or by-mode/all/<12hex>.json
+  mkdir -p .turingmind/state/by-mode/all
+  ```
+  (`whole-tree` is short enough to use verbatim, or hash it too — either yields a `by-mode/all/` key.) **Reserved-path guard (state in prose, enforced structurally):** default-mode state resolution (the GSD-mode and "other modes" branches above) MUST NOT read or write anything under `.turingmind/state/by-mode/` — that subtree is reserved for mode-scoped state — and conversely the `--all` branch MUST NOT read or write a flat `.turingmind/state/<repo>-<branch>.json` file. Because the default branches build a FLAT filename and the `--all` branch builds a `by-mode/all/` path, a plain `/review` can NEVER resolve INTO the `by-mode/all/` subtree (and `--all` can never resolve out of it). The disjointness is a structural property of the path grammar, restated here as the guard.
+
+  (ii) **Carry-forward bypass (fresh snapshot).** FORCE pass-1 / fresh-snapshot behavior UNCONDITIONALLY: `$PASS_NUMBER = 1`, `$LAST_REVIEWED_SHA = null`, `$CARRYFORWARD = []`, and SKIP Phase 0.5 steps 2-5 (parse / incremental-narrow / carry-forward) EVEN IF a `by-mode/all/<scope-hash>.json` file already exists from a prior run. This realizes design-spec §4 ("each `--all` run is a fresh snapshot — no carry-forward, no diff against a previous snapshot") and D-09's fresh-snapshot posture. The run still PROCEEDS to write its state file at `$ALL_STATE_FILE` in Phase 4.5 (so a same-run `--fix`/`--finalize` works), but it never diffs against a previous snapshot.
+
+  **Net guarantee:** a plain `/review` run BEFORE and AFTER an `--all` run uses the SAME flat `<repo>-<branch>.json` file and the SAME carry-forward behavior it had before this feature — no cross-contamination in EITHER direction, and structurally impossible (not merely conventionally avoided) because the namespaces are a flat filename vs. a reserved subdirectory.
 
 1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`. Proceed to Phase 0.7 (first-run setup will create `.turingmind/state/` if needed), then to Phase 1. Skip the rest of Phase 0.5.
 
@@ -216,6 +291,8 @@ You are the triage agent. Classify this diff.
 
 Return JSON per your subagent instructions.
 ````
+
+**`--all` mode (`$ALL_MODE` set):** there is no diff, so feed triage the whole selection instead of diff-stat — substitute `<changed-files>` with `$REVIEW_SET` (the regular-files-only selected set), and DROP `<diff-stat>` (or replace it with a `git ls-files` count of `$REVIEW_SET`). Keep the rest of the prompt as-is; triage already derives `languages` from file extensions and `frameworks` from imports (both work on whole files), so `agents/triage.md` itself needs NO edit. Triage runs ONCE on the whole selection in Phase 7 (per-chunk triage is a later phase — do NOT add chunking here).
 
 Parse JSON. Use:
 - `languages` + `frameworks` → Phase 2 agent selection
@@ -306,8 +383,44 @@ Use Read if you need full file context. Return ONE JSON object per templates/age
 
 **Substitution bindings:**
 - `{{agent_name}}` — name of the agent receiving this prompt (e.g. `bugs`, `security`).
-- `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed.
-- `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed.
+- `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed. **In `--all` mode (`$ALL_MODE` set): `$FILES_BLOCK`** (the `<files>` block string built below) instead of a diff.
+- `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed. **In `--all` mode: `$REVIEW_SET`** (the regular-files-only selected set) rendered as a name list.
+
+### `--all` mode — `<files>` block swap (REVIEW-01, D-07/D-08)
+
+When `$ALL_MODE` is set, swap the `<diff>` block for a `<files>` block in BOTH prompt templates (the base template above AND the architecture/compliance intent variant below). The `<files>` block goes in the EXACT position the `<diff>` block occupied — for the base template that is right after the agent-name sentence; for the intent variant that is AFTER `{{intent_context_block_if_present}}`. The `<changed-files>` block and everything else are unchanged. So the base template in `--all` reads:
+
+````
+You are the {{agent_name}} agent. Review this code per your subagent instructions.
+
+<files>
+{{git_diff_output}}
+</files>
+
+<changed-files>
+{{filtered_file_list}}
+</changed-files>
+
+The full file contents are provided above. Return ONE JSON object per templates/agent-output-schema.md. JSON only.
+````
+
+**`<files>` block format (`$FILES_BLOCK`).** A per-file fenced code block: a `### <path>` header line, then a fenced block whose fence language is a hint inferred from the file extension. Build it ONLY from `$REVIEW_SET` (the regular-files-only set from Phase 0 mode 5) — so dropped symlinks (git mode 120000) contribute NO contents (FINDING 3, end-to-end). Extension → fence-language hint mapping (Claude's discretion): `.py`→python, `.ts`/`.tsx`→typescript, `.js`/`.jsx`/`.mjs`/`.cjs`→javascript, `.go`→go, `.rs`→rust, `.md`→markdown, `.json`→json, `.yaml`/`.yml`→yaml, `.sh`→bash; unknown extension → bare fence (no language hint). Shape:
+
+````
+<files>
+### path/to/file.py
+```python
+<full file contents>
+```
+
+### path/to/other.ts
+```typescript
+<full file contents>
+```
+</files>
+````
+
+**Build `$FILES_BLOCK` ONCE** in deterministic `git ls-files` lexicographic order (already stable) and substitute the IDENTICAL string into every agent prompt — keep per-agent variation OUTSIDE the block (agent-name sentence + intent-context only), exactly as the `<diff>` block does today (position-stability rule below). The MANDATORY DISPATCH SHAPE is UNCHANGED — `--all` still fans out N Task calls in ONE assistant turn (do NOT split the dispatch into two turns).
 
 ### Intent context injection
 
@@ -333,7 +446,7 @@ If `<intent-context>` present, attempt `intent_doc_match` for findings the docs 
 Return ONE JSON per templates/agent-output-schema.md. JSON only.
 ````
 
-`<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
+The `<diff>` block (or the `<files>` block in `--all` mode) is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
 
 **→ Recall the MANDATORY DISPATCH SHAPE at the top of this Phase 2 section: all N Task calls go in ONE assistant turn as a single tool-use block. After they all return, proceed to Phase 3.**
 
@@ -392,6 +505,16 @@ Per `templates/output-format.md`:
 |-------|----------|----------|
 | {{total}} | {{reported}} | {{filtered}} |
 ```
+
+**`--all` mode — coverage note (D-09, additive; does NOT alter any existing template token).** When `$ALL_MODE` is set, render the Summary as a whole-codebase variant — `**Summary:** Reviewed {{N}} files (whole-codebase, --all mode)` — dropping the diff-specific "lines changed" clause (there is no diff). `{{N}}` is the `$REVIEW_SET` (regular-files-only) size. Any tracked symlinks dropped by the Phase-0 mode filter (git mode 120000) are reported HERE as skipped/non-regular (FINDING 3 visibility — they are excluded from coverage, never silently read).
+
+On OVERFLOW of the single review unit, append an explicit **reviewed-partial** note immediately after the Summary line — incompleteness MUST be VISIBLE, never silently truncated:
+
+```
+> ⚠ Coverage: reviewed as a single unit; {{M}} of {{N}} files may not have been fully reviewed — risk-ranked chunking (Phase 8) is the fix.
+```
+
+Overflow heuristic (Claude's discretion; reuses triage's existing LOC-based signal — the SAME signal the large-diff Haiku downgrade above already uses): emit the partial note when the selection's `total_lines` is well past triage's "large" boundary (triage's `size_tier`: small <200 / medium 200-2000 / large >2000). Keep the note conservative ("may be partial"); the precise threshold is a tuning concern a later phase supersedes.
 
 Then the **Bottom line** block (plain-language ship/fix verdict — see `templates/output-format.md`; it exists so a non-engineer can make the fix/skip/ship call without parsing the technical sections), then Critical and Warning sections (each finding leads with its *In plain terms:* impact line per the template). Always include "Filtered Issues 🔇" summary.
 
