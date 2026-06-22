@@ -393,6 +393,10 @@ Keep the rest of the prompt as-is. The per-chunk triage call is the FIRST step i
 
 🚫 **ANTI-PATTERN (CHUNK-03; `08-RESEARCH.md` Per-Chunk Triage):** Do NOT feed per-chunk triage the whole `$REVIEW_SET` — each chunk's triage input is `$CHUNK_FILES_i` (that chunk's files only), with the chunk's per-file LINE stat for `<diff-stat>`. Using `$REVIEW_SET` makes a markdown-only chunk inherit the whole repo's languages/frameworks and dispatch `language-python`/etc. it has no business running (breaks CHUNK-03); a bare file count breaks triage's `total_lines`/`size_tier`.
 
+**`--all` mode (`$ALL_MODE` set) — SKIP this single-response parse/use tail.** In `--all` mode there is NO single whole-set triage response at this point: triage moved INTO the per-chunk loop (the per-chunk triage step above + the Phase 2 per-chunk dispatch loop), so there is nothing to parse here. SKIP the single-response `Parse JSON. Use:` block below entirely. Per-chunk agent selection, `files_to_skip`, and `size_tier` are driven by EACH chunk's OWN triage result (`languages_i`/`frameworks_i`/`size_tier_i` from `$CHUNK_FILES_i`), consumed inside the Phase 2 per-chunk dispatch loop — NOT from a whole-set parse here. (`intent_docs_found` → Phase 1.5 is moot in `--all`: Phase 1.5 only runs when `$PHASE_ID` is set, and `--all` leaves `$PHASE_ID` unset — see Phase 0 mode 5 step e.) Do NOT parse or use undefined/stale single-triage values for agent selection or model downgrades in `--all`.
+
+**Diff mode (`$ALL_MODE` NOT set) — parse the single triage response as before (byte-unchanged):**
+
 Parse JSON. Use:
 - `languages` + `frameworks` → Phase 2 agent selection
 - `files_to_skip` → exclude from diff sent to other agents
