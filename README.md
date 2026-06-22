@@ -19,7 +19,7 @@ A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin for AI-po
 
 A **Claude Code plugin** that adds two code-review slash commands — a fast pre-commit pass and a deep pre-PR pass. It runs specialized per-domain reviewer agents in parallel, scores and filters their findings, and shows you only what's worth your attention *in your diff* — not pre-existing tech debt.
 
-It is GSD-aware: if your project uses [GSD](https://github.com/jnuyens/gsd-plugin) phase planning, it reads the phase's intent docs (`PLAN.md` / `SPEC.md` / `RESEARCH.md`) to judge implementation-vs-intent. If you don't use GSD, it falls back to plain git-diff review with zero setup.
+It is GSD-aware: if your project uses [GSD](https://github.com/open-gsd/gsd-core) phase planning, it reads the phase's intent docs (`PLAN.md` / `SPEC.md` / `RESEARCH.md`) to judge implementation-vs-intent. If you don't use GSD, it falls back to plain git-diff review with zero setup.
 
 > Adapted from the upstream [`turingmindai/turingmind-code-review`](https://github.com/turingmindai/turingmind-code-review) project, with real parallel agent dispatch, model tiering, intent-doc awareness, and a stateful multi-pass review loop.
 
