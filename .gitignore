@@ -11,8 +11,8 @@
 # Private design docs (spec/plan notes — kept local, not shared)
 docs/superpowers/
 
-# Local distribution aid — the prompt to hand a new user, not part of the plugin
-SHARE-PROMPT.md
+# Local distribution aids — the prompts to hand a new user, not part of the plugin
+SHARE-PROMPT*.md
 
 # macOS Finder metadata
 .DS_Store
