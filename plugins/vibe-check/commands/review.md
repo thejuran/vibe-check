@@ -217,6 +217,54 @@ PY
       - The existing Phase-2 bindings are REUSED via a conditional (not a rewrite): `{{filtered_file_list}}` ← `$REVIEW_SET` rendered as a name list, and `{{git_diff_output}}` ← the `<files>` block string (`$FILES_BLOCK`, built in Phase 2).
       - Leave `$PHASE_ID` / `$PHASE_DIR` UNSET — `--all` has no single-phase intent doc, so this correctly skips Phase 1.5 intent loading.
 
+## Phase 8 — Risk-rank & chunk-plan (`--all` only)
+
+**`--all` mode (`$ALL_MODE` set) — risk-rank & chunk-plan (additive; does NOT alter any existing template token).** When `$ALL_MODE` is set, run this step IMMEDIATELY after the mode-5 `$REVIEW_SET` / empty-set guard above (so it never sees an empty set) and BEFORE Phase 0.5. When `$ALL_MODE` is NOT set, SKIP this entire step — diff mode and the four diff handlers are byte-untouched by it. Announce on entry:
+
+```
+✓ Phase 8 — Risk-rank & chunk-plan: <K> chunks (riskiest first)
+```
+
+This step consumes `$REVIEW_SET` (the surviving regular-files-only, post-skip, symlink-filtered set) and produces `$CHUNK_PLAN` — an ordered list of risk-ranked, budget-fitting chunks (chunk #1 = highest seed-risk) that the per-chunk triage (Phase 1) and per-chunk dispatch (Phase 2) consume, and whose per-chunk line totals the Phase-4 reviewed-partial note reads. It replaces Phase 7's "review the whole selection as one (possibly oversized) unit." All paths below are members of the Phase-7-validated `$REVIEW_SET` (regex-allowlisted, `..`/absolute/pathspec-magic-rejected, realpath-contained, symlink-filtered) — this step only REORDERS/PARTITIONS that already-contained set and introduces NO new external input. Every path is double-quoted `"$path"`, never raw-interpolated (the only safe interpolation discipline for a path that flows into `git log`/`wc`/`sort`). The recipe below uses `wc`/`sort`/`uniq`/`grep`/`python3` inside compound Bash — these flow through the existing compound-Bash convention exactly as Phase 7's `python3`/`grep`/`xargs`/`realpath` do; do NOT add them to the frontmatter `allowed-tools` line (it stays byte-identical).
+
+### 8a. Risk-score each file (path-tier PRIMARY, churn within-tier — CHUNK-01)
+
+Compute a two-key risk key per `$REVIEW_SET` file, then emit the risk order. The recipe mirrors the mode-5 selection recipe's shape (numbered sub-steps, quoted `"$path"`, inline WHY comments). The illustrative full recipe lives in `08-RESEARCH.md` §"Code Examples" — this is the directive to follow:
+
+   i. **One-pass churn table (commit frequency per file, in ONE git call).** `git log --pretty=format: --name-only | grep -v '^$' | sort | uniq -c` produces `<count> <path>` lines — per-file commit frequency for the WHOLE tree in a single git call (WHY one-pass: per-file `git log <file> | wc -l` is N git calls; the one-pass table is materially cheaper on a large repo). A `$REVIEW_SET` file ABSENT from the table gets `churn=0` (a brand-new tracked file with no commit history yet). Historical/renamed paths in the table that are NOT in `$REVIEW_SET` are simply ignored — they are not in the set.
+
+   ii. **EXACT path→churn lookup (NOT a substring grep).** Look up each file's churn by FULL-PATH exact match — read the table into an associative lookup keyed on the complete path, or use a `grep -Fx`-style fixed-string anchored match on the path column. WHY exact-not-substring: a substring grep would let a path that is a PREFIX of another (e.g. `src/api` matching `src/api-v2/handler.ts`) mis-attribute one file's churn to the other (`08-RESEARCH.md` A4). Default to `churn=0` for any file not found.
+
+   iii. **Path-tier classification — the PRIMARY key (a `case "$path" in … esac`).** Mirror the mode-5 narrow guard's exact form: a quoted scrutinee, glob arms, a `*)` default, one consequence per arm. Lower tier number = higher audit risk. The concrete pattern set is plan-time discretion (grounded in the design-spec §3 step-2 security category set), but the tier-first ORDER is LOCKED (D-01):
+
+   ```bash
+   case "$path" in
+     *auth*|*login*|*session*|*crypto*|*secret*|*password*|*token*|*.env*|*credential*)
+         tier=0 ;;                                                  # highest audit risk: auth / crypto / secrets
+     */api/*|*input*|*validat*|*sanitiz*|*db/*|*query*|*sql*|*config*)
+         tier=1 ;;                                                  # api surface / input handling / db / config
+     *.py|*.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.go|*.rs)
+         tier=2 ;;                                                  # other executable source
+     *)  tier=3 ;;                                                  # docs / config / other (README lands here)
+   esac
+   ```
+   WHY a `case` and not a regex chain: it mirrors the existing mode-5 guard shape and is exact and auditable. WHY the pattern set is discretion but the order is locked: D-01 fixes path-tier as PRIMARY and churn as a within-tier booster; the exact globs may evolve, the ordering may not.
+
+   iv. **Size column (`wc -l`) — ALSO the per-file LINE total carried forward.** For each file, `size=$(wc -l < "$path" 2>/dev/null); size=${size:-0}`. This size is the cheap, non-tokenizing budget proxy used by the packer (8b) AND it is the per-file LINE total that survives into the `$CHUNK_PLAN` contract — Phase 1's per-chunk triage substitutes it for `<diff-stat>` and Phase 4's reviewed-partial note reads its per-chunk sum. It is computed ONCE here, never re-measured downstream.
+
+   v. **Two-key risk sort (tier PRIMARY, churn within-tier SECONDARY).** Emit `tier<TAB>churn<TAB>size<TAB>path` per file, then sort:
+
+   ```bash
+   printf '%d\t%d\t%d\t%s\n' "$tier" "$churn" "$size" "$path"   # per file
+   # … collected over all $REVIEW_SET files, then:
+   sort -t$'\t' -k1,1n -k2,2nr                                  # tier ASC (PRIMARY), churn DESC (within-tier) → riskiest first
+   ```
+   `-k1,1n` (tier, numeric ascending) is the PRIMARY key; `-k2,2nr` (churn, numeric descending) is ONLY a within-tier booster that breaks ties between same-tier files. The result is the risk order; the chunk packer (8b) seeds from the TOP of this list.
+
+   🚫 **ANTI-PATTERN (the exact CHUNK-01 failure):** Do NOT sort churn before path tier (e.g. `-k2,2nr -k1,1n`, or treating churn as the primary key). That reintroduces the README-vs-crypto inversion — this repo's README has ~11 commits (more than most source files), so a churn-first sort would float it ABOVE a low-churn crypto/auth file and let a doc lead chunk #1 (`08-RESEARCH.md` Pitfall 2). Path tier MUST be `-k1,1n` (first); churn is only the within-tier tiebreaker.
+
+   If any churn recency-decay or numeric risk-key math is awkward in pure shell, route it through the already-present `python3` (mirror the mode-5 `python3` heredoc shape) — do NOT touch `allowed-tools`. Frequency-only churn within tier is the recommended starting point; recency (`git log -1 --format=%ct -- "$path"`) is optional discretion.
+
 ## Phase 0.5 — Multi-pass state check
 
 State file path:
