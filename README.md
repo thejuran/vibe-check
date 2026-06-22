@@ -31,7 +31,7 @@ Open Claude Code and run:
 
 ```bash
 # Step 1: Add the marketplace
-/plugin marketplace add thejuran/vibe-check
+/plugin marketplace add thejuran/marketplace
 ```
 
 ```bash
