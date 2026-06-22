@@ -383,8 +383,44 @@ Use Read if you need full file context. Return ONE JSON object per templates/age
 
 **Substitution bindings:**
 - `{{agent_name}}` — name of the agent receiving this prompt (e.g. `bugs`, `security`).
-- `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed.
-- `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed.
+- `{{git_diff_output}}` — the resolved diff from Phase 0 with `files_to_skip` from Phase 1 removed. **In `--all` mode (`$ALL_MODE` set): `$FILES_BLOCK`** (the `<files>` block string built below) instead of a diff.
+- `{{filtered_file_list}}` — `git diff --name-only` output with `files_to_skip` removed. **In `--all` mode: `$REVIEW_SET`** (the regular-files-only selected set) rendered as a name list.
+
+### `--all` mode — `<files>` block swap (REVIEW-01, D-07/D-08)
+
+When `$ALL_MODE` is set, swap the `<diff>` block for a `<files>` block in BOTH prompt templates (the base template above AND the architecture/compliance intent variant below). The `<files>` block goes in the EXACT position the `<diff>` block occupied — for the base template that is right after the agent-name sentence; for the intent variant that is AFTER `{{intent_context_block_if_present}}`. The `<changed-files>` block and everything else are unchanged. So the base template in `--all` reads:
+
+````
+You are the {{agent_name}} agent. Review this code per your subagent instructions.
+
+<files>
+{{git_diff_output}}
+</files>
+
+<changed-files>
+{{filtered_file_list}}
+</changed-files>
+
+The full file contents are provided above. Return ONE JSON object per templates/agent-output-schema.md. JSON only.
+````
+
+**`<files>` block format (`$FILES_BLOCK`).** A per-file fenced code block: a `### <path>` header line, then a fenced block whose fence language is a hint inferred from the file extension. Build it ONLY from `$REVIEW_SET` (the regular-files-only set from Phase 0 mode 5) — so dropped symlinks (git mode 120000) contribute NO contents (FINDING 3, end-to-end). Extension → fence-language hint mapping (Claude's discretion): `.py`→python, `.ts`/`.tsx`→typescript, `.js`/`.jsx`/`.mjs`/`.cjs`→javascript, `.go`→go, `.rs`→rust, `.md`→markdown, `.json`→json, `.yaml`/`.yml`→yaml, `.sh`→bash; unknown extension → bare fence (no language hint). Shape:
+
+````
+<files>
+### path/to/file.py
+```python
+<full file contents>
+```
+
+### path/to/other.ts
+```typescript
+<full file contents>
+```
+</files>
+````
+
+**Build `$FILES_BLOCK` ONCE** in deterministic `git ls-files` lexicographic order (already stable) and substitute the IDENTICAL string into every agent prompt — keep per-agent variation OUTSIDE the block (agent-name sentence + intent-context only), exactly as the `<diff>` block does today (position-stability rule below). The MANDATORY DISPATCH SHAPE is UNCHANGED — `--all` still fans out N Task calls in ONE assistant turn (do NOT split the dispatch into two turns).
 
 ### Intent context injection
 
@@ -410,7 +446,7 @@ If `<intent-context>` present, attempt `intent_doc_match` for findings the docs 
 Return ONE JSON per templates/agent-output-schema.md. JSON only.
 ````
 
-`<diff>` block is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
+The `<diff>` block (or the `<files>` block in `--all` mode) is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
 
 **→ Recall the MANDATORY DISPATCH SHAPE at the top of this Phase 2 section: all N Task calls go in ONE assistant turn as a single tool-use block. After they all return, proceed to Phase 3.**
 
@@ -469,6 +505,16 @@ Per `templates/output-format.md`:
 |-------|----------|----------|
 | {{total}} | {{reported}} | {{filtered}} |
 ```
+
+**`--all` mode — coverage note (D-09, additive; does NOT alter any existing template token).** When `$ALL_MODE` is set, render the Summary as a whole-codebase variant — `**Summary:** Reviewed {{N}} files (whole-codebase, --all mode)` — dropping the diff-specific "lines changed" clause (there is no diff). `{{N}}` is the `$REVIEW_SET` (regular-files-only) size. Any tracked symlinks dropped by the Phase-0 mode filter (git mode 120000) are reported HERE as skipped/non-regular (FINDING 3 visibility — they are excluded from coverage, never silently read).
+
+On OVERFLOW of the single review unit, append an explicit **reviewed-partial** note immediately after the Summary line — incompleteness MUST be VISIBLE, never silently truncated:
+
+```
+> ⚠ Coverage: reviewed as a single unit; {{M}} of {{N}} files may not have been fully reviewed — risk-ranked chunking (Phase 8) is the fix.
+```
+
+Overflow heuristic (Claude's discretion; reuses triage's existing LOC-based signal — the SAME signal the large-diff Haiku downgrade above already uses): emit the partial note when the selection's `total_lines` is well past triage's "large" boundary (triage's `size_tier`: small <200 / medium 200-2000 / large >2000). Keep the note conservative ("may be partial"); the precise threshold is a tuning concern a later phase supersedes.
 
 Then the **Bottom line** block (plain-language ship/fix verdict — see `templates/output-format.md`; it exists so a non-engineer can make the fix/skip/ship call without parsing the technical sections), then Critical and Warning sections (each finding leads with its *In plain terms:* impact line per the template). Always include "Filtered Issues 🔇" summary.
 
