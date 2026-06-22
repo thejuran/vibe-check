@@ -265,6 +265,39 @@ Compute a two-key risk key per `$REVIEW_SET` file, then emit the risk order. The
 
    If any churn recency-decay or numeric risk-key math is awkward in pure shell, route it through the already-present `python3` (mirror the mode-5 `python3` heredoc shape) — do NOT touch `allowed-tools`. Frequency-only churn within tier is the recommended starting point; recency (`git log -1 --format=%ct -- "$path"`) is optional discretion.
 
+### 8b. Pack into risk-ordered chunks — "risk seeds, directory fills" (CHUNK-02) → `$CHUNK_PLAN`
+
+Walk the risk-sorted, sized list from 8a (riskiest first) into budget-fitting chunks. This is orchestrator reasoning over the DETERMINISTIC ranked+sized list — the sizes and order are pre-computed in 8a so the walk is reproducible. The full greedy pseudocode lives in `08-RESEARCH.md` Pattern 4 — this is the directive:
+
+   i. **Size budget (D-03) — a concrete number, in LINES.** Use a per-chunk budget of **1800 lines** (`wc -l`, the size column computed in 8a). WHY 1800: a conservative line budget that comfortably fits a reviewer agent's working context with room for each agent's own prompt/instructions and its output, chosen on the order of the agents' real context limits while leaving headroom (`08-RESEARCH.md` Open Q1 recommends `wc -l` over `wc -c` for human-auditability and a conservative threshold). The budget is the SUM of a chunk's per-file line totals.
+
+   🚫 **ANTI-PATTERN (D-03, `08-RESEARCH.md` Pitfall 3):** Do NOT tokenize or estimate tokens to size a chunk — the orchestrator CANNOT tokenize. `wc -l` (the size column from 8a) is the ONLY budget signal. Counting anything other than the pre-computed line totals reintroduces a non-reproducible budget.
+
+   ii. **The greedy walk (seeds + directory fill + spill).** Let `unplaced` = the 8a risk-sorted list (riskiest first); `chunks = []`. While `unplaced` is non-empty:
+   - **Seed:** pop the riskiest remaining file as the chunk SEED; `chunk = [seed]`, `chunk_size = size(seed)`, `seed_dir = dirname(seed)`.
+   - **FILL from same-directory neighbors FIRST (best agent context — D-02):** for each remaining `f` whose `dirname(f) == seed_dir`, in risk order, if `chunk_size + size(f) <= budget`, add `f` to the chunk, add its size, and remove it from `unplaced`. WHY same-directory first: the module is reviewed together, giving each reviewer agent the most coherent context and the fewest cross-file false positives.
+   - **THEN SPILL to the next-riskiest unplaced files (any directory):** for each remaining `f` in risk order, if `chunk_size + size(f) <= budget`, add it, add its size, remove it from `unplaced`. Spill fills any leftover budget once no in-budget same-directory neighbor remains.
+   - Append `chunk` to `chunks`. A chunk's rank = its SEED's risk, and we always seed from the riskiest remaining file, so chunks emerge in DESCENDING seed-risk order — chunk #1 is the riskiest.
+
+   iii. **Edge case A — single file LARGER than the budget = its OWN chunk (D-03).** If `size(seed) > budget`, the seed becomes its OWN single-file chunk (the directory-fill and spill loops add nothing because no neighbor fits alongside it). That chunk still dispatches NORMALLY. Phase 8 adds NO new truncation path: if that single oversized file ALSO overflows an agent's context at dispatch, the **per-chunk LINE total recorded on this chunk is EXACTLY what the Phase-4 reviewed-partial note reads** to surface "chunk K (an oversized single file) may be partial" — deterministically, off the chunk plan, with no re-measuring (this is why the per-chunk line total below is a CONSUMABLE contract field, not a display string).
+
+   iv. **Edge case B — empty set.** The empty-set guard already fired upstream (mode-5 step e), so this walk never sees an empty `$REVIEW_SET`. Defensive: if the pack somehow yields ZERO chunks, fall through to the same `No files matched the --all scope …` stop and do not dispatch.
+
+   v. **Emit `$CHUNK_PLAN` — the contract.** `$CHUNK_PLAN` is the ordered list of chunks (chunk #1 = highest seed-risk). For EACH chunk record: (a) an ordered file list — lexicographic WITHIN the chunk (D-07/D-08 position-stability — this is what Phase 2's `$FILES_BLOCK_i` builds from); (b) the per-file LINE total for each file (the `wc -l` size from 8a); and (c) a per-chunk LINE total (the sum of its files' line totals). The data shape is the orchestrator's discretion (prose / pseudo-structure) so long as it preserves D-08 position-stability within a chunk. Example shape carrying the totals:
+
+   ```
+   ✓ Phase 8 — Risk-rank & chunk-plan: 2 chunks (riskiest first)
+   Chunk 1 (seed: src/auth/login.ts, tier 0) — [src/auth/login.ts (210 lines), src/auth/session.ts (210 lines)] — 420 lines total
+   Chunk 2 (seed: README.md, tier 3)         — [README.md (180 lines)] — 180 lines total
+   ```
+
+   These line totals are CONSUMABLE contract fields, NOT just a display string:
+   - **Phase 1 (per-chunk triage)** substitutes the per-file LINE totals for triage's `<diff-stat>` per chunk, so triage's `total_lines` / `size_tier` stay valid for the chunk WITHOUT re-measuring.
+   - **Phase 2 (per-chunk dispatch)** builds each chunk's `$FILES_BLOCK_i` from the chunk's ordered (lexicographic) file list, one-turn fan-out per chunk (D-08).
+   - **Phase 4 (reviewed-partial trigger)** reads the per-chunk LINE total DIRECTLY to decide whether an oversized single-file chunk is "may be partial" — deterministic, off `$CHUNK_PLAN`, never re-measured.
+
+   `$CHUNK_PLAN` is the contract those three downstream consumers read; the per-chunk loop (Phase 1 triage → Phase 2 dispatch, riskiest chunk first, sequential across chunks) and the Phase-4 reviewed-partial note all anchor on it.
+
 ## Phase 0.5 — Multi-pass state check
 
 State file path:
