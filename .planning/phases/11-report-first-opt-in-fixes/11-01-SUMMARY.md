@@ -126,6 +126,14 @@ The `.planning/` tree is gitignored and exists only in the main checkout (not th
 - Phase 12 (dogfood efficacy run + v2.3 tag) is unblocked: the fix posture is now correct. The Task 2 confirmations above give Phase 12's "diff-mode non-regressed + `/deep-review --all` works" check its evidence trail.
 - This is a prompt-only markdown-spec change; behavioral validation is by LLM execution (no test suite — `nyquist_validation: false`). The behavioral assertions are documented in the plan's acceptance criteria and hold by construction.
 
+## Self-Check: PASSED
+
+- FOUND: `plugins/vibe-check/commands/review.md`
+- FOUND: `.planning/phases/11-report-first-opt-in-fixes/11-01-SUMMARY.md`
+- FOUND commit `e372dbe` (Task 1 — feat)
+- FOUND commit `e1b71ea` (SUMMARY — docs)
+- Scope vs base (257f527..HEAD): exactly two paths changed — `review.md` and this SUMMARY; `deep-review.md` byte-unchanged; working tree clean.
+
 ---
 *Phase: 11-report-first-opt-in-fixes*
 *Completed: 2026-06-22*
