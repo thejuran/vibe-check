@@ -102,6 +102,13 @@ None — the edit is a complete, self-contained additive touch. The `<related-fi
 - Phase 8 (risk-ranked chunking) can build on the `<files>` block / `$FILES_BLOCK` format both commands now carry.
 - Phase 10 owns the formal `--all`→Codex-skip wiring (REVIEW-04) and the impact agent's deeper `--all` `<related-files>` behavior — both correctly left untouched here.
 
+## Self-Check: PASSED
+
+- FOUND: `plugins/vibe-check/commands/deep-review.md` (modified)
+- FOUND: `.planning/phases/07-walking-skeleton-selection-end-to-end-all/07-03-SUMMARY.md` (created, force-added)
+- FOUND commit: `3f3863b` (Task 1 — feat)
+- FOUND commit: `73a723e` (SUMMARY — docs)
+
 ---
 *Phase: 07-walking-skeleton-selection-end-to-end-all*
 *Completed: 2026-06-22*
