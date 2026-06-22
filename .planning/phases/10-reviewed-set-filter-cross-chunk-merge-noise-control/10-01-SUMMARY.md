@@ -125,6 +125,14 @@ Both remain candidates for a future hardening pass; neither is a milestone-bar b
 - review.md's `--all` Phase 2/3/4 changes are landed; Plan 10-02 (deep-review.md Codex `$ALL_MODE` skip arm, REVIEW-04) can now confirm `/deep-review --all` inherits REVIEW-02/03/OUTPUT-01–04 by delegation and that the listing bar narrows deep's Medium default.
 - No blockers. P10-A / P10-B remain deferred (non-blocking).
 
+## Self-Check: PASSED
+
+- FOUND: `plugins/vibe-check/commands/review.md`
+- FOUND: `.planning/phases/10-reviewed-set-filter-cross-chunk-merge-noise-control/10-01-SUMMARY.md`
+- FOUND commit: `895f308` (Task 1)
+- FOUND commit: `4ca4acd` (Task 2)
+- Both per-task `<verify>` automated gates returned PASS.
+
 ---
 *Phase: 10-reviewed-set-filter-cross-chunk-merge-noise-control*
 *Completed: 2026-06-22*
