@@ -635,13 +635,15 @@ Per `templates/output-format.md`:
 
 **`--all` mode — coverage note (D-09, additive; does NOT alter any existing template token).** When `$ALL_MODE` is set, render the Summary as a whole-codebase variant — `**Summary:** Reviewed {{N}} files (whole-codebase, --all mode)` — dropping the diff-specific "lines changed" clause (there is no diff). `{{N}}` is the `$REVIEW_SET` (regular-files-only) size. Any tracked symlinks dropped by the Phase-0 mode filter (git mode 120000) are reported HERE as skipped/non-regular (FINDING 3 visibility — they are excluded from coverage, never silently read).
 
-On OVERFLOW of the single review unit, append an explicit **reviewed-partial** note immediately after the Summary line — incompleteness MUST be VISIBLE, never silently truncated:
+On OVERFLOW of an oversized single-file chunk (Edge case A — a single file LARGER than the chunk budget becomes its OWN single-file chunk, and that file may still exceed an agent's context), append an explicit **reviewed-partial** note PER AFFECTED CHUNK immediately after the Summary line — incompleteness MUST be VISIBLE, never silently truncated (the D-09 posture, now per chunk):
 
 ```
-> ⚠ Coverage: reviewed as a single unit; {{M}} of {{N}} files may not have been fully reviewed — risk-ranked chunking (Phase 8) is the fix.
+> ⚠ Coverage: chunk {{K}} (an oversized single file, {{lines}} lines) may not have been fully reviewed.
 ```
 
-Overflow heuristic (Claude's discretion; reuses triage's existing LOC-based signal — the SAME signal the large-diff Haiku downgrade above already uses): emit the partial note when the selection's `total_lines` is well past triage's "large" boundary (triage's `size_tier`: small <200 / medium 200-2000 / large >2000). Keep the note conservative ("may be partial"); the precise threshold is a tuning concern a later phase supersedes.
+`{{lines}}` is that chunk's per-chunk LINE total read straight from `$CHUNK_PLAN` (the `wc -l` value Phase 8 / step 8a's risk-rank already computed and carried on the chunk — see `### <path>` / the per-chunk line total in the `$CHUNK_PLAN` contract). One note is emitted per oversized single-file chunk that trips the trigger.
+
+Overflow trigger — **DETERMINISTIC, off `$CHUNK_PLAN` (NOT triage's `size_tier`/`total_lines`).** Phase 8 adds NO new truncation or measurement path: the gate REUSES the SAME `wc -l` per-chunk line total Phase 8 / step 8a already recorded on each chunk (the chunk plan IS the source of truth), now surfaced per chunk. Emit the partial note for any chunk whose **per-chunk line total** (read directly from `$CHUNK_PLAN`) exceeds the chunk budget (the 1800-line budget from step 8b) / is well past triage's "large" boundary (>2000 lines) — i.e. an Edge-case-A over-budget single-file chunk. **The gating value comes from the chunk plan's recorded per-chunk line total, NOT from triage's derived `size_tier`/`total_lines`** — so the LOC signal cannot be lost when triage's per-chunk input shape changes (a single oversized file can NEVER be reported fully reviewed with no partial note). triage's `size_tier` boundaries (small <200 / medium 200-2000 / large >2000) remain the conceptual scale, but the GATING value is `$CHUNK_PLAN`'s per-chunk line total. The exact threshold inside that conservative band is Claude's discretion; keep the note conservative ("may be partial"). Do NOT edit `agents/triage.md` (D-04).
 
 Then the **Bottom line** block (plain-language ship/fix verdict — see `templates/output-format.md`; it exists so a non-engineer can make the fix/skip/ship call without parsing the technical sections), then Critical and Warning sections (each finding leads with its *In plain terms:* impact line per the template). Always include "Filtered Issues 🔇" summary.
 
