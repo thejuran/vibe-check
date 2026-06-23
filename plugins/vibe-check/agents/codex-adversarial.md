@@ -50,7 +50,7 @@ The orchestrator maps each Codex finding into the vibe-check finding schema (`te
 | `id`               | finding index       | `"codex-001"`, `"codex-002"`, … (1-based index within this run). |
 | `file`             | `file`              | **NOT a blind pass-through.** Accepted ONLY after repo-relative normalization **and** realpath/containment under the repo root (see the path trust-boundary rule below); on failure the canonical behavior is to **downgrade the finding to a non-blocking `agent_note` that does NOT echo the rejected path verbatim** (outright drop is a permitted variant) — never emitted with an unvalidated path. |
 | `line`             | `line_start`        | direct. When the range matters, mention `line_end` in `problem`. |
-| `title`            | `title`             | direct, **strip a trailing period**. Phrase plainly (see cross-confirm note). |
+| `title`            | `title`             | direct, **strip a trailing period**, then **sanitize-and-KEEP** (see title-sanitization rule below). Phrase plainly (see cross-confirm note). |
 | `category`         | —                   | literal `"adversarial"`. |
 | `cwe`              | —                   | `null` (Codex emits no CWE). |
 | `severity`         | `severity`          | direct — enums are identical (`critical`/`high`/`medium`/`low`). |
@@ -106,6 +106,20 @@ The orchestrator should **strongly prefer** additionally requiring `file` to be 
 This is the **same** repo-relative + realpath-containment check `fix.md` already applies to `finding.file`: a regex pre-filter (`^[A-Za-z0-9._/-]+$`) is only a fast filter — it denies absolute paths, spaces, and shell metacharacters but does **not** stop `..` traversal (every character in `../../.git/hooks/pre-commit` is in that class). The realpath-**containment** compare under `git rev-parse --show-toplevel`, using the trailing-slash form `case "$REAL/" in "$ROOT/"*` (mirroring `commands/review.md` Phase 0's `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*`), is what blocks traversal and stops a sibling dir like `/repo-other` from masquerading as `/repo`. This contract requires the orchestrator to apply that check at **translation time** (`/deep-review` Phase 3, defense before render/fix), not only at the fix agent's last line of defense.
 
 **Scope boundary (constraint):** this doc only **documents** the path boundary as part of the contract — it states that the orchestrator MUST normalize-and-contain `file`. It does **not** itself implement the check; that runtime enforcement lives in the orchestrator's translation step (`commands/deep-review.md` Phase 3), not this phase.
+
+### (c) Title sanitization (COSMETIC — sanitize-and-KEEP, never drop)
+
+`title` is untrusted model output (synthesized from a possibly-malicious diff) that flows verbatim into **(a)** the rendered report (Phase 4) **and (b)** the autonomous fix-agent prompt (Phase 5 Step B, which writes and commits code). Unlike `file`, a title is **cosmetic — NOT a security boundary like a path** — so it gets the **sanitize-and-KEEP** treatment, NOT the `file` field's downgrade/drop-on-reject posture. The finding is **always kept**; only the dangerous characters in its title are neutralized.
+
+**Rule the orchestrator MUST enforce at translation time (`/deep-review` Phase 3), BEFORE render/fix** — mirroring the `summary` → `agent_notes` single-line structural defense above:
+
+1. **Single-line reduction** — truncate at the first newline (a multi-line title is a report-spoofing surface, exactly as a multi-line `summary` is).
+2. **Neutralize the report-spoofing / prompt-injection vectors ONLY** — strip or escape backtick / code-fence sequences (` ``` `, `` ` ``), embedded newlines / carriage returns, and ASCII control characters (`\x00`–`\x1F`, `\x7F`). These are the characters that let a crafted title break out of its render cell or smuggle an instruction into the fix-agent prompt.
+3. **KEEP the finding and a human-readable title.** Out-of-allowlist characters are sanitized in place; the finding is **never dropped or downgraded** over title characters (do NOT copy the `file` field's downgrade/drop posture — that is for a path security boundary, which a title is not).
+
+**Allowlist is WIDER than the `file` path class** (`^[A-Za-z0-9._/-]+$` is too narrow for prose titles). Permit spaces, `=`, parentheses, quotes, and normal prose-title punctuation — neutralize ONLY fences/backticks, newlines, and control chars. **CRITICAL: the class MUST NOT reject `=`** — titles legitimately quoting `flag=value` (e.g. `shell=True`, `verify=False`) must stay usable and committable by the fix agent (this is a hard compatibility constraint with the autonomous-fix path). The exact character class is the orchestrator's discretion within these bounds: prose-title characters permitted, only spoofing/injection vectors neutralized.
+
+**Scope boundary (constraint):** this doc only **documents** the title sanitization contract. The actual runtime enforcement lives in the orchestrator's translation step (`commands/deep-review.md` Phase 3), not this phase — Phase 3 references this rule.
 
 ## Fallback policy (unavailable / timeout)
 
