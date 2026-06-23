@@ -27,9 +27,9 @@ This command is an **orchestrator** — its sole job is to execute the phases be
 ## Finalize mode
 
 If `$ARGUMENTS` contains `--finalize`:
-- Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents.
-- If no state file: error "No prior review passes. Run `/review` first."
-- Compute current state:
+- Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents. Phase 0.5 binds `$STATE_FILE` to the mode-resolved state path (GSD `<$PHASE_ID>.json`, other-modes `<repo>-<branch>.json`, or `--all` `by-mode/all/<scope-hash>.json`) — Finalize consumes that one variable and never re-derives a path of its own.
+- If no state file (`[ ! -f "$STATE_FILE" ]`): error "No prior review passes. Run `/review` first."
+- Compute current state from the state object parsed out of `$STATE_FILE`:
   - `outstanding_cw` = last pass's findings with band ∈ {critical, warning} AND status ≠ fixed-since-last
   - `unacknowledged_medium` = last pass's findings with band == medium AND no entry in state's `medium_acknowledgments`
 - If `outstanding_cw` non-empty:
@@ -46,7 +46,7 @@ If `$ARGUMENTS` contains `--finalize`:
     - Any "Will fix" → routed to Phase 5 above; finalize does NOT proceed this invocation.
     - All dismissed/acknowledged → `medium_acknowledgments` written; proceed.
 - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
-- Archive state: `mv .turingmind/state/<$PHASE_ID>.json .turingmind/state/<$PHASE_ID>.json.archived-$(date +%Y-%m-%d)` — using the full resolved phase ID, same name as the file Phase 4.5 wrote (see Phase 0.5 filename rule).
+- Archive state: `mv "$STATE_FILE" "$STATE_FILE.archived-$(date +%Y-%m-%d)"` — using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote. The `by-mode/all/<scope-hash>.json` form makes each `--all` archived name unique, so archived snapshots never collide.
 - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
 
 If `--finalize` NOT in `$ARGUMENTS`: proceed with normal Phase 0 → 4.5 flow.
@@ -376,11 +376,11 @@ Branch behaviors:
 
 ## Phase 0.5 — Multi-pass state check
 
-State file path:
-- GSD phase mode: `.turingmind/state/<$PHASE_ID>.json` where `$PHASE_ID` is the **full resolved directory name** from Phase 0 (e.g. `02-real-data-path`, NOT `02`). Use the resolved name verbatim — do NOT abbreviate to the prefix the user typed. Abbreviating means a second invocation looking for `02-real-data-path.json` won't find a state written as `02.json`, and carry-forward silently restarts from pass 1.
+State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`, so every downstream consumer (Phase 4.5 persist, Finalize read/archive) reads the SAME handle regardless of mode — Finalize must NOT re-derive a path:
+- GSD phase mode: `.turingmind/state/<$PHASE_ID>.json` where `$PHASE_ID` is the **full resolved directory name** from Phase 0 (e.g. `02-real-data-path`, NOT `02`). Use the resolved name verbatim — do NOT abbreviate to the prefix the user typed. Abbreviating means a second invocation looking for `02-real-data-path.json` won't find a state written as `02.json`, and carry-forward silently restarts from pass 1. Bind: `STATE_FILE=".turingmind/state/${PHASE_ID}.json"`.
   - ✓ Correct: `.turingmind/state/02-real-data-path.json`, `.turingmind/state/31-cache-invalidation-renderer-config-epoch-and-awaited-purge-a.json`
   - 🚫 Wrong: `.turingmind/state/02.json`, `.turingmind/state/31.json`
-- Other modes (no args / PR / range): `.turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json`
+- Other modes (no args / PR / range): `.turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json`. Bind: `STATE_FILE=".turingmind/state/$(git rev-parse --show-toplevel | xargs basename)-$(git branch --show-current).json"`.
 
 **`--all` mode (`$ALL_MODE` set) — reserved-subdirectory fresh-snapshot branch (additive; the two key lines above are byte-untouched).** When `$ALL_MODE` is set, do BOTH of the following INSTEAD of the default state-key resolution and INSTEAD of Phase 0.5 steps 2-5:
 
@@ -391,6 +391,7 @@ State file path:
   SCOPE_TOKEN="${NARROW:-whole-tree}"                                        # the literal token 'whole-tree' ONLY when $NARROW is empty
   SCOPE_HASH=$(printf '%s' "${REPO}:${BRANCH}:${SCOPE_TOKEN}" | shasum | cut -c1-12)   # ALWAYS a 12-hex digest (repo+branch+scope) — never the bare 'whole-tree' string
   ALL_STATE_FILE=".turingmind/state/by-mode/all/${SCOPE_HASH}.json"          # always by-mode/all/<12hex>.json
+  STATE_FILE="$ALL_STATE_FILE"                                               # the single canonical handle Finalize consumes (alias of the --all key)
   mkdir -p .turingmind/state/by-mode/all
   ```
   (Hashing repo+branch+scope means a whole-tree `--all` in repo A and in repo B yield DIFFERENT keys even in a shared `.turingmind/`, and the code's output matches the comment exactly — one deterministic key, read and written the same way within a run.) **Reserved-path guard (state in prose, enforced structurally):** default-mode state resolution (the GSD-mode and "other modes" branches above) MUST NOT read or write anything under `.turingmind/state/by-mode/` — that subtree is reserved for mode-scoped state — and conversely the `--all` branch MUST NOT read or write a flat `.turingmind/state/<repo>-<branch>.json` file. Because the default branches build a FLAT filename and the `--all` branch builds a `by-mode/all/` path, a plain `/review` can NEVER resolve INTO the `by-mode/all/` subtree (and `--all` can never resolve out of it). The disjointness is a structural property of the path grammar, restated here as the guard.
