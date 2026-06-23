@@ -828,11 +828,11 @@ When the report-first clause above is the first applicable skip condition (a pla
 
 ### Step A — Decide how fixes will be applied
 
-AskUserQuestion (one question, 4 options — "auto-apply all" listed first per the user's stated workflow preference):
+AskUserQuestion (one question, 4 options — neutral menu with no preferred default; the user picks deliberately):
 
 > **Question:** "How do you want to handle the {{reported_count}} finding(s) above?"
 > **Options:**
-> 1. **Apply all findings (Recommended)** — Tool dispatches the `fix` agent, which reads each file, applies the change semantically, and commits each fix atomically with message `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`. The fix agent decides the actual edit (there's no pre-baked patch); findings it can't safely fix come back as `needs-human` / `obsolete` and are reported, not silently dropped.
+> 1. **Apply all findings** — Tool dispatches the `fix` agent, which reads each file, applies the change semantically, and commits each fix atomically with message `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`. The fix agent decides the actual edit (there's no pre-baked patch); findings it can't safely fix come back as `needs-human` / `obsolete` and are reported, not silently dropped.
 > 2. **Apply selected findings only** — Follow-up AskUserQuestion (multiSelect=true) lets the user pick a subset. The `fix` agent applies only those.
 > 3. **I'll apply them myself** — Tool pauses. User edits + commits in their own session/tools, then comes back to Step C.
 > 4. **Skip fixes this pass** — No fixes applied. Skip directly to Step C (typical when the user wants to acknowledge-and-move-on without changes).
