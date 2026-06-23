@@ -1,4 +1,4 @@
-# Architecture (v2.1.0)
+# Architecture
 
 Adapted from the upstream `turingmindai/turingmind-code-review` project.
 
@@ -24,8 +24,8 @@ New languages/frameworks are pure agent additions.
 ## New
 
 - Real parallel `Task` dispatch.
-- Model tiering: Sonnet for `/review`, Opus + thinking on architecture for `/deep-review`.
-- Read intent docs from `.planning/phases/<id>/`.
+- Model tiering: Sonnet for `/review`; for `/deep-review`, the `<TOP>` tier (Opus by default, Fable opt-in) on the `architecture` and `bugs` agents. No thinking parameter is passed (deep-review forbids it).
+- Read intent docs from the resolved phase dir (flat `.planning/phases/<id>/` or milestone-nested `.planning/milestones/<m>-phases/<id>/` — the tool resolves both layouts).
 - Multi-pass stateful loop (`.turingmind/state/`).
 - `.turingmind/REVIEW.md` artifact (single file, fork schema).
 
@@ -39,12 +39,14 @@ The tool reads from `.planning/` and the repo but **only writes to `.turingmind/
 
 ## Cost
 
-| Command | Per-pass | Use |
+| Command | Relative cost | Use |
 |---|---|---|
-| `/review <phase>` | ~$0.50 | Iteration |
-| `/deep-review <phase>` | ~$1.80 | Final pass |
+| `/review <phase>` | cheap (single Sonnet pass) | Iteration |
+| `/deep-review <phase>` | several times a quick pass (top-tier multi-agent) | Final pass |
 
-Typical loop (3 quick + 1 deep) ≈ $3.30.
+A `/review` pass is cheap; a `/deep-review` pass costs several times more. For current dollar
+figures, see the Cost note in `commands/deep-review.md` (the canonical source) — they are not
+re-pinned here to avoid drift. A typical loop is a few quick passes plus one deep pass.
 
 ## Design history
 
