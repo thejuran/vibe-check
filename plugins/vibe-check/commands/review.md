@@ -669,28 +669,74 @@ For chunk `i` (i = 1..K, riskiest first):
 
 ## Phase 3 — Collect, verify, merge, score
 
-0. **Carry-forward check (multi-pass only).** For each finding in `$CARRYFORWARD`:
-   - Compute canonical line content at `finding.file:finding.line` in HEAD (strip trailing whitespace).
-   - File/line gone → `status: "fixed-since-last"`, exclude from this pass's reported findings.
-   - Canonical content matches `finding.current_code` first line → `status: "persisted"`, +15 score, include in reported findings.
-   - File:line exists but content changed → `status: "needs-recheck"`, add hint to relevant agent's prompt: `<recheck>Previously flagged {{title}} at {{file}}:{{line}}. Verify it still applies.</recheck>`. Include in this pass's dispatch.
+Scoring is performed by the deterministic-core script `scripts/score.py` (Phase 16, CORE-01/CORE-03), invoked ONCE per pass: the orchestrator collects raw facts and the agent-response set, builds one JSON envelope, pipes it to the script on stdin, and consumes the script's enriched JSON on stdout. The by-hand "apply the formula / carry-forward / dedup / threshold / silenced / in_diff override" prose has been REMOVED (D-09) — there is no longer a manual path that can produce a scored finding. **A finding has a `band`/`orchestrator_score` ONLY because the script wrote one; a finding that never went through the script has no band to render (the un-skippability that is CORE-03's point).** This wiring does NOT change scoring behavior — the script reproduces `templates/scoring.md` exactly (behavior-preserving extraction, pinned by `scripts/test_score.py`).
 
-   **Note:** Persisted findings still flow through steps 2 (verify in_diff / silenced_marker_nearby), 3 (scoring), and 5 (filter) below. The +15 persistence modifier stacks with the rest of the score formula; persisted findings can still drop below threshold or get silenced.
+The orchestrator still does the work the script CANNOT (it is a pure function — no git/file/shell I/O): it collects raw facts (the per-finding `source_window`, `canonical_line_content` from the HEAD read, the `changed_line_ranges`, the `$REVIEWED_UNION` set), and it parses + dispatches.
 
-1. Parse each agent response as JSON. Malformed → log "Agent {name} returned unparseable: {first 200 chars}" and skip.
+0. **Raw-fact collection for carry-forward (multi-pass only).** For each finding in `$CARRYFORWARD`, the orchestrator reads HEAD and computes the canonical line content at `finding.file:finding.line` (strip trailing whitespace), passing it into the envelope as the finding's `canonical_line_content` (null/absent when the file:line is gone — the script reads that as `fixed-since-last`). The orchestrator does NOT assign `status`/+15 by hand — the script returns `status` (`fixed-since-last` / `persisted` / `needs-recheck`) and applies the +15 persistence modifier. The orchestrator KEEPS the **needs-recheck re-dispatch** handling: when the script returns `status: "needs-recheck"` for a carried-forward finding (file:line exists but content changed), add a hint to the relevant agent's prompt — `<recheck>Previously flagged {{title}} at {{file}}:{{line}}. Verify it still applies.</recheck>` — and include it in this pass's dispatch.
 
-2. For each finding, verify orchestrator-side:
-   - `in_diff`: is `line` in changed-line ranges? Override agent claim if wrong.
-   - **`in_reviewed_set` (`$ALL_MODE` set only — REVIEW-02, D-03; REPLACES the `in_diff` membership check in `--all`).** In `--all` mode there is no diff, so the `in_diff` membership check above does not apply (it stays byte-unchanged and is simply never the gate in `--all`); validity is decided by `in_reviewed_set` instead. Define REVIEWED = the **dispatched union** `$REVIEWED_UNION` — the union of every chunk's `$CHUNK_REVIEW_FILES_i` (the post-`files_to_skip_i` files actually sent to agents, Phase 2 Site C step 2), which is the SAME set whose size is `{{R}}` in the Phase-4 coverage note (so REVIEW-02 and `{{R}}` read ONE source and cannot drift — name `$REVIEWED_UNION` once and let both Phase 3 here and the Phase-4 `{{R}}` count read it). This is **NOT** the pre-triage `$REVIEW_SET`: a finding against a file no reviewer agent saw is invalid (D-03). Define N = the per-file `wc -l` LINE total `$CHUNK_PLAN` already carries for `finding.file` (computed once in Phase 0.2 step 0.2a, listed as a consumable contract field) — look N up from that per-file column; do NOT issue a fresh `wc -l "$file"` (single-measurement-source rule). Keep the finding iff `finding.file ∈ $REVIEWED_UNION` AND `1 ≤ finding.line ≤ N`. Otherwise DROP it (a hallucinated file or an out-of-range / impossible line) and count it in the filtered bucket — the same sub-threshold/filtered accounting step 5 below tracks. Do NOT re-anchor a near-miss line (D-03 — agents see full file contents in `--all`, so line drift is unlikely and snap-to-nearest risks moving a finding to the wrong line). **Scoring isolation:** do NOT remap the `+20 if in_diff` scoring term (`templates/scoring.md`) to `in_reviewed_set` — in `--all` there is no diff, so `in_diff` is false for every finding and the `+20` simply never fires, which is correct and requires NO scoring edit. **Finding-shape isolation:** `in_reviewed_set` is a TRANSIENT keep/drop boolean used exactly like `in_diff` — it is NOT serialized as a new field onto the finding object, so the scored `--all` finding stays byte-shape-identical to a diff-mode finding (REVIEW-03/D-05). The diff-mode `in_diff` bullet above is byte-unchanged, and this bullet is `$ALL_MODE`-only — a non-`--all` run never reaches it. (The mode-5 step-e forward-note "do NOT build any `in_reviewed_set` filter now" is now superseded by this bullet; the real filter logic lives HERE in step 2.)
-   - `silenced_marker_nearby`: grep for `eslint-disable`, `# noqa`, `// nolint`, `@SuppressWarnings`, `#[allow(` within ±2 lines.
+   **Note:** Persisted findings still flow through the script's verify/score/filter (the +15 persistence modifier stacks with the rest of the score formula; persisted findings can still drop below threshold or get silenced).
 
-3. Apply scoring per `templates/scoring.md`.
+1. Parse each agent response as JSON. Malformed → log "Agent {name} returned unparseable: {first 200 chars}" and skip. (The orchestrator parses the Task responses; the script receives already-parsed findings.)
 
-4. Cross-agent dedup: group by `(file, line ±2)` AND title substring match. Keep highest-scored, set `attribution = [agents]`. The +10 cross-confirmation bonus is then applied per `templates/scoring.md` (apply once during scoring; not added separately here).
+2. **Raw-fact collection the script CONSUMES (the script DECIDES; the orchestrator SUPPLIES).** For each finding, attach the raw facts the script needs to recompute the orchestrator-verified booleans (it overrides the agent's self-reported `in_diff` / `silenced_marker_nearby` per `templates/agent-output-schema.md` hard rule #4):
+   - **changed-line ranges** — pass `changed_line_ranges` (`{file: [[start,end],…]}`) in the envelope; the script recomputes `in_diff` as a pure range test (the `+20 if in_diff` term fires from THIS, not from an agent claim).
+   - **±2 source window** — pass each finding's `source_window` (the `[L-2, L-1, L, L+1, L+2]` lines, inclusive both directions); the script recomputes `silenced_marker_nearby` from it. The canonical silenced-marker list is `eslint-disable`, `# noqa`, `// nolint`, `@SuppressWarnings`, `#[allow(` — quoted here ONCE as the documented envelope input; the script owns the grep-and-suppress decision.
+   - **`$REVIEWED_UNION` (`$ALL_MODE` set only — REVIEW-02, D-03).** In `--all` mode there is no diff, so `in_diff` never gates; validity is decided by `in_reviewed_set` INSIDE the script instead. The orchestrator still RESOLVES the reviewed set: REVIEWED = the **dispatched union** `$REVIEWED_UNION` — the union of every chunk's `$CHUNK_REVIEW_FILES_i` (the post-`files_to_skip_i` files actually sent to agents, Phase 2 Site C step 2), which is the SAME set whose size is `{{R}}` in the Phase-4 coverage note (so REVIEW-02 and `{{R}}` read ONE source and cannot drift — name `$REVIEWED_UNION` once and let both this step and the Phase-4 `{{R}}` count read it). This is **NOT** the pre-triage `$REVIEW_SET`: a finding against a file no reviewer agent saw is invalid (D-03). Pass `reviewed_union` = `$REVIEWED_UNION` and `file_line_totals` = the per-file `wc -l` LINE totals `$CHUNK_PLAN` already carries (computed once in Phase 0.2 step 0.2a, a consumable contract field — do NOT issue a fresh `wc -l "$file"`, single-measurement-source rule); the script keeps a finding iff `finding.file ∈ reviewed_union` AND `1 ≤ finding.line ≤ N`, else DROPS it into `filtered[]` (reason `not-in-reviewed-set` — a hallucinated file or impossible line). The script does NOT re-anchor a near-miss line (D-03). `in_reviewed_set` is a TRANSIENT keep/drop boolean inside the script — it is NOT serialized onto the finding, so the scored `--all` finding stays byte-shape-identical to a diff-mode finding (REVIEW-03/D-05), and the `+20 if in_diff` term simply never fires in `--all` (correct; no scoring edit). This sub-step is `$ALL_MODE`-only — a non-`--all` run passes empty `reviewed_union`/`file_line_totals` and the script gates on `in_diff` instead.
 
-5. Filter `orchestrator_score < 80`. Track filtered counts by reason (silenced, intent-doc-match, sub-threshold).
+3. **Resolve `scripts/score.py` DEV-SAFE (working-tree FIRST, cache glob FALLBACK).** This phase edits the WORKING TREE, and the installed plugin cache LAGS during dev (it can hold an older version that ships no `score.py`, or none at all) — so resolve the working-tree copy FIRST and the cache only as a fallback, else a stale cached script (or a missing one) would be called. Do NOT hardcode an absolute user path (D-03). Resolve in this order, FAIL CLOSED if none of the three exists:
+   ```bash
+   # (1) PREFERRED — working-tree copy under the repo root (the script THIS phase wrote/tested).
+   #     review.md already runs `git rev-parse --show-toplevel` for its containment guards
+   #     (Phase 0.5 / mode-5), so this is an in-file idiom, not a new dependency.
+   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+   SCORE_PY=""
+   if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/plugins/vibe-check/scripts/score.py" ]; then
+     SCORE_PY="$REPO_ROOT/plugins/vibe-check/scripts/score.py"
+   fi
+   # (2) FALLBACK — newest versioned plugin cache (mirrors the deep-review.md Codex resolution).
+   if [ -z "$SCORE_PY" ]; then
+     SCORE_ROOT=$(ls -d "$HOME"/.claude/plugins/cache/thejuran/vibe-check/*/ 2>/dev/null | sort -V | tail -1)
+     SCORE_ROOT="${SCORE_ROOT%/}"
+     [ -n "$SCORE_ROOT" ] && [ -f "$SCORE_ROOT/scripts/score.py" ] && SCORE_PY="$SCORE_ROOT/scripts/score.py"
+   fi
+   # (3) FALLBACK — marketplace install.
+   if [ -z "$SCORE_PY" ] && [ -f "$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/score.py" ]; then
+     SCORE_PY="$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/score.py"
+   fi
+   # (4) FAIL CLOSED — none resolved.
+   if [ -z "$SCORE_PY" ]; then
+     echo "score.py not found (tried: \$REPO_ROOT/plugins/vibe-check/scripts/score.py, the thejuran/vibe-check cache glob, and the marketplace path) — scoring cannot run, review HALTED." >&2
+     exit 1
+   fi
+   ```
+
+4. **Build the envelope and INVOKE the script** (one JSON object on stdin → one enriched JSON object on stdout), using the same compound-Bash shape as the mode-5 `python3` heredoc at the top of this file (`$(… python3 … )`, data in on stdin, stdout captured to a shell var, no temp file). Do NOT add `python3` to the frontmatter `allowed-tools` — it runs under the existing compound-Bash convention (only add `Bash(python3:*)` if a live permission prompt actually fires). The envelope keys:
+   - `command` — set from this command's **active-command self-identity** (the same positional self-identity idiom this file uses to render its own slash form): `"deep-review"` when this run IS `/deep-review` (Phase 3 reached via `/deep-review`'s delegation), else `"review"`. The script maps `command` → threshold (`review` ≥80, `deep-review` ≥70) as ONE parameter — so `/deep-review`'s ≥70 reaches the script through THIS field and Medium is NOT silently filtered (see Phase 4's command→threshold note). `/deep-review` needs ZERO scoring edits — it delegates Phase 3 verbatim and review.md self-identifies the active command here.
+   - `all_mode` = `$ALL_MODE` (bool); `pass_number` = `$PASS_NUMBER`; `changed_line_ranges`, `reviewed_union` = `$REVIEWED_UNION`, `file_line_totals` (the per-file `wc -l` totals); `carryforward` = `$CARRYFORWARD` (each entry carrying its orchestrator-resolved `canonical_line_content`); `findings[]` = the agent-response findings, each enriched with `agent`, `source_window`, and `canonical_line_content`.
+   ```bash
+   # $SCORE_PY is the dev-safe-resolved path, always ending in scripts/score.py (step 3).
+   SCORED=$(printf '%s' "$FINDINGS_ENVELOPE_JSON" | python3 "$SCORE_PY")   # python3 … scripts/score.py
+   SCORE_EXIT=$?
+   ```
+   The script returns `{ scored_by_script: true, findings: [survivors with `orchestrator_score`/`band`/`status`/`stable_hash`/`attribution` added], fixed_since_last: [...], filtered: [{file,line,title,reason}, …] }`. Dropped findings are ABSENT from `findings[]` and present in `filtered[]`; survivors are the cross-agent-deduped set with `attribution` already set and the `<threshold>` already applied. Phase 4 renders the `filtered[]` counts.
+
+5. **FAIL-CLOSED check (CRITICAL — the un-skippability point, CORE-03).** Immediately after the invocation, STOP the review (do NOT proceed to Phase 4 render) if ANY of these is true:
+   - the resolved `$SCORE_PY` did not exist (already handled fail-closed in step 3), or `python3` is unavailable;
+   - the process exited **NON-ZERO** (`$SCORE_EXIT` ≠ 0 — e.g. the script's fail-closed shim on unparseable stdin);
+   - stdout (`$SCORED`) is empty or NOT valid JSON;
+   - the top-level `scored_by_script` is not `true`;
+   - any survivor in the returned `findings[]` is missing `band`, `orchestrator_score`, or `stable_hash`.
+
+   On ANY such failure: surface the scorer error to the user (the script's stderr / a `scoring failed — review halted` line) and STOP. Do NOT render unscored or empty findings, and do NOT fall back to a by-hand scoring path — there is none (that is the point of CORE-03 / D-09). Rendering unscored findings would defeat CORE-03.
+
+**Codex note (unchanged):** translated Codex findings already joined the agent-response set at Phase 3 entry (per `deep-review.md`) and flow through the envelope identically — no Codex special-casing here.
 
 ## Phase 4 — Render results
+
+**Render gate (scoring-ran sentinel — D-10, CORE-03).** BEFORE reading any finding's `band` to render the band tables below, assert BOTH: (i) the pass carries the script's pass-level `scored_by_script: true` sentinel (the top-level field `scripts/score.py` stamped in Phase 3), AND (ii) EVERY finding about to be rendered carries both `band` and `orchestrator_score`. If EITHER is missing — no `scored_by_script: true` on the pass, OR any to-be-rendered finding lacks `band`/`orchestrator_score` — STOP with "scoring did not run." This is the structural enforcement of D-09: a finding that never went through the script has no band, so it cannot be rendered. (Keep this LIGHT — a single boolean assertion; the full machine-checkable detect-and-warn invariant is Phase 17 / ROBUST-04, which this plan leaves a seam for, not builds.)
+
+**Command → threshold (the bands you see depend on which command ran).** The threshold that filtered these findings was selected in Phase 3 by the envelope `command` field — `"review"` ⇒ ≥80 (Critical + Warning only), `"deep-review"` ⇒ ≥70 (Critical + Warning + Medium). `command` is set from this command's active-command self-identity, so `/deep-review`'s Medium findings (70–79) reach render and are NOT silently filtered; `/review` never produced them (they scored below its ≥80). No deep-review.md scoring edit is needed — it delegates this Phase verbatim and review.md self-identifies the active command.
 
 ### Multi-pass status summary (only in pass >1)
 
@@ -771,7 +817,7 @@ If zero findings after filtering:
 
 ## Phase 4.5 — Persist pass state
 
-Compute `stable_hash = sha256(file + "\n" + canonical_line_content + "\n" + title)`.
+Use the stable_hash the script already computed — consume the `stable_hash` field `scripts/score.py` returned on each survivor finding in Phase 3, and do NOT recompute the sha256 by hand. `scripts/score.py` is the single writer of the scored fields (`orchestrator_score`/`band`/`status`/`stable_hash`/`attribution`), preserving single-writer (ROBUST-01); reintroducing a by-hand hash here would create a second writer and risk drift that silently breaks `medium_acknowledgments[stable_hash]` lookups. The pass-entry build below and the `findings: [...]` slot consume the script's enriched output unchanged — no field is renamed or dropped, so the finding shape stays byte-shape-identical (Finalize's band ∈ {critical,warning} reads and the `medium_acknowledgments[stable_hash]` lookup keep working).
 
 Build pass entry:
 
