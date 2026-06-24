@@ -428,10 +428,12 @@ class TestCrossConfirmGroup(unittest.TestCase):
 class TestStableHashGolden(unittest.TestCase):
     def test_golden_digest_frozen(self):
         # Frozen literal — any separator/encoding/field-order drift fails here.
-        # Recipe: sha256((file + "\n" + canonical_line_content + "\n" + title))
+        # Recipe: sha256((file + "\x00" + canonical_line_content + "\x00" + title))
+        # Separator is NUL (M1): the old "\n" separator was forgeable (collision),
+        # so the digest was re-pinned when the separator changed.
         self.assertEqual(
             score.stable_hash("a.py", "  x=1", "title"),
-            "f8fe7467da9406d41884788810d99b9c5800f9134b46fce10a82bda35258062d",
+            "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124",
         )
 
     def test_hash_is_deterministic(self):
@@ -607,6 +609,153 @@ class TestRunEndToEnd(unittest.TestCase):
         self.assertIn("cf-keep", survivors)
         self.assertEqual(survivors["cf-keep"]["status"], "persisted")
         self.assertEqual(survivors["cf-keep"]["orchestrator_score"], 95)
+
+
+# --------------------------------------------------------------------------- #
+# C1 — float agent_confidence must NOT be silently zeroed (deep-review C1)
+# --------------------------------------------------------------------------- #
+class TestFloatConfidence(unittest.TestCase):
+    def test_float_confidence_scores_same_as_int(self):
+        # 85.0 (float, as JSON from LLM agents routinely carries) must score
+        # identically to 85 (int) — not get coerced to 0 by an isinstance int check.
+        f_float = make_finding(agent_confidence=85.0, severity="critical")
+        f_int = make_finding(agent_confidence=85, severity="critical")
+        self.assertEqual(score_of(f_float), score_of(f_int))
+        self.assertEqual(score_of(f_float), 85)
+
+    def test_fractional_float_truncated_to_int(self):
+        # A fractional float is accepted (not zeroed); truncated via int().
+        f = make_finding(agent_confidence=85.9, severity="critical")
+        self.assertEqual(score_of(f), 85)
+
+    def test_bool_confidence_rejected_to_zero(self):
+        # bool is an int subclass; True must NOT count as confidence 1 — it is
+        # rejected to 0 (then severity critical +0 -> 0).
+        f_true = make_finding(agent_confidence=True, severity="critical")
+        self.assertEqual(score_of(f_true), 0)
+        f_false = make_finding(agent_confidence=False, severity="critical")
+        self.assertEqual(score_of(f_false), 0)
+
+
+# --------------------------------------------------------------------------- #
+# W1 — stable_hash is None-safe; a null title must not halt the whole review
+# --------------------------------------------------------------------------- #
+class TestStableHashNoneSafe(unittest.TestCase):
+    def test_none_arg_equals_empty_string_arg(self):
+        # A None field hashes identically to "" for that field (no crash).
+        self.assertEqual(
+            score.stable_hash(None, "  x=1", "title"),
+            score.stable_hash("", "  x=1", "title"),
+        )
+        self.assertEqual(
+            score.stable_hash("a.py", None, "title"),
+            score.stable_hash("a.py", "", "title"),
+        )
+        self.assertEqual(
+            score.stable_hash("a.py", "  x=1", None),
+            score.stable_hash("a.py", "  x=1", ""),
+        )
+
+    def test_all_none_does_not_raise(self):
+        # Returns a valid hex digest rather than raising TypeError.
+        h = score.stable_hash(None, None, None)
+        self.assertEqual(len(h), 64)
+
+    def test_null_title_finding_flows_through_run_without_raising(self):
+        # A malformed-but-parseable finding with title=null must NOT crash run()
+        # (which would propagate non-zero and trip the orchestrator fail-closed
+        # halt on the entire review).
+        f = make_finding(id="null-title", title=None, agent_confidence=85,
+                         severity="critical", line=10,
+                         source_window=["a", "b", "c", "d", "e"])
+        envelope = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+            "findings": [f],
+        }
+        result = score.run(envelope)  # must not raise
+        self.assertTrue(result["scored_by_script"])
+        # It survived scoring and carries a stable_hash computed with title="".
+        survivors = {g["id"]: g for g in result["findings"]}
+        self.assertIn("null-title", survivors)
+        self.assertIn("stable_hash", survivors["null-title"])
+
+
+# --------------------------------------------------------------------------- #
+# M1 — NUL separator: new golden pinned + the newline collision is gone
+# --------------------------------------------------------------------------- #
+class TestStableHashSeparatorCollision(unittest.TestCase):
+    def test_new_golden_digest_pinned(self):
+        self.assertEqual(
+            score.stable_hash("a.py", "  x=1", "title"),
+            "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124",
+        )
+
+    def test_newline_separator_collision_no_longer_occurs(self):
+        # Under the old "\n" separator these two inputs collided:
+        #   ('a.py','x','y\nz')  ==  ('a.py','x\ny','z')
+        # With the NUL separator they must differ (NUL cannot appear in the fields).
+        self.assertNotEqual(
+            score.stable_hash("a.py", "x", "y\nz"),
+            score.stable_hash("a.py", "x\ny", "z"),
+        )
+
+
+# --------------------------------------------------------------------------- #
+# W2 — explicit line:null must not crash grouping or the diff/range checks
+# --------------------------------------------------------------------------- #
+class TestNullLineDefensive(unittest.TestCase):
+    def test_null_line_finding_flows_through_run_without_raising(self):
+        # A file-level finding legitimately carries line=null; run() must not
+        # crash on abs(None - 0) or `1 <= None <= n`.
+        f = make_finding(id="file-level", line=None, agent_confidence=85,
+                         severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        envelope = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+            "findings": [f],
+        }
+        result = score.run(envelope)  # must not raise
+        self.assertTrue(result["scored_by_script"])
+
+    def test_two_null_line_findings_do_not_group_on_line(self):
+        # Two null-line findings in the same file with matching titles must NOT
+        # group on line-distance (a null line is not a usable ±2 coordinate).
+        a = make_finding(id="a", file="src/a.py", line=None, title="bug",
+                         agent="bugs")
+        b = make_finding(id="b", file="src/a.py", line=None, title="bug",
+                         agent="security")
+        groups = score.cross_confirm_group([a, b])
+        self.assertEqual(len(groups), 2)
+
+    def test_line_in_ranges_null_line_is_out_of_range(self):
+        self.assertFalse(score._line_in_ranges(None, [[1, 100]]))
+
+    def test_all_mode_null_line_not_in_reviewed_set(self):
+        # In --all mode with a known file line total, a null-line finding fails
+        # the 1<=line<=N bound (out of range) instead of raising.
+        f = make_finding(id="al", file="src/a.py", line=None,
+                         agent_confidence=85, severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        envelope = {
+            "command": "deep-review",
+            "all_mode": True,
+            "pass_number": 1,
+            "reviewed_union": ["src/a.py"],
+            "file_line_totals": {"src/a.py": 50},
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [f],
+        }
+        result = score.run(envelope)  # must not raise
+        self.assertNotIn("al", [g["id"] for g in result["findings"]])
 
 
 if __name__ == "__main__":

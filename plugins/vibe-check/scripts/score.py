@@ -48,14 +48,29 @@ THRESHOLDS = {"review": 80, "deep-review": 70}
 # Pure helpers
 # --------------------------------------------------------------------------- #
 def stable_hash(file, canonical_line_content, title):
-    """sha256(file + "\\n" + canonical_line_content + "\\n" + title).
+    """sha256(file + "\\x00" + canonical_line_content + "\\x00" + title).
 
-    Transcribed byte-for-byte from review.md:774. This keys medium_acknowledgments
-    (review.md:34,:43) — any separator/encoding/field-order drift silently breaks
-    persisted dismissals, so the golden digest is frozen in the test suite.
+    Keys medium_acknowledgments (review.md:34,:43) — any separator/encoding/
+    field-order drift silently breaks persisted dismissals, so the golden digest
+    is frozen in the test suite (now
+    7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124).
+
+    Separator is NUL ("\\x00"), NOT newline: a newline separator is forgeable
+    because newlines can appear inside these text fields, so a crafted finding
+    could collide with a prior dismissal's hash and be silently suppressed
+    (e.g. title="y\\nz" vs canonical="x\\ny" once collided). NUL cannot appear in
+    any of file / canonical_line_content / title, so the encoding is injective.
+
+    None-safe: a present-but-null field (JSON `null` survives `.get`) is coerced
+    to "" rather than raising TypeError — a single malformed-but-parseable finding
+    must not crash the scorer and trip the orchestrator's fail-closed halt.
     """
+    file = file if isinstance(file, str) else ""
+    canonical_line_content = (canonical_line_content
+                              if isinstance(canonical_line_content, str) else "")
+    title = title if isinstance(title, str) else ""
     return hashlib.sha256(
-        (file + "\n" + canonical_line_content + "\n" + title).encode()
+        (file + "\x00" + canonical_line_content + "\x00" + title).encode()
     ).hexdigest()
 
 
@@ -145,8 +160,13 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     re-derive them.
     """
     # 1. Start from agent_confidence (defensive coercion: garbage => 0).
+    # Accept int OR float (JSON from LLM agents routinely carries floats like
+    # 85.0), but reject bool (True is an int subclass) — mirrors the numeric
+    # guard in _intent_doc_penalty. A float is truncated via int().
     raw_conf = finding.get("agent_confidence", 0)
-    s = raw_conf if isinstance(raw_conf, int) else 0
+    s = (int(raw_conf)
+         if isinstance(raw_conf, (int, float)) and not isinstance(raw_conf, bool)
+         else 0)
 
     # 2. Additive/subtractive bonuses (intent-doc penalty is mutually exclusive).
     if in_diff:
@@ -206,7 +226,14 @@ def cross_confirm_group(findings):
         for g in groups:
             for member in g["members"]:
                 same_file = member.get("file") == f.get("file")
-                line_close = abs(member.get("line", 0) - f.get("line", 0)) <= 2
+                # Defensive: a present-but-null line (file-level finding) is not a
+                # usable coordinate. If EITHER line is non-int, the ±2 distance
+                # check is False (no grouping on line) rather than crashing on
+                # abs(None - 0).
+                line_a = _as_line(member.get("line"))
+                line_b = _as_line(f.get("line"))
+                line_close = (line_a is not None and line_b is not None
+                              and abs(line_a - line_b) <= 2)
                 if same_file and line_close and _titles_match(
                     member.get("title"), f.get("title")
                 ):
@@ -345,8 +372,27 @@ def run(envelope):
     }
 
 
+def _as_line(x):
+    """Normalize a finding's `line` for arithmetic/comparison.
+
+    A real line number is a non-bool int. Anything else — None (a present-but-null
+    `line`, which file-level findings legitimately carry), a float, a string — is
+    NOT a usable line and returns None, the "no line" sentinel. Callers treat that
+    sentinel as out-of-range / non-grouping rather than crashing with a TypeError.
+    """
+    return x if isinstance(x, int) and not isinstance(x, bool) else None
+
+
 def _line_in_ranges(line, ranges):
-    """Is `line` within any [start, end] inclusive range?"""
+    """Is `line` within any [start, end] inclusive range?
+
+    A non-int line (None / null / other) is treated as out-of-range (returns
+    False) rather than raising — a file-level finding with line=null simply is
+    not in any diff range.
+    """
+    line = _as_line(line)
+    if line is None:
+        return False
     for pair in ranges or []:
         if len(pair) >= 2 and pair[0] <= line <= pair[1]:
             return True
@@ -381,9 +427,12 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
 
     if all_mode:
         # in_reviewed_set: file in the dispatched union AND 1 <= line <= N.
+        # A non-int line (present-but-null on a file-level finding) is treated as
+        # out-of-bounds rather than crashing on `1 <= None <= n`.
         n = file_line_totals.get(file)
+        line_norm = _as_line(line)
         in_set = file in reviewed_union and (
-            n is None or (1 <= line <= n)
+            n is None or (line_norm is not None and 1 <= line_norm <= n)
         )
         if not in_set:
             return {"drop": True, "reason": "not-in-reviewed-set",
