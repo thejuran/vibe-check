@@ -8,6 +8,10 @@
 # GSD planning artifacts (kept out of the fork repo itself)
 .planning/
 
+# Milestone-orchestrator config (release_intent / skip_walkthrough etc.) — local
+# operator state, must not drift into the repo as a committed release posture
+.orchestrator.json
+
 # Private design docs (spec/plan notes — kept local, not shared)
 docs/superpowers/
 
