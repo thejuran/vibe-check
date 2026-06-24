@@ -20,3 +20,7 @@ SHARE-PROMPT*.md
 
 # macOS Finder metadata
 .DS_Store
+
+# Python bytecode from the score.py test suite (plugins/vibe-check/scripts/)
+# — compiled artifacts, not tracked; score.py + test_score.py themselves DO ship.
+__pycache__/
