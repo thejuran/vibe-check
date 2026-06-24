@@ -683,6 +683,32 @@ class TestStableHashNoneSafe(unittest.TestCase):
         self.assertIn("null-title", survivors)
         self.assertIn("stable_hash", survivors["null-title"])
 
+    def test_non_string_current_code_does_not_crash_first_line(self):
+        # _first_line must coerce a non-string (a JSON number) to '' rather than
+        # raising AttributeError — otherwise a single malformed-but-parseable
+        # finding crashes run() and trips the fail-closed halt on the whole
+        # review (completes W1 for the current_code sibling field).
+        self.assertEqual(score._first_line(5), "")
+        self.assertEqual(score._first_line({"x": 1}), "")
+        self.assertEqual(score._first_line(None), "")
+        self.assertEqual(score._first_line("a\nb"), "a")
+
+    def test_numeric_current_code_finding_flows_through_run(self):
+        f = make_finding(id="num-cc", title="real bug", agent_confidence=85,
+                         severity="critical", line=10,
+                         source_window=["a", "b", "c", "d", "e"])
+        f["current_code"] = 12345  # non-string (schema drift / LLM quirk)
+        envelope = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+            "findings": [f],
+        }
+        result = score.run(envelope)  # must not raise
+        self.assertTrue(result["scored_by_script"])
+
 
 # --------------------------------------------------------------------------- #
 # M1 — NUL separator: new golden pinned + the newline collision is gone

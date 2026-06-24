@@ -101,8 +101,14 @@ def silenced_nearby(source_window):
 
 
 def _first_line(text):
-    """First line of a (possibly multi-line) snippet, or '' for falsy input."""
-    if not text:
+    """First line of a (possibly multi-line) snippet, or '' for falsy input.
+
+    Non-string input (a JSON number/object from a malformed-but-parseable
+    finding's ``current_code``) coerces to '' rather than raising — a single
+    odd finding must not crash run() and trip the orchestrator fail-closed halt
+    (completes the W1 null/non-str hardening for the sibling text field).
+    """
+    if not text or not isinstance(text, str):
         return ""
     return text.split("\n", 1)[0]
 
