@@ -77,3 +77,7 @@ Mapped to the plan's threat register: T-15B-01..05 and T-15C-01/02 are all mitig
 - `6a21a77` fix(15-02): commit the finding's full validated multi-path set + rescope hard rule #5
 - `f2567e2` docs(15-02): reconcile review.md commit-step refs to the validated multi-path pathspec
 - `259a0c0` fix(15-02): widen fix.md commit-title allowlist to permit = (double quote excluded)
+
+## Self-Check: PASSED
+
+All modified files exist (`fix.md`, `review.md`) and all task commits are present in the git log (`6a21a77`, `f2567e2`, `259a0c0`). Working tree clean.
