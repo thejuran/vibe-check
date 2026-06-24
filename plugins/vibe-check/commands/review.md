@@ -734,6 +734,10 @@ The orchestrator still does the work the script CANNOT (it is a pure function �
 
 ## Phase 4 — Render results
 
+**Render gate (scoring-ran sentinel — D-10, CORE-03).** BEFORE reading any finding's `band` to render the band tables below, assert BOTH: (i) the pass carries the script's pass-level `scored_by_script: true` sentinel (the top-level field `scripts/score.py` stamped in Phase 3), AND (ii) EVERY finding about to be rendered carries both `band` and `orchestrator_score`. If EITHER is missing — no `scored_by_script: true` on the pass, OR any to-be-rendered finding lacks `band`/`orchestrator_score` — STOP with "scoring did not run." This is the structural enforcement of D-09: a finding that never went through the script has no band, so it cannot be rendered. (Keep this LIGHT — a single boolean assertion; the full machine-checkable detect-and-warn invariant is Phase 17 / ROBUST-04, which this plan leaves a seam for, not builds.)
+
+**Command → threshold (the bands you see depend on which command ran).** The threshold that filtered these findings was selected in Phase 3 by the envelope `command` field — `"review"` ⇒ ≥80 (Critical + Warning only), `"deep-review"` ⇒ ≥70 (Critical + Warning + Medium). `command` is set from this command's active-command self-identity, so `/deep-review`'s Medium findings (70–79) reach render and are NOT silently filtered; `/review` never produced them (they scored below its ≥80). No deep-review.md scoring edit is needed — it delegates this Phase verbatim and review.md self-identifies the active command.
+
 ### Multi-pass status summary (only in pass >1)
 
 If `$PASS_NUMBER > 1`:
@@ -813,7 +817,7 @@ If zero findings after filtering:
 
 ## Phase 4.5 — Persist pass state
 
-Compute `stable_hash = sha256(file + "\n" + canonical_line_content + "\n" + title)`.
+Use the stable_hash the script already computed — consume the `stable_hash` field `scripts/score.py` returned on each survivor finding in Phase 3, and do NOT recompute the sha256 by hand. `scripts/score.py` is the single writer of the scored fields (`orchestrator_score`/`band`/`status`/`stable_hash`/`attribution`), preserving single-writer (ROBUST-01); reintroducing a by-hand hash here would create a second writer and risk drift that silently breaks `medium_acknowledgments[stable_hash]` lookups. The pass-entry build below and the `findings: [...]` slot consume the script's enriched output unchanged — no field is renamed or dropped, so the finding shape stays byte-shape-identical (Finalize's band ∈ {critical,warning} reads and the `medium_acknowledgments[stable_hash]` lookup keep working).
 
 Build pass entry:
 
