@@ -848,8 +848,10 @@ Dispatch ONE `Task` call to the `fix` agent with the selected findings:
 You are the fix agent. Apply each accepted finding per your subagent instructions (agents/fix.md):
 Read the file, locate the real site (use current_code as the anchor — line numbers may have
 drifted), design and apply the smallest correct fix, verify your own edit, then commit each finding
-atomically per the commit step in agents/fix.md (message via -F file, paths after `--`, no
---no-verify).
+atomically per the commit step in agents/fix.md (message via -F file; commit the finding's
+validated file set — every file it touched, primary + siblings — as the `--` pathspec on BOTH
+`git add` and `git commit`, so it is neither a single path nor a pathspec-less commit that would
+capture whatever else is staged; no --no-verify).
 
 PASS_NUMBER = {{$PASS_NUMBER}}
 
@@ -873,7 +875,7 @@ Parse the returned `results[]`. Each has `status ∈ {applied, obsolete, needs-h
 **The fix agent is the only apply path.** Do NOT apply fixes inline from the orchestrator. The orchestrator's `allowed-tools` retains `Edit`/`Bash(git:*)` only for the documented inline-fallback case below; everything else — including findings the user hand-specifies after a `needs-human` — is re-dispatched to the `fix` agent so there is exactly one commit-message convention and one `fixes_applied[]` write site.
 
 **Inline fallback (narrow, fully specified).** Apply a fix inline from the orchestrator ONLY when re-dispatching the agent is impossible for this invocation (e.g. the finding edits the `fix` agent's own spec, or `$TURINGMIND_NONINTERACTIVE` blocks a sub-dispatch). When you do:
-- Use the SAME commit step as `agents/fix.md` — copy it in full, including `msgfile=$(mktemp)` and the `trap 'rm -f "$msgfile"' EXIT` cleanup, the `finding.file`/`finding.title` validation, message via `-F "$msgfile"`, paths after `--`, and no `--no-verify`. Do not abbreviate it to an inline `-m` (that reintroduces the title-injection vector).
+- Use the SAME commit step as `agents/fix.md` — copy it in full, including `msgfile=$(mktemp)` and the `trap 'rm -f "$msgfile"' EXIT` cleanup, the per-path `finding.file`/`finding.title` validation, message via `-F "$msgfile"`, and no `--no-verify`. The `--` pathspec on BOTH `git add` and `git commit` is the finding's validated file set — every file the finding touched (primary + siblings), each validated — NOT a single `<finding.file>` and NOT a pathspec-less commit that would sweep in everything else that happens to be staged (the pathspec is what scopes the commit to exactly this finding's files). Do not abbreviate it to an inline `-m` (that reintroduces the title-injection vector).
 - Record a synthetic result `{id, status: "applied", commit_sha, files_touched, summary}` so it renders and persists identically to agent results.
 - It MUST append to `state.passes[-1].fixes_applied[]` exactly like agent results (see below) — an inline fix that skips this write breaks Phase 0.5 carry-forward (the fix won't be seen next pass and the finding gets re-flagged as still-present).
 
