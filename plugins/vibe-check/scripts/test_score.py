@@ -832,6 +832,109 @@ class TestCrossConfirmGroup(unittest.TestCase):
                 self.assertEqual(ids["C"]["orchestrator_score"], 85)
                 self.assertLess(len(ids["C"]["attribution"]), 2)
 
+    # --- W1 (a): multi-adversarial relay must NOT bridge ------------------ #
+    def test_second_adversarial_does_not_relay_via_first_every_ordering(self):
+        # native@10 (security), adv1@11 (1 away from native -> bridges),
+        # adv2@13 (3 away from native, but only 2 away from adv1). adv2 must NOT
+        # relay-bridge into the native via adv1 — proximity is measured against
+        # NATIVE-origin members only, so |13-10|=3>2 means adv2 stands alone with
+        # NO spurious +10, in EVERY input ordering.
+        native = make_finding(id="N", file="src/a.py", line=10,
+                              category="injection", agent="security",
+                              agent_confidence=85, severity="critical",
+                              source_window=["a", "b", "c", "d", "e"])
+        adv1 = make_finding(id="A1", file="src/a.py", line=11,
+                            category="adversarial", agent="codex-adversarial",
+                            agent_confidence=85, severity="critical",
+                            source_window=["a", "b", "c", "d", "e"])
+        adv2 = make_finding(id="A2", file="src/a.py", line=13,
+                            category="adversarial", agent="codex-adversarial",
+                            agent_confidence=85, severity="critical",
+                            source_window=["a", "b", "c", "d", "e"])
+        for perm in itertools.permutations([native, adv1, adv2]):
+            with self.subTest(perm=[f["id"] for f in perm]):
+                groups = score.cross_confirm_group(list(perm))
+                # Locate the group containing the native finding.
+                native_group = next(
+                    g for g in groups if any(m["id"] == "N" for m in g["members"])
+                )
+                # adv2 is NOT a member of the native's group (no relay).
+                member_ids = {m["id"] for m in native_group["members"]}
+                self.assertNotIn("A2", member_ids)
+                # adv1 DID bridge (1 away) -> native group attribution is 2.
+                self.assertIn("A1", member_ids)
+                self.assertEqual(
+                    sorted(native_group["attribution"]),
+                    ["codex-adversarial", "security"],
+                )
+                # Through run(): native gets exactly ONE +10 (85+10=95). adv2
+                # stands alone, NO +10 (85). Order-independent.
+                envelope = {
+                    "command": "deep-review",
+                    "all_mode": False,
+                    "pass_number": 1,
+                    "changed_line_ranges": {},
+                    "carryforward": [],
+                    "findings": list(perm),
+                }
+                result = score.run(envelope)
+                ids = {g["id"]: g for g in result["findings"]}
+                self.assertIn("N", ids)
+                self.assertEqual(ids["N"]["orchestrator_score"], 95)
+                self.assertIn("A2", ids)
+                self.assertEqual(ids["A2"]["orchestrator_score"], 85)
+                self.assertLess(len(ids["A2"]["attribution"]), 2)
+
+    # --- W1 (b): one domain across two disconnected components, deterministic #
+    def test_single_domain_two_components_adversarial_deterministic(self):
+        # security@10 and security@14 are the SAME domain but |10-14|=4>2, so
+        # they are TWO disconnected native components. adv@12 is co-located with
+        # BOTH (|12-10|=2 and |12-14|=2). Even though there is ONE domain, it is
+        # split across two components, so WHICH one would get the +10 is
+        # ambiguous -> DROP the bridge (consistent with the multi-domain
+        # ambiguity drop). The SAME deterministic outcome must hold in EVERY
+        # ordering: no group has 2+ attribution; both natives emit alone (85),
+        # adv emits alone (85).
+        s10 = make_finding(id="S10", file="src/a.py", line=10,
+                           category="injection", agent="security",
+                           agent_confidence=85, severity="critical",
+                           source_window=["a", "b", "c", "d", "e"])
+        s14 = make_finding(id="S14", file="src/a.py", line=14,
+                           category="auth", agent="security",
+                           agent_confidence=85, severity="critical",
+                           source_window=["a", "b", "c", "d", "e"])
+        adv = make_finding(id="ADV", file="src/a.py", line=12,
+                           category="adversarial", agent="codex-adversarial",
+                           agent_confidence=85, severity="critical",
+                           source_window=["a", "b", "c", "d", "e"])
+        for perm in itertools.permutations([s10, s14, adv]):
+            with self.subTest(perm=[f["id"] for f in perm]):
+                groups = score.cross_confirm_group(list(perm))
+                # No cross-confirm anywhere (ambiguous => +10 dropped).
+                for g in groups:
+                    self.assertLess(len(g["attribution"]), 2)
+                # Through run(): both natives + the adv all emit alone at 85,
+                # deterministically, in every ordering.
+                envelope = {
+                    "command": "deep-review",
+                    "all_mode": False,
+                    "pass_number": 1,
+                    "changed_line_ranges": {},
+                    "carryforward": [],
+                    "findings": list(perm),
+                }
+                result = score.run(envelope)
+                ids = {g["id"]: g for g in result["findings"]}
+                self.assertIn("S10", ids)
+                self.assertIn("S14", ids)
+                self.assertIn("ADV", ids)
+                self.assertEqual(ids["S10"]["orchestrator_score"], 85)
+                self.assertEqual(ids["S14"]["orchestrator_score"], 85)
+                self.assertEqual(ids["ADV"]["orchestrator_score"], 85)
+                self.assertLess(len(ids["S10"]["attribution"]), 2)
+                self.assertLess(len(ids["S14"]["attribution"]), 2)
+                self.assertLess(len(ids["ADV"]["attribution"]), 2)
+
     # --- Test 7: defensive — category=None through run() ------------------ #
     def test_none_category_flows_through_run_without_raising(self):
         f = make_finding(id="none-cat", category=None, agent_confidence=85,

@@ -477,27 +477,52 @@ def cross_confirm_group(findings):
             comp["domain"] = _category_domain(f.get("category"))
 
     # --- STEP B: resolve each adversarial finding against the native set ------ #
-    # standalone_adversarials collects those that don't bridge; they are then
-    # grouped among themselves by proximity (adversarial<->adversarial).
+    # ORDER-INDEPENDENCE (round-2 W1): two holes are closed here.
+    #
+    # (a) MULTI-ADVERSARIAL RELAY: proximity for bridging is measured ONLY
+    #     against NATIVE-origin members, never against an already-bridged
+    #     adversarial. We snapshot each component's native members BEFORE the
+    #     adversarial bridge loop and test adv proximity against that snapshot —
+    #     so a 2nd adversarial cannot transitively relay into a native via a 1st
+    #     adversarial that bridged earlier (native@10, adv1@11 bridges, adv2@13
+    #     must NOT relay via adv1 since |13-10|=3>2), in any input ordering.
+    # (b) SINGLE-DOMAIN-TWO-COMPONENTS: when one native domain spans two
+    #     disconnected co-located components (security@10 + security@14, with the
+    #     adv@12 between them), WHICH component the +10 lands on would otherwise
+    #     depend on iteration/input order. Consistent with D-01/D-02's
+    #     ambiguity-safe posture (the multi-DOMAIN case already drops the +10), a
+    #     single domain spread across 2+ disconnected co-located components is
+    #     ALSO ambiguous — the adv cannot confirm a single defect — so we DROP
+    #     the bridge. The bridge fires ONLY when EXACTLY ONE native component is
+    #     co-located, which is order-independent by construction.
+    native_members = [list(comp["members"]) for comp in components]
     standalone_adversarials = []
     for adv in adversarials:
-        # Distinct native DOMAINS co-located with this adversarial finding.
-        co_domains = {}      # domain -> component index (first seen)
+        # Component indices co-located with this adversarial, by NATIVE members
+        # only (the (a) snapshot). A domain may map to MULTIPLE component indices
+        # when it is split across disconnected sites — track them all so the
+        # (b) ambiguity is visible.
+        co_components = []   # list of co-located component indices
+        co_domains = set()   # distinct native domains among those components
         for idx, comp in enumerate(components):
             if comp["domain"] is None:
                 continue
-            if any(_line_close(adv, m) for m in comp["members"]):
-                co_domains.setdefault(comp["domain"], idx)
-        if len(co_domains) == 1:
-            # EXACTLY ONE distinct native domain co-located => bridge into it.
-            target = next(iter(co_domains.values()))
+            if any(_line_close(adv, m) for m in native_members[idx]):
+                co_components.append(idx)
+                co_domains.add(comp["domain"])
+        if len(co_domains) == 1 and len(co_components) == 1:
+            # EXACTLY ONE distinct native domain AND exactly one co-located
+            # native component => unambiguous bridge into it.
+            target = co_components[0]
             comp = components[target]
             comp["members"].append(adv)
             agent = adv.get("agent")
             if agent is not None and agent not in comp["attribution"]:
                 comp["attribution"].append(agent)
         else:
-            # ZERO or 2+ distinct native domains (ambiguous) => no bridge.
+            # ZERO co-located natives, 2+ distinct native domains, OR one domain
+            # split across 2+ disconnected components (all ambiguous) => no
+            # bridge.
             standalone_adversarials.append(adv)
 
     # Group the non-bridging adversarials among themselves by proximity so two
