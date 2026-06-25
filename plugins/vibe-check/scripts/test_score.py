@@ -376,6 +376,219 @@ class TestCarryForwardStatus(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# carry_forward_status — ROBUST-03 SYMMETRIC-OR-DEGRADE low-entropy carry key.
+# The compare widens BOTH sides or NEITHER (never window-vs-single-line). An
+# UNCHANGED finding stays "persisted" whether its stored snippet is one line or
+# many — a low-entropy single-line snippet never falsely flips to needs-recheck.
+# The frozen stable_hash golden does NOT move (D-07): _carry_key / canonical_window
+# are SEPARATE from the canonical_for_hash path.
+# --------------------------------------------------------------------------- #
+class TestCarryForwardLowEntropyWindow(unittest.TestCase):
+    # --- Test 1 (no churn, distinctive — same as the existing persisted test). #
+    def test_distinctive_first_line_no_churn_persisted(self):
+        # A distinctive (high-entropy) first line degrades to the first-line
+        # compare exactly as today — byte-identical persisted classification.
+        f = make_finding(current_code="  return q\n  more")
+        self.assertEqual(
+            score.carry_forward_status(f, "return q",
+                                       canonical_window="return q\n  more"),
+            "persisted",
+        )
+
+    # --- Test 3 (BLOCKER-1 single-line low-entropy NO-CHURN — round-2 fix). --- #
+    def test_single_line_low_entropy_unchanged_stays_persisted(self):
+        # Prior current_code "}" (SINGLE line, low-entropy), canonical "}",
+        # canonical_window "}\n  nextLine()" (HEAD happens to have a next line).
+        # The prior side has no usable 2nd line, so we do NOT widen — DEGRADE to
+        # the first-line compare: "}" == "}" -> persisted (NOT needs-recheck).
+        # This is the exact false-flip the round-1 fix caused; it must be gone.
+        f = make_finding(current_code="}")
+        self.assertEqual(
+            score.carry_forward_status(f, "}",
+                                       canonical_window="}\n  nextLine()"),
+            "persisted",
+        )
+
+    # --- Test 4 (multi-line low-entropy disambiguation — collision gone). ---- #
+    def test_multi_line_low_entropy_different_window_needs_recheck(self):
+        # Both sides have >=2 non-blank lines and the first line is low-entropy,
+        # so we WIDEN: the surrounding windows differ -> needs-recheck.
+        f = make_finding(current_code="}\n  doThingA()")
+        self.assertEqual(
+            score.carry_forward_status(f, "}",
+                                       canonical_window="}\n  doThingB()"),
+            "needs-recheck",
+        )
+
+    # --- Test 5 (multi-line low-entropy UNCHANGED stays persisted). --------- #
+    def test_multi_line_low_entropy_same_window_persisted(self):
+        # WIDEN path with IDENTICAL windows on both sides -> persisted (no false
+        # flip when the surrounding context is genuinely unchanged).
+        f = make_finding(current_code="}\n  doThingA()")
+        self.assertEqual(
+            score.carry_forward_status(f, "}",
+                                       canonical_window="}\n  doThingA()"),
+            "persisted",
+        )
+
+    # --- Test 6 (degrade — no canonical_window at all). -------------------- #
+    def test_low_entropy_no_window_degrades_to_first_line(self):
+        # A low-entropy multi-line prior but canonical_window=None -> DEGRADE to
+        # the first-line compare; an unchanged first line stays persisted and
+        # does not raise.
+        f = make_finding(current_code="}\n  doThingA()")
+        self.assertEqual(
+            score.carry_forward_status(f, "}", canonical_window=None),
+            "persisted",
+        )
+        # default-arg (no canonical_window passed at all) is equivalent.
+        self.assertEqual(score.carry_forward_status(f, "}"), "persisted")
+
+    def test_low_entropy_single_line_window_degrades(self):
+        # canonical_window present but only ONE non-blank line -> NOT widen-
+        # eligible (RHS lacks a real window) -> DEGRADE; unchanged stays persisted.
+        f = make_finding(current_code="}\n  doThingA()")
+        self.assertEqual(
+            score.carry_forward_status(f, "}", canonical_window="}"),
+            "persisted",
+        )
+
+    def test_null_canonical_still_fixed_since_last_with_window(self):
+        # A null canonical_line_content is fixed-since-last regardless of any
+        # window the orchestrator may have resolved.
+        f = make_finding(current_code="}\n  doThingA()")
+        self.assertEqual(
+            score.carry_forward_status(f, None,
+                                       canonical_window="}\n  whatever()"),
+            "fixed-since-last",
+        )
+
+    def test_widen_keys_on_three_nonblank_lines_ignoring_blanks(self):
+        # _carry_key takes the first <=3 NON-BLANK lines; intervening blank lines
+        # are skipped so cosmetic blank-line drift does not flip the key.
+        f = make_finding(current_code="}\n\n  a()\n  b()\n  c()\n  d()")
+        # canonical_window with the SAME 3 non-blank lines (different blank layout)
+        # -> persisted (the window keys on the first 3 non-blank lines only).
+        self.assertEqual(
+            score.carry_forward_status(
+                f, "}", canonical_window="}\n  a()\n\n  b()\n  c()"),
+            "persisted",
+        )
+
+    def test_widen_genuine_third_line_change_needs_recheck(self):
+        # Same first two lines, a DIFFERENT third non-blank line -> the <=3 window
+        # differs -> needs-recheck (the window is wide enough to catch it).
+        f = make_finding(current_code="}\n  a()\n  bOLD()")
+        self.assertEqual(
+            score.carry_forward_status(
+                f, "}", canonical_window="}\n  a()\n  bNEW()"),
+            "needs-recheck",
+        )
+
+    def test_non_str_current_code_does_not_raise(self):
+        # Pattern 1: a non-str current_code must not crash the compare.
+        f = make_finding()
+        f["current_code"] = 12345
+        # _first_line coerces to "" -> first line "" != "}" -> needs-recheck,
+        # but crucially it does NOT raise.
+        self.assertEqual(
+            score.carry_forward_status(f, "}", canonical_window="}\n  x()"),
+            "needs-recheck",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# _carry_key — the windowed key for ONE side (ROBUST-03), in isolation.
+# --------------------------------------------------------------------------- #
+class TestCarryKey(unittest.TestCase):
+    def test_non_str_coerces_to_empty(self):
+        self.assertEqual(score._carry_key(None), "")
+        self.assertEqual(score._carry_key(12345), "")
+        self.assertEqual(score._carry_key({"k": "v"}), "")
+
+    def test_first_three_nonblank_lines_joined(self):
+        self.assertEqual(
+            score._carry_key("a\nb\nc\nd"), "a\nb\nc"
+        )
+
+    def test_blank_lines_skipped(self):
+        self.assertEqual(
+            score._carry_key("a\n\n  \nb\n\nc\nd"), "a\nb\nc"
+        )
+
+    def test_lines_stripped(self):
+        self.assertEqual(
+            score._carry_key("  a  \n\t b\t"), "a\nb"
+        )
+
+    def test_fewer_than_three_lines(self):
+        self.assertEqual(score._carry_key("}"), "}")
+        self.assertEqual(score._carry_key("}\n  next()"), "}\nnext()")
+
+
+# --------------------------------------------------------------------------- #
+# run() end-to-end — the widen path is reachable via the carryforward envelope.
+# --------------------------------------------------------------------------- #
+class TestCarryForwardWindowEndToEnd(unittest.TestCase):
+    def _base(self, cf):
+        return {
+            "command": "review",
+            "all_mode": False,
+            "pass_number": 2,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [cf],
+            "findings": [],
+        }
+
+    def test_single_line_low_entropy_carryforward_persists(self):
+        # A legal single-line low-entropy carryforward snippet against an
+        # unchanged HEAD (canonical_window has a next line) stays persisted (+15),
+        # NOT flipped to needs-recheck (the BLOCKER-1 end-to-end pin).
+        cf = make_finding(id="cf-brace", file="src/a.py", line=10,
+                          title="dangling brace", agent_confidence=70,
+                          severity="critical", current_code="}",
+                          canonical_line_content="}",
+                          canonical_window="}\n  nextLine()",
+                          source_window=["a", "b", "c", "d", "e"])
+        result = score.run(self._base(cf))
+        survivors = {g["id"]: g for g in result["findings"]}
+        self.assertIn("cf-brace", survivors)
+        self.assertEqual(survivors["cf-brace"]["status"], "persisted")
+
+    def test_multi_line_low_entropy_changed_window_needs_recheck(self):
+        # A multi-line low-entropy carryforward whose surrounding window CHANGED
+        # is needs-recheck (no +15 persistence) — it still scores/renders.
+        cf = make_finding(id="cf-multi", file="src/a.py", line=10,
+                          title="brace block", agent_confidence=85,
+                          severity="critical",
+                          current_code="}\n  doThingA()",
+                          canonical_line_content="}",
+                          canonical_window="}\n  doThingB()",
+                          source_window=["a", "b", "c", "d", "e"])
+        result = score.run(self._base(cf))
+        survivors = {g["id"]: g for g in result["findings"]}
+        self.assertIn("cf-multi", survivors)
+        self.assertEqual(survivors["cf-multi"]["status"], "needs-recheck")
+
+    def test_stable_hash_unchanged_for_low_entropy_carryforward(self):
+        # The survivor's stable_hash derives from the UNCHANGED canonical_for_hash
+        # path (canonical_line_content "}"), NOT from canonical_window. Pin it to
+        # the by-hand stable_hash over the same single-line canonical.
+        cf = make_finding(id="cf-hash", file="src/a.py", line=10,
+                          title="t", agent_confidence=70, severity="critical",
+                          current_code="}", canonical_line_content="}",
+                          canonical_window="}\n  nextLine()",
+                          source_window=["a", "b", "c", "d", "e"])
+        result = score.run(self._base(cf))
+        survivors = {g["id"]: g for g in result["findings"]}
+        self.assertIn("cf-hash", survivors)
+        self.assertEqual(
+            survivors["cf-hash"]["stable_hash"],
+            score.stable_hash("src/a.py", "}", "t"),
+        )
+
+
+# --------------------------------------------------------------------------- #
 # cross_confirm_group (ROBUST-02): ORDER-INDEPENDENT category-domain confirm.
 # Title is dropped as a match signal (D-01); two findings confirm iff same file
 # AND |line| <= 2 AND their category DOMAINS overlap. `adversarial` bridges only

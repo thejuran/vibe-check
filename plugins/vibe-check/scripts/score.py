@@ -113,22 +113,94 @@ def _first_line(text):
     return text.split("\n", 1)[0]
 
 
-def carry_forward_status(finding, canonical_line_content):
-    """Status of a carried-forward finding (review.md:672-678).
+def _nonblank_lines(text):
+    """The stripped NON-BLANK lines of `text`, in order.
 
-    The orchestrator reads HEAD and passes canonical_line_content in (D-05):
+    Non-str input (a JSON number/object from a malformed-but-parseable finding's
+    ``current_code`` / a resolved window) yields [] rather than raising — the
+    same never-crash posture as _first_line (Pattern 1). Blank / whitespace-only
+    lines are dropped so cosmetic blank-line drift does not move the carry key.
+    """
+    if not text or not isinstance(text, str):
+        return []
+    return [ln.strip() for ln in text.split("\n") if ln.strip()]
+
+
+def _carry_key(text):
+    """The windowed carry-forward key for ONE side (ROBUST-03).
+
+    The first <=3 stripped NON-BLANK lines of `text` joined with "\\n". Used ONLY
+    by carry_forward_status's symmetric widen branch — it is SEPARATE from the
+    canonical_for_hash path that feeds stable_hash (D-07), so the frozen golden
+    digest does not move. Non-str input coerces to "" (never raises, Pattern 1).
+    """
+    return "\n".join(_nonblank_lines(text)[:3])
+
+
+def _is_low_entropy(first):
+    """Is a (stripped) first line low-entropy — too generic to key on alone?
+
+    Low-entropy iff it is very short (`len < 4`) OR pure punctuation/whitespace/
+    bracket characters (`}`, `);`, `})`, `]`). `re` is already in the frozen
+    import set; `re.fullmatch(r"[\\s\\W]+", "")` is None, so the empty string is
+    NOT low-entropy here (it is handled by the equal/not-equal first-line compare).
+    """
+    return len(first) < 4 or bool(re.fullmatch(r"[\s\W]+", first))
+
+
+def carry_forward_status(finding, canonical_line_content, canonical_window=None):
+    """Status of a carried-forward finding (review.md:672-678), ROBUST-03 hardened.
+
+    The orchestrator reads HEAD and passes canonical_line_content in (D-05); it
+    ALSO resolves a small surrounding HEAD window -> canonical_window (consumed
+    ONLY here, never by the stable_hash path — D-07):
       - null/sentinel canonical (file:line gone) => "fixed-since-last"
-      - first line of current_code == canonical, BOTH sides stripped (D-11) =>
-        "persisted"
-      - content changed => "needs-recheck"
+      - else compare the prior `current_code` against HEAD; "persisted" iff they
+        match, "needs-recheck" iff content changed.
+
+    SYMMETRIC-OR-DEGRADE compare (round-2 BLOCKER 1): a low-entropy first line
+    (e.g. `}`, `);`) is too generic to key on alone, so it is disambiguated by a
+    surrounding window — but ONLY when a real >=2-line window exists on BOTH sides.
+    The compare widens BOTH sides or NEITHER; it never compares a multi-line
+    window against a single line (which would falsely flip a legal single-line
+    snippet to needs-recheck).
+
+      WIDEN-ELIGIBLE iff ALL of:
+        - the LHS (current_code) stripped first line is low-entropy, AND
+        - the prior current_code has >= 2 non-blank lines, AND
+        - canonical_window is present with >= 2 non-blank lines.
+      WIDEN  => persisted iff _carry_key(current_code) == _carry_key(canonical_window).
+      DEGRADE (anything else: a distinctive first line, OR a single-line/low-entropy
+        snippet with no second line on either side) => compare the stripped FIRST
+        LINES exactly as before (byte-identical no-churn for distinctive lines AND
+        legal single-line low-entropy snippets).
 
     D-11: strip leading AND trailing whitespace on both sides before comparing, so
     pure whitespace drift is not a false "fixed-since-last" / "needs-recheck".
+    Pattern 1: non-str current_code coerces via _first_line / _nonblank_lines and
+    never raises.
     """
     if canonical_line_content is None:
         return "fixed-since-last"
-    current_first = _first_line(finding.get("current_code", "")).strip()
-    if current_first == canonical_line_content.strip():
+    current_code = finding.get("current_code", "")
+    current_first = _first_line(current_code).strip()
+    canonical_first = canonical_line_content.strip()
+
+    # WIDEN-ELIGIBLE: both sides can form a real >=2-line window AND the first
+    # line is generic enough to need the surrounding context to disambiguate.
+    widen = (
+        _is_low_entropy(current_first)
+        and len(_nonblank_lines(current_code)) >= 2
+        and len(_nonblank_lines(canonical_window)) >= 2
+    )
+    if widen:
+        if _carry_key(current_code) == _carry_key(canonical_window):
+            return "persisted"
+        return "needs-recheck"
+
+    # DEGRADE: first-line compare (today's behavior — no churn for distinctive
+    # first lines AND for legal single-line / window-less low-entropy snippets).
+    if current_first == canonical_first:
         return "persisted"
     return "needs-recheck"
 
@@ -494,7 +566,9 @@ def run(envelope):
     persisted_ids = set()
     working = []
     for cf in carryforward:
-        status = carry_forward_status(cf, cf.get("canonical_line_content"))
+        status = carry_forward_status(
+            cf, cf.get("canonical_line_content"), cf.get("canonical_window")
+        )
         if status == "fixed-since-last":
             fixed_since_last.append({
                 "file": cf.get("file"),
