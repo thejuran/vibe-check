@@ -332,11 +332,16 @@ CATEGORY_DOMAIN = {
     "dep-array": "style", "idiom": "style",
     # --- compliance ---
     "rule-violation": "compliance",
-    # framework-fastapi rows fold into the nearest native domain: its
-    # data-exposure/auth-security twins map to "security" (already covered
-    # above); its remaining framework-mechanism cues are design/correctness in
-    # spirit and carry their native category when emitted, so no extra rows are
-    # needed here.
+    # framework-fastapi: ONLY its data-exposure/auth-security twins map to
+    # "security" (the two rows already listed above), so ONLY those two can
+    # cross-confirm with a co-located security finding. Its OTHER declared
+    # categories — async-blocking, dependency-injection, pydantic-validation,
+    # response-status, lifecycle-background, routing, openapi-honesty,
+    # file-upload-safety, settings-app-construction — are deliberately NOT in
+    # this map, so they resolve to None (no domain) and cross-confirm with
+    # NOTHING today; each stands on its own score. They are NOT folded into a
+    # native domain here. (Broadening the map to cover them is a deferred
+    # follow-up, not current behavior — keep this comment honest to the map.)
 }
 
 
