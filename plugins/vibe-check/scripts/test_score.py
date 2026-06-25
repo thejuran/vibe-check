@@ -375,6 +375,43 @@ class TestCarryForwardStatus(unittest.TestCase):
             score.carry_forward_status(f, "return DIFFERENT"), "needs-recheck"
         )
 
+    def test_non_str_canonical_does_not_raise(self):
+        # C1 (deep-review): a present-but-non-str canonical_line_content (a JSON
+        # number/array/object from a malformed-but-parseable carryforward entry)
+        # must NOT raise AttributeError on .strip() — the None guard above it
+        # only covers null, not non-str-non-None. It coerces to "" and, since a
+        # real current_code first line != "", classifies as needs-recheck.
+        f = make_finding(current_code="  return q")
+        for bad in (0, 1, [], {}, ["x"], {"k": "v"}, 3.14):
+            with self.subTest(bad=bad):
+                self.assertEqual(
+                    score.carry_forward_status(f, bad), "needs-recheck"
+                )
+
+    def test_non_str_canonical_flows_through_run_without_raising(self):
+        # End-to-end: a carryforward whose canonical_line_content is non-str
+        # must not crash run() (which would propagate non-zero and trip the
+        # orchestrator's fail-closed render halt on the WHOLE review pass).
+        cf = make_finding(id="cf-badcanon", file="src/a.py", line=10,
+                          title="odd carryforward", agent_confidence=85,
+                          severity="critical", current_code="  return q",
+                          canonical_line_content=[],
+                          source_window=["a", "b", "c", "d", "e"])
+        envelope = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 2,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [cf],
+            "findings": [],
+        }
+        result = score.run(envelope)  # must not raise
+        self.assertTrue(result["scored_by_script"])
+        survivors = {g["id"]: g for g in result["findings"]}
+        self.assertIn("cf-badcanon", survivors)
+        # Non-str canonical => needs-recheck (changed), NOT a false persisted.
+        self.assertEqual(survivors["cf-badcanon"]["status"], "needs-recheck")
+
 
 # --------------------------------------------------------------------------- #
 # carry_forward_status — ROBUST-03 SYMMETRIC-OR-DEGRADE low-entropy carry key.

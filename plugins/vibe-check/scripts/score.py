@@ -182,6 +182,16 @@ def carry_forward_status(finding, canonical_line_content, canonical_window=None)
     """
     if canonical_line_content is None:
         return "fixed-since-last"
+    # Pattern 1: a present-but-non-str canonical_line_content (a JSON
+    # number/array/object from a malformed-but-parseable carryforward entry)
+    # coerces to "" before .strip() rather than raising AttributeError — a
+    # single odd finding must not crash run() and trip the orchestrator's
+    # fail-closed halt. The None path above is preserved (still
+    # "fixed-since-last"); ONLY the non-None-but-non-str case is coerced, so a
+    # non-str canonical (first line "" != a real current_code first line)
+    # classifies as needs-recheck rather than a false persisted/fixed.
+    if not isinstance(canonical_line_content, str):
+        canonical_line_content = ""
     current_code = finding.get("current_code", "")
     current_first = _first_line(current_code).strip()
     canonical_first = canonical_line_content.strip()
