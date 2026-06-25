@@ -16,6 +16,7 @@ ban is on score.py exclusively. The AST test below enforces that ban on score.py
 import ast
 import itertools
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -1201,6 +1202,250 @@ class TestNullLineDefensive(unittest.TestCase):
         }
         result = score.run(envelope)  # must not raise
         self.assertNotIn("al", [g["id"] for g in result["findings"]])
+
+
+# --------------------------------------------------------------------------- #
+# SINGLE-WRITER REGRESSION-LOCK (ROBUST-01 D-10, Phase 17)
+#
+# score.py is the SINGLE writer of the scored fields
+# (orchestrator_score/band/status/stable_hash/attribution). review.md:830 names
+# it the single writer and forbids a by-hand hash. This lock FAILS if a future
+# edit reintroduces a by-hand scored-field WRITE PATH into review.md/deep-review.md
+# — whether as a fenced machine assignment or as UNFENCED prose (this orchestrator
+# follows prose directives throughout the file).
+#
+# The guard scans the ENTIRE file text (NOT fenced-only). It is BOTH:
+#   * SOUND — it must NOT false-positive on the legitimate, non-scored
+#     SCOPE_HASH `shasum` (a state-file-path hash, review.md:392), nor on the
+#     many legitimate scored-field MENTIONS / comparisons / reads / forbidding
+#     prose ("band == medium", "consume the stable_hash", "do NOT recompute …").
+#   * COMPLETE — it must CATCH a reintroduced writer, including an unfenced prose
+#     directive ("compute stable_hash with sha256", "set band to critical") and a
+#     hasher tied to a scored field.
+#
+# Tie requirement (the BLOCKER-3 round-2 fix): a hasher token is flagged ONLY
+# when it co-occurs (same clause) with a scored-field token. A hasher with no
+# scored-field reference (the SCOPE_HASH line references SCOPE_HASH/ALL_STATE_FILE,
+# never `stable_hash`) is ALLOWED.
+# --------------------------------------------------------------------------- #
+# A scored-field token. `band`/`status` are common English words → word
+# boundaries; the others are distinctive identifiers.
+_SCORED_FIELD_RE = re.compile(
+    r"(?:orchestrator_score|stable_hash|attribution|\bband\b|\bstatus\b)"
+)
+# Hasher tokens (the by-hand-hash surface ROBUST-01 forbids).
+_HASHER_RE = re.compile(
+    r"\b(?:sha256|sha-256|shasum|openssl\s+dgst|md5|hashlib)\b", re.I
+)
+# Imperative WRITE verbs (a by-hand synthesis directive). READ/compare verbs
+# (consume/read/render/score/count) are deliberately EXCLUDED.
+_WRITE_VERBS = r"set|compute|recompute|write|assign|synthesize|synthesise|derive"
+
+# Negated / forbidding / without-clauses EXEMPT a clause: the file legitimately
+# FORBIDS by-hand writes (review.md:676 "does NOT assign status", :830 "do NOT
+# recompute the sha256 by hand", :672 "no longer a manual path"). A negated
+# directive is the OPPOSITE of a reintroduced writer.
+_NEG_RE = re.compile(
+    r"\b(?:do not|do n't|don't|does not|doesn't|did not|didn't|"
+    r"never|no longer|not\b|cannot|can't|must not|mustn't|"
+    r"forbid|forbidden|forbids|without|no by-hand|"
+    r"would create|would be|reintroduc)\b",
+    re.I,
+)
+# Machine-assignment form: a scored field IMMEDIATELY followed by `=` then a
+# COMPUTED value (a quote / shell substitution / hasher expr). Catches
+#   band="critical" / orchestrator_score=$((conf+20)) / stable_hash="$H"
+# but NOT band=critical (bare word — the :64 read filter), NOT band == medium
+# (comparison), NOT medium_acknowledgments[stable_hash] = … (the `]` breaks the
+# field-immediately-before-`=` requirement, so the write target is the dict, not
+# the scored field).
+_ASSIGN_RE = re.compile(
+    r"(?:orchestrator_score|stable_hash|attribution|band|status)"
+    r"\s*=\s*"
+    r"(?:\"|'|\$\(|\$\{|[A-Za-z0-9_]*\s*(?:sha256|shasum|md5|hashlib))"
+)
+# Prose-directive form: a WRITE verb whose DIRECT OBJECT is a scored field
+# (`<verb> [the/a/an] <field>`). The field must be the object adjacent to the
+# verb, so "write medium_acknowledgments[stable_hash]" (object = the dict),
+# "the row's band derives from" (no scored field AFTER the verb), and
+# "computes the canonical line content" (object = canonical content) do NOT match.
+_DIRECTIVE_RE = re.compile(
+    r"\b(?:" + _WRITE_VERBS + r")\b"
+    r"\s+(?:the\s+|a\s+|an\s+)?"
+    r"(?:orchestrator_score|stable_hash|attribution|band|status)\b",
+    re.I,
+)
+
+
+def _writer_clauses(text):
+    """Split text into small clauses so negation/tie scoping is LOCAL.
+
+    Break on newlines, sentence terminators, and semicolons — a forbidding
+    clause must not exempt a sibling write clause, and a hasher must tie to a
+    scored field in the SAME clause, not merely the same paragraph.
+    """
+    raw = re.split(r"[\n;.]|(?<=[!?])\s", text)
+    return [c.strip() for c in raw if c.strip()]
+
+
+def has_scored_field_write_path(text):
+    """True iff `text` contains a by-hand scored-field WRITE PATH.
+
+    (a) scored-field SYNTHESIS — an imperative write-verb directive OR a machine
+        assignment INTO a scored field (any fencing), OR
+    (b) a HASHER token TIED to a scored field (same-clause co-occurrence).
+    Negated / forbidding / without-clauses are EXEMPT (they FORBID, not write).
+    """
+    for clause in _writer_clauses(text):
+        if _NEG_RE.search(clause):
+            continue
+        if _DIRECTIVE_RE.search(clause) or _ASSIGN_RE.search(clause):
+            return True
+        if _HASHER_RE.search(clause) and _SCORED_FIELD_RE.search(clause):
+            return True
+    return False
+
+
+class TestSingleWriterLock(unittest.TestCase):
+    """ROBUST-01 D-10: lock score.py as the single writer of scored fields."""
+
+    COMMANDS_DIR = os.path.join(os.path.dirname(SCORE_PY), "..", "commands")
+    REVIEW_MD = os.path.join(COMMANDS_DIR, "review.md")
+    DEEP_REVIEW_MD = os.path.join(COMMANDS_DIR, "deep-review.md")
+
+    @classmethod
+    def _read(cls, path):
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    # -- Test 1: the lock HOLDS today (soundness on the real files) -------- #
+    def test_review_md_has_no_by_hand_scored_field_write(self):
+        text = self._read(self.REVIEW_MD)
+        # Whole-file scan (not fenced-only). The load-bearing no-false-positive
+        # proof: must NOT trip on review.md:392 SCOPE_HASH `shasum`, nor on the
+        # scored-field mentions/comparisons/reads/forbidding-prose.
+        self.assertFalse(
+            has_scored_field_write_path(text),
+            "review.md tripped the single-writer lock — a by-hand scored-field "
+            "write path was detected (or a false positive on SCOPE_HASH / a "
+            "scored-field mention).",
+        )
+
+    def test_deep_review_md_has_no_by_hand_scored_field_write(self):
+        text = self._read(self.DEEP_REVIEW_MD)
+        self.assertFalse(
+            has_scored_field_write_path(text),
+            "deep-review.md tripped the single-writer lock — a by-hand "
+            "scored-field write path was detected.",
+        )
+
+    def test_the_real_files_actually_exist_and_were_read(self):
+        # Guard against the detector silently passing on an empty/missing read.
+        self.assertTrue(os.path.isfile(self.REVIEW_MD), self.REVIEW_MD)
+        self.assertTrue(os.path.isfile(self.DEEP_REVIEW_MD), self.DEEP_REVIEW_MD)
+        self.assertGreater(len(self._read(self.REVIEW_MD)), 1000)
+        self.assertGreater(len(self._read(self.DEEP_REVIEW_MD)), 1000)
+        # Both files DO mention scored fields (so the soundness proof above is
+        # non-vacuous — the detector saw scored-field tokens and still passed).
+        self.assertRegex(self._read(self.REVIEW_MD), r"stable_hash")
+        self.assertRegex(self._read(self.REVIEW_MD), r"orchestrator_score")
+        # And review.md DOES contain the legitimate SCOPE_HASH `shasum` the
+        # detector must NOT flag — proving the no-false-positive is meaningful.
+        self.assertIn("SCOPE_HASH", self._read(self.REVIEW_MD))
+        self.assertRegex(self._read(self.REVIEW_MD), r"\| *shasum")
+
+    # -- Test 2: the lock CATCHES reintroduction (completeness) ------------ #
+    def test_catches_unfenced_prose_writers(self):
+        # The round-2 evasion hole: an unfenced prose directive the orchestrator
+        # would follow. Each MUST be caught.
+        for fixture in (
+            "Compute stable_hash with sha256 over file+content+title.",
+            "Then set band to critical for any auth finding.",
+            "Recompute the orchestrator_score by hand as confidence + 20.",
+            "Assign attribution to the security agent manually.",
+        ):
+            self.assertTrue(
+                has_scored_field_write_path(fixture),
+                "unfenced prose writer NOT caught: " + fixture,
+            )
+
+    def test_catches_fenced_machine_writers(self):
+        for fixture in (
+            'band="critical"',
+            "orchestrator_score=$((conf + 20))",
+            # Hasher TIED to stable_hash (same clause):
+            'stable_hash=$(shasum -a 256 <<<"$x")',
+        ):
+            self.assertTrue(
+                has_scored_field_write_path(fixture),
+                "fenced machine writer NOT caught: " + fixture,
+            )
+
+    def test_catches_hasher_tied_to_scored_field(self):
+        # A hasher token co-occurring with a scored-field token in ONE clause
+        # (the tie is same-clause by design — that same-clause requirement is
+        # exactly what keeps the SCOPE_HASH line, whose clause references no
+        # scored field, exempt).
+        for fixture in (
+            "the finding's stable_hash is the sha256 of file+content",
+            "hash stable_hash with shasum over the canonical content",
+        ):
+            self.assertTrue(
+                has_scored_field_write_path(fixture),
+                "hasher tied to a scored field NOT caught: " + fixture,
+            )
+
+    # -- Test 3: NEGATIVE fixtures (soundness at unit level) --------------- #
+    def test_allows_real_scope_hash_shasum_line(self):
+        # The EXACT SCOPE_HASH line from review.md:392 — a hasher with NO
+        # scored-field reference → ALLOWED (the load-bearing soundness proof).
+        scope_hash_line = (
+            "SCOPE_HASH=$(printf '%s' \"${REPO}:${BRANCH}:${SCOPE_TOKEN}\" "
+            "| shasum | cut -c1-12)"
+        )
+        self.assertFalse(
+            has_scored_field_write_path(scope_hash_line),
+            "FALSE POSITIVE on the legitimate SCOPE_HASH shasum line.",
+        )
+
+    def test_allows_scored_field_mentions_reads_and_comparisons(self):
+        for fixture in (
+            "band == medium",
+            "findings with band ∈ {critical, warning}",
+            "findings with band=critical, status=fixed-since-last across all passes",
+            "consume the stable_hash field score.py returned",
+            "the row's band derives from that highest score",
+            "each finding keeps its own band/score",
+        ):
+            self.assertFalse(
+                has_scored_field_write_path(fixture),
+                "FALSE POSITIVE on a scored-field read/mention/comparison: "
+                + fixture,
+            )
+
+    def test_allows_forbidding_prose(self):
+        # The explicit single-writer FORBIDDING prose (review.md:676/830) — a
+        # NEGATED directive is the OPPOSITE of a reintroduced writer.
+        for fixture in (
+            "do NOT recompute the sha256 by hand",
+            "The orchestrator does NOT assign `status`/+15 by hand",
+            "there is no longer a manual path that can produce a scored finding",
+            "reintroducing a by-hand hash here would create a second writer",
+        ):
+            self.assertFalse(
+                has_scored_field_write_path(fixture),
+                "FALSE POSITIVE on forbidding prose: " + fixture,
+            )
+
+    def test_allows_medium_acknowledgments_keyed_by_stable_hash(self):
+        # review.md:43 writes a DIFFERENT field (medium_acknowledgments) KEYED by
+        # stable_hash — the scored field is read as a key, not written.
+        self.assertFalse(
+            has_scored_field_write_path(
+                'write `medium_acknowledgments[stable_hash] = '
+                '{decision: "dismiss"}` to state root'
+            )
+        )
 
 
 if __name__ == "__main__":
