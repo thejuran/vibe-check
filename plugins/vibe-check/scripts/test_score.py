@@ -14,6 +14,7 @@ ban is on score.py exclusively. The AST test below enforces that ban on score.py
 """
 
 import ast
+import itertools
 import os
 import subprocess
 import sys
@@ -375,51 +376,254 @@ class TestCarryForwardStatus(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# cross_confirm_group (review.md:689, D-13 line±2, D-15 substring title)
+# cross_confirm_group (ROBUST-02): ORDER-INDEPENDENT category-domain confirm.
+# Title is dropped as a match signal (D-01); two findings confirm iff same file
+# AND |line| <= 2 AND their category DOMAINS overlap. `adversarial` bridges only
+# an unambiguous single co-located native domain.
 # --------------------------------------------------------------------------- #
 class TestCrossConfirmGroup(unittest.TestCase):
-    def test_same_file_within_2_lines_substring_title_grouped(self):
-        a = make_finding(id="a", file="src/a.py", line=10,
-                         title="SQL injection", agent="security")
-        b = make_finding(id="b", file="src/a.py", line=12,
-                         title="SQL injection in query builder", agent="bugs")
-        groups = score.cross_confirm_group([a, b])
-        self.assertEqual(len(groups), 1)
-        self.assertEqual(sorted(groups[0]["attribution"]), ["bugs", "security"])
-
-    def test_case_insensitive_substring(self):
-        a = make_finding(id="a", file="src/a.py", line=10, title="Null deref",
-                         agent="bugs")
-        b = make_finding(id="b", file="src/a.py", line=11,
-                         title="possible NULL DEREF on user", agent="security")
-        groups = score.cross_confirm_group([a, b])
-        self.assertEqual(len(groups), 1)
-        self.assertEqual(len(groups[0]["attribution"]), 2)
-
     def test_different_file_not_grouped(self):
-        a = make_finding(id="a", file="src/a.py", line=10, title="bug")
-        b = make_finding(id="b", file="src/b.py", line=10, title="bug")
+        # Same category-domain (both security) but different files -> not grouped.
+        a = make_finding(id="a", file="src/a.py", line=10, category="injection")
+        b = make_finding(id="b", file="src/b.py", line=10, category="auth")
         groups = score.cross_confirm_group([a, b])
         self.assertEqual(len(groups), 2)
 
     def test_line_distance_over_2_not_grouped(self):
-        a = make_finding(id="a", file="src/a.py", line=10, title="bug")
-        b = make_finding(id="b", file="src/a.py", line=13, title="bug")
-        groups = score.cross_confirm_group([a, b])
-        self.assertEqual(len(groups), 2)
-
-    def test_no_title_overlap_not_grouped(self):
-        a = make_finding(id="a", file="src/a.py", line=10, title="SQL injection")
-        b = make_finding(id="b", file="src/a.py", line=11, title="memory leak")
+        # Same domain, same file, but |10-13| = 3 > 2 -> not grouped.
+        a = make_finding(id="a", file="src/a.py", line=10, category="injection")
+        b = make_finding(id="b", file="src/a.py", line=13, category="auth")
         groups = score.cross_confirm_group([a, b])
         self.assertEqual(len(groups), 2)
 
     def test_single_finding_single_group_one_agent_attribution(self):
-        a = make_finding(id="a", file="src/a.py", line=10, title="bug",
+        a = make_finding(id="a", file="src/a.py", line=10, category="injection",
                          agent="bugs")
         groups = score.cross_confirm_group([a])
         self.assertEqual(len(groups), 1)
         self.assertEqual(groups[0]["attribution"], ["bugs"])
+
+    # --- Test 1: confirm, same domain ------------------------------------- #
+    def test_same_domain_co_located_confirms(self):
+        # line 10 & 12, injection + auth (both -> "security") => ONE group, attr 2.
+        a = make_finding(id="a", file="src/a.py", line=10, category="injection",
+                         agent="security")
+        b = make_finding(id="b", file="src/a.py", line=12, category="auth",
+                         agent="bugs")
+        groups = score.cross_confirm_group([a, b])
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(len(groups[0]["attribution"]), 2)
+
+    # --- Test 2: no-confirm, different domain ----------------------------- #
+    def test_different_domain_co_located_does_not_confirm(self):
+        # line 10 & 11, injection (security) + perf (impact) => TWO groups.
+        a = make_finding(id="a", file="src/a.py", line=10, category="injection",
+                         agent="security")
+        b = make_finding(id="b", file="src/a.py", line=11, category="perf",
+                         agent="impact")
+        groups = score.cross_confirm_group([a, b])
+        self.assertEqual(len(groups), 2)
+
+    # --- Test 3: title game is dead --------------------------------------- #
+    def test_identical_title_different_domain_not_grouped(self):
+        # IDENTICAL title but injection (security) + duplication (design) -> TWO
+        # groups. A shared title token alone can NEVER fire a confirmation (D-01).
+        a = make_finding(id="a", file="src/a.py", line=10, title="SQL injection",
+                         category="injection", agent="security")
+        b = make_finding(id="b", file="src/a.py", line=11, title="SQL injection",
+                         category="duplication", agent="design")
+        groups = score.cross_confirm_group([a, b])
+        self.assertEqual(len(groups), 2)
+
+    # --- Test 4: security <-> adversarial confirm ------------------------- #
+    def test_security_and_adversarial_co_located_confirm(self):
+        # auth (security) + adversarial at line 10 & 12 => ONE group, attr 2,
+        # for EVERY input ordering (order-independent bridge).
+        a = make_finding(id="a", file="src/a.py", line=10, category="auth",
+                         agent="security")
+        b = make_finding(id="b", file="src/a.py", line=12, category="adversarial",
+                         agent="codex-adversarial")
+        for perm in itertools.permutations([a, b]):
+            groups = score.cross_confirm_group(list(perm))
+            with self.subTest(perm=[f["id"] for f in perm]):
+                self.assertEqual(len(groups), 1)
+                self.assertEqual(len(groups[0]["attribution"]), 2)
+                self.assertEqual(
+                    sorted(groups[0]["attribution"]),
+                    ["codex-adversarial", "security"],
+                )
+
+    def test_injection_and_adversarial_confirm_every_ordering(self):
+        # injection (security) + adversarial co-located DO confirm (attr 2) for
+        # every ordering (acceptance-criteria explicit case).
+        a = make_finding(id="a", file="src/a.py", line=10, category="injection",
+                         agent="security")
+        b = make_finding(id="b", file="src/a.py", line=11, category="adversarial",
+                         agent="codex-adversarial")
+        for perm in itertools.permutations([a, b]):
+            groups = score.cross_confirm_group(list(perm))
+            with self.subTest(perm=[f["id"] for f in perm]):
+                self.assertEqual(len(groups), 1)
+                self.assertEqual(len(groups[0]["attribution"]), 2)
+
+    # --- Test 5: D-02 missing category = NON-overlap ---------------------- #
+    def test_missing_category_co_located_does_not_confirm(self):
+        # A missing/None/non-str category co-located with a native security
+        # finding does NOT group (NON-overlap, D-02). run() does not raise.
+        native = make_finding(id="sec", file="src/a.py", line=10,
+                              category="injection", agent="security")
+        for bad in (None, 12345, ["x"], {"k": "v"}):
+            with self.subTest(bad=bad):
+                other = make_finding(id="bad", file="src/a.py", line=11,
+                                     category=bad, agent="bugs")
+                groups = score.cross_confirm_group([native, other])
+                self.assertEqual(len(groups), 2)
+        # missing-key variant
+        other = make_finding(id="nokey", file="src/a.py", line=11, agent="bugs")
+        del other["category"]
+        groups = score.cross_confirm_group([native, other])
+        self.assertEqual(len(groups), 2)
+
+    def test_unknown_category_co_located_does_not_confirm(self):
+        # An unknown (not-in-map) category maps to NO domain => NON-overlap.
+        native = make_finding(id="sec", file="src/a.py", line=10,
+                              category="injection", agent="security")
+        other = make_finding(id="unk", file="src/a.py", line=11,
+                             category="totally-made-up-category", agent="bugs")
+        groups = score.cross_confirm_group([native, other])
+        self.assertEqual(len(groups), 2)
+
+    # --- Test 6 (PERMUTATION / BLOCKER-2 core): ambiguous multi-domain ---- #
+    def test_ambiguous_multi_domain_adversarial_bridges_nothing(self):
+        # A line 10 injection (security), B line 12 adversarial, C line 14
+        # duplication (design). B is co-located with BOTH A (security) and C
+        # (design) — |12-14|=2 — so B sees TWO distinct native domains and
+        # bridges NEITHER. A and C both emit alone, no +10, in EVERY ordering.
+        a = make_finding(id="A", file="src/a.py", line=10, category="injection",
+                         agent="security", agent_confidence=85, severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        b = make_finding(id="B", file="src/a.py", line=12, category="adversarial",
+                         agent="codex-adversarial", agent_confidence=85,
+                         severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        c = make_finding(id="C", file="src/a.py", line=14, category="duplication",
+                         agent="design", agent_confidence=85, severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        for perm in itertools.permutations([a, b, c]):
+            with self.subTest(perm=[f["id"] for f in perm]):
+                groups = score.cross_confirm_group(list(perm))
+                # No group has 2+ attribution (no cross-confirm anywhere).
+                for g in groups:
+                    self.assertLess(len(g["attribution"]), 2)
+                # Through run(): A and C both survive (>=70), neither absorbed,
+                # neither +10'd. B (adversarial, no bridge) also survives alone.
+                envelope = {
+                    "command": "deep-review",
+                    "all_mode": False,
+                    "pass_number": 1,
+                    "changed_line_ranges": {},
+                    "carryforward": [],
+                    "findings": list(perm),
+                }
+                result = score.run(envelope)
+                ids = {g["id"]: g for g in result["findings"]}
+                self.assertIn("A", ids)
+                self.assertIn("C", ids)
+                # No +10: A's score is exactly its lone value (85 +0 critical = 85).
+                self.assertEqual(ids["A"]["orchestrator_score"], 85)
+                self.assertEqual(ids["C"]["orchestrator_score"], 85)
+                # Attribution on each survivor is single-agent (no cross-confirm).
+                self.assertLess(len(ids["A"]["attribution"]), 2)
+                self.assertLess(len(ids["C"]["attribution"]), 2)
+
+    def test_single_co_located_domain_adversarial_bridges_every_ordering(self):
+        # A line 10 injection (security), B line 11 adversarial, C line 20
+        # duplication (design, FAR away — not co-located with anything). B is
+        # co-located with ONLY ONE native domain (A's security) => A<->B confirm
+        # in EVERY ordering; C always emits alone.
+        a = make_finding(id="A", file="src/a.py", line=10, category="injection",
+                         agent="security", agent_confidence=85, severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        b = make_finding(id="B", file="src/a.py", line=11, category="adversarial",
+                         agent="codex-adversarial", agent_confidence=85,
+                         severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        c = make_finding(id="C", file="src/a.py", line=20, category="duplication",
+                         agent="design", agent_confidence=85, severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        for perm in itertools.permutations([a, b, c]):
+            with self.subTest(perm=[f["id"] for f in perm]):
+                groups = score.cross_confirm_group(list(perm))
+                # Exactly one group has 2+ attribution: the A<->B confirm.
+                confirmed = [g for g in groups if len(g["attribution"]) >= 2]
+                self.assertEqual(len(confirmed), 1)
+                self.assertEqual(
+                    sorted(confirmed[0]["attribution"]),
+                    ["codex-adversarial", "security"],
+                )
+                # Through run(): A is cross-confirmed (85 +10 = 95), C emits alone.
+                envelope = {
+                    "command": "deep-review",
+                    "all_mode": False,
+                    "pass_number": 1,
+                    "changed_line_ranges": {},
+                    "carryforward": [],
+                    "findings": list(perm),
+                }
+                result = score.run(envelope)
+                ids = {g["id"]: g for g in result["findings"]}
+                # A survives with the +10 cross-confirm (B absorbed into A's group).
+                self.assertIn("A", ids)
+                self.assertEqual(ids["A"]["orchestrator_score"], 95)
+                self.assertEqual(len(ids["A"]["attribution"]), 2)
+                # C is unrelated, emits alone with no +10.
+                self.assertIn("C", ids)
+                self.assertEqual(ids["C"]["orchestrator_score"], 85)
+                self.assertLess(len(ids["C"]["attribution"]), 2)
+
+    # --- Test 7: defensive — category=None through run() ------------------ #
+    def test_none_category_flows_through_run_without_raising(self):
+        f = make_finding(id="none-cat", category=None, agent_confidence=85,
+                         severity="critical", line=10,
+                         source_window=["a", "b", "c", "d", "e"])
+        envelope = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+            "findings": [f],
+        }
+        result = score.run(envelope)  # must not raise
+        self.assertTrue(result["scored_by_script"])
+        ids = {g["id"]: g for g in result["findings"]}
+        self.assertIn("none-cat", ids)
+
+
+# --------------------------------------------------------------------------- #
+# _categories_overlap (ROBUST-02) — the domain-overlap predicate in isolation
+# --------------------------------------------------------------------------- #
+class TestCategoriesOverlap(unittest.TestCase):
+    def test_same_domain_overlaps(self):
+        # Both map to "security".
+        self.assertTrue(score._categories_overlap("injection", "auth"))
+
+    def test_different_domain_does_not_overlap(self):
+        # security vs impact.
+        self.assertFalse(score._categories_overlap("injection", "perf"))
+
+    def test_missing_or_non_str_is_non_overlap(self):
+        # D-02: missing/None/non-str/unknown -> NON-overlap, never raises.
+        for bad in (None, 5, ["x"], {"k": 1}, "unknown-cat"):
+            with self.subTest(bad=bad):
+                self.assertFalse(score._categories_overlap(bad, "injection"))
+                self.assertFalse(score._categories_overlap("injection", bad))
+
+    def test_adversarial_is_not_a_wildcard_domain(self):
+        # `adversarial` is NOT given a domain in the map; it is handled by the
+        # separate bridge, so _categories_overlap('adversarial', X) is False.
+        self.assertFalse(score._categories_overlap("adversarial", "injection"))
+        self.assertFalse(score._categories_overlap("adversarial", "adversarial"))
 
 
 # --------------------------------------------------------------------------- #
@@ -752,11 +956,13 @@ class TestNullLineDefensive(unittest.TestCase):
         self.assertTrue(result["scored_by_script"])
 
     def test_two_null_line_findings_do_not_group_on_line(self):
-        # Two null-line findings in the same file with matching titles must NOT
-        # group on line-distance (a null line is not a usable ±2 coordinate).
-        a = make_finding(id="a", file="src/a.py", line=None, title="bug",
+        # Two null-line findings in the same file with OVERLAPPING category
+        # domains (both security) must STILL NOT group — a null line is not a
+        # usable ±2 coordinate, so line-gating alone prevents the grouping even
+        # when the domains would otherwise overlap.
+        a = make_finding(id="a", file="src/a.py", line=None, category="injection",
                          agent="bugs")
-        b = make_finding(id="b", file="src/a.py", line=None, title="bug",
+        b = make_finding(id="b", file="src/a.py", line=None, category="auth",
                          agent="security")
         groups = score.cross_confirm_group([a, b])
         self.assertEqual(len(groups), 2)

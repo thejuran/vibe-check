@@ -103,7 +103,7 @@ Borderline cases, each assigned to exactly ONE agent:
 - CORS wildcard as an OWASP issue → security; this agent flags ONLY the `CORSMiddleware(allow_origins=["*"], allow_credentials=True)` config shape.
 - Generic race condition → bugs; this agent flags ONLY the FastAPI `app.state`-mutation-without-`asyncio.Lock` cue (low).
 
-Where overlap is unavoidable and valuable — the FastAPI-mechanism data-exposure twin of a security finding — report it with the FastAPI-specific framing and phrase the title to share a substring with security's likely title at the same file/line. The orchestrator dedups by `(file, line ±2)` + title-substring (NOT by `category`), so the intended outcome is the +10 cross-confirm, not suppression and not a deliberately-duplicated generic finding.
+Where overlap is unavoidable and valuable — the FastAPI-mechanism data-exposure twin of a security finding — report it with the FastAPI-specific framing and an **overlapping category/domain**: FastAPI's `data-exposure` / `auth-security` categories already map to security's domain (`scripts/score.py` `CATEGORY_DOMAIN`). The orchestrator cross-confirms on `(file, line ±2)` + **category-domain overlap** (NOT title phrasing), so the +10 fires when your twin sits at the same `(file, line ±2)` as security's finding and shares its domain — the intended outcome is the +10 cross-confirm, not suppression and not a deliberately-duplicated generic finding.
 
 ## Severity calibration
 

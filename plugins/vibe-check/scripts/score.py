@@ -203,9 +203,12 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
 
 
 def _titles_match(title_a, title_b):
-    """Case-insensitive substring title match (D-15): the shorter title is a
-    substring of the longer. This is the CURRENT un-hardened rule — do NOT
-    implement Jaccard/category-overlap here (that is Phase 17 / ROBUST-02).
+    """DEAD as a cross-confirm signal (ROBUST-02 / D-01) — retained only as an
+    inert artifact of the Phase-16 extraction. Title text is NO LONGER a match
+    signal: a shared title token alone must NEVER fire a +10 cross-confirmation
+    (it was gameable by phrasing — codex-adversarial.md used to coach exactly
+    that). `cross_confirm_group` keys on category-DOMAIN overlap instead. This
+    function is intentionally UNREFERENCED; do not re-wire it into the matcher.
     """
     a = (title_a or "").lower()
     b = (title_b or "").lower()
@@ -214,50 +217,245 @@ def _titles_match(title_a, title_b):
     return b in a
 
 
-def cross_confirm_group(findings):
-    """Group cross-confirmed findings (review.md:689, D-13/D-15).
+# scoring-domain map (ROBUST-02 / D-01): a finding's `category` collapses to a
+# coarse DOMAIN; two NON-adversarial findings cross-confirm iff BOTH map to a
+# KNOWN domain AND those domains are EQUAL. `adversarial` is deliberately NOT in
+# this map (no wildcard domain) — Codex's category is resolved by the separate,
+# ambiguity-safe single-domain bridge in cross_confirm_group STEP B, never here.
+# Framework rows fold into the nearest native domain (documented inline).
+CATEGORY_DOMAIN = {
+    # --- security ---
+    "security": "security", "injection": "security", "auth": "security",
+    "data-exposure": "security", "auth-security": "security",
+    "path-traversal": "security", "ssrf": "security",
+    "deserialization": "security", "mass-assignment": "security",
+    "xss": "security", "secrets": "security",
+    # --- correctness ---
+    "null-access": "correctness", "off-by-one": "correctness",
+    "race-condition": "correctness", "resource-leak": "correctness",
+    "error-handling": "correctness", "infinite-loop": "correctness",
+    "state-mutation": "correctness", "concurrency": "correctness",
+    "unsafe-usage": "correctness",
+    # --- design ---
+    "pattern-consistency": "design", "abstraction": "design",
+    "duplication": "design", "dependency": "design",
+    "separation-of-concerns": "design",
+    # --- impact ---
+    "breaking-api": "impact", "schema-change": "impact",
+    "perf-at-scale": "impact", "blast-radius": "impact", "perf": "impact",
+    # --- style ---
+    "type-hints": "style", "mutable-default": "style", "bare-except": "style",
+    "is-vs-eq": "style", "context-manager": "style", "type-safety": "style",
+    "async-discipline": "style", "react-hook": "style", "equality": "style",
+    "dep-array": "style", "idiom": "style",
+    # --- compliance ---
+    "rule-violation": "compliance",
+    # framework-fastapi rows fold into the nearest native domain: its
+    # data-exposure/auth-security twins map to "security" (already covered
+    # above); its remaining framework-mechanism cues are design/correctness in
+    # spirit and carry their native category when emitted, so no extra rows are
+    # needed here.
+}
 
-    Two findings group iff: same file AND |line_a - line_b| <= 2 AND a
-    case-insensitive substring title match. Returns a list of group dicts:
-      {"members": [findings...], "attribution": [unique agent names in seen order]}
 
-    The +10 cross-confirmation bonus is NOT applied here; it is applied ONCE during
-    scoring, gated on len(attribution) >= 2 (review.md:689). This function only
-    establishes the grouping + attribution so the scorer knows which findings are
-    cross-confirmed.
+def _category_domain(category):
+    """Map a finding's `category` to its coarse domain, or None.
+
+    Defensive (D-02 / Pattern 1): a missing / null / non-str / unknown category
+    maps to None (NO domain) rather than raising — a single malformed finding
+    must not crash run() and trip the orchestrator's fail-closed halt.
     """
-    groups = []
-    for f in findings:
-        placed = False
-        for g in groups:
-            for member in g["members"]:
-                same_file = member.get("file") == f.get("file")
-                # Defensive: a present-but-null line (file-level finding) is not a
-                # usable coordinate. If EITHER line is non-int, the ±2 distance
-                # check is False (no grouping on line) rather than crashing on
-                # abs(None - 0).
-                line_a = _as_line(member.get("line"))
-                line_b = _as_line(f.get("line"))
-                line_close = (line_a is not None and line_b is not None
-                              and abs(line_a - line_b) <= 2)
-                if same_file and line_close and _titles_match(
-                    member.get("title"), f.get("title")
-                ):
-                    g["members"].append(f)
-                    agent = f.get("agent")
-                    if agent is not None and agent not in g["attribution"]:
-                        g["attribution"].append(agent)
-                    placed = True
-                    break
-            if placed:
-                break
-        if not placed:
-            agent = f.get("agent")
-            groups.append({
-                "members": [f],
-                "attribution": [agent] if agent is not None else [],
-            })
-    return groups
+    if not isinstance(category, str):
+        return None
+    return CATEGORY_DOMAIN.get(category)
+
+
+def _categories_overlap(cat_a, cat_b):
+    """True iff BOTH categories map to a KNOWN domain AND the domains are EQUAL.
+
+    NON-overlap (returns False, never raises) whenever EITHER side is
+    missing / null / non-str / unknown (D-02 — never a wildcard, never a crash).
+    `adversarial` is not in CATEGORY_DOMAIN, so it never overlaps here; it is
+    bridged separately in cross_confirm_group STEP B.
+    """
+    da = _category_domain(cat_a)
+    db = _category_domain(cat_b)
+    return da is not None and da == db
+
+
+def _line_close(finding_a, finding_b):
+    """same file AND |line_a - line_b| <= 2, with the defensive line guard.
+
+    A present-but-null / non-int line (file-level findings legitimately carry
+    line=null) is NOT a usable ±2 coordinate: if EITHER line is non-int the
+    proximity check is False (no grouping on line) rather than crashing on
+    abs(None - 0).
+    """
+    if finding_a.get("file") != finding_b.get("file"):
+        return False
+    line_a = _as_line(finding_a.get("line"))
+    line_b = _as_line(finding_b.get("line"))
+    return (line_a is not None and line_b is not None
+            and abs(line_a - line_b) <= 2)
+
+
+def _is_adversarial(finding):
+    """A finding whose category is the literal Codex domain `"adversarial"`."""
+    return finding.get("category") == "adversarial"
+
+
+def cross_confirm_group(findings):
+    """Group cross-confirmed findings — ORDER-INDEPENDENT (ROBUST-02, D-01/D-02).
+
+    Replaces the gameable title-substring matcher with category-DOMAIN overlap +
+    line proximity, computed as an order-independent relation rather than the old
+    greedy "join the first matching group" loop (which made the +10 / absorption
+    outcome depend on input order — round-2 BLOCKER 2).
+
+    Return shape is unchanged so run() is untouched: a list of group dicts
+      {"members": [findings...], "attribution": [unique agent names]}
+    The +10 bonus is applied ONCE during scoring, gated on len(attribution) >= 2;
+    this function only establishes grouping + attribution. run() keeps the
+    highest-scored member of each group and absorbs the rest, so a group is BOTH
+    the absorption/dedup set AND the cross-confirm attribution set.
+
+    STEP A — native same-domain absorption components (order-independent):
+      Partition the NON-adversarial findings into connected components under the
+      SYMMETRIC relation `same_file AND |line| <= 2 AND _categories_overlap`.
+      Membership is computed by union-find (all-pairs), so it does NOT depend on
+      iteration order. Each component is one absorption group.
+
+    STEP B — adversarial single-domain bridge (non-grouping, ambiguity-safe):
+      For each `adversarial` finding F, look at the FULL set of co-located native
+      findings (same file, |line| <= 2) and the set of DISTINCT native DOMAINS
+      among them.
+        * EXACTLY ONE distinct native domain co-located  -> F joins THAT domain's
+          component (adds `codex-adversarial` to its attribution => +10, and
+          F is absorbed into the same defect). Because this is computed from the
+          full co-located set, security<->adversarial confirms in EVERY ordering.
+        * ZERO co-located natives, OR 2+ DISTINCT native domains (ambiguous)
+          -> F does NOT bridge: it stands as its OWN group (no +10). Dropping the
+          +10 on an ambiguous multi-domain site is deliberate — never guess which
+          native it confirms, never +10 / delete an unrelated co-located native.
+      Multiple adversarial findings at the same site group together by the same
+      proximity rule (their own component); a native joining lifts attribution
+      to >= 2.
+
+    Pattern 1 (never raise): non-int line => not co-located; missing/non-str/
+    unknown category => NON-overlap; a malformed-line adversarial finds no
+    co-located natives and simply stands alone.
+    """
+    natives = [f for f in findings if not _is_adversarial(f)]
+    adversarials = [f for f in findings if _is_adversarial(f)]
+
+    # --- STEP A: union-find over the native findings (order-independent) ----- #
+    # parent[] indexes into `natives`. Classic union-find with path compression;
+    # implemented by hand (no itertools/extra imports — frozen import set).
+    parent = list(range(len(natives)))
+
+    def find(i):
+        root = i
+        while parent[root] != root:
+            root = parent[root]
+        # path compression
+        while parent[i] != root:
+            parent[i], i = root, parent[i]
+        return root
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    for i in range(len(natives)):
+        for j in range(i + 1, len(natives)):
+            if _line_close(natives[i], natives[j]) and _categories_overlap(
+                natives[i].get("category"), natives[j].get("category")
+            ):
+                union(i, j)
+
+    # Materialize native components, preserving input order within each so the
+    # "first member" / attribution ordering is deterministic.
+    comp_index = {}          # root -> position in `components`
+    components = []          # list of {"members", "attribution", "domain"}
+    for i in range(len(natives)):
+        root = find(i)
+        if root not in comp_index:
+            comp_index[root] = len(components)
+            components.append({"members": [], "attribution": [], "domain": None})
+        comp = components[comp_index[root]]
+        f = natives[i]
+        comp["members"].append(f)
+        agent = f.get("agent")
+        if agent is not None and agent not in comp["attribution"]:
+            comp["attribution"].append(agent)
+        # A component is single-domain by construction (overlap requires equal
+        # known domains); record it for the STEP B bridge lookup.
+        if comp["domain"] is None:
+            comp["domain"] = _category_domain(f.get("category"))
+
+    # --- STEP B: resolve each adversarial finding against the native set ------ #
+    # standalone_adversarials collects those that don't bridge; they are then
+    # grouped among themselves by proximity (adversarial<->adversarial).
+    standalone_adversarials = []
+    for adv in adversarials:
+        # Distinct native DOMAINS co-located with this adversarial finding.
+        co_domains = {}      # domain -> component index (first seen)
+        for idx, comp in enumerate(components):
+            if comp["domain"] is None:
+                continue
+            if any(_line_close(adv, m) for m in comp["members"]):
+                co_domains.setdefault(comp["domain"], idx)
+        if len(co_domains) == 1:
+            # EXACTLY ONE distinct native domain co-located => bridge into it.
+            target = next(iter(co_domains.values()))
+            comp = components[target]
+            comp["members"].append(adv)
+            agent = adv.get("agent")
+            if agent is not None and agent not in comp["attribution"]:
+                comp["attribution"].append(agent)
+        else:
+            # ZERO or 2+ distinct native domains (ambiguous) => no bridge.
+            standalone_adversarials.append(adv)
+
+    # Group the non-bridging adversarials among themselves by proximity so two
+    # Codex findings at the same site dedup into one group (attribution stays 1
+    # unless a native joined — which, by construction here, it did not).
+    adv_parent = list(range(len(standalone_adversarials)))
+
+    def adv_find(i):
+        root = i
+        while adv_parent[root] != root:
+            root = adv_parent[root]
+        while adv_parent[i] != root:
+            adv_parent[i], i = root, adv_parent[i]
+        return root
+
+    for i in range(len(standalone_adversarials)):
+        for j in range(i + 1, len(standalone_adversarials)):
+            if _line_close(standalone_adversarials[i],
+                           standalone_adversarials[j]):
+                ri, rj = adv_find(i), adv_find(j)
+                if ri != rj:
+                    adv_parent[ri] = rj
+
+    adv_comp_index = {}
+    for i in range(len(standalone_adversarials)):
+        root = adv_find(i)
+        if root not in adv_comp_index:
+            adv_comp_index[root] = len(components)
+            components.append({"members": [], "attribution": [], "domain": None})
+        comp = components[adv_comp_index[root]]
+        f = standalone_adversarials[i]
+        comp["members"].append(f)
+        agent = f.get("agent")
+        if agent is not None and agent not in comp["attribution"]:
+            comp["attribution"].append(agent)
+
+    # Return the canonical {"members","attribution"} shape (drop the internal
+    # "domain" bookkeeping key) so run() is unchanged.
+    return [{"members": c["members"], "attribution": c["attribution"]}
+            for c in components]
 
 
 # --------------------------------------------------------------------------- #

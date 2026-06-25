@@ -50,7 +50,7 @@ The orchestrator maps each Codex finding into the vibe-check finding schema (`te
 | `id`               | finding index       | `"codex-001"`, `"codex-002"`, … (1-based index within this run). |
 | `file`             | `file`              | **NOT a blind pass-through.** Accepted ONLY after repo-relative normalization **and** realpath/containment under the repo root (see the path trust-boundary rule below); on failure the canonical behavior is to **downgrade the finding to a non-blocking `agent_note` that does NOT echo the rejected path verbatim** (outright drop is a permitted variant) — never emitted with an unvalidated path. |
 | `line`             | `line_start`        | direct. When the range matters, mention `line_end` in `problem`. |
-| `title`            | `title`             | direct, **strip a trailing period**, then **sanitize-and-KEEP** (see title-sanitization rule below). Phrase plainly (see cross-confirm note). |
+| `title`            | `title`             | direct, **strip a trailing period**, then **sanitize-and-KEEP** (see title-sanitization rule below). |
 | `category`         | —                   | literal `"adversarial"`. |
 | `cwe`              | —                   | `null` (Codex emits no CWE). |
 | `severity`         | `severity`          | direct — enums are identical (`critical`/`high`/`medium`/`low`). |
@@ -70,7 +70,7 @@ The remaining schema fields are **not** Codex's to supply — the orchestrator c
 | `silenced_marker_nearby` | orchestrator    | verified by grepping ±2 lines. Same hard-rule-#4 override applies. |
 | `intent_doc_match`       | —               | `null` for Codex (Codex has no intent-doc context). |
 
-**Cross-confirm enabler (forward-looking, enforced in `/deep-review` Phase 3 dedup):** phrase Codex titles **plainly** so they share a substring with the likely native title at the same site — the same technique `framework-fastapi.md` uses for its security twin. Phase 3 dedups by `(file, line ±2)` + title-substring (not by `category`), so a plain shared substring is what fires the +10 cross-model confirmation when Codex and a native agent flag the same defect.
+**Cross-confirm enabler (enforced in `/deep-review` Phase 3 dedup):** cross-confirmation now keys on `(file, line ±2)` + **category-domain overlap** (`scripts/score.py`), NOT on title phrasing. Codex emits the literal `category` `"adversarial"`, which cross-confirms a co-located native finding when **EXACTLY ONE** native domain (security / correctness / design / …) sits at that `(file, line ±2)` site — so an **accurately-LOCATED** Codex finding fires the +10 cross-model confirmation on the co-located native security/correctness finding **without any title game**. When the site is **ambiguous** (2+ distinct native domains co-located), Codex confirms nothing there (the +10 is dropped rather than guessed). What matters now is **location accuracy** (the `line`), not title phrasing — a shared title substring no longer fires anything.
 
 ## Untrusted-data posture
 
