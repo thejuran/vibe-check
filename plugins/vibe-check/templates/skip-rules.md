@@ -31,9 +31,12 @@ carrying its own copy) is an explicit later-cleanup discretion item, not Phase 7
 
 ## Skip patterns
 
-A tracked file is excluded from the `--all` reviewed set if it matches any pattern below. The
-four categories are the locked exclusions (vendored, generated/minified, lockfiles, binary/image);
-the exact extension set within each is non-exhaustive and may grow.
+A tracked file is excluded from the `--all` reviewed set if it matches any DENYLIST pattern below
+**UNLESS** it also matches the allowlist override at the bottom of this file — the allowlist WINS
+(see "Keep these (allowlist override — wins over the denylist)"). There are now **five denylist
+groups** (vendored, generated/minified, lockfiles, binary/image, docs/planning) plus **one
+allowlist override**. The exact extension set within each denylist category is non-exhaustive and
+may grow.
 
 ### Vendored / dependency directories
 
@@ -87,6 +90,51 @@ Skip any file under these directories:
 - `*.dylib`
 - `*.exe`
 - `*.wasm`
+
+### Docs / planning / non-source
+
+Skip files in these non-source locations. This is the **conservative spec list — D-03**; do NOT
+broaden it (no blanket markdown rule, no contributor/license/CI/example files). A false exclusion
+(silently not reviewing real source) is worse than a false inclusion, so the list stays minimal
+and the `--include-docs` escape-hatch is the safety valve.
+
+Match on the **path segment** (any directory of that name anywhere in the path), NOT a repo-root
+anchor — tracked paths are repo-relative (e.g. `plugins/vibe-check/docs/architecture.md`), so a
+root-only `docs/` rule would miss the nested plugin docs:
+
+- any file under a `.planning/` directory (a `*/.planning/*` or root `.planning/` segment)
+- any file under a `docs/` directory (a `*/docs/*` or root `docs/` segment)
+- any file under a `specs/` directory (a `*/specs/*` or root `specs/` segment)
+- top-level `README*` (e.g. `README.md`, `README.rst`)
+- top-level `CHANGELOG*`
+
+These are excluded by DEFAULT. The `--include-docs` flag (review.md mode-5 step a) re-includes
+them, restoring prior whole-tree behavior. The allowlist override below still applies in both
+cases (it only ever KEEPS files, so it is harmless under `--include-docs`).
+
+## Keep these (allowlist override — wins over the denylist)
+
+This section is evaluated **AFTER** all the denylist categories above and **takes precedence over
+them**. A tracked `.md` file whose path contains any of the directory segments below is KEPT in
+the reviewed set **even if a denylist pattern (e.g. the docs/planning category) would otherwise
+drop it**:
+
+- a `/agents/` segment anywhere in the path
+- a `/commands/` segment anywhere in the path
+- a `/templates/` segment anywhere in the path
+- a `/skills/` segment anywhere in the path
+
+Match on the **path segment** (`*/agents/*`, `*/commands/*`, `*/templates/*`, `*/skills/*`), NOT a
+repo-root anchor — tracked paths are repo-relative (e.g.
+`plugins/vibe-check/agents/architecture.md`), so the rule must match the segment anywhere in the
+path, not a root-level `agents/`. This is what protects vibe-check's OWN source: its
+`agents/`, `commands/`, `templates/`, and `skills/` are all instructional `.md` that *is* the
+program, and a docs/planning denylist pattern must never silently drop them. (The `/skills/` arm
+is forward-looking — no `skills/` directory exists yet — but is kept per D-04 so future skill
+`.md` is protected the moment it lands.)
+
+**Allowlist WINS:** if a file matches BOTH a denylist pattern and an allowlist segment, it is
+KEPT. The allowlist is applied last and overrides the denylist — never the other way around.
 
 ## Notes
 
