@@ -144,6 +144,13 @@ None. This plan REMOVES attack surface (DoS-via-malformed-finding) rather than a
 - score.py is now crash-hardened against the C1–C6 inventory + the two adversarial-found holes (non-string source_window elements, non-finite confidence). This is the floor plan 20-02 builds its malformed-shape pinning suite on (Wave 2, depends on this plan) — see the EXACT reason-string vocabulary + the CRITICAL 20-02 matrix note above. 20-02 must align T6/T7/T8 to KEPT (not reject) and T21 to no-crash/scored-as-0/filtered.
 - No blockers.
 
+## Self-Check: PASSED
+- FOUND: `.planning/phases/20-crash-proof-the-core/20-01-SUMMARY.md`
+- FOUND: `plugins/vibe-check/scripts/score.py`
+- FOUND commit `9513e25` (Task 1), `f5abbf8` (Task 2), `fe11488` (SUMMARY)
+- `cd plugins/vibe-check/scripts && python3 -m unittest` -> 123 tests OK (exit 0)
+- This agent modified ONLY score.py + the new SUMMARY (no STATE.md/ROADMAP.md writes — orchestrator owns those)
+
 ---
 *Phase: 20-crash-proof-the-core*
 *Completed: 2026-06-26*
