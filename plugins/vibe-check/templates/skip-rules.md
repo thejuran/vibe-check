@@ -108,6 +108,11 @@ root-only `docs/` rule would miss the nested plugin docs:
 - top-level `README*` (e.g. `README.md`, `README.rst`)
 - top-level `CHANGELOG*`
 
+**"Top-level" means the repo root ONLY** — match a `README*`/`CHANGELOG*` whose repo-relative path
+contains NO `/` (e.g. `README.md`, `CHANGELOG.md`), NOT the path-segment match used for the
+directory rules above. A NESTED `src/api/README.md` is source-adjacent documentation and is NOT
+excluded by this rule (do not apply the `*/README*` segment idiom here — a nested README is kept).
+
 These are excluded by DEFAULT. The `--include-docs` flag (review.md mode-5 step a) re-includes
 them, restoring prior whole-tree behavior. The allowlist override below still applies in both
 cases (it only ever KEEPS files, so it is harmless under `--include-docs`).
