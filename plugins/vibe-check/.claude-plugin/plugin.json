@@ -1,7 +1,7 @@
 {
   "name": "vibe-check",
   "description": "Vibe-check your diff — GSD-aware parallel code review with model tiering and intent-doc awareness.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "author": { "name": "thejuran" },
   "repository": "https://github.com/thejuran/vibe-check",
   "license": "MIT",
