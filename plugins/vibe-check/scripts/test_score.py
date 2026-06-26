@@ -28,6 +28,14 @@ import score  # noqa: E402  (sibling module under test)
 
 SCORE_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "score.py")
 
+# GOLDEN sha256 stable_hash digest (T-16-01) — the SINGLE source of truth.
+# This is an INDEPENDENTLY hard-coded literal, NOT recomputed via
+# score.stable_hash(...) (that would make the freeze tautological) and NOT
+# re-pinned to a new value (it keys persisted medium_acknowledgments dismissals —
+# any drift silently breaks them; Pitfall 4). Both golden-digest tests reference
+# this one constant so the frozen value lives in exactly ONE place.
+GOLDEN_DIGEST = "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124"
+
 
 # --------------------------------------------------------------------------- #
 # Test fixtures / helpers
@@ -991,7 +999,7 @@ class TestStableHashGolden(unittest.TestCase):
         # so the digest was re-pinned when the separator changed.
         self.assertEqual(
             score.stable_hash("a.py", "  x=1", "title"),
-            "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124",
+            GOLDEN_DIGEST,
         )
 
     def test_hash_is_deterministic(self):
@@ -1080,6 +1088,7 @@ class TestFailClosed(unittest.TestCase):
             input=b"not json",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=30,  # Gap A: bound the child so a hang fails the test, not stalls CI
         )
         self.assertNotEqual(proc.returncode, 0)
 
@@ -1089,6 +1098,7 @@ class TestFailClosed(unittest.TestCase):
             input=b"",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=30,  # Gap A: bound the child so a hang fails the test, not stalls CI
         )
         self.assertNotEqual(proc.returncode, 0)
 
@@ -1266,6 +1276,11 @@ class TestStableHashNoneSafe(unittest.TestCase):
         }
         result = score.run(envelope)  # must not raise
         self.assertTrue(result["scored_by_script"])
+        # Gap B (tightened): assert the OUTCOME, not merely "did not raise". A
+        # non-string current_code is an already-safe shape (_first_line coerces it
+        # to "" for the hash) — the finding is KEPT and scored, so it must survive
+        # in result["findings"] (conf 85 + critical, line 10 in [8,14] -> 100).
+        self.assertIn("num-cc", [g["id"] for g in result["findings"]])
 
 
 # --------------------------------------------------------------------------- #
@@ -1273,9 +1288,12 @@ class TestStableHashNoneSafe(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 class TestStableHashSeparatorCollision(unittest.TestCase):
     def test_new_golden_digest_pinned(self):
+        # Distinct intent from test_golden_digest_frozen: this class (M1) asserts
+        # the NUL-separator re-pin specifically. Both reference the single
+        # GOLDEN_DIGEST source-of-truth literal (Gap C de-dup).
         self.assertEqual(
             score.stable_hash("a.py", "  x=1", "title"),
-            "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124",
+            GOLDEN_DIGEST,
         )
 
     def test_newline_separator_collision_no_longer_occurs(self):
@@ -1308,6 +1326,10 @@ class TestNullLineDefensive(unittest.TestCase):
         }
         result = score.run(envelope)  # must not raise
         self.assertTrue(result["scored_by_script"])
+        # Gap B (tightened): assert the OUTCOME. A null line is not a usable diff
+        # coordinate (no +20), but conf 85 + critical = 85 >= 70 (deep-review), so
+        # the file-level finding is KEPT and must survive in result["findings"].
+        self.assertIn("file-level", [g["id"] for g in result["findings"]])
 
     def test_two_null_line_findings_do_not_group_on_line(self):
         # Two null-line findings in the same file with OVERLAPPING category
