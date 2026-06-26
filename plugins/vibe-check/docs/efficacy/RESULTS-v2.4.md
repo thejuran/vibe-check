@@ -107,4 +107,4 @@ the close works, and the tool even caught a fresh drift in itself and we closed 
 
 <!-- The owner sign-off task is the SOLE author of the OWNER-SIGNOFF marker below this line. -->
 
-OWNER-SIGNOFF: pending
+OWNER-SIGNOFF: approved 2026-06-26
