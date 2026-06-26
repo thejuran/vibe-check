@@ -32,9 +32,15 @@ surfaces at score ≥ 70).
 | **D1 SQLi** (line 13) | security ("SQL injection via f-string interpolation"), language-python, bugs | "Email lookup is directly SQL injectable" (line 12) | `[security, language-python, bugs, codex-adversarial]` | **+10** | Critical (100) |
 | **D2 null-deref** (line 16-17) | bugs, language-python, security | "Missing-result path crashes on None row" (line 14) | `[bugs, language-python, security, codex-adversarial]` | **+10** | Critical (100) |
 
-Merge rule: `(file, line ±2)` + title-substring ("sql"/"inject"). Both sites cross-confirmed on the
-first authenticated run — no D-06 weak-run fallback needed. Hard structured gate (≥1 codex-adversarial
-finding AND ≥1 dual-attribution +10) passed fail-closed.
+Merge rule **as it ran in v2.2 (Phase 6)**: `(file, line ±2)` + title-substring ("sql"/"inject"). Both
+sites cross-confirmed on the first authenticated run — no D-06 weak-run fallback needed. Hard structured
+gate (≥1 codex-adversarial finding AND ≥1 dual-attribution +10) passed fail-closed.
+
+> **Mechanism note (added v2.4):** this run predates ROBUST-02. As of v2.4 the +10 cross-confirm keys on
+> `(file, line ±2)` + **category-domain overlap** (`scripts/score.py` `CATEGORY_DOMAIN`), **not** title
+> substring — a shared title token no longer fires anything. The *outcome* recorded above (both sites
+> cross-confirmed to Critical) is unchanged under the new matcher, because injection/null-access map to the
+> security/correctness domains the co-located agents shared; only the stated *mechanism* changed.
 
 ## EFF-02b — de-authenticated run degrades cleanly (Codex outage never blocks the review)
 

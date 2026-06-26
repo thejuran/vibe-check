@@ -70,9 +70,14 @@ acknowledged the deprecated v1 idiom at all. V1 is the only "must-fire" item amo
 ## Cross-confirm note (§Q6)
 
 S1 (missing auth → broken access control) and S3 (raw ORM row → data exposure) overlap the `security`
-agent's lane. The framework-fastapi agent intentionally shares a title substring at the same file:line to
-EARN the **+10 cross-confirm** (orchestrator dedups by `(file, line ±2)` + title-substring, not category).
-So S1/S3 may score +10 higher than the floor — this only helps them surface and is recorded, not required.
+agent's lane. The framework-fastapi agent flags them with its `auth-security` / `data-exposure`
+categories, which map to the **`security` domain** in `scripts/score.py`'s `CATEGORY_DOMAIN`. When a
+co-located native `security` finding sits at the same `(file, line ±2)` site, the two **cross-confirm on
+category-domain overlap** and EARN the **+10** (orchestrator dedups by `(file, line ±2)` + category-domain
+overlap — **NOT** title phrasing, per ROBUST-02 / v2.4). So S1/S3 may score +10 higher than the floor —
+this only helps them surface and is recorded, not required. (Historical note: through v2.3 this +10 keyed
+on a shared title substring; ROBUST-02 replaced that gameable signal with category-domain overlap, so a
+shared title token no longer fires anything — location accuracy and category domain are what matter now.)
 
 ## get_service_icon note (NEW-B-01)
 
