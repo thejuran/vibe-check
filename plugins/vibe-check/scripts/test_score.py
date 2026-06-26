@@ -1610,5 +1610,281 @@ class TestSingleWriterLock(unittest.TestCase):
         )
 
 
+# --------------------------------------------------------------------------- #
+# ENUMERATED MALFORMED-SHAPE MATRIX (HARDEN-02 / T-20-07, T-20-08, D-03)
+#
+# Pins every dogfood-named malformed shape (T1-T19) PLUS the two adversarial-found
+# holes (T20 list-with-non-str-elements, T21 non-finite confidence) as an EXPLICIT
+# regression case asserting the post-Wave-1-hardening OUTCOME — never merely "did
+# not raise". This is the readable proof that a single malformed agent finding can
+# no longer hard-crash a review run (the C1-C6 crash inventory + the two holes).
+#
+# Disposition vocabulary (locked against the live score.py + 20-01-SUMMARY):
+#   * REJECT (non-dict container, C1/C2)  -> routed to result["filtered"] with
+#     reason "malformed: non-dict finding"; the finding is NOT in result["findings"].
+#   * KEPT-and-degraded (odd-but-safe field) -> still scored; survives in
+#     result["findings"] when its score clears threshold (no crash).
+#   * Envelope present-but-non-list findings/carryforward (C4/C5/C6, D-02) ->
+#     FAIL CLOSED (score.run raises; python3 score.py exits non-zero).
+#   * Absent/None/empty envelope -> a VALID empty review (must NOT raise).
+#
+# CRITICAL alignment note (20-01-SUMMARY, orchestrator mid-execution correction):
+# _valid_finding rejects ONLY a non-dict member. A dict that merely MISSES /
+# null-values file/title/category is NOT a malformed-reject — score.py is
+# null-safe for those fields, so such a finding flows through and SCORES. Hence
+# T6/T7/T8 (missing file/title/category) and T9 (empty {} dict) are KEPT-shapes
+# here, NOT rejects. (Two frozen tests already lock the survival of null-title /
+# null-category findings.)
+# --------------------------------------------------------------------------- #
+class TestMalformedInputMatrix(unittest.TestCase):
+    """T1-T21 malformed-shape pinning suite — locks the Wave-1 crash guards."""
+
+    GOOD_RANGES = {"src/a.py": [[8, 14]]}
+
+    def _good_sibling(self, **over):
+        # A high-confidence in-diff critical finding that always clears the
+        # deep-review threshold (conf 85 + in_diff 20 = 105 -> clamp 100) so its
+        # presence in result["findings"] is the D-03 "no-good-sibling-drop" probe.
+        # `id` defaults to "keep" but is overridable via `over`.
+        defaults = dict(id="keep", file="src/a.py", line=10, severity="critical",
+                        agent_confidence=85, category="bug", agent="bugs",
+                        source_window=["a", "b", "c", "d", "e"])
+        defaults.update(over)
+        return make_finding(**defaults)
+
+    def _run(self, findings, carryforward=None, command="deep-review"):
+        envelope = {
+            "command": command,
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": self.GOOD_RANGES,
+            "carryforward": carryforward if carryforward is not None else [],
+            "findings": findings,
+        }
+        return score.run(envelope)
+
+    def _ids(self, result):
+        return [g["id"] for g in result["findings"]]
+
+    def _reasons(self, result):
+        return [f.get("reason", "") for f in result["filtered"]]
+
+    def _assert_sibling_survives(self, result):
+        # D-03: a malformed neighbour must NEVER drop the good finding too.
+        self.assertIn("keep", self._ids(result))
+
+    # --- T1-T4 / T5: NON-DICT container -> REJECT to filtered (C1, C2) -------- #
+    def test_t1_t4_non_dict_finding_rejected_to_filtered(self):
+        # A bare str / None / list / int finding cannot be `.get`-ed (would crash
+        # run() with AttributeError, C1). It must be SKIPPED and reported to
+        # result["filtered"] with a "malformed" reason; the good sibling survives.
+        for label, bad in (("str", "i am a string"), ("None", None),
+                           ("list", [1, 2, 3]), ("int", 99)):
+            with self.subTest(shape=label):
+                result = self._run([bad, self._good_sibling()])
+                self.assertNotIn(bad, result["findings"])  # the malformed entry is gone
+                self.assertTrue(
+                    any("malformed" in r for r in self._reasons(result)),
+                    "expected a 'malformed' filtered reason for " + label,
+                )
+                self._assert_sibling_survives(result)
+
+    def test_t5_non_dict_carryforward_rejected_good_ones_survive(self):
+        # A non-dict carryforward entry would crash cf.get(...) BEFORE the working
+        # set is even assembled (C2). It is routed to filtered; a good carryforward
+        # AND a good finding both survive.
+        for label, bad in (("str", "bad cf"), ("None", None), ("list", [1])):
+            with self.subTest(shape=label):
+                good_cf = make_finding(id="cf-keep", file="src/a.py", line=10,
+                                       title="still here", agent_confidence=85,
+                                       severity="critical",
+                                       current_code="return q",
+                                       canonical_line_content="return q",
+                                       source_window=["a", "b", "c", "d", "e"])
+                result = self._run([self._good_sibling()],
+                                   carryforward=[bad, good_cf])
+                ids = self._ids(result)
+                self.assertIn("cf-keep", ids)   # good carryforward kept
+                self.assertIn("keep", ids)      # good finding kept
+                self.assertTrue(
+                    any("malformed" in r for r in self._reasons(result)),
+                    "expected a 'malformed' filtered reason for cf " + label,
+                )
+
+    # --- T6/T7/T8: missing required key -> KEPT (NOT a reject) ---------------- #
+    def test_t6_t7_t8_missing_required_key_is_kept_not_rejected(self):
+        # Per the orchestrator correction (20-01-SUMMARY): a dict missing
+        # file/title/category is NULL-SAFE and flows through to scoring — it is
+        # KEPT, NOT a malformed-reject. (Locks the two frozen null-field tests.)
+        for key in ("file", "title", "category"):
+            with self.subTest(missing=key):
+                bad = self._good_sibling(id="missing-" + key)
+                del bad[key]
+                result = self._run([bad, self._good_sibling()])
+                # The odd finding is KEPT (scored, survives) — not in filtered as malformed.
+                self.assertIn("missing-" + key, self._ids(result))
+                self.assertFalse(
+                    any("malformed" in r for r in self._reasons(result)),
+                    "missing " + key + " must NOT be a malformed-reject",
+                )
+                self._assert_sibling_survives(result)
+
+    # --- T9: empty {} dict -> flows through (a dict is NOT a non-dict) -------- #
+    def test_t9_empty_dict_finding_flows_through_not_malformed_rejected(self):
+        # An empty {} IS a dict, so _valid_finding does NOT reject it. It flows
+        # through and is dropped (if at all) by NORMAL scoring (sub-threshold),
+        # NEVER by the malformed-container guard. The good sibling survives.
+        result = self._run([{}, self._good_sibling()])
+        self.assertFalse(
+            any("malformed" in r for r in self._reasons(result)),
+            "empty {} is a dict -> must NOT be a malformed-reject",
+        )
+        self._assert_sibling_survives(result)
+
+    # --- T10-T13: KEPT-and-degraded odd fields (no crash, sibling survives) --- #
+    def test_t10_odd_line_types_kept(self):
+        # line as str / float / bool is not a usable diff coordinate, but the
+        # finding is KEPT-and-degraded (conf 85 + critical >= 70 deep-review),
+        # never a reject. No crash.
+        for label, lv in (("str", "10"), ("float", 10.0), ("bool", True)):
+            with self.subTest(line=label):
+                result = self._run([self._good_sibling(id="oddline", line=lv),
+                                    self._good_sibling()])
+                self.assertIn("oddline", self._ids(result))
+                self._assert_sibling_survives(result)
+
+    def test_t11_source_window_non_list_int_kept_no_crash(self):
+        # C3: source_window=99 (a truthy non-list) would crash
+        # `for line in source_window` with TypeError before the guard. _safe_window
+        # coerces it to [] -> silenced False; the finding is KEPT, no crash.
+        result = self._run([self._good_sibling(id="sw99", source_window=99),
+                            self._good_sibling()])
+        self.assertIn("sw99", self._ids(result))
+        self._assert_sibling_survives(result)
+        self.assertFalse(score.silenced_nearby(score._safe_window(99)))
+
+    def test_t12_source_window_str_or_dict_kept(self):
+        # An already-safe odd window (str / dict) normalizes to "no window"
+        # (silenced False); the finding is KEPT.
+        for label, sw in (("str", "not a window"), ("dict", {"x": 1})):
+            with self.subTest(source_window=label):
+                result = self._run(
+                    [self._good_sibling(id="swodd", source_window=sw),
+                     self._good_sibling()])
+                self.assertIn("swodd", self._ids(result))
+                self._assert_sibling_survives(result)
+
+    def test_t13_numeric_current_code_sibling_survives(self):
+        # The single-finding KEPT case is locked in
+        # test_numeric_current_code_finding_flows_through_run (tightened in Task 1);
+        # this adds the 2-finding D-03 sibling-survival variant.
+        bad = self._good_sibling(id="num-cc")
+        bad["current_code"] = 12345  # non-string
+        result = self._run([bad, self._good_sibling()])
+        self.assertIn("num-cc", self._ids(result))
+        self._assert_sibling_survives(result)
+
+    # --- T20: GENUINE list with non-string elements -> KEPT (HOLE 1) --------- #
+    def test_t20_source_window_list_with_non_str_elements_kept(self):
+        # source_window=[1, 2, 3] is a genuine LIST (passes a container-only
+        # guard) whose elements crash the `marker in line` scan with TypeError —
+        # the element-level hole the three original guards missed. _safe_window
+        # filters to string elements -> [] -> silenced False; the finding is
+        # KEPT, no crash; the good sibling survives.
+        result = self._run([self._good_sibling(id="sw123", source_window=[1, 2, 3]),
+                            self._good_sibling()])
+        self.assertIn("sw123", self._ids(result))
+        self.assertFalse(score.silenced_nearby(score._safe_window([1, 2, 3])))
+        self._assert_sibling_survives(result)
+
+    # --- T21: non-finite agent_confidence -> KEPT/no-crash, scored as 0 ------- #
+    def test_t21_non_finite_confidence_no_crash_scored_as_zero(self):
+        # HOLE 2: json.load accepts bare NaN/Infinity/-Infinity as floats; they
+        # pass the isinstance(int,float) check, then int(float('nan')) raises
+        # ValueError / int(float('inf')) raises OverflowError. The import-free
+        # bound coerces them to 0. Produced via float('nan')/float('inf') (NOT
+        # Python literals) — exactly the T21 attack surface.
+        #
+        # With confidence coerced to 0, an in-diff critical finding scores
+        # 0 + 20 = 20, which is BELOW the deep-review threshold of 70 — so the
+        # non-finite finding is correctly SUB-THRESHOLD-FILTERED, NOT in
+        # result["findings"]. "Kept" here means NO CRASH + scored exactly like a
+        # confidence-0 finding. The good (high-confidence) sibling survives.
+        for label, conf in (("NaN", float("nan")), ("Infinity", float("inf")),
+                           ("-Infinity", float("-inf"))):
+            with self.subTest(confidence=label):
+                bad = self._good_sibling(id="nf", agent_confidence=conf)
+                result = self._run([bad, self._good_sibling()])  # must not raise
+                self.assertTrue(result["scored_by_script"])
+                # Scored as if confidence were 0 -> 20 < 70 -> sub-threshold, not
+                # in findings (matches compute_score with confidence=0).
+                self.assertNotIn("nf", self._ids(result))
+                self.assertEqual(
+                    score.compute_score(bad, in_diff=True, silenced=False,
+                                        cross_confirmed=False, persisted=False),
+                    score.compute_score(self._good_sibling(agent_confidence=0),
+                                        in_diff=True, silenced=False,
+                                        cross_confirmed=False, persisted=False),
+                )
+                self._assert_sibling_survives(result)
+
+    # --- T14-T17: ENVELOPE present-but-non-list -> FAIL CLOSED (raise) -------- #
+    def test_t14_findings_dict_raises(self):
+        with self.assertRaises((TypeError, ValueError)):
+            self._run({"file": "a.py"})
+
+    def test_t15_findings_truthy_non_list_raises(self):
+        for bad in ("oops", 5, {"x": 1}):
+            with self.subTest(findings=bad):
+                with self.assertRaises((TypeError, ValueError)):
+                    self._run(bad)
+
+    def test_t16_findings_falsy_non_list_raises(self):
+        # The MOST important D-02 case (C6): a FALSY non-list ({}/""/0) previously
+        # got silently masked into a fake "0 findings clean review" by the `or []`
+        # coercion. The guard now runs BEFORE that coercion, so it MUST raise.
+        for bad in ({}, "", 0):
+            with self.subTest(findings=bad):
+                with self.assertRaises((TypeError, ValueError)):
+                    self._run(bad)
+
+    def test_t17_carryforward_non_list_raises(self):
+        # Present-but-non-list carryforward fails closed too (truthy AND falsy).
+        for bad in ({"x": 1}, "oops", {}, 0):
+            with self.subTest(carryforward=bad):
+                with self.assertRaises((TypeError, ValueError)):
+                    self._run([self._good_sibling()], carryforward=bad)
+
+    def test_t16_black_box_non_list_findings_exits_nonzero(self):
+        # Black-box: the fail-closed raise must propagate through the __main__ shim
+        # to a NON-ZERO exit so the orchestrator's fail-closed gate can fail the
+        # review closed. timeout= bounds the child (Gap A consistency, T-20-05).
+        proc = subprocess.run(
+            [sys.executable, SCORE_PY],
+            input=b'{"command": "deep-review", "findings": {}, "carryforward": []}',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+
+    # --- T18/T19: absent/empty envelope -> VALID empty review (no raise) ------ #
+    def test_t18_empty_envelope_is_valid_empty_review(self):
+        result = score.run({})  # must NOT raise
+        self.assertTrue(result["scored_by_script"])
+        self.assertEqual(result["findings"], [])
+
+    def test_t19_absent_or_none_findings_is_valid_empty_review(self):
+        # findings absent entirely, and findings explicitly None, are BOTH a legal
+        # empty review (only a PRESENT non-list fails closed).
+        for envelope in ({"command": "deep-review", "carryforward": []},
+                        {"command": "deep-review", "findings": None,
+                         "carryforward": None}):
+            with self.subTest(envelope=envelope):
+                result = score.run(envelope)  # must NOT raise
+                self.assertTrue(result["scored_by_script"])
+                self.assertEqual(result["findings"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
