@@ -43,6 +43,15 @@ SILENCED_MARKERS = ("eslint-disable", "# noqa", "// nolint", "@SuppressWarnings"
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
 
+# HARDEN-01 — DOCUMENTATION ONLY (not a reject gate). The three fields a
+# well-formed finding normally carries. Per orchestrator correction (this phase),
+# a missing / null / non-str value for any of these does NOT make a finding
+# malformed: score.py is already null-safe for them (stable_hash and _first_line
+# coerce None -> ""), so such a finding flows through and scores. Only a NON-DICT
+# container is a crash and gets rejected by `_valid_finding`. This tuple is kept
+# as a reference for the expected shape; it intentionally gates nothing.
+_REQUIRED_KEYS = ("file", "title", "category")
+
 
 # --------------------------------------------------------------------------- #
 # Pure helpers
@@ -600,6 +609,42 @@ def run(envelope):
     fixed_since_last = []
     filtered = []
 
+    # --- Ingress malformed filter (HARDEN-01 / D-01) ------------------------- #
+    # Validate the CONTAINER of every finding AND every carryforward entry at
+    # ingress — BEFORE the carryforward loop (whose `cf.get(...)` would crash on a
+    # non-dict cf, C2 / Pitfall 1) and BEFORE `working.extend(findings)` (whose
+    # downstream `cross_confirm_group`/`_score_member` `.get` would crash on a
+    # non-dict finding, C1). Malformed entries are skipped-and-reported to the
+    # existing `filtered` bucket (no new output key). Pitfall 2: a reject member
+    # may be a non-dict, so guard each `.get` accessor with `isinstance(m, dict)`
+    # — calling `.get` unguarded here would re-introduce the very AttributeError
+    # this filter prevents.
+    def _route_malformed(m, reason):
+        filtered.append({
+            "file": m.get("file") if isinstance(m, dict) else None,
+            "line": m.get("line") if isinstance(m, dict) else None,
+            "title": m.get("title") if isinstance(m, dict) else None,
+            "reason": reason,
+        })
+
+    valid_carryforward = []
+    for cf in carryforward:
+        ok, reason = _valid_finding(cf)
+        if ok:
+            valid_carryforward.append(cf)
+        else:
+            _route_malformed(cf, reason)
+    carryforward = valid_carryforward
+
+    valid_findings = []
+    for f in findings:
+        ok, reason = _valid_finding(f)
+        if ok:
+            valid_findings.append(f)
+        else:
+            _route_malformed(f, reason)
+    findings = valid_findings
+
     # --- Carry-forward (review.md:672-678) ----------------------------------- #
     # Each carryforward finding carries a pre-resolved canonical_line_content
     # (the orchestrator read HEAD). null => fixed-since-last (excluded).
@@ -699,6 +744,32 @@ def _as_line(x):
     sentinel as out-of-range / non-grouping rather than crashing with a TypeError.
     """
     return x if isinstance(x, int) and not isinstance(x, bool) else None
+
+
+def _valid_finding(member):
+    """Is `member` a usable finding CONTAINER (D-01, HARDEN-01)? -> (True, None) | (False, reason).
+
+    The CONTAINER analog of `_as_line` — same coerce-or-skip posture, one level up
+    (the finding dict itself, not one of its fields). A non-dict member (a bare
+    str / None / list / int from a malformed agent envelope) cannot be `.get`-ed
+    and would crash run() with `AttributeError: 'X' object has no attribute 'get'`
+    (C1) — or, in the carryforward loop, crash `cf.get(...)` BEFORE the working
+    set is even assembled (C2). Such a member is skipped and reported to `filtered`
+    (D-01: visible, never silently lost), so one bad agent finding can never
+    hard-crash the whole review run.
+
+    Scope is CRASH-SAFETY only (HARDEN-01), not validity policy: a dict with a
+    missing / null / non-str `file`/`title`/`category` (see _REQUIRED_KEYS) is NOT
+    rejected here. score.py is already null-safe for those fields — stable_hash and
+    _first_line coerce None -> "" — so such a finding flows through and scores
+    rather than crashing. Rejecting it would be out-of-scope policy tightening that
+    breaks deliberate, frozen-test-locked behavior (null-title/null-category
+    findings survive). Only a non-dict CONTAINER is a real crash, so only it is
+    rejected.
+    """
+    if not isinstance(member, dict):
+        return False, "malformed: non-dict finding"
+    return True, None
 
 
 def _line_in_ranges(line, ranges):
