@@ -260,9 +260,18 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     # Accept int OR float (JSON from LLM agents routinely carries floats like
     # 85.0), but reject bool (True is an int subclass) — mirrors the numeric
     # guard in _intent_doc_penalty. A float is truncated via int().
+    # NON-FINITE guard (HOLE 2): json.load accepts bare NaN/Infinity/-Infinity as
+    # floats; they pass the isinstance(int,float) check, then int(float('nan'))
+    # raises ValueError and int(float('inf')) raises OverflowError. The import-free
+    # bound `-1e308 < raw_conf < 1e308` rejects all three (every comparison with NaN
+    # is False; inf < 1e308 is False; -1e308 < -inf is False) while any legitimate
+    # 0-100 confidence (incl. floats like 85.0) passes — so a non-finite confidence
+    # coerces to 0 like other garbage instead of crashing. (`import math` is FORBIDDEN
+    # here: the AST import-ban test pins the import set to {json,hashlib,re,sys}.)
     raw_conf = finding.get("agent_confidence", 0)
     s = (int(raw_conf)
          if isinstance(raw_conf, (int, float)) and not isinstance(raw_conf, bool)
+         and -1e308 < raw_conf < 1e308
          else 0)
 
     # 2. Additive/subtractive bonuses (intent-doc penalty is mutually exclusive).
@@ -601,8 +610,29 @@ def run(envelope):
     changed_line_ranges = envelope.get("changed_line_ranges", {}) or {}
     reviewed_union = set(envelope.get("reviewed_union", []) or [])
     file_line_totals = envelope.get("file_line_totals", {}) or {}
-    carryforward = envelope.get("carryforward", []) or []
-    findings = list(envelope.get("findings", []) or [])
+
+    # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
+    # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
+    # broken envelope (an orchestrator contract violation), NOT recoverable agent
+    # noise — so fail CLOSED: raise, which propagates through the unchanged
+    # __main__ shim to a non-zero exit (preserving the ROBUST-04 "scoring ran"
+    # honesty). This check runs BEFORE the `or []` coercion below so a FALSY
+    # non-list (`{}`/`""`/`0`, C6) can no longer be SILENTLY masked into a fake
+    # "0 findings clean review" — the most important D-02 case, because the mask
+    # is otherwise invisible. Absent / None / empty stays a legal empty review
+    # (only a present-non-list fails closed). Scope is ONLY findings/carryforward
+    # (D-02 literal scope); changed_line_ranges/reviewed_union/file_line_totals are
+    # orchestrator-controlled context and intentionally left unguarded.
+    raw_findings = envelope.get("findings", [])
+    raw_carryforward = envelope.get("carryforward", [])
+    if raw_findings is not None and not isinstance(raw_findings, list):
+        raise TypeError("malformed envelope: 'findings' must be a list, got "
+                        + type(raw_findings).__name__)
+    if raw_carryforward is not None and not isinstance(raw_carryforward, list):
+        raise TypeError("malformed envelope: 'carryforward' must be a list, got "
+                        + type(raw_carryforward).__name__)
+    carryforward = raw_carryforward or []
+    findings = list(raw_findings or [])
 
     threshold = THRESHOLDS.get(command, THRESHOLDS["review"])
 
@@ -772,6 +802,24 @@ def _valid_finding(member):
     return True, None
 
 
+def _safe_window(x):
+    """Normalize a finding's `source_window` to a list of STRING lines (D-01, HARDEN-01).
+
+    A field-coercion sibling of `_as_line` (same coerce-or-skip posture). Guards BOTH
+    crash surfaces of `silenced_nearby`'s substring scan:
+      - CONTAINER (C3): a truthy non-list (e.g. `99`) currently slips through the old
+        `... or []` and crashes `for line in source_window` with
+        `TypeError: 'int' object is not iterable`. A non-list coerces to [].
+      - ELEMENT (HOLE 1): a GENUINE list with non-string elements (e.g. `[1, 2, 3]`)
+        passes a container-only guard but then crashes the `marker in line` scan with
+        `TypeError: argument of type 'int' is not iterable`. Filtering to string
+        elements keeps `silenced_nearby` a pure substring scan over strings.
+    A bad/odd window is NOT grounds to drop the finding — it just means "no silenced
+    markers found" (silenced=False). KEPT-and-degraded, never a malformed-reject.
+    """
+    return [s for s in x if isinstance(s, str)] if isinstance(x, list) else []
+
+
 def _line_in_ranges(line, ranges):
     """Is `line` within any [start, end] inclusive range?
 
@@ -801,7 +849,7 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     """
     file = member.get("file", "")
     line = member.get("line", 0)
-    source_window = member.get("source_window", []) or []
+    source_window = _safe_window(member.get("source_window"))
 
     # silenced recomputed from source_window, overriding agent claim (hard rule #4).
     silenced = silenced_nearby(source_window)
