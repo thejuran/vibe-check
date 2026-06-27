@@ -87,9 +87,11 @@ Consider fixing or acknowledge in `--finalize`:
 ### Architectural Notes 📐 *(deep review only)*
 
 - Pattern consistency: {{icon}} {{observation}}
-- Test coverage: {{icon}} {{observation}}
 - Documentation: {{icon}} {{observation}}
 - Dependencies: {{icon}} {{observation}}
+
+<!-- Test coverage is NOT shown here: the test-sufficiency agent owns coverage display (its scored findings render in the Critical/Warning/Medium tables, and its agent_notes render in the deep-review "Test Coverage 🧪" section per commands/deep-review.md Phase 4). Keeping a coverage line under Architectural Notes too would double-report it under two owners. -->
+
 
 ### Impact Analysis 💥 *(deep review only)*
 
