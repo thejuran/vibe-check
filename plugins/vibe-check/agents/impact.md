@@ -34,7 +34,6 @@ Most of impact's value lives in `agent_notes[]` — the orchestrator surfaces th
 - Blast radius narrative ("function imported by 12 files; signature change requires updates in all")
 - Performance / scale analysis ("new SQL query lacks index on users.last_login; verify scan cost at production size")
 - Cross-instance / multi-process implications
-- Test coverage gaps
 - Overall verdict (one short line at the end like "Phase X is shippable as-is" or "Blocking issue: <name>")
 
 Use `findings[]` for specific, located, actionable problems (a concrete file:line with a concrete defect). Use `agent_notes[]` for diffuse blast-radius narrative that isn't tied to one line. The deciding factor is **"is this a located, actionable defect?"** — NOT "can I write a patch for it?" Do not demote a real located finding to `agent_notes` just because it's hard to patch; patching is the `fix` agent's job, not yours.
