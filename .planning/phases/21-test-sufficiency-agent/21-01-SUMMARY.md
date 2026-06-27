@@ -118,6 +118,16 @@ None - no external service configuration required.
 - The agent exists and emits schema-valid scored `test-coverage` findings that flow through the unchanged `score.py`.
 - Plan 21-02 (the orchestrator pre-step) must: build + inject the `<coverage-artifacts>` block into this agent's prompt with path-containment; guarantee the empty-block contract (always inject an EMPTY block when no usable artifact survives the gate); per-chunk-filter the injected block; wire the agent into `deep-review.md` Phase 2 and `agents/index.md`; and perform the surgical `impact.md` carve-out (D-07). None of those wiring surfaces are touched by this plan (correctly — this plan's `files_modified` is `test-sufficiency.md` only).
 
+## Self-Check: PASSED
+
+- FOUND: `plugins/vibe-check/agents/test-sufficiency.md`
+- FOUND: `.planning/phases/21-test-sufficiency-agent/21-01-SUMMARY.md`
+- FOUND commit: `edde254` (Task 1)
+- FOUND commit: `dcdb256` (Task 2)
+- FOUND commit: `c7ff4c6` (SUMMARY)
+- Plan automated `<verify>` blocks: `SHELL_OK` (Task 1) + `BODY_OK` (Task 2)
+- `score.py`/`test_score.py` untouched (verify-not-modify confirmed)
+
 ---
 *Phase: 21-test-sufficiency-agent*
 *Completed: 2026-06-27*
