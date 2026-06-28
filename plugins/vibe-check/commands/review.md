@@ -44,7 +44,7 @@ If `$ARGUMENTS` contains `--finalize`:
     - "Look again" → display `problem` + `current_code` + `fix_hint` (if present), then re-ask.
   - After loop:
     - Any "Will fix" → routed to Phase 5 above; finalize does NOT proceed this invocation.
-    - All dismissed/acknowledged → `medium_acknowledgments` written; proceed.
+    - All dismissed/acknowledged → `medium_acknowledgments` written to the state ROOT (`state.medium_acknowledgments`, the single canonical location — same as line 43); proceed.
 - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
 - Archive state: `mv "$STATE_FILE" "$STATE_FILE.archived-$(date +%Y-%m-%d)"` — using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote. The `by-mode/all/<scope-hash>.json` form makes each `--all` archived name unique, so archived snapshots never collide.
 - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
@@ -62,7 +62,7 @@ Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
 - `{{loc}}`: sum of additions+deletions across all passes
 - Coverage table: aggregate `agents_run` and `findings` across passes
 - "Critical issues resolved": findings with band=critical, status=fixed-since-last across all passes. Best-effort fix-commit lookup: `git log -L <line>,<line>:<file> | head -20` to find a commit that touched that line.
-- "Medium findings — dismissed": from `state.passes[-1].medium_acknowledgments` with decision=dismiss
+- "Medium findings — dismissed": from `state.medium_acknowledgments` (the state-ROOT field, the same location the Dismiss write targets at line 43 and the `unacknowledged_medium` read consults at line 34 — NOT `state.passes[-1].medium_acknowledgments`, a per-pass path nothing writes; reading per-pass here would always find dismissals empty and silently drop them from REVIEW.md) with decision=dismiss
 
 If a prior `.turingmind/REVIEW.md` exists for a DIFFERENT phase, archive it first:
 ````bash

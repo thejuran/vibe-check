@@ -348,6 +348,18 @@ CATEGORY_DOMAIN = {
     "is-vs-eq": "style", "context-manager": "style", "type-safety": "style",
     "async-discipline": "style", "react-hook": "style", "equality": "style",
     "dep-array": "style", "idiom": "style",
+    # framework-react: its categories share the "style" domain with the
+    # language-typescript React/JS categories so the headline cross-confirm
+    # case fires — a React hook bug caught by BOTH framework-react (category
+    # "hooks") AND language-typescript (category "react-hook") now overlaps and
+    # earns the +10 (both resolve to "style"). "rendering",
+    # "controlled-uncontrolled", and "a11y" are React-idiom concerns in the
+    # same family, so they map to "style" too (they can cross-confirm with a
+    # co-located TS/JS style finding rather than standing silently alone).
+    "hooks": "style", "rendering": "style",
+    "controlled-uncontrolled": "style", "a11y": "style",
+    # (framework-react's "perf" is already mapped to "impact" above, alongside
+    # language-typescript's "perf" — unchanged.)
     # --- compliance ---
     "rule-violation": "compliance",
     # framework-fastapi: ONLY its data-exposure/auth-security twins map to
