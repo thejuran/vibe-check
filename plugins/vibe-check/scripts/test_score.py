@@ -987,6 +987,39 @@ class TestCategoriesOverlap(unittest.TestCase):
         self.assertFalse(score._categories_overlap("adversarial", "injection"))
         self.assertFalse(score._categories_overlap("adversarial", "adversarial"))
 
+    def test_test_coverage_is_standalone(self):
+        # test-sufficiency's only category (`test-coverage`) is deliberately NOT
+        # in CATEGORY_DOMAIN: it stands on its own score and must NEVER
+        # cross-confirm with (and thereby absorb) a co-located finding from
+        # another agent. Regression lock for the v2.5 integration-check
+        # observation — if a future edit added `test-coverage` to the domain
+        # map, this fails loudly instead of silently shipping a spurious +10.
+        self.assertIsNone(score._category_domain("test-coverage"))
+        for other in ("null-access", "injection", "type-safety", "perf",
+                      "test-coverage"):
+            with self.subTest(other=other):
+                self.assertFalse(
+                    score._categories_overlap("test-coverage", other))
+
+    def test_react_hooks_twin_cross_confirms_others_standalone(self):
+        # framework-react cross-confirm policy (v2.5): ONLY the genuine
+        # cross-agent twins are mapped — `hooks` (twin of language-typescript's
+        # `react-hook`, both "style") and `perf` (twin of `perf`, both
+        # "impact"). The non-twin React-idiom categories `rendering`,
+        # `controlled-uncontrolled`, `a11y` are deliberately UNMAPPED so a
+        # distinct React finding can never be folded into the broad "style"
+        # bucket and silently absorb an unrelated co-located TS style finding.
+        # Locks the corrected (tightened) behavior so a future re-broadening
+        # regresses loudly.
+        self.assertTrue(score._categories_overlap("hooks", "react-hook"))   # headline twin
+        self.assertTrue(score._categories_overlap("perf", "perf"))          # impact twin
+        for standalone in ("rendering", "controlled-uncontrolled", "a11y"):
+            with self.subTest(standalone=standalone):
+                self.assertIsNone(score._category_domain(standalone))
+                # must NOT overlap an unrelated co-located TS "style" finding
+                self.assertFalse(
+                    score._categories_overlap(standalone, "type-safety"))
+
 
 # --------------------------------------------------------------------------- #
 # GOLDEN sha256 stable_hash (MANDATORY — T-16-01)
