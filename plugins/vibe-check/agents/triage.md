@@ -24,7 +24,7 @@ Return ONE JSON:
 ## Rules
 
 - `languages`: from file extensions. Canonical names: `typescript`, `javascript`, `python`, `go`, `rust`, `react` (for `.tsx`/`.jsx`), `markdown`, `json`, `yaml`, `shell`.
-- `frameworks`: from imports actually present in the diff (`from 'react'`, `from 'next'`, `from 'django'`, `from 'fastapi'`, etc.). Don't guess from filenames.
+- `frameworks`: from imports actually present in the diff (`from 'react'`, `from 'next'`, `from 'django'`, `from 'fastapi'`, etc.). Don't guess from filenames. **Exception — `"skill"` is detected by file shape, not imports:** add `"skill"` to `frameworks` when the diff touches a file named `SKILL.md`, an agent prompt under an `agents/` directory whose markdown frontmatter has both `name:` and `description:` fields, or a plugin manifest (`plugin.json` or `.claude-plugin/plugin.json`). This is the one framework keyed off file shape rather than an import statement.
 - `total_lines`: additions + deletions across all changed files.
 - `files_to_skip`: hardcoded patterns plus any file confidently identified as auto-generated/lockfile/snapshot/minified/binary. Match: `*.lock`, `*-lock.json`, `*.lockb`, `*.snap`, `*.min.js`, `*.min.css`, `*.map`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `Cargo.lock`, `go.sum`, `poetry.lock`, `*.bin`, `*.png`, `*.jpg`, `*.pdf`. Also skip under `node_modules/`, `dist/`, `build/`, `.next/`, `__pycache__/`, `target/`.
 - `size_tier`: `small` <200, `medium` 200–2000, `large` >2000.

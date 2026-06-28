@@ -21,6 +21,7 @@ Only load agents that are relevant to reduce context and improve accuracy.
 | `.rs` files | `language-rust` |
 | React imports detected | `framework-react` |
 | FastAPI imports detected | `framework-fastapi` |
+| `SKILL.md` / agent `.md` / plugin manifest (triage.frameworks "skill") | `framework-skill` |
 | Deep review mode | `@agents/architecture.md` |
 | Deep review mode | `@agents/test-sufficiency.md` |
 | Deep review mode + Codex available | codex-adversarial (orchestrator-run) |
