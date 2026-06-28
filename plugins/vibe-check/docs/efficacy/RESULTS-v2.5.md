@@ -102,17 +102,25 @@ the render gate's fail-closed contract held.
   `hooks`↔`react-hook` +10 still fires; `a11y`+`type-safety` no longer merge); a clean review-pass-2
   confirmed no new issue. The 140-test suite stayed green and the golden digest is unchanged across
   all of these.
-- **So the final tagged tree = the dogfooded base (`be0b6be`) + the review-driven tightening
-  (`46f4455`) + this RESULTS doc**, with the install re-synced and content-verified against
-  `46f4455` (the commit the v2.5 tag stamps). This doc records the full chain transparently rather
-  than asserting a single-parent provenance the approved fixes make untrue (the same honest-history
-  posture v2.4 used) — the deterministic-core change between `be0b6be` and `46f4455` is a dict-entry
-  reduction that only tightens cross-confirm, so the dogfood evidence above (which exercised the
-  broader map) remains a conservative lower bound on the tagged tree's behavior.
+- The integration check (milestone audit) then recommended a regression lock so the cross-confirm
+  policy can't silently re-broaden; added in `1bd2fe0` (two tests in `test_score.py`, suite 140→142).
+- **So the final tagged tree's runtime source = the dogfooded base (`be0b6be`) + the review-driven
+  tightening (`46f4455`) + the regression-lock tests (`1bd2fe0`).** `DOGFOOD_HEAD` below is repointed
+  to **`1bd2fe0`** — the last runtime-touching commit and the exact runtime source the v2.5 tag
+  stamps — and the three v2.5 threads were **re-confirmed on that tree** before repointing (source
+  selection: 30 source files, 0 `.planning/`/`docs/` reviewed, own `agents/`/`commands/`/`templates/`
+  `.md` kept; `score.py` survives with `scored_by_script:true`; the test-sufficiency skip-and-note
+  contract present; 142 tests green; golden digest `7a516d…3124` unchanged). The only commits ON TOP
+  of `1bd2fe0` touch proof artifacts under `docs/`/`.planning/` only (this RESULTS doc + summaries),
+  which the tag's source-parity gate deliberately excludes — so the tag stamps byte-identical runtime
+  source to `DOGFOOD_HEAD`. This records the full honest chain rather than asserting a single-parent
+  provenance the approved fixes make untrue (the same posture v2.4 used). Because every runtime change
+  since the original `be0b6be` dogfood only TIGHTENS cross-confirm (narrower map) or ADDS tests, the
+  original 4-chunk dogfood evidence remains a conservative lower bound on the tagged tree's behavior.
 
 ## Structured evidence block (verbatim from the run — proves, not claims)
 
-DOGFOOD_HEAD: be0b6be82ff0c178324e7b96096bc3d8303228cc
+DOGFOOD_HEAD: 1bd2fe05e6626155ec3cf95b9902fb69c1c2428e
 INSTALL_ACTIVE: 2.5.0 /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.5.0
 COVERAGE_LINE: Reviewed 29 of 30 files (1 skipped at triage; 24 excluded at selection; 0 symlinks); all 4 chunks
 INCLUDED_EXAMPLES: agents/test-sufficiency.md commands/review.md templates/skip-rules.md
