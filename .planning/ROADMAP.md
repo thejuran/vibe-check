@@ -6,7 +6,7 @@
 - ✅ **v2.2 Codex adversarial reviewer** — Phases 4-6 (shipped 2026-06-21)
 - ✅ **v2.3 Whole-codebase review mode (`--all`)** — Phases 7-12 (shipped 2026-06-22)
 - ✅ **v2.4 Dogfood-driven hardening** — Phases 13-18 (shipped 2026-06-26)
-- 🔨 **v2.5 Sharper, more legible reviews** — Phases 19-22 (in progress)
+- ✅ **v2.5 Sharper, more legible reviews** — Phases 19-22 (shipped 2026-06-28)
 
 ## Phases
 
@@ -68,15 +68,22 @@ owner sign-off approved. Full details: `.planning/milestones/v2.4-ROADMAP.md`. D
 </details>
 
 
-### 🔨 v2.5 Sharper, more legible reviews (Phases 19-22) — IN PROGRESS
+<details>
+<summary>✅ v2.5 Sharper, more legible reviews (Phases 19-22) — SHIPPED 2026-06-28</summary>
 
-- [x] Phase 19: `--all` does the right thing (2/2 plans) — planned (completed 2026-06-26)
-- [x] Phase 20: Crash-proof the core (2/2 plans) — planned (completed 2026-06-26)
-- [x] Phase 21: Test-sufficiency agent (0/2 plans) — planned (2026-06-26) (completed 2026-06-27)
-- [ ] Phase 22: Efficacy test + version bump + tag (2/2 plans) — not started
+- [x] Phase 19: `--all` does the right thing (2/2 plans) — completed 2026-06-26
+- [x] Phase 20: Crash-proof the core (2/2 plans) — completed 2026-06-26
+- [x] Phase 21: Test-sufficiency agent (2/2 plans) — completed 2026-06-27
+- [x] Phase 22: Efficacy test + version bump + tag (2/2 plans) — completed 2026-06-28
 
-Design spec: `docs/superpowers/specs/2026-06-26-v2.5-sharper-more-legible-reviews-design.md`.
-Detail sections below (Phase Details — v2.5). 13 requirements mapped, 100% covered.
+Shipped as plugin v2.5.0 (annotated tag `v2.5` on `feat/v2.5`, un-pushed). Dogfood efficacy:
+CLOSE-01 PASS (all three threads confirmed on the real tree — source-only `--all` selection,
+crash-proof `score.py`, test-sufficiency skip-and-note — owner sign-off approved). The dogfood
+caught two cross-file-drift defects in vibe-check's OWN contracts; both fixed in-milestone, the
+Phase-22 review tightened the React cross-confirm fix, and a regression lock was added.
+Full details: `.planning/milestones/v2.5-ROADMAP.md`. 13 requirements, 100% covered.
+
+</details>
 
 
 ## Progress
@@ -189,60 +196,8 @@ Phases execute in numeric order. v2.3 continues from v2.2: 7 → 8 → 9 → 10 
 - [ ] 18-01-PLAN.md — Bump plugin.json 2.3.0→2.4.0, run the single authoritative `/vibe-check:deep-review --all` self-dogfood (efficacy proof + `--all --finalize` DOGFIX-06 driver, evidence in RESULTS-v2.4.md), create the annotated un-pushed `v2.4` tag last
 
 
-## Phase Details (v2.5 Sharper, more legible reviews)
-
-> Detail sections for the in-progress v2.5 phases. Source of record:
-> `docs/superpowers/specs/2026-06-26-v2.5-sharper-more-legible-reviews-design.md`.
-> Phase numbering continues from v2.4 (which ended at Phase 18); v2.5 is Phases 19-22.
-
-### Phase 19: `--all` Does the Right Thing
-**Goal**: A default `--all` review on `/review` and `/deep-review` reviews source code, not planning docs — non-source locations are excluded while the plugin's own instructional `.md` (its `agents/`/`commands/`/`templates/`/`skills/`) stays in — and the orchestrator resolves arg-mode/scope quietly: bare `all` becomes `--all` and the mode/scope decision prints one clean line instead of a thinking-out-loud essay. (The experience fix — biggest visible win; ships a felt win early.)
-**Depends on**: Nothing (first v2.5 phase; prose + selection logic, independent of Phases 20/21)
-**Requirements**: SELECT-01, SELECT-02, SELECT-03, LEGIBLE-01, LEGIBLE-02
-**Success Criteria** (what must be TRUE):
-  1. A default `/review --all` / `/deep-review --all` review set EXCLUDES `.planning/`, `docs/`, `specs/`, top-level `README*`/`CHANGELOG*`, lockfiles, and generated/vendor dirs — verified on vibe-check's own tree (the 51-chunk planning-doc run no longer happens) (SELECT-01).
-  2. The exclusion KEEPS instructional markdown that is the program — `.md` under `agents/`, `commands/`, `templates/`, `skills/` stays in the review set (vibe-check reviews its own orchestration `.md`) (SELECT-02).
-  3. An escape-hatch flag restores the prior whole-tree behavior, its name + effect are documented where `--all` is documented, and the run reports what it excluded (legible, not silent) (SELECT-03).
-  4. Bare `all` (no dashes) is accepted as `--all` without an interactive disambiguation essay (LEGIBLE-01), and the orchestrator's mode/scope resolution prints a clean one-line conclusion instead of thinking-out-loud narration (LEGIBLE-02).
-**Plans**: 2 plans (2 waves — skip-rules.md data source first, then the review.md cluster that consumes it)
-- [x] 19-01-PLAN.md — Add the docs/planning denylist category + path-segment code-`.md` allowlist override (allowlist-wins precedence) to `templates/skip-rules.md` [Wave 1; SELECT-01, SELECT-02]
-- [x] 19-02-PLAN.md — review.md cluster: bind+document `--include-docs` (step a) + `$INCLUDE_DOCS` skip-rule branch + docs/planning report tag (step d / Phase-0.3), bare-`all` guard widening, one-line `Mode:` conclusion, and the deep-review.md inheritance verification [Wave 2; SELECT-01, SELECT-02, SELECT-03, LEGIBLE-01, LEGIBLE-02]
-**UI hint**: yes
-
-### Phase 20: Crash-Proof the Core
-**Goal**: `scripts/score.py` is hardened against malformed/unexpected finding shapes so a single bad finding can never hard-crash a review mid-run — it degrades or skips the bad finding and fails safe — and the `scripts/test_score.py` quality gaps that PROVE the hardening are closed (the test fixes exist to lock the new crash-proofing). Protects the deterministic core before the new agent leans on it.
-**Depends on**: Nothing structurally (operates on the v2.4 `score.py`); sequenced before Phase 21 because the new agent's findings flow through `score.py` — harden the floor before adding load.
-**Requirements**: HARDEN-01, HARDEN-02
-**Success Criteria** (what must be TRUE):
-  1. `score.py` handles malformed / unexpected finding shapes (missing keys, wrong types, non-dict entries) by failing safe — it degrades or skips the bad finding with a clear signal and NEVER crashes the review run — proven by tests feeding it the malformed shapes the v2.4 dogfood identified (HARDEN-01).
-  2. The `test_score.py` quality gaps the dogfood flagged are closed — subprocess timeout present, assertions tightened, duplicated golden digest de-duplicated — and the full suite passes (HARDEN-02).
-**Plans**: 2 plans (2 waves — score.py hardening first, then the test_score.py pinning suite that asserts the new behavior)
-- [x] 20-01-PLAN.md — Crash-proof `score.py`: `_valid_finding` container guard + ingress malformed filter routing to `filtered` (D-01), `_safe_window` source_window coercion, and the envelope-level fail-closed list-guard for `findings`/`carryforward` (D-02) [Wave 1; HARDEN-01]
-- [x] 20-02-PLAN.md — Close the three `test_score.py` quality gaps (subprocess timeout, tightened loose assertions, de-duped golden digest) + pin the enumerated malformed-shape matrix T1-T19 (per-finding skip+report with good-sibling survival; envelope fail-closed) [Wave 2; HARDEN-02]
-
-### Phase 21: Test-Sufficiency Agent
-**Goal**: A new deep-review-only agent (the milestone headline) judges whether changed code is adequately tested and tells the owner, in plain non-engineer language, WHICH gaps are dangerous — the judgment a raw coverage number can't give. It consumes the project's existing coverage output (or runs the project's coverage command when one exists) rather than recomputing coverage, risk-weights gaps by what the file does (a half-tested request router outranks an untested healthz), surfaces branch-coverage weakness explicitly, and skips-and-notes cleanly when no coverage source exists. The incidental "Test coverage gaps" responsibility is carved out of `impact.md` so the two agents don't double-report.
-**Depends on**: Phase 20 (the agent's findings flow through the hardened `score.py`; built on a clean, crash-proofed base)
-**Requirements**: TESTSUF-01, TESTSUF-02, TESTSUF-03, TESTSUF-04
-**Success Criteria** (what must be TRUE):
-  1. A new deep-review-only agent exists, follows the existing agent-file pattern, and is wired into the `/deep-review` dispatch roster (NOT `/review`) (TESTSUF-01).
-  2. It CONSUMES existing coverage output / runs the project's coverage command — it does not reimplement coverage measurement — and SKIPS-AND-NOTES cleanly when no coverage source is available (TESTSUF-02).
-  3. Its findings RISK-WEIGHT gaps (what the file does — request handling, auth, mutation — over raw %) and surface branch-coverage weakness explicitly, in plain non-engineer language (TESTSUF-03).
-  4. The incidental "Test coverage gaps" responsibility is REMOVED from `impact.md` so the two agents do not double-report (TESTSUF-04).
-**Plans**: 2 plans (2 waves — author the agent first, then wire it in + carve out impact.md)
-- [x] 21-01-PLAN.md — Author `agents/test-sufficiency.md`: consume-only coverage reader (path-contained, never runs a command), risk-weighting rubric, explicit branch coverage, plain-language scored findings (category `test-coverage`), skip-and-note [Wave 1; TESTSUF-01/02/03]
-- [x] 21-02-PLAN.md — Wire into `/deep-review` roster (deep-review.md table + index.md matrix, NOT /review) + surgically carve the `Test coverage gaps` bullet out of impact.md + verify output-format.md renders coherently [Wave 2; TESTSUF-01/04]
-
-### Phase 22: Efficacy Test + Version Bump + Tag
-**Goal**: The milestone is proven and shipped — re-run the `--all` dogfood on vibe-check itself, confirming source-only selection (its own `agents/`/`commands/`/`templates/` `.md` still reviewed, `.planning/` excluded), the test-sufficiency agent firing usefully, and `score.py` surviving malformed input, all with no regressions to existing behavior; then bump `plugin.json` to 2.5.0 and create the annotated un-pushed `v2.5` tag (per project convention). The standard close.
-**Depends on**: Phases 19, 20, and 21 (all three threads must be on the tree to dogfood)
-**Requirements**: CLOSE-01, CLOSE-02
-**Success Criteria** (what must be TRUE):
-  1. The `--all` dogfood on vibe-check confirms Phase 19 (source-only selection — `.planning/` excluded, own orchestration `.md` kept), Phase 21 (test-sufficiency agent fires usefully), and Phase 20 (core survives malformed input) on the real tree, with no regressions to existing behavior (CLOSE-01).
-  2. `plugin.json` is at 2.5.0 and an annotated `v2.5` tag exists (un-pushed, per project convention) (CLOSE-02).
-**Plans**: 2 plans (2 waves — bump+sync+dogfood first, then the strictly-last tag stamp)
-- [ ] 22-01-PLAN.md — Bump plugin.json 2.4.0→2.5.0, sync+verify the registered install to 2.5.0 (BLOCKING, may need RELAUNCH — D-04), run the authoritative `/vibe-check:deep-review --all` self-dogfood and write RESULTS-v2.5.md with owner sign-off (CLOSE-01 + version half of CLOSE-02) [Wave 1]
-- [ ] 22-02-PLAN.md — Create the annotated un-pushed `v2.5` tag last, stamping the proven 2.5.0 tree (tag half of CLOSE-02; D-02 local-only) [Wave 2]
+> Full per-phase detail for shipped v2.5 (Phases 19-22) lives in the archive:
+> `.planning/milestones/v2.5-ROADMAP.md`.
 
 
 ## Backlog
