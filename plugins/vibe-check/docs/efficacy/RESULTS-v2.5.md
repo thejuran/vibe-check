@@ -92,10 +92,23 @@ the render gate's fail-closed contract held.
 - The dogfood motivated **one real fix commit** (`be0b6be`, the two cross-file-drift corrections
   above), which the owner explicitly asked for before sign-off. The install was then re-synced and
   content-verified against `be0b6be`, and a targeted re-verification re-confirmed all three threads
-  + both fixes on that tree. So the final tagged tree = the reviewed base + that fix + this RESULTS
-  doc. **DOGFOOD_HEAD below is the fixed, re-verified commit the v2.5 tag stamps** — this doc
-  records the full chain transparently rather than asserting a single-parent provenance the
-  approved fix makes untrue (the same honest-history posture v2.4 used).
+  + both fixes on that tree. **DOGFOOD_HEAD below is that dogfooded-and-re-verified commit.**
+- **The Phase-22 deep review of `be0b6be` then caught that the React fix over-reached** — mapping
+  all four `framework-react` categories to the `style` domain would let an unrelated co-located TS
+  `style` finding spuriously cross-confirm with (and silently absorb) a distinct React `a11y`/
+  `rendering` finding. The review drove a tightening commit (`46f4455`): map only `hooks` (the
+  genuine twin of `react-hook`), leave the rest unmapped (mirroring the `framework-fastapi` non-twin
+  policy), and document the policy in `framework-react.md`. Verified end-to-end (the headline
+  `hooks`↔`react-hook` +10 still fires; `a11y`+`type-safety` no longer merge); a clean review-pass-2
+  confirmed no new issue. The 140-test suite stayed green and the golden digest is unchanged across
+  all of these.
+- **So the final tagged tree = the dogfooded base (`be0b6be`) + the review-driven tightening
+  (`46f4455`) + this RESULTS doc**, with the install re-synced and content-verified against
+  `46f4455` (the commit the v2.5 tag stamps). This doc records the full chain transparently rather
+  than asserting a single-parent provenance the approved fixes make untrue (the same honest-history
+  posture v2.4 used) — the deterministic-core change between `be0b6be` and `46f4455` is a dict-entry
+  reduction that only tightens cross-confirm, so the dogfood evidence above (which exercised the
+  broader map) remains a conservative lower bound on the tagged tree's behavior.
 
 ## Structured evidence block (verbatim from the run — proves, not claims)
 
