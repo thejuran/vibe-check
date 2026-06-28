@@ -348,18 +348,23 @@ CATEGORY_DOMAIN = {
     "is-vs-eq": "style", "context-manager": "style", "type-safety": "style",
     "async-discipline": "style", "react-hook": "style", "equality": "style",
     "dep-array": "style", "idiom": "style",
-    # framework-react: its categories share the "style" domain with the
-    # language-typescript React/JS categories so the headline cross-confirm
-    # case fires — a React hook bug caught by BOTH framework-react (category
-    # "hooks") AND language-typescript (category "react-hook") now overlaps and
-    # earns the +10 (both resolve to "style"). "rendering",
-    # "controlled-uncontrolled", and "a11y" are React-idiom concerns in the
-    # same family, so they map to "style" too (they can cross-confirm with a
-    # co-located TS/JS style finding rather than standing silently alone).
-    "hooks": "style", "rendering": "style",
-    "controlled-uncontrolled": "style", "a11y": "style",
+    # framework-react: ONLY "hooks" maps to a native domain — it is the exact
+    # TWIN of language-typescript's "react-hook" (already "style" above), so the
+    # headline cross-confirm fires: a React hook bug caught by BOTH
+    # framework-react (category "hooks") AND language-typescript (category
+    # "react-hook") now overlaps at (file, line ±2) and earns the +10 (both
+    # resolve to "style"). framework-react's OTHER categories — "rendering",
+    # "controlled-uncontrolled", "a11y" — are deliberately NOT mapped (they
+    # resolve to None and cross-confirm with NOTHING today; each stands on its
+    # own score), MIRRORING the framework-fastapi non-twin policy below: only a
+    # genuine cross-agent TWIN is mapped, so we never fold a distinct React
+    # finding into the broad "style" bucket where it could spuriously confirm
+    # with — and silently absorb — an unrelated co-located TS style finding
+    # (e.g. an "a11y" defect vs a "type-safety" cast 2 lines away). Broadening
+    # to cover them is a deferred follow-up, not current behavior.
     # (framework-react's "perf" is already mapped to "impact" above, alongside
-    # language-typescript's "perf" — unchanged.)
+    # language-typescript's "perf" — unchanged; "perf" IS a cross-agent twin.)
+    "hooks": "style",
     # --- compliance ---
     "rule-violation": "compliance",
     # framework-fastapi: ONLY its data-exposure/auth-security twins map to
