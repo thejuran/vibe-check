@@ -1043,6 +1043,29 @@ class TestCategoriesOverlap(unittest.TestCase):
                 # never spuriously confirms a native impact finding
                 self.assertFalse(score._categories_overlap(c, "perf"))
 
+    def test_framework_vue_categories_standalone(self):
+        # framework-vue no-twin policy (v2.7, D-05): ALL FIVE Vue categories
+        # are deliberately UNMAPPED in CATEGORY_DOMAIN — none has a genuine
+        # cross-agent twin this phase, so each resolves to None and stands on
+        # its own honest score. Adding a twin would let a Vue finding spuriously
+        # confirm — and silently absorb — an unrelated co-located finding from a
+        # native domain. This is the regression lock: if a future edit maps any
+        # of the five to a domain, this fails loudly. The first v2.7 twin lands
+        # in Phase 27 (electron ipc-validation -> security), NOT here.
+        # (framework-vue)
+        vue_categories = (
+            "reactivity", "composition-api", "lifecycle-cleanup",
+            "template", "props",
+        )
+        for c in vue_categories:
+            with self.subTest(category=c):
+                # no twin: resolves to no domain
+                self.assertIsNone(score._category_domain(c))
+                # never spuriously confirms a native security finding
+                self.assertFalse(score._categories_overlap(c, "injection"))
+                # never spuriously confirms a native impact finding
+                self.assertFalse(score._categories_overlap(c, "perf"))
+
 
 # --------------------------------------------------------------------------- #
 # GOLDEN sha256 stable_hash (MANDATORY — T-16-01)
