@@ -62,7 +62,7 @@ Concretely, your execution order is:
 | ✓ | — | `impact` | opus (frontmatter) |
 | ✓ | — | `test-sufficiency` | opus (frontmatter) |
 |  | `CLAUDE.md`/`AGENTS.md` exists | `compliance` | sonnet |
-|  | TS/JS in diff | `language-typescript` | sonnet |
+|  | TS/JS/.vue in diff | `language-typescript` | sonnet |
 |  | Python in diff | `language-python` | sonnet |
 |  | Go in diff | `language-go` | sonnet |
 |  | Rust in diff | `language-rust` | sonnet |
@@ -70,6 +70,7 @@ Concretely, your execution order is:
 |  | FastAPI imports | `framework-fastapi` | sonnet |
 |  | "skill" (`SKILL.md` / agent `.md` / plugin manifest) | `framework-skill` | sonnet |
 |  | Express imports | `framework-express` | sonnet |
+|  | Vue imports / `.vue` SFC | `framework-vue` | sonnet |
 
 **Why the top tier on `bugs` and `architecture`:** these are the two agents whose judgment gates what ships — missed real bugs and intent-vs-implementation drift are the costliest failure modes, and each is a single dispatch per pass so the upgrade cost is bounded. `bugs` keeps `model: sonnet` in its frontmatter (that's what `/review` uses for cheap iteration); `/deep-review` upgrades it by passing `model: "<TOP>"` in the Task call — the same per-call override mechanism as the large-diff Haiku downgrade in `commands/review.md` M5. `architecture` defaults to `opus` in its frontmatter but `/deep-review` likewise passes `model: "<TOP>"` per-call so the env var governs it too. `impact` is deep-only and stays on `opus` via its frontmatter — no override.
 
