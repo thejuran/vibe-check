@@ -7,6 +7,8 @@
 - ✅ **v2.3 Whole-codebase review mode (`--all`)** — Phases 7-12 (shipped 2026-06-22)
 - ✅ **v2.4 Dogfood-driven hardening** — Phases 13-18 (shipped 2026-06-26)
 - ✅ **v2.5 Sharper, more legible reviews** — Phases 19-22 (shipped 2026-06-28)
+- ✅ **v2.6 framework-skill review agent** — Phase 23 (shipped 2026-06-28)
+- 🚧 **v2.7 Framework coverage** — Phases 24-29 (in progress)
 
 ## Phases
 
@@ -85,11 +87,37 @@ Full details: `.planning/milestones/v2.5-ROADMAP.md`. 13 requirements, 100% cove
 
 </details>
 
+### ✅ v2.6 framework-skill review agent (Phase 23) — SHIPPED 2026-06-28
+
+- [x] **Phase 23: framework-skill Agent — Adopt, Guardrail & Ship** — Validate the dogfooded `framework-skill` commit, add the severity-scoped low-tier noise guardrail (`≤45` cap on `low`-severity taste/differentiator checks only, never a category), gate on a clean deep-review, and ship at 2.6.0 (completed 2026-06-28)
+
+
+### 🚧 v2.7 Framework coverage (Phases 24-29) — IN PROGRESS
+
+> Authors five framework-specific reviewer agents (Express, Vue, Angular,
+> Electron [security-weighted], React-Native), each its own phase following the
+> proven `framework-react.md` pattern and wired across the established 5
+> touchpoints, plus a close phase (efficacy + 2.7.0 bump + tag). Phases 24-28
+> share the same wiring files (`triage.md`, `commands/review.md`,
+> `commands/deep-review.md`, `scripts/score.py`), so they execute SEQUENTIALLY to
+> avoid wiring-prose collisions — there is no hard inter-agent dependency, the
+> serialization is purely shared-file safety. Phase 29 depends on all five
+> landing. Clears backlog item 999.1.
+
+- [x] **Phase 24: framework-express agent** — Author `agents/framework-express.md` (middleware-order / async-errors / error-handling / security-headers / input-validation / request-lifecycle), resolve the `error-handling` naming collision, wire all 5 touchpoints, gate on a clean deep-review (completed 2026-06-28)
+- [ ] **Phase 25: framework-vue agent** — Author `agents/framework-vue.md` (reactivity / composition-api / lifecycle-cleanup / template / props), guard against the Vue 3.5 reactive-props-destructure false positive, wire, gate
+- [ ] **Phase 26: framework-angular agent** — Author `agents/framework-angular.md` (rxjs-leaks / change-detection / di-scope / lifecycle / rxjs-composition), wire, gate
+- [ ] **Phase 27: framework-electron agent (security-weighted)** — Author `agents/framework-electron.md` (webpreferences-hardening / preload-exposure / ipc-validation / navigation-safety / content-loading / process-hardening), map the `ipc-validation`→security twin in `score.py`, wire, gate
+- [ ] **Phase 28: framework-react-native agent** — Author `agents/framework-react-native.md` (list-perf / platform / native-cleanup / reanimated / expo-config / native-component), emit BOTH `react` and `react-native` in triage, map the `list-perf`→impact twin in `score.py`, complete the agent-count prose at 12, wire, gate
+- [ ] **Phase 29: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke test per agent (fires on its framework, silent otherwise, catches a planted defect), bump `plugin.json` 2.6.0→2.7.0, tag `v2.7`, publish
+
 
 ## Progress
 
 **Execution Order:**
 Phases execute in numeric order. v2.3 continues from v2.2: 7 → 8 → 9 → 10 → 11 → 12.
+v2.6 continues from v2.5: 22 → 23.
+v2.7 continues from v2.6: 23 → 24 → 25 → 26 → 27 → 28 → 29 (sequential — Phases 24-28 share wiring files).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -114,91 +142,142 @@ Phases execute in numeric order. v2.3 continues from v2.2: 7 → 8 → 9 → 10 
 | 19. `--all` Does the Right Thing | v2.5 | 2/2 | Complete   | 2026-06-26 |
 | 20. Crash-Proof the Core | v2.5 | 2/2 | Complete   | 2026-06-26 |
 | 21. Test-Sufficiency Agent | v2.5 | 2/2 | Complete   | 2026-06-27 |
-| 22. Efficacy Test + Version Bump + Tag | v2.5 | 0/2 | Not started | - |
+| 22. Efficacy Test + Version Bump + Tag | v2.5 | 2/2 | Complete   | 2026-06-28 |
+| 23. framework-skill Agent — Adopt, Guardrail & Ship | v2.6 | 1/1 | Complete   | 2026-06-28 |
+| 24. framework-express agent | v2.7 | 1/1 | Complete    | 2026-06-28 |
+| 25. framework-vue agent | v2.7 | 0/? | Not started | - |
+| 26. framework-angular agent | v2.7 | 0/? | Not started | - |
+| 27. framework-electron agent (security-weighted) | v2.7 | 0/? | Not started | - |
+| 28. framework-react-native agent | v2.7 | 0/? | Not started | - |
+| 29. Efficacy Test + Version Bump + Tag | v2.7 | 0/? | Not started | - |
 
-## Phase Details (v2.4 Dogfood-driven hardening)
-
-> Detail sections for the in-progress v2.4 phases. Shipped milestones' detail
-> sections live in their archived per-milestone ROADMAPs
-> (`.planning/milestones/v2.{1,2,3}-ROADMAP.md`).
-
-### Phase 13: Safer Fix-Loop Default
-**Goal**: The autonomous apply-all-and-commit path is no longer presented as the recommended default in the fix loop — a developer choosing how to apply findings is nudged toward review-then-apply, not blind bulk-commit.
-**Depends on**: Nothing (first v2.4 phase; prose-only, ~5-min edit, no dependencies)
-**Requirements**: FIXLOOP-01
-**Success Criteria** (what must be TRUE):
-  1. The fix-loop apply-all option in `/review` and `/deep-review` no longer carries the "(Recommended)" marker.
-  2. The autonomous apply-all-and-commit option is not the prose-recommended default; the recommendation (if any) points at apply-selected / apply-myself.
-  3. The fix loop still offers all existing apply choices — only the recommendation framing changed, no option removed.
-**Plans**: 1 plan
-- [x] 13-01-PLAN.md — Strip the Step A apply-all "(Recommended)" marker and neutralize the apply-all preference prose note in `commands/review.md` (deep-review.md inherits by delegation)
-
-### Phase 14: Dogfood Critical + Warning Fixes
-**Goal**: The 3 Critical + 6 Warning defects the `--all` dogfood found in vibe-check's own orchestration prose no longer reproduce — including the `--all --finalize` wrong-state-file bug that blocked Phase 12's close.
-**Depends on**: Phase 13 (sequential; lands on the corrected fix-loop prose)
-**Requirements**: DOGFIX-01, DOGFIX-02, DOGFIX-03, DOGFIX-04, DOGFIX-05, DOGFIX-06, DOGFIX-07, DOGFIX-08
-**Success Criteria** (what must be TRUE):
-  1. The abandon/resume hint prints a copy-paste-correct command — current `/vibe-check:…` namespace, no unbound placeholder — rendered by self-identity (DOGFIX-01 no longer reproduces).
-  2. `deep-review.md`'s cross-references into `review.md` cite section names, not hardcoded line numbers, so drift can't misdirect the orchestrator (DOGFIX-02); and `false-positive-rules.md` defers banding to canonical `scoring.md` with no phantom "High" band (DOGFIX-03).
-  3. `--all --finalize` resolves the correct mode-aware state file (`by-mode/all/<hash>.json`) instead of an unset `$PHASE_ID` path, so a whole-codebase review can finalize (DOGFIX-06 — the bug that blocked Phase 12).
-  4. The Warning defects are gone: `architecture.md` no longer contradicts the specs (DOGFIX-04); the orphaned second scoring contract is removed and `false-positive-rules.md` points at `scoring.md` as the single scoring source (DOGFIX-05); untrusted `PRIOR_PHASE` is guarded before `mv` without relying on prose-only enforcement (DOGFIX-07); Codex `title` passes a character allowlist before reaching the renderer or fix agent (DOGFIX-08).
-**Plans**: 3 plans (all Wave 1 — parallel, no file overlap)
-- [x] 14-01-PLAN.md — review.md cluster: self-identity resume hint (DOGFIX-01), mode-aware `--all --finalize` state resolution (DOGFIX-06), verify the PRIOR_PHASE→mv guard (DOGFIX-07)
-- [x] 14-02-PLAN.md — delete the orphan scoring contract + phantom "High" band and point at scoring.md (DOGFIX-03/05); reconcile architecture.md (DOGFIX-04)
-- [x] 14-03-PLAN.md — convert deep-review.md line-cites to section names (DOGFIX-02); Codex title sanitize-and-keep (DOGFIX-08)
-
-### Phase 15: Dogfood Medium Fixes + Fix-Agent Quick Win
-**Goal**: The notable Medium injection/atomicity defects are closed and a legitimate finding whose title quotes `flag=value` (e.g. `shell=True`) can be committed by the fix agent.
-**Depends on**: Phase 14 (split from it so Phase 14 stays a tight Critical/Warning unit)
-**Requirements**: DOGFIX-09, DOGFIX-10
-**Success Criteria** (what must be TRUE):
-  1. The Codex `fix_hint`/`title` fix-agent injection path is closed, `current_code` markdown fences can no longer escape the report, and a multi-site fix commit no longer drops sibling staged files (DOGFIX-09 batch no longer reproduces).
-  2. A finding whose title legitimately quotes `flag=value` (e.g. `shell=True`) can be committed by the fix agent — the commit-title allowlist is widened safely or the title is auto-sanitized for the commit while the original is preserved for display (DOGFIX-10).
-**Plans**: 2 plans (both Wave 1 — parallel, no file overlap)
-- [x] 15-01-PLAN.md — Defect A (DOGFIX-09): longest-run-aware fencing for the `{{current_code}}` render site in `templates/output-format.md` (close the report fence-escape)
-- [x] 15-02-PLAN.md — Defects B+C (DOGFIX-09/10) in `agents/fix.md` + the `commands/review.md` ripple: make the commit pathspec the finding's full VALIDATED multi-path set (every file it touched, each validated) so a multi-site fix is atomic AND a foreign staged file is never swept in + reconcile the two review.md commit-step references to that set; widen the commit-title allowlist to permit `=` (Defect B mechanism revised 2026-06-23 after a codex CRITICAL: validated multi-path pathspec, NOT the withdrawn staged-index/clean-index approach)
-
-### Phase 16: Deterministic-Core Script
-**Goal**: A stdlib-only Python `score.py` owns the deterministic core — `in_diff`, the silenced-marker grep, the sha256 stable hash, the scoring formula, banding, per-command threshold filtering, and the carry-forward compare — as pure functions, and the orchestrator pipes findings through it so scoring is un-skippable. This introduces the first executable code into a previously prose-only plugin.
-**Depends on**: Phase 14 (lands on a corrected prose baseline — including the removed orphaned scoring contract from DOGFIX-05)
-**Requirements**: CORE-01, CORE-02, CORE-03
-**Success Criteria** (what must be TRUE):
-  1. `score.py` exists, is stdlib-only, and is a pure-function boundary: findings in → scored/banded findings + carry-forward deltas out, with no review logic or model judgment inside (CORE-01).
-  2. `score.py` produces identical banding to the prior `scoring.md` prose on the pinned test cases — proven by a passing unit-test file that pins the current formula's outputs (CORE-02).
-  3. The orchestrator pipes findings through `score.py` so rendered findings exist only if the script ran, and the now-redundant by-hand scoring prose is removed (CORE-03).
-**Plans**: 2 plans (2 waves — script-then-wiring; the wiring edit depends on the script existing and passing tests)
-- [x] 16-01-PLAN.md — Build stdlib-only score.py (deterministic core, pure functions) + pinning unittest suite [Wave 1; CORE-01, CORE-02]
-- [x] 16-02-PLAN.md — Wire review.md Phase 3/4/4.5 to pipe findings through score.py (un-skippable; remove by-hand scoring prose) [Wave 2; CORE-03]
-
-### Phase 17: Robustness on the Core
-**Goal**: The deterministic core is hardened against the prose-can't-enforce failure modes the dogfood exposed — state is single-writer, cross-confirmation can't be gamed by title phrasing, carry-forward persistence isn't mis-tracked by low-entropy hashing, and a machine-checkable "scoring ran" invariant is in place.
-**Depends on**: Phase 16 (same surface — the script; verify-not-rebuild for state because the script collapses to a single writer for free)
-**Requirements**: ROBUST-01, ROBUST-02, ROBUST-03, ROBUST-04
-**Success Criteria** (what must be TRUE):
-  1. The Phase 4.5→5 state write is single-writer (verified gone now that scoring lives in the script), so an interruption between git-commit and state-write cannot desync git from state (ROBUST-01).
-  2. The cross-confirm matcher uses category-overlap + line proximity (or token-set similarity) instead of two agents sharing a first token, so cross-confirmation can't be gamed by title phrasing (ROBUST-02).
-  3. The carry-forward content compare hashes enough surrounding context (or windows) instead of keying on a low-entropy first line, so persistence isn't mis-tracked by collisions (ROBUST-03).
-  4. A machine-checkable "scoring ran" invariant is in place, plus detect-and-warn for at least one other prose-unenforceable step where cheap (ROBUST-04).
-**Plans**: 3 plans (3 waves — score.py + test_score.py + review.md serialize across ROBUST-02/03/04; the single-writer lock + render gate land last). Revised across TWO Codex adversarial NO-SHIP rounds: R1 closed 3 blockers (asymmetric carry, wildcard over-confirm, too-narrow lock); R2 closed their second-order holes (single-line-snippet churn, order-dependent greedy bridge, SCOPE_HASH false-positive + unfenced-prose evasion).
-- [x] 17-01-PLAN.md — Replace the title-substring matcher with ORDER-INDEPENDENT category-domain confirmation + line proximity (pairwise, not greedy first-match; missing/unknown → NON-overlap; adversarial bridges ONLY an unambiguous single co-located native domain — permutation-tested); fix the 3 stale title-substring hints (codex-adversarial.md, framework-fastapi.md, deep-review.md) [Wave 1; ROBUST-02]
-- [x] 17-02-PLAN.md — Low-entropy carry-forward compare that widens BOTH sides or NEITHER (never window-vs-single-line; unchanged single-line snippets never churn) using a new orchestrator-resolved canonical_window from HEAD (review.md Phase 3 step 0 ripple); _first_line/canonical_for_hash/stable_hash untouched [Wave 2; ROBUST-03]
-- [x] 17-03-PLAN.md — Harden the render gate to a HARD halt (D-08) + CODEX-AWARE parallel-dispatch detect-and-warn (D-09); single-writer regression-lock scanning ALL command prose for scored-field write directives (hasher flagged only when tied to a scored field; SCOPE_HASH exempt; unfenced prose caught) (D-10) [Wave 3; ROBUST-04, ROBUST-01]
-
-### Phase 18: Efficacy Test + Version Bump + Tag
-**Goal**: The milestone is proven and shipped — the `--all` dogfood is re-run on vibe-check itself, the previously-found defects are confirmed absent with no regressions, `--all --finalize` now completes (proving DOGFIX-06), and the plugin is versioned and tagged.
-**Depends on**: All prior v2.4 phases (13-17)
-**Requirements**: CLOSE-01, CLOSE-02
-**Success Criteria** (what must be TRUE):
-  1. The re-run `--all` dogfood on vibe-check shows the previously-found Critical/Warning defects absent with no new regressions (CLOSE-01).
-  2. `--all --finalize` exits cleanly on the dogfood run — empirically proving the DOGFIX-06 state-path fix (CLOSE-01).
-  3. `plugin.json` is at 2.4.0 and an annotated tag `v2.4` exists (CLOSE-02).
-**Plans**: 1 plan (single wave — strictly sequential tasks: bump → dogfood → tag)
-- [ ] 18-01-PLAN.md — Bump plugin.json 2.3.0→2.4.0, run the single authoritative `/vibe-check:deep-review --all` self-dogfood (efficacy proof + `--all --finalize` DOGFIX-06 driver, evidence in RESULTS-v2.4.md), create the annotated un-pushed `v2.4` tag last
+> Full per-phase detail for shipped v2.4 (Phases 13-18) lives in the archive:
+> `.planning/milestones/v2.4-ROADMAP.md`.
 
 
 > Full per-phase detail for shipped v2.5 (Phases 19-22) lives in the archive:
 > `.planning/milestones/v2.5-ROADMAP.md`.
 
+
+## Phase Details (v2.6 framework-skill review agent)
+
+> Detail section for the in-progress v2.6 phase. This is a VALIDATE-AND-ADOPT
+> milestone: a complete, dogfooded implementation already exists as commit
+> `95c6834` on the working branch `feat/framework-skill-reviewer`. Phase 23's
+> job is to verify that commit against the approved design, apply the one new
+> noise-guardrail edit, gate on a clean deep-review, and ship at 2.6.0 — NOT to
+> author the agent from scratch.
+
+### Phase 23: framework-skill Agent — Adopt, Guardrail & Ship
+**Goal**: vibe-check gains a `framework-skill` reviewer that catches skill-authoring-quality problems and half-wired plugin additions — by adopting the existing dogfooded commit (`95c6834`), verifying it against the approved design, adding a severity-scoped low-tier noise guardrail (the `≤45` cap rides the `low` severity tier — taste/differentiator checks — NOT a category), gating on a clean deep-review, and shipping at plugin v2.6.0.
+**Depends on**: Phase 22 (v2.5 ships first; the agent builds on the crash-proofed `score.py` core and the established framework-agent wiring convention)
+**Requirements**: SKILL-01, SKILL-02, SKILL-03, SKILL-04, WIRE-01, WIRE-02, NOISE-01, VERIFY-01, CLOSE-01
+**Success Criteria** (what must be TRUE):
+  1. **Triggers correctly.** On a diff that touches a `SKILL.md`, an agent prompt (`agents/*.md` with `name:`+`description:` frontmatter), or a plugin manifest, the `framework-skill` reviewer dispatches in both `/review` and `/deep-review`; on a diff with no such file it stays silent — proving the `triage.md` file-shape detection of `"skill"` and the `index.md`/`review.md`/`deep-review.md` dispatch rows (SKILL-01, WIRE-01).
+  2. **Reviews the two surfaces.** The adopted agent reviews skill-authoring quality (discoverability / progressive disclosure / structure / content / bundled-script hygiene) AND flags the half-wired-addition class (missing index/dispatch/triage row, `name:` mismatch, missing `model:`, output-contract drift, stale agent-count prose), emitting one schema-valid JSON object (categories from `description`|`disclosure`|`structure`|`content`|`scripts`|`wiring`, detection-only) — verified against the approved design, not rebuilt (SKILL-02, SKILL-03, SKILL-04).
+  3. **Wiring is internally consistent.** After the fleet grows by one, the agent-count prose in `commands/review.md` is coherent (floor/max 6→7; agents/chunk, estimated-dispatch figures, and the illustrative cost bracket all updated to match) — the agent's own wiring check finds no half-wired residue on this very change (WIRE-02).
+  4. **Low-tier taste findings carry the ceiling; medium/high and objective ones don't.** The new noise guardrail caps `agent_confidence ≤ 45` ONLY on the `low`-severity taste/differentiator checks (the prose nitpicks in `content` + the soft `structure` nitpicks) so borderline prose-style findings filter out by default — the cap rides the `low` severity tier, NOT the category. Medium/high findings stay uncapped in EVERY category, including genuine `content` safety checks (a destructive/fragile workflow, a critical op missing a validation loop), as do `wiring`, `description`/discoverability, `scripts`, and the hard `disclosure` limits — reusing the differentiator-tier pattern from `framework-fastapi.md` (NOISE-01).
+  5. **Gated and shipped.** A `/vibe-check:deep-review` pass over the phase's changes is clean (no unresolved critical/warning findings) and `plugin.json` is bumped to `2.6.0` (VERIFY-01, CLOSE-01).
+**Plans**: 1 plan (single wave)
+Plans:
+- [x] 23-01-PLAN.md — Verify the adopted framework-skill agent + wiring, add the NOISE-01 severity-scoped ≤45 confidence ceiling (low-tier taste/differentiator checks only, never category-wide; medium/high stay uncapped), bump plugin.json to 2.6.0
+**UI hint**: no
+
+
+## Phase Details (v2.7 Framework coverage)
+
+> Detail section for the in-progress v2.7 milestone. Each of Phases 24-28 authors
+> ONE new framework reviewer agent following the `framework-react.md` pattern
+> (~60 lines, `model: sonnet`, layered *in addition to* the matching language
+> agent), wires it across the 5 touchpoints, and gates on a clean deep-review.
+> **Sequential execution is required:** all five touch the SAME shared wiring
+> files (`triage.md`, `commands/review.md`, `commands/deep-review.md`,
+> `scripts/score.py`), so concurrent edits would collide on the agent-count prose
+> and the dispatch tables — there is no hard *capability* dependency between the
+> agents, only this shared-file serialization. WIRE-01 and VERIFY-01 are
+> exercised in EVERY agent phase (24-28); WIRE-02 (the agent-count prose fully
+> coherent at 12) is closed in Phase 28, the last agent to land. The v2.6
+> `framework-skill` reviewer's half-wired-addition check runs on the very files
+> each phase adds, so incomplete wiring is caught automatically (this milestone
+> exercises its own v2.6 deliverable five times).
+
+### Phase 24: framework-express agent
+**Goal**: vibe-check gains a `framework-express` reviewer that catches real Express defects — middleware ordering, unhandled async route errors, the error-middleware arity footgun, missing security headers, route-level input-validation gaps, and request-lifecycle bugs — fully wired across the 5 touchpoints and gated on a clean deep-review. Phase 24 establishes the wiring pattern the next four agents follow.
+**Depends on**: Phase 23 (v2.6 ships first; the agent builds on the crash-proofed `score.py` core and the established framework-agent wiring convention). First v2.7 phase — establishes the shared-file wiring pattern.
+**Requirements**: EXPRESS-01, WIRE-01, VERIFY-01
+**Success Criteria** (what must be TRUE):
+  1. **Triggers correctly.** On a diff that imports `express` or uses Express idioms (`app.use`, `req`/`res`/`next` handlers, `Router()`), the `framework-express` reviewer dispatches in both `/review` and `/deep-review`; on a diff with no Express signal it stays silent (EXPRESS-01, WIRE-01).
+  2. **Reviews real Express defects.** The agent emits one schema-valid JSON object with categories from `middleware-order` | `async-errors` | `error-handling` | `security-headers` | `input-validation` | `request-lifecycle`, covering the error-middleware 3-vs-4-arg footgun, error-handler-before-routes ordering, unvalidated `req.body`/`req.params`/`req.query` into a SQL/exec/fs/fetch sink, stack-leak-to-client, and double-`res.send`/missing-`return` lifecycle bugs (EXPRESS-01).
+  3. **Hedges on invisible context.** Express v4-vs-v5 async behavior (v4 hangs, v5 auto-forwards), "missing global middleware" absence-of-evidence, off-hunk middleware order, and off-hunk route-array validators all reduce confidence with a `pending:` note rather than asserting a confident HIGH (EXPRESS-01).
+  4. **`error-handling` naming collision resolved.** Because the literal category `error-handling` already maps to `correctness` (owned by `bugs`) in `score.py`'s `CATEGORY_DOMAIN`, the security-intended stack-leak finding is emitted under a distinct security-domain category (e.g. routed under `security-headers`/`input-validation`, not `error-handling`) so it lands in the right twin bucket — the convention is fixed before authoring (WIRE-01).
+  5. **Wired and gated.** All 5 touchpoints are complete — `triage.md` Express detection emitting `express` in `frameworks`, dispatch rows in `commands/review.md` and `commands/deep-review.md` (with model column), no spurious `score.py` twin (all six Express categories stand alone as `None` per the non-twin policy this phase), and the agent-count prose bumped (7→8) — and a `/vibe-check:deep-review` pass over the phase's changes is clean, with `framework-skill` confirming no half-wired residue (WIRE-01, VERIFY-01).
+**Plans**: 1 plan (single wave)
+Plans:
+- [x] 24-01-PLAN.md — Author `agents/framework-express.md` (6 categories, fastapi-discipline hedging), wire all 5 touchpoints atomically (triage `express` detection + dispatch rows in both modes + count prose 7→8), add the score.py no-twin regression-lock test
+**UI hint**: no
+
+### Phase 25: framework-vue agent
+**Goal**: vibe-check gains a `framework-vue` reviewer that catches real Vue 3 (Composition API) defects — reactivity loss, Composition-API misuse, lifecycle/cleanup leaks, template correctness, and direct prop mutation — wired across the 5 touchpoints and gated on a clean deep-review, while NOT shipping the Vue 3.5 reactive-props-destructure false positive.
+**Depends on**: Phase 24 (no capability dependency — but shares the wiring files `triage.md`/`review.md`/`deep-review.md`/`score.py`, so executes after 24 to avoid prose collisions, following the pattern 24 established).
+**Requirements**: VUE-01, WIRE-01, VERIFY-01
+**Success Criteria** (what must be TRUE):
+  1. **Triggers correctly.** On a diff that imports `vue` / `@vue/*` or touches a `.vue` SFC, the `framework-vue` reviewer dispatches in both modes; otherwise it stays silent (VUE-01, WIRE-01).
+  2. **Reviews real Vue 3 defects.** The agent emits one schema-valid JSON object with categories from `reactivity` | `composition-api` | `lifecycle-cleanup` | `template` | `props`, covering `reactive()`-object destructure, a `ref` read in `<script>` without `.value`, conditional/looped ref/watch creation, `onMounted` listeners with no `onUnmounted` teardown, missing/`index` `:key`, `v-if`+`v-for` on the same element, and direct prop mutation (VUE-01).
+  3. **Does NOT ship the 3.5 props-destructure false positive.** The agent does not flag `const { x } = defineProps(...)` as a defect (reactive since Vue 3.5+) — only `reactive()`-object destructure is flagged; off-hunk `reactive()`/`ref` provenance and off-hunk `onUnmounted` teardown are hedged, not asserted (VUE-01).
+  4. **Wired and gated.** All 5 touchpoints complete (`triage.md` Vue detection; both dispatch rows; all five Vue categories stand alone as `None` in `score.py` per the non-twin policy this milestone; agent-count prose bumped 8→9), and a `/vibe-check:deep-review` pass over the phase's changes is clean, with `framework-skill` confirming no half-wired residue (WIRE-01, VERIFY-01).
+**Plans**: 1 plan (single wave)
+Plans:
+- [ ] 25-01-PLAN.md — Author `agents/framework-vue.md` (5 categories, fastapi-discipline hedging, the Vue 3.5 defineProps-destructure FP-guard), wire all SIX touchpoints atomically (triage `vue`/`.vue` detection + dispatch rows in both modes + index.md matrix row + count prose 8→9), add the score.py no-twin regression-lock test
+**UI hint**: yes
+
+### Phase 26: framework-angular agent
+**Goal**: vibe-check gains a `framework-angular` reviewer that catches real Angular defects — RxJS subscription leaks, change-detection misuse, DI scope errors, lifecycle-hook bugs, and RxJS composition pitfalls — wired across the 5 touchpoints and gated on a clean deep-review.
+**Depends on**: Phase 25 (no capability dependency — shares the wiring files, so executes after 25 to avoid prose collisions).
+**Requirements**: ANGULAR-01, WIRE-01, VERIFY-01
+**Success Criteria** (what must be TRUE):
+  1. **Triggers correctly.** On a diff that imports `@angular/*` or touches Angular component/service/module files, the `framework-angular` reviewer dispatches in both modes; otherwise it stays silent (ANGULAR-01, WIRE-01).
+  2. **Reviews real Angular defects.** The agent emits one schema-valid JSON object with categories from `rxjs-leaks` | `change-detection` | `di-scope` | `lifecycle` | `rxjs-composition`, covering `.subscribe()` with no `unsubscribe`/`takeUntil`/`takeUntilDestroyed`/async-pipe, in-place `@Input` mutation under `OnPush`, nested subscribes vs `switchMap`/`mergeMap`, `@Input`-read-in-constructor / `@ViewChild`-in-`ngOnInit`, and `providedIn`/`providers:[]` scope errors (ANGULAR-01).
+  3. **Hedges on invisible context.** Change-detection findings are hedged when the `OnPush` decorator is off-hunk; leak claims are medium-confidence when `ngOnDestroy`/`destroy$` teardown is outside the hunk; both `takeUntilDestroyed()` and `takeUntil(destroy$)` are accepted as legitimate (ANGULAR-01).
+  4. **Wired and gated.** All 5 touchpoints complete (`triage.md` Angular detection; both dispatch rows; all five Angular categories stand alone as `None` in `score.py` per the non-twin policy this milestone; agent-count prose bumped 9→10), and a `/vibe-check:deep-review` pass over the phase's changes is clean, with `framework-skill` confirming no half-wired residue (WIRE-01, VERIFY-01).
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 27: framework-electron agent (security-weighted)
+**Goal**: vibe-check gains a security-weighted `framework-electron` reviewer that leads with CVE-class misconfiguration — `webPreferences` hardening, preload over-exposure, IPC input validation, navigation safety, content loading, and process hardening — wired across the 5 touchpoints (including the one genuine `ipc-validation`→security twin in `score.py`) and gated on a clean deep-review.
+**Depends on**: Phase 26 (no capability dependency — shares the wiring files, so executes after 26 to avoid prose collisions). This is the first phase that adds a `score.py` `CATEGORY_DOMAIN` twin, so it also touches the `score.py` unit tests.
+**Requirements**: ELECTRON-01, WIRE-01, VERIFY-01
+**Success Criteria** (what must be TRUE):
+  1. **Triggers correctly.** On a diff that imports `electron` or touches main-process / preload / `webPreferences` config, the `framework-electron` reviewer dispatches in both modes; otherwise it stays silent (ELECTRON-01, WIRE-01).
+  2. **Leads with CVE-class misconfiguration.** The agent emits one schema-valid JSON object with categories from `webpreferences-hardening` | `preload-exposure` | `ipc-validation` | `navigation-safety` | `content-loading` | `process-hardening`, flagging `nodeIntegration: true`/`contextIsolation: false` as headline CRITICALs, raw-`ipcRenderer`/bare-`invoke` preload exposure, unvalidated IPC args into fs/shell/SQL sinks, `shell.openExternal`/missing-navigation-guards, and `http:`/missing-CSP content loading — each mapping the attack path (renderer XSS → Node RCE) and the safe form (ELECTRON-01).
+  3. **Version-gated hedging on omitted flags.** Explicit unsafe flags are flagged with high confidence; *omitted* flags are hedged with a version note (secure defaults: `nodeIntegration` ≥5, `contextIsolation` ≥12, `sandbox` ≥20) rather than asserted "insecure"; centralizable guards (`will-navigate`, CSP, sender checks) are phrased "no guard visible here; confirm not applied centrally" at medium (ELECTRON-01).
+  4. **The `ipc-validation`→security twin is mapped (and ONLY that one).** `score.py`'s `CATEGORY_DOMAIN` maps `ipc-validation` → `security`'s domain (the earned twin — an IPC handler flowing a renderer arg into a sink co-locates with `security`'s `injection`/`path-traversal`), with a regression-lock unit test; `webpreferences-hardening`, `preload-exposure`, and the rest stand alone as `None` (mapping them would spuriously confirm unrelated co-located security findings) (WIRE-01).
+  5. **Wired and gated.** All 5 touchpoints complete (`triage.md` Electron detection; both dispatch rows; the single `ipc-validation` twin + test; agent-count prose bumped 10→11), and a `/vibe-check:deep-review` pass over the phase's changes is clean, with `framework-skill` confirming no half-wired residue (WIRE-01, VERIFY-01).
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 28: framework-react-native agent
+**Goal**: vibe-check gains a `framework-react-native` reviewer that catches RN-specific defects `framework-react` does NOT — list perf, platform branching, native listener cleanup, Reanimated worklet rules, Expo/config gaps, and native-component crashes — triaged DISTINCTLY from web React (emits BOTH `react` and `react-native`), wired across the 5 touchpoints (including the `list-perf`→impact twin), and gated on a clean deep-review. As the last agent to land, this phase closes the agent-count prose coherence at 12 (WIRE-02).
+**Depends on**: Phase 27 (no capability dependency — shares the wiring files, so executes after 27 to avoid prose collisions). Last agent phase; the fleet is complete (12 language+framework agents) after this lands, so WIRE-02 is fully realized here.
+**Requirements**: RN-01, WIRE-01, WIRE-02, VERIFY-01
+**Success Criteria** (what must be TRUE):
+  1. **Triggers correctly AND distinctly from React.** On a diff that imports `react-native` / `expo` / `expo-*` / `@react-navigation/*` / `react-native-reanimated` (or native primitives like `View`/`FlatList`), triage emits BOTH `react` AND `react-native` (so `framework-react` keeps covering the shared JSX/hook surface and this agent is additive, not a replacement); on a plain web-React diff (`react-dom` / DOM tags / `react`-only hooks) it is NOT dispatched (RN-01, WIRE-01).
+  2. **Reviews RN-specific defects only.** The agent emits one schema-valid JSON object with categories from `list-perf` | `platform` | `native-cleanup` | `reanimated` | `expo-config` | `native-component`, covering `.map()`/`ScrollView` over an unbounded list, `Platform.OS` gaps, native listeners (`AppState`/`Linking`/`BackHandler`) without `.remove()` teardown, worklet `runOnJS` boundary errors, AsyncStorage-for-secrets vs SecureStore, and native-component traps (unwrapped text, `onClick` vs `onPress`) — staying in the RN-native lane and NOT re-emitting generic hook/key/dep-array checks `framework-react` already owns (RN-01).
+  3. **Hedges on invisible context.** List-perf is not flagged on a tiny static list (only potentially-unbounded collections); listener-leak is hedged when the effect's cleanup `return` is below the diff window; the Reanimated missing-`'worklet'`-directive check is hedged (Babel plugin auto-injects); `app.json` platform/permission checks are hedged when the manifest is off-hunk (RN-01).
+  4. **The `list-perf`→impact twin is mapped (and ONLY the new one).** `score.py`'s `CATEGORY_DOMAIN` maps `list-perf` → `impact`'s domain (the earned `perf` twin), with a regression-lock unit test; `platform`, `native-cleanup`, `reanimated`, `expo-config`, `native-component` stand alone as `None` (`expo-config` secret-storage is deliberately NOT twinned to `security` this milestone) (WIRE-01).
+  5. **Agent-count prose fully coherent at 12, wired and gated.** With the fifth and final agent landed, `commands/review.md`'s `framework-*` list, the `floor + N` math, the agents/chunk range, the estimated-dispatch upper bound, and the illustrative cost bracket are all internally consistent at the full 12-agent (7→12) fleet; `framework-skill`'s own wiring check finds no half-wired residue; and a `/vibe-check:deep-review` pass over the phase's changes is clean (RN-01, WIRE-01, WIRE-02, VERIFY-01).
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 29: Efficacy Test + Version Bump + Tag (CLOSE)
+**Goal**: Prove all five new agents work via the project's established planted-fixture N=3 smoke pattern (each fires on its framework, stays silent on a no-framework diff, and catches a planted defect), bump `plugin.json` 2.6.0→2.7.0, tag `v2.7`, and publish — closing the milestone.
+**Depends on**: Phases 24, 25, 26, 27, 28 (ALL five agents must be authored, wired, and gated before the efficacy test can exercise the full fleet and the version can bump).
+**Requirements**: CLOSE-01
+**Success Criteria** (what must be TRUE):
+  1. **Each agent triggers and catches.** A planted-fixture smoke test per agent proves it fires on its own framework, stays silent on a no-framework diff, and catches at least one planted defect — five passing smoke tests (CLOSE-01).
+  2. **Versioned.** `plugins/vibe-check/plugin.json` is bumped `2.6.0` → `2.7.0` (CLOSE-01).
+  3. **Tagged and published.** An annotated tag `v2.7` is created and the milestone is published (fast-forward `main` + push main + tag + branch) (CLOSE-01).
+**Plans**: TBD
+**UI hint**: no
 
 ## Backlog
 
