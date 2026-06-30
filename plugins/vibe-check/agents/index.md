@@ -26,6 +26,7 @@ Only load agents that are relevant to reduce context and improve accuracy.
 | Vue imports detected (triage.frameworks "vue") | `framework-vue` |
 | Angular imports detected (triage.frameworks "angular") | `framework-angular` |
 | Electron imports detected (triage.frameworks "electron") | `framework-electron` |
+| React Native imports detected (triage.frameworks "react-native") | `framework-react-native` |
 | Deep review mode | `@agents/architecture.md` |
 | Deep review mode | `@agents/test-sufficiency.md` |
 | Deep review mode + Codex available | codex-adversarial (orchestrator-run) |

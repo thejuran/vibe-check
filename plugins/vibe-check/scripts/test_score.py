@@ -1057,6 +1057,49 @@ class TestCategoriesOverlap(unittest.TestCase):
                 self.assertFalse(score._categories_overlap(c, "injection"))
                 self.assertFalse(score._categories_overlap(c, "perf"))
 
+    def test_react_native_list_perf_twin_cross_confirms_others_standalone(self):
+        # framework-react-native twin policy (v2.7, D-06): this is the SECOND
+        # REAL v2.7 twin (after electron's ipc-validation->security). EXACTLY ONE
+        # react-native category is mapped: `list-perf` -> "impact". An RN
+        # unbounded-list render IS a performance defect, so it correctly
+        # co-locates with — and cross-confirms — impact's own perf /
+        # perf-at-scale / blast-radius findings (and framework-react's "perf",
+        # also -> "impact"), earning the +10. Because _categories_overlap
+        # compares only the COARSE domain, list-perf inherits the FULL "impact"
+        # blast radius: it cross-confirms with — and, per cross_confirm_group,
+        # can absorb within ±2 lines — EVERY "impact"-domain category. The
+        # overlap targets below are the real impact-domain CATEGORY KEYS
+        # (perf, perf-at-scale, blast-radius, breaking-api, schema-change), NOT
+        # the bare "impact" DOMAIN NAME — "impact" is the domain VALUE, not a
+        # category key, so _category_domain of the bare "impact" string is None
+        # and overlapping list-perf against the bare "impact" name would be
+        # False (which is why it is NOT an overlap target below). (Contrast the
+        # electron test, which could use "security" as an overlap target only
+        # because security is self-keyed "security": "security".) Assert the
+        # mapping VALUE explicitly, then the broad overlap against the impact
+        # KEYS, so a future reader does not mistake the twin for a narrow link.
+        self.assertEqual(score._category_domain("list-perf"), "impact")
+        for impact_key in ("perf", "perf-at-scale", "blast-radius",
+                           "breaking-api", "schema-change"):
+            with self.subTest(impact_key=impact_key):
+                self.assertTrue(
+                    score._categories_overlap("list-perf", impact_key))
+        # The OTHER FIVE react-native categories are deliberately UNMAPPED — they
+        # resolve to None and stand alone, NEVER spuriously confirming (and thus
+        # absorbing) an unrelated co-located finding. The injection assertion is
+        # the expo-config-NOT-twinned-to-security regression lock (D-06 / ROADMAP
+        # #4): mapping any of the five — ESPECIALLY expo-config -> security —
+        # would fail loudly here.
+        react_native_standalone = (
+            "platform", "native-cleanup", "reanimated",
+            "expo-config", "native-component",
+        )
+        for c in react_native_standalone:
+            with self.subTest(category=c):
+                self.assertIsNone(score._category_domain(c))
+                self.assertFalse(score._categories_overlap(c, "perf"))
+                self.assertFalse(score._categories_overlap(c, "injection"))
+
     def test_framework_express_categories_standalone(self):
         # framework-express no-twin policy (v2.7, D-05): ALL SIX Express
         # categories are deliberately UNMAPPED in CATEGORY_DOMAIN — none has a

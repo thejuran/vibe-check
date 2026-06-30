@@ -395,6 +395,33 @@ CATEGORY_DOMAIN = {
     # defect). Broadening to cover them is a deferred follow-up, not current
     # behavior.
     "ipc-validation": "security",
+    # framework-react-native (v2.7, D-06): the SECOND real framework twin (after
+    # electron's ipc-validation->security) and the earned `perf` twin. ONLY
+    # "list-perf" is mapped — it resolves to "impact" because an RN unbounded-list
+    # render (a large/fetched collection in a ScrollView instead of a virtualized
+    # FlatList/FlashList) is a performance defect that co-locates with "impact"'s
+    # own "perf" / "perf-at-scale" / "blast-radius" findings AND framework-react's
+    # "perf" (all already map to "impact" above): it is genuinely the same perf
+    # defect seen by two reviewers, so when framework-react-native flags "list-perf"
+    # AND framework-react/impact flags a perf-domain finding at the same
+    # (file, line ±2) they correctly cross-confirm and earn the +10. Because
+    # _categories_overlap compares only the COARSE domain, this twin inherits the
+    # FULL "impact"-domain reach: it cross-confirms with — AND, per
+    # cross_confirm_group, can absorb when co-located within ±2 lines — ANY
+    # "impact"-domain finding (perf, perf-at-scale, blast-radius, breaking-api,
+    # schema-change), NOT only perf. This is the SAME broad same-domain behavior
+    # every existing impact category already has and it is INTENDED: an unbounded
+    # list IS a perf defect, so it must behave like one. framework-react-native's
+    # OTHER FIVE categories — "platform", "native-cleanup", "reanimated",
+    # "expo-config", "native-component" — are deliberately NOT mapped (they resolve
+    # to None and cross-confirm with NOTHING today; each stands on its own score),
+    # MIRRORING the framework-react / framework-fastapi non-twin policy. In
+    # particular "expo-config"'s AsyncStorage-for-secrets finding is DELIBERATELY
+    # NOT twinned to "security" this milestone (ROADMAP #4 / D-06) — mapping it
+    # would let an RN-mechanism finding spuriously confirm (and silently absorb) an
+    # unrelated co-located security finding. Broadening to cover any of the five is
+    # a deferred follow-up, not current behavior.
+    "list-perf": "impact",
     # --- compliance ---
     "rule-violation": "compliance",
     # framework-fastapi: ONLY its data-exposure/auth-security twins map to
