@@ -175,5 +175,3 @@ Return ONE JSON per `templates/agent-output-schema.md`. Use `category` values:
 honest `severity` + `agent_confidence` and let `score.py` band/filter.
 
 No findings → `{"agent":"framework-electron","findings":[],"agent_notes":[]}`. JSON only.
-</content>
-</invoke>
