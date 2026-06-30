@@ -109,7 +109,7 @@ Full details: `.planning/milestones/v2.5-ROADMAP.md`. 13 requirements, 100% cove
 - [x] **Phase 26: framework-angular agent** — Author `agents/framework-angular.md` (rxjs-leaks / change-detection / di-scope / lifecycle / rxjs-composition), wire, gate (completed 2026-06-30)
 - [x] **Phase 27: framework-electron agent (security-weighted)** — Author `agents/framework-electron.md` (webpreferences-hardening / preload-exposure / ipc-validation / navigation-safety / content-loading / process-hardening), map the `ipc-validation`→security twin in `score.py`, wire, gate (completed 2026-06-30)
 - [x] **Phase 28: framework-react-native agent** — Author `agents/framework-react-native.md` (list-perf / platform / native-cleanup / reanimated / expo-config / native-component), emit BOTH `react` and `react-native` in triage, map the `list-perf`→impact twin in `score.py`, complete the agent-count prose at 12, wire, gate (completed 2026-06-30)
-- [ ] **Phase 29: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke test per agent (fires on its framework, silent otherwise, catches a planted defect), bump `plugin.json` 2.6.0→2.7.0, tag `v2.7`, publish
+- [ ] **Phase 29: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke test per agent (fires on its framework, silent otherwise, catches a planted defect), bump `plugin.json` 2.6.0→2.7.0, tag `v2.7`, publish (2 plans)
 
 
 ## Progress
@@ -149,7 +149,7 @@ v2.7 continues from v2.6: 23 → 24 → 25 → 26 → 27 → 28 → 29 (sequenti
 | 26. framework-angular agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 27. framework-electron agent (security-weighted) | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 28. framework-react-native agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
-| 29. Efficacy Test + Version Bump + Tag | v2.7 | 0/? | Not started | - |
+| 29. Efficacy Test + Version Bump + Tag | v2.7 | 1/2 | In Progress|  |
 
 > Full per-phase detail for shipped v2.4 (Phases 13-18) lives in the archive:
 > `.planning/milestones/v2.4-ROADMAP.md`.
@@ -281,7 +281,10 @@ Plans:
   1. **Each agent triggers and catches.** A planted-fixture smoke test per agent proves it fires on its own framework, stays silent on a no-framework diff, and catches at least one planted defect — five passing smoke tests (CLOSE-01).
   2. **Versioned.** `plugins/vibe-check/plugin.json` is bumped `2.6.0` → `2.7.0` (CLOSE-01).
   3. **Tagged and published.** An annotated tag `v2.7` is created and the milestone is published (fast-forward `main` + push main + tag + branch) (CLOSE-01).
-**Plans**: TBD
+**Plans**: 2 plans (2 waves — efficacy proof, then sign-off + bump + tag + publish)
+Plans:
+- [x] 29-01-PLAN.md — Run the dogfood-RESULTS efficacy proof for all five framework agents (six planted fixtures: five framework + one no-framework control; fires/silent/catches) and author the UNSIGNED RESULTS-v2.7.md
+- [ ] 29-02-PLAN.md — Owner sign-off checkpoint -> write the single OWNER-SIGNOFF marker, bump .claude-plugin/plugin.json 2.6.0->2.7.0, annotated tag v2.7, publish (ff main + push main+tag+branch)
 **UI hint**: no
 
 ## Backlog
