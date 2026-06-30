@@ -77,7 +77,7 @@ the control-only run (non-vacuous), and the RN react-only negative from the web-
 
 ## Structured evidence block (verbatim from the seven scoped runs — proves, not claims)
 
-DOGFOOD_HEAD: 7c77e4e
+DOGFOOD_HEAD: 3501545
 INSTALL_ACTIVE: (not exercised — agents proven against their committed `agents/*.md` specs at DOGFOOD_HEAD)
 METHOD: seven separate scoped diffs; one run-level `frameworks` array per diff; silence from CONTROL_RUN, RN-negative from WEB_REACT_NEGATIVE_RUN; never a combined diff
 SCORE_SENTINEL: scored_by_script:true (all five framework runs + control)
@@ -143,11 +143,13 @@ phase (per D-06). **Neither blocks the `v2.7` tag.**
   `DOGFOOD_HEAD`; the only commits on top touch proof artifacts under `docs/`/`.planning/` (this
   RESULTS doc + the plan summaries), which the tag's source-parity posture deliberately excludes — so
   the evidence is a conservative lower bound for the runtime tree the tag will stamp.
-- <!-- PLAN-29-02 PROVENANCE PLACEHOLDER: plan 29-02 appends here the bump-commit provenance note —
-  that the only commits between the RN-wiring commit (7c77e4e) and the tagged 2.7.0 bump commit are
-  this efficacy doc and the `plugin.json` version bump, neither of which changes runtime behavior, so
-  the evidence above remains a conservative lower bound for the tagged tree. Plan 29-02 also REPOINTS
-  the `DOGFOOD_HEAD:` line above to the bump commit. -->
+- **DOGFOOD_HEAD repointed to the tagged tree (`3501545`).** The `v2.7` tag stamps the
+  `chore(29-02): sign v2.7 efficacy results + bump plugin.json to 2.7.0` commit (`3501545`), so
+  `DOGFOOD_HEAD` above is repointed from the RN-wiring commit (`7c77e4e`) to that bump commit. The
+  ONLY commits between `7c77e4e` and the tagged `3501545` are (a) this efficacy RESULTS doc and (b)
+  the `plugin.json` `2.6.0`→`2.7.0` version bump — NEITHER changes agent/`triage`/`score.py` runtime
+  behavior. So the seven-scoped-run evidence above, gathered at `7c77e4e`, remains a conservative
+  lower bound for the exact runtime tree the `v2.7` tag stamps at `3501545`.
 
 ## Plain-language summary (for the owner)
 
