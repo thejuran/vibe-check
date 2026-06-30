@@ -108,7 +108,7 @@ Full details: `.planning/milestones/v2.5-ROADMAP.md`. 13 requirements, 100% cove
 - [x] **Phase 25: framework-vue agent** — Author `agents/framework-vue.md` (reactivity / composition-api / lifecycle-cleanup / template / props), guard against the Vue 3.5 reactive-props-destructure false positive, wire, gate (completed 2026-06-29)
 - [x] **Phase 26: framework-angular agent** — Author `agents/framework-angular.md` (rxjs-leaks / change-detection / di-scope / lifecycle / rxjs-composition), wire, gate (completed 2026-06-30)
 - [x] **Phase 27: framework-electron agent (security-weighted)** — Author `agents/framework-electron.md` (webpreferences-hardening / preload-exposure / ipc-validation / navigation-safety / content-loading / process-hardening), map the `ipc-validation`→security twin in `score.py`, wire, gate (completed 2026-06-30)
-- [ ] **Phase 28: framework-react-native agent** — Author `agents/framework-react-native.md` (list-perf / platform / native-cleanup / reanimated / expo-config / native-component), emit BOTH `react` and `react-native` in triage, map the `list-perf`→impact twin in `score.py`, complete the agent-count prose at 12, wire, gate
+- [x] **Phase 28: framework-react-native agent** — Author `agents/framework-react-native.md` (list-perf / platform / native-cleanup / reanimated / expo-config / native-component), emit BOTH `react` and `react-native` in triage, map the `list-perf`→impact twin in `score.py`, complete the agent-count prose at 12, wire, gate (completed 2026-06-30)
 - [ ] **Phase 29: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke test per agent (fires on its framework, silent otherwise, catches a planted defect), bump `plugin.json` 2.6.0→2.7.0, tag `v2.7`, publish
 
 
@@ -148,7 +148,7 @@ v2.7 continues from v2.6: 23 → 24 → 25 → 26 → 27 → 28 → 29 (sequenti
 | 25. framework-vue agent | v2.7 | 1/1 | Complete   | 2026-06-29 |
 | 26. framework-angular agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 27. framework-electron agent (security-weighted) | v2.7 | 1/1 | Complete   | 2026-06-30 |
-| 28. framework-react-native agent | v2.7 | 0/? | Not started | - |
+| 28. framework-react-native agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 29. Efficacy Test + Version Bump + Tag | v2.7 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped v2.4 (Phases 13-18) lives in the archive:
@@ -268,7 +268,9 @@ Plans:
   3. **Hedges on invisible context.** List-perf is not flagged on a tiny static list (only potentially-unbounded collections); listener-leak is hedged when the effect's cleanup `return` is below the diff window; the Reanimated missing-`'worklet'`-directive check is hedged (Babel plugin auto-injects); `app.json` platform/permission checks are hedged when the manifest is off-hunk (RN-01).
   4. **The `list-perf`→impact twin is mapped (and ONLY the new one).** `score.py`'s `CATEGORY_DOMAIN` maps `list-perf` → `impact`'s domain (the earned `perf` twin), with a regression-lock unit test; `platform`, `native-cleanup`, `reanimated`, `expo-config`, `native-component` stand alone as `None` (`expo-config` secret-storage is deliberately NOT twinned to `security` this milestone) (WIRE-01).
   5. **Agent-count prose fully coherent at 12, wired and gated.** With the fifth and final agent landed, `commands/review.md`'s `framework-*` list, the `floor + N` math, the agents/chunk range, the estimated-dispatch upper bound, and the illustrative cost bracket are all internally consistent at the full 12-agent (7→12) fleet; `framework-skill`'s own wiring check finds no half-wired residue; and a `/vibe-check:deep-review` pass over the phase's changes is clean (RN-01, WIRE-01, WIRE-02, VERIFY-01).
-**Plans**: TBD
+**Plans**: 1 plan (single wave)
+Plans:
+- [x] 28-01-PLAN.md — Author `agents/framework-react-native.md` (six RN-native categories: list-perf / platform / native-cleanup / reanimated / expo-config / native-component, fastapi-discipline hedging + the four D-04 FP-guards), wire all 6 touchpoints atomically (triage DUAL-EMIT react+react-native import-gated detection + dispatch rows in both modes + index.md matrix row + count prose 11→12 across the four anchors, CLOSING WIRE-02 at 12), add the score.py `list-perf`→impact twin + its regression-lock test
 **UI hint**: yes
 
 ### Phase 29: Efficacy Test + Version Bump + Tag (CLOSE)
