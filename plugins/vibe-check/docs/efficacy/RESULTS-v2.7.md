@@ -1,15 +1,15 @@
 # Framework Coverage Efficacy Test — RESULTS (v2.7, Phase 29)
 
-**Verdict: CLOSE-01 `PASS` · owner sign-off pending at milestone-end gate** — the five new
+**Verdict: CLOSE-01 `PASS` · owner sign-off RECORDED (see `OWNER-SIGNOFF:` marker at end)** — the five new
 v2.7 framework agents (`framework-express`, `framework-vue`, `framework-angular`,
 `framework-electron`, `framework-react-native`) were each proven via the project's established
 dogfood-RESULTS pattern (D-01 — a markdown RESULTS doc, NOT a new executable harness, D-02). On
 seven SEPARATE SCOPED runs, each agent **fired** on a planted fixture in its own framework,
 **caught** a planted defect in a category it owns, and — proven non-vacuously by a dedicated
 control-only run — the cohort **stayed silent** on a no-framework diff. A seventh web-React-only
-run proved React Native's react-only negative (`react` emitted, `react-native` never). The doc
-ends written-but-UNSIGNED; the `OWNER-SIGNOFF:` marker is authored only by the milestone-end
-sign-off step (plan 29-02).
+run proved React Native's react-only negative (`react` emitted, `react-native` never). The owner
+sign-off is RECORDED in the single `OWNER-SIGNOFF:` marker at the end of this doc, authored by the
+milestone-end sign-off step (plan 29-02) after the owner approved these results.
 
 - **framework-express** fired (`express` token) and caught an error-middleware arity footgun
   (`middleware-order`): a 3-arg `(req, res, next)` handler intended as the error handler, which
@@ -35,7 +35,8 @@ diff and the single relevant framework agent returned its finding.
 
 **Why scoped separately (the critical method constraint):** triage emits ONE run-level
 `frameworks` array per diff (see `agents/triage.md` — `"frameworks": ["react"]`), NOT a per-file
-attribution. A single combined diff staging all six fixtures would put ALL FIVE framework tokens in
+attribution. A single combined diff staging all six silence-relevant fixtures (the five framework
+fixtures plus the no-framework control) would put ALL FIVE framework tokens in
 that one array regardless of the control — which would make "stays silent on a no-framework diff"
 pass VACUOUSLY and weaken the React-Native react-only negative. Therefore every scope was run as
 its OWN isolated diff: five per-framework runs, one CONTROL-ONLY run (the sole non-vacuous proof of
@@ -53,7 +54,8 @@ multi-fixture diff.
   was empty.
 - **Surface confirmation.** Each planted finding was additionally piped through `scripts/score.py`
   (read-only) to confirm it clears the `/deep-review` ≥ 70 surface threshold; the control produced
-  zero survivors. `scored_by_script:true` on every run.
+  zero survivors. `scored_by_script:true` on every scored run (the five framework runs + the
+  control; the web-React negative run is triage-only by design and is not scored).
 
 ## CLOSE-01a — the five agents, three conditions each (per-thread table)
 
@@ -134,22 +136,28 @@ phase (per D-06). **Neither blocks the `v2.7` tag.**
 
 ## Provenance (honest history)
 
-- **DOGFOOD_HEAD** above is `7c77e4e` (`feat(28-01): wire framework-react-native across six
-  touchpoints`) — the **last runtime-touching commit** on `feat/framework-skill-reviewer`, the exact
-  runtime source these agents were proven against. The `docs(28-01)` commit on top (`c0bb779`) is
-  docs-only (touches `.planning/ROADMAP.md`) and changes no runtime behavior, so the RN-wiring commit
-  is the correct anchor — NOT the docs commit.
-- **No fix commit landed during this efficacy pass.** The runtime source is unchanged from
-  `DOGFOOD_HEAD`; the only commits on top touch proof artifacts under `docs/`/`.planning/` (this
-  RESULTS doc + the plan summaries), which the tag's source-parity posture deliberately excludes — so
-  the evidence is a conservative lower bound for the runtime tree the tag will stamp.
-- **DOGFOOD_HEAD repointed to the tagged tree (`3501545`).** The `v2.7` tag stamps the
-  `chore(29-02): sign v2.7 efficacy results + bump plugin.json to 2.7.0` commit (`3501545`), so
-  `DOGFOOD_HEAD` above is repointed from the RN-wiring commit (`7c77e4e`) to that bump commit. The
-  ONLY commits between `7c77e4e` and the tagged `3501545` are (a) this efficacy RESULTS doc and (b)
-  the `plugin.json` `2.6.0`→`2.7.0` version bump — NEITHER changes agent/`triage`/`score.py` runtime
-  behavior. So the seven-scoped-run evidence above, gathered at `7c77e4e`, remains a conservative
-  lower bound for the exact runtime tree the `v2.7` tag stamps at `3501545`.
+- **`DOGFOOD_HEAD` is `3501545` (the tagged tree); its last runtime-touching ancestor is `7c77e4e`.**
+  The agents were proven against the runtime source at `7c77e4e` (`feat(28-01): wire
+  framework-react-native across six touchpoints`) — the **last commit to touch agent/`triage`/`score.py`
+  runtime** on `feat/framework-skill-reviewer`. The `v2.7` tag, however, stamps the later bump commit
+  `3501545` (see the repoint bullet below), so the `DOGFOOD_HEAD:` value above is `3501545`, NOT
+  `7c77e4e`. Every commit between `7c77e4e` and `3501545` is docs/planning or a version-string bump —
+  none touches runtime — so the `7c77e4e` evidence remains valid for the `3501545` tree.
+- **No fix commit landed during this efficacy pass.** The runtime source is unchanged from the
+  `7c77e4e` ancestor through the tagged `3501545`; every commit on top touches only proof/planning
+  artifacts under `docs/`/`.planning/` (this RESULTS doc + the plan summaries + the `.planning/ROADMAP.md`
+  docs commit `c0bb779`) or the `plugin.json` version string — the tag's source-parity posture
+  deliberately excludes the docs/planning artifacts, so the evidence is a conservative lower bound for
+  the runtime tree the tag stamps.
+- **`DOGFOOD_HEAD` repointed to the tagged tree (`3501545`).** The `v2.7` tag stamps the
+  `chore(29-02): sign v2.7 efficacy results + bump plugin.json to 2.7.0` commit (`3501545`), so the
+  `DOGFOOD_HEAD:` line above is repointed from the RN-wiring ancestor (`7c77e4e`) to that bump commit.
+  The range `7c77e4e..3501545` contains four commits — `c0bb779` (`.planning/ROADMAP.md` docs),
+  `a643988` + `1ae54d8` (this RESULTS doc + its plan summary), and `3501545` itself (the RESULTS
+  sign-off + the `plugin.json` `2.6.0`→`2.7.0` bump) — and the **ONLY runtime/source change** among
+  them is the version-string bump; NONE touches agent/`triage`/`score.py` behavior. So the
+  seven-scoped-run evidence above, gathered at `7c77e4e`, remains a conservative lower bound for the
+  exact runtime tree the `v2.7` tag stamps at `3501545`.
 
 ## Plain-language summary (for the owner)
 
