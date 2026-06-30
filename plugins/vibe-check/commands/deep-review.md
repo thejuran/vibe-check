@@ -72,6 +72,7 @@ Concretely, your execution order is:
 |  | Express imports | `framework-express` | sonnet |
 |  | Vue imports / `.vue` SFC | `framework-vue` | sonnet |
 |  | Angular imports | `framework-angular` | sonnet |
+|  | Electron imports | `framework-electron` | sonnet |
 
 **Why the top tier on `bugs` and `architecture`:** these are the two agents whose judgment gates what ships — missed real bugs and intent-vs-implementation drift are the costliest failure modes, and each is a single dispatch per pass so the upgrade cost is bounded. `bugs` keeps `model: sonnet` in its frontmatter (that's what `/review` uses for cheap iteration); `/deep-review` upgrades it by passing `model: "<TOP>"` in the Task call — the same per-call override mechanism as the large-diff Haiku downgrade in `commands/review.md` M5. `architecture` defaults to `opus` in its frontmatter but `/deep-review` likewise passes `model: "<TOP>"` per-call so the env var governs it too. `impact` is deep-only and stays on `opus` via its frontmatter — no override.
 
