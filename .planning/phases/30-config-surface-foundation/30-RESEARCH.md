@@ -386,22 +386,28 @@ PY
 | A4 | An optional looser import-guard on `config.py` (no `subprocess`/`os.system`) is nice-to-have, not required | Supporting stack | None — purely additive test hardening; omitting it changes nothing functional. LOW. |
 | A5 | The config helper resolves its file path via the SAME dev-safe block as score.py but with a degrade (not fail-closed) terminal posture | Pattern 4 / Pitfall 4 | If a different resolution is wanted, wiring differs — but degrade-not-abort is mandated by CONFIG-01/03, so the posture itself is locked; only the resolution ORDER is the assumption. LOW. |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three were the planner's calls to make; each is now LOCKED inside the
+> Phase-30 plans. Markers added 2026-06-30 after the plan-checker pass.
 
 1. **The exact `thresholds` sub-key→boundary mapping and validation (D-02).**
    - What we know: `band_for` has 3 boundaries (95/80/70, single call site at score.py:810); the spec example shows 2 sub-keys (`critical=80, warning=70`); the per-command filter (`THRESHOLDS`, score.py:44) runs after banding and must stay coherent with the `medium` floor.
    - What's unclear: 2-key vs 3-key schema; defaults for omitted sub-keys; monotonicity rule; whether `medium` may drop below the deep-review cutoff (70).
    - Recommendation: planner specifies a 3-sub-key schema with strict-monotonic validation and whole-set default fallback (Pattern 1); pin it with a thresholds-override test AND a default-byte-stable test. This is explicitly the planner's call (CONTEXT.md Discretion) — research's job is to surface the coherence trap, which it does.
+   - **RESOLVED:** LOCKED in `30-01-PLAN.md` (3-sub-key `{critical, warning, medium}`, each an int in `[1,100]`, strictly descending, `medium ≥ 70`, whole-set fallback to the built-in 95/80/70 + one warning) and consumed verbatim in `30-02-PLAN.md`'s interface block. Default path stays byte-identical (GOLDEN_DIGEST + 8 TestBandBoundaries unchanged).
 
 2. **`top_model` env-vs-toml precedence (A2) and `disabled` core-agent policy (A3).**
    - What we know: `$VIBE_CHECK_TOP_MODEL` already exists with opus/fable validation; `bugs`+`security` are always-on.
    - What's unclear: the merge order with the new toml keys; whether core agents are un-disable-able.
    - Recommendation: env > toml > default for the model; honor `disabled` with a visible config-health note. Both are cheap to confirm at plan/discuss time and are flagged in the Assumptions Log.
+   - **RESOLVED:** LOCKED in `30-03-PLAN.md` — `$VIBE_CHECK_TOP_MODEL` (env) > `top_model` (toml) > `opus` (default), reusing the opus/fable allowlist for both sources; `disabled` is honored (user's repo) but a disabled core agent (`bugs`/`security`) is announced on the config-health line.
 
 3. **Does `deep-review.md` need a parallel config touch, or only `review.md`?**
    - What we know: deep-review.md delegates review.md's scoring Phase verbatim (so `thresholds` flows through for free), but it OWNS its own top-model resolution (deep-review.md:55) and its own agent-selection table (the "Differences" section).
    - What's unclear: whether `top_model` (toml) and `disabled` need to be applied in deep-review.md's dispatch/model-resolution prose in addition to review.md.
    - Recommendation: plan for `thresholds` to be review.md-only (inherited by deep), but `top_model`/`disabled` to touch BOTH command files where each resolves its own dispatch/model — verify during planning by reading deep-review.md's model-resolution and Selection-table prose. Likely a small parallel edit, consistent with how the milestone treats these as shared wiring files (SEQUENTIAL discipline, STATE.md).
+   - **RESOLVED:** stated verbatim in `30-03-PLAN.md` — `thresholds` is review.md-only (inherited by deep-review via delegation); `top_model` + `disabled` touch BOTH command files where each resolves its own dispatch/model.
 
 ## Environment Availability
 
