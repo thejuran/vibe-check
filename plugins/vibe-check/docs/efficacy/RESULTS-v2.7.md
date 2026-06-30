@@ -169,3 +169,5 @@ safety suite stayed green. In short: the five agents are real, they fire on the 
 catch the right bugs, and they stay quiet otherwise — the milestone's core promise is proven.
 
 <!-- The owner sign-off task is the SOLE author of the OWNER-SIGNOFF marker below this line. -->
+
+OWNER-SIGNOFF: approved 2026-06-30
