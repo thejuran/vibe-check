@@ -365,6 +365,36 @@ CATEGORY_DOMAIN = {
     # (framework-react's "perf" is already mapped to "impact" above, alongside
     # language-typescript's "perf" — unchanged; "perf" IS a cross-agent twin.)
     "hooks": "style",
+    # framework-electron (v2.7, D-06): the FIRST real framework-into-"security"
+    # twin since react's hooks->style. ONLY "ipc-validation" is mapped — it
+    # resolves to "security" because an Electron IPC handler that flows a
+    # renderer-supplied arg into a sink (fs / shell.openExternal / a SQL query /
+    # child_process) co-locates with security's own "injection" / "path-traversal"
+    # findings (both already map to "security" above): it is genuinely the same
+    # defect seen by two reviewers, so when framework-electron flags
+    # "ipc-validation" AND security flags injection/path-traversal at the same
+    # (file, line ±2) they correctly cross-confirm and earn the +10. Because
+    # _categories_overlap compares only the COARSE domain, this twin inherits the
+    # FULL "security"-domain reach: it cross-confirms with — AND, per
+    # cross_confirm_group, can absorb when co-located within ±2 lines — ANY
+    # "security"-domain finding (injection, path-traversal, auth, data-exposure,
+    # xss, secrets, ssrf, etc.), NOT only injection/path-traversal. This is the
+    # SAME broad same-domain behavior every existing security category already
+    # has (injection already overlaps auth/secrets/xss — see
+    # test_same_domain_co_located_confirms) and it is INTENDED: an IPC->sink flow
+    # IS a security defect, so it must behave like one. framework-electron's OTHER
+    # FIVE categories — "webpreferences-hardening", "preload-exposure",
+    # "navigation-safety", "content-loading", "process-hardening" — are
+    # deliberately NOT mapped (they resolve to None and cross-confirm with NOTHING
+    # today; each stands on its own score), MIRRORING the framework-react /
+    # framework-fastapi non-twin policy: only a genuine cross-agent TWIN is mapped,
+    # so a distinct electron misconfiguration is never folded into the broad
+    # "security" bucket where it could spuriously confirm with — and silently
+    # absorb — an unrelated co-located security finding (e.g. a
+    # "webpreferences-hardening" flag-omission note 2 lines from a real injection
+    # defect). Broadening to cover them is a deferred follow-up, not current
+    # behavior.
+    "ipc-validation": "security",
     # --- compliance ---
     "rule-violation": "compliance",
     # framework-fastapi: ONLY its data-exposure/auth-security twins map to
