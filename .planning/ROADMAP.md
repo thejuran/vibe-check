@@ -107,7 +107,7 @@ Full details: `.planning/milestones/v2.5-ROADMAP.md`. 13 requirements, 100% cove
 - [x] **Phase 24: framework-express agent** — Author `agents/framework-express.md` (middleware-order / async-errors / error-handling / security-headers / input-validation / request-lifecycle), resolve the `error-handling` naming collision, wire all 5 touchpoints, gate on a clean deep-review (completed 2026-06-28)
 - [x] **Phase 25: framework-vue agent** — Author `agents/framework-vue.md` (reactivity / composition-api / lifecycle-cleanup / template / props), guard against the Vue 3.5 reactive-props-destructure false positive, wire, gate (completed 2026-06-29)
 - [x] **Phase 26: framework-angular agent** — Author `agents/framework-angular.md` (rxjs-leaks / change-detection / di-scope / lifecycle / rxjs-composition), wire, gate (completed 2026-06-30)
-- [ ] **Phase 27: framework-electron agent (security-weighted)** — Author `agents/framework-electron.md` (webpreferences-hardening / preload-exposure / ipc-validation / navigation-safety / content-loading / process-hardening), map the `ipc-validation`→security twin in `score.py`, wire, gate
+- [x] **Phase 27: framework-electron agent (security-weighted)** — Author `agents/framework-electron.md` (webpreferences-hardening / preload-exposure / ipc-validation / navigation-safety / content-loading / process-hardening), map the `ipc-validation`→security twin in `score.py`, wire, gate (completed 2026-06-30)
 - [ ] **Phase 28: framework-react-native agent** — Author `agents/framework-react-native.md` (list-perf / platform / native-cleanup / reanimated / expo-config / native-component), emit BOTH `react` and `react-native` in triage, map the `list-perf`→impact twin in `score.py`, complete the agent-count prose at 12, wire, gate
 - [ ] **Phase 29: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke test per agent (fires on its framework, silent otherwise, catches a planted defect), bump `plugin.json` 2.6.0→2.7.0, tag `v2.7`, publish
 
@@ -147,7 +147,7 @@ v2.7 continues from v2.6: 23 → 24 → 25 → 26 → 27 → 28 → 29 (sequenti
 | 24. framework-express agent | v2.7 | 1/1 | Complete    | 2026-06-28 |
 | 25. framework-vue agent | v2.7 | 1/1 | Complete   | 2026-06-29 |
 | 26. framework-angular agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
-| 27. framework-electron agent (security-weighted) | v2.7 | 0/? | Not started | - |
+| 27. framework-electron agent (security-weighted) | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 28. framework-react-native agent | v2.7 | 0/? | Not started | - |
 | 29. Efficacy Test + Version Bump + Tag | v2.7 | 0/? | Not started | - |
 
@@ -255,7 +255,7 @@ Plans:
   4. **The `ipc-validation`→security twin is mapped (and ONLY that one).** `score.py`'s `CATEGORY_DOMAIN` maps `ipc-validation` → `security`'s domain (the earned twin — an IPC handler flowing a renderer arg into a sink co-locates with `security`'s `injection`/`path-traversal`), with a regression-lock unit test; `webpreferences-hardening`, `preload-exposure`, and the rest stand alone as `None` (mapping them would spuriously confirm unrelated co-located security findings) (WIRE-01).
   5. **Wired and gated.** All 5 touchpoints complete (`triage.md` Electron detection; both dispatch rows; the single `ipc-validation` twin + test; agent-count prose bumped 10→11), and a `/vibe-check:deep-review` pass over the phase's changes is clean, with `framework-skill` confirming no half-wired residue (WIRE-01, VERIFY-01).
 **Plans**: 1 plan
-- [ ] 27-01-PLAN.md — Author security-weighted framework-electron + wire 6 touchpoints (first real score.py twin: ipc-validation→security)
+- [x] 27-01-PLAN.md — Author security-weighted framework-electron + wire 6 touchpoints (first real score.py twin: ipc-validation→security)
 **UI hint**: no
 
 ### Phase 28: framework-react-native agent
