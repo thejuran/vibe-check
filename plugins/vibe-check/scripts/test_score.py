@@ -1020,6 +1020,43 @@ class TestCategoriesOverlap(unittest.TestCase):
                 self.assertFalse(
                     score._categories_overlap(standalone, "type-safety"))
 
+    def test_electron_ipc_validation_twin_cross_confirms_others_standalone(self):
+        # framework-electron twin policy (v2.7, D-06): this is the FIRST REAL
+        # v2.7 twin — the express/vue/angular tests above are NO-twin locks.
+        # EXACTLY ONE electron category is mapped: `ipc-validation` -> "security".
+        # An Electron IPC handler that flows a renderer-supplied arg into a sink
+        # IS a security defect, so it correctly co-locates with — and
+        # cross-confirms — security's own injection/path-traversal findings,
+        # earning the +10. Because _categories_overlap compares only the COARSE
+        # domain, ipc-validation inherits the FULL "security"-domain blast radius
+        # (adversarial-review finding, folded in): it cross-confirms with — and,
+        # per cross_confirm_group, can absorb within ±2 lines — EVERY
+        # "security"-domain category, not just injection/path-traversal. This is
+        # the SAME behavior every existing security category already has (see
+        # test_same_domain_co_located_confirms: injection already overlaps
+        # auth/secrets/xss/etc.) and it is exactly correct. Assert the broad
+        # overlap explicitly so a future reader does not mistake the twin for a
+        # narrow two-category link.
+        self.assertEqual(score._category_domain("ipc-validation"), "security")
+        for sec in ("security", "injection", "path-traversal", "auth",
+                    "data-exposure", "xss", "secrets", "ssrf"):
+            with self.subTest(security_domain=sec):
+                self.assertTrue(
+                    score._categories_overlap("ipc-validation", sec))
+        # The OTHER FIVE electron categories are deliberately UNMAPPED — they
+        # resolve to None and stand alone, NEVER spuriously confirming (and thus
+        # absorbing) an unrelated co-located security or impact finding. If a
+        # future edit maps any of the five to a domain, this fails loudly.
+        electron_standalone = (
+            "webpreferences-hardening", "preload-exposure",
+            "navigation-safety", "content-loading", "process-hardening",
+        )
+        for c in electron_standalone:
+            with self.subTest(category=c):
+                self.assertIsNone(score._category_domain(c))
+                self.assertFalse(score._categories_overlap(c, "injection"))
+                self.assertFalse(score._categories_overlap(c, "perf"))
+
     def test_framework_express_categories_standalone(self):
         # framework-express no-twin policy (v2.7, D-05): ALL SIX Express
         # categories are deliberately UNMAPPED in CATEGORY_DOMAIN — none has a
