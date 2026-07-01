@@ -77,6 +77,8 @@ Consider fixing or acknowledge in `--finalize`:
 | Below min_confidence | {{min_confidence_count}} |
 | Linter territory | {{linter_count}} |
 | Silenced by comment | {{silenced_count}} |
+| Absorbed into a co-located finding | {{absorbed_count}} |
+| Matches intent doc | {{intent_doc_count}} |
 
 <details>
 <summary>View filtered issues</summary>
@@ -182,6 +184,8 @@ Assert-by-reading: Y is present, at `low` band, OUTSIDE the Suppression section;
 | Below confidence threshold | {{low_confidence_count}} |
 | Below min_confidence | {{min_confidence_count}} |
 | Linter territory | {{linter_count}} |
+| Absorbed into a co-located finding | {{absorbed_count}} |
+| Matches intent doc | {{intent_doc_count}} |
 
 > These were excluded because they don't meet the confidence threshold or are outside your changes.
 ```
