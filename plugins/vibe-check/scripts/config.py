@@ -87,11 +87,23 @@ _BAND_MAX = 100
 # (D-02). A medium below the floor => whole-set fallback to None + warning.
 _MEDIUM_FLOOR = 70
 
-# The [noise] min_confidence knob (CONF-02, D-04): an int in [0, 100] — the natural
-# domain of agent_confidence. None => "no filter" (byte-stable default). Anything
-# out of range / non-int / bool degrades per-key to None + one warning.
+# The [noise] min_confidence knob (CONF-02, D-04): an int in [0, 49]. None =>
+# "no filter" (byte-stable default). Anything out of range / non-int / bool
+# degrades per-key to None + one warning.
+#
+# WHY the ceiling is 49, not 100 (Fable A3 — the "H-KNOB kill-shot"): the filter
+# runs BEFORE scoring, so the trust adders can never rescue a dropped finding.
+# A critical-severity finding surfaces at agent_confidence >= 50 with full trust
+# (conf + 20 in_diff + 10 cross-confirm + 15 persisted + 0 critical-severity
+# = conf+45 >= the 95 critical band floor  =>  conf >= 50). So any
+# min_confidence >= 50 SILENTLY annihilates real criticals the same review would
+# otherwise surface — the spec's own illustrative `min_confidence = 60` did
+# exactly that. Values >= 50 are refused (None + a warning explaining why), the
+# same degrade direction as every other invalid value: over-reporting beats
+# silently missing criticals.
 _MIN_CONFIDENCE_MIN = 0
-_MIN_CONFIDENCE_MAX = 100
+_MIN_CONFIDENCE_CRITICAL_FLOOR = 50   # conf >= 50 can reach the critical band.
+_MIN_CONFIDENCE_MAX = _MIN_CONFIDENCE_CRITICAL_FLOOR - 1
 
 # The [noise] idiom_floor knob (NOISE-01, D-01/D-02): a per-category band cap on
 # `idiom`-category findings. Valid values are the band names below (INCLUDING
@@ -197,7 +209,7 @@ def _validate_top_model(raw):
 
 
 def _validate_min_confidence(raw):
-    """Validate a raw `min_confidence` VALUE (CONF-02, D-04): an int in [0, 100].
+    """Validate a raw `min_confidence` VALUE (CONF-02, D-04, Fable A3): an int in [0, 49].
 
     A bool is an int subclass but is NOT a valid confidence value (reject it, like
     _validate_thresholds' band floors). Anything else — wrong type, out of range,
@@ -206,10 +218,18 @@ def _validate_min_confidence(raw):
     warning names the KEY + a FIXED reason ONLY — never the raw config VALUE text
     (V5 hardening, module docstring). A valid value round-trips unchanged, no
     warning.
+
+    Values >= 50 get a DISTINCT fixed reason (Fable A3): they are not merely
+    out-of-range, they would silently drop findings that score into the critical
+    band (see the _MIN_CONFIDENCE_CRITICAL_FLOOR derivation above) — the user
+    should learn WHY the knob refused, not just that it did.
     """
     reason = "config: min_confidence invalid — using default"
     if not isinstance(raw, int) or isinstance(raw, bool):
         return None, reason
+    if raw >= _MIN_CONFIDENCE_CRITICAL_FLOOR:
+        return None, ("config: min_confidence >= 50 can silently drop critical "
+                      "findings (the filter runs before scoring) — using default")
     if raw < _MIN_CONFIDENCE_MIN or raw > _MIN_CONFIDENCE_MAX:
         return None, reason
     return raw, None
@@ -460,8 +480,9 @@ if __name__ == "__main__":
     # unset/empty flag => flags=None so today's zero-flag behavior is byte-identical.
     # A non-int MIN_CONFIDENCE_FLAG is caught here and forwarded as None (i.e. no
     # override, matching the "no flag" case) — the shim must never abort (exit 0
-    # always). The 0-100 bound is NOT re-checked here: _validate_min_confidence
-    # inside _apply_flags owns it, so a flag like 999 degrades with a warning.
+    # always). The 0-49 bound (Fable A3) is NOT re-checked here:
+    # _validate_min_confidence inside _apply_flags owns it, so a flag like 999
+    # (or a critical-annihilating 60) degrades with a warning.
     flag_raw = os.environ.get("MIN_CONFIDENCE_FLAG", "")
     flags = None
     if flag_raw:
