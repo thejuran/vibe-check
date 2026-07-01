@@ -28,11 +28,13 @@ Must fix before commit:
 
 | Agent(s) | File:Line | Issue | Conf | Status |
 |----------|-----------|-------|------|--------|
-| {{agents_csv}} | `{{file}}:{{line}}` | {{title}} | {{score}} | {{status}} |
+| {{agents_csv}} | `{{file}}:{{line}}` | {{title}} | {{agent_confidence}} | {{status}} |
 
 After the table, for each Critical finding render:
 
 **`{{file}}:{{line}}` — {{title}}** (found by: {{agents_csv}})
+
+Confidence: {{agent_confidence}}
 
 *In plain terms:* {{one sentence of user/product impact — what breaks, for whom, when. No jargon, no CWE numbers, no restating the technical problem. Translate, don't summarize: "users who hit this endpoint with an expired session see a crash instead of a login prompt", not "null reference on user object". Derive from problem + why_it_matters.}}
 
@@ -72,6 +74,7 @@ Consider fixing or acknowledge in `--finalize`:
 |--------|-------|
 | Pre-existing (not in diff) | {{pre_existing_count}} |
 | Below confidence threshold | {{low_confidence_count}} |
+| Below min_confidence | {{min_confidence_count}} |
 | Linter territory | {{linter_count}} |
 | Silenced by comment | {{silenced_count}} |
 
@@ -131,6 +134,7 @@ Consider fixing or acknowledge in `--finalize`:
 |--------|-------|
 | Pre-existing (not in diff) | {{pre_existing_count}} |
 | Below confidence threshold | {{low_confidence_count}} |
+| Below min_confidence | {{min_confidence_count}} |
 | Linter territory | {{linter_count}} |
 
 > These were excluded because they don't meet the confidence threshold or are outside your changes.
