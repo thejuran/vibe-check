@@ -10,6 +10,36 @@ Project memory indicates a later milestone (Phase 32, *after* v2.7) caught "a re
 
 ---
 
+## Independent verification (Opus, 2026-07-01)
+
+Each finding was checked against the real `score.py` extracted at tag `v2.7`
+(`git show v2.7:…/score.py`), reading the cited lines and surrounding logic. This is a
+**read/structural** verification (mechanism confirmed present as described), not a re-run of the
+crafted-input repros. **This review WAS genuine Fable** (it completed before the safeguard
+model-switch that hit the later bash pass — see `fable-findings-bash-v2.7.md`), so it stands as a
+real independent second-model data point. One finding did not survive.
+
+**8 of 9 confirmed real; F5 overstated (the code already guards the scenario).**
+
+| # | Finding | Verdict | Verifying evidence |
+|---|---------|---------|--------------------|
+| 1 | tie-break representative order-dependent | ✅ CONFIRMED (HIGH) | `score.py:805-808` — stable sort + `[0]`; representative supplies `stable_hash` |
+| 2 | agent-forged `status:"persisted"` grants +15 | ✅ CONFIRMED (HIGH, security) | `:955`; `_valid_finding` (853) is crash-safety-only, never scrubs `status` |
+| 3 | malformed finding crashes the whole run | ✅ CONFIRMED (HIGH) | `_valid_finding` dict-check-only; `SEVERITY_WEIGHT.get(severity)` :292 + `stable_hash.encode()` :59 crash on non-hashable / surrogate |
+| 4 | NaN → invalid JSON on passthrough | ✅ CONFIRMED (MED–HIGH) | `json.dump(...sys.stdout)` :983, no `allow_nan=False`; the :264-274 guard only coerces `agent_confidence` for score math, not output |
+| 5 | window-widen misalignment | ❌ **OVERSTATED — not a real bug** | `_carry_key` is symmetric (first ≤3 non-blank lines each side); widen needs BOTH sides ≥2 non-blank (:211-213); **review.md:686 documents that a single-line `}` vs unchanged HEAD stays `persisted`** — the exact example is the documented counter-case |
+| 6 | out-of-diff findings emitted despite docstring | ✅ CONFIRMED (MED) | `_score_member` returns `drop:True` only when `score is None` (:965); `in_diff` never drives a drop, only the +20 bonus |
+| 7 | silenced-marker misses `//nolint`/`#noqa` variants | ✅ CONFIRMED (MED) | `SILENCED_MARKERS` :40 has `"// nolint"`/`"# noqa"` **with space**; substring match, no `.lower()` — Go's `//nolint` + `#noqa`/`# NOQA` escape the −50 |
+| 8 | intent-doc drop mislabeled `sub-threshold` | ✅ CONFIRMED (LOW) | `reason = "silenced" if silenced else "sub-threshold"` :966 |
+| 9 | `_line_in_ranges` guards length not element type | ✅ CONFIRMED (LOW–MED) | :908 `pair[0] <= line <= pair[1]` on `["8","14"]` → `TypeError` str vs int |
+
+**Takeaway:** an excellent hit rate for a cold second-model pass. The single miss (F5) is a
+plausible claim where the code has an *explicit documented guard* (review.md:686) Fable didn't
+see — exactly the failure mode adversarial review is prone to; verifying caught it. The bash pass
+is in the companion file `fable-findings-bash-v2.7.md` (Opus-authored, 5/5 confirmed).
+
+---
+
 ## Ranked findings (verdict-changers first)
 
 ### 1 — Tie-break representative is input-order-dependent → dismissal keys unstable across passes  [HIGH]
