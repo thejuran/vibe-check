@@ -402,9 +402,11 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
 
   **Net guarantee:** a plain `/review` run BEFORE and AFTER an `--all` run uses the SAME flat `<repo>-<branch>.json` file and the SAME carry-forward behavior it had before this feature — no cross-contamination in EITHER direction, and structurally impossible (not merely conventionally avoided) because the namespaces are a flat filename vs. a reserved subdirectory.
 
-1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`. Proceed to Phase 0.7 (first-run setup will create `.turingmind/state/` if needed), then to Phase 1. Skip the rest of Phase 0.5.
+1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`. **Run Phase 0.6 (Resolve config) FIRST** (it is unconditional — the `$CONFIG_*` vars MUST be bound before any consumer), THEN proceed to Phase 0.7 (first-run setup will create `.turingmind/state/` if needed), then to Phase 1. Skip the rest of Phase 0.5.
 
    If state file present: skip Phase 0.7 (already initialized) and continue with step 2 below.
+
+   **Phase 0.6 invariant (applies to EVERY Phase 0.5 exit).** Phase 0.6 (Resolve config) is unconditional and MUST run before ANY Phase 0.5 exit reaches Phase 0.7, Phase 1, or Phase 3 — so `$CONFIG_THRESHOLDS`/`$CONFIG_DISABLED`/`$CONFIG_TOP_MODEL`/`$CONFIG_WARNINGS` are ALWAYS bound before any consumer (the Phase-2 Selection table, the Phase-3 score.py envelope, the Phase-4 config-health line). This holds for the early-exit paths below (step 1's absent-state jump and step 5's carry-forward-only jump), NOT only the normal straight-through flow.
 
 2. If present: parse it.
    - `$PASS_NUMBER = state.passes[-1].pass_number + 1`
@@ -415,7 +417,7 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
 
 4. If incremental diff empty AND `$CARRYFORWARD` empty: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop.
 
-5. If incremental diff empty but `$CARRYFORWARD` non-empty: skip agent dispatch, proceed directly to Phase 3 carry-forward check.
+5. If incremental diff empty but `$CARRYFORWARD` non-empty: **run Phase 0.6 (Resolve config) FIRST** — so `$CONFIG_THRESHOLDS`/`$CONFIG_DISABLED`/`$CONFIG_TOP_MODEL`/`$CONFIG_WARNINGS` are bound before Phase 3 sources `$CONFIG_THRESHOLDS` into the score.py envelope and Phase 4 renders `$CONFIG_WARNINGS` — THEN skip agent dispatch and proceed directly to Phase 3 carry-forward check. (Without this, a repo WITH a valid `.vibe-check.toml` would silently drop its config on this carry-forward-only path, violating "reads config ONCE per run on EVERY mode".)
 
 ## Phase 0.6 — Resolve config
 
@@ -467,7 +469,14 @@ fi
 
 **Parse ONCE into carried-forward vars — `$CONFIG_THRESHOLDS` / `$CONFIG_DISABLED` / `$CONFIG_TOP_MODEL` / `$CONFIG_WARNINGS`.** These are the SINGLE resolved config state the rest of the run reads — there is NO second read anywhere (Phase 2 dispatch, Phase 3 envelope, Phase 4 report, and `/deep-review`'s own consumption all read these vars, never re-invoke `config.py`). From the parsed JSON: `$CONFIG_THRESHOLDS` ← `values.thresholds` (a `{critical,warning,medium}` dict, or None/absent); `$CONFIG_DISABLED` ← `values.disabled` (a list, possibly empty); `$CONFIG_TOP_MODEL` ← `values.top_model` (`opus`/`fable`/None); `$CONFIG_WARNINGS` ← `warnings` (a list, EMPTY when the file is absent or fully valid).
 
-**DEGRADE-EVEN-IF-THE-HELPER-MISBEHAVES (Finding #2 corollary — distinct from the Phase-3 step-5 fail-closed scorer gate).** The degrade posture must hold even if `config.py` itself fails. Treat a NON-ZERO `$CONFIG_EXIT` OR an empty/unparseable `$CONFIG_JSON` (not valid JSON, or missing the `values`/`warnings` shape) as "all defaults + ONE config-health warning": set `$CONFIG_THRESHOLDS`=None, `$CONFIG_DISABLED`=`[]`, `$CONFIG_TOP_MODEL`=None, and `$CONFIG_WARNINGS`=`["⚠ config: reader unavailable — using defaults"]`. The review NEVER aborts on a misbehaving config reader — this is the OPPOSITE of the mandatory-scorer fail-closed gate at Phase 3 step 5 (which HALTS the review). An empty `$CONFIG_JSON` from the "no config reader resolved" arm (4) above resolves the SAME way but WITHOUT the warning (a missing reader in a dev/partial install is not a user misconfiguration to surface — the zero-config silence rule, CONFIG-01, governs: no reader + no file ⇒ behave exactly as v2.7).
+**DEGRADE-EVEN-IF-THE-HELPER-MISBEHAVES (Finding #2 corollary — distinct from the Phase-3 step-5 fail-closed scorer gate).** The degrade posture must hold even if `config.py` itself fails. The review NEVER aborts on a misbehaving config reader — this is the OPPOSITE of the mandatory-scorer fail-closed gate at Phase 3 step 5 (which HALTS the review).
+
+**Explicit degrade-vs-warn discriminant — `$CONFIG_PY` empty vs non-empty.** BOTH the "no reader resolved" arm (4) and the "reader misbehaved" arm produce an empty `$CONFIG_JSON`, so the deciding factor is whether a reader was actually invoked — i.e. whether `$CONFIG_PY` is empty:
+
+- **`$CONFIG_PY` is EMPTY (arm 4 — no reader resolved).** `$CONFIG_JSON` is empty and NO warning is emitted. This is zero-config silence (CONFIG-01): a missing reader in a dev/partial install is not a user misconfiguration to surface — no reader + no file ⇒ behave exactly as v2.7. Set `$CONFIG_THRESHOLDS`=None, `$CONFIG_DISABLED`=`[]`, `$CONFIG_TOP_MODEL`=None, `$CONFIG_WARNINGS`=`[]`.
+- **`$CONFIG_PY` is NON-EMPTY (a reader was found and invoked) AND it produced a NON-ZERO `$CONFIG_EXIT` OR empty/unparseable `$CONFIG_JSON`** (not valid JSON, or missing the `values`/`warnings` shape). This is a genuine reader failure — emit exactly ONE config-health warning: set `$CONFIG_THRESHOLDS`=None, `$CONFIG_DISABLED`=`[]`, `$CONFIG_TOP_MODEL`=None, and `$CONFIG_WARNINGS`=`["config: reader unavailable — using defaults"]`.
+
+The warning string has NO leading `⚠ ` — it matches `config.py`'s own warning strings (which are bare), because the Phase-4 config-health render block adds the `⚠ ` prefix exactly once. Emitting `"⚠ config: …"` here would double the prefix at render (`⚠ ⚠ config: …`), so keep the string un-prefixed.
 
 **Zero-config back-compat (CONFIG-01 — the load-bearing constraint).** When there is NO `.vibe-check.toml`, `config.py` returns all defaults with an EMPTY `warnings` list (it is silent on an absent file). So a repo with no config yields `$CONFIG_THRESHOLDS`=None, `$CONFIG_DISABLED`=`[]`, `$CONFIG_TOP_MODEL`=None, `$CONFIG_WARNINGS`=`[]` — which drives byte-identical v2.7 behavior downstream: no `thresholds` key in the envelope (built-in banding), no dispatch subtraction, and NOTHING rendered on the config-health line. No warning, no banner, no behavior change.
 

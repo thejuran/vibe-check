@@ -28,7 +28,7 @@ Comprehensive review with architecture + impact analysis + intent-doc alignment.
 
 ## Phase contract — how /deep-review composes with /review
 
-**You MUST read `commands/review.md` to get the full phase specs for Phase 0, 0.5, 0.7, 1, 1.5, 3, 4, 4.5, 5, and Finalize mode.** Don't infer from the section titles below — read the source.
+**You MUST read `commands/review.md` to get the full phase specs for Phase 0, 0.5, 0.6, 0.7, 1, 1.5, 3, 4, 4.5, 5, and Finalize mode.** Don't infer from the section titles below — read the source.
 
 Concretely, your execution order is:
 
