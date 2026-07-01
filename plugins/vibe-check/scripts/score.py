@@ -288,24 +288,59 @@ def _cap_idiom_band(category, band, idiom_floor):
 _VIBE_IGNORE_REASON_RE = re.compile(r"\s*:\s*(\S.*)?$", re.DOTALL)
 
 
-def _is_fresh_marker_start(line, pos):
-    """Is the `_VIBE_IGNORE` token at `pos` a GENUINE fresh marker start (bugs-001)?
+def _has_comment_leadin(line, pos):
+    """Is the `_VIBE_IGNORE` token at `pos` preceded by a comment lead-in?
 
     A genuine marker begins a comment, so its token is preceded — after stripping
     intervening whitespace — by a comment lead-in (`//` or `#`) or by nothing at
     all (the token starts the line). A `vibe-ignore` occurrence preceded by an
     ordinary word character is REASON TEXT of an earlier marker (e.g. the second
     "vibe-ignore" in `// vibe-ignore: see other vibe-ignore usage above`), NOT a
-    separate marker — treating it as one wrongly split a genuinely REASONED marker
-    into a false BARE occurrence and emitted a bogus "suppression without reason"
-    synthetic finding (bugs-001). Distinguishing on the comment lead-in preserves
-    the existing same-line contracts (`// vibe-ignore: r // vibe-ignore` still
-    detects the trailing bare marker; `// vibe-ignore // vibe-ignore: r` still
-    detects both) because a genuine second marker always opens a fresh `//`/`#`
-    comment, while in-reason prose does not.
+    separate marker (bugs-001).
     """
     prefix = line[:pos].rstrip()
     return prefix == "" or prefix.endswith("//") or prefix.endswith("#")
+
+
+def _is_marker_shaped_tail(line, pos):
+    """Does the token at `pos` look like a real marker by its OWN trailing text?
+
+    The comment-lead-in test alone (`_has_comment_leadin`) is NOT sufficient once
+    an EARLIER marker on the same line is REASONED and its reason text quotes a
+    sibling comment lead-in right before repeating the token (bugs-002), e.g.:
+
+        // vibe-ignore: like the // vibe-ignore in foo.py
+        # vibe-ignore: see the # vibe-ignore above
+
+    Here the SECOND token's immediate prefix is `//`/`#`, so the lead-in test wrongly
+    admits it as a fresh (bare) marker and splits it off — producing a spurious
+    "suppression without reason" finding for a marker that IS reasoned.
+
+    A GENUINE trailing marker is shaped like a marker in its own right: after its
+    token, either nothing but whitespace remains (a real trailing BARE marker, e.g.
+    `// vibe-ignore: reason // vibe-ignore`) or a colon-introduced reason follows (a
+    real trailing REASONED marker, e.g. `// vibe-ignore // vibe-ignore: r`). Arbitrary
+    prose continuing the earlier reason (` in foo.py`) is neither, so it is rejected
+    as in-reason text. This distinguishes bugs-002's in-reason quote from the genuine
+    trailing-marker contracts, both of which the tests lock.
+    """
+    tail = line[pos + len(_VIBE_IGNORE):]
+    return tail.strip() == "" or bool(_VIBE_IGNORE_REASON_RE.match(tail))
+
+
+def _is_fresh_marker_start(line, pos):
+    """Is the `_VIBE_IGNORE` token at `pos` a GENUINE fresh marker start?
+
+    Combines both signals: a genuine subsequent marker (a) opens a fresh `//`/`#`
+    comment (`_has_comment_leadin` — drops in-reason prose whose token is preceded
+    by an ordinary word, bugs-001) AND (b) is itself marker-shaped by its own tail
+    (`_is_marker_shaped_tail` — drops an in-reason quote of a sibling lead-in that
+    continues into prose, bugs-002). Both are required so the same-line contracts
+    hold (`// vibe-ignore: r // vibe-ignore` still detects the trailing bare marker;
+    `// vibe-ignore // vibe-ignore: r` still detects both) while a REASONED marker
+    whose reason quotes another comment lead-in is NOT mis-split.
+    """
+    return _has_comment_leadin(line, pos) and _is_marker_shaped_tail(line, pos)
 
 
 def _vibe_ignore_scan(source_window):

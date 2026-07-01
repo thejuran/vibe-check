@@ -588,6 +588,23 @@ class TestVibeIgnore(unittest.TestCase):
         self.assertEqual(self._kinds_at(window), [(0, "reasoned"), (0, "bare")])
         self.assertTrue(score.silenced_nearby(window))
 
+    # --- bugs-002: reason text QUOTING a sibling comment lead-in --------------- #
+    def test_reason_text_quoting_slash_leadin_is_single_reasoned(self):
+        # bugs-002: an already-REASONED marker whose reason text quotes another
+        # comment lead-in right before repeating the token — the SECOND token's
+        # immediate prefix is `//`, but it is followed by prose (` in foo.py`), so
+        # it is in-reason text, NOT a fresh bare marker. Must be ONE reasoned
+        # occurrence (no spurious "suppression without reason").
+        window = ["// vibe-ignore: like the // vibe-ignore in foo.py"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    def test_reason_text_quoting_hash_leadin_is_single_reasoned(self):
+        # Same, comment-syntax-agnostic (`#` lead-in quoted in the reason).
+        window = ["# vibe-ignore: see the # vibe-ignore above"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))
+
     # --- byte-stable no-marker path ------------------------------------------ #
     def test_no_marker_window_byte_stable(self):
         window = ["a", "b", "c", "d", "e"]
@@ -850,6 +867,22 @@ class TestSuppressionFinding(unittest.TestCase):
         self.assertTrue(any(x.get("reason") == "silenced"
                             for x in result["filtered"]))
         # ...and there is NO synthetic suppression finding (no false bare).
+        self.assertEqual(self._supp(result), [])
+
+    # --- bugs-002: reason QUOTING a sibling lead-in emits NO false synthetic --- #
+    def test_reason_text_quoting_leadin_emits_no_synthetic(self):
+        # End-to-end: a reasoned marker whose reason quotes another comment lead-in
+        # right before repeating the token (`// vibe-ignore: like the // vibe-ignore
+        # in foo.py`) SUPPRESSES the host and emits NO false synthetic (bugs-002).
+        f = make_finding(
+            id="host", line=99, agent_confidence=40, severity="medium",
+            source_window=["a", "b",
+                           "// vibe-ignore: like the // vibe-ignore in foo.py",
+                           "d", "e"])
+        result = self._run([f])
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertTrue(any(x.get("reason") == "silenced"
+                            for x in result["filtered"]))
         self.assertEqual(self._supp(result), [])
 
     # --- lang-py-001: non-str / UNHASHABLE `file` never crashes the run ------- #
