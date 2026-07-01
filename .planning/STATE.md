@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: Tunable, quieter reviews
 status: executing
-stopped_at: Phase 32 context gathered
-last_updated: "2026-07-01T16:49:09.760Z"
+stopped_at: Phase 33 context gathered (4 gray areas resolved; prose+config.py only)
+last_updated: "2026-07-01T17:36:43.236Z"
 last_activity: 2026-07-01 -- Phase 32 execution started
 progress:
   total_phases: 26
@@ -144,10 +144,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-01T16:49:09.756Z
-Stopped at: Phase 32 context gathered
+Last session: 2026-07-01T17:36:43.230Z
+Stopped at: Phase 33 context gathered (4 gray areas resolved; prose+config.py only)
 Resume file:
-.planning/phases/32-idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs/32-CONTEXT.md
+.planning/phases/33-codex-legibility-safer-fix-loop-default-orchestrator-only-kn/33-CONTEXT.md
 
 ## Operator Next Steps
 
