@@ -43,9 +43,11 @@ import sys
 # 95/80/70 literals, so the no-config output is identical to v2.7 (D-02).
 # --------------------------------------------------------------------------- #
 
-# The resolved-value shape load_config always returns (all three keys present).
+# The resolved-value shape load_config always returns (all keys present).
 # None => "use the built-in default"; [] => "no agents disabled".
-_DEFAULT_VALUES = {"thresholds": None, "disabled": [], "top_model": None}
+# min_confidence None => "no confidence filter" (byte-stable default, D-04).
+_DEFAULT_VALUES = {"thresholds": None, "disabled": [], "top_model": None,
+                   "min_confidence": None}
 
 # The opus/fable allowlist, mirroring the existing $VIBE_CHECK_TOP_MODEL
 # validation (deep-review.md:55) so the two precedence sources cannot diverge
@@ -68,6 +70,12 @@ _BAND_MAX = 100
 # commands' finalize cutoffs (review 80 / deep-review 70) filter out — a dead band
 # (D-02). A medium below the floor => whole-set fallback to None + warning.
 _MEDIUM_FLOOR = 70
+
+# The [noise] min_confidence knob (CONF-02, D-04): an int in [0, 100] — the natural
+# domain of agent_confidence. None => "no filter" (byte-stable default). Anything
+# out of range / non-int / bool degrades per-key to None + one warning.
+_MIN_CONFIDENCE_MIN = 0
+_MIN_CONFIDENCE_MAX = 100
 
 # Pre-parse size cap (Finding #2 round-3, DoS): a real .vibe-check.toml is a few
 # hundred bytes; 1 MiB is generous. A regular file over this is degraded to
@@ -150,6 +158,25 @@ def _validate_top_model(raw):
     return None, "config: top_model invalid (not opus/fable) — using default"
 
 
+def _validate_min_confidence(raw):
+    """Validate a raw `min_confidence` VALUE (CONF-02, D-04): an int in [0, 100].
+
+    A bool is an int subclass but is NOT a valid confidence value (reject it, like
+    _validate_thresholds' band floors). Anything else — wrong type, out of range,
+    bool — returns (None, warning) so the orchestrator applies NO filter (the
+    byte-stable default: score.py drops nothing when min_confidence is None). The
+    warning names the KEY + a FIXED reason ONLY — never the raw config VALUE text
+    (V5 hardening, module docstring). A valid value round-trips unchanged, no
+    warning.
+    """
+    reason = "config: min_confidence invalid — using default"
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        return None, reason
+    if raw < _MIN_CONFIDENCE_MIN or raw > _MIN_CONFIDENCE_MAX:
+        return None, reason
+    return raw, None
+
+
 # --------------------------------------------------------------------------- #
 # Precedence overlay — flags run through the SAME per-key validators as toml
 # (VALIDATE-THEN-OVERLAY, Finding #3): a flag value is never trusted by fiat.
@@ -170,6 +197,7 @@ def _apply_flags(values, warnings, flags):
         "thresholds": _validate_thresholds,
         "disabled": _validate_disabled,
         "top_model": _validate_top_model,
+        "min_confidence": _validate_min_confidence,
     }
     for key, validator in validators.items():
         flag_val = flags.get(key)
@@ -202,7 +230,8 @@ def load_config(path, *, flags=None):
     # _DEFAULT_VALUES['disabled'], so any downstream mutation (a `values['disabled']
     # .append(...)`) would permanently poison the default for every subsequent call.
     # The list literal here allocates a new [] on each invocation (lang-py-001).
-    values = {"thresholds": None, "disabled": [], "top_model": None}
+    values = {"thresholds": None, "disabled": [], "top_model": None,
+              "min_confidence": None}
     warnings = []
 
     # D-01: no parser (Python < 3.11) => degrade, never raise. Imported here (not
@@ -261,8 +290,10 @@ def load_config(path, *, flags=None):
         return _apply_flags(values, warnings, flags)
     review = raw.get("review", {})
     agents = raw.get("agents", {})
+    noise = raw.get("noise", {})
     review = review if isinstance(review, dict) else {}
     agents = agents if isinstance(agents, dict) else {}
+    noise = noise if isinstance(noise, dict) else {}
 
     # Per-key validation (CONFIG-03): one bad key defaults THAT key + a warning
     # naming it; the other valid keys still apply. Only override the default when
@@ -280,6 +311,10 @@ def load_config(path, *, flags=None):
         values["top_model"], w = _validate_top_model(agents["top_model"])
         if w:
             warnings.append(w)
+    if "min_confidence" in noise:
+        values["min_confidence"], w = _validate_min_confidence(noise["min_confidence"])
+        if w:
+            warnings.append(w)
 
     # Precedence: flag wins over toml, but through the SAME validators (Finding #3).
     return _apply_flags(values, warnings, flags)
@@ -295,13 +330,32 @@ def load_config(path, *, flags=None):
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
     repo_root = os.environ.get("REPO_ROOT", "")
+
+    # CONF-02 (D-04, option a): thread the --min-confidence flag through the tested
+    # _apply_flags validation path via a MIN_CONFIDENCE_FLAG env var. An
+    # unset/empty flag => flags=None so today's zero-flag behavior is byte-identical.
+    # A non-int MIN_CONFIDENCE_FLAG is caught here and forwarded as None (i.e. no
+    # override, matching the "no flag" case) — the shim must never abort (exit 0
+    # always). The 0-100 bound is NOT re-checked here: _validate_min_confidence
+    # inside _apply_flags owns it, so a flag like 999 degrades with a warning.
+    flag_raw = os.environ.get("MIN_CONFIDENCE_FLAG", "")
+    flags = None
+    if flag_raw:
+        try:
+            parsed = int(flag_raw)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            flags = {"min_confidence": parsed}
+
     if repo_root:
         config_path = os.path.join(repo_root, ".vibe-check.toml")
-        v, w = load_config(config_path)
+        v, w = load_config(config_path, flags=flags)
     else:
         # Empty/unset REPO_ROOT: load_config("") hits `not os.path.exists("")`
         # (True) => absent path => all defaults, no warning. This is byte-identical
         # to the intended zero-config silence and never reads a CWD-relative file.
-        v, w = load_config("")
+        # The flag (if any) still overlays through _apply_flags.
+        v, w = load_config("", flags=flags)
     json.dump({"values": v, "warnings": w}, sys.stdout)
     sys.exit(0)
