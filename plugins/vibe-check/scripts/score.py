@@ -49,6 +49,22 @@ SILENCED_MARKERS = ("eslint-disable", "# noqa", "// nolint", "@SuppressWarnings"
 # reason-aware _vibe_ignore_scan below.
 _VIBE_IGNORE = "vibe-ignore"
 
+# NOISE-03 (D-04, A2) — the synthetic "suppression without reason" audit finding
+# score.py emits for a BARE vibe-ignore. FIXED strings (T-32-04 Information
+# Disclosure): the title/category/canonical are NEVER derived from the marker line
+# or any repo-controlled text, so no untrusted text feeds the render or the hash.
+_SUPPRESSION_CATEGORY = "suppression"   # maps to NO domain (never cross-confirms).
+_SUPPRESSION_TITLE = "suppression without reason"
+# A FIXED canonical marker-line content string fed to stable_hash (NOT the marker's
+# actual line text — no repo text in the hash) so the synthetic finding hashes
+# deterministically per (file, marker_line) across runs, even when line is null.
+_SUPPRESSION_CANONICAL = "vibe-ignore (no reason)"
+# A fixed NON-NULL score strictly below the medium floor (70). It is INERT w.r.t.
+# the frozen band math because it NEVER flows through band_for — the band is
+# HAND-SET to the literal "low". It exists ONLY to satisfy review.md's Phase 3/4
+# "has orchestrator_score" structural gate (Finding #1).
+_SUPPRESSION_SCORE = 0
+
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
 
@@ -1044,6 +1060,46 @@ def run(envelope):
                 kept_working.append(m)
         working = kept_working
 
+    # --- Bare vibe-ignore audit collection (NOISE-03, D-04, A2) -------------- #
+    # Collect BARE vibe-ignore occurrences from every working member's window into
+    # a de-dup set keyed by (file, marker_line). A bare marker does NOT suppress
+    # (Task 1), so a member's fate (kept / silenced / sub-threshold) is irrelevant
+    # to the audit — the marker's presence is a fact about the SOURCE, so we scan
+    # `working` (all findings that reached scoring) independent of the drop/keep
+    # loop below. De-dup by (file, marker_line): the SAME physical marker seen from
+    # multiple co-located findings' windows collapses to ONE synthetic finding,
+    # while two DISTINCT bare markers (distinct lines) stay two. The synthetic
+    # findings are emitted AFTER the threshold filter (A2 exemption) so the
+    # sub-threshold drop never sees them.
+    bare_marker_keys = []          # ordered unique (file, marker_line) pairs
+    _bare_seen = set()
+    for member in working:
+        window = _safe_window(member.get("source_window"))
+        bare = [o for o in _vibe_ignore_scan(window) if o["kind"] == "bare"]
+        if not bare:
+            continue
+        file = member.get("file")
+        # NEW-1 (crash guard): resolve the member's line through the EXISTING
+        # _as_line helper FIRST. score.py DELIBERATELY accepts line:null (file-level
+        # findings) and non-int lines (malformed-but-parseable) and MUST NOT raise
+        # here — a raw `finding_line - 2 + index` on a null/str/float/bool line
+        # would TypeError, exit non-zero, and halt the WHOLE run at review.md's
+        # Phase 3 fail-closed check (T-32-10, the same halt-class as Finding #1
+        # reached through a different trigger). A usable int => marker_line
+        # arithmetic; None => marker_line stays None (line:null synthetic finding,
+        # no arithmetic) — which still passes the Phase 3/4 gates (they do not
+        # require a non-null line, Finding NEW-1).
+        finding_line = _as_line(member.get("line"))
+        for o in bare:
+            if finding_line is not None:
+                marker_line = finding_line - 2 + o["index"]  # 0=L-2 … 4=L+2
+            else:
+                marker_line = None
+            key = (file, marker_line)
+            if key not in _bare_seen:
+                _bare_seen.add(key)
+                bare_marker_keys.append(key)
+
     # --- Cross-confirm grouping BEFORE scoring (attribution drives +10) ------- #
     groups = cross_confirm_group(working)
 
@@ -1107,6 +1163,35 @@ def run(envelope):
             })
             continue
         kept.append(survivor)
+
+    # --- Synthetic bare-marker "suppression" audit findings (NOISE-03, A2) ---- #
+    # The ONE synthetic finding score.py emits and the ONE exemption from the
+    # sub-threshold drop: appended to `kept` HERE, AFTER the threshold loop, so the
+    # `sc < threshold` filter never sees it (A2 — guaranteed visible as an
+    # informational `low` audit finding, NOT dropped). It carries the FULL survivor
+    # shape — band literal "low", a fixed NON-NULL orchestrator_score, a stable_hash
+    # from the existing stable_hash(file, canonical, title) helper, an attribution
+    # of length <=1, and status "new" — precisely so review.md's Phase 3 fail-closed
+    # check (halts if any survivor lacks band/orchestrator_score/stable_hash) and
+    # Phase 4 render gate (halts if any finding lacks band/orchestrator_score) never
+    # trip on it (Finding #1). Its `line` may be null for a file-level marker
+    # (NEW-1) — neither gate requires a non-null line, so it still passes both.
+    # category "suppression" is NOT in CATEGORY_DOMAIN, so it maps to no domain and
+    # never cross-confirms (+10) nor is capped by idiom_floor.
+    for file, marker_line in bare_marker_keys:
+        file_str = file if isinstance(file, str) else ""
+        kept.append({
+            "file": file,
+            "line": marker_line,   # may be None (NEW-1) — passes the gates.
+            "title": _SUPPRESSION_TITLE,
+            "category": _SUPPRESSION_CATEGORY,
+            "band": "low",                       # hand-set literal (NOT band_for).
+            "orchestrator_score": _SUPPRESSION_SCORE,  # fixed non-null < medium(70).
+            "attribution": ["vibe-check"],       # length <=1 => never cross-confirmed.
+            "stable_hash": stable_hash(
+                file_str, _SUPPRESSION_CANONICAL, _SUPPRESSION_TITLE),
+            "status": "new",
+        })
 
     return {
         "scored_by_script": True,

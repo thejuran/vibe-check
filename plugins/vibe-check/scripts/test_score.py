@@ -493,7 +493,7 @@ class TestVibeIgnore(unittest.TestCase):
             "carryforward": [], "findings": [f],
         }
         result = score.run(envelope)
-        self.assertNotIn("supp", [g["id"] for g in result["findings"]])
+        self.assertNotIn("supp", [g.get("id") for g in result["findings"]])
         self.assertTrue(
             any(x.get("reason") == "silenced" for x in result["filtered"]),
             "reasoned vibe-ignore must drop the finding with reason 'silenced'")
@@ -525,7 +525,9 @@ class TestVibeIgnore(unittest.TestCase):
             "carryforward": [], "findings": [f],
         }
         result = score.run(envelope)
-        self.assertIn("alive", [g["id"] for g in result["findings"]])
+        # NOTE: a synthetic "suppression" finding (no `id`) is ALSO present now
+        # (Task 2), so read `id` defensively.
+        self.assertIn("alive", [g.get("id") for g in result["findings"]])
 
     def test_colon_with_only_whitespace_is_bare(self):
         window = ["a", "// vibe-ignore:   ", "c"]
@@ -574,6 +576,178 @@ class TestVibeIgnore(unittest.TestCase):
         window = ["a", "code # noqa", "c"]
         self.assertTrue(score.silenced_nearby(window))
         self.assertEqual(score._vibe_ignore_scan(window), [])
+
+
+# --------------------------------------------------------------------------- #
+# Synthetic bare-marker "suppression" finding (NOISE-03, D-04, A2, Finding
+# #1/#2/#3/NEW-1) — one VISIBLE low finding per BARE occurrence, full survivor
+# shape, exempt from the sub-threshold drop, de-duped by (file, marker_line),
+# never cross-confirms, never crashes on a null/odd line.
+# --------------------------------------------------------------------------- #
+class TestSuppressionFinding(unittest.TestCase):
+    def _run(self, findings, command="deep-review", **over):
+        base = {
+            "command": command, "all_mode": False, "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [], "findings": findings,
+        }
+        base.update(over)
+        return score.run(base)
+
+    def _supp(self, result):
+        return [g for g in result["findings"]
+                if g.get("category") == "suppression"]
+
+    # --- one visible low finding, in findings[] not filtered[] --------------- #
+    def test_bare_marker_emits_one_low_suppression_in_findings(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        supp = self._supp(result)
+        self.assertEqual(len(supp), 1)
+        s = supp[0]
+        self.assertEqual(s["band"], "low")
+        self.assertEqual(s["title"], "suppression without reason")
+        self.assertEqual(s["file"], "src/a.py")
+        # marker at window index 2 (L) => 10 - 2 + 2 = 10.
+        self.assertEqual(s["line"], 10)
+        # NOT in filtered[] — it is a kept finding exempt from the drop.
+        self.assertFalse(
+            any(x.get("title") == "suppression without reason"
+                for x in result["filtered"]))
+
+    # --- STRUCTURAL-GATE CONTRACT (Finding #1) ------------------------------- #
+    def test_every_finding_carries_gate_required_fields(self):
+        # Mirror review.md's Phase 3/4 gate: NO survivor (the synthetic one
+        # included) may lack band / orchestrator_score / stable_hash, or the whole
+        # run would halt before rendering.
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        self.assertTrue(self._supp(result))  # non-vacuous: a synthetic IS present
+        for g in result["findings"]:
+            self.assertIsNotNone(g.get("band"), g)
+            self.assertIsNotNone(g.get("orchestrator_score"), g)
+            self.assertIn("stable_hash", g)
+            self.assertIsNotNone(g.get("stable_hash"), g)
+
+    # --- NEW-1 null/odd-line non-crash contract ------------------------------ #
+    def test_null_and_odd_line_bare_marker_never_crashes(self):
+        # A bare marker on a finding whose `line` is None / str / float / bool must
+        # NOT crash run(); the synthetic finding is emitted with line=None (no
+        # arithmetic) AND a good sibling survives. Mirrors TestNullLineDefensive.
+        good = make_finding(id="keep", line=10, agent_confidence=100,
+                            severity="critical",
+                            source_window=["a", "b", "c", "d", "e"])
+        for label, lv in (("None", None), ("str", "10"),
+                          ("float", 10.0), ("bool", True)):
+            with self.subTest(line=label):
+                bad = make_finding(
+                    id="filelevel", line=lv, agent_confidence=100,
+                    severity="critical",
+                    source_window=["a", "b", "// vibe-ignore", "d", "e"])
+                result = self._run([bad, good])   # must not raise
+                self.assertTrue(result["scored_by_script"])
+                self.assertIn("keep", [g.get("id") for g in result["findings"]])
+                supp = self._supp(result)
+                self.assertEqual(len(supp), 1)
+                # Present with line:null (the locked present-with-null-line branch),
+                # NOT skipped, still fully gate-shaped.
+                self.assertIsNone(supp[0]["line"])
+                self.assertEqual(supp[0]["band"], "low")
+                self.assertIsNotNone(supp[0]["orchestrator_score"])
+                self.assertIn("stable_hash", supp[0])
+
+    # --- multiple distinct bare markers -> multiple findings ----------------- #
+    def test_two_bare_markers_distinct_lines_two_findings(self):
+        # A window with bare markers at index 1 (L-1=9) and index 3 (L+1=11).
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "// vibe-ignore", "c",
+                                        "// vibe-ignore", "e"])
+        result = self._run([f])
+        supp = self._supp(result)
+        self.assertEqual(len(supp), 2)
+        self.assertEqual(sorted(s["line"] for s in supp), [9, 11])
+
+    # --- reasoned + bare mix: suppress + one synthetic ----------------------- #
+    def test_reasoned_plus_bare_different_lines(self):
+        # conf 40 medium so the -50 reasoned suppression drops the host finding;
+        # the bare marker still emits one synthetic finding.
+        f = make_finding(id="host", line=99, agent_confidence=40, severity="medium",
+                         source_window=["// vibe-ignore", "b",
+                                        "// vibe-ignore: real reason", "d", "e"])
+        result = self._run([f])
+        # host is suppressed (reasoned within +/-2)...
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertTrue(any(x.get("reason") == "silenced"
+                            for x in result["filtered"]))
+        # ...and exactly ONE synthetic finding for the bare marker.
+        self.assertEqual(len(self._supp(result)), 1)
+
+    def test_reasoned_plus_bare_same_line(self):
+        f = make_finding(id="host", line=99, agent_confidence=40, severity="medium",
+                         source_window=["a",
+                                        "// vibe-ignore // vibe-ignore: reason",
+                                        "c", "d", "e"])
+        result = self._run([f])
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertEqual(len(self._supp(result)), 1)
+
+    def test_two_bare_tokens_same_line_dedup_to_one(self):
+        # Two bare tokens on ONE window line => ONE synthetic finding (de-dup by
+        # marker_line).
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b",
+                                        "// vibe-ignore // vibe-ignore", "d", "e"])
+        result = self._run([f])
+        self.assertEqual(len(self._supp(result)), 1)
+
+    # --- de-dup: one marker near three findings -> one synthetic ------------- #
+    def test_same_marker_near_three_findings_dedups_to_one(self):
+        # Three findings whose windows all contain the SAME physical bare marker at
+        # file src/a.py line 10 (each finding at line 10, marker at window index 2).
+        fs = [make_finding(id="f%d" % i, line=10, agent_confidence=100,
+                           severity="critical", category="bug",
+                           source_window=["a", "b", "// vibe-ignore", "d", "e"])
+              for i in range(3)]
+        result = self._run(fs)
+        self.assertEqual(len(self._supp(result)), 1)
+
+    # --- no cross-confirm / maps to no domain -------------------------------- #
+    def test_suppression_category_maps_to_no_domain(self):
+        self.assertIsNone(score._category_domain("suppression"))
+
+    def test_synthetic_attribution_never_cross_confirms(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        s = self._supp(result)[0]
+        self.assertLessEqual(len(s["attribution"]), 1)
+
+    # --- fixed title + deterministic hash ------------------------------------ #
+    def test_title_fixed_and_hash_deterministic(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        r1 = self._supp(self._run([dict(f)]))[0]
+        r2 = self._supp(self._run([dict(f)]))[0]
+        self.assertEqual(r1["title"], "suppression without reason")
+        self.assertEqual(r1["stable_hash"], r2["stable_hash"])
+
+    # --- byte-stable no-bare-marker path ------------------------------------- #
+    def test_no_bare_marker_zero_suppression_entries(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        result = self._run([f])
+        self.assertEqual(self._supp(result), [])
+        # The real finding is unaffected.
+        self.assertIn("host", [g.get("id") for g in result["findings"]])
 
 
 # --------------------------------------------------------------------------- #
