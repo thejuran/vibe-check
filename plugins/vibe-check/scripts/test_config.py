@@ -34,8 +34,11 @@ CONFIG_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.py"
 # The default-value shape load_config returns when everything degrades.
 # NOTE idiom_floor defaults to "medium" (NOT None) — the NOISE-01 cap is ACTIVE
 # BY DEFAULT (A1), the OPPOSITE default-direction from the None-defaulting knobs.
+# codex defaults to "auto" (NOT None) — the behavior-unchanged Codex posture
+# (LEGIBLE-02, D-14), same non-None default-direction as idiom_floor.
 _DEFAULTS = {"thresholds": None, "disabled": [], "top_model": None,
-             "min_confidence": None, "idiom_floor": "medium"}
+             "min_confidence": None, "idiom_floor": "medium",
+             "codex": "auto"}
 
 
 def _write_config(dir_path, content):
@@ -469,6 +472,100 @@ class TestIdiomFloorValidation(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# codex validation (LEGIBLE-02, D-10/D-14 — [noise] off/auto/on enum knob).
+# --------------------------------------------------------------------------- #
+class TestCodexValidation(unittest.TestCase):
+    """The [noise] codex knob (LEGIBLE-02): a valid mode round-trips
+    (case-insensitive → lowercased) with NO warning; malformed → the "auto"
+    DEFAULT (NOT None) + one warning naming the KEY (behavior-unchanged posture,
+    D-14). Zero-config default is "auto". Mirrors TestTopModel (fixed-enum) with
+    the idiom_floor malformed-direction (non-None default)."""
+
+    def _load(self, value_literal):
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(
+                d, "[noise]\ncodex = " + value_literal + "\n")
+            return config.load_config(path)
+
+    def test_valid_mode_round_trips(self):
+        for mode in ("off", "auto", "on"):
+            values, warnings = self._load('"' + mode + '"')
+            self.assertEqual(values["codex"], mode)
+            self.assertEqual(warnings, [])
+
+    def test_case_insensitive_mode(self):
+        values, warnings = self._load('"ON"')
+        self.assertEqual(values["codex"], "on")
+        self.assertEqual(warnings, [])
+        values, warnings = self._load('"Off"')
+        self.assertEqual(values["codex"], "off")
+        self.assertEqual(warnings, [])
+
+    def test_unknown_string_defaults_to_auto_with_warning(self):
+        # Malformed unknown mode → the "auto" DEFAULT (NOT None) + one warning
+        # naming the key. D-14: a bad value keeps Codex running (auto).
+        values, warnings = self._load('"bogus"')
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("codex", warnings[0])
+
+    def test_non_string_defaults_to_auto_with_warning(self):
+        # A non-str TOML literal (int) → "auto" + one warning.
+        values, warnings = self._load("5")
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("codex", warnings[0])
+
+    def test_bool_defaults_to_auto_with_warning(self):
+        values, warnings = self._load("true")
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("codex", warnings[0])
+
+    def test_warning_does_not_leak_raw_value(self):
+        # V5/V7: the warning names the KEY + a fixed reason ONLY — never the raw.
+        values, warnings = self._load('"sneaky-raw-value-xyz"')
+        self.assertEqual(len(warnings), 1)
+        self.assertNotIn("sneaky-raw-value-xyz", warnings[0])
+
+    def test_absent_key_defaults_to_auto_silent(self):
+        # Zero-config default: a [noise] section with no codex → "auto", NO warning.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, "[noise]\n")
+            values, warnings = config.load_config(path)
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(warnings, [])
+
+    def test_absent_section_defaults_to_auto_silent(self):
+        # No [noise] section at all → "auto" default, no warning.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, '[agents]\ntop_model = "opus"\n')
+            values, warnings = config.load_config(path)
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(warnings, [])
+
+    def test_zero_config_load_defaults_to_auto(self):
+        # An entirely absent config file → "auto" default.
+        values, warnings = config.load_config("/nonexistent/.vibe-check.toml")
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(warnings, [])
+
+    def test_validator_direct(self):
+        # Unit-level: the validator returns the documented (value, warning) shape.
+        for mode in ("off", "auto", "on"):
+            self.assertEqual(config._validate_codex(mode), (mode, None))
+        # Case-insensitive modes lowercase.
+        self.assertEqual(config._validate_codex("ON"), ("on", None))
+        self.assertEqual(config._validate_codex("Off"), ("off", None))
+        # Malformed → "auto" (NOT None) + a warning naming the key.
+        for bad in ("bogus", "", 5, True, False, 3.5, None, {}, []):
+            resolved, warning = config._validate_codex(bad)
+            self.assertEqual(resolved, "auto")
+            self.assertIsNotNone(warning)
+            self.assertIn("codex", warning)
+
+
+# --------------------------------------------------------------------------- #
 # disabled validation (list of strings; core agents honored, not stripped).
 # --------------------------------------------------------------------------- #
 class TestDisabled(unittest.TestCase):
@@ -576,6 +673,39 @@ class TestPrecedence(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("min_confidence", warnings[0])
 
+    def test_flag_overrides_toml_codex(self):
+        # --codex on beats [noise] codex = "off" (flag > toml).
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, '[noise]\ncodex = "off"\n')
+            values, warnings = config.load_config(path, flags={"codex": "on"})
+            self.assertEqual(values["codex"], "on")
+            self.assertEqual(warnings, [])
+            # flags=None leaves the toml value.
+            values_none, _ = config.load_config(path, flags=None)
+            self.assertEqual(values_none["codex"], "off")
+            # A None flag value (no override) also leaves the toml value.
+            values_flagnone, _ = config.load_config(path, flags={"codex": None})
+            self.assertEqual(values_flagnone["codex"], "off")
+
+    def test_bad_flag_codex_degrades(self):
+        # A bad flag runs the SAME validator as a bad toml value: "bogus" =>
+        # "auto" (NOT None — codex's non-None default-direction) + one warning.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, '[noise]\ncodex = "on"\n')
+            values, warnings = config.load_config(
+                path, flags={"codex": "bogus"})
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("codex", warnings[0])
+
+    def test_codex_default_when_neither_flag_nor_toml(self):
+        # Absent flag + absent toml => the "auto" default.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, "# empty\n")
+            values, warnings = config.load_config(path, flags=None)
+        self.assertEqual(values["codex"], "auto")
+        self.assertEqual(warnings, [])
+
 
 # --------------------------------------------------------------------------- #
 # DEGRADE-not-abort __main__ shim (subprocess) — the INVERSE of score.py's
@@ -680,6 +810,60 @@ class TestDegradeNotAbort(unittest.TestCase):
         payload = json.loads(proc.stdout)
         # 75 is a valid flag; with no toml value it becomes the resolved value.
         self.assertEqual(payload["values"]["min_confidence"], 75)
+
+    def test_codex_flag_overrides_toml_via_main(self):
+        # CODEX_FLAG=on threads into _apply_flags and beats toml "off".
+        payload = self._run_main(
+            {"CODEX_FLAG": "on"},
+            config_body='[noise]\ncodex = "off"\n',
+        )
+        self.assertEqual(payload["values"]["codex"], "on")
+        self.assertEqual(payload["warnings"], [])
+
+    def test_bad_codex_flag_degrades_via_main(self):
+        # A bogus flag token runs the SAME validator: "auto" + warning, exit 0
+        # (no int() parse — a non-empty string flows straight into _validate_codex).
+        payload = self._run_main(
+            {"CODEX_FLAG": "bogus"},
+            config_body='[noise]\ncodex = "on"\n',
+        )
+        self.assertEqual(payload["values"]["codex"], "auto")
+        self.assertTrue(any("codex" in w for w in payload["warnings"]))
+
+    def test_empty_codex_flag_behaves_as_no_flag(self):
+        # Unset/empty CODEX_FLAG => byte-identical to today's no-flag path: the
+        # toml value stands.
+        payload = self._run_main(
+            {"CODEX_FLAG": ""},
+            config_body='[noise]\ncodex = "off"\n',
+        )
+        self.assertEqual(payload["values"]["codex"], "off")
+
+    def test_codex_and_min_confidence_flags_coexist_via_main(self):
+        # Both flags on ONE invocation merge into the same flags dict.
+        payload = self._run_main(
+            {"CODEX_FLAG": "on", "MIN_CONFIDENCE_FLAG": "80"},
+            config_body='[noise]\ncodex = "off"\nmin_confidence = 40\n',
+        )
+        self.assertEqual(payload["values"]["codex"], "on")
+        self.assertEqual(payload["values"]["min_confidence"], 80)
+        self.assertEqual(payload["warnings"], [])
+
+    def test_codex_flag_empty_repo_root_no_crash(self):
+        # Empty REPO_ROOT (no config file) + a valid CODEX_FLAG => exit 0, and the
+        # flag STILL applies: load_config("") returns the "auto" default, then
+        # _apply_flags overlays the flag, so codex resolves to "on".
+        env = {**os.environ, "REPO_ROOT": "", "CODEX_FLAG": "on"}
+        proc = subprocess.run(
+            [sys.executable, CONFIG_PY],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["values"]["codex"], "on")
 
 
 # --------------------------------------------------------------------------- #
