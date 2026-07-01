@@ -64,6 +64,18 @@ _SUPPRESSION_CANONICAL = "vibe-ignore (no reason)"
 # HAND-SET to the literal "low". It exists ONLY to satisfy review.md's Phase 3/4
 # "has orchestrator_score" structural gate (Finding #1).
 _SUPPRESSION_SCORE = 0
+# impact-01 — a DISTINCT status the multi-pass carry-forward path EXCLUDES. The
+# synthetic finding is REGENERATED fresh every pass from the live ±2 window scan,
+# so it must NOT be carried forward: review.md Phase 0.5 re-ingests only findings
+# whose status ∈ {new, persisted, needs-recheck}, and "audit" is deliberately NOT
+# in that allowlist — so a synthetic finding is naturally regenerated-not-carried
+# (never double-counted, never mis-classified needs-recheck/fixed-since-last from
+# its empty current_code). This value is INERT for the STRUCTURAL gates (Phase 3
+# step 5 / the Phase-4 render gate key on band/orchestrator_score/stable_hash, NOT
+# status) and for the RENDER selector (the Suppression audit section selects by
+# category=="suppression", NOT status), so rendering and gate-passing are unchanged
+# — ONLY carry-forward inclusion changes, which is the whole point (impact-01).
+_SUPPRESSION_STATUS = "audit"
 
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
@@ -1217,11 +1229,14 @@ def run(envelope):
     # informational `low` audit finding, NOT dropped). It carries the FULL survivor
     # shape — band literal "low", a fixed NON-NULL orchestrator_score, a stable_hash
     # from the existing stable_hash(file, canonical, title) helper, an attribution
-    # of length <=1, and status "new" — precisely so review.md's Phase 3 fail-closed
-    # check (halts if any survivor lacks band/orchestrator_score/stable_hash) and
-    # Phase 4 render gate (halts if any finding lacks band/orchestrator_score) never
-    # trip on it (Finding #1). Its `line` may be null for a file-level marker
-    # (NEW-1) — neither gate requires a non-null line, so it still passes both.
+    # of length <=1, and status "audit" (_SUPPRESSION_STATUS) — precisely so
+    # review.md's Phase 3 fail-closed check (halts if any survivor lacks
+    # band/orchestrator_score/stable_hash) and Phase 4 render gate (halts if any
+    # finding lacks band/orchestrator_score) never trip on it (Finding #1), while
+    # the "audit" status keeps it OUT of the multi-pass carry-forward allowlist so
+    # it is regenerated fresh each pass, never carried-and-double-counted
+    # (impact-01). Its `line` may be null for a file-level marker (NEW-1) — neither
+    # gate requires a non-null line, so it still passes both.
     # category "suppression" is NOT in CATEGORY_DOMAIN, so it maps to no domain and
     # never cross-confirms (+10) nor is capped by idiom_floor.
     for file, marker_line in bare_marker_keys:
@@ -1236,7 +1251,12 @@ def run(envelope):
             "attribution": ["vibe-check"],       # length <=1 => never cross-confirmed.
             "stable_hash": stable_hash(
                 file_str, _SUPPRESSION_CANONICAL, _SUPPRESSION_TITLE),
-            "status": "new",
+            # impact-01: "audit", NOT "new" — the carry-forward allowlist
+            # {new, persisted, needs-recheck} excludes it, so the synthetic finding
+            # is regenerated fresh each pass rather than carried forward and
+            # double-counted / mis-statused. Gate- and render-inert (see the
+            # _SUPPRESSION_STATUS definition).
+            "status": _SUPPRESSION_STATUS,
         })
 
     return {

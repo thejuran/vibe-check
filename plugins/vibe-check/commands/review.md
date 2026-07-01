@@ -411,7 +411,7 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
 2. If present: parse it.
    - `$PASS_NUMBER = state.passes[-1].pass_number + 1`
    - `$LAST_REVIEWED_SHA = state.passes[-1].head_sha`
-   - `$CARRYFORWARD = state.passes[-1].findings` filtered to status in `["new", "persisted", "needs-recheck"]`
+   - `$CARRYFORWARD = state.passes[-1].findings` filtered to status in `["new", "persisted", "needs-recheck"]`. **Do NOT add `"audit"` to this allowlist (impact-01):** the synthetic bare-`// vibe-ignore` "suppression" finding `score.py` emits carries `status: "audit"` precisely so it is EXCLUDED here — it is REGENERATED fresh each pass from the live window scan, so carrying it forward would double-count it and (with its empty `current_code`) mis-classify it as `needs-recheck`/`fixed-since-last`. Its absence from this allowlist is what makes it regenerated-not-carried; it still renders (the Suppression audit section selects by `category == "suppression"`, not status) and still passes the Phase 3/4 structural gates (which key on band/orchestrator_score/stable_hash, not status).
 
 3. Narrow diff to incremental: `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged.
 

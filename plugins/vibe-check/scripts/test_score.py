@@ -774,6 +774,65 @@ class TestSuppressionFinding(unittest.TestCase):
         # The real finding is unaffected.
         self.assertIn("host", [g.get("id") for g in result["findings"]])
 
+    # --- impact-01: synthetic status EXCLUDES it from carry-forward ---------- #
+    # review.md Phase 0.5 (line 414) re-ingests findings whose status is in this
+    # allowlist; a synthetic "audit"-status finding must NOT be in it, so it is
+    # regenerated fresh each pass instead of carried forward and double-counted.
+    CARRYFORWARD_STATUSES = ["new", "persisted", "needs-recheck"]
+
+    def test_synthetic_status_is_audit_and_excluded_from_carryforward(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        supp = self._supp(result)
+        self.assertEqual(len(supp), 1)
+        # Distinct "audit" status, NOT "new".
+        self.assertEqual(supp[0]["status"], "audit")
+        # ...and "audit" is not in review.md's carry-forward inclusion set, so the
+        # orchestrator's Phase-0.5 filter would exclude it.
+        self.assertNotIn(supp[0]["status"], self.CARRYFORWARD_STATUSES)
+        # It still passes the STRUCTURAL gate (band/orchestrator_score/stable_hash)
+        # and renders by category — status change is inert for those.
+        self.assertEqual(supp[0]["band"], "low")
+        self.assertEqual(supp[0]["category"], "suppression")
+        self.assertIsNotNone(supp[0]["orchestrator_score"])
+        self.assertIn("stable_hash", supp[0])
+
+    def test_synthetic_regenerated_not_carried_across_passes(self):
+        # Two-pass carry-forward simulation. PASS 1 emits the synthetic finding.
+        # The orchestrator filters state.passes[-1].findings to the carry-forward
+        # allowlist before building pass 2's `carryforward` — the synthetic
+        # ("audit") is excluded, so it is NOT fed back. PASS 2 (same live window)
+        # REGENERATES it fresh from the scan. Net: exactly ONE synthetic in pass 2,
+        # never a doubled/mis-statused carried copy.
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        pass1 = self._run([f])
+        supp1 = self._supp(pass1)
+        self.assertEqual(len(supp1), 1)
+
+        # Orchestrator carry-forward filter (review.md:414): keep only allowlisted
+        # statuses. The synthetic "audit" finding is dropped here.
+        carryforward = [dict(g) for g in pass1["findings"]
+                        if g.get("status") in self.CARRYFORWARD_STATUSES]
+        self.assertTrue(all(g.get("category") != "suppression"
+                            for g in carryforward),
+                        "synthetic suppression must not survive the CF filter")
+
+        # PASS 2: the same live finding re-flagged (host carried forward with a
+        # canonical so it persists), same bare-marker window => synthetic
+        # regenerated fresh, exactly once — not carried, not doubled.
+        for g in carryforward:
+            g["canonical_line_content"] = "  x = 1"  # matches host current_code
+        pass2 = self._run([f], carryforward=carryforward)
+        supp2 = self._supp(pass2)
+        self.assertEqual(len(supp2), 1)
+        self.assertEqual(supp2[0]["status"], "audit")
+        # Regenerated (fresh scan) => identical stable_hash to pass 1's, not two.
+        self.assertEqual(supp2[0]["stable_hash"], supp1[0]["stable_hash"])
+
     # --- bugs-001: reason mentioning the token emits NO false synthetic ------- #
     def test_reason_text_containing_token_emits_no_synthetic(self):
         # End-to-end: a reasoned `// vibe-ignore: ... vibe-ignore ...` marker
