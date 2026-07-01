@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: Tunable, quieter reviews
 status: executing
-stopped_at: Phase 30 context gathered
-last_updated: "2026-07-01T00:34:21.465Z"
-last_activity: 2026-07-01 -- Phase 30 Plan 02 complete (thresholds knob)
+stopped_at: Phase 32 context gathered
+last_updated: "2026-07-01T16:30:29.148Z"
+last_activity: 2026-07-01 -- Phase 32 execution started
 progress:
   total_phases: 26
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 4
+  completed_phases: 2
+  total_plans: 8
+  completed_plans: 6
+  percent: 8
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 30 — config-surface-foundation
+**Current focus:** Phase 32 — idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs
 
 ## Current Position
 
-Phase: 30 (config-surface-foundation) — EXECUTING
-Plan: 3 of 3
-Status: Executing Phase 30
-Last activity: 2026-07-01 -- Phase 30 Plan 02 complete (thresholds knob)
+Phase: 32 (idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 32
+Last activity: 2026-07-01 -- Phase 32 execution started
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Last activity: 2026-07-01 -- Phase 30 Plan 02 complete (thresholds knob)
 | Phase 30 P01 | 3min | 2 tasks | 2 files |
 | Phase 30 P02 | 3min | 2 tasks | 2 files |
 | Phase 30 P03 | 4min | 3 tasks | 3 files |
+| Phase 32 P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,9 @@ Earlier decisions (v2.6) still on record:
 - [Phase ?]: Phase 30 P02: band_for parameterized to band_for(score, thresholds=None) via _usable_bands whole-set crash-safe guard (all-three-non-bool-ints-or-whole-default); run() threads envelope.get('thresholds') (no or-empty) into the SINGLE band write; _DEFAULT_BANDS 95/80/70 added next to THRESHOLDS with a two-layer banner (D-02); default path byte-identical, GOLDEN_DIGEST + TestBandBoundaries UNCHANGED, import set frozen, suite 180->191, two-layer dead-band proof pinned
 - [Phase ?]: Phase 0.6 config read is unconditional (between review.md Phase 0.5 and 0.7), runs on every mode + both commands, degrades-not-aborts
 - [Phase ?]: top_model resolves env>toml>default(opus) at deep-review.md:55; disabled subtracted before dispatch in both files (core-agent disable announced); thresholds stays review.md-only
+- [Phase ?]: Phase 32-01: idiom_floor cap ACTIVE by default at medium (A1) — absent envelope key defaults to medium cap INSIDE score.py so idioms never block finalize
+- [Phase ?]: Phase 32-01: explicit off/none returns the literal 'off' sentinel (NOT None) end-to-end so absent != off is provable at the scorer; malformed fails SAFE to medium (cap stays active)
+- [Phase ?]: Phase 32-01: idiom band cap is a single POST-band adjustment (band_for stays the single writer); idiom_floor='low' writes literal 'low' and keeps category=='idiom' (Finding NEW-2)
 
 ### Pending Todos
 
@@ -136,10 +140,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-01T00:34:14.044Z
-Stopped at: Phase 30 context gathered
+Last session: 2026-07-01T16:30:29.145Z
+Stopped at: Phase 32 context gathered
 Resume file:
-.planning/phases/30-config-surface-foundation/30-CONTEXT.md
+.planning/phases/32-idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs/32-CONTEXT.md
 
 ## Operator Next Steps
 
