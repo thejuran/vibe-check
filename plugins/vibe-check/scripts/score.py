@@ -276,6 +276,26 @@ def _cap_idiom_band(category, band, idiom_floor):
 _VIBE_IGNORE_REASON_RE = re.compile(r"\s*:\s*(\S.*)?$", re.DOTALL)
 
 
+def _is_fresh_marker_start(line, pos):
+    """Is the `_VIBE_IGNORE` token at `pos` a GENUINE fresh marker start (bugs-001)?
+
+    A genuine marker begins a comment, so its token is preceded — after stripping
+    intervening whitespace — by a comment lead-in (`//` or `#`) or by nothing at
+    all (the token starts the line). A `vibe-ignore` occurrence preceded by an
+    ordinary word character is REASON TEXT of an earlier marker (e.g. the second
+    "vibe-ignore" in `// vibe-ignore: see other vibe-ignore usage above`), NOT a
+    separate marker — treating it as one wrongly split a genuinely REASONED marker
+    into a false BARE occurrence and emitted a bogus "suppression without reason"
+    synthetic finding (bugs-001). Distinguishing on the comment lead-in preserves
+    the existing same-line contracts (`// vibe-ignore: r // vibe-ignore` still
+    detects the trailing bare marker; `// vibe-ignore // vibe-ignore: r` still
+    detects both) because a genuine second marker always opens a fresh `//`/`#`
+    comment, while in-reason prose does not.
+    """
+    prefix = line[:pos].rstrip()
+    return prefix == "" or prefix.endswith("//") or prefix.endswith("#")
+
+
 def _vibe_ignore_scan(source_window):
     """Per-TOKEN reason-aware scan of the ±2 window for `vibe-ignore` markers.
 
@@ -283,14 +303,17 @@ def _vibe_ignore_scan(source_window):
     window (Finding #2: iterate every token in each line, not just the first) —
     each `{"index": <0-based window index>, "kind": "reasoned"|"bare"}`.
 
-    For each string window line, ALL occurrences of `_VIBE_IGNORE` are walked from
-    an advancing offset; for each, the text AFTER that token up to (but not
-    consuming) the NEXT `_VIBE_IGNORE` token on the line is classified: a colon
-    then a non-empty (`.strip()` non-blank) reason ⇒ "reasoned"; otherwise (no
-    colon, colon with only-whitespace reason, or the next token immediately
-    follows) ⇒ "bare". Non-str lines are skipped. Pure scan over the pre-resolved
-    window (no I/O); never raises on malformed window content (mirrors
-    silenced_nearby's crash-safe posture, T-32-05).
+    For each string window line, the `_VIBE_IGNORE` occurrences that are GENUINE
+    markers are walked (bugs-001: the first occurrence, plus any subsequent
+    occurrence that is a fresh comment-marker start per _is_fresh_marker_start — an
+    in-reason `vibe-ignore` word inside an earlier marker's reason is NOT a
+    separate marker and is skipped). For each genuine marker, the text AFTER that
+    token up to (but not consuming) the NEXT genuine `_VIBE_IGNORE` marker on the
+    line is classified: a colon then a non-empty (`.strip()` non-blank) reason ⇒
+    "reasoned"; otherwise (no colon, colon with only-whitespace reason, or the next
+    marker immediately follows) ⇒ "bare". Non-str lines are skipped. Pure scan over
+    the pre-resolved window (no I/O); never raises on malformed window content
+    (mirrors silenced_nearby's crash-safe posture, T-32-05).
     """
     occurrences = []
     if not source_window:
@@ -301,11 +324,21 @@ def _vibe_ignore_scan(source_window):
             continue
         # Collect this line's token start offsets first, so each token's trailing
         # segment can end at the NEXT token's start (not the line end).
-        starts = []
+        raw_starts = []
         pos = line.find(_VIBE_IGNORE)
         while pos != -1:
-            starts.append(pos)
+            raw_starts.append(pos)
             pos = line.find(_VIBE_IGNORE, pos + tok_len)
+        # bugs-001: keep the FIRST occurrence unconditionally (preserving the
+        # deliberate substring/prose behavior shared with the other markers), but
+        # DROP any SUBSEQUENT occurrence that is not a fresh comment-marker start —
+        # such an occurrence is `vibe-ignore` text INSIDE an earlier marker's reason
+        # (e.g. `// vibe-ignore: see other vibe-ignore usage`), NOT a real second
+        # marker. Dropping it means a reasoned token's reason segment correctly
+        # extends past the in-reason word to the next GENUINE marker (or line end),
+        # so the reasoned marker is no longer mis-split into a false bare finding.
+        starts = [s for i, s in enumerate(raw_starts)
+                  if i == 0 or _is_fresh_marker_start(line, s)]
         for k, start in enumerate(starts):
             seg_start = start + tok_len
             seg_end = starts[k + 1] if k + 1 < len(starts) else len(line)

@@ -563,6 +563,31 @@ class TestVibeIgnore(unittest.TestCase):
                          [(0, "bare"), (2, "reasoned")])
         self.assertTrue(score.silenced_nearby(window))  # any reasoned suppresses
 
+    # --- bugs-001: reason text containing "vibe-ignore" is NOT a 2nd marker --- #
+    def test_reason_text_containing_token_is_single_reasoned(self):
+        # A genuinely REASONED marker whose REASON TEXT contains the word
+        # "vibe-ignore" again must be ONE reasoned occurrence — the inner
+        # "vibe-ignore" is prose inside the reason, NOT a fresh bare marker
+        # (bugs-001). Previously it split into [(idx,"reasoned"), (idx,"bare")] and
+        # emitted a false "suppression without reason" finding.
+        window = ["a", "// vibe-ignore: see other vibe-ignore usage above", "c"]
+        self.assertEqual(self._kinds_at(window), [(1, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))  # reasoned still suppresses
+
+    def test_reason_text_token_hash_comment_single_reasoned(self):
+        # Same, comment-syntax-agnostic (`#` reason mentioning the token).
+        window = ["# vibe-ignore: mirrors the vibe-ignore in helper.py"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    def test_genuine_second_bare_marker_after_reasoned_still_detected(self):
+        # REGRESSION LOCK for the existing contract: a REAL second bare marker
+        # (fresh `//` comment) after a reasoned one on the SAME line is STILL
+        # detected — bugs-001 only drops in-REASON prose, never a genuine marker.
+        window = ["// vibe-ignore: reason // vibe-ignore"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned"), (0, "bare")])
+        self.assertTrue(score.silenced_nearby(window))
+
     # --- byte-stable no-marker path ------------------------------------------ #
     def test_no_marker_window_byte_stable(self):
         window = ["a", "b", "c", "d", "e"]
@@ -748,6 +773,25 @@ class TestSuppressionFinding(unittest.TestCase):
         self.assertEqual(self._supp(result), [])
         # The real finding is unaffected.
         self.assertIn("host", [g.get("id") for g in result["findings"]])
+
+    # --- bugs-001: reason mentioning the token emits NO false synthetic ------- #
+    def test_reason_text_containing_token_emits_no_synthetic(self):
+        # End-to-end: a reasoned `// vibe-ignore: ... vibe-ignore ...` marker
+        # SUPPRESSES the host finding (rides the -50 path) and emits NO false
+        # "suppression without reason" synthetic finding (bugs-001). conf 40 medium
+        # so the -50 reasoned suppression drops the host.
+        f = make_finding(
+            id="host", line=99, agent_confidence=40, severity="medium",
+            source_window=["a", "b",
+                           "// vibe-ignore: see other vibe-ignore usage above",
+                           "d", "e"])
+        result = self._run([f])
+        # host is suppressed by the reasoned marker...
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertTrue(any(x.get("reason") == "silenced"
+                            for x in result["filtered"]))
+        # ...and there is NO synthetic suppression finding (no false bare).
+        self.assertEqual(self._supp(result), [])
 
     # --- lang-py-001: non-str / UNHASHABLE `file` never crashes the run ------- #
     def test_unhashable_file_bare_marker_never_crashes(self):
