@@ -149,6 +149,81 @@ def band_for(score, thresholds=None):
     return None
 
 
+# --------------------------------------------------------------------------- #
+# idiom_floor band cap (NOISE-01, D-01/D-02) — a per-category POST-band
+# adjustment on `idiom`-category findings. band_for stays the single band
+# WRITER; this is the ONE clearly-scoped adjustment applied immediately after the
+# single band-write site, and it only ever LOWERS a band. See run() for the site.
+# --------------------------------------------------------------------------- #
+
+# Severity rung ordering for the cap comparison (critical > warning > medium >
+# low > None). None is the LOWEST rung so a would-be-None idiom band is never
+# "raised" to the cap. The literal band "low" IS a valid cap target (Finding
+# NEW-2) — note band_for never RETURNS "low" (its floor is None), but the cap can
+# WRITE "low" as the capped label.
+_BAND_SEVERITY = {"critical": 4, "warning": 3, "medium": 2, "low": 1, None: 0}
+
+# The valid idiom_floor cap bands (INCLUDING "low", Finding NEW-2) and the disable
+# sentinels — mirrored from config.py's allowlist so the scorer re-validates
+# independently ("don't trust your input", like _usable_bands).
+_IDIOM_FLOOR_BANDS = ("critical", "warning", "medium", "low")
+_IDIOM_FLOOR_DISABLE = ("off", "none")
+_DEFAULT_IDIOM_FLOOR = "medium"   # A1: absent key => the cap is ACTIVE at medium.
+
+
+def _usable_idiom_floor(raw):
+    """Resolve the RAW `idiom_floor` envelope value to a usable cap band, or None.
+
+    CRASH-SAFE, THREE-STATE (Finding #2, mirroring _usable_bands' "don't trust
+    your input" posture — a stale/buggy config.py must never crash the scorer or
+    silently disable the cap):
+
+      1. `raw is None` (ABSENT key)                 -> "medium"  (cap ACTIVE, A1).
+      2. `raw` is "off"/"none" (case-insensitive)   -> None      (cap DISABLED —
+         the EXPLICIT user off; this is WHY config.py returns the literal "off"
+         sentinel and not None, so an absent key and an explicit off are
+         distinguishable HERE on the envelope).
+      3. `raw` is a valid band name (incl. "low")   -> that band (cap at it).
+      4. anything else (unknown string, non-str)    -> "medium"  (fail-safe: a bad
+         value KEEPS the cap active, matching config.py's malformed->medium; an
+         unknown string is NOT the off sentinel, so it never disables).
+
+    The three-state resolution is CENTRALIZED here (not split with a
+    `raw if raw is not None else "medium"` in run()) so the off-sentinel semantics
+    are unambiguous in exactly one place.
+    """
+    if raw is None:
+        return _DEFAULT_IDIOM_FLOOR
+    if isinstance(raw, str):
+        low = raw.lower()
+        if low in _IDIOM_FLOOR_DISABLE:
+            return None
+        if low in _IDIOM_FLOOR_BANDS:
+            return low
+    return _DEFAULT_IDIOM_FLOOR
+
+
+def _cap_idiom_band(category, band, idiom_floor):
+    """Cap an `idiom`-category finding's `band` at idiom_floor. LOWER-ONLY.
+
+    Scoped to category == "idiom" (D-02): a non-idiom finding is returned
+    unchanged. The cap resolved by _usable_idiom_floor: None (disabled) => the
+    band is returned unchanged; otherwise the band is lowered to the cap ONLY when
+    it is strictly HIGHER-severity than the cap (never raised). Touches ONLY the
+    band LABEL — never `category`, so a low-capped idiom finding STAYS
+    category == "idiom" (Finding NEW-2; the render layer disambiguates by
+    category, Plan 03).
+    """
+    if category != "idiom":
+        return band
+    cap = _usable_idiom_floor(idiom_floor)
+    if cap is None:
+        return band  # explicit off/none => cap disabled.
+    if _BAND_SEVERITY.get(band, 0) > _BAND_SEVERITY[cap]:
+        return cap
+    return band
+
+
 def silenced_nearby(source_window):
     """Any of the 5 canonical markers in any line of the ±2 window (D-13 inclusive).
 
@@ -761,6 +836,14 @@ def run(envelope):
     # "crash-safe against ANY envelope value" regardless of who fills it, so the
     # filter guards the type itself (mirrors the thresholds crash-safety posture).
     min_confidence = envelope.get("min_confidence")
+    # v2.8 idiom band cap (NOISE-01, D-01/D-02, A1): optional per-category cap on
+    # `idiom`-category findings. No `or` coercion — the RAW value goes straight to
+    # _cap_idiom_band, whose _usable_idiom_floor resolves the THREE distinct states
+    # (absent/None -> the "medium" default cap ACTIVE per A1; the literal
+    # "off"/"none" sentinel -> disabled; a valid band -> that cap). Centralizing the
+    # absent->medium default INSIDE the helper (not `idiom_floor or "medium"` here)
+    # is what keeps the explicit "off" sentinel distinguishable from an absent key.
+    idiom_floor = envelope.get("idiom_floor")
 
     # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
     # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
@@ -908,6 +991,14 @@ def run(envelope):
         survivor = dict(best_member)
         survivor["orchestrator_score"] = best_score
         survivor["band"] = band_for(best_score, thresholds)
+        # v2.8 idiom_floor cap (NOISE-01, D-01/D-02): the ONE post-band adjustment.
+        # band_for above stays the single band WRITER; this LOWERS the label of an
+        # `idiom`-category survivor to idiom_floor (default "medium", A1), scoped to
+        # category=="idiom" and never touching `category` or `orchestrator_score`
+        # (so GOLDEN_DIGEST / stable_hash / non-idiom bands stay byte-stable). Do
+        # NOT add a second band-computation branch elsewhere.
+        survivor["band"] = _cap_idiom_band(
+            survivor.get("category"), survivor["band"], idiom_floor)
         survivor["attribution"] = attribution
         survivor["stable_hash"] = stable_hash(
             survivor.get("file", ""),

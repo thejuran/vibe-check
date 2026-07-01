@@ -19,11 +19,13 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 # Make `import score` resolve when unittest discovery runs from the repo root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import config  # noqa: E402  (sibling module — the config→envelope→score proof)
 import score  # noqa: E402  (sibling module under test)
 
 SCORE_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "score.py")
@@ -1734,6 +1736,258 @@ class TestRunMinConfidence(unittest.TestCase):
         self.assertTrue(any(
             x.get("reason") == "below-min-confidence" and x.get("file") == "src/a.py"
             for x in result["filtered"]))
+
+
+# --------------------------------------------------------------------------- #
+# run() idiom_floor band cap — end-to-end (NOISE-01, D-01/D-02, A1, Findings
+# #2 / NEW-2). Structural twin of TestRunMinConfidence.
+# --------------------------------------------------------------------------- #
+class TestIdiomFloor(unittest.TestCase):
+    """Proves the `idiom_floor` envelope key caps `idiom`-category findings at a
+    tunable max band via the SINGLE post-band adjustment: it only LOWERS, is
+    scoped to category=='idiom', is ACTIVE BY DEFAULT at "medium" (absent key, A1),
+    DISABLES only on the literal "off"/"none" sentinel (distinct from an absent
+    key), treats an unknown value as the medium cap (fail-safe), writes literal
+    "low" (keeping category=='idiom', Finding NEW-2), and leaves the byte-stable
+    default path (GOLDEN_DIGEST / non-idiom bands / stable_hash) unchanged."""
+
+    def _envelope(self, **over):
+        # A single idiom finding at agent_confidence=100 that scores 100 -> would
+        # band "critical" (well above medium), so the cap is observable when active.
+        base = {
+            "command": "deep-review",  # finalize cutoff 70 so a capped-to-medium
+                                       # (score-70..79) idiom survives the sub-thr
+                                       # filter and is inspectable in findings[].
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="if-base", agent_confidence=100,
+                             severity="critical", category="idiom",
+                             file="src/a.py", line=10),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def _only(self, result):
+        self.assertEqual(len(result["findings"]), 1,
+                         "expected exactly one survivor, got %r" % (result["findings"],))
+        return result["findings"][0]
+
+    # --- the cap only lowers ------------------------------------------------- #
+    def test_cap_down_critical_to_medium(self):
+        # idiom would be "critical"; floor "medium" lowers it to "medium".
+        g = self._only(score.run(self._envelope(idiom_floor="medium")))
+        self.assertEqual(g["band"], "medium")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_cap_up_is_noop(self):
+        # An idiom already at "warning" with floor "critical" is NEVER raised.
+        # A conf-85 critical idiom scores 85 -> band "warning"; floor "critical"
+        # is HIGHER, so the band is unchanged.
+        g = self._only(score.run(self._envelope(
+            idiom_floor="critical",
+            findings=[make_finding(id="if-warn", agent_confidence=85,
+                                   severity="critical", category="idiom",
+                                   file="src/b.py", line=20)])))
+        self.assertEqual(g["band"], "warning")
+
+    def test_cap_at_floor_is_noop(self):
+        # An idiom already AT the floor band is unchanged (strict `>` compare).
+        g = self._only(score.run(self._envelope(
+            idiom_floor="warning",
+            findings=[make_finding(id="if-eq", agent_confidence=85,
+                                   severity="critical", category="idiom",
+                                   file="src/c.py", line=30)])))
+        self.assertEqual(g["band"], "warning")
+
+    # --- disable (the literal off/none sentinel) ----------------------------- #
+    def test_off_disables_cap(self):
+        # The literal "off" sentinel -> cap INERT; the idiom keeps its full band.
+        g = self._only(score.run(self._envelope(idiom_floor="off")))
+        self.assertEqual(g["band"], "critical")
+
+    def test_none_sentinel_disables_cap(self):
+        # The literal "none" string is ALSO a disable sentinel (config.py would
+        # have normalized it to "off", but score.py accepts either spelling).
+        g = self._only(score.run(self._envelope(idiom_floor="none")))
+        self.assertEqual(g["band"], "critical")
+
+    # --- scope: idiom category ONLY ------------------------------------------ #
+    def test_non_idiom_not_capped(self):
+        # A NON-idiom finding at the SAME (critical) band with floor "medium" is
+        # untouched — the cap is scoped to category=='idiom' only (D-02).
+        g = self._only(score.run(self._envelope(
+            idiom_floor="medium",
+            findings=[make_finding(id="if-dep", agent_confidence=100,
+                                   severity="critical", category="dep-array",
+                                   file="src/d.py", line=40)])))
+        self.assertEqual(g["band"], "critical")
+        self.assertEqual(g["category"], "dep-array")
+
+    # --- default-active (A1): absent key still caps -------------------------- #
+    def test_default_active_absent_key_caps_at_medium(self):
+        # NO idiom_floor key -> score.py internally defaults the cap to "medium",
+        # so a would-be-critical idiom is capped at "medium" (A1).
+        g = self._only(score.run(self._envelope()))
+        self.assertEqual(g["band"], "medium")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_explicit_none_matches_absent(self):
+        # envelope idiom_floor=None (explicit) is byte-identical to omitting it:
+        # both default to the medium cap (A1).
+        g = self._only(score.run(self._envelope(idiom_floor=None)))
+        self.assertEqual(g["band"], "medium")
+
+    # --- crash-safe: an unknown value is NOT the off sentinel ---------------- #
+    def test_unknown_string_is_not_off_falls_back_to_medium_cap(self):
+        # A bogus string is NOT the off sentinel -> treated as the medium cap
+        # (fail-safe), so an idiom critical is still lowered to "medium".
+        g = self._only(score.run(self._envelope(idiom_floor="bogus")))
+        self.assertEqual(g["band"], "medium")
+
+    def test_non_str_value_falls_back_to_medium_cap(self):
+        # A non-str envelope value (int/dict/bool) -> the medium cap (never raises,
+        # never disables). The scorer re-validates independent of config.py.
+        for bad in (70, {"x": 1}, True, 3.5, ["off"]):
+            g = self._only(score.run(self._envelope(idiom_floor=bad)))
+            self.assertEqual(g["band"], "medium",
+                             "malformed idiom_floor=%r must fall back to medium cap"
+                             % (bad,))
+
+    # --- Finding NEW-2: "low" writes literal "low", stays category=='idiom' --- #
+    def test_low_floor_writes_literal_low_and_keeps_category(self):
+        # idiom_floor "low" caps a would-be-critical idiom at the LITERAL "low"
+        # band (NOT None), and the finding STAYS category=='idiom' (it is NOT
+        # re-categorized to suppression — the render layer disambiguates by
+        # category, Plan 03). Use /deep-review so a low-band finding still surfaces.
+        g = self._only(score.run(self._envelope(idiom_floor="low")))
+        self.assertEqual(g["band"], "low")
+        self.assertEqual(g["category"], "idiom")
+
+    # --- byte-stable default path (non-idiom finding unchanged) -------------- #
+    def test_byte_stable_default_non_idiom_unchanged(self):
+        # A NON-idiom finding run with NO idiom_floor key has an unchanged band /
+        # orchestrator_score / stable_hash vs a run where the key is absent — the
+        # cap never touches a non-idiom finding, and the default path is stable.
+        env = self._envelope(
+            findings=[make_finding(id="if-stable", agent_confidence=100,
+                                   severity="critical", category="bug",
+                                   file="src/e.py", line=50)])
+        g = self._only(score.run(env))
+        self.assertEqual(g["band"], "critical")
+        self.assertEqual(g["orchestrator_score"], 100)
+        # A second identical run yields the SAME stable_hash (determinism intact).
+        g2 = self._only(score.run(dict(env)))
+        self.assertEqual(g["stable_hash"], g2["stable_hash"])
+
+    def test_golden_digest_still_frozen(self):
+        # The scoring math is byte-stable: the frozen digest is unmoved.
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
+
+    def test_band_boundaries_unchanged(self):
+        # band_for is untouched by the cap (the cap is a POST-band adjustment).
+        self.assertEqual(score.band_for(95), "critical")
+        self.assertEqual(score.band_for(80), "warning")
+        self.assertEqual(score.band_for(70), "medium")
+        self.assertIsNone(score.band_for(69))
+
+    # --- the helpers directly ------------------------------------------------ #
+    def test_usable_idiom_floor_three_states(self):
+        # absent/None -> "medium" (cap active, A1)
+        self.assertEqual(score._usable_idiom_floor(None), "medium")
+        # off/none -> None (disabled)
+        self.assertIsNone(score._usable_idiom_floor("off"))
+        self.assertIsNone(score._usable_idiom_floor("none"))
+        self.assertIsNone(score._usable_idiom_floor("OFF"))
+        # valid band (incl. low) -> that band
+        for band in ("critical", "warning", "medium", "low"):
+            self.assertEqual(score._usable_idiom_floor(band), band)
+        self.assertEqual(score._usable_idiom_floor("LOW"), "low")
+        # anything else -> "medium" (fail-safe, NOT None/disabled)
+        for bad in ("bogus", "", 70, True, 3.5, {}, []):
+            self.assertEqual(score._usable_idiom_floor(bad), "medium",
+                             "malformed %r must fall back to medium" % (bad,))
+
+    def test_cap_idiom_band_lowers_only_and_scoped(self):
+        # Non-idiom is never capped regardless of floor.
+        self.assertEqual(score._cap_idiom_band("bug", "critical", "medium"),
+                         "critical")
+        # idiom above floor -> lowered.
+        self.assertEqual(score._cap_idiom_band("idiom", "critical", "medium"),
+                         "medium")
+        # idiom at/below floor -> unchanged.
+        self.assertEqual(score._cap_idiom_band("idiom", "medium", "critical"),
+                         "medium")
+        self.assertEqual(score._cap_idiom_band("idiom", "low", "medium"), "low")
+        # disabled sentinel -> unchanged.
+        self.assertEqual(score._cap_idiom_band("idiom", "critical", "off"),
+                         "critical")
+        # a would-be-None idiom band is never raised to the cap.
+        self.assertIsNone(score._cap_idiom_band("idiom", None, "medium"))
+
+
+# --------------------------------------------------------------------------- #
+# config.py -> envelope -> score.py provenance (Finding #2): explicit off reaches
+# score.py as DISABLED and is DISTINCT from the zero-config default cap.
+# --------------------------------------------------------------------------- #
+class TestIdiomFloorEnvelopeIntegration(unittest.TestCase):
+    """The end-to-end proof that `absent != off`: a real `[noise] idiom_floor =
+    "off"` .vibe-check.toml resolves through config.load_config to the literal
+    "off" sentinel, is injected on the score.py envelope, and DISABLES the cap;
+    while the zero-config path (no toml -> the orchestrator OMITS the key) still
+    caps the SAME idiom finding at "medium"."""
+
+    def _idiom_env(self, **over):
+        base = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="int-idiom", agent_confidence=100,
+                             severity="critical", category="idiom",
+                             file="src/z.py", line=99),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_explicit_off_travels_from_config_and_disables(self):
+        # 1) A real .vibe-check.toml with `[noise] idiom_floor = "off"`.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, ".vibe-check.toml")
+            with open(path, "w") as fh:
+                fh.write('[noise]\nidiom_floor = "off"\n')
+            values, warnings = config.load_config(path)
+        # 2) config.py resolves it to the LITERAL "off" sentinel (NOT None).
+        self.assertEqual(values["idiom_floor"], "off")
+        self.assertEqual(warnings, [])
+        # 3) The orchestrator INJECTS that sentinel on the envelope; the cap is
+        #    DISABLED -> the idiom keeps its full "critical" band.
+        result = score.run(self._idiom_env(idiom_floor=values["idiom_floor"]))
+        g = result["findings"][0]
+        self.assertEqual(g["band"], "critical")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_zero_config_default_caps_the_same_finding(self):
+        # No toml -> the orchestrator OMITS the key -> the SAME idiom finding IS
+        # capped at "medium" (A1). This is what makes absent != off provable.
+        result = score.run(self._idiom_env())  # no idiom_floor key
+        g = result["findings"][0]
+        self.assertEqual(g["band"], "medium")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_absent_and_off_are_distinct_end_to_end(self):
+        # Both paths in ONE assertion: absent -> "medium", explicit off -> "critical".
+        absent = score.run(self._idiom_env())["findings"][0]
+        off = score.run(self._idiom_env(idiom_floor="off"))["findings"][0]
+        self.assertEqual(absent["band"], "medium")
+        self.assertEqual(off["band"], "critical")
+        self.assertNotEqual(absent["band"], off["band"])
 
 
 # --------------------------------------------------------------------------- #
