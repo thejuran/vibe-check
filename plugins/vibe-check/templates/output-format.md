@@ -87,6 +87,52 @@ Consider fixing or acknowledge in `--finalize`:
 
 ---
 
+### Suppression (audit) 🔕
+
+*Bare `// vibe-ignore` markers found with NO reason — informational, never blocking.*
+
+**SELECTION IS BY CATEGORY, NOT BY BAND.** Render a row here for each KEPT finding whose `category == "suppression"` — and ONLY those. A `low` band alone is NOT a suppression entry: an `idiom` finding capped to `low` by `idiom_floor="low"` also carries `band == "low"` but has `category == "idiom"`, so it is NOT rendered here — it renders in the Low / Informational listing below. Never select this section by band; a band-keyed selector would wrongly sweep an idiom-capped-to-low finding into this audit section (Finding NEW-2).
+
+| File:Line | Issue |
+|-----------|-------|
+| `{{file}}:{{line}}` | {{title}} |
+
+These are bare `// vibe-ignore` markers with no reason. They do not suppress the nearby finding and they never block the ship/fix verdict — they are surfaced only to keep suppressions auditable. To suppress the nearby finding, add a reason: `// vibe-ignore: <why>`. To drop the audit entry, remove the marker.
+
+*Render this section only when at least one `category == "suppression"` finding is present (omit the empty header). It is NON-blocking: a `suppression` finding has `band == "low"`, outside both finalize gates (`outstanding_cw` = band ∈ {critical, warning}; `unacknowledged_medium` = band == medium), so it never enters the ship/fix verdict.*
+
+---
+
+### Low / Informational ℹ️
+
+*Low-band findings that are NOT suppression audit entries — visible, at low band, never blocking.*
+
+Render a row here for each KEPT finding with `band == "low"` whose `category != "suppression"` — an `idiom` finding capped to `low` by `idiom_floor="low"` is the canonical case. Use the normal finding row format (same columns as the band sections). This is where a low-band finding that is NOT a suppression audit entry lands, so it is never hidden and never mislabeled as suppression.
+
+| Agent(s) | File:Line | Issue | Conf | Status |
+|----------|-----------|-------|------|--------|
+| {{agents_csv}} | `{{file}}:{{line}}` | {{title}} | {{agent_confidence}} | {{status}} |
+
+**The two low-band kinds are disambiguated by CATEGORY:** `category == "suppression"` → the Suppression (audit) section above; every other low-band finding (`category != "suppression"`) → this Low / Informational listing. The two selectors are mutually exclusive by construction, so the two low-band kinds never collide and neither is ever hidden.
+
+*Render this section only when at least one non-suppression low-band finding is present (omit the empty header). It is NON-blocking: a `low` band is outside `outstanding_cw` and `unacknowledged_medium`, so it never enters the ship/fix verdict.*
+
+#### Worked render example — two DISTINCT low-band findings (Finding NEW-2 proof)
+
+Suppose one result carries these two low-band findings:
+
+- Finding **X** — `src/util.ts:40`, `category: "suppression"`, `band: "low"`, title `suppression without reason` (a bare `// vibe-ignore` score.py synthesized).
+- Finding **Y** — `src/util.ts:12`, `category: "idiom"`, `band: "low"`, title `prefer const over let` (a real idiom finding that scored into a higher band but was CAPPED to `low` by `idiom_floor="low"`).
+
+The render MUST place them in DIFFERENT sections, keyed on category:
+
+- **X** renders in **Suppression (audit) 🔕** (its `category == "suppression"`).
+- **Y** renders in **Low / Informational ℹ️** (its `category == "idiom"` ≠ `"suppression"`), VISIBLE at its `low` band — it is NOT in the Suppression section and is NOT mislabeled as a bare-marker audit entry.
+
+Assert-by-reading: Y is present, at `low` band, OUTSIDE the Suppression section; X is present, INSIDE the Suppression section. This is the render-level proof that a documented `idiom_floor="low"` value does not break the report — the category-vs-band discriminant keeps the two low-band kinds correctly routed.
+
+---
+
 ### Architectural Notes 📐 *(deep review only)*
 
 - Pattern consistency: {{icon}} {{observation}}
@@ -150,8 +196,12 @@ Consider fixing or acknowledge in `--finalize`:
 | Medium (70-79) | ❌ | ✅ |
 | Filtered Issues Summary | ✅ | ✅ |
 | Filtered Issues Details | ❌ | ✅ |
+| Suppression (audit) | ✅ (when ≥1 present) | ✅ (when ≥1 present) |
+| Low / Informational | ✅ (when ≥1 present) | ✅ (when ≥1 present) |
 | Architectural Notes | ❌ | ✅ |
 | Impact Analysis | ❌ | ✅ |
+
+**Suppression (audit)** and **Low / Informational** are both shown in BOTH Quick and Deep review (a bare marker or a low-capped idiom should surface even on a quick review), each rendered only when at least one matching finding is present. **Both are NON-blocking:** neither participates in the ship/fix verdict — they are audit / informational surfaces (a `low`-band finding is outside `outstanding_cw` and `unacknowledged_medium`). The Suppression section selects by `category == "suppression"`; the Low / Informational listing selects the OTHER low-band findings (`band == "low"` AND `category != "suppression"`).
 
 ### Filter Transparency
 
