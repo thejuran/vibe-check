@@ -108,6 +108,11 @@ None - no external service configuration required (all dependencies are Python s
 - Zero modifications to score.py / test_score.py / any orchestrator prose — this plan is purely additive (two new files), so it introduces no cross-file drift for the sequential phases that follow.
 - The keystone per-key fail-safe (CONFIG-03) is now proven by 33 tests; later v2.8 knobs (Phases 31-33) can assume a missing/malformed config degrades without aborting.
 
+## Self-Check: PASSED
+
+- Files: config.py, test_config.py, 30-01-SUMMARY.md all FOUND on disk.
+- Commits: 3201334 (config.py), 28f7df5 (test_config.py), 8ccc6ca (SUMMARY) all FOUND in git log.
+
 ---
 *Phase: 30-config-surface-foundation*
 *Completed: 2026-07-01*
