@@ -165,7 +165,7 @@ wiring files. 34 (close) depends on all four work phases; it exercises every kno
 | 29. Efficacy Test + Version Bump + Tag | v2.7 | 2/2 | Complete   | 2026-06-30 |
 | 30. Config surface foundation | v2.8 | 3/3 | Complete   | 2026-07-01 |
 | 31. Confidence axis | v2.8 | 0/? | Not started | - |
-| 32. Idiom floor + `vibe-ignore` marker | v2.8 | 1/3 | In Progress|  |
+| 32. Idiom floor + `vibe-ignore` marker | v2.8 | 2/3 | In Progress|  |
 | 33. Codex legibility + safer fix-loop default | v2.8 | 0/? | Not started | - |
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Not started | - |
 

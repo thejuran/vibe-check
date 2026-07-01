@@ -4,13 +4,13 @@ milestone: v2.8
 milestone_name: Tunable, quieter reviews
 status: executing
 stopped_at: Phase 32 context gathered
-last_updated: "2026-07-01T16:30:29.148Z"
+last_updated: "2026-07-01T16:40:02.834Z"
 last_activity: 2026-07-01 -- Phase 32 execution started
 progress:
   total_phases: 26
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 8
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-28)
 ## Current Position
 
 Phase: 32 (idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Executing Phase 32
 Last activity: 2026-07-01 -- Phase 32 execution started
 
@@ -63,6 +63,7 @@ Last activity: 2026-07-01 -- Phase 32 execution started
 | Phase 30 P02 | 3min | 2 tasks | 2 files |
 | Phase 30 P03 | 4min | 3 tasks | 3 files |
 | Phase 32 P01 | 6min | 2 tasks | 4 files |
+| Phase 32 P02 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Earlier decisions (v2.6) still on record:
 - [Phase ?]: Phase 32-01: idiom_floor cap ACTIVE by default at medium (A1) — absent envelope key defaults to medium cap INSIDE score.py so idioms never block finalize
 - [Phase ?]: Phase 32-01: explicit off/none returns the literal 'off' sentinel (NOT None) end-to-end so absent != off is provable at the scorer; malformed fails SAFE to medium (cap stays active)
 - [Phase ?]: Phase 32-01: idiom band cap is a single POST-band adjustment (band_for stays the single writer); idiom_floor='low' writes literal 'low' and keeps category=='idiom' (Finding NEW-2)
+- [Phase ?]: Phase 32-02: vibe-ignore reasoned marker (within +/-2) rides the existing -50 silenced path; bare marker does NOT suppress but emits ONE synthetic low 'suppression' finding per bare occurrence (NOISE-02/03)
+- [Phase ?]: Phase 32-02: synthetic bare-marker finding carries the FULL survivor shape (band 'low' + fixed non-null orchestrator_score + stable_hash), appended to kept AFTER the sub-threshold loop (A2 exempt -> visible) so review.md Phase 3/4 gates never halt (Finding #1); marker-line via _as_line -> null/odd line = line:null no crash (NEW-1)
 
 ### Pending Todos
 
@@ -140,7 +143,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-01T16:30:29.145Z
+Last session: 2026-07-01T16:39:56.494Z
 Stopped at: Phase 32 context gathered
 Resume file:
 .planning/phases/32-idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs/32-CONTEXT.md

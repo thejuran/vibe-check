@@ -29,8 +29,8 @@ Surface the confidence axis and add the filter-before-scoring knob. The scoring 
 The two script-enforced noise knobs (idiom floor + suppression marker), both in `score.py`.
 
 - [x] **NOISE-01**: The `idiom` category is capped at a tunable max band (default `medium`); idioms never block finalize.
-- [ ] **NOISE-02**: A `// vibe-ignore: <reason>` marker within ±2 lines of a finding suppresses it (rides the existing silenced-marker grep).
-- [ ] **NOISE-03**: A bare `// vibe-ignore` with no reason is itself flagged as a low finding ("suppression without reason").
+- [x] **NOISE-02**: A `// vibe-ignore: <reason>` marker within ±2 lines of a finding suppresses it (rides the existing silenced-marker grep).
+- [x] **NOISE-03**: A bare `// vibe-ignore` with no reason is itself flagged as a low finding ("suppression without reason").
 
 ### Legibility
 
@@ -85,8 +85,8 @@ Which phases cover which requirements. Confirmed/owned by the roadmapper.
 | CONF-02 | Phase 31 | Pending |
 | CONF-03 | Phase 31 | Pending |
 | NOISE-01 | Phase 32 | Complete |
-| NOISE-02 | Phase 32 | Pending |
-| NOISE-03 | Phase 32 | Pending |
+| NOISE-02 | Phase 32 | Complete |
+| NOISE-03 | Phase 32 | Complete |
 | LEGIBLE-01 | Phase 33 | Pending |
 | LEGIBLE-02 | Phase 33 | Pending |
 | LEGIBLE-03 | Phase 33 | Pending |
