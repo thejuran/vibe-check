@@ -50,12 +50,25 @@ import sys
 # default that is NOT None (its default-direction is inverted, see the constant
 # block below and _validate_idiom_floor).
 _DEFAULT_VALUES = {"thresholds": None, "disabled": [], "top_model": None,
-                   "min_confidence": None, "idiom_floor": "medium"}
+                   "min_confidence": None, "idiom_floor": "medium",
+                   "codex": "auto"}
 
 # The opus/fable allowlist, mirroring the existing $VIBE_CHECK_TOP_MODEL
 # validation (deep-review.md:55) so the two precedence sources cannot diverge
 # (Pitfall 6). Anything else => None + warning.
 _TOP_MODEL_ALLOWLIST = ("opus", "fable")
+
+# The codex knob (LEGIBLE-02, D-10/D-14): controls whether the Codex adversarial
+# reviewer is attempted at deep-review Phase 2c. Three modes:
+#   off  — never attempt Codex (cheapest path; skip even the setup --json probe).
+#   auto — DEFAULT; today's Phase-2c dispatch logic UNCHANGED (run iff available).
+#   on   — same dispatch DECISION as auto, but any skip renders PROMINENTLY
+#          ("auto + louder", never "bypass safety" — correctness skips preserved).
+# codex is ORCHESTRATOR-only — it NEVER enters the score.py envelope, so
+# GOLDEN_DIGEST stays frozen. Its malformed default-direction is "auto" (a
+# NON-None default, like idiom_floor's "medium"), NOT None: a bad value keeps the
+# behavior-unchanged auto posture. See _validate_codex.
+_CODEX_MODES = ("off", "auto", "on")
 
 # The byte-stable band floors band_for() falls back to when `thresholds` is
 # absent/invalid — kept here for the validation coherence checks (strict descent
@@ -96,6 +109,11 @@ _IDIOM_FLOOR_BANDS = ("critical", "warning", "medium", "low")
 _IDIOM_FLOOR_DISABLE = ("off", "none")
 _IDIOM_FLOOR_OFF = "off"          # the canonical disable sentinel (self-describing)
 _DEFAULT_IDIOM_FLOOR = "medium"   # A1: the cap is active by default
+
+# The codex knob default (D-14): "auto" — behavior UNCHANGED from v2.7. Like
+# idiom_floor, this is a NON-None default-direction: an absent key AND a malformed
+# value both resolve to "auto" (fail-safe: Codex keeps running per today's logic).
+_DEFAULT_CODEX = "auto"
 
 # Pre-parse size cap (Finding #2 round-3, DoS): a real .vibe-check.toml is a few
 # hundred bytes; 1 MiB is generous. A regular file over this is degraded to
@@ -238,6 +256,32 @@ def _validate_idiom_floor(raw):
     return _DEFAULT_IDIOM_FLOOR, reason
 
 
+def _validate_codex(raw):
+    """Validate a raw `codex` VALUE (LEGIBLE-02, D-10/D-14): off/auto/on.
+
+    Fixed-enum shape (like _validate_top_model) with the DEFAULT-DIRECTION of
+    _validate_idiom_floor (malformed → a NON-None default, NOT None):
+
+    - A valid mode — "off"/"auto"/"on", case-insensitive (mirrors
+      _validate_idiom_floor's raw.lower()) — round-trips as the lowercased value
+      with NO warning.
+    - Anything else (unknown string, empty, non-str, bool) — returns
+      ("auto", warning): the "auto" DEFAULT + one warning naming the key. This is
+      the OPPOSITE default-direction from top_model's malformed→None: a bad codex
+      value keeps the behavior-unchanged auto posture (Codex still runs per
+      today's Phase-2c logic), it does NOT disable Codex.
+
+    The warning names the KEY + a FIXED reason ONLY — never the raw config VALUE
+    text (V5/V7 hardening, module docstring — the D-14 `(<reason>)` parenthetical
+    is NOT interpolated; the sibling-consistent fixed form is used). NEVER raises
+    (never-raise family).
+    """
+    reason = "config: codex invalid — using default"
+    if isinstance(raw, str) and raw.lower() in _CODEX_MODES:
+        return raw.lower(), None
+    return _DEFAULT_CODEX, reason
+
+
 # --------------------------------------------------------------------------- #
 # Precedence overlay — flags run through the SAME per-key validators as toml
 # (VALIDATE-THEN-OVERLAY, Finding #3): a flag value is never trusted by fiat.
@@ -262,6 +306,9 @@ def _apply_flags(values, warnings, flags):
         # No flag is parsed for idiom_floor this phase — the precedence slot is
         # harmless (a None flag is skipped below) and future-proof.
         "idiom_floor": _validate_idiom_floor,
+        # The reserved --codex slot (D-10): flag > toml > default, validated
+        # through the SAME _validate_codex a bad toml value hits.
+        "codex": _validate_codex,
     }
     for key, validator in validators.items():
         flag_val = flags.get(key)
@@ -299,7 +346,8 @@ def load_config(path, *, flags=None):
     # default); keep this an inline literal in lockstep with _DEFAULT_VALUES
     # rather than switching to dict(_DEFAULT_VALUES) (the anti-poisoning literal).
     values = {"thresholds": None, "disabled": [], "top_model": None,
-              "min_confidence": None, "idiom_floor": "medium"}
+              "min_confidence": None, "idiom_floor": "medium",
+              "codex": "auto"}
     warnings = []
 
     # D-01: no parser (Python < 3.11) => degrade, never raise. Imported here (not
@@ -387,6 +435,10 @@ def load_config(path, *, flags=None):
         values["idiom_floor"], w = _validate_idiom_floor(noise["idiom_floor"])
         if w:
             warnings.append(w)
+    if "codex" in noise:
+        values["codex"], w = _validate_codex(noise["codex"])
+        if w:
+            warnings.append(w)
 
     # Precedence: flag wins over toml, but through the SAME validators (Finding #3).
     return _apply_flags(values, warnings, flags)
@@ -419,6 +471,18 @@ if __name__ == "__main__":
             parsed = None
         if parsed is not None:
             flags = {"min_confidence": parsed}
+
+    # LEGIBLE-02 (D-10): thread the --codex flag through the SAME tested
+    # _apply_flags path via a CODEX_FLAG env var. SIMPLER than min_confidence — no
+    # int() parse: a non-empty string flows straight into flags["codex"], and
+    # _validate_codex degrades a bogus token to "auto" (never abort). Merged into
+    # the SAME flags dict so --codex and --min-confidence coexist on one
+    # invocation; an unset/empty CODEX_FLAG adds nothing (byte-identical to today).
+    codex_flag_raw = os.environ.get("CODEX_FLAG", "")
+    if codex_flag_raw:
+        if flags is None:
+            flags = {}
+        flags["codex"] = codex_flag_raw
 
     if repo_root:
         config_path = os.path.join(repo_root, ".vibe-check.toml")
