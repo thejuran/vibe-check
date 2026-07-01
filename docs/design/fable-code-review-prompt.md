@@ -26,7 +26,10 @@ useful; a finding that survives because you read the code differently is exactly
 ## Scope — CODE CORRECTNESS ONLY
 Find real latent bugs, edge cases, and correctness/maintainability defects. This is NOT a
 design review (is the scoring model sound? does each agent earn its place?) — that's a
-separate pass. Stay on: does this code do what it claims, on all inputs?
+separate pass. Stay on: does this code do what it claims, on all inputs? Scope covers BOTH the
+Python engine AND the security-critical bash embedded in the command prose (see the
+containment section below) — a review that only reads the .py files misses the layer where the
+tool actually touches the filesystem and commits.
 
 ## Read (repo root, checked out at tag v2.7)
 Core engine (highest priority — most logic, most reliance):
@@ -62,6 +65,18 @@ Contracts the engine assumes:
    `pair[0] <= line <= pair[1]`) are not tested at the exact endpoints; malformed range pairs
    (`len < 2`, inverted, 3-element) are guarded but under-tested. Any off-by-one or lossy
    handling?
+7. **Security-critical bash in the command prose (NOT a .py file).** The path-containment
+   guard, symlink filter, and diff-range resolution live as inline bash the orchestrating
+   model transcribes and runs each invocation — see plugins/vibe-check/commands/review.md
+   Phase 0 (~lines 130, 177-190: real `realpath` + an embedded Python heredoc for the
+   BSD-realpath missing-path-tolerant canonicalization), plus restated containment in
+   deep-review.md, agents/fix.md, agents/codex-adversarial.md. This is where the tool decides
+   what it's allowed to read and WRITE (it auto-commits). Attack it as code: can a crafted
+   path (symlink, `..` variant, glob whose literal prefix escapes, a path that exists vs one
+   that doesn't) defeat the containment and let a read or write land outside the repo/`.planning`
+   root? Does the BSD-vs-GNU realpath handling have a gap? Is the logic actually IDENTICAL
+   across the ≥4 places it's restated, or has it drifted? A containment escape here is the
+   highest-severity class in the whole tool.
 
 ## Beyond the list
 The six above are leads, not a ceiling. Read score.py's scoring pipeline end-to-end

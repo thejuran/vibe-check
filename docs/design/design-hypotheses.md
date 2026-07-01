@@ -192,6 +192,45 @@ sanitization, realpath path-containment, 300-char anti-spoof caps.
   adversarial output into the trusted schema the right architecture at all, vs keeping it in a
   separate quarantined channel?)
 
+### Orchestration-layer hypotheses (O-series — added 2026-07-01 from external feedback)
+
+All within the lock (none touch the scoring formula). These target the prose/bash layer the
+original four-way read scoped out. Each is a NARROW-generation move in the owner's axiom:
+"hope the model ran the check" → "the check is code." (The external review that surfaced these
+had stale facts about agent count/file sizes/commit count — see the leverage map's stale-note;
+only the items below survived verification against the real v2.7 tree.)
+
+**O1 — Security-critical bash should be an extracted, tested `guard.py`, not prose.**
+Path-containment, symlink filtering, and diff-range resolution live as dense inline bash
+(`review.md:130,177-190` — real `realpath` + Python heredocs) restated across ≥4 files; no
+`scripts/guard.py` exists though `score.py`/`config.py` prove the pattern.
+- **Claim:** the current prose-bash is correct on every run.
+- **Refutable by:** a case where the orchestrating model plausibly mis-transcribes the guard
+  (BSD-realpath workaround, symlink edge) and a path escapes containment — i.e. the guard's
+  correctness depends on faithful transcription, not deterministic execution. **Highest-value
+  new item; the tool auto-commits, so a containment miss is a write-outside-repo risk.**
+
+**O3 — The fix loop needs a post-apply verification gate.**
+`fix.md:21` self-checks only by re-reading the changed region; no typecheck/lint/test runs;
+`--no-verify` is banned so pre-commit hooks are the sole backstop (repo-dependent).
+- **Claim:** re-reading the region + pre-commit hooks are sufficient soundness for an
+  autonomous committer.
+- **Refutable by:** a fixture where an LLM-applied fix is syntactically plausible (passes the
+  re-read) but introduces a type error or breaks a test that a typecheck/test run would catch.
+  Trivially constructible → likely a concede-to-the-feedback. **Second-highest new item.**
+
+**O5d — `allowed-tools` under-declares the interpreters actually run.**
+Declared: `git`, `gh`, `node`. Invoked in prose: `python3`, `realpath`, `wc`, `sort`, `grep`,
+`xargs`, `uniq`, `sed` — none declared, prose says "do NOT add them."
+- **Claim:** the compound-Bash convention makes declaration unnecessary/undesirable.
+- **Refutable by:** a permission-mode or autonomous run where an undeclared interpreter
+  triggers a prompt or a denied call — i.e. the stated permission surface doesn't match what
+  runs. (b)-type: "the constraint is wrong — declare honestly or document the convention."
+
+**O-CI / O-CHANGELOG (lower priority):** no CI re-runs the `ANSWER-KEY`/`RESULTS` eval corpus
+(prompt regressions go uncaught); no `CHANGELOG` at v2.7.0/332 commits. Both already in the
+project backlog; note them, don't over-invest Fable effort here.
+
 ---
 
 ## §B hypotheses — challenge the lock itself (parked for post-v2.8)

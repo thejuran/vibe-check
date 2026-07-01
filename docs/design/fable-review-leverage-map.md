@@ -103,6 +103,52 @@ adversarial target for a second model specifically.
 
 ---
 
+## Target set B2 — Orchestration layer (added 2026-07-01 from external feedback)
+
+The four-way read scoped to the *Python* (`score.py`/`config.py`) and the *agents*. An external
+design review surfaced a third under-verified surface our prep had missed: the **prose/bash
+orchestration layer** in `commands/*.md` and `agents/fix.md`. These are verified-real against
+v2.7 (the same review's factual claims about agent count and file sizes were STALE — see the
+"stale feedback" note below — but its *architectural* instincts hit real gaps). Each is a
+NARROW-generation move in the owner's own axiom: convert "hope the model ran the check" into
+"the check is code."
+
+- **O1 — Security-critical bash is prose the model transcribes, not tested code.** The
+  path-containment guard, symlink filter, and diff-range resolution live as dense inline bash
+  (real `realpath` + embedded Python heredocs at `review.md:130,177-190`) and the SAME
+  containment logic is restated across `review.md` (~24 mentions), `deep-review.md` (~12),
+  `codex-adversarial.md` (6), `fix.md`. No `scripts/guard.py` exists (only `score.py`,
+  `config.py`). **Hypothesis:** extracting one tested `guard.py` the commands call makes the
+  guard execute deterministically instead of depending on the model faithfully reproducing
+  BSD-realpath workarounds every run. Since the tool auto-commits, this is the single biggest
+  correctness lever. The `score.py` precedent proves the pattern. **Highest-value new item.**
+- **O3 — No verification pass after the fix loop.** `fix.md:21` is the ONLY self-check
+  ("re-read the changed region, confirm syntactically plausible"); it never runs typecheck,
+  lint, or tests. `--no-verify` is banned (`fix.md:52`) so pre-commit hooks are the ONLY
+  backstop — and only if the repo has them. An LLM-applied fix can commit a fresh type error
+  or break a test, unnoticed. **Hypothesis:** an optional "run the project's typecheck/test
+  after fixes, surface failures, offer to revert" step closes the soundness gap inherent to
+  any autonomous-commit tool. (Note: julian-orchestrator HAS this gate — BUILD/TEST-VERIFY —
+  but that's the milestone wrapper; standalone vibe-check has no equivalent.)
+- **O5d — allowed-tools under-declares what runs.** Declared: `git`, `gh`, `node`. Actually
+  invoked in prose: `wc`×31, `python3`×15, `realpath`×13, `sort`×12, `grep`×10, `xargs`,
+  `uniq`, `sed` — none declared, and the prose explicitly instructs "do NOT add them to
+  allowed-tools." **Hypothesis:** either declare them honestly or document the compound-Bash
+  convention, so the stated permission surface matches what runs. (Same class as
+  julian-orchestrator's TOOL-01 fix.)
+- **O-CI / O-CHANGELOG (lower priority, both valid):** no CI runs the eval corpus (the
+  `ANSWER-KEY`/`RESULTS` sets exist but nothing re-runs them → prompt regressions go
+  uncaught); no `CHANGELOG` despite 332 commits and v2.7.0. Both are in the project's own
+  backlog already.
+
+**Stale-feedback note (so these aren't confused with the reviewer's errors):** the external
+review analyzed an OLDER version. Its false claims — "only 4 specialist agents" (v2.7 has 12),
+"review.md ~148KB/977 lines" (actually 167KB/1068), "no eval corpus" (ANSWER-KEY exists),
+"96 commits" (332) — are all stale and should NOT be actioned. Only O1/O3/O5d/O-CI/O-CHANGELOG
+above survived verification against the real v2.7 tree.
+
+---
+
 ## Target set C — Product quality (the named gap; highest owner value)
 
 The efficacy method has a **deliberate, self-documented hole**: it produces binary pass-gates
