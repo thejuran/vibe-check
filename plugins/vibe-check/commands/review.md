@@ -598,13 +598,17 @@ This is a READ-ONLY operation. The tool NEVER writes to `.planning/`.
 |  | triage.frameworks includes "electron" | `framework-electron` |
 |  | triage.frameworks includes "react-native" | `framework-react-native` |
 
-Before composing the dispatch block: announce `✓ Phase 2 — Dispatching N agents in parallel: [list]` so the user can see the shape. Then immediately fire all N Task calls in one block. Do NOT use a separate Bash/Read tool call between the announcement and the dispatch — that would split the turn.
+**Subtract `$CONFIG_DISABLED` from the selected set BEFORE the announcement (config `disabled` → dispatch — D-04).** The `disabled` roster was ALREADY resolved ONCE in Phase 0.6 (carried as `$CONFIG_DISABLED`) — do NOT re-read `config.py` here. After the Selection table produces the passing agent set and BEFORE the `✓ Phase 2 — Dispatching N agents` announcement, REMOVE any agent whose name ∈ `$CONFIG_DISABLED` from the set, so `N` and the announced `[list]` already reflect the subtraction and `score.py` never sees an agent that did not run. **LOCKED POLICY (honor-with-announcement, never silent):** HONOR any disable — INCLUDING a core agent `bugs` or `security` (Selection-table rows always-on); it is the user's own repo. BUT when `bugs` or `security` is in `$CONFIG_DISABLED`, APPEND a fixed-string announcement to the Phase-4 config-health warnings so the coverage reduction is VISIBLE (never silently dropped): `⚠ config: core agent 'bugs' disabled — coverage reduced` and/or `⚠ config: core agent 'security' disabled — coverage reduced`. A disabled non-core agent (`language-*`/`framework-*`/`compliance`) is subtracted silently (no announcement) — only `bugs`/`security` are announced. In `--all` mode the subtraction applies inside EACH chunk's per-chunk dispatch (Site C) the same way — the disabled roster is run-level, so the same `$CONFIG_DISABLED` set is subtracted from every chunk's selected agents before that chunk's fan-out.
+
+Before composing the dispatch block: announce `✓ Phase 2 — Dispatching N agents in parallel: [list]` so the user can see the shape (`N` and `[list]` already reflect the `$CONFIG_DISABLED` subtraction above). Then immediately fire all N Task calls in one block. Do NOT use a separate Bash/Read tool call between the announcement and the dispatch — that would split the turn.
 
 ### Model tiering for `/review`
 
 All agents in `/review` use the model from their frontmatter (`model: sonnet`). No top-tier model. Cheap iteration — typical pass ~$0.50.
 
 For the top-tier model on `architecture`/`bugs` (default Opus, or Fable via `$VIBE_CHECK_TOP_MODEL`) and Opus on `impact`, use `/deep-review`.
+
+**`top_model` precedence (consistency note — live enforcement is in `/deep-review`).** `/review` uses no top-tier model today, so there is nothing to enforce here — but for coherence the resolution order for the top tier is `$VIBE_CHECK_TOP_MODEL` (env, wins) > config `top_model` (the carried-forward `$CONFIG_TOP_MODEL` from Phase 0.6) > `opus` (default), with the `opus`/`fable` allowlist. The LIVE resolution lives at `deep-review.md`'s top-tier model resolution (see Task 2 / that file). Do NOT introduce a top-tier dispatch in `/review`.
 
 Per-call override (e.g. large-diff Haiku downgrade in M5): pass `model: "haiku"` in the Task call. Otherwise omit — agent frontmatter wins.
 
