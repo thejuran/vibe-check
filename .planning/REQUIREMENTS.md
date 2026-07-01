@@ -37,7 +37,7 @@ The two script-enforced noise knobs (idiom floor + suppression marker), both in 
 The two orchestrator-enforced knobs (Codex legibility + safer fix-loop default), prose-only.
 
 - [ ] **LEGIBLE-01**: Every run prints one legible line stating what Codex did (joined / skipped-with-reason / off-via-config); default behavior stays `auto`.
-- [ ] **LEGIBLE-02**: `--codex` flag and `[noise] codex` (`off`/`auto`/`on`) control Codex invocation.
+- [x] **LEGIBLE-02**: `--codex` flag and `[noise] codex` (`off`/`auto`/`on`) control Codex invocation.
 - [ ] **LEGIBLE-03**: The fix loop no longer labels the apply-all option "(Recommended)".
 
 ### Close
@@ -88,7 +88,7 @@ Which phases cover which requirements. Confirmed/owned by the roadmapper.
 | NOISE-02 | Phase 32 | Complete |
 | NOISE-03 | Phase 32 | Complete |
 | LEGIBLE-01 | Phase 33 | Pending |
-| LEGIBLE-02 | Phase 33 | Pending |
+| LEGIBLE-02 | Phase 33 | Complete |
 | LEGIBLE-03 | Phase 33 | Pending |
 | CLOSE-01 | Phase 34 | Pending |
 
