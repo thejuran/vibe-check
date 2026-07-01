@@ -138,7 +138,7 @@ class TestFailSafe(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("not a regular file", warnings[0])
 
-    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX only (symlink->special)")
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlink required")
     def test_non_regular_symlink_to_devnull_defaults_plus_warning(self):
         # A symlink->/dev/null (char device) => defaults + 1 warning WITHOUT
         # blocking; getsize would report 0 and pass a size-only guard, so the
