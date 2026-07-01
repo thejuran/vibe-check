@@ -111,14 +111,18 @@ def _usable_bands(thresholds):
     also falls back to the whole default set. This mirrors score.py's existing null/
     type-safe posture (stable_hash / _safe_window): coerce-or-default, never raise.
     """
+    # Return a COPY of the frozen default (dict(...)) — never the module-level object
+    # by reference — so a future caller that mutates the returned band-floor dict
+    # cannot silently corrupt _DEFAULT_BANDS and the frozen GOLDEN_DIGEST (bugs-003 /
+    # lang-py-002). Behavior is unchanged: band_for only READS these values.
     if not isinstance(thresholds, dict):
-        return _DEFAULT_BANDS
+        return dict(_DEFAULT_BANDS)
     floors = {}
     for key in ("critical", "warning", "medium"):
         v = thresholds.get(key)
         # Present AND a usable non-bool int, else the WHOLE set defaults.
         if not (isinstance(v, int) and not isinstance(v, bool)):
-            return _DEFAULT_BANDS
+            return dict(_DEFAULT_BANDS)
         floors[key] = v
     return floors
 
