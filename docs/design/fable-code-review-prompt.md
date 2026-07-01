@@ -65,18 +65,28 @@ Contracts the engine assumes:
    `pair[0] <= line <= pair[1]`) are not tested at the exact endpoints; malformed range pairs
    (`len < 2`, inverted, 3-element) are guarded but under-tested. Any off-by-one or lossy
    handling?
-7. **Security-critical bash in the command prose (NOT a .py file).** The path-containment
-   guard, symlink filter, and diff-range resolution live as inline bash the orchestrating
-   model transcribes and runs each invocation — see plugins/vibe-check/commands/review.md
-   Phase 0 (~lines 130, 177-190: real `realpath` + an embedded Python heredoc for the
-   BSD-realpath missing-path-tolerant canonicalization), plus restated containment in
-   deep-review.md, agents/fix.md, agents/codex-adversarial.md. This is where the tool decides
-   what it's allowed to read and WRITE (it auto-commits). Attack it as code: can a crafted
-   path (symlink, `..` variant, glob whose literal prefix escapes, a path that exists vs one
-   that doesn't) defeat the containment and let a read or write land outside the repo/`.planning`
-   root? Does the BSD-vs-GNU realpath handling have a gap? Is the logic actually IDENTICAL
-   across the ≥4 places it's restated, or has it drifted? A containment escape here is the
-   highest-severity class in the whole tool.
+7. **Security-critical / deterministic bash in the command prose (NOT a .py file).** Three
+   families of logic live as inline bash the orchestrating model transcribes each run. Attack
+   each AS CODE, and specifically check whether the duplicated copies have DRIFTED (a live
+   divergence is a confirmed finding, not a hypothetical):
+   - **Path validation** (highest severity — the tool auto-commits, so an escape = write
+     outside the repo): realpath-containment + regex allowlist + `..`/pathspec-magic reject, in
+     `review.md:130-138,161-198` (with a BSD-realpath Python heredoc), `deep-review.md:321-344`,
+     `fix.md:28`, `codex-adversarial.md:95-106`. Can a crafted path (symlink, `..` variant,
+     glob whose literal prefix escapes, exists-vs-not, a Git pathspec-magic token `:(top)`/`:!`)
+     defeat containment? Do the ≥6 copies handle it identically? (review.md carries pathspec-
+     magic arms the others lack — is that a real gap in the others?)
+   - **Codex output sanitization** (untrusted input → autonomous committer): bidi/zero-width/
+     control-char strip + 300-char cap + field translation, in `codex-adversarial.md:110-122`
+     and re-typed in `deep-review.md:313-317`; `fix.md:29` keeps a deliberately different title
+     allowlist. Can an RTL-override, zero-width injection, or >300-char note spoof a report or
+     forge a commit trailer? Do the two hand-copies sanitize identically?
+   - **Chunk-packer + risk math** (`review.md:237-306, 891-899`): pure arithmetic transcribed as
+     bash. Can a file set trip the CHUNK-01 sort-key anti-pattern (`:271`) or the edge-case-A
+     dual-bound (`:289`) such that a file is silently dropped or a chunk reviewed partially
+     without the partial-note firing?
+   See `docs/design/prose-to-code-inventory.md` for the full block-by-block map and the KEEP
+   list (blocks that deliberately stay prose — do not flag those as "should be code").
 
 ## Beyond the list
 The six above are leads, not a ceiling. Read score.py's scoring pipeline end-to-end

@@ -113,15 +113,16 @@ v2.7 (the same review's factual claims about agent count and file sizes were STA
 NARROW-generation move in the owner's own axiom: convert "hope the model ran the check" into
 "the check is code."
 
-- **O1 — Security-critical bash is prose the model transcribes, not tested code.** The
-  path-containment guard, symlink filter, and diff-range resolution live as dense inline bash
-  (real `realpath` + embedded Python heredocs at `review.md:130,177-190`) and the SAME
-  containment logic is restated across `review.md` (~24 mentions), `deep-review.md` (~12),
-  `codex-adversarial.md` (6), `fix.md`. No `scripts/guard.py` exists (only `score.py`,
-  `config.py`). **Hypothesis:** extracting one tested `guard.py` the commands call makes the
-  guard execute deterministically instead of depending on the model faithfully reproducing
-  BSD-realpath workarounds every run. Since the tool auto-commits, this is the single biggest
-  correctness lever. The `score.py` precedent proves the pattern. **Highest-value new item.**
+- **O-EXTRACT (was O1) — Deterministic prose should be tested code, per-block.** A full sweep
+  (see `prose-to-code-inventory.md`) found ~30 deterministic prose/bash blocks consolidating
+  into **three extraction families** — (1) path validation [5 files/≥6 copies already diverging,
+  security boundary], (2) chunk-packer + risk math [`review.md:237-306`, purest logic in the
+  repo], (3) codex output sanitization [Unicode strip + caps, re-typed across 2 files] — plus a
+  KEEP list where extraction breaks `score.py` purity / adds serialization / is chicken-and-egg
+  (churn one-pass, `wc` sizing, cost brackets, the plugin resolver). No `scripts/guard.py` or
+  packer module exists though `score.py`/`config.py` prove the pattern. **This is NOT "scriptify
+  everything" — it's the per-block risk-vs-coupling judgment.** Since the tool auto-commits, the
+  path-validation family is the single biggest correctness lever. **Highest-value new item.**
 - **O3 — No verification pass after the fix loop.** `fix.md:21` is the ONLY self-check
   ("re-read the changed region, confirm syntactically plausible"); it never runs typecheck,
   lint, or tests. `--no-verify` is banned (`fix.md:52`) so pre-commit hooks are the ONLY

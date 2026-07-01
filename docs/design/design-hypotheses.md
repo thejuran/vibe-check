@@ -200,15 +200,27 @@ original four-way read scoped out. Each is a NARROW-generation move in the owner
 had stale facts about agent count/file sizes/commit count — see the leverage map's stale-note;
 only the items below survived verification against the real v2.7 tree.)
 
-**O1 — Security-critical bash should be an extracted, tested `guard.py`, not prose.**
-Path-containment, symlink filtering, and diff-range resolution live as dense inline bash
-(`review.md:130,177-190` — real `realpath` + Python heredocs) restated across ≥4 files; no
-`scripts/guard.py` exists though `score.py`/`config.py` prove the pattern.
-- **Claim:** the current prose-bash is correct on every run.
-- **Refutable by:** a case where the orchestrating model plausibly mis-transcribes the guard
-  (BSD-realpath workaround, symlink edge) and a path escapes containment — i.e. the guard's
-  correctness depends on faithful transcription, not deterministic execution. **Highest-value
-  new item; the tool auto-commits, so a containment miss is a write-outside-repo risk.**
+**O-EXTRACT (was O1) — Deterministic prose should be tested code, per-block by risk-vs-coupling.**
+A full sweep (see `prose-to-code-inventory.md`) found ~30 deterministic prose/bash blocks that
+consolidate into **three extraction families**, plus a KEEP list where extraction costs more
+than it saves. This is NOT "scriptify everything" — it's a per-block judgment Fable stress-tests.
+- **Family 1 — path validation** (regex allowlist + `..`/pathspec-magic reject + realpath-
+  containment), **5 files / ≥6 copies already diverging**. Security boundary; tool auto-commits
+  → a containment miss is a write-outside-repo. **Highest.**
+- **Family 2 — chunk-packer + risk math** (`review.md:237-306`), the purest input→output logic
+  in the repo, feeds three consumers via `$CHUNK_PLAN`. Free win, low coupling.
+- **Family 3 — codex output sanitization** (bidi/zero-width/control strip + 300-char cap +
+  field translation), Unicode codepoint list re-typed across 2 files → highest-consequence
+  copy-paste (untrusted input into an autonomous committer).
+- **Claim (the design position to attack):** the current prose-bash is correct on every run,
+  AND the KEEP-list blocks (churn one-pass, `wc` sizing, cost brackets, the plugin resolver)
+  are right to stay prose because extraction breaks `score.py` purity / adds serialization /
+  is chicken-and-egg.
+- **Refutable by:** (per family) exhibit an input where two of the duplicated copies behave
+  differently (proves drift is live) OR where the model plausibly mis-transcribes the prose and
+  a path escapes / a chunk mis-packs / a codex output mis-sanitizes. For the KEEP list: show a
+  block we kept that's actually a latent bug, or an extract we recommended that has hidden
+  coupling. **Highest-value new item.**
 
 **O3 — The fix loop needs a post-apply verification gate.**
 `fix.md:21` self-checks only by re-reading the changed region; no typecheck/lint/test runs;
