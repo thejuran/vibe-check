@@ -73,6 +73,35 @@ The plugin works out of the box with no configuration. One optional knob control
 
 `/review` always uses Sonnet (and downgrades language agents to Haiku on very large diffs) regardless of this setting — it's tuned for cheap iteration.
 
+### `.vibe-check.toml` (repo-level config)
+
+Drop a `.vibe-check.toml` at your repo root to tune reviews per project. **Every key is optional** — a repo with **no** `.vibe-check.toml` runs exactly as before, with no warning and no behavior change. Any invalid key falls back to its default and surfaces a one-line note on the report's **config-health line** (near the top of the review), so a misconfiguration is never silently applied and never breaks the review.
+
+```toml
+# .vibe-check.toml  (repo root — all keys optional)
+
+[review]
+thresholds = { critical = 95, warning = 80, medium = 70 }  # band-label cutoffs (defaults shown)
+
+[agents]
+disabled = []          # agent names to skip dispatching (default: none)
+top_model = "opus"     # opus | fable  (default: opus)
+
+# [noise]  ← added in a later release, not yet active
+#   idiom_floor = "medium"   # (Phase 32 — not active yet)
+#   codex = "auto"           # (Phase 33 — not active yet)
+```
+
+| Key | Default | Values | Effect |
+|---|---|---|---|
+| `[review].thresholds` | `{ critical = 95, warning = 80, medium = 70 }` | three score floors, strictly descending, `medium ≥ 70` | The **band labels** a finding's score maps to (Critical / Warning / Medium). Absent ⇒ the built-in 95 / 80 / 70. |
+| `[agents].disabled` | `[]` | list of agent names | Agents to skip dispatching. Disabling a **core** agent (`bugs`/`security`) is honored but **announced** on the config-health line (coverage reduced, never silent). |
+| `[agents].top_model` | `opus` | `opus`, `fable` | Top-tier model for the two judgment-gating agents (`bugs` + `architecture`) in `/deep-review` — the toml equivalent of `VIBE_CHECK_TOP_MODEL`. |
+
+**Precedence (per knob):** `CLI flag` > `.vibe-check.toml` > built-in default. For `top_model` this reads concretely as **`VIBE_CHECK_TOP_MODEL` (env) > `top_model` (toml) > `opus`** — a shell override still wins over the repo config, coherent with the env-var table above.
+
+**Two layers, don't conflate them.** `thresholds` tunes only the **band labels** — what counts as Critical vs Warning vs Medium. A *separate*, fixed layer decides which banded findings actually surface: `/review` shows findings scoring **≥ 80**, `/deep-review` shows **≥ 70**. This phase does not tune that per-command cutoff. So a band floor set below a command's cutoff (e.g. `critical = 72`) takes effect only under the command with the lower cutoff (`/deep-review`); under `/review` those findings are still banded but filtered out as sub-threshold. That's intended — the config is valid and accepted, not rejected.
+
 ---
 
 ## ✨ Features
