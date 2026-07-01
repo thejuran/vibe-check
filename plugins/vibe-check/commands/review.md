@@ -86,6 +86,27 @@ Parse `$ARGUMENTS`:
 
 **One-line mode conclusion (LEGIBLE-02):** after resolving the mode/scope above, print EXACTLY ONE conclusion line `Mode: <resolved mode + scope>` and proceed — do NOT narrate the resolution reasoning, and do NOT ask a disambiguation question for an unambiguous alias (the bare-`all` normalization already resolves silently, so this line is the only resolution output the user sees). Example forms (exact wording is discretion within this behavioral bar): `Mode: --all (whole-tree, docs excluded)` / `Mode: --all --include-docs (whole-tree)` / `Mode: --all src/api (narrowed)` / `Mode: diff (uncommitted changes)` / `Mode: PR #42` / `Mode: range a..b` / `Mode: GSD phase 02-foo`. This is PROSE-tightening of the orchestrator's self-narration ONLY — it does NOT change WHICH mode is chosen; the five modes' selection logic below is byte-stable.
 
+**Resolve `$GUARD_PY` ONCE (unconditional — Fable A7/B2).** Path containment is no longer an inline `case "$REAL/" in "$ROOT/"*` transcription — the ≥5 hand-copied snippets had ALREADY drifted (four failed OPEN on an empty `$ROOT`; the deep-review/fix copies silently downgraded findings about deleted files). Every containment decision now calls the ONE tested `scripts/guard.py` (fail-closed: empty root/path, non-dir root, and any escape all refuse; missing-path TOLERANT: a deleted-but-in-diff file is judged lexically; relative `--path` values resolve against `--root`). Bind it here with the SAME 3-arm resolution family as `$SCORE_PY`/`$CONFIG_PY` (guard.py sits in the same `scripts/` dir):
+
+```bash
+GUARD_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+GUARD_PY=""
+[ -n "$GUARD_REPO_ROOT" ] && [ -f "$GUARD_REPO_ROOT/plugins/vibe-check/scripts/guard.py" ] && GUARD_PY="$GUARD_REPO_ROOT/plugins/vibe-check/scripts/guard.py"
+if [ -z "$GUARD_PY" ]; then
+  GUARD_ROOT=$(ls -d "$HOME"/.claude/plugins/cache/thejuran/vibe-check/*/ 2>/dev/null | sort -V | tail -1)
+  GUARD_ROOT="${GUARD_ROOT%/}"
+  [ -n "$GUARD_ROOT" ] && [ -f "$GUARD_ROOT/scripts/guard.py" ] && GUARD_PY="$GUARD_ROOT/scripts/guard.py"
+fi
+if [ -z "$GUARD_PY" ] && [ -f "$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/guard.py" ]; then
+  GUARD_PY="$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/guard.py"
+fi
+# Terminal arm: $GUARD_PY EMPTY. Every consumer FAILS CLOSED on that (treats the
+# path as NOT contained / refuses) — a security guard degrades to refusal, never
+# to pass-through. (Contrast: $CONFIG_PY degrades to defaults; $SCORE_PY halts.)
+```
+
+Callers branch on guard.py's EXIT CODE (0 = every `--path` contained; non-zero = refuse), never by parsing its stdout. Do NOT re-inline the `case` compare anywhere in this file, `deep-review.md`, or the agents — that is how the copies drifted apart in the first place.
+
 1. **No args (default)**: review all uncommitted changes. Assemble diff via:
    ```bash
    git diff HEAD
@@ -127,15 +148,12 @@ Parse `$ARGUMENTS`:
    - Zero matches → error: "Phase '<arg>' not found under .planning/phases/ or .planning/milestones/. Available: <list dirs from both roots>".
    - Multiple matches → error listing them and stop — do not guess between an archived and an active copy of the same phase number.
 
-   **After resolution, verify containment.** Confirm the realpath of the resolved phase dir is a descendant of the realpath of `.planning/` (the common root of both layouts):
+   **After resolution, verify containment.** Confirm the resolved phase dir is a descendant of `.planning/` (the common root of both layouts) via the ONE tested guard (Fable A7/B2 — the old inline `case "$PHASE_REAL/" in "$PLANNING_ROOT/"*` copy failed OPEN when `cd .planning` failed and left `$PLANNING_ROOT` empty). `$PHASE_DIR` is CWD-relative (`find` output), so absolutize it with `$PWD` — guard.py resolves a RELATIVE `--path` against `--root`, which would double the `.planning/` prefix here:
    ```bash
-   PLANNING_ROOT=$(cd .planning && pwd -P)
-   PHASE_REAL=$(cd "$PHASE_DIR" && pwd -P)
-   case "$PHASE_REAL/" in
-     "$PLANNING_ROOT/"*) : ;;  # ok, contained
-     *) echo "Phase resolution escaped .planning/ — refusing."; exit 1 ;;
-   esac
+   [ -n "$GUARD_PY" ] && python3 "$GUARD_PY" --root "$PWD/.planning" --path "$PWD/$PHASE_DIR" \
+     || { echo "Phase resolution escaped .planning/ — refusing."; exit 1; }
    ```
+   (Fail closed both ways: an empty `$GUARD_PY` short-circuits `&&` to the refusal arm, and a non-zero guard exit refuses.)
 
    Compute phase commit range (`$PHASE_DIR` is the path resolved above):
    ```bash
@@ -176,23 +194,16 @@ Parse `$ARGUMENTS`:
 
       (iii) **realpath-contain the LITERAL PREFIX of `$NARROW`** under `$(git rev-parse --show-toplevel)`. For a plain path the literal prefix is the whole value; for a glob it is the portion BEFORE the first `*` (e.g. for `src/**/*.ts` the literal prefix is `src/`; for a bare `*.md` the literal prefix is empty → resolves to the repo root, which IS contained). Mirror the GSD-mode containment (lines above) / `deep-review.md` (d): set `CONTAINED` in each `case` arm, then act on the flag — a non-empty literal prefix that resolves OUTSIDE the toplevel is NOT contained → refuse.
 
-      **Resolve WITHOUT requiring the prefix to exist on disk.** A legal in-repo glob can name a directory that is tracked-but-not-checked-out, or simply not materialized — BSD `realpath` (the macOS default, and macOS is this project's primary host) exits non-zero and prints nothing for a non-existent path, so `realpath "$LITERAL_PREFIX"` would yield an EMPTY `$REAL` and falsely refuse a legal scope like `src/**/*.ts`. The actual traversal guard is stage (i)'s explicit `..`/leading-`/` reject (already run); this stage only needs a missing-path-TOLERANT canonicalization. Use Python's `os.path.realpath` (canonicalizes a non-existent path lexically, no existence requirement) rooted at the repo top, then containment-check the result. Do NOT gate containment on the path existing.
+      **Resolve WITHOUT requiring the prefix to exist on disk.** A legal in-repo glob can name a directory that is tracked-but-not-checked-out, or simply not materialized — BSD `realpath` (the macOS default, and macOS is this project's primary host) exits non-zero and prints nothing for a non-existent path, so a bare `realpath "$LITERAL_PREFIX"` would falsely refuse a legal scope like `src/**/*.ts`. The actual traversal guard is stage (i)'s explicit `..`/leading-`/` reject (already run); this stage only needs a missing-path-TOLERANT containment check — which is exactly `guard.py`'s contract (Fable A7/B2: this used to be an inline Python heredoc, the ONE copy of the ≥5 that failed safe; it is now the same tested source every other site calls). A relative `--path` resolves against `--root`, matching what the heredoc did. Do NOT gate containment on the path existing, and do NOT re-inline the check.
       ```bash
       ROOT=$(git rev-parse --show-toplevel)
       LITERAL_PREFIX="${NARROW%%\**}"          # everything before the first '*' ('' for a bare glob like *.md)
       if [ -z "$LITERAL_PREFIX" ]; then
         CONTAINED=1                            # empty prefix → repo root → contained
+      elif [ -n "$GUARD_PY" ] && python3 "$GUARD_PY" --root "$ROOT" --path "$LITERAL_PREFIX"; then
+        CONTAINED=1                            # guard.py exit 0 — contained (missing-path tolerant)
       else
-        # Missing-path-tolerant canonicalization (BSD realpath has no -m; python realpath needs no existence).
-        REAL=$(ROOT="$ROOT" LP="$LITERAL_PREFIX" python3 - <<'PY' 2>/dev/null
-import os, sys
-root = os.path.realpath(os.environ["ROOT"])
-real = os.path.realpath(os.path.join(root, os.environ["LP"]))
-# Contained iff real == root or a descendant of root (string-safe with separator).
-sys.stdout.write(real if (real == root or real.startswith(root + os.sep)) else "")
-PY
-        )
-        if [ -n "$REAL" ]; then CONTAINED=1; else CONTAINED=0; fi   # empty ⇒ escaped repo (the `..`-traversal case stage (i) already rejected; this is belt-and-suspenders)
+        CONTAINED=0                            # escaped repo, OR $GUARD_PY unresolved (fail closed)
       fi
       [ "$CONTAINED" = 1 ] || { echo "--all narrow scope escaped the repo root — refusing."; exit 1; }
       ```
