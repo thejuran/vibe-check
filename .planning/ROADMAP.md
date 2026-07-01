@@ -113,7 +113,7 @@ Full details: `.planning/milestones/v2.7-ROADMAP.md`. 9 requirements, 100% cover
 ### 🚧 v2.8 Tunable, quieter reviews (Phases 30-34) — IN PROGRESS
 
 - [x] **Phase 30: Config surface foundation** — Build the `.vibe-check.toml` reader (resolved once per run), the precedence chain (flag > toml > default), and the per-key fail-safe; prove the surface with the three simplest consumers (`thresholds`, `disabled`, `top_model`) (completed 2026-07-01)
-- [ ] **Phase 31: Confidence axis** — Surface `agent_confidence` on every rendered finding; add `min_confidence`/`--min-confidence N` that filters BEFORE scoring, with the dropped-count in the honesty summary
+- [x] **Phase 31: Confidence axis** — Surface `agent_confidence` on every rendered finding; add `min_confidence`/`--min-confidence N` that filters BEFORE scoring, with the dropped-count in the honesty summary (completed 2026-07-01)
 - [x] **Phase 32: Idiom floor + `vibe-ignore` marker** — `idiom_floor` band cap (default `medium`) + `// vibe-ignore: <reason>` suppression marker (bare marker → low finding); both script-enforced in `score.py` (completed 2026-07-01)
 - [ ] **Phase 33: Codex legibility + safer fix-loop default** — Codex `off/auto/on` config + `--codex` flag + always-announce line (default stays `auto`); strip apply-all "(Recommended)" from the fix loop; orchestrator/prose only
 - [ ] **Phase 34: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke proof per knob, bump plugin.json 2.7.0→2.8.0, annotated tag `v2.8`, publish
