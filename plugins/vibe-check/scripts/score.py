@@ -40,6 +40,15 @@ SEVERITY_FALLBACK = -8  # scoring.md:26 (unset / unrecognized => medium-equivale
 SILENCED_MARKERS = ("eslint-disable", "# noqa", "// nolint", "@SuppressWarnings",
                     "#[allow(")
 
+# NOISE-02/03 (D-03) — the `vibe-ignore` marker token. Deliberately NOT a member
+# of SILENCED_MARKERS: unlike the 5 bare fixed-string markers, vibe-ignore is
+# REASON-AWARE — a `vibe-ignore: <reason>` (non-empty reason) suppresses, but a
+# BARE `vibe-ignore` (no/empty reason) must NOT suppress (it surfaces a synthetic
+# audit finding instead, run()). If it were a plain SILENCED_MARKERS member a bare
+# marker would wrongly suppress. Recognition is folded into silenced_nearby via the
+# reason-aware _vibe_ignore_scan below.
+_VIBE_IGNORE = "vibe-ignore"
+
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
 
@@ -224,19 +233,96 @@ def _cap_idiom_band(category, band, idiom_floor):
     return band
 
 
+# --------------------------------------------------------------------------- #
+# vibe-ignore reason-aware scan (NOISE-02/03, D-03) — a PER-TOKEN scan over the
+# pre-resolved ±2 source_window. Returns one occurrence record per `vibe-ignore`
+# TOKEN found (NOT one per line, NOT first-token-only), each carrying its window
+# `index` (0=L-2 … 4=L+2) and its `kind` ("reasoned" | "bare"). A reasoned
+# occurrence rides the EXISTING -50 silenced path (folded into silenced_nearby);
+# a bare occurrence surfaces a synthetic audit finding in run().
+#
+# REPORT-ONLY LIMITATION (D-03, OUT OF SCOPE): a `vibe-ignore` token sitting
+# INSIDE a string literal triggers this scan exactly as the 5 existing
+# SILENCED_MARKERS substring markers already do (`eslint-disable` inside a string
+# literal already suppresses identically). This is a PRE-EXISTING,
+# comment-syntax-agnostic substring behavior shared by ALL markers; D-03 inherits
+# it ("behaviorally consistent with the other markers"). We deliberately add NO
+# comment-syntax parsing here that the other markers lack — the per-token
+# iteration stays a pure substring/token scan over the pre-resolved window (no
+# I/O, no comment-syntax parsing). This note builds no guard.
+# --------------------------------------------------------------------------- #
+
+# A colon then a NON-EMPTY (non-whitespace) reason ⇒ reasoned; else bare. The
+# text scanned is only the segment AFTER a token up to (not consuming) the NEXT
+# vibe-ignore token on the same line, so `// vibe-ignore // vibe-ignore: r`
+# classifies the first token as bare (its trailing segment has no reason before
+# the next token) and the second as reasoned.
+_VIBE_IGNORE_REASON_RE = re.compile(r"\s*:\s*(\S.*)?$", re.DOTALL)
+
+
+def _vibe_ignore_scan(source_window):
+    """Per-TOKEN reason-aware scan of the ±2 window for `vibe-ignore` markers.
+
+    Returns a LIST of occurrence dicts — ONE per `_VIBE_IGNORE` TOKEN found in the
+    window (Finding #2: iterate every token in each line, not just the first) —
+    each `{"index": <0-based window index>, "kind": "reasoned"|"bare"}`.
+
+    For each string window line, ALL occurrences of `_VIBE_IGNORE` are walked from
+    an advancing offset; for each, the text AFTER that token up to (but not
+    consuming) the NEXT `_VIBE_IGNORE` token on the line is classified: a colon
+    then a non-empty (`.strip()` non-blank) reason ⇒ "reasoned"; otherwise (no
+    colon, colon with only-whitespace reason, or the next token immediately
+    follows) ⇒ "bare". Non-str lines are skipped. Pure scan over the pre-resolved
+    window (no I/O); never raises on malformed window content (mirrors
+    silenced_nearby's crash-safe posture, T-32-05).
+    """
+    occurrences = []
+    if not source_window:
+        return occurrences
+    tok_len = len(_VIBE_IGNORE)
+    for index, line in enumerate(source_window):
+        if not isinstance(line, str):
+            continue
+        # Collect this line's token start offsets first, so each token's trailing
+        # segment can end at the NEXT token's start (not the line end).
+        starts = []
+        pos = line.find(_VIBE_IGNORE)
+        while pos != -1:
+            starts.append(pos)
+            pos = line.find(_VIBE_IGNORE, pos + tok_len)
+        for k, start in enumerate(starts):
+            seg_start = start + tok_len
+            seg_end = starts[k + 1] if k + 1 < len(starts) else len(line)
+            after = line[seg_start:seg_end]
+            m = _VIBE_IGNORE_REASON_RE.match(after)
+            reasoned = bool(m and m.group(1) and m.group(1).strip())
+            occurrences.append({
+                "index": index,
+                "kind": "reasoned" if reasoned else "bare",
+            })
+    return occurrences
+
+
 def silenced_nearby(source_window):
-    """Any of the 5 canonical markers in any line of the ±2 window (D-13 inclusive).
+    """Any of the 5 canonical markers, OR any REASONED vibe-ignore, in the ±2 window.
 
     The orchestrator supplies source_window = [L-2, L-1, L, L+1, L+2] pre-resolved
-    (D-05); this is a pure substring scan.
+    (D-05); this is a pure substring scan. D-13 inclusive [L-2 .. L+2].
+
+    NOISE-02 (D-03): a `vibe-ignore: <reason>` marker (a REASONED occurrence from
+    _vibe_ignore_scan) OR-s in exactly like the 5 fixed-string markers, so the
+    nearby finding takes the existing -50 (compute_score) and drops with reason
+    "silenced". A BARE `vibe-ignore` does NOT set silenced (that is run()'s
+    synthetic-finding job, NOISE-03).
     """
     if not source_window:
         return False
-    return any(
-        marker in line
-        for line in source_window
-        for marker in SILENCED_MARKERS
-    )
+    if any(marker in line
+           for line in source_window
+           for marker in SILENCED_MARKERS
+           if isinstance(line, str)):
+        return True
+    return any(o["kind"] == "reasoned" for o in _vibe_ignore_scan(source_window))
 
 
 def _first_line(text):

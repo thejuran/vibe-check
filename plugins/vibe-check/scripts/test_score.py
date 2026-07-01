@@ -451,6 +451,132 @@ class TestSilencedNearby(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# vibe-ignore reason-aware scan (NOISE-02/03, D-03) — the per-token scanner +
+# reasoned-suppresses-within-±2 path, sibling of TestSilencedNearby.
+# --------------------------------------------------------------------------- #
+class TestVibeIgnore(unittest.TestCase):
+    def _kinds_at(self, window):
+        """(index, kind) tuples for every occurrence — order as scanned."""
+        return [(o["index"], o["kind"]) for o in score._vibe_ignore_scan(window)]
+
+    # --- reasoned suppresses within ±2 --------------------------------------- #
+    def test_reasoned_marker_sets_silenced(self):
+        window = ["a", "b", "// vibe-ignore: because X", "d", "e"]
+        self.assertTrue(score.silenced_nearby(window))
+        occ = score._vibe_ignore_scan(window)
+        self.assertEqual(len(occ), 1)
+        self.assertEqual(occ[0], {"index": 2, "kind": "reasoned"})
+
+    def test_reasoned_marker_at_edges_suppresses(self):
+        # Inclusive ±2: a reasoned marker at L-2 (index 0) and L+2 (index 4).
+        self.assertTrue(score.silenced_nearby(
+            ["// vibe-ignore: r", "b", "c", "d", "e"]))
+        self.assertTrue(score.silenced_nearby(
+            ["a", "b", "c", "d", "x // vibe-ignore: r"]))
+
+    def test_reasoned_hash_comment_syntax_agnostic(self):
+        # Comment-syntax-agnostic (A4): `#` and `//` both work.
+        self.assertTrue(score.silenced_nearby(
+            ["a", "# vibe-ignore: pyright false positive", "c"]))
+
+    def test_reasoned_marker_drops_finding_to_filtered_through_run(self):
+        # End-to-end: a reasoned marker in the finding's window rides the -50 path
+        # and drops the finding to filtered[] with reason "silenced". conf 40 -50
+        # silenced -8 medium = -18 pre-clamp < 0 => DROP (mirrors TestDropRule).
+        f = make_finding(id="supp", agent_confidence=40, severity="medium",
+                         line=99,
+                         source_window=["a", "b",
+                                        "// vibe-ignore: intentional", "d", "e"])
+        envelope = {
+            "command": "deep-review", "all_mode": False, "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [], "findings": [f],
+        }
+        result = score.run(envelope)
+        self.assertNotIn("supp", [g["id"] for g in result["findings"]])
+        self.assertTrue(
+            any(x.get("reason") == "silenced" for x in result["filtered"]),
+            "reasoned vibe-ignore must drop the finding with reason 'silenced'")
+
+    # --- reasoned OUTSIDE ±2 does not suppress ------------------------------- #
+    def test_reasoned_marker_outside_window_does_not_suppress(self):
+        # The ±3 case: the marker line is simply ABSENT from the 5-line window the
+        # orchestrator supplies, so there is no occurrence and no suppression.
+        window = ["a", "b", "c", "d", "e"]
+        self.assertFalse(score.silenced_nearby(window))
+        self.assertEqual(score._vibe_ignore_scan(window), [])
+
+    # --- bare does NOT set silenced ------------------------------------------ #
+    def test_bare_marker_does_not_set_silenced(self):
+        window = ["a", "b", "// vibe-ignore", "d", "e"]
+        self.assertFalse(score.silenced_nearby(window))
+        occ = score._vibe_ignore_scan(window)
+        self.assertEqual(occ, [{"index": 2, "kind": "bare"}])
+
+    def test_bare_marker_finding_survives_through_run(self):
+        # A bare marker does NOT suppress: the finding still scores and survives
+        # (the synthetic-finding behavior is TestSuppressionFinding, Task 2).
+        f = make_finding(id="alive", agent_confidence=100, severity="critical",
+                         line=10,
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        envelope = {
+            "command": "deep-review", "all_mode": False, "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [], "findings": [f],
+        }
+        result = score.run(envelope)
+        self.assertIn("alive", [g["id"] for g in result["findings"]])
+
+    def test_colon_with_only_whitespace_is_bare(self):
+        window = ["a", "// vibe-ignore:   ", "c"]
+        self.assertFalse(score.silenced_nearby(window))
+        self.assertEqual(self._kinds_at(window), [(1, "bare")])
+
+    # --- same-line multi-token, BOTH orders ---------------------------------- #
+    def test_same_line_bare_then_reasoned(self):
+        window = ["a", "// vibe-ignore // vibe-ignore: reason", "c"]
+        kinds = self._kinds_at(window)
+        # Two occurrences at the SAME index: first bare, second reasoned.
+        self.assertEqual(kinds, [(1, "bare"), (1, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))  # any reasoned suppresses
+
+    def test_same_line_reasoned_then_bare(self):
+        window = ["a", "// vibe-ignore: reason // vibe-ignore", "c"]
+        kinds = self._kinds_at(window)
+        # The reasoned token's trailing segment ends at the next token's start, so
+        # the first is reasoned and the trailing bare token is captured too.
+        self.assertEqual(kinds, [(1, "reasoned"), (1, "bare")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    # --- cross-line multi-marker structure ----------------------------------- #
+    def test_two_bare_markers_two_occurrences_not_silenced(self):
+        window = ["// vibe-ignore", "b", "// vibe-ignore", "d", "e"]
+        self.assertEqual(self._kinds_at(window),
+                         [(0, "bare"), (2, "bare")])
+        self.assertFalse(score.silenced_nearby(window))
+
+    def test_reasoned_plus_bare_on_separate_lines_suppresses(self):
+        window = ["// vibe-ignore", "b", "// vibe-ignore: r", "d", "e"]
+        self.assertEqual(self._kinds_at(window),
+                         [(0, "bare"), (2, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))  # any reasoned suppresses
+
+    # --- byte-stable no-marker path ------------------------------------------ #
+    def test_no_marker_window_byte_stable(self):
+        window = ["a", "b", "c", "d", "e"]
+        # silenced unchanged (False) and an empty occurrence list.
+        self.assertFalse(score.silenced_nearby(window))
+        self.assertEqual(score._vibe_ignore_scan(window), [])
+
+    def test_existing_markers_unaffected(self):
+        # The 5 fixed-string markers still drive silenced identically, and produce
+        # no vibe-ignore occurrences.
+        window = ["a", "code # noqa", "c"]
+        self.assertTrue(score.silenced_nearby(window))
+        self.assertEqual(score._vibe_ignore_scan(window), [])
+
+
+# --------------------------------------------------------------------------- #
 # carry_forward_status (review.md:672-678, D-11 strip both sides)
 # --------------------------------------------------------------------------- #
 class TestCarryForwardStatus(unittest.TestCase):
