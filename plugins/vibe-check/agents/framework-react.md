@@ -8,29 +8,70 @@ React-specific. Use IN ADDITION to language-typescript for `.tsx`/`.jsx`.
 
 ## Checks
 
+Several React checks need context the diff may not show — the rest of the component (whether a
+child is memoized, what an effect closes over), whether a list can reorder, where state comes
+from. Flag at FULL confidence ONLY when the context a check needs is visible in the diff/hunk;
+otherwise reduce `agent_confidence` per the ceilings below and add a `pending: <what to verify>`
+note in `problem` — never silently drop, never assert on invisible context. Floor math: a HIGH
+clears `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, a MEDIUM needs ≥ 58, so a `≤ 40` ceiling
+filters an off-hunk-context finding to a Filtered-summary count unless independently confirmed.
+
 ### Hooks
-- Hooks called conditionally or inside loops/branches
-- Missing deps in useEffect/useMemo/useCallback
-- Stale closures over state in handlers
-- Custom hooks not prefixed with `use`
+- `[high]` hooks called conditionally or inside loops/branches — the call sites are in-hunk by
+  definition → confident by default.
+- `[medium]` a dependency array omitting a value the effect CLOSES OVER, producing a stale-value
+  bug you can DESCRIBE — flag at natural confidence only when both the array and the closure body
+  are in-hunk; when part of the effect is off-hunk, `agent_confidence ≤ 40` + `pending: confirm
+  <name> is closed over (effect body partially off-hunk)`. Do not assert deps-completeness from
+  a fragment (eslint-plugin-react-hooks owns mechanical exhaustiveness).
+- `[medium]` stale closures over state in handlers — genuinely hard to prove from a diff: flag at
+  natural confidence ONLY when you can trace the full loop (state read in a closure created
+  before the update it misses, all in view); otherwise `≤ 40` + `pending: confirm handler is not
+  re-created after <state> updates`. Never emit this one high-confidence from a fragment.
+- `[low]` custom hooks not prefixed with `use` (convention with lint consequences).
 
 ### Rendering
-- Function/object literals created inline in JSX (re-render churn)
-- Missing `key` on list items
-- `key={index}` for lists that can reorder
-- Direct state mutation
+- `[medium]` inline function/object literals in JSX ONLY when passed to a MEMOIZED child
+  (`React.memo`/`PureComponent` visible) or created per-item inside a list — those measurably
+  defeat memoization. An inline handler on a plain host element (`<button onClick={() => …}>`)
+  is idiomatic React — never flag it. When the child's memoization is off-hunk, `≤ 40` +
+  `pending: confirm <Child> is memoized`.
+- `[high]` missing `key` on list items; `[medium]` `key={index}` ONLY for lists that can visibly
+  reorder/insert/delete (a static list keyed by index is fine — say why the reorder is possible).
+- `[high]` direct state mutation (`state.items.push(x)`, mutating a useState object) — in-hunk
+  provable.
 
 ### Controlled/uncontrolled
-- Mixing `value` and `defaultValue`
-- Form inputs without `onChange`
+- `[high]` mixing `value` and `defaultValue`; `[medium]` a `value` without `onChange` (unless
+  `readOnly`/`disabled` — check before flagging).
 
 ### Performance
-- Heavy render work that should be useMemo'd
-- Context value identity changing every render
+- `[medium]` heavy render work that should be useMemo'd — visibly expensive in-hunk (non-trivial
+  sort/filter/build in the render path), not "could be memoized" taste.
+- `[medium]` context value identity changing every render (a fresh object/array literal passed to
+  a Provider `value=` in-hunk).
 
 ### Accessibility (light pass)
-- `<button>` without accessible name
-- `onClick` on non-interactive elements without role+keyboard
+- `[medium]` `<button>` without accessible name; `[medium]` `onClick` on non-interactive elements
+  without role+keyboard.
+
+## SAFE — never flag
+
+- inline arrow handlers on plain host elements (not memoized children, not per-item in lists).
+- `key={index}` on a provably static list.
+- an effect with an intentionally-narrow deps array WHEN an eslint-disable for exhaustive-deps
+  sits on it — the author decided; respect the suppression.
+- `value` + `onChange` both present in different in-hunk lines (read the whole hunk before
+  calling an input uncontrolled).
+- state updates through the setter's functional form (`setX(prev => …)`) — that is the stale-
+  closure FIX; never flag it as one.
+
+## Confidence anchors
+
+**90+** — the rule violation is structurally in-hunk (conditional hook call, mutation of state,
+`value` + `defaultValue` on one element). **60–75** — the pattern is present but one contextual
+fact is assumed (child memoization, list reorderability). **≤ 40** — the deciding context is
+off-hunk; emit with the check's `pending:` note.
 
 ## Coverage, not filtering
 

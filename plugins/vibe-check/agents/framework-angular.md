@@ -34,7 +34,11 @@ filters an off-hunk finding to a count unless it is independently confirmed.
   may be off-hunk)` (D-04) — teardown is the single most common off-hunk context, so
   absence-of-evidence must not assert HIGH. Cross-reference the SAFE list: never flag if ANY D-03
   modern idiom (`takeUntilDestroyed()`, `takeUntil(destroy$)`, async pipe, self-completing source,
-  signal read) is present or plausibly off-hunk.
+  signal read) is present IN-HUNK. (Fable A15: this used to say "present or plausibly off-hunk" —
+  but ANY teardown is always "plausibly" off-hunk, so a literal reading deleted the hedged path
+  entirely and rxjs-leaks could only ever fire on a fully-visible component. The MERELY-plausible
+  case is exactly what the `≤ 40` ceiling + `pending:` note above already handles — hedge it, do
+  not suppress it.)
 
 ### change-detection
 
