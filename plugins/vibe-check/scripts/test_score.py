@@ -749,6 +749,41 @@ class TestSuppressionFinding(unittest.TestCase):
         # The real finding is unaffected.
         self.assertIn("host", [g.get("id") for g in result["findings"]])
 
+    # --- lang-py-001: non-str / UNHASHABLE `file` never crashes the run ------- #
+    def test_unhashable_file_bare_marker_never_crashes(self):
+        # A malformed-but-parseable finding whose `file` is a non-str, potentially
+        # UNHASHABLE shape (list/dict) plus a BARE `// vibe-ignore` in its window
+        # must NOT crash run() via `TypeError: unhashable type` at the
+        # `(file, marker_line)` set key (lang-py-001). The raw `file` is coerced to
+        # a safe hashable ("" for non-str) BEFORE the key, mirroring _as_line's
+        # non-crash posture for `line` (NEW-1). A good sibling still survives and the
+        # synthetic finding is emitted (not a crash). Mirrors the null/odd-line test.
+        good = make_finding(id="keep", line=10, agent_confidence=100,
+                            severity="critical",
+                            source_window=["a", "b", "c", "d", "e"])
+        for label, fv in (("list", ["not", "a", "string"]),
+                          ("dict", {"path": "x"}),
+                          ("int", 42),
+                          ("None", None)):
+            with self.subTest(file=label):
+                bad = make_finding(
+                    id="badfile", file=fv, line=10, agent_confidence=100,
+                    severity="critical", category="idiom",
+                    source_window=["a", "b", "// vibe-ignore", "d", "e"])
+                result = self._run([bad, good])   # must NOT raise
+                self.assertTrue(result["scored_by_script"])
+                # The good sibling survives.
+                self.assertIn("keep",
+                              [g.get("id") for g in result["findings"]])
+                # Exactly one synthetic finding is emitted (handled, not crashed),
+                # with `file` coerced to a str ("") — never the raw non-str value.
+                supp = self._supp(result)
+                self.assertEqual(len(supp), 1)
+                self.assertEqual(supp[0]["file"], "")
+                self.assertEqual(supp[0]["band"], "low")
+                self.assertIsNotNone(supp[0]["orchestrator_score"])
+                self.assertIn("stable_hash", supp[0])
+
 
 # --------------------------------------------------------------------------- #
 # carry_forward_status (review.md:672-678, D-11 strip both sides)

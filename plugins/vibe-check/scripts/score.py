@@ -1078,7 +1078,20 @@ def run(envelope):
         bare = [o for o in _vibe_ignore_scan(window) if o["kind"] == "bare"]
         if not bare:
             continue
-        file = member.get("file")
+        # lang-py-001 (crash guard, mirrors NEW-1 for the OTHER key half): coerce
+        # `file` to a safe HASHABLE value BEFORE it enters the `(file, marker_line)`
+        # set key. score.py accepts a malformed-but-parseable finding whose `file`
+        # is a non-str, potentially UNHASHABLE shape (a list/dict) — a raw
+        # `_bare_seen.add((file, marker_line))` / `key not in _bare_seen` on such a
+        # value raises `TypeError: unhashable type`, exits non-zero, and halts the
+        # WHOLE run at review.md's Phase 3 fail-closed gate (the same halt-class the
+        # NEW-1 `line` guard prevents). Coerce to "" for any non-str, mirroring the
+        # SYNTHETIC-FINDING block below (`file_str = file if isinstance(file, str)
+        # else ""`), and thread this SAME coerced value through `bare_marker_keys`
+        # so the emitted synthetic finding's `file` matches what was deduped.
+        file_key = member.get("file")
+        if not isinstance(file_key, str):
+            file_key = ""
         # NEW-1 (crash guard): resolve the member's line through the EXISTING
         # _as_line helper FIRST. score.py DELIBERATELY accepts line:null (file-level
         # findings) and non-int lines (malformed-but-parseable) and MUST NOT raise
@@ -1095,7 +1108,7 @@ def run(envelope):
                 marker_line = finding_line - 2 + o["index"]  # 0=L-2 … 4=L+2
             else:
                 marker_line = None
-            key = (file, marker_line)
+            key = (file_key, marker_line)
             if key not in _bare_seen:
                 _bare_seen.add(key)
                 bare_marker_keys.append(key)
@@ -1283,7 +1296,19 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
         — a TRANSIENT keep/drop boolean, NOT serialized onto the finding, and the
         +20 in_diff term never fires in --all (review.md:684).
     """
+    # lang-py-001 (crash guard): coerce `file` to a safe HASHABLE str BEFORE it is
+    # used as a dict key / set membership below (`file_line_totals.get(file)`,
+    # `file in reviewed_union`, `changed_line_ranges.get(file, [])`). A
+    # malformed-but-parseable finding whose `file` is a non-str, potentially
+    # UNHASHABLE shape (list/dict) would otherwise raise `TypeError: unhashable
+    # type` on those lookups, exit non-zero, and halt the WHOLE run at review.md's
+    # Phase 3 fail-closed gate. A non-str `file` is never a real path (so it can
+    # never legitimately be a reviewed_union member or a *_totals/ranges key), so
+    # coercing it to "" is behavior-preserving for real input while never raising —
+    # mirroring _as_line / _safe_window's coerce-at-read posture.
     file = member.get("file", "")
+    if not isinstance(file, str):
+        file = ""
     line = member.get("line", 0)
     source_window = _safe_window(member.get("source_window"))
 
