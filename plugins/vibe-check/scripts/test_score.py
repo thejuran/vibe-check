@@ -1541,6 +1541,228 @@ class TestRunThresholds(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# run() min_confidence pre-scoring filter — end-to-end (CONF-02, D-03, D-04)
+# --------------------------------------------------------------------------- #
+class TestRunMinConfidence(unittest.TestCase):
+    """Proves the `min_confidence` envelope key drops sub-N findings THROUGH run()
+    BEFORE cross_confirm_group (so they neither cross-confirm nor influence any
+    survivor's score), routes each drop to filtered[] with a DISTINCT reason
+    ("below-min-confidence"), survives a finding at exactly N (strict `<`), and
+    keeps the zero-config path byte-stable. Structural twin of TestRunThresholds."""
+
+    def _envelope(self, **over):
+        # A single critical finding at agent_confidence=100 (scores 100 -> critical),
+        # far above any min_confidence we test, so the base finding always survives.
+        base = {
+            "command": "review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="mc-base", agent_confidence=100,
+                             severity="critical", file="src/a.py", line=10),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_below_n_dropped_before_scoring(self):
+        # min_confidence=70; a finding at conf 60 is dropped into filtered[] with
+        # reason "below-min-confidence" and is ABSENT from findings[].
+        low = make_finding(id="mc-low", agent_confidence=60, severity="critical",
+                           file="src/b.py", line=20)
+        result = score.run(self._envelope(min_confidence=70,
+                                          findings=[low]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertNotIn("mc-low", ids)
+        dropped = [x for x in result["filtered"]
+                   if x.get("reason") == "below-min-confidence"]
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(dropped[0]["file"], "src/b.py")
+        self.assertEqual(dropped[0]["line"], 20)
+
+    def test_dropped_neighbor_supplies_no_cross_confirm(self):
+        # A dropped sub-N finding co-located with a survivor twin (same file/line,
+        # overlapping category, DIFFERENT agent) must NOT lend its +10 cross-confirm
+        # to the survivor: the survivor's score equals the no-drop baseline where
+        # the low finding was simply absent.
+        survivor = make_finding(id="mc-surv", agent_confidence=85,
+                                severity="critical", file="src/c.py", line=30,
+                                category="bug", agent="bugs")
+        low_twin = make_finding(id="mc-twin", agent_confidence=50,
+                                severity="critical", file="src/c.py", line=30,
+                                category="bug", agent="security")
+
+        # With min_confidence=70 the twin drops -> survivor scores alone (85, no +10).
+        with_drop = score.run(self._envelope(min_confidence=70,
+                                             findings=[survivor, low_twin]))
+        surv_scores = {g["id"]: g for g in with_drop["findings"]}
+        self.assertIn("mc-surv", surv_scores)
+        self.assertNotIn("mc-twin", surv_scores)
+        self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"], 85)
+
+        # Baseline: the SAME run with the low twin simply absent (never in input).
+        baseline = score.run(self._envelope(findings=[survivor]))
+        base_scores = {g["id"]: g for g in baseline["findings"]}
+        self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"],
+                         base_scores["mc-surv"]["orchestrator_score"])
+
+        # Sanity: if the twin were NOT dropped (min_confidence below both), the
+        # survivor WOULD get +10 (proves the drop is what suppresses the bonus).
+        confirmed = score.run(self._envelope(min_confidence=40,
+                                             findings=[survivor, low_twin]))
+        conf_scores = {g["id"]: g for g in confirmed["findings"]}
+        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"], 95)  # 85+10
+
+    def test_exactly_n_survives(self):
+        # Strict `<`: a finding at exactly min_confidence SURVIVES; one at N-1 drops.
+        at_n = make_finding(id="mc-at", agent_confidence=70, severity="critical",
+                            file="src/d.py", line=40)
+        below = make_finding(id="mc-69", agent_confidence=69, severity="critical",
+                             file="src/e.py", line=50)
+        result = score.run(self._envelope(min_confidence=70,
+                                          findings=[at_n, below]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertIn("mc-at", ids)
+        self.assertNotIn("mc-69", ids)
+        self.assertTrue(any(
+            x.get("reason") == "below-min-confidence" and x.get("file") == "src/e.py"
+            for x in result["filtered"]))
+
+    def test_zero_config_envelope_is_byte_stable(self):
+        # No min_confidence key at all -> today's behavior. The base finding scores
+        # 100 -> critical, identical to a run with no confidence filter.
+        result = score.run(self._envelope())
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 100)
+        self.assertEqual(g["band"], "critical")
+        # No confidence drop is recorded.
+        self.assertFalse(any(x.get("reason") == "below-min-confidence"
+                             for x in result["filtered"]))
+
+    def test_explicit_none_matches_absent(self):
+        # An explicit min_confidence=None must be byte-identical to omitting the key
+        # (same band AND same stable_hash) — the zero-config path both ways.
+        absent = score.run(self._envelope())["findings"][0]
+        explicit = score.run(self._envelope(min_confidence=None))["findings"][0]
+        self.assertEqual(absent["band"], explicit["band"])
+        self.assertEqual(absent["stable_hash"], explicit["stable_hash"])
+        self.assertEqual(absent["orchestrator_score"],
+                         explicit["orchestrator_score"])
+
+    def test_zero_min_confidence_drops_nothing(self):
+        # min_confidence=0: coerced conf (>=0) is never `< 0`, so nothing drops —
+        # behaviorally identical to no filter.
+        low = make_finding(id="mc-z", agent_confidence=0, severity="critical",
+                           file="src/f.py", line=60)
+        result = score.run(self._envelope(min_confidence=0, findings=[low]))
+        self.assertFalse(any(x.get("reason") == "below-min-confidence"
+                             for x in result["filtered"]))
+
+    def test_reason_distinct_from_subthreshold(self):
+        # A run with BOTH a min_confidence drop AND a sub-threshold drop must show
+        # both reasons in filtered[], distinct and counted separately.
+        # - conf-drop: conf 50 < min_confidence 70 -> below-min-confidence.
+        # - sub-threshold: conf 75 (>=70 survives the confidence filter) but score
+        #   75 < review cutoff 80 -> sub-threshold.
+        conf_drop = make_finding(id="mc-cd", agent_confidence=50,
+                                 severity="critical", file="src/g.py", line=70)
+        sub_thr = make_finding(id="mc-st", agent_confidence=75, severity="critical",
+                               file="src/h.py", line=80)
+        result = score.run(self._envelope(min_confidence=70,
+                                          command="review",
+                                          findings=[sub_thr, conf_drop]))
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("below-min-confidence", reasons)
+        self.assertIn("sub-threshold", reasons)
+        self.assertNotEqual("below-min-confidence", "sub-threshold")
+        # Counted separately: exactly one of each.
+        self.assertEqual(reasons.count("below-min-confidence"), 1)
+        self.assertEqual(reasons.count("sub-threshold"), 1)
+
+    def test_malformed_min_confidence_no_filter(self):
+        # A malformed value (str/dict/float/bool/NaN) is treated as no-filter:
+        # no crash, no drop, findings == baseline.
+        low = make_finding(id="mc-m", agent_confidence=10, severity="critical",
+                           file="src/i.py", line=90)
+        baseline_ids = {g["id"] for g in
+                        score.run(self._envelope(findings=[low]))["findings"]}
+        for bad in ("70", {"x": 1}, 70.0, True, False, float("nan")):
+            result = score.run(self._envelope(min_confidence=bad, findings=[low]))
+            self.assertEqual({g["id"] for g in result["findings"]}, baseline_ids,
+                             "malformed min_confidence=%r must not filter" % (bad,))
+            self.assertFalse(any(x.get("reason") == "below-min-confidence"
+                                 for x in result["filtered"]),
+                             "malformed min_confidence=%r must not drop" % (bad,))
+
+    def test_missing_confidence_coerces_zero_dropped(self):
+        # A finding with missing/garbage agent_confidence coerces to 0, so any
+        # min_confidence >= 1 drops it (D-03: unknown confidence treated as lowest).
+        missing = make_finding(id="mc-miss", severity="critical",
+                               file="src/j.py", line=100)
+        del missing["agent_confidence"]
+        garbage = make_finding(id="mc-garb", agent_confidence="nope",
+                               severity="critical", file="src/k.py", line=110)
+        result = score.run(self._envelope(min_confidence=1,
+                                          findings=[missing, garbage]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertNotIn("mc-miss", ids)
+        self.assertNotIn("mc-garb", ids)
+        drops = [x for x in result["filtered"]
+                 if x.get("reason") == "below-min-confidence"]
+        self.assertEqual(len(drops), 2)
+
+    def test_low_confidence_carryforward_dropped(self):
+        # A persisted/needs-recheck carryforward at conf 50 + min_confidence 70 is
+        # dropped like any other finding (D-03: no carryforward carve-out).
+        cf = make_finding(id="mc-cf", file="src/a.py", line=10,
+                          title="still here", agent_confidence=50,
+                          severity="critical", current_code="  return q",
+                          canonical_line_content="return q",
+                          source_window=["a", "b", "c", "d", "e"])
+        result = score.run(self._envelope(min_confidence=70,
+                                          carryforward=[cf], findings=[]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertNotIn("mc-cf", ids)
+        self.assertTrue(any(
+            x.get("reason") == "below-min-confidence" and x.get("file") == "src/a.py"
+            for x in result["filtered"]))
+
+
+# --------------------------------------------------------------------------- #
+# _coerce_confidence — the extracted module-level coercion helper (CONF-02)
+# --------------------------------------------------------------------------- #
+class TestCoerceConfidence(unittest.TestCase):
+    """The shared coercion (single source of truth for garbage->0) reused by both
+    compute_score and the min_confidence filter. int/float accepted (float
+    truncated); bool/non-finite/garbage -> 0."""
+
+    def test_int_passthrough(self):
+        self.assertEqual(score._coerce_confidence(85), 85)
+        self.assertEqual(score._coerce_confidence(0), 0)
+
+    def test_float_truncated(self):
+        self.assertEqual(score._coerce_confidence(85.0), 85)
+        self.assertEqual(score._coerce_confidence(85.9), 85)
+
+    def test_bool_rejected(self):
+        self.assertEqual(score._coerce_confidence(True), 0)
+        self.assertEqual(score._coerce_confidence(False), 0)
+
+    def test_non_finite_rejected(self):
+        self.assertEqual(score._coerce_confidence(float("nan")), 0)
+        self.assertEqual(score._coerce_confidence(float("inf")), 0)
+        self.assertEqual(score._coerce_confidence(float("-inf")), 0)
+
+    def test_garbage_zero(self):
+        self.assertEqual(score._coerce_confidence("70"), 0)
+        self.assertEqual(score._coerce_confidence(None), 0)
+        self.assertEqual(score._coerce_confidence({}), 0)
+
+
+# --------------------------------------------------------------------------- #
 # C1 — float agent_confidence must NOT be silently zeroed (deep-review C1)
 # --------------------------------------------------------------------------- #
 class TestFloatConfidence(unittest.TestCase):
