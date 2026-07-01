@@ -47,13 +47,11 @@ will it, by construction, produce good findings (real issues caught, non-issues 
 will it produce misses and noise? This is a design critique of the prompts. No code execution,
 no fixtures, no runs. Report only; edit nothing.
 
-## Ordering (do this exactly)
-Critique all the NON-security agents FIRST, in this order: bugs, architecture, compliance,
-impact, test-sufficiency, triage, language-{typescript,python,go,rust},
-framework-{react,vue,angular,express,fastapi,electron,react-native,skill}. Do the `security`
-agent LAST, as a clearly separated final section. Complete and output the full scorecard for the
-18 non-security agents before you begin the security-agent section, so that critique is banked
-even if the security section is interrupted.
+## SKIP the security agent (do this exactly)
+Do NOT critique `security.md`. Skip it entirely — it is being handled in a separate pass. Review
+only these 18 agents: bugs, architecture, compliance, impact, test-sufficiency, triage,
+language-{typescript,python,go,rust}, framework-{react,vue,angular,express,fastapi,electron,
+react-native,skill}. Do not read, score, or mention the security agent in any deliverable.
 
 ## The one structural fact that frames everything
 Every detection agent is told "Coverage, not filtering" — report EVERY issue, do NOT self-filter
