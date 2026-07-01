@@ -43,6 +43,15 @@ SILENCED_MARKERS = ("eslint-disable", "# noqa", "// nolint", "@SuppressWarnings"
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
 
+# scoring.md:37-42 — the built-in band-boundary floors band_for() applies when no
+# `thresholds` override is present. This is a DIFFERENT layer from THRESHOLDS above:
+# THRESHOLDS is the per-command finalize cutoff (which findings surface for /review
+# vs /deep-review); _DEFAULT_BANDS is the critical/warning/medium LABEL boundaries.
+# The v2.8 `thresholds` config knob (D-02) parameterizes THESE floors, defaulting to
+# the whole set so the no-config path stays byte-identical (frozen GOLDEN_DIGEST).
+# Do NOT retune these literals (behavior-preserving) and do NOT conflate with THRESHOLDS.
+_DEFAULT_BANDS = {"critical": 95, "warning": 80, "medium": 70}
+
 # HARDEN-01 — DOCUMENTATION ONLY (not a reject gate). The three fields a
 # well-formed finding normally carries. Per orchestrator correction (this phase),
 # a missing / null / non-str value for any of these does NOT make a finding
@@ -83,13 +92,55 @@ def stable_hash(file, canonical_line_content, title):
     ).hexdigest()
 
 
-def band_for(score):
-    """Score -> band (scoring.md:37-42). <70 is below both thresholds => None."""
-    if score >= 95:
+def _usable_bands(thresholds):
+    """Return a validated {critical,warning,medium} band-floor dict, or _DEFAULT_BANDS.
+
+    CRASH-SAFE (Finding #2 / T-30-06). The `thresholds` value arrives on the stdin
+    envelope from the orchestrator (which got it from config.py). config.py validates
+    it UPSTREAM (strictly-descending ints in [1,100], medium>=70) and should never send
+    a malformed value — but score.py must not TRUST its input: a stale or buggy config.py
+    must never crash the scorer. So this accepts the dict ONLY when all three floors are
+    present AND each is a USABLE non-bool int; on ANY violation it falls back to the WHOLE
+    built-in _DEFAULT_BANDS set (not a per-sub-key mix), matching config.py's whole-set
+    posture and keeping the reasoning trivial.
+
+    The bool exclusion is mandatory: `isinstance(True, int)` is True, so a plain int
+    check would wrongly accept a bool floor. A WRONG-TYPE sub-key — e.g. {"critical":"80"}
+    (string), None, or a float — would otherwise reach `score >= "80"` and raise TypeError;
+    this guard prevents that. A non-dict thresholds (incl. None, the zero-config path)
+    also falls back to the whole default set. This mirrors score.py's existing null/
+    type-safe posture (stable_hash / _safe_window): coerce-or-default, never raise.
+    """
+    if not isinstance(thresholds, dict):
+        return _DEFAULT_BANDS
+    floors = {}
+    for key in ("critical", "warning", "medium"):
+        v = thresholds.get(key)
+        # Present AND a usable non-bool int, else the WHOLE set defaults.
+        if not (isinstance(v, int) and not isinstance(v, bool)):
+            return _DEFAULT_BANDS
+        floors[key] = v
+    return floors
+
+
+def band_for(score, thresholds=None):
+    """Score -> band (scoring.md:37-42). <medium floor is below both thresholds => None.
+
+    `thresholds` is an OPTIONAL band-floor override (v2.8 config knob, D-02). When it
+    is absent / None OR malformed (non-dict, missing sub-key, or a wrong-type/non-int/
+    bool sub-key), band_for uses the built-in _DEFAULT_BANDS literals (95/80/70) — so
+    the no-config default path is byte-identical to v2.7 (the frozen GOLDEN_DIGEST and
+    the 8 TestBandBoundaries assertions are unchanged). A fully-valid all-int dict is
+    honored (tunable). See _usable_bands for the crash-safe validation (Finding #2).
+    band_for is the SINGLE writer of `band` (single call site in run()); do not compute
+    a band anywhere else.
+    """
+    bands = _usable_bands(thresholds)
+    if score >= bands["critical"]:
         return "critical"
-    if score >= 80:
+    if score >= bands["warning"]:
         return "warning"
-    if score >= 70:
+    if score >= bands["medium"]:
         return "medium"
     return None
 
@@ -684,6 +735,11 @@ def run(envelope):
     changed_line_ranges = envelope.get("changed_line_ranges", {}) or {}
     reviewed_union = set(envelope.get("reviewed_union", []) or [])
     file_line_totals = envelope.get("file_line_totals", {}) or {}
+    # v2.8 config knob (D-02, CONFIG-04): optional band-floor override. No `or {}` —
+    # absent AND explicit-None both yield None, so band_for uses the built-in literals
+    # and a zero-config run stays byte-identical. band_for() is crash-safe against a
+    # malformed value (whole-set fallback), so no re-validation is needed here.
+    thresholds = envelope.get("thresholds")
 
     # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
     # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
@@ -807,7 +863,7 @@ def run(envelope):
         # Members that lost the dedup are absorbed into the survivor (not emitted).
         survivor = dict(best_member)
         survivor["orchestrator_score"] = best_score
-        survivor["band"] = band_for(best_score)
+        survivor["band"] = band_for(best_score, thresholds)
         survivor["attribution"] = attribution
         survivor["stable_hash"] = stable_hash(
             survivor.get("file", ""),
