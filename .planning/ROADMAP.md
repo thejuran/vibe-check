@@ -112,7 +112,7 @@ Full details: `.planning/milestones/v2.7-ROADMAP.md`. 9 requirements, 100% cover
 
 ### 🚧 v2.8 Tunable, quieter reviews (Phases 30-34) — IN PROGRESS
 
-- [ ] **Phase 30: Config surface foundation** — Build the `.vibe-check.toml` reader (resolved once per run), the precedence chain (flag > toml > default), and the per-key fail-safe; prove the surface with the three simplest consumers (`thresholds`, `disabled`, `top_model`)
+- [x] **Phase 30: Config surface foundation** — Build the `.vibe-check.toml` reader (resolved once per run), the precedence chain (flag > toml > default), and the per-key fail-safe; prove the surface with the three simplest consumers (`thresholds`, `disabled`, `top_model`) (completed 2026-07-01)
 - [ ] **Phase 31: Confidence axis** — Surface `agent_confidence` on every rendered finding; add `min_confidence`/`--min-confidence N` that filters BEFORE scoring, with the dropped-count in the honesty summary
 - [ ] **Phase 32: Idiom floor + `vibe-ignore` marker** — `idiom_floor` band cap (default `medium`) + `// vibe-ignore: <reason>` suppression marker (bare marker → low finding); both script-enforced in `score.py`
 - [ ] **Phase 33: Codex legibility + safer fix-loop default** — Codex `off/auto/on` config + `--codex` flag + always-announce line (default stays `auto`); strip apply-all "(Recommended)" from the fix loop; orchestrator/prose only
@@ -163,7 +163,7 @@ wiring files. 34 (close) depends on all four work phases; it exercises every kno
 | 27. framework-electron agent (security-weighted) | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 28. framework-react-native agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 29. Efficacy Test + Version Bump + Tag | v2.7 | 2/2 | Complete   | 2026-06-30 |
-| 30. Config surface foundation | v2.8 | 2/3 | In Progress|  |
+| 30. Config surface foundation | v2.8 | 3/3 | Complete   | 2026-07-01 |
 | 31. Confidence axis | v2.8 | 0/? | Not started | - |
 | 32. Idiom floor + `vibe-ignore` marker | v2.8 | 0/? | Not started | - |
 | 33. Codex legibility + safer fix-loop default | v2.8 | 0/? | Not started | - |
@@ -381,7 +381,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 30-03-PLAN.md — Wire the three proving consumers in `review.md`/`deep-review.md` (dev-safe degrade config read, thresholds→envelope byte-stable, disabled→dispatch with core-agent announce, top_model env>toml>default) + config-health line + README schema doc [CONFIG-01/02/04]
+- [x] 30-03-PLAN.md — Wire the three proving consumers in `review.md`/`deep-review.md` (dev-safe degrade config read, thresholds→envelope byte-stable, disabled→dispatch with core-agent announce, top_model env>toml>default) + config-health line + README schema doc [CONFIG-01/02/04]
 
 **UI hint**: no
 
