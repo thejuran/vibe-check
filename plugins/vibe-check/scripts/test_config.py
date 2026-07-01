@@ -534,9 +534,10 @@ class TestDegradeNotAbort(unittest.TestCase):
         self.assertEqual(payload["values"]["min_confidence"], 60)
 
     def test_min_confidence_flag_empty_repo_root_no_crash(self):
-        # Empty REPO_ROOT (no-config path) + a flag => exit 0, min_confidence null
-        # (no config file to override; the flag has nothing to overlay onto, but
-        # the __main__ threads it without crashing).
+        # Empty REPO_ROOT (no config file) + a valid flag => exit 0, and the flag
+        # STILL applies: load_config("") returns defaults, then _apply_flags overlays
+        # the flag, so min_confidence resolves to 75 (the flag-always-applies invariant,
+        # asserted below). __main__ threads the flag without crashing.
         env = {**os.environ, "REPO_ROOT": "", "MIN_CONFIDENCE_FLAG": "75"}
         proc = subprocess.run(
             [sys.executable, CONFIG_PY],

@@ -185,11 +185,11 @@ def _apply_flags(values, warnings, flags):
     """Overlay validated flag values onto `values` (flag > toml > default).
 
     If flags is None, `values` is returned unchanged. Otherwise, for each of the
-    three knobs, a non-None `flags[key]` is run through that knob's validator and
+    four knobs, a non-None `flags[key]` is run through that knob's validator and
     the VALIDATED result overlays the toml value, appending any warning it
     produces. A bad flag degrades to default + warning EXACTLY like a bad toml
     value — a flag can never bypass validation. (This is the precedence slot later
-    phases reuse for `--min-confidence`/`--codex`.)
+    phases reuse for `--codex`.)
     """
     if not isinstance(flags, dict):
         return values, warnings
@@ -218,8 +218,9 @@ def _apply_flags(values, warnings, flags):
 def load_config(path, *, flags=None):
     """Read `.vibe-check.toml` at `path`; return (values, warnings). NEVER raises.
 
-    values is always `{"thresholds": .., "disabled": .., "top_model": ..}` with
-    defaults substituted for any absent/invalid knob. warnings is a list of
+    values is always `{"thresholds": .., "disabled": .., "top_model": ..,
+    "min_confidence": ..}` with defaults substituted for any absent/invalid knob.
+    warnings is a list of
     human-readable strings (KEY + fixed reason only — no raw config VALUE text),
     EMPTY when the file is absent OR fully valid. Precedence: flag > toml > default,
     resolved per knob (CONFIG-02). See the module docstring for the inverted

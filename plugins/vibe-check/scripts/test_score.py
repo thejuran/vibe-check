@@ -1682,8 +1682,8 @@ class TestRunMinConfidence(unittest.TestCase):
         reasons = [x.get("reason") for x in result["filtered"]]
         self.assertIn("below-min-confidence", reasons)
         self.assertIn("sub-threshold", reasons)
-        self.assertNotEqual("below-min-confidence", "sub-threshold")
-        # Counted separately: exactly one of each.
+        # Counted separately: exactly one of each — this (not a literal-vs-literal
+        # comparison) is what proves the two drop paths stay distinct and unmerged.
         self.assertEqual(reasons.count("below-min-confidence"), 1)
         self.assertEqual(reasons.count("sub-threshold"), 1)
 
