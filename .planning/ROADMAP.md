@@ -163,7 +163,7 @@ wiring files. 34 (close) depends on all four work phases; it exercises every kno
 | 27. framework-electron agent (security-weighted) | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 28. framework-react-native agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 29. Efficacy Test + Version Bump + Tag | v2.7 | 2/2 | Complete   | 2026-06-30 |
-| 30. Config surface foundation | v2.8 | 1/3 | In Progress|  |
+| 30. Config surface foundation | v2.8 | 2/3 | In Progress|  |
 | 31. Confidence axis | v2.8 | 0/? | Not started | - |
 | 32. Idiom floor + `vibe-ignore` marker | v2.8 | 0/? | Not started | - |
 | 33. Codex legibility + safer fix-loop default | v2.8 | 0/? | Not started | - |
@@ -377,7 +377,7 @@ Plans:
 **Wave 1**
 
 - [x] 30-01-PLAN.md — Author `scripts/config.py` (the never-raise I/O-boundary reader: tomllib, per-key fail-safe, opus/fable + 3-sub-key strict-descent thresholds validation) + `scripts/test_config.py` locking every fail-safe/precedence branch [CONFIG-01/02/03]
-- [ ] 30-02-PLAN.md — Parameterize `score.py`'s `band_for(score, thresholds=None)` (default-inert) + thread an optional `thresholds` envelope key through its single call site; add `test_score.py` override + default-byte-stable regression locks (GOLDEN_DIGEST unchanged) [CONFIG-04]
+- [x] 30-02-PLAN.md — Parameterize `score.py`'s `band_for(score, thresholds=None)` (default-inert) + thread an optional `thresholds` envelope key through its single call site; add `test_score.py` override + default-byte-stable regression locks (GOLDEN_DIGEST unchanged) [CONFIG-04]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

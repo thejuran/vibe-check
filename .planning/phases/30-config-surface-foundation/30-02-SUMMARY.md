@@ -97,6 +97,12 @@ None. Both modified files are fully-wired production code + test coverage; `band
 - Ready for Plan 30-03 (review.md/deep-review.md wiring) to source `thresholds` from `config.py`'s resolved values and inject it into the score.py envelope — the consumer contract is stable and crash-safe against any value that arrives.
 - Phases 31/32 add MORE `score.py` envelope keys (`min_confidence`, `idiom_floor`); the byte-stable-default discipline demonstrated here (unit + end-to-end regression + unchanged GOLDEN_DIGEST) is the template each must follow.
 
+## Self-Check: PASSED
+
+- Files verified present: `score.py`, `test_score.py`, `30-02-SUMMARY.md` — all FOUND.
+- Commits verified in git log: `bf4402b` (feat), `3466e47` (test), `61bc467` (docs) — all FOUND.
+- Full suite `python3 -m unittest` → 191 tests OK; import set `{hashlib, json, re, sys}`; GOLDEN_DIGEST unchanged; default-inert across 0..100; `THRESHOLDS` intact.
+
 ---
 *Phase: 30-config-surface-foundation*
 *Completed: 2026-07-01*

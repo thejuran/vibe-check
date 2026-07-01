@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: Tunable, quieter reviews
 status: executing
-stopped_at: Phase 30 context gathered
-last_updated: "2026-07-01T00:22:03.166Z"
-last_activity: 2026-07-01 -- Phase 30 execution started
+stopped_at: Completed 30-02-PLAN.md
+last_updated: "2026-07-01T00:27:05.474Z"
+last_activity: 2026-07-01 -- Phase 30 Plan 02 complete (thresholds knob)
 progress:
   total_phases: 26
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-28)
 ## Current Position
 
 Phase: 30 (config-surface-foundation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Executing Phase 30
-Last activity: 2026-07-01 -- Phase 30 execution started
+Last activity: 2026-07-01 -- Phase 30 Plan 02 complete (thresholds knob)
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Last activity: 2026-07-01 -- Phase 30 execution started
 | Phase 28 P01 | 12min | 2 tasks | 7 files |
 | Phase 29 P01 | 7min | 2 tasks | 1 files |
 | Phase 30 P01 | 3min | 2 tasks | 2 files |
+| Phase 30 P02 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,7 @@ Earlier decisions (v2.6) still on record:
 - [Phase ?]: Phase 30 P01: config.py is the never-raise .vibe-check.toml I/O boundary (load_config -> (values,warnings)); inverts score.py's fail-closed posture — degrades per-key to defaults, __main__ exits 0 always (CONFIG-03); the ONE new module allowed filesystem I/O so score.py stays pure
 - [Phase ?]: Phase 30 P01: D-02 thresholds schema LOCKED — {critical,warning,medium} non-bool ints in [1,100], strictly descending, medium>=70, whole-set fallback to None; two ordered pre-parse DoS guards (os.path.isfile regular-file BEFORE os.path.getsize 1-MiB cap); catch (TOMLDecodeError,UnicodeDecodeError,OSError)+ImportError degrade (D-01)
 - [Phase ?]: Phase 30 P01: validate-then-overlay flag precedence (flag>toml>default), flags run same validators never bypass (Finding #3); top_model opus/fable allowlist reuses $VIBE_CHECK_TOP_MODEL; disabled honors core-agent disable; below-80 band floor ACCEPTED (Finding #4). test_config.py 33 tests, suite 147->180, score.py untouched
+- [Phase ?]: Phase 30 P02: band_for parameterized to band_for(score, thresholds=None) via _usable_bands whole-set crash-safe guard (all-three-non-bool-ints-or-whole-default); run() threads envelope.get('thresholds') (no or-empty) into the SINGLE band write; _DEFAULT_BANDS 95/80/70 added next to THRESHOLDS with a two-layer banner (D-02); default path byte-identical, GOLDEN_DIGEST + TestBandBoundaries UNCHANGED, import set frozen, suite 180->191, two-layer dead-band proof pinned
 
 ### Pending Todos
 
@@ -131,7 +133,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-01T00:21:14.179Z
+Last session: 2026-07-01T00:26:49.929Z
 Stopped at: Phase 30 context gathered
 Resume file:
 .planning/phases/30-config-surface-foundation/30-CONTEXT.md
