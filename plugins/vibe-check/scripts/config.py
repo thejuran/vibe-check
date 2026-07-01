@@ -46,8 +46,11 @@ import sys
 # The resolved-value shape load_config always returns (all keys present).
 # None => "use the built-in default"; [] => "no agents disabled".
 # min_confidence None => "no confidence filter" (byte-stable default, D-04).
+# idiom_floor "medium" => the NOISE-01 cap is ACTIVE BY DEFAULT (A1) — the ONLY
+# default that is NOT None (its default-direction is inverted, see the constant
+# block below and _validate_idiom_floor).
 _DEFAULT_VALUES = {"thresholds": None, "disabled": [], "top_model": None,
-                   "min_confidence": None}
+                   "min_confidence": None, "idiom_floor": "medium"}
 
 # The opus/fable allowlist, mirroring the existing $VIBE_CHECK_TOP_MODEL
 # validation (deep-review.md:55) so the two precedence sources cannot diverge
@@ -76,6 +79,23 @@ _MEDIUM_FLOOR = 70
 # out of range / non-int / bool degrades per-key to None + one warning.
 _MIN_CONFIDENCE_MIN = 0
 _MIN_CONFIDENCE_MAX = 100
+
+# The [noise] idiom_floor knob (NOISE-01, D-01/D-02): a per-category band cap on
+# `idiom`-category findings. Valid values are the band names below (INCLUDING
+# "low" — a valid cap, Finding NEW-2) plus a disable sentinel ("off"/"none", both
+# spellings). CRITICAL default-direction divergence from min_confidence/thresholds:
+# the cap is ACTIVE BY DEFAULT at "medium" (owner-confirmed A1) so idioms never
+# block finalize out of the box. So an absent key AND a malformed value both
+# resolve to the "medium" DEFAULT (fail-safe: the cap stays ON), NOT to None. The
+# explicit-disable path is the ONLY way to turn the cap off, and it returns the
+# LITERAL "off" sentinel (NOT None — Finding #2, Option A) so score.py can tell an
+# explicit user disable from an absent key on the envelope (absent => medium cap
+# ACTIVE; "off" => cap DISABLED; band => cap at that band). "none" normalizes to
+# the single canonical "off".
+_IDIOM_FLOOR_BANDS = ("critical", "warning", "medium", "low")
+_IDIOM_FLOOR_DISABLE = ("off", "none")
+_IDIOM_FLOOR_OFF = "off"          # the canonical disable sentinel (self-describing)
+_DEFAULT_IDIOM_FLOOR = "medium"   # A1: the cap is active by default
 
 # Pre-parse size cap (Finding #2 round-3, DoS): a real .vibe-check.toml is a few
 # hundred bytes; 1 MiB is generous. A regular file over this is degraded to
@@ -177,6 +197,47 @@ def _validate_min_confidence(raw):
     return raw, None
 
 
+def _validate_idiom_floor(raw):
+    """Validate a raw `idiom_floor` VALUE (NOISE-01, D-01/D-02): a band-cap knob.
+
+    Three accepted shapes, resolving to THREE distinct outcomes so the disable
+    stays provably distinct from omission end-to-end (Finding #2, Option A):
+
+    - A valid band name — "critical"/"warning"/"medium"/"low", case-insensitive —
+      round-trips as the lowercased band with NO warning. NOTE "low" IS in the
+      valid set: it is a valid cap band (caps idioms at the literal "low" band),
+      NOT a disable (Finding NEW-2).
+    - The disable sentinel — "off" or "none", case-insensitive (both accepted) —
+      returns the LITERAL `"off"` sentinel (a single canonical spelling; "none"
+      normalizes to "off"), with NO warning. This returns the literal `"off"`
+      string and NOT None (Finding #2): the explicit-disable provenance survives
+      onto the envelope, so score.py can tell an explicit user disable from an
+      absent key. An absent key means the default medium cap is ACTIVE (A1).
+    - Anything else (unknown string, empty string, non-str, bool) — returns
+      ("medium", warning): the medium DEFAULT + one warning naming the key. This
+      is the OPPOSITE default-direction from min_confidence's malformed→None
+      (D-02 / ROADMAP criterion 4 mandate malformed→medium): a bad value keeps the
+      cap ACTIVE (fail-safe protecting finalize), it does NOT return the "off"
+      sentinel and does NOT disable the cap.
+
+    The warning names the KEY + a FIXED reason ONLY — never the raw config VALUE
+    text (V7 hardening, module docstring). NEVER raises (never-raise family).
+    """
+    reason = "config: idiom_floor invalid — using default"
+    if isinstance(raw, str):
+        low = raw.lower()
+        # Disable sentinel FIRST: "off"/"none" -> the literal canonical "off"
+        # (NOT None — Finding #2, Option A) so the disable is self-describing.
+        if low in _IDIOM_FLOOR_DISABLE:
+            return _IDIOM_FLOOR_OFF, None
+        # Valid cap band (INCLUDES "low" — Finding NEW-2, a valid cap not a disable).
+        if low in _IDIOM_FLOOR_BANDS:
+            return low, None
+    # Malformed (unknown string, empty, non-str, bool) -> the medium DEFAULT (NOT
+    # None, NOT the off sentinel): the cap stays ACTIVE (D-02 / ROADMAP crit 4).
+    return _DEFAULT_IDIOM_FLOOR, reason
+
+
 # --------------------------------------------------------------------------- #
 # Precedence overlay — flags run through the SAME per-key validators as toml
 # (VALIDATE-THEN-OVERLAY, Finding #3): a flag value is never trusted by fiat.
@@ -198,6 +259,9 @@ def _apply_flags(values, warnings, flags):
         "disabled": _validate_disabled,
         "top_model": _validate_top_model,
         "min_confidence": _validate_min_confidence,
+        # No flag is parsed for idiom_floor this phase — the precedence slot is
+        # harmless (a None flag is skipped below) and future-proof.
+        "idiom_floor": _validate_idiom_floor,
     }
     for key, validator in validators.items():
         flag_val = flags.get(key)
@@ -231,8 +295,11 @@ def load_config(path, *, flags=None):
     # _DEFAULT_VALUES['disabled'], so any downstream mutation (a `values['disabled']
     # .append(...)`) would permanently poison the default for every subsequent call.
     # The list literal here allocates a new [] on each invocation (lang-py-001).
+    # idiom_floor defaults to "medium" here too (A1 — the cap is active by
+    # default); keep this an inline literal in lockstep with _DEFAULT_VALUES
+    # rather than switching to dict(_DEFAULT_VALUES) (the anti-poisoning literal).
     values = {"thresholds": None, "disabled": [], "top_model": None,
-              "min_confidence": None}
+              "min_confidence": None, "idiom_floor": "medium"}
     warnings = []
 
     # D-01: no parser (Python < 3.11) => degrade, never raise. Imported here (not
@@ -314,6 +381,10 @@ def load_config(path, *, flags=None):
             warnings.append(w)
     if "min_confidence" in noise:
         values["min_confidence"], w = _validate_min_confidence(noise["min_confidence"])
+        if w:
+            warnings.append(w)
+    if "idiom_floor" in noise:
+        values["idiom_floor"], w = _validate_idiom_floor(noise["idiom_floor"])
         if w:
             warnings.append(w)
 

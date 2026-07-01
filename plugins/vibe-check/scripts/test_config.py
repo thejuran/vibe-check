@@ -32,8 +32,10 @@ import config  # noqa: E402  (sibling module under test)
 CONFIG_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.py")
 
 # The default-value shape load_config returns when everything degrades.
+# NOTE idiom_floor defaults to "medium" (NOT None) — the NOISE-01 cap is ACTIVE
+# BY DEFAULT (A1), the OPPOSITE default-direction from the None-defaulting knobs.
 _DEFAULTS = {"thresholds": None, "disabled": [], "top_model": None,
-             "min_confidence": None}
+             "min_confidence": None, "idiom_floor": "medium"}
 
 
 def _write_config(dir_path, content):
@@ -336,6 +338,134 @@ class TestMinConfidenceValidation(unittest.TestCase):
             self.assertIsNone(resolved)
             self.assertIsNotNone(warning)
             self.assertIn("min_confidence", warning)
+
+
+# --------------------------------------------------------------------------- #
+# idiom_floor validation (NOISE-01 — [noise] band-cap knob).
+# --------------------------------------------------------------------------- #
+class TestIdiomFloorValidation(unittest.TestCase):
+    """The [noise] idiom_floor knob (NOISE-01): a valid band name round-trips
+    (INCLUDING "low" — a valid cap value, Finding NEW-2); "off"/"none" (both
+    spellings) → the LITERAL "off" sentinel (NOT None — Finding #2, Option A) so
+    the explicit-disable provenance survives onto the envelope and is DISTINCT
+    from omission; malformed → the "medium" DEFAULT (NOT None, NOT the sentinel)
+    + one warning naming the KEY (ROADMAP criterion 4 — malformed keeps the cap
+    ACTIVE). Zero-config default is "medium". Mirrors TestMinConfidenceValidation
+    but with the OPPOSITE malformed direction (medium, not None)."""
+
+    def _load(self, value_literal):
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(
+                d, "[noise]\nidiom_floor = " + value_literal + "\n")
+            return config.load_config(path)
+
+    def test_valid_band_round_trips(self):
+        for band in ("critical", "warning", "medium", "low"):
+            values, warnings = self._load('"' + band + '"')
+            self.assertEqual(values["idiom_floor"], band)
+            self.assertEqual(warnings, [])
+
+    def test_low_is_a_valid_cap_not_a_disable(self):
+        # Finding NEW-2: "low" is IN the valid band set — it caps at the literal
+        # "low" band, it is NOT a disable sentinel and produces NO warning.
+        values, warnings = self._load('"low"')
+        self.assertEqual(values["idiom_floor"], "low")
+        self.assertEqual(warnings, [])
+
+    def test_case_insensitive_band(self):
+        values, warnings = self._load('"MEDIUM"')
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(warnings, [])
+
+    def test_off_returns_literal_off_sentinel(self):
+        # Finding #2 (Option A): explicit "off" → the LITERAL "off" sentinel,
+        # NOT None, with NO warning.
+        values, warnings = self._load('"off"')
+        self.assertEqual(values["idiom_floor"], "off")
+        self.assertEqual(warnings, [])
+
+    def test_none_normalizes_to_off_sentinel(self):
+        # Both disable spellings normalize to the single canonical "off" sentinel.
+        values, warnings = self._load('"none"')
+        self.assertEqual(values["idiom_floor"], "off")
+        self.assertEqual(warnings, [])
+
+    def test_off_case_insensitive(self):
+        values, warnings = self._load('"OFF"')
+        self.assertEqual(values["idiom_floor"], "off")
+        self.assertEqual(warnings, [])
+        values, warnings = self._load('"None"')
+        self.assertEqual(values["idiom_floor"], "off")
+        self.assertEqual(warnings, [])
+
+    def test_unknown_string_defaults_to_medium_with_warning(self):
+        # Malformed unknown band name → the "medium" DEFAULT (NOT None, NOT the
+        # "off" sentinel) + one warning naming the key. ROADMAP criterion 4: a
+        # bad value keeps the cap ACTIVE.
+        values, warnings = self._load('"bogus"')
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("idiom_floor", warnings[0])
+
+    def test_non_string_defaults_to_medium_with_warning(self):
+        # A non-str TOML literal (int) → "medium" + one warning. Non-str is never
+        # the off sentinel — the cap stays active.
+        values, warnings = self._load("70")
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("idiom_floor", warnings[0])
+
+    def test_bool_defaults_to_medium_with_warning(self):
+        values, warnings = self._load("true")
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("idiom_floor", warnings[0])
+
+    def test_warning_does_not_leak_raw_value(self):
+        # V7: the warning names the KEY + a fixed reason ONLY — never the raw text.
+        values, warnings = self._load('"sneaky-raw-value-xyz"')
+        self.assertEqual(len(warnings), 1)
+        self.assertNotIn("sneaky-raw-value-xyz", warnings[0])
+
+    def test_absent_key_defaults_to_medium_silent(self):
+        # Zero-config default (A1): a [noise] section with no idiom_floor →
+        # "medium" (the default-active cap), NO warning.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, "[noise]\n")
+            values, warnings = config.load_config(path)
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(warnings, [])
+
+    def test_absent_section_defaults_to_medium_silent(self):
+        # No [noise] section at all → "medium" default (A1), no warning.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, '[agents]\ntop_model = "opus"\n')
+            values, warnings = config.load_config(path)
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(warnings, [])
+
+    def test_zero_config_load_defaults_to_medium(self):
+        # An entirely absent config file → "medium" default (A1).
+        values, warnings = config.load_config("/nonexistent/.vibe-check.toml")
+        self.assertEqual(values["idiom_floor"], "medium")
+        self.assertEqual(warnings, [])
+
+    def test_validator_direct(self):
+        # Unit-level: the validator returns the documented (value, warning) shape.
+        for band in ("critical", "warning", "medium", "low"):
+            self.assertEqual(config._validate_idiom_floor(band), (band, None))
+        # Case-insensitive band names.
+        self.assertEqual(config._validate_idiom_floor("LOW"), ("low", None))
+        # Disable sentinels → the literal "off" (NOT None), no warning.
+        self.assertEqual(config._validate_idiom_floor("off"), ("off", None))
+        self.assertEqual(config._validate_idiom_floor("none"), ("off", None))
+        self.assertEqual(config._validate_idiom_floor("NONE"), ("off", None))
+        # Malformed → "medium" (NOT None, NOT "off") + a warning naming the key.
+        for bad in ("bogus", "", 70, True, False, 3.5, None, {}, []):
+            resolved, warning = config._validate_idiom_floor(bad)
+            self.assertEqual(resolved, "medium")
+            self.assertIsNotNone(warning)
+            self.assertIn("idiom_floor", warning)
 
 
 # --------------------------------------------------------------------------- #
