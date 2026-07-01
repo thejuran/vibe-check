@@ -9,7 +9,7 @@
 - ✅ **v2.5 Sharper, more legible reviews** — Phases 19-22 (shipped 2026-06-28)
 - ✅ **v2.6 framework-skill review agent** — Phase 23 (shipped 2026-06-28)
 - ✅ **v2.7 Framework coverage** — Phases 24-29 (shipped 2026-06-30)
-- 🚧 **v2.8 Tunable, quieter reviews** — Phases 30-34 (in progress)
+- ✅ **v2.8 Tunable, quieter reviews** — Phases 30-34 (shipped 2026-07-01 — early manual close by owner directive; 33-02 wiring + Phase-34 smoke proofs deferred)
 
 ## Phases
 
@@ -110,13 +110,24 @@ Full details: `.planning/milestones/v2.7-ROADMAP.md`. 9 requirements, 100% cover
 
 </details>
 
-### 🚧 v2.8 Tunable, quieter reviews (Phases 30-34) — IN PROGRESS
+### ✅ v2.8 Tunable, quieter reviews (Phases 30-34) — SHIPPED 2026-07-01 (early manual close)
 
 - [x] **Phase 30: Config surface foundation** — Build the `.vibe-check.toml` reader (resolved once per run), the precedence chain (flag > toml > default), and the per-key fail-safe; prove the surface with the three simplest consumers (`thresholds`, `disabled`, `top_model`) (completed 2026-07-01)
-- [x] **Phase 31: Confidence axis** — Surface `agent_confidence` on every rendered finding; add `min_confidence`/`--min-confidence N` that filters BEFORE scoring, with the dropped-count in the honesty summary (completed 2026-07-01)
+- [x] **Phase 31: Confidence axis** — Surface `agent_confidence` on every rendered finding; add `min_confidence`/`--min-confidence N` that filters BEFORE scoring, with the dropped-count in the honesty summary (completed 2026-07-01; post-ship amendment: Fable A3 narrowed the valid range to 0–49 — ≥ 50 is refused because the pre-scoring filter would silently drop criticals)
 - [x] **Phase 32: Idiom floor + `vibe-ignore` marker** — `idiom_floor` band cap (default `medium`) + `// vibe-ignore: <reason>` suppression marker (bare marker → low finding); both script-enforced in `score.py` (completed 2026-07-01)
-- [ ] **Phase 33: Codex legibility + safer fix-loop default** — Codex `off/auto/on` config + `--codex` flag + always-announce line (default stays `auto`); strip apply-all "(Recommended)" from the fix loop; orchestrator/prose only
-- [ ] **Phase 34: Efficacy test + version bump + tag (CLOSE)** — Planted-fixture smoke proof per knob, bump plugin.json 2.7.0→2.8.0, annotated tag `v2.8`, publish
+- [x] **Phase 33: Codex legibility + safer fix-loop default** — **PARTIAL.** 33-01 (config.py `codex` off/auto/on knob + tests) shipped 2026-07-01. 33-02 (the review.md/deep-review.md orchestrator wiring: `--codex` flag parse, always-announce line, fix-loop label, LEGIBLE-01/02/03) was plan-approved but NEVER EXECUTED — the knob validates in config but nothing consumes it yet (inert config key; deep-review keeps its v2.2 Codex flow). 33-02 is deferred (see STATE.md Deferred Items).
+- [x] **Phase 34: Efficacy test + version bump + tag (CLOSE)** — **SUPERSEDED by manual close** (owner directive "merge everything and push as 2.8", 2026-07-01): plugin.json bumped 2.8.0 (`6002cae`), merge commit `f19be14` on main (real merge, NOT fast-forward — main carried 14 Fable-findings-doc commits), annotated tag `v2.8`, main+tag+branch pushed and hash-verified. The planted-fixture smoke proofs per knob and the per-phase deep-review gates (incl. Phase 33's) were NOT run — deferred.
+
+**What v2.8 actually shipped (vs. plan):** Phases 30–32 in full; 33-01 only; Phase 34's
+bump/tag/publish via manual close without its efficacy proofs. PLUS unplanned scope shipped
+inside the same release: the **Fable second-model review remediation** (buckets 1–3 of
+`docs/design/FABLE-REVIEW-FINDINGS.md`) — scorer bug fixes (absorb-visibility, deterministic
+tie-break, status-forgery scrub, crash guards, strict-JSON output, silenced-marker spellings,
+drop-reason labels), the `min_confidence ≥ 50` refusal (A3), the state-key branch slug (A9),
+`scripts/guard.py` extracting the drifted path-containment family (A7/B2, A10/B3), and the
+gen-2 calibration retrofit across the 9 gen-1 agents (A1/A14/A15). Suite at ship: 356 tests +
+221 subtests green. Deferred out of the Fable set: answer-key fixes (A8/A16), the security.md
+critique pass, B3 harness execution, all design challenges, any `CATEGORY_DOMAIN` twin changes.
 
 ## Progress
 
@@ -164,10 +175,10 @@ wiring files. 34 (close) depends on all four work phases; it exercises every kno
 | 28. framework-react-native agent | v2.7 | 1/1 | Complete   | 2026-06-30 |
 | 29. Efficacy Test + Version Bump + Tag | v2.7 | 2/2 | Complete   | 2026-06-30 |
 | 30. Config surface foundation | v2.8 | 3/3 | Complete   | 2026-07-01 |
-| 31. Confidence axis | v2.8 | 0/? | Not started | - |
+| 31. Confidence axis | v2.8 | 2/2 | Complete   | 2026-07-01 |
 | 32. Idiom floor + `vibe-ignore` marker | v2.8 | 3/3 | Complete   | 2026-07-01 |
-| 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | In Progress|  |
-| 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Not started | - |
+| 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | Partial — shipped 33-01 only; 33-02 deferred | 2026-07-01 |
+| 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred) | 2026-07-01 |
 
 > Full per-phase detail for shipped v2.4 (Phases 13-18) lives in the archive:
 > `.planning/milestones/v2.4-ROADMAP.md`.

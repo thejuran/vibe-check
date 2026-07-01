@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.8
 milestone_name: Tunable, quieter reviews
-status: executing
-stopped_at: Phase 33 context gathered (4 gray areas resolved; prose+config.py only)
-last_updated: "2026-07-01T20:53:27.040Z"
-last_activity: 2026-07-01 -- Phase 32 execution started
+status: shipped
+stopped_at: v2.8 SHIPPED 2026-07-01 (early manual close by owner directive — merge f19be14, tag v2.8, published); 33-02 wiring + Phase-34 smoke proofs deferred
+last_updated: "2026-07-01T22:30:00.000Z"
+last_activity: 2026-07-01 -- v2.8 merged + tagged + published; GSD docs trued up post-ship
 progress:
-  total_phases: 26
-  completed_phases: 3
+  total_phases: 5
+  completed_phases: 4
   total_plans: 12
   completed_plans: 11
-  percent: 12
+  percent: 92
 ---
 
 # Project State
@@ -21,14 +21,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 32 — idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs
+**Current focus:** v2.8 SHIPPED — no milestone scoped. Next: 2.8.x follow-up (33-02) or /gsd:new-milestone (v2.9).
 
 ## Current Position
 
-Phase: 32 (idiom-floor-vibe-ignore-marker-script-enforced-noise-knobs) — EXECUTING
-Plan: 3 of 3
-Status: Executing Phase 32
-Last activity: 2026-07-01 -- Phase 32 execution started
+Milestone: **v2.8 SHIPPED 2026-07-01** — plugin 2.8.0 (`6002cae`), merge commit `f19be14` on main
+(real merge, not fast-forward), annotated tag `v2.8`, main+tag+branch pushed and hash-verified.
+Closed EARLY by owner directive ("merge everything and push as 2.8") — NOT via the Phase-34 close
+ritual. Suite at ship: 356 tests + 221 subtests green. Install cache resynced to 2.8 post-ship.
+
+What shipped: Phases 30–32 in full; Phase 33 PARTIAL (33-01 config.py `codex` knob only — 33-02
+orchestrator wiring never executed, so the knob is a validated-but-inert config key); Phase 34
+SUPERSEDED (bump/tag/publish done manually; planted-fixture smoke proofs + per-phase deep-review
+gates, incl. Phase 33's, never ran). PLUS unplanned scope: the Fable second-model review
+remediation (buckets 1–3 of `docs/design/FABLE-REVIEW-FINDINGS.md`) — scorer fixes, the
+`min_confidence` 0–49 refusal (A3), `scripts/guard.py` containment extraction, and the gen-2
+calibration retrofit across the 9 gen-1 agents.
+
+Status: idle between milestones
+Last activity: 2026-07-01 -- v2.8 shipped + GSD docs trued up
 
 ## Performance Metrics
 
@@ -142,14 +153,24 @@ Items acknowledged and carried forward from previous milestone close:
 | CI reach | gitleaks (SECRET-01 / 999.2), SARIF (SARIF-01 / 999.3), PR-posting (PRPOST-01 / 999.5) | Deferred | v2.6 scoping |
 | Verification scaffold | Phase 24 `24-VERIFICATION.md` shows `human_needed` — stale gsd-verifier scaffold; EXPRESS-01 confirmed satisfied via 3-source audit + clean deep-review gate + integration check. Not a coverage gap. | Acknowledged | v2.7 close |
 | v2.7 D-06 spot-checks | RN triage dual-emit (Haiku-prose) + expo-server-sdk carve-out — worth a live spot-check on real diffs | Deferred | v2.7 close |
+| **33-02 orchestrator wiring** | LEGIBLE-01/02/03: `--codex` flag parse, always-announce Codex line, fix-loop label; plan is codex-APPROVED and frozen but NEVER EXECUTED — the config.py `codex` knob ships inert. ⚠ Plan needs REBASING before execution: the Fable remediation edited the same review.md regions 33-02 targets (Phase 0 gained the `$GUARD_PY` resolution block near the mode/scope sites the `$SCOPE_ARGS` normalizer rewrites; Phase 0.6's `--min-confidence` parse prose changed). | Deferred | v2.8 manual close |
+| **Phase-34 efficacy proofs** | Planted-fixture smoke proof per v2.8 knob + per-phase deep-review gates (Phase 33's deep review also never ran) — the milestone shipped without its close-ritual evidence. | Deferred | v2.8 manual close |
+| **Fable findings — remaining** | Answer-key fixes (A8 `/health` name-exemption, A16 axis-vs-site ambiguity); `security.md` critique pass (needs Opus); B3 product-quality harness execution (owner runtime, ~30 `/deep-review` runs — run against the FIXED system for a before/after story); all design challenges (H-CORE/H-DUP/H-LANE/B-SEV/B-XCONF/B-PROX/B-REWEIGHT) — no scorer restructuring until B3 measures; `CATEGORY_DOMAIN` twin proposals (ts `async-discipline`→correctness, express `input-validation`→security) — twin-policy calls, not calibration. | Deferred | v2.8 manual close |
 
 ## Session Continuity
 
-Last session: 2026-07-01T20:53:27.036Z
-Stopped at: Phase 33 context gathered (4 gray areas resolved; prose+config.py only)
-Resume file:
-.planning/phases/33-codex-legibility-safer-fix-loop-default-orchestrator-only-kn/33-CONTEXT.md
+Last session: 2026-07-01 (v2.8 ship + docs truth-up)
+Stopped at: v2.8 SHIPPED (early manual close); no milestone scoped
+Resume file: none — the Phase-33 `.continue-here.md` / HANDOFF.json are ANNOTATED as superseded
+by the ship (do NOT blind-resume the milestone orchestrator; 33-02 needs a rebase first).
 
 ## Operator Next Steps
 
-- Plan Phase 30 with /gsd:plan-phase 30 (config surface foundation — the milestone keystone)
+- **Option A (2.8.x follow-up):** rebase + execute 33-02 (LEGIBLE-01/02/03 wiring) against the
+  post-Fable review.md/deep-review.md, run its deep-review gate, then optionally the Phase-34
+  smoke proofs — ships as 2.8.1.
+- **Option B (fold into v2.9):** /gsd:new-milestone scoping 33-02 + the Phase-34 proofs alongside
+  the deferred Fable items (answer-key A8/A16, security.md pass, B3 execution) and the 999.x
+  backlog.
+- Either way, B3 (the catch-rate/FP-rate harness) is the highest-information next measurement —
+  it now measures the FIXED system.

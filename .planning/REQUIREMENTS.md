@@ -20,9 +20,9 @@ The repo-level `.vibe-check.toml` surface — the milestone's keystone. Every kn
 
 Surface the confidence axis and add the filter-before-scoring knob. The scoring formula is untouched.
 
-- [ ] **CONF-01**: Every rendered finding shows its `agent_confidence` as a visible field.
-- [ ] **CONF-02**: `--min-confidence N` (flag) and `min_confidence` (config) drop findings below N **before** scoring — the formula is untouched.
-- [ ] **CONF-03**: The count of confidence-filtered findings appears in the honesty/filtered summary (nothing silently vanishes).
+- [x] **CONF-01**: Every rendered finding shows its `agent_confidence` as a visible field. (Shipped Phase 31; this checkbox was stale — never ticked at phase completion.)
+- [x] **CONF-02**: `--min-confidence N` (flag) and `min_confidence` (config) drop findings below N **before** scoring — the formula is untouched. (Shipped Phase 31. Post-ship amendment, Fable A3: valid N is 0–49; ≥ 50 is refused with a warning because the pre-scoring filter would silently drop findings that score into the critical band.)
+- [x] **CONF-03**: The count of confidence-filtered findings appears in the honesty/filtered summary (nothing silently vanishes). (Shipped Phase 31.)
 
 ### Noise
 
@@ -36,13 +36,13 @@ The two script-enforced noise knobs (idiom floor + suppression marker), both in 
 
 The two orchestrator-enforced knobs (Codex legibility + safer fix-loop default), prose-only.
 
-- [ ] **LEGIBLE-01**: Every run prints one legible line stating what Codex did (joined / skipped-with-reason / off-via-config); default behavior stays `auto`.
-- [x] **LEGIBLE-02**: `--codex` flag and `[noise] codex` (`off`/`auto`/`on`) control Codex invocation.
-- [ ] **LEGIBLE-03**: The fix loop no longer labels the apply-all option "(Recommended)".
+- [ ] **LEGIBLE-01**: Every run prints one legible line stating what Codex did (joined / skipped-with-reason / off-via-config); default behavior stays `auto`. **DEFERRED — v2.8 shipped without 33-02 (the orchestrator wiring that implements this).**
+- [ ] **LEGIBLE-02**: `--codex` flag and `[noise] codex` (`off`/`auto`/`on`) control Codex invocation. **PARTIAL/DEFERRED — the config.py `codex` knob validates (33-01 shipped), but nothing consumes it: the `--codex` flag is unparsed and the orchestrator never reads the resolved value, so Codex invocation is NOT actually controlled yet. The earlier [x] here was premature (ticked at 33-01, which only covered the config half). Completing this is 33-02.**
+- [ ] **LEGIBLE-03**: The fix loop no longer labels the apply-all option "(Recommended)". **DEFERRED — 33-02.**
 
 ### Close
 
-- [ ] **CLOSE-01**: A planted-fixture smoke proof per knob (config read, min-confidence filter, idiom floor, vibe-ignore, Codex announce, safe fix-loop default) passes; `plugins/vibe-check/.claude-plugin/plugin.json` is bumped 2.7.0 → 2.8.0; an annotated tag `v2.8` is created and the milestone is published.
+- [ ] **CLOSE-01**: A planted-fixture smoke proof per knob (config read, min-confidence filter, idiom floor, vibe-ignore, Codex announce, safe fix-loop default) passes; `plugins/vibe-check/.claude-plugin/plugin.json` is bumped 2.7.0 → 2.8.0; an annotated tag `v2.8` is created and the milestone is published. **PARTIAL — the bump (2.8.0, `6002cae`), tag (`v2.8` on merge `f19be14`), and publish (main+tag+branch pushed, hash-verified) were done via manual close by owner directive 2026-07-01; the planted-fixture smoke proofs and the per-phase deep-review gates were NOT run — deferred.**
 
 ## v2 Requirements
 
@@ -81,22 +81,23 @@ Which phases cover which requirements. Confirmed/owned by the roadmapper.
 | CONFIG-02 | Phase 30 | Complete |
 | CONFIG-03 | Phase 30 | Complete |
 | CONFIG-04 | Phase 30 | Complete |
-| CONF-01 | Phase 31 | Pending |
-| CONF-02 | Phase 31 | Pending |
-| CONF-03 | Phase 31 | Pending |
+| CONF-01 | Phase 31 | Complete |
+| CONF-02 | Phase 31 | Complete (range narrowed to 0–49 post-ship, Fable A3) |
+| CONF-03 | Phase 31 | Complete |
 | NOISE-01 | Phase 32 | Complete |
 | NOISE-02 | Phase 32 | Complete |
 | NOISE-03 | Phase 32 | Complete |
-| LEGIBLE-01 | Phase 33 | Pending |
-| LEGIBLE-02 | Phase 33 | Complete |
-| LEGIBLE-03 | Phase 33 | Pending |
-| CLOSE-01 | Phase 34 | Pending |
+| LEGIBLE-01 | Phase 33 | Deferred (33-02 never executed; v2.8 shipped without) |
+| LEGIBLE-02 | Phase 33 | Partial (config knob validates; flag + consumption = 33-02, deferred) |
+| LEGIBLE-03 | Phase 33 | Deferred (33-02) |
+| CLOSE-01 | Phase 34 | Partial (bump/tag/publish via manual close 2026-07-01; smoke proofs deferred) |
 
 **Coverage:**
 - v1 requirements: 14 total
 - Mapped to phases: 14
 - Unmapped: 0 ✓
+- Shipped in v2.8: 10 complete, 2 partial (LEGIBLE-02, CLOSE-01), 2 deferred (LEGIBLE-01, LEGIBLE-03)
 
 ---
 *Requirements defined: 2026-06-30*
-*Last updated: 2026-06-30 after v2.8 milestone definition*
+*Last updated: 2026-07-01 — post-ship truth-up after the early manual close (v2.8 shipped by owner directive without 33-02 or the Phase-34 smoke proofs)*
