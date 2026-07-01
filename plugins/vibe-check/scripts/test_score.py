@@ -112,6 +112,96 @@ class TestBandBoundaries(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# band_for thresholds override — the v2.8 config knob (CONFIG-04, D-02)
+# --------------------------------------------------------------------------- #
+class TestThresholdsOverride(unittest.TestCase):
+    """A non-default `thresholds` arg moves the band tunably; the default path
+    (absent / None / the built-in _DEFAULT_BANDS) is byte-stable to today's
+    literals. band_for is the single writer of band; this proves the script-
+    enforced side of the config surface is tunable when present and inert when
+    absent (D-02 / spec §5)."""
+
+    def test_82_is_critical_under_lowered_floors(self):
+        # critical floor lowered to 80 -> 82 >= 80 bands critical (tunable up).
+        self.assertEqual(
+            score.band_for(82, {"critical": 80, "warning": 75, "medium": 70}),
+            "critical",
+        )
+
+    def test_74_is_medium_under_raised_floors(self):
+        # 74 is below the raised warning floor (80) but >= medium (70) -> medium.
+        self.assertEqual(
+            score.band_for(74, {"critical": 90, "warning": 80, "medium": 70}),
+            "medium",
+        )
+
+    def test_72_is_medium_under_raised_floors(self):
+        # 72 below warning(80), >= medium(70) -> medium (the plan's tunable case).
+        self.assertEqual(
+            score.band_for(72, {"critical": 90, "warning": 80, "medium": 70}),
+            "medium",
+        )
+
+    def test_60_is_below_all_raised_floors(self):
+        # 60 below medium(70) -> None (below all bands).
+        self.assertIsNone(
+            score.band_for(60, {"critical": 90, "warning": 80, "medium": 70})
+        )
+
+    def test_default_arg_matches_no_arg(self):
+        # D-02 byte-stability: the parameterized default equals today's literals,
+        # whether thresholds is omitted, None, or the built-in _DEFAULT_BANDS.
+        for s in (0, 69, 70, 79, 80, 94, 95, 100):
+            with self.subTest(score=s):
+                self.assertEqual(score.band_for(s), score.band_for(s, None))
+                self.assertEqual(
+                    score.band_for(s), score.band_for(s, score._DEFAULT_BANDS)
+                )
+
+
+# --------------------------------------------------------------------------- #
+# band_for thresholds crash-safety — Finding #2 / T-30-06 (never raise)
+# --------------------------------------------------------------------------- #
+class TestThresholdsCrashSafe(unittest.TestCase):
+    """A stale / buggy config.py must never crash the scorer. band_for accepts a
+    thresholds dict ONLY when all three floors are present AND each is a usable
+    non-bool int; ANY malformed value degrades to the WHOLE built-in default set
+    and NEVER raises. The bool case is mandatory (isinstance(True, int) is True),
+    and a string sub-key must not reach `score >= "80"` (TypeError)."""
+
+    # The boundary scores every case is asserted across.
+    BOUNDARY_SCORES = (0, 69, 70, 79, 80, 94, 95, 100)
+
+    # Each malformed thresholds value: it must NOT raise and must band exactly as
+    # band_for(s) (today's literals) for every boundary score.
+    MALFORMED = {
+        "string_sub_key": {"critical": "80", "warning": 75, "medium": 70},
+        "none_sub_key": {"critical": None, "warning": 75, "medium": 70},
+        "float_sub_key": {"critical": 80.0, "warning": 75, "medium": 70},
+        "bool_sub_key": {"critical": True, "warning": 75, "medium": 70},
+        "missing_key": {"warning": 75, "medium": 70},
+        "not_a_dict": "not-a-dict",
+        "empty_dict": {},
+        "list_value": [80, 75, 70],
+    }
+
+    def test_malformed_thresholds_never_raise_and_match_default(self):
+        for name, bad in self.MALFORMED.items():
+            for s in self.BOUNDARY_SCORES:
+                with self.subTest(case=name, score=s):
+                    # Must not raise, and must equal the default-literal banding.
+                    self.assertEqual(score.band_for(s, bad), score.band_for(s))
+
+    def test_bool_sub_key_is_rejected_not_treated_as_int(self):
+        # Explicit: True/False are int subclasses; a plain int check would accept
+        # them. band_for must reject a bool floor and fall back to the defaults.
+        self.assertEqual(
+            score.band_for(95, {"critical": True, "warning": 75, "medium": 70}),
+            score.band_for(95),
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Severity weight branches (scoring.md:21-26) — applied LAST before clamp
 # --------------------------------------------------------------------------- #
 class TestSeverityWeight(unittest.TestCase):
@@ -1363,6 +1453,91 @@ class TestRunEndToEnd(unittest.TestCase):
         self.assertIn("cf-keep", survivors)
         self.assertEqual(survivors["cf-keep"]["status"], "persisted")
         self.assertEqual(survivors["cf-keep"]["orchestrator_score"], 95)
+
+
+# --------------------------------------------------------------------------- #
+# run() thresholds threading — end-to-end (CONFIG-04, D-02, Finding #4)
+# --------------------------------------------------------------------------- #
+class TestRunThresholds(unittest.TestCase):
+    """Proves the `thresholds` envelope key reaches band_for THROUGH run() (not
+    just at the band_for unit level), that a zero-config envelope (no thresholds
+    key) is byte-stable, and that the band layer (tunable) and the per-command
+    finalize cutoff (THRESHOLDS, score.py:44 — NOT tuned this phase) are two
+    distinct layers (Finding #4 / the dead-band proof)."""
+
+    def _envelope(self, **over):
+        # A single in-diff finding scoring exactly 80 (conf 60 + in_diff +20),
+        # so it sits on the default warning floor and is sensitive to a moved
+        # critical floor. review threshold (80) keeps it; deep-review (70) too.
+        base = {
+            "command": "review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="thr-1", agent_confidence=60, severity="critical",
+                             line=10, source_window=["a", "b", "c", "d", "e"]),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_zero_config_envelope_is_byte_stable(self):
+        # No thresholds key at all -> today's literals. Score 80 -> band warning.
+        # This is the default-inert end-to-end proof (D-02 / CONFIG-01).
+        result = score.run(self._envelope())
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 80)
+        self.assertEqual(g["band"], "warning")
+
+    def test_explicit_none_thresholds_matches_absent_key(self):
+        # An explicit thresholds:None must be byte-identical to omitting the key
+        # (same band AND same stable_hash) — the zero-config path both ways.
+        absent = score.run(self._envelope())["findings"][0]
+        explicit = score.run(self._envelope(thresholds=None))["findings"][0]
+        self.assertEqual(absent["band"], explicit["band"])
+        self.assertEqual(absent["stable_hash"], explicit["stable_hash"])
+
+    def test_thresholds_override_moves_band_through_run(self):
+        # Lower the critical floor to 80 -> the score-80 finding now bands
+        # critical, proving the envelope key threads through run() to band_for.
+        result = score.run(self._envelope(
+            thresholds={"critical": 80, "warning": 75, "medium": 70}))
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 80)  # score itself unchanged
+        self.assertEqual(g["band"], "critical")        # only the band moved
+
+    def test_two_layer_below_80_band_survives_only_under_deep_review(self):
+        # Finding #4 (dead-band / two distinct layers): a low-floor thresholds
+        # bands a score-75 finding as critical, but the SEPARATE per-command
+        # finalize cutoff (THRESHOLDS, untouched) still filters it:
+        #   deep-review (>=70): the score-75 critical finding SURVIVES.
+        #   review      (>=80): the SAME finding is filtered as sub-threshold.
+        # This proves the band floor is tunable below 80 while the per-command
+        # cutoff is the fixed filter this phase does NOT touch (D-02).
+        low_floor = {"critical": 72, "warning": 71, "medium": 70}
+        # conf 55 + in_diff +20 = 75.
+        finding = make_finding(id="two-layer", agent_confidence=55,
+                               severity="critical", line=10,
+                               source_window=["a", "b", "c", "d", "e"])
+
+        deep = score.run(self._envelope(command="deep-review",
+                                        thresholds=low_floor, findings=[finding]))
+        deep_ids = {g["id"]: g for g in deep["findings"]}
+        self.assertIn("two-layer", deep_ids)
+        self.assertEqual(deep_ids["two-layer"]["orchestrator_score"], 75)
+        self.assertEqual(deep_ids["two-layer"]["band"], "critical")
+
+        rev = score.run(self._envelope(command="review",
+                                       thresholds=low_floor, findings=[finding]))
+        self.assertNotIn("two-layer", [g["id"] for g in rev["findings"]])
+        # And it is visibly routed to filtered[] as sub-threshold (never silent).
+        self.assertTrue(
+            any(x.get("reason") == "sub-threshold" for x in rev["filtered"]),
+            "score-75 finding should be filtered sub-threshold under /review",
+        )
 
 
 # --------------------------------------------------------------------------- #
