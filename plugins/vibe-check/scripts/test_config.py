@@ -32,7 +32,8 @@ import config  # noqa: E402  (sibling module under test)
 CONFIG_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.py")
 
 # The default-value shape load_config returns when everything degrades.
-_DEFAULTS = {"thresholds": None, "disabled": [], "top_model": None}
+_DEFAULTS = {"thresholds": None, "disabled": [], "top_model": None,
+             "min_confidence": None}
 
 
 def _write_config(dir_path, content):
@@ -254,6 +255,90 @@ class TestTopModel(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# min_confidence validation (CONF-02, D-04 — [noise] int in [0, 100]).
+# --------------------------------------------------------------------------- #
+class TestMinConfidenceValidation(unittest.TestCase):
+    """The [noise] min_confidence knob: a valid int in [0, 100] round-trips;
+    anything else (out-of-range, non-int, bool) degrades to None + one warning
+    naming the KEY (never fatal). Mirrors TestThresholdsValidation / TestTopModel.
+    """
+
+    def _load(self, value_literal):
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(
+                d, "[noise]\nmin_confidence = " + value_literal + "\n")
+            return config.load_config(path)
+
+    def test_valid_int_round_trips(self):
+        values, warnings = self._load("70")
+        self.assertEqual(values["min_confidence"], 70)
+        self.assertEqual(warnings, [])
+
+    def test_zero_round_trips(self):
+        # 0 is a valid in-range value (no filtering, but explicitly configured).
+        values, warnings = self._load("0")
+        self.assertEqual(values["min_confidence"], 0)
+        self.assertEqual(warnings, [])
+
+    def test_hundred_round_trips(self):
+        values, warnings = self._load("100")
+        self.assertEqual(values["min_confidence"], 100)
+        self.assertEqual(warnings, [])
+
+    def test_above_range_defaults_with_warning(self):
+        values, warnings = self._load("101")
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("min_confidence", warnings[0])
+
+    def test_below_range_defaults_with_warning(self):
+        values, warnings = self._load("-1")
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("min_confidence", warnings[0])
+
+    def test_non_int_defaults_with_warning(self):
+        values, warnings = self._load('"70"')
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("min_confidence", warnings[0])
+
+    def test_bool_rejected_with_warning(self):
+        # bool is an int subclass but is NOT a valid confidence value.
+        values, warnings = self._load("true")
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("min_confidence", warnings[0])
+
+    def test_absent_key_silent(self):
+        # A [noise] section with no min_confidence => None, no warning.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, "[noise]\n")
+            values, warnings = config.load_config(path)
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(warnings, [])
+
+    def test_absent_section_silent(self):
+        # No [noise] section at all => None, no warning (zero-config silence).
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, '[agents]\ntop_model = "opus"\n')
+            values, warnings = config.load_config(path)
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(warnings, [])
+
+    def test_validator_direct(self):
+        # Unit-level: the validator returns the documented (value, warning) shape.
+        self.assertEqual(config._validate_min_confidence(70), (70, None))
+        self.assertEqual(config._validate_min_confidence(0), (0, None))
+        self.assertEqual(config._validate_min_confidence(100), (100, None))
+        for bad in (101, -1, "70", True, False, 3.5, None, {}):
+            resolved, warning = config._validate_min_confidence(bad)
+            self.assertIsNone(resolved)
+            self.assertIsNotNone(warning)
+            self.assertIn("min_confidence", warning)
+
+
+# --------------------------------------------------------------------------- #
 # disabled validation (list of strings; core agents honored, not stripped).
 # --------------------------------------------------------------------------- #
 class TestDisabled(unittest.TestCase):
@@ -334,6 +419,33 @@ class TestPrecedence(unittest.TestCase):
                          {"critical": 90, "warning": 80, "medium": 70})
         self.assertEqual(warnings, [])
 
+    def test_flag_overrides_toml_min_confidence(self):
+        # --min-confidence 80 beats [noise] min_confidence = 60 (flag > toml).
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, "[noise]\nmin_confidence = 60\n")
+            values, warnings = config.load_config(
+                path, flags={"min_confidence": 80})
+            self.assertEqual(values["min_confidence"], 80)
+            self.assertEqual(warnings, [])
+            # flags=None leaves the toml value.
+            values_none, _ = config.load_config(path, flags=None)
+            self.assertEqual(values_none["min_confidence"], 60)
+            # A None flag value (no override) also leaves the toml value.
+            values_flagnone, _ = config.load_config(
+                path, flags={"min_confidence": None})
+            self.assertEqual(values_flagnone["min_confidence"], 60)
+
+    def test_bad_flag_min_confidence_degrades(self):
+        # A bad flag runs the SAME validator as a bad toml value (never bypass):
+        # 999 => None + one warning naming the key.
+        with tempfile.TemporaryDirectory() as d:
+            path = _write_config(d, "[noise]\nmin_confidence = 50\n")
+            values, warnings = config.load_config(
+                path, flags={"min_confidence": 999})
+        self.assertIsNone(values["min_confidence"])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("min_confidence", warnings[0])
+
 
 # --------------------------------------------------------------------------- #
 # DEGRADE-not-abort __main__ shim (subprocess) — the INVERSE of score.py's
@@ -368,6 +480,75 @@ class TestDegradeNotAbort(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["values"], _DEFAULTS)
         self.assertEqual(payload["warnings"], [])
+
+    def _run_main(self, env_extra, config_body=None):
+        with tempfile.TemporaryDirectory() as d:
+            if config_body is not None:
+                _write_config(d, config_body)
+            env = {**os.environ, "REPO_ROOT": d}
+            env.update(env_extra)
+            proc = subprocess.run(
+                [sys.executable, CONFIG_PY],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+        self.assertEqual(proc.returncode, 0)
+        return json.loads(proc.stdout)
+
+    def test_min_confidence_flag_overrides_toml_via_main(self):
+        # MIN_CONFIDENCE_FLAG=90 threads into _apply_flags and beats toml 60.
+        payload = self._run_main(
+            {"MIN_CONFIDENCE_FLAG": "90"},
+            config_body="[noise]\nmin_confidence = 60\n",
+        )
+        self.assertEqual(payload["values"]["min_confidence"], 90)
+        self.assertEqual(payload["warnings"], [])
+
+    def test_bad_min_confidence_flag_degrades_via_main(self):
+        # An out-of-range flag runs the SAME validator: None + warning, exit 0.
+        payload = self._run_main(
+            {"MIN_CONFIDENCE_FLAG": "999"},
+            config_body="[noise]\nmin_confidence = 50\n",
+        )
+        self.assertIsNone(payload["values"]["min_confidence"])
+        self.assertTrue(any("min_confidence" in w for w in payload["warnings"]))
+
+    def test_non_int_min_confidence_flag_no_crash(self):
+        # A non-int MIN_CONFIDENCE_FLAG is parsed defensively -> forwarded as no
+        # flag override; the shim still exits 0 (never-abort contract).
+        payload = self._run_main(
+            {"MIN_CONFIDENCE_FLAG": "notanint"},
+            config_body="[noise]\nmin_confidence = 60\n",
+        )
+        # No flag override => the toml value stands.
+        self.assertEqual(payload["values"]["min_confidence"], 60)
+
+    def test_empty_min_confidence_flag_behaves_as_no_flag(self):
+        # Unset/empty MIN_CONFIDENCE_FLAG => byte-identical to today's no-flag path.
+        payload = self._run_main(
+            {"MIN_CONFIDENCE_FLAG": ""},
+            config_body="[noise]\nmin_confidence = 60\n",
+        )
+        self.assertEqual(payload["values"]["min_confidence"], 60)
+
+    def test_min_confidence_flag_empty_repo_root_no_crash(self):
+        # Empty REPO_ROOT (no-config path) + a flag => exit 0, min_confidence null
+        # (no config file to override; the flag has nothing to overlay onto, but
+        # the __main__ threads it without crashing).
+        env = {**os.environ, "REPO_ROOT": "", "MIN_CONFIDENCE_FLAG": "75"}
+        proc = subprocess.run(
+            [sys.executable, CONFIG_PY],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0)
+        payload = json.loads(proc.stdout)
+        # 75 is a valid flag; with no toml value it becomes the resolved value.
+        self.assertEqual(payload["values"]["min_confidence"], 75)
 
 
 # --------------------------------------------------------------------------- #
