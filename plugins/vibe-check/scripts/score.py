@@ -35,10 +35,16 @@ _RE_AVAILABLE = bool(re)
 SEVERITY_WEIGHT = {"critical": 0, "high": -3, "medium": -8, "low": -20}
 SEVERITY_FALLBACK = -8  # scoring.md:26 (unset / unrecognized => medium-equivalent)
 
-# review.md:685 — the canonical 5 silenced markers (NOT false-positive-rules.md's
-# slightly-different list). Fixed-string substring match over a ±2-line window.
-SILENCED_MARKERS = ("eslint-disable", "# noqa", "// nolint", "@SuppressWarnings",
-                    "#[allow(")
+# review.md:685 — the canonical silenced markers (NOT false-positive-rules.md's
+# slightly-different list). Fixed-string substring match over a ±2-line window,
+# CASE-INSENSITIVE: every needle below is lowercase and silenced_nearby matches
+# against line.lower(), so `# NOQA` (valid flake8) is caught. Both spaced and
+# unspaced spellings are listed for the two markers real tools emit without a
+# space (Fable A13): golangci-lint REQUIRES `//nolint` (no space) and flake8
+# accepts `#noqa` — the spaced-only needles missed both, so a finding the author
+# legitimately suppressed took no -50 and was reported anyway.
+SILENCED_MARKERS = ("eslint-disable", "# noqa", "#noqa", "// nolint", "//nolint",
+                    "@suppresswarnings", "#[allow(")
 
 # NOISE-02/03 (D-03) — the `vibe-ignore` marker token. Deliberately NOT a member
 # of SILENCED_MARKERS: unlike the 5 bare fixed-string markers, vibe-ignore is
@@ -124,8 +130,15 @@ def stable_hash(file, canonical_line_content, title):
     canonical_line_content = (canonical_line_content
                               if isinstance(canonical_line_content, str) else "")
     title = title if isinstance(title, str) else ""
+    # "surrogatepass" (Fable A6): a lone surrogate ("\ud800") is LEGAL JSON text
+    # that json.load accepts, but a plain .encode() raises UnicodeEncodeError —
+    # one crafted finding would halt the whole run at the fail-closed gate.
+    # surrogatepass encodes it deterministically (distinct surrogates stay
+    # distinct bytes, so injectivity holds) and is byte-identical to strict UTF-8
+    # for all valid text — the frozen golden digest is unmoved.
     return hashlib.sha256(
-        (file + "\x00" + canonical_line_content + "\x00" + title).encode()
+        (file + "\x00" + canonical_line_content + "\x00" + title)
+        .encode("utf-8", "surrogatepass")
     ).hexdigest()
 
 
@@ -413,7 +426,9 @@ def silenced_nearby(source_window):
     """
     if not source_window:
         return False
-    if any(marker in line
+    # Case-insensitive (Fable A13): needles are all-lowercase, so match against
+    # the lowered line (catches `# NOQA` and any other case drift).
+    if any(marker in line.lower()
            for line in source_window
            for marker in SILENCED_MARKERS
            if isinstance(line, str)):
@@ -611,7 +626,13 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
         s += 15                                   # scoring.md:19
 
     # 3. Severity weight LAST, before clamp (scoring.md:21-26). Unset/other => -8.
+    # Fable A6: a non-str severity (a list/dict from a malformed-but-parseable
+    # finding) is UNHASHABLE — a raw dict.get would TypeError, exit non-zero, and
+    # halt the WHOLE run at the orchestrator's fail-closed gate. Non-str coerces
+    # to None, which takes the same -8 fallback as any unrecognized severity.
     severity = finding.get("severity")
+    if not isinstance(severity, str):
+        severity = None
     s += SEVERITY_WEIGHT.get(severity, SEVERITY_FALLBACK)
 
     # 4. pre_clamp.
@@ -1091,6 +1112,19 @@ def run(envelope):
             _route_malformed(f, reason)
     findings = valid_findings
 
+    # --- status scrub on NEW findings (Fable A5, security) ------------------- #
+    # `status` is a SCORING input (+15 persisted, and the multi-pass carry-forward
+    # allowlist) that only the carry-forward loop below may set. On a NEW agent
+    # finding it is agent-forgeable: a finding arriving with "status":"persisted"
+    # (an agent emitting an extra field — or an attacker-authored diff steering
+    # one) would take the +15, enough to flip warning->critical or resurrect a
+    # sub-threshold finding, and would render a fresh finding as "PERSISTED".
+    # Hard rule #4 already recomputes in_diff/silenced from raw facts; scrub
+    # `status` at the same trust boundary. Carryforward entries are untouched —
+    # their status is ALWAYS recomputed by carry_forward_status below, never read
+    # from the input.
+    findings = [{k: v for k, v in f.items() if k != "status"} for f in findings]
+
     # --- Carry-forward (review.md:672-678) ----------------------------------- #
     # Each carryforward finding carries a pre-resolved canonical_line_content
     # (the orchestrator read HEAD). null => fixed-since-last (excluded).
@@ -1219,10 +1253,24 @@ def run(envelope):
                 scored_members.append((decision["score"], member, decision))
         if not scored_members:
             continue
-        # Highest score wins (stable: keep first on ties via max over score only).
-        scored_members.sort(key=lambda t: t[0], reverse=True)
+        # Highest score wins. Tie-break (Fable A4): the old stable sort kept
+        # whichever tied member arrived FIRST, so among equal-score members the
+        # emitted representative — and its stable_hash, the key that persists a
+        # medium acknowledgment — depended on agent-return order; a Medium the
+        # owner dismissed could silently re-surface as unacknowledged on a pass
+        # where the agents returned in a different order. Equal scores now
+        # tie-break on each member's OWN stable_hash, which is derived purely
+        # from finding content, so the representative (and dismissal key) is
+        # identical across every input ordering.
+        scored_members.sort(key=lambda t: (
+            -t[0],
+            stable_hash(t[1].get("file", ""), t[2]["canonical_for_hash"],
+                        t[1].get("title", "")),
+        ))
         best_score, best_member, best_decision = scored_members[0]
-        # Members that lost the dedup are absorbed into the survivor (not emitted).
+        # Members that lost the dedup are absorbed into the survivor; each loser
+        # is RECORDED in filtered[] below (Fable A2) once the survivor's
+        # stable_hash exists to point at.
         survivor = dict(best_member)
         survivor["orchestrator_score"] = best_score
         survivor["band"] = band_for(best_score, thresholds)
@@ -1242,6 +1290,20 @@ def run(envelope):
         )
         if "status" not in survivor:
             survivor["status"] = "new"
+        # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
+        # appended to NEITHER findings NOR filtered[] — so when two DISTINCT
+        # same-domain defects landed within ±2 lines, the real second bug was
+        # unrecoverable, violating the "never silently drop" principle. Each
+        # loser is still absorbed (one survivor per group) but is now RECORDED
+        # in filtered[] with a reason naming its survivor's stable_hash, so the
+        # owner can see what was folded into what.
+        for _, loser, _ in scored_members[1:]:
+            filtered.append({
+                "file": loser.get("file"),
+                "line": loser.get("line"),
+                "title": loser.get("title"),
+                "reason": "absorbed-into: " + survivor["stable_hash"],
+            })
         survivors.append((survivor, best_score))
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
@@ -1294,12 +1356,14 @@ def run(envelope):
             "status": _SUPPRESSION_STATUS,
         })
 
-    return {
+    # Fable A11: sanitize non-finite floats at the output boundary so the
+    # envelope is ALWAYS strict JSON (see _sanitize_nonfinite).
+    return _sanitize_nonfinite({
         "scored_by_script": True,
         "findings": kept,
         "fixed_since_last": fixed_since_last,
         "filtered": filtered,
-    }
+    })
 
 
 def _as_line(x):
@@ -1311,6 +1375,32 @@ def _as_line(x):
     sentinel as out-of-range / non-grouping rather than crashing with a TypeError.
     """
     return x if isinstance(x, int) and not isinstance(x, bool) else None
+
+
+def _sanitize_nonfinite(obj):
+    """Recursively replace non-finite floats (NaN/Infinity/-Infinity) with None.
+
+    Fable A11: json.dump's default allow_nan=True writes bare `NaN`/`Infinity`
+    tokens — NOT valid JSON — for any non-finite float an agent smuggled through
+    a passthrough field (e.g. intent_doc_match.confidence rides the survivor
+    copy untouched; the _coerce_confidence guard only protects the score MATH,
+    not the output). A strict downstream parser (jq, any non-Python consumer)
+    rejects the whole envelope. run() sanitizes its return value through this,
+    and the __main__ shim passes allow_nan=False as the fail-closed backstop.
+
+    Import-free non-finite test (the AST import-set test bans `math`): the
+    `-1e308 < x < 1e308` bound is the same idiom as _coerce_confidence — every
+    comparison with NaN is False, inf/-inf fall outside the bound, every
+    legitimate JSON-borne float passes. Depth is bounded by what json.load
+    already parsed, so recursion mirrors the input's own limits.
+    """
+    if isinstance(obj, float) and not (-1e308 < obj < 1e308):
+        return None
+    if isinstance(obj, list):
+        return [_sanitize_nonfinite(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _sanitize_nonfinite(v) for k, v in obj.items()}
+    return obj
 
 
 def _valid_finding(member):
@@ -1363,12 +1453,24 @@ def _line_in_ranges(line, ranges):
     A non-int line (None / null / other) is treated as out-of-range (returns
     False) rather than raising — a file-level finding with line=null simply is
     not in any diff range.
+
+    Fable F9: the pair ELEMENTS get the same guard as the pair length — a range
+    like [["8","14"]] (string line numbers, a plausible orchestrator-side drift
+    in the LLM-assembled hunk JSON) previously raised `TypeError: '<=' not
+    supported between 'str' and 'int'` and halted the whole run. A non-int
+    endpoint (via _as_line) now reads as "not a usable range" (False), and a
+    non-sequence pair / non-list ranges container is skipped the same way.
     """
     line = _as_line(line)
     if line is None:
         return False
-    for pair in ranges or []:
-        if len(pair) >= 2 and pair[0] <= line <= pair[1]:
+    if not isinstance(ranges, (list, tuple)):
+        return False
+    for pair in ranges:
+        if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+            continue
+        start, end = _as_line(pair[0]), _as_line(pair[1])
+        if start is not None and end is not None and start <= line <= end:
             return True
     return False
 
@@ -1379,7 +1481,12 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
 
     Returns a dict: {"drop": bool, "reason": str|None, "score": int|None,
     "canonical_for_hash": str}. The keep/drop gate differs by mode:
-      - diff mode: out-of-diff findings are dropped (reason "out-of-diff")
+      - diff mode: in_diff drives ONLY the +20 bonus — an out-of-diff finding is
+        NOT dropped here (Fable A12: this docstring used to claim a drop with
+        reason "out-of-diff" that never existed in the code; without the +20
+        most out-of-diff findings fall sub-threshold, but a high-confidence one
+        CAN surface — that is current, deliberate-until-redesigned behavior,
+        locked by test_in_diff_recomputed_overrides_agent_claim)
       - --all mode: in_reviewed_set membership gates (reason "not-in-reviewed-set")
         — a TRANSIENT keep/drop boolean, NOT serialized onto the finding, and the
         +20 in_diff term never fires in --all (review.md:684).
@@ -1427,7 +1534,13 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     else:
         in_diff = _line_in_ranges(line, changed_line_ranges.get(file, []))
 
-    persisted = id(member) in persisted_ids or member.get("status") == "persisted"
+    # Fable A5: `persisted` comes ONLY from the identity set the carry-forward
+    # loop built — the sole legitimate writer of status=="persisted" (it adds
+    # id(cf) of the very dict it appends to `working`, so the identity always
+    # hits here). The old `or member.get("status") == "persisted"` fallback was
+    # redundant for real carryforward members and was the forgery surface for an
+    # agent-supplied status on a new finding (+15 from an unverified input).
+    persisted = id(member) in persisted_ids
 
     score = compute_score(
         member,
@@ -1438,7 +1551,17 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     )
     if score is None:
         # pre-clamp < 0 => DROP (D-14). Reason is the dominant drop cause.
-        reason = "silenced" if silenced else "sub-threshold"
+        # Fable F8: an intent-doc-driven drop (the -100 strong-match / -30
+        # penalty forcing pre-clamp < 0) was mislabeled "sub-threshold" —
+        # conflating "the code matches the plan" with "the score was too low"
+        # in the user-facing filtered[] report. silenced keeps precedence when
+        # both apply (preserves the existing label in the overlap case).
+        if silenced:
+            reason = "silenced"
+        elif _intent_doc_penalty(member) < 0:
+            reason = "intent-doc-match"
+        else:
+            reason = "sub-threshold"
         return {"drop": True, "reason": reason, "score": None,
                 "canonical_for_hash": canonical_for_hash}
     return {"drop": False, "reason": None, "score": score,
@@ -1455,4 +1578,8 @@ if __name__ == "__main__":
     # of rendering unscored findings.
     envelope = json.load(sys.stdin)
     result = run(envelope)
-    json.dump(result, sys.stdout)
+    # allow_nan=False (Fable A11): the fail-closed backstop behind run()'s
+    # _sanitize_nonfinite — if a non-finite float ever reaches serialization
+    # anyway, raise (non-zero exit -> orchestrator halts) rather than emit the
+    # bare `NaN` token, which is not valid JSON.
+    json.dump(result, sys.stdout, allow_nan=False)

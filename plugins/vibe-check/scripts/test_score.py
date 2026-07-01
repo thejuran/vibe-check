@@ -15,6 +15,7 @@ ban is on score.py exclusively. The AST test below enforces that ban on score.py
 
 import ast
 import itertools
+import json
 import os
 import re
 import subprocess
@@ -3197,6 +3198,291 @@ class TestMalformedInputMatrix(unittest.TestCase):
                 result = score.run(envelope)  # must NOT raise
                 self.assertTrue(result["scored_by_script"])
                 self.assertEqual(result["findings"], [])
+
+
+# --------------------------------------------------------------------------- #
+# Fable second-model review fixes (v2.7 findings doc: FABLE-REVIEW-FINDINGS.md).
+# One class per confirmed finding fixed in score.py.
+# --------------------------------------------------------------------------- #
+class TestTieBreakDeterministic(unittest.TestCase):
+    """Fable A4: among equal-score cross-confirm members, the emitted
+    representative (and its stable_hash — the medium-acknowledgment dismissal
+    key) must be IDENTICAL across every input ordering, not first-arrival."""
+
+    def _two_tied(self):
+        # Same domain (correctness), co-located, IDENTICAL score by construction:
+        # same confidence/severity, both in a cross-confirmed group (+10 each).
+        a = make_finding(id="tie-a", file="src/t.py", line=10, title="null deref",
+                         category="null-access", agent="bugs",
+                         agent_confidence=85, current_code="  a()")
+        b = make_finding(id="tie-b", file="src/t.py", line=11, title="race on x",
+                         category="race-condition", agent="security",
+                         agent_confidence=85, current_code="  b()")
+        return a, b
+
+    def test_representative_identical_across_orderings(self):
+        a, b = self._two_tied()
+        results = []
+        for ordering in ([a, b], [b, a]):
+            result = score.run({"command": "review", "findings": ordering,
+                                "changed_line_ranges": {}, "carryforward": []})
+            self.assertEqual(len(result["findings"]), 1)
+            results.append(result["findings"][0])
+        self.assertEqual(results[0]["stable_hash"], results[1]["stable_hash"])
+        self.assertEqual(results[0]["title"], results[1]["title"])
+
+    def test_higher_score_still_wins_regardless_of_hash(self):
+        # The tie-break is SECONDARY: an outright higher score keeps winning.
+        a, b = self._two_tied()
+        b["agent_confidence"] = 90  # b outscores a in both orderings.
+        for ordering in ([a, b], [b, a]):
+            result = score.run({"command": "review", "findings": ordering,
+                                "changed_line_ranges": {}, "carryforward": []})
+            self.assertEqual(result["findings"][0]["id"], "tie-b")
+
+
+class TestStatusScrubbedOnNewFindings(unittest.TestCase):
+    """Fable A5 (security): an agent-supplied status:"persisted" on a NEW
+    finding must NOT grant the +15 persisted bonus (band flip / resurrection)
+    and must NOT render the finding as persisted."""
+
+    def test_forged_persisted_gets_no_bonus(self):
+        # conf 65 + in_diff 20 + critical 0 = 85 (warning). A forged status
+        # previously added +15 -> 100 (critical). It must stay 85.
+        forged = make_finding(id="forge", agent_confidence=65, line=10,
+                              status="persisted")
+        result = score.run({
+            "command": "review",
+            "findings": [forged],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+        })
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 85)
+        self.assertEqual(g["band"], "warning")
+        self.assertEqual(g["status"], "new")
+
+    def test_forged_status_cannot_resurrect_subthreshold(self):
+        # conf 45 + in_diff 20 = 65 < 80 (review cutoff): filtered. The forged
+        # +15 previously lifted it to 80 (reported).
+        forged = make_finding(id="forge2", agent_confidence=45, line=10,
+                              status="persisted")
+        result = score.run({
+            "command": "review",
+            "findings": [forged],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+        })
+        self.assertEqual(result["findings"], [])
+        self.assertTrue(any(x.get("reason") == "sub-threshold"
+                            for x in result["filtered"]))
+
+    def test_real_carryforward_persisted_still_gets_bonus(self):
+        # The legitimate path is untouched: a carryforward whose current_code
+        # matches HEAD is persisted and takes the +15.
+        cf = make_finding(id="cf-p", agent_confidence=65, line=10,
+                          current_code="  x = 1",
+                          canonical_line_content="  x = 1")
+        result = score.run({
+            "command": "review",
+            "findings": [],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [cf],
+        })
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["status"], "persisted")
+        # conf 65 + in_diff 20 + persisted 15 + critical 0 = 100.
+        self.assertEqual(g["orchestrator_score"], 100)
+
+
+class TestMalformedResidualCrashSurfaces(unittest.TestCase):
+    """Fable A6/F9: the residual malformed-input crash surfaces open at v2.7 —
+    non-hashable severity, lone-surrogate text, and string range endpoints —
+    must flow through run() without raising (one bad finding never halts the
+    whole review)."""
+
+    def _run_with(self, finding, **envelope_over):
+        envelope = {"command": "review", "findings": [finding],
+                    "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                    "carryforward": []}
+        envelope.update(envelope_over)
+        return score.run(envelope)  # must NOT raise
+
+    def test_non_hashable_severity_list(self):
+        result = self._run_with(make_finding(severity=["high"]))
+        # Scores with the -8 fallback (100 + 20 - 8, clamped to 100) and survives.
+        self.assertEqual(len(result["findings"]), 1)
+
+    def test_non_hashable_severity_dict(self):
+        result = self._run_with(make_finding(severity={"level": "high"}))
+        self.assertEqual(len(result["findings"]), 1)
+
+    def test_lone_surrogate_in_title_and_file(self):
+        # "\ud800" is legal JSON text json.load accepts; stable_hash must not
+        # raise UnicodeEncodeError on it, and the output must survive strict
+        # JSON serialization.
+        odd = make_finding(title="bad \ud800 title", file="src/a.py")
+        result = self._run_with(odd)
+        self.assertEqual(len(result["findings"]), 1)
+        json.dumps(result, allow_nan=False)  # round-trips
+
+    def test_distinct_surrogates_hash_distinct(self):
+        # surrogatepass keeps the hash injective: distinct lone surrogates in
+        # otherwise-identical findings produce distinct stable_hashes.
+        h1 = score.stable_hash("a.py", "x", "t \ud800")
+        h2 = score.stable_hash("a.py", "x", "t \ud801")
+        self.assertNotEqual(h1, h2)
+
+    def test_string_range_endpoints_do_not_crash(self):
+        # F9: [["8","14"]] previously raised TypeError str-vs-int. Now the pair
+        # reads as "not a usable range" -> in_diff False (no +20).
+        result = self._run_with(
+            make_finding(agent_confidence=100, line=10),
+            changed_line_ranges={"src/a.py": [["8", "14"]]})
+        self.assertEqual(len(result["findings"]), 1)
+        # 100 + 0 (no in_diff: unusable range) + 0 critical = 100.
+        self.assertEqual(result["findings"][0]["orchestrator_score"], 100)
+
+    def test_line_in_ranges_direct(self):
+        self.assertFalse(score._line_in_ranges(10, [["8", "14"]]))
+        self.assertFalse(score._line_in_ranges(10, [[None, 14]]))
+        self.assertFalse(score._line_in_ranges(10, [7, "x"]))
+        self.assertFalse(score._line_in_ranges(10, "not-a-list"))
+        self.assertTrue(score._line_in_ranges(10, [[8, 14]]))
+
+
+class TestNonFiniteOutputSanitized(unittest.TestCase):
+    """Fable A11: a non-finite float smuggled through a passthrough field must
+    never reach stdout as a bare NaN/Infinity token (invalid JSON). run()'s
+    output is sanitized (non-finite -> null)."""
+
+    def test_nan_in_intent_doc_match_sanitized(self):
+        smuggled = make_finding(
+            id="nan-1", agent_confidence=100, line=10,
+            intent_doc_match={"doc": "PLAN.md", "confidence": float("nan")})
+        result = score.run({
+            "command": "review", "findings": [smuggled],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(len(result["findings"]), 1)
+        # Strict serialization succeeds; the NaN became null.
+        text = json.dumps(result, allow_nan=False)
+        self.assertNotIn("NaN", text)
+        self.assertIsNone(result["findings"][0]["intent_doc_match"]["confidence"])
+
+    def test_infinity_sanitized(self):
+        smuggled = make_finding(id="inf-1", agent_confidence=100, line=10,
+                                extra_metric=float("inf"))
+        result = score.run({
+            "command": "review", "findings": [smuggled],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        json.dumps(result, allow_nan=False)
+        self.assertIsNone(result["findings"][0]["extra_metric"])
+
+    def test_finite_floats_pass_through_unchanged(self):
+        f = make_finding(id="fin-1", agent_confidence=100, line=10,
+                         extra_metric=0.75)
+        result = score.run({
+            "command": "review", "findings": [f],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(result["findings"][0]["extra_metric"], 0.75)
+
+
+class TestAbsorbedMembersRecorded(unittest.TestCase):
+    """Fable A2 (NEW-ABSORB): a member that loses the cross-confirm dedup is
+    absorbed into the survivor but must be RECORDED in filtered[] with a reason
+    naming the survivor's stable_hash — never silently deleted."""
+
+    def test_loser_lands_in_filtered_with_survivor_hash(self):
+        winner = make_finding(id="w", file="src/x.py", line=10,
+                              title="sql injection", category="injection",
+                              agent="security", agent_confidence=95)
+        loser = make_finding(id="l", file="src/x.py", line=11,
+                             title="missing auth check", category="auth",
+                             agent="bugs", agent_confidence=70)
+        result = score.run({
+            "command": "review", "findings": [winner, loser],
+            "changed_line_ranges": {"src/x.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(len(result["findings"]), 1)
+        survivor = result["findings"][0]
+        self.assertEqual(survivor["id"], "w")
+        absorbed = [x for x in result["filtered"]
+                    if str(x.get("reason", "")).startswith("absorbed-into: ")]
+        self.assertEqual(len(absorbed), 1)
+        self.assertEqual(absorbed[0]["title"], "missing auth check")
+        self.assertEqual(absorbed[0]["reason"],
+                         "absorbed-into: " + survivor["stable_hash"])
+
+    def test_singleton_group_records_nothing(self):
+        solo = make_finding(id="solo", agent_confidence=100, line=10)
+        result = score.run({
+            "command": "review", "findings": [solo],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        self.assertFalse(any(str(x.get("reason", "")).startswith("absorbed-into")
+                             for x in result["filtered"]))
+
+
+class TestSilencedMarkerSpellings(unittest.TestCase):
+    """Fable A13: real-world suppression spellings — golangci-lint's mandatory
+    //nolint (no space), flake8's #noqa (no space), and case drift (# NOQA) —
+    must all read as silenced. The canonical spaced spellings keep working."""
+
+    def test_new_spellings_silence(self):
+        for line in ("x() //nolint:errcheck",
+                     "y = f()  #noqa",
+                     "z = g()  # NOQA",
+                     "w() // NOLINT"):
+            with self.subTest(line=line):
+                self.assertTrue(score.silenced_nearby([line]))
+
+    def test_canonical_spellings_still_silence(self):
+        for line in ("a // nolint", "b # noqa", "c eslint-disable-next-line",
+                     "@SuppressWarnings(\"x\")", "#[allow(dead_code)]"):
+            with self.subTest(line=line):
+                self.assertTrue(score.silenced_nearby([line]))
+
+    def test_plain_code_not_silenced(self):
+        self.assertFalse(score.silenced_nearby(["nolint = True", "x = 1"]))
+
+
+class TestIntentDocDropReason(unittest.TestCase):
+    """Fable F8: a drop DRIVEN by the intent-doc penalty must be labeled
+    "intent-doc-match" in filtered[], not "sub-threshold" (two distinct drop
+    mechanisms were indistinguishable in the user-facing report)."""
+
+    def _envelope(self, finding):
+        return {"command": "review", "findings": [finding],
+                "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                "carryforward": []}
+
+    def test_intent_doc_drop_labeled(self):
+        # conf 60 + in_diff 20 - 100 (strong match) + 0 = -20 < 0 -> drop.
+        f = make_finding(agent_confidence=60, line=10,
+                         intent_doc_match={"doc": "PLAN.md", "confidence": 0.95})
+        result = score.run(self._envelope(f))
+        self.assertEqual(result["findings"], [])
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("intent-doc-match", reasons)
+        self.assertNotIn("sub-threshold", reasons)
+
+    def test_silenced_keeps_precedence(self):
+        # Both silenced AND intent-matched: the label stays "silenced" (the
+        # pre-existing overlap behavior is preserved).
+        f = make_finding(agent_confidence=60, line=10,
+                         intent_doc_match={"doc": "PLAN.md", "confidence": 0.95},
+                         source_window=["a", "b // nolint", "c", "d", "e"])
+        result = score.run(self._envelope(f))
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("silenced", reasons)
+
+    def test_plain_negative_stays_subthreshold(self):
+        # No intent match, no marker: conf 0 - 20 (low severity) = -20 -> the
+        # generic label is unchanged.
+        f = make_finding(agent_confidence=0, severity="low", line=10)
+        result = score.run(self._envelope(f))
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("sub-threshold", reasons)
 
 
 if __name__ == "__main__":
