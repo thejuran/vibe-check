@@ -288,11 +288,20 @@ def load_config(path, *, flags=None):
 # --------------------------------------------------------------------------- #
 # $REPO_ROOT/stdout shim — the ONLY __main__ I/O. INVERTED from score.py: it
 # DEGRADES (exit 0 always) where score.py fails closed (Pitfall 4). An
-# empty/unset REPO_ROOT resolves to a non-existent path => defaults + no warning.
+# empty/unset REPO_ROOT is treated as the absent-config path => defaults + no
+# warning (silent zero-config). Do NOT os.path.join("", ".vibe-check.toml"): that
+# yields the CWD-relative "./.vibe-check.toml", which would READ a stray config
+# from the current directory instead of resolving to "no config" (bugs-001).
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
     repo_root = os.environ.get("REPO_ROOT", "")
-    config_path = os.path.join(repo_root, ".vibe-check.toml")
-    v, w = load_config(config_path)
+    if repo_root:
+        config_path = os.path.join(repo_root, ".vibe-check.toml")
+        v, w = load_config(config_path)
+    else:
+        # Empty/unset REPO_ROOT: load_config("") hits `not os.path.exists("")`
+        # (True) => absent path => all defaults, no warning. This is byte-identical
+        # to the intended zero-config silence and never reads a CWD-relative file.
+        v, w = load_config("")
     json.dump({"values": v, "warnings": w}, sys.stdout)
     sys.exit(0)
