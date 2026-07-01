@@ -64,7 +64,7 @@ rank — or is it so loose/vague that it will flood the scorer with noise it can
 real findings (false confidence, miscategorization, taste dressed as defects)?
 
 ## Read
-- plugins/vibe-check/agents/*.md — all of them (they're 33–177 lines each).
+- plugins/vibe-check/agents/*.md — all of them EXCEPT security.md (they're 33–177 lines each).
 - plugins/vibe-check/templates/agent-output-schema.md — the JSON contract each must emit.
 - plugins/vibe-check/templates/scoring.md — how the orchestrator scores what they return
   (so you can judge whether an agent gives the scorer what it needs: honest agent_confidence,
