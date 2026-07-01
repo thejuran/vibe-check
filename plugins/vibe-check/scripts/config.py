@@ -197,7 +197,12 @@ def load_config(path, *, flags=None):
     resolved per knob (CONFIG-02). See the module docstring for the inverted
     (degrade-not-abort) contract.
     """
-    values = dict(_DEFAULT_VALUES)
+    # Inline-construct a FRESH values dict every call — do NOT `dict(_DEFAULT_VALUES)`.
+    # A shallow copy would alias the SAME `disabled` list object as the module-level
+    # _DEFAULT_VALUES['disabled'], so any downstream mutation (a `values['disabled']
+    # .append(...)`) would permanently poison the default for every subsequent call.
+    # The list literal here allocates a new [] on each invocation (lang-py-001).
+    values = {"thresholds": None, "disabled": [], "top_model": None}
     warnings = []
 
     # D-01: no parser (Python < 3.11) => degrade, never raise. Imported here (not

@@ -54,6 +54,17 @@ class TestFailSafe(unittest.TestCase):
         self.assertEqual(values, _DEFAULTS)
         self.assertEqual(warnings, [])
 
+    def test_default_disabled_list_not_shared_across_calls(self):
+        # lang-py-001: the returned `disabled` must be a FRESH list each call, not an
+        # alias of the module-level default. Mutating one call's list must NOT poison
+        # the default for a later call (shallow `dict(_DEFAULT_VALUES)` would leak).
+        values1, _ = config.load_config("/nonexistent/.vibe-check.toml")
+        values1["disabled"].append("poison")
+        values2, _ = config.load_config("/also-nonexistent/.vibe-check.toml")
+        self.assertEqual(values2["disabled"], [])
+        # The module-level default itself must remain pristine.
+        self.assertEqual(config._DEFAULT_VALUES["disabled"], [])
+
     def test_unparseable_defaults_plus_warning(self):
         # Malformed TOML => all defaults + exactly one warning; never raises.
         with tempfile.TemporaryDirectory() as d:
