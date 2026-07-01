@@ -299,6 +299,29 @@ def _intent_doc_penalty(finding):
     return 0
 
 
+def _coerce_confidence(raw):
+    """Coerce a raw agent_confidence VALUE to an int; garbage => 0 (single source
+    of truth, reused by compute_score AND the min_confidence filter so the two can
+    never drift).
+
+    Accept int OR float (JSON from LLM agents routinely carries floats like 85.0),
+    but reject bool (True is an int subclass) — mirrors the numeric guard in
+    _intent_doc_penalty. A float is truncated via int().
+    NON-FINITE guard (HOLE 2): json.load accepts bare NaN/Infinity/-Infinity as
+    floats; they pass the isinstance(int,float) check, then int(float('nan')) raises
+    ValueError and int(float('inf')) raises OverflowError. The import-free bound
+    `-1e308 < raw < 1e308` rejects all three (every comparison with NaN is False;
+    inf < 1e308 is False; -1e308 < -inf is False) while any legitimate 0-100
+    confidence (incl. floats like 85.0) passes — so a non-finite confidence coerces
+    to 0 like other garbage instead of crashing. (`import math` is FORBIDDEN here:
+    the AST import-ban test pins the import set to {json,hashlib,re,sys}.)
+    """
+    return (int(raw)
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool)
+            and -1e308 < raw < 1e308
+            else 0)
+
+
 def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     """Apply the score formula (scoring.md:11-29) in the LOCKED operation order.
 
@@ -311,23 +334,11 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     self-reports per agent-output-schema hard rule #4); compute_score does not
     re-derive them.
     """
-    # 1. Start from agent_confidence (defensive coercion: garbage => 0).
-    # Accept int OR float (JSON from LLM agents routinely carries floats like
-    # 85.0), but reject bool (True is an int subclass) — mirrors the numeric
-    # guard in _intent_doc_penalty. A float is truncated via int().
-    # NON-FINITE guard (HOLE 2): json.load accepts bare NaN/Infinity/-Infinity as
-    # floats; they pass the isinstance(int,float) check, then int(float('nan'))
-    # raises ValueError and int(float('inf')) raises OverflowError. The import-free
-    # bound `-1e308 < raw_conf < 1e308` rejects all three (every comparison with NaN
-    # is False; inf < 1e308 is False; -1e308 < -inf is False) while any legitimate
-    # 0-100 confidence (incl. floats like 85.0) passes — so a non-finite confidence
-    # coerces to 0 like other garbage instead of crashing. (`import math` is FORBIDDEN
-    # here: the AST import-ban test pins the import set to {json,hashlib,re,sys}.)
-    raw_conf = finding.get("agent_confidence", 0)
-    s = (int(raw_conf)
-         if isinstance(raw_conf, (int, float)) and not isinstance(raw_conf, bool)
-         and -1e308 < raw_conf < 1e308
-         else 0)
+    # 1. Start from agent_confidence (defensive coercion: garbage => 0). The
+    # coercion (int/float accepted, float truncated, bool/non-finite/garbage => 0)
+    # lives in _coerce_confidence so it is the SINGLE source of truth shared with
+    # the min_confidence pre-scoring filter (they can never drift).
+    s = _coerce_confidence(finding.get("agent_confidence", 0))
 
     # 2. Additive/subtractive bonuses (intent-doc penalty is mutually exclusive).
     if in_diff:
@@ -744,6 +755,12 @@ def run(envelope):
     # and a zero-config run stays byte-identical. band_for() is crash-safe against a
     # malformed value (whole-set fallback), so no re-validation is needed here.
     thresholds = envelope.get("thresholds")
+    # v2.8 confidence knob (CONF-02, D-03/D-04): optional pre-scoring drop floor. No
+    # `or 0` — absent AND explicit-None both yield None, which the isinstance(int)
+    # gate below reads as "no filter" (byte-stable default). score.py's contract is
+    # "crash-safe against ANY envelope value" regardless of who fills it, so the
+    # filter guards the type itself (mirrors the thresholds crash-safety posture).
+    min_confidence = envelope.get("min_confidence")
 
     # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
     # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
@@ -834,6 +851,29 @@ def run(envelope):
             persisted_ids.add(id(cf))
         working.append(cf)
     working.extend(findings)
+
+    # --- min_confidence pre-scoring filter (CONF-02, D-03) — BEFORE cross-confirm #
+    # Drop any working finding (new OR carryforward — NO carve-out, D-03) whose
+    # coerced agent_confidence < min_confidence, routing it to filtered[] with a
+    # DISTINCT reason. Running BEFORE cross_confirm_group is what guarantees a
+    # dropped finding neither cross-confirms nor influences any survivor's score
+    # (CONF-02's "no influence" clause). The isinstance(int) gate is the crash-safe
+    # short-circuit: a malformed/absent/None value leaves `working` UNTOUCHED so the
+    # zero-config default path is byte-stable (GOLDEN_DIGEST unmoved). Strict `<` so
+    # a finding at exactly N SURVIVES (CONF-02 "below N", D-03).
+    if isinstance(min_confidence, int) and not isinstance(min_confidence, bool):
+        kept_working = []
+        for m in working:
+            if _coerce_confidence(m.get("agent_confidence", 0)) < min_confidence:
+                filtered.append({
+                    "file": m.get("file"),
+                    "line": m.get("line"),
+                    "title": m.get("title"),
+                    "reason": "below-min-confidence",
+                })
+            else:
+                kept_working.append(m)
+        working = kept_working
 
     # --- Cross-confirm grouping BEFORE scoring (attribution drives +10) ------- #
     groups = cross_confirm_group(working)
