@@ -15,15 +15,18 @@ ban is on score.py exclusively. The AST test below enforces that ban on score.py
 
 import ast
 import itertools
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 # Make `import score` resolve when unittest discovery runs from the repo root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import config  # noqa: E402  (sibling module — the config→envelope→score proof)
 import score  # noqa: E402  (sibling module under test)
 
 SCORE_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "score.py")
@@ -109,6 +112,96 @@ class TestBandBoundaries(unittest.TestCase):
 
     def test_0_is_below(self):
         self.assertIsNone(score.band_for(0))
+
+
+# --------------------------------------------------------------------------- #
+# band_for thresholds override — the v2.8 config knob (CONFIG-04, D-02)
+# --------------------------------------------------------------------------- #
+class TestThresholdsOverride(unittest.TestCase):
+    """A non-default `thresholds` arg moves the band tunably; the default path
+    (absent / None / the built-in _DEFAULT_BANDS) is byte-stable to today's
+    literals. band_for is the single writer of band; this proves the script-
+    enforced side of the config surface is tunable when present and inert when
+    absent (D-02 / spec §5)."""
+
+    def test_82_is_critical_under_lowered_floors(self):
+        # critical floor lowered to 80 -> 82 >= 80 bands critical (tunable up).
+        self.assertEqual(
+            score.band_for(82, {"critical": 80, "warning": 75, "medium": 70}),
+            "critical",
+        )
+
+    def test_74_is_medium_under_raised_floors(self):
+        # 74 is below the raised warning floor (80) but >= medium (70) -> medium.
+        self.assertEqual(
+            score.band_for(74, {"critical": 90, "warning": 80, "medium": 70}),
+            "medium",
+        )
+
+    def test_72_is_medium_under_raised_floors(self):
+        # 72 below warning(80), >= medium(70) -> medium (the plan's tunable case).
+        self.assertEqual(
+            score.band_for(72, {"critical": 90, "warning": 80, "medium": 70}),
+            "medium",
+        )
+
+    def test_60_is_below_all_raised_floors(self):
+        # 60 below medium(70) -> None (below all bands).
+        self.assertIsNone(
+            score.band_for(60, {"critical": 90, "warning": 80, "medium": 70})
+        )
+
+    def test_default_arg_matches_no_arg(self):
+        # D-02 byte-stability: the parameterized default equals today's literals,
+        # whether thresholds is omitted, None, or the built-in _DEFAULT_BANDS.
+        for s in (0, 69, 70, 79, 80, 94, 95, 100):
+            with self.subTest(score=s):
+                self.assertEqual(score.band_for(s), score.band_for(s, None))
+                self.assertEqual(
+                    score.band_for(s), score.band_for(s, score._DEFAULT_BANDS)
+                )
+
+
+# --------------------------------------------------------------------------- #
+# band_for thresholds crash-safety — Finding #2 / T-30-06 (never raise)
+# --------------------------------------------------------------------------- #
+class TestThresholdsCrashSafe(unittest.TestCase):
+    """A stale / buggy config.py must never crash the scorer. band_for accepts a
+    thresholds dict ONLY when all three floors are present AND each is a usable
+    non-bool int; ANY malformed value degrades to the WHOLE built-in default set
+    and NEVER raises. The bool case is mandatory (isinstance(True, int) is True),
+    and a string sub-key must not reach `score >= "80"` (TypeError)."""
+
+    # The boundary scores every case is asserted across.
+    BOUNDARY_SCORES = (0, 69, 70, 79, 80, 94, 95, 100)
+
+    # Each malformed thresholds value: it must NOT raise and must band exactly as
+    # band_for(s) (today's literals) for every boundary score.
+    MALFORMED = {
+        "string_sub_key": {"critical": "80", "warning": 75, "medium": 70},
+        "none_sub_key": {"critical": None, "warning": 75, "medium": 70},
+        "float_sub_key": {"critical": 80.0, "warning": 75, "medium": 70},
+        "bool_sub_key": {"critical": True, "warning": 75, "medium": 70},
+        "missing_key": {"warning": 75, "medium": 70},
+        "not_a_dict": "not-a-dict",
+        "empty_dict": {},
+        "list_value": [80, 75, 70],
+    }
+
+    def test_malformed_thresholds_never_raise_and_match_default(self):
+        for name, bad in self.MALFORMED.items():
+            for s in self.BOUNDARY_SCORES:
+                with self.subTest(case=name, score=s):
+                    # Must not raise, and must equal the default-literal banding.
+                    self.assertEqual(score.band_for(s, bad), score.band_for(s))
+
+    def test_bool_sub_key_is_rejected_not_treated_as_int(self):
+        # Explicit: True/False are int subclasses; a plain int check would accept
+        # them. band_for must reject a bool floor and fall back to the defaults.
+        self.assertEqual(
+            score.band_for(95, {"critical": True, "warning": 75, "medium": 70}),
+            score.band_for(95),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -356,6 +449,477 @@ class TestSilencedNearby(unittest.TestCase):
 
     def test_empty_window_false(self):
         self.assertFalse(score.silenced_nearby([]))
+
+
+# --------------------------------------------------------------------------- #
+# vibe-ignore reason-aware scan (NOISE-02/03, D-03) — the per-token scanner +
+# reasoned-suppresses-within-±2 path, sibling of TestSilencedNearby.
+# --------------------------------------------------------------------------- #
+class TestVibeIgnore(unittest.TestCase):
+    def _kinds_at(self, window):
+        """(index, kind) tuples for every occurrence — order as scanned."""
+        return [(o["index"], o["kind"]) for o in score._vibe_ignore_scan(window)]
+
+    # --- reasoned suppresses within ±2 --------------------------------------- #
+    def test_reasoned_marker_sets_silenced(self):
+        window = ["a", "b", "// vibe-ignore: because X", "d", "e"]
+        self.assertTrue(score.silenced_nearby(window))
+        occ = score._vibe_ignore_scan(window)
+        self.assertEqual(len(occ), 1)
+        self.assertEqual(occ[0], {"index": 2, "kind": "reasoned"})
+
+    def test_reasoned_marker_at_edges_suppresses(self):
+        # Inclusive ±2: a reasoned marker at L-2 (index 0) and L+2 (index 4).
+        self.assertTrue(score.silenced_nearby(
+            ["// vibe-ignore: r", "b", "c", "d", "e"]))
+        self.assertTrue(score.silenced_nearby(
+            ["a", "b", "c", "d", "x // vibe-ignore: r"]))
+
+    def test_reasoned_hash_comment_syntax_agnostic(self):
+        # Comment-syntax-agnostic (A4): `#` and `//` both work.
+        self.assertTrue(score.silenced_nearby(
+            ["a", "# vibe-ignore: pyright false positive", "c"]))
+
+    def test_reasoned_marker_drops_finding_to_filtered_through_run(self):
+        # End-to-end: a reasoned marker in the finding's window rides the -50 path
+        # and drops the finding to filtered[] with reason "silenced". conf 40 -50
+        # silenced -8 medium = -18 pre-clamp < 0 => DROP (mirrors TestDropRule).
+        f = make_finding(id="supp", agent_confidence=40, severity="medium",
+                         line=99,
+                         source_window=["a", "b",
+                                        "// vibe-ignore: intentional", "d", "e"])
+        envelope = {
+            "command": "deep-review", "all_mode": False, "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [], "findings": [f],
+        }
+        result = score.run(envelope)
+        self.assertNotIn("supp", [g.get("id") for g in result["findings"]])
+        self.assertTrue(
+            any(x.get("reason") == "silenced" for x in result["filtered"]),
+            "reasoned vibe-ignore must drop the finding with reason 'silenced'")
+
+    # --- reasoned OUTSIDE ±2 does not suppress ------------------------------- #
+    def test_reasoned_marker_outside_window_does_not_suppress(self):
+        # The ±3 case: the marker line is simply ABSENT from the 5-line window the
+        # orchestrator supplies, so there is no occurrence and no suppression.
+        window = ["a", "b", "c", "d", "e"]
+        self.assertFalse(score.silenced_nearby(window))
+        self.assertEqual(score._vibe_ignore_scan(window), [])
+
+    # --- bare does NOT set silenced ------------------------------------------ #
+    def test_bare_marker_does_not_set_silenced(self):
+        window = ["a", "b", "// vibe-ignore", "d", "e"]
+        self.assertFalse(score.silenced_nearby(window))
+        occ = score._vibe_ignore_scan(window)
+        self.assertEqual(occ, [{"index": 2, "kind": "bare"}])
+
+    def test_bare_marker_finding_survives_through_run(self):
+        # A bare marker does NOT suppress: the finding still scores and survives
+        # (the synthetic-finding behavior is TestSuppressionFinding, Task 2).
+        f = make_finding(id="alive", agent_confidence=100, severity="critical",
+                         line=10,
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        envelope = {
+            "command": "deep-review", "all_mode": False, "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [], "findings": [f],
+        }
+        result = score.run(envelope)
+        # NOTE: a synthetic "suppression" finding (no `id`) is ALSO present now
+        # (Task 2), so read `id` defensively.
+        self.assertIn("alive", [g.get("id") for g in result["findings"]])
+
+    def test_colon_with_only_whitespace_is_bare(self):
+        window = ["a", "// vibe-ignore:   ", "c"]
+        self.assertFalse(score.silenced_nearby(window))
+        self.assertEqual(self._kinds_at(window), [(1, "bare")])
+
+    # --- same-line multi-token, BOTH orders ---------------------------------- #
+    def test_same_line_bare_then_reasoned(self):
+        window = ["a", "// vibe-ignore // vibe-ignore: reason", "c"]
+        kinds = self._kinds_at(window)
+        # Two occurrences at the SAME index: first bare, second reasoned.
+        self.assertEqual(kinds, [(1, "bare"), (1, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))  # any reasoned suppresses
+
+    def test_same_line_reasoned_then_bare(self):
+        window = ["a", "// vibe-ignore: reason // vibe-ignore", "c"]
+        kinds = self._kinds_at(window)
+        # The reasoned token's trailing segment ends at the next token's start, so
+        # the first is reasoned and the trailing bare token is captured too.
+        self.assertEqual(kinds, [(1, "reasoned"), (1, "bare")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    # --- cross-line multi-marker structure ----------------------------------- #
+    def test_two_bare_markers_two_occurrences_not_silenced(self):
+        window = ["// vibe-ignore", "b", "// vibe-ignore", "d", "e"]
+        self.assertEqual(self._kinds_at(window),
+                         [(0, "bare"), (2, "bare")])
+        self.assertFalse(score.silenced_nearby(window))
+
+    def test_reasoned_plus_bare_on_separate_lines_suppresses(self):
+        window = ["// vibe-ignore", "b", "// vibe-ignore: r", "d", "e"]
+        self.assertEqual(self._kinds_at(window),
+                         [(0, "bare"), (2, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))  # any reasoned suppresses
+
+    # --- bugs-001: reason text containing "vibe-ignore" is NOT a 2nd marker --- #
+    def test_reason_text_containing_token_is_single_reasoned(self):
+        # A genuinely REASONED marker whose REASON TEXT contains the word
+        # "vibe-ignore" again must be ONE reasoned occurrence — the inner
+        # "vibe-ignore" is prose inside the reason, NOT a fresh bare marker
+        # (bugs-001). Previously it split into [(idx,"reasoned"), (idx,"bare")] and
+        # emitted a false "suppression without reason" finding.
+        window = ["a", "// vibe-ignore: see other vibe-ignore usage above", "c"]
+        self.assertEqual(self._kinds_at(window), [(1, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))  # reasoned still suppresses
+
+    def test_reason_text_token_hash_comment_single_reasoned(self):
+        # Same, comment-syntax-agnostic (`#` reason mentioning the token).
+        window = ["# vibe-ignore: mirrors the vibe-ignore in helper.py"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    def test_genuine_second_bare_marker_after_reasoned_still_detected(self):
+        # REGRESSION LOCK for the existing contract: a REAL second bare marker
+        # (fresh `//` comment) after a reasoned one on the SAME line is STILL
+        # detected — bugs-001 only drops in-REASON prose, never a genuine marker.
+        window = ["// vibe-ignore: reason // vibe-ignore"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned"), (0, "bare")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    # --- bugs-002: reason text QUOTING a sibling comment lead-in --------------- #
+    def test_reason_text_quoting_slash_leadin_is_single_reasoned(self):
+        # bugs-002: an already-REASONED marker whose reason text quotes another
+        # comment lead-in right before repeating the token — the SECOND token's
+        # immediate prefix is `//`, but it is followed by prose (` in foo.py`), so
+        # it is in-reason text, NOT a fresh bare marker. Must be ONE reasoned
+        # occurrence (no spurious "suppression without reason").
+        window = ["// vibe-ignore: like the // vibe-ignore in foo.py"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    def test_reason_text_quoting_hash_leadin_is_single_reasoned(self):
+        # Same, comment-syntax-agnostic (`#` lead-in quoted in the reason).
+        window = ["# vibe-ignore: see the # vibe-ignore above"]
+        self.assertEqual(self._kinds_at(window), [(0, "reasoned")])
+        self.assertTrue(score.silenced_nearby(window))
+
+    # --- byte-stable no-marker path ------------------------------------------ #
+    def test_no_marker_window_byte_stable(self):
+        window = ["a", "b", "c", "d", "e"]
+        # silenced unchanged (False) and an empty occurrence list.
+        self.assertFalse(score.silenced_nearby(window))
+        self.assertEqual(score._vibe_ignore_scan(window), [])
+
+    def test_existing_markers_unaffected(self):
+        # The 5 fixed-string markers still drive silenced identically, and produce
+        # no vibe-ignore occurrences.
+        window = ["a", "code # noqa", "c"]
+        self.assertTrue(score.silenced_nearby(window))
+        self.assertEqual(score._vibe_ignore_scan(window), [])
+
+
+# --------------------------------------------------------------------------- #
+# Synthetic bare-marker "suppression" finding (NOISE-03, D-04, A2, Finding
+# #1/#2/#3/NEW-1) — one VISIBLE low finding per BARE occurrence, full survivor
+# shape, exempt from the sub-threshold drop, de-duped by (file, marker_line),
+# never cross-confirms, never crashes on a null/odd line.
+# --------------------------------------------------------------------------- #
+class TestSuppressionFinding(unittest.TestCase):
+    def _run(self, findings, command="deep-review", **over):
+        base = {
+            "command": command, "all_mode": False, "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [], "findings": findings,
+        }
+        base.update(over)
+        return score.run(base)
+
+    def _supp(self, result):
+        return [g for g in result["findings"]
+                if g.get("category") == "suppression"]
+
+    # --- one visible low finding, in findings[] not filtered[] --------------- #
+    def test_bare_marker_emits_one_low_suppression_in_findings(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        supp = self._supp(result)
+        self.assertEqual(len(supp), 1)
+        s = supp[0]
+        self.assertEqual(s["band"], "low")
+        self.assertEqual(s["title"], "suppression without reason")
+        self.assertEqual(s["file"], "src/a.py")
+        # marker at window index 2 (L) => 10 - 2 + 2 = 10.
+        self.assertEqual(s["line"], 10)
+        # NOT in filtered[] — it is a kept finding exempt from the drop.
+        self.assertFalse(
+            any(x.get("title") == "suppression without reason"
+                for x in result["filtered"]))
+
+    # --- STRUCTURAL-GATE CONTRACT (Finding #1) ------------------------------- #
+    def test_every_finding_carries_gate_required_fields(self):
+        # Mirror review.md's Phase 3/4 gate: NO survivor (the synthetic one
+        # included) may lack band / orchestrator_score / stable_hash, or the whole
+        # run would halt before rendering.
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        self.assertTrue(self._supp(result))  # non-vacuous: a synthetic IS present
+        for g in result["findings"]:
+            self.assertIsNotNone(g.get("band"), g)
+            self.assertIsNotNone(g.get("orchestrator_score"), g)
+            self.assertIn("stable_hash", g)
+            self.assertIsNotNone(g.get("stable_hash"), g)
+
+    # --- NEW-1 null/odd-line non-crash contract ------------------------------ #
+    def test_null_and_odd_line_bare_marker_never_crashes(self):
+        # A bare marker on a finding whose `line` is None / str / float / bool must
+        # NOT crash run(); the synthetic finding is emitted with line=None (no
+        # arithmetic) AND a good sibling survives. Mirrors TestNullLineDefensive.
+        good = make_finding(id="keep", line=10, agent_confidence=100,
+                            severity="critical",
+                            source_window=["a", "b", "c", "d", "e"])
+        for label, lv in (("None", None), ("str", "10"),
+                          ("float", 10.0), ("bool", True)):
+            with self.subTest(line=label):
+                bad = make_finding(
+                    id="filelevel", line=lv, agent_confidence=100,
+                    severity="critical",
+                    source_window=["a", "b", "// vibe-ignore", "d", "e"])
+                result = self._run([bad, good])   # must not raise
+                self.assertTrue(result["scored_by_script"])
+                self.assertIn("keep", [g.get("id") for g in result["findings"]])
+                supp = self._supp(result)
+                self.assertEqual(len(supp), 1)
+                # Present with line:null (the locked present-with-null-line branch),
+                # NOT skipped, still fully gate-shaped.
+                self.assertIsNone(supp[0]["line"])
+                self.assertEqual(supp[0]["band"], "low")
+                self.assertIsNotNone(supp[0]["orchestrator_score"])
+                self.assertIn("stable_hash", supp[0])
+
+    # --- multiple distinct bare markers -> multiple findings ----------------- #
+    def test_two_bare_markers_distinct_lines_two_findings(self):
+        # A window with bare markers at index 1 (L-1=9) and index 3 (L+1=11).
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "// vibe-ignore", "c",
+                                        "// vibe-ignore", "e"])
+        result = self._run([f])
+        supp = self._supp(result)
+        self.assertEqual(len(supp), 2)
+        self.assertEqual(sorted(s["line"] for s in supp), [9, 11])
+
+    # --- reasoned + bare mix: suppress + one synthetic ----------------------- #
+    def test_reasoned_plus_bare_different_lines(self):
+        # conf 40 medium so the -50 reasoned suppression drops the host finding;
+        # the bare marker still emits one synthetic finding.
+        f = make_finding(id="host", line=99, agent_confidence=40, severity="medium",
+                         source_window=["// vibe-ignore", "b",
+                                        "// vibe-ignore: real reason", "d", "e"])
+        result = self._run([f])
+        # host is suppressed (reasoned within +/-2)...
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertTrue(any(x.get("reason") == "silenced"
+                            for x in result["filtered"]))
+        # ...and exactly ONE synthetic finding for the bare marker.
+        self.assertEqual(len(self._supp(result)), 1)
+
+    def test_reasoned_plus_bare_same_line(self):
+        f = make_finding(id="host", line=99, agent_confidence=40, severity="medium",
+                         source_window=["a",
+                                        "// vibe-ignore // vibe-ignore: reason",
+                                        "c", "d", "e"])
+        result = self._run([f])
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertEqual(len(self._supp(result)), 1)
+
+    def test_two_bare_tokens_same_line_dedup_to_one(self):
+        # Two bare tokens on ONE window line => ONE synthetic finding (de-dup by
+        # marker_line).
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b",
+                                        "// vibe-ignore // vibe-ignore", "d", "e"])
+        result = self._run([f])
+        self.assertEqual(len(self._supp(result)), 1)
+
+    # --- de-dup: one marker near three findings -> one synthetic ------------- #
+    def test_same_marker_near_three_findings_dedups_to_one(self):
+        # Three findings whose windows all contain the SAME physical bare marker at
+        # file src/a.py line 10 (each finding at line 10, marker at window index 2).
+        fs = [make_finding(id="f%d" % i, line=10, agent_confidence=100,
+                           severity="critical", category="bug",
+                           source_window=["a", "b", "// vibe-ignore", "d", "e"])
+              for i in range(3)]
+        result = self._run(fs)
+        self.assertEqual(len(self._supp(result)), 1)
+
+    # --- no cross-confirm / maps to no domain -------------------------------- #
+    def test_suppression_category_maps_to_no_domain(self):
+        self.assertIsNone(score._category_domain("suppression"))
+
+    def test_synthetic_attribution_never_cross_confirms(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        s = self._supp(result)[0]
+        self.assertLessEqual(len(s["attribution"]), 1)
+
+    # --- fixed title + deterministic hash ------------------------------------ #
+    def test_title_fixed_and_hash_deterministic(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        r1 = self._supp(self._run([dict(f)]))[0]
+        r2 = self._supp(self._run([dict(f)]))[0]
+        self.assertEqual(r1["title"], "suppression without reason")
+        self.assertEqual(r1["stable_hash"], r2["stable_hash"])
+
+    # --- byte-stable no-bare-marker path ------------------------------------- #
+    def test_no_bare_marker_zero_suppression_entries(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "c", "d", "e"])
+        result = self._run([f])
+        self.assertEqual(self._supp(result), [])
+        # The real finding is unaffected.
+        self.assertIn("host", [g.get("id") for g in result["findings"]])
+
+    # --- impact-01: synthetic status EXCLUDES it from carry-forward ---------- #
+    # review.md Phase 0.5 (line 414) re-ingests findings whose status is in this
+    # allowlist; a synthetic "audit"-status finding must NOT be in it, so it is
+    # regenerated fresh each pass instead of carried forward and double-counted.
+    CARRYFORWARD_STATUSES = ["new", "persisted", "needs-recheck"]
+
+    def test_synthetic_status_is_audit_and_excluded_from_carryforward(self):
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        supp = self._supp(result)
+        self.assertEqual(len(supp), 1)
+        # Distinct "audit" status, NOT "new".
+        self.assertEqual(supp[0]["status"], "audit")
+        # ...and "audit" is not in review.md's carry-forward inclusion set, so the
+        # orchestrator's Phase-0.5 filter would exclude it.
+        self.assertNotIn(supp[0]["status"], self.CARRYFORWARD_STATUSES)
+        # It still passes the STRUCTURAL gate (band/orchestrator_score/stable_hash)
+        # and renders by category — status change is inert for those.
+        self.assertEqual(supp[0]["band"], "low")
+        self.assertEqual(supp[0]["category"], "suppression")
+        self.assertIsNotNone(supp[0]["orchestrator_score"])
+        self.assertIn("stable_hash", supp[0])
+
+    def test_synthetic_regenerated_not_carried_across_passes(self):
+        # Two-pass carry-forward simulation. PASS 1 emits the synthetic finding.
+        # The orchestrator filters state.passes[-1].findings to the carry-forward
+        # allowlist before building pass 2's `carryforward` — the synthetic
+        # ("audit") is excluded, so it is NOT fed back. PASS 2 (same live window)
+        # REGENERATES it fresh from the scan. Net: exactly ONE synthetic in pass 2,
+        # never a doubled/mis-statused carried copy.
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        pass1 = self._run([f])
+        supp1 = self._supp(pass1)
+        self.assertEqual(len(supp1), 1)
+
+        # Orchestrator carry-forward filter (review.md:414): keep only allowlisted
+        # statuses. The synthetic "audit" finding is dropped here.
+        carryforward = [dict(g) for g in pass1["findings"]
+                        if g.get("status") in self.CARRYFORWARD_STATUSES]
+        self.assertTrue(all(g.get("category") != "suppression"
+                            for g in carryforward),
+                        "synthetic suppression must not survive the CF filter")
+
+        # PASS 2: the same live finding re-flagged (host carried forward with a
+        # canonical so it persists), same bare-marker window => synthetic
+        # regenerated fresh, exactly once — not carried, not doubled.
+        for g in carryforward:
+            g["canonical_line_content"] = "  x = 1"  # matches host current_code
+        pass2 = self._run([f], carryforward=carryforward)
+        supp2 = self._supp(pass2)
+        self.assertEqual(len(supp2), 1)
+        self.assertEqual(supp2[0]["status"], "audit")
+        # Regenerated (fresh scan) => identical stable_hash to pass 1's, not two.
+        self.assertEqual(supp2[0]["stable_hash"], supp1[0]["stable_hash"])
+
+    # --- bugs-001: reason mentioning the token emits NO false synthetic ------- #
+    def test_reason_text_containing_token_emits_no_synthetic(self):
+        # End-to-end: a reasoned `// vibe-ignore: ... vibe-ignore ...` marker
+        # SUPPRESSES the host finding (rides the -50 path) and emits NO false
+        # "suppression without reason" synthetic finding (bugs-001). conf 40 medium
+        # so the -50 reasoned suppression drops the host.
+        f = make_finding(
+            id="host", line=99, agent_confidence=40, severity="medium",
+            source_window=["a", "b",
+                           "// vibe-ignore: see other vibe-ignore usage above",
+                           "d", "e"])
+        result = self._run([f])
+        # host is suppressed by the reasoned marker...
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertTrue(any(x.get("reason") == "silenced"
+                            for x in result["filtered"]))
+        # ...and there is NO synthetic suppression finding (no false bare).
+        self.assertEqual(self._supp(result), [])
+
+    # --- bugs-002: reason QUOTING a sibling lead-in emits NO false synthetic --- #
+    def test_reason_text_quoting_leadin_emits_no_synthetic(self):
+        # End-to-end: a reasoned marker whose reason quotes another comment lead-in
+        # right before repeating the token (`// vibe-ignore: like the // vibe-ignore
+        # in foo.py`) SUPPRESSES the host and emits NO false synthetic (bugs-002).
+        f = make_finding(
+            id="host", line=99, agent_confidence=40, severity="medium",
+            source_window=["a", "b",
+                           "// vibe-ignore: like the // vibe-ignore in foo.py",
+                           "d", "e"])
+        result = self._run([f])
+        self.assertNotIn("host", [g.get("id") for g in result["findings"]])
+        self.assertTrue(any(x.get("reason") == "silenced"
+                            for x in result["filtered"]))
+        self.assertEqual(self._supp(result), [])
+
+    # --- lang-py-001: non-str / UNHASHABLE `file` never crashes the run ------- #
+    def test_unhashable_file_bare_marker_never_crashes(self):
+        # A malformed-but-parseable finding whose `file` is a non-str, potentially
+        # UNHASHABLE shape (list/dict) plus a BARE `// vibe-ignore` in its window
+        # must NOT crash run() via `TypeError: unhashable type` at the
+        # `(file, marker_line)` set key (lang-py-001). The raw `file` is coerced to
+        # a safe hashable ("" for non-str) BEFORE the key, mirroring _as_line's
+        # non-crash posture for `line` (NEW-1). A good sibling still survives and the
+        # synthetic finding is emitted (not a crash). Mirrors the null/odd-line test.
+        good = make_finding(id="keep", line=10, agent_confidence=100,
+                            severity="critical",
+                            source_window=["a", "b", "c", "d", "e"])
+        for label, fv in (("list", ["not", "a", "string"]),
+                          ("dict", {"path": "x"}),
+                          ("int", 42),
+                          ("None", None)):
+            with self.subTest(file=label):
+                bad = make_finding(
+                    id="badfile", file=fv, line=10, agent_confidence=100,
+                    severity="critical", category="idiom",
+                    source_window=["a", "b", "// vibe-ignore", "d", "e"])
+                result = self._run([bad, good])   # must NOT raise
+                self.assertTrue(result["scored_by_script"])
+                # The good sibling survives.
+                self.assertIn("keep",
+                              [g.get("id") for g in result["findings"]])
+                # Exactly one synthetic finding is emitted (handled, not crashed),
+                # with `file` coerced to a str ("") — never the raw non-str value.
+                supp = self._supp(result)
+                self.assertEqual(len(supp), 1)
+                self.assertEqual(supp[0]["file"], "")
+                self.assertEqual(supp[0]["band"], "low")
+                self.assertIsNotNone(supp[0]["orchestrator_score"])
+                self.assertIn("stable_hash", supp[0])
 
 
 # --------------------------------------------------------------------------- #
@@ -1366,6 +1930,570 @@ class TestRunEndToEnd(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# run() thresholds threading — end-to-end (CONFIG-04, D-02, Finding #4)
+# --------------------------------------------------------------------------- #
+class TestRunThresholds(unittest.TestCase):
+    """Proves the `thresholds` envelope key reaches band_for THROUGH run() (not
+    just at the band_for unit level), that a zero-config envelope (no thresholds
+    key) is byte-stable, and that the band layer (tunable) and the per-command
+    finalize cutoff (THRESHOLDS, score.py:44 — NOT tuned this phase) are two
+    distinct layers (Finding #4 / the dead-band proof)."""
+
+    def _envelope(self, **over):
+        # A single in-diff finding scoring exactly 80 (conf 60 + in_diff +20),
+        # so it sits on the default warning floor and is sensitive to a moved
+        # critical floor. review threshold (80) keeps it; deep-review (70) too.
+        base = {
+            "command": "review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="thr-1", agent_confidence=60, severity="critical",
+                             line=10, source_window=["a", "b", "c", "d", "e"]),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_zero_config_envelope_is_byte_stable(self):
+        # No thresholds key at all -> today's literals. Score 80 -> band warning.
+        # This is the default-inert end-to-end proof (D-02 / CONFIG-01).
+        result = score.run(self._envelope())
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 80)
+        self.assertEqual(g["band"], "warning")
+
+    def test_explicit_none_thresholds_matches_absent_key(self):
+        # An explicit thresholds:None must be byte-identical to omitting the key
+        # (same band AND same stable_hash) — the zero-config path both ways.
+        absent = score.run(self._envelope())["findings"][0]
+        explicit = score.run(self._envelope(thresholds=None))["findings"][0]
+        self.assertEqual(absent["band"], explicit["band"])
+        self.assertEqual(absent["stable_hash"], explicit["stable_hash"])
+
+    def test_thresholds_override_moves_band_through_run(self):
+        # Lower the critical floor to 80 -> the score-80 finding now bands
+        # critical, proving the envelope key threads through run() to band_for.
+        result = score.run(self._envelope(
+            thresholds={"critical": 80, "warning": 75, "medium": 70}))
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 80)  # score itself unchanged
+        self.assertEqual(g["band"], "critical")        # only the band moved
+
+    def test_two_layer_below_80_band_survives_only_under_deep_review(self):
+        # Finding #4 (dead-band / two distinct layers): a low-floor thresholds
+        # bands a score-75 finding as critical, but the SEPARATE per-command
+        # finalize cutoff (THRESHOLDS, untouched) still filters it:
+        #   deep-review (>=70): the score-75 critical finding SURVIVES.
+        #   review      (>=80): the SAME finding is filtered as sub-threshold.
+        # This proves the band floor is tunable below 80 while the per-command
+        # cutoff is the fixed filter this phase does NOT touch (D-02).
+        low_floor = {"critical": 72, "warning": 71, "medium": 70}
+        # conf 55 + in_diff +20 = 75.
+        finding = make_finding(id="two-layer", agent_confidence=55,
+                               severity="critical", line=10,
+                               source_window=["a", "b", "c", "d", "e"])
+
+        deep = score.run(self._envelope(command="deep-review",
+                                        thresholds=low_floor, findings=[finding]))
+        deep_ids = {g["id"]: g for g in deep["findings"]}
+        self.assertIn("two-layer", deep_ids)
+        self.assertEqual(deep_ids["two-layer"]["orchestrator_score"], 75)
+        self.assertEqual(deep_ids["two-layer"]["band"], "critical")
+
+        rev = score.run(self._envelope(command="review",
+                                       thresholds=low_floor, findings=[finding]))
+        self.assertNotIn("two-layer", [g["id"] for g in rev["findings"]])
+        # And it is visibly routed to filtered[] as sub-threshold (never silent).
+        self.assertTrue(
+            any(x.get("reason") == "sub-threshold" for x in rev["filtered"]),
+            "score-75 finding should be filtered sub-threshold under /review",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# run() min_confidence pre-scoring filter — end-to-end (CONF-02, D-03, D-04)
+# --------------------------------------------------------------------------- #
+class TestRunMinConfidence(unittest.TestCase):
+    """Proves the `min_confidence` envelope key drops sub-N findings THROUGH run()
+    BEFORE cross_confirm_group (so they neither cross-confirm nor influence any
+    survivor's score), routes each drop to filtered[] with a DISTINCT reason
+    ("below-min-confidence"), survives a finding at exactly N (strict `<`), and
+    keeps the zero-config path byte-stable. Structural twin of TestRunThresholds."""
+
+    def _envelope(self, **over):
+        # A single critical finding at agent_confidence=100 (scores 100 -> critical),
+        # far above any min_confidence we test, so the base finding always survives.
+        base = {
+            "command": "review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="mc-base", agent_confidence=100,
+                             severity="critical", file="src/a.py", line=10),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_below_n_dropped_before_scoring(self):
+        # min_confidence=70; a finding at conf 60 is dropped into filtered[] with
+        # reason "below-min-confidence" and is ABSENT from findings[].
+        low = make_finding(id="mc-low", agent_confidence=60, severity="critical",
+                           file="src/b.py", line=20)
+        result = score.run(self._envelope(min_confidence=70,
+                                          findings=[low]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertNotIn("mc-low", ids)
+        dropped = [x for x in result["filtered"]
+                   if x.get("reason") == "below-min-confidence"]
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(dropped[0]["file"], "src/b.py")
+        self.assertEqual(dropped[0]["line"], 20)
+
+    def test_dropped_neighbor_supplies_no_cross_confirm(self):
+        # A dropped sub-N finding co-located with a survivor twin (same file/line,
+        # overlapping category, DIFFERENT agent) must NOT lend its +10 cross-confirm
+        # to the survivor: the survivor's score equals the no-drop baseline where
+        # the low finding was simply absent.
+        # null-access -> "correctness" domain: two agents at the same file/line
+        # with overlapping domains cross-confirm (+10 when both are present).
+        survivor = make_finding(id="mc-surv", agent_confidence=85,
+                                severity="critical", file="src/c.py", line=30,
+                                category="null-access", agent="bugs")
+        low_twin = make_finding(id="mc-twin", agent_confidence=50,
+                                severity="critical", file="src/c.py", line=30,
+                                category="null-access", agent="security")
+
+        # With min_confidence=70 the twin drops -> survivor scores alone (85, no +10).
+        with_drop = score.run(self._envelope(min_confidence=70,
+                                             findings=[survivor, low_twin]))
+        surv_scores = {g["id"]: g for g in with_drop["findings"]}
+        self.assertIn("mc-surv", surv_scores)
+        self.assertNotIn("mc-twin", surv_scores)
+        self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"], 85)
+
+        # Baseline: the SAME run with the low twin simply absent (never in input).
+        baseline = score.run(self._envelope(findings=[survivor]))
+        base_scores = {g["id"]: g for g in baseline["findings"]}
+        self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"],
+                         base_scores["mc-surv"]["orchestrator_score"])
+
+        # Sanity: if the twin were NOT dropped (min_confidence below both), the
+        # survivor WOULD get +10 (proves the drop is what suppresses the bonus).
+        confirmed = score.run(self._envelope(min_confidence=40,
+                                             findings=[survivor, low_twin]))
+        conf_scores = {g["id"]: g for g in confirmed["findings"]}
+        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"], 95)  # 85+10
+
+    def test_exactly_n_survives(self):
+        # Strict `<`: a finding at exactly min_confidence SURVIVES; one at N-1 drops.
+        # Use /deep-review (finalize cutoff 70) so a conf-70 finding scores 70 and
+        # clears the SEPARATE per-command cutoff — isolating the confidence filter's
+        # strict `<` from the post-scoring sub-threshold layer.
+        at_n = make_finding(id="mc-at", agent_confidence=70, severity="critical",
+                            file="src/d.py", line=40)
+        below = make_finding(id="mc-69", agent_confidence=69, severity="critical",
+                             file="src/e.py", line=50)
+        result = score.run(self._envelope(min_confidence=70, command="deep-review",
+                                          findings=[at_n, below]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertIn("mc-at", ids)
+        self.assertNotIn("mc-69", ids)
+        self.assertTrue(any(
+            x.get("reason") == "below-min-confidence" and x.get("file") == "src/e.py"
+            for x in result["filtered"]))
+
+    def test_zero_config_envelope_is_byte_stable(self):
+        # No min_confidence key at all -> today's behavior. The base finding scores
+        # 100 -> critical, identical to a run with no confidence filter.
+        result = score.run(self._envelope())
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 100)
+        self.assertEqual(g["band"], "critical")
+        # No confidence drop is recorded.
+        self.assertFalse(any(x.get("reason") == "below-min-confidence"
+                             for x in result["filtered"]))
+
+    def test_explicit_none_matches_absent(self):
+        # An explicit min_confidence=None must be byte-identical to omitting the key
+        # (same band AND same stable_hash) — the zero-config path both ways.
+        absent = score.run(self._envelope())["findings"][0]
+        explicit = score.run(self._envelope(min_confidence=None))["findings"][0]
+        self.assertEqual(absent["band"], explicit["band"])
+        self.assertEqual(absent["stable_hash"], explicit["stable_hash"])
+        self.assertEqual(absent["orchestrator_score"],
+                         explicit["orchestrator_score"])
+
+    def test_zero_min_confidence_drops_nothing(self):
+        # min_confidence=0: coerced conf (>=0) is never `< 0`, so nothing drops —
+        # behaviorally identical to no filter.
+        low = make_finding(id="mc-z", agent_confidence=0, severity="critical",
+                           file="src/f.py", line=60)
+        result = score.run(self._envelope(min_confidence=0, findings=[low]))
+        self.assertFalse(any(x.get("reason") == "below-min-confidence"
+                             for x in result["filtered"]))
+
+    def test_reason_distinct_from_subthreshold(self):
+        # A run with BOTH a min_confidence drop AND a sub-threshold drop must show
+        # both reasons in filtered[], distinct and counted separately.
+        # - conf-drop: conf 50 < min_confidence 70 -> below-min-confidence.
+        # - sub-threshold: conf 75 (>=70 survives the confidence filter) but score
+        #   75 < review cutoff 80 -> sub-threshold.
+        conf_drop = make_finding(id="mc-cd", agent_confidence=50,
+                                 severity="critical", file="src/g.py", line=70)
+        sub_thr = make_finding(id="mc-st", agent_confidence=75, severity="critical",
+                               file="src/h.py", line=80)
+        result = score.run(self._envelope(min_confidence=70,
+                                          command="review",
+                                          findings=[sub_thr, conf_drop]))
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("below-min-confidence", reasons)
+        self.assertIn("sub-threshold", reasons)
+        # Counted separately: exactly one of each — this (not a literal-vs-literal
+        # comparison) is what proves the two drop paths stay distinct and unmerged.
+        self.assertEqual(reasons.count("below-min-confidence"), 1)
+        self.assertEqual(reasons.count("sub-threshold"), 1)
+
+    def test_malformed_min_confidence_no_filter(self):
+        # A malformed value (str/dict/float/bool/NaN) is treated as no-filter:
+        # no crash, no drop, findings == baseline.
+        low = make_finding(id="mc-m", agent_confidence=10, severity="critical",
+                           file="src/i.py", line=90)
+        baseline_ids = {g["id"] for g in
+                        score.run(self._envelope(findings=[low]))["findings"]}
+        for bad in ("70", {"x": 1}, 70.0, True, False, float("nan")):
+            result = score.run(self._envelope(min_confidence=bad, findings=[low]))
+            self.assertEqual({g["id"] for g in result["findings"]}, baseline_ids,
+                             "malformed min_confidence=%r must not filter" % (bad,))
+            self.assertFalse(any(x.get("reason") == "below-min-confidence"
+                                 for x in result["filtered"]),
+                             "malformed min_confidence=%r must not drop" % (bad,))
+
+    def test_missing_confidence_coerces_zero_dropped(self):
+        # A finding with missing/garbage agent_confidence coerces to 0, so any
+        # min_confidence >= 1 drops it (D-03: unknown confidence treated as lowest).
+        missing = make_finding(id="mc-miss", severity="critical",
+                               file="src/j.py", line=100)
+        del missing["agent_confidence"]
+        garbage = make_finding(id="mc-garb", agent_confidence="nope",
+                               severity="critical", file="src/k.py", line=110)
+        result = score.run(self._envelope(min_confidence=1,
+                                          findings=[missing, garbage]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertNotIn("mc-miss", ids)
+        self.assertNotIn("mc-garb", ids)
+        drops = [x for x in result["filtered"]
+                 if x.get("reason") == "below-min-confidence"]
+        self.assertEqual(len(drops), 2)
+
+    def test_low_confidence_carryforward_dropped(self):
+        # A persisted/needs-recheck carryforward at conf 50 + min_confidence 70 is
+        # dropped like any other finding (D-03: no carryforward carve-out).
+        cf = make_finding(id="mc-cf", file="src/a.py", line=10,
+                          title="still here", agent_confidence=50,
+                          severity="critical", current_code="  return q",
+                          canonical_line_content="return q",
+                          source_window=["a", "b", "c", "d", "e"])
+        result = score.run(self._envelope(min_confidence=70,
+                                          carryforward=[cf], findings=[]))
+        ids = [g["id"] for g in result["findings"]]
+        self.assertNotIn("mc-cf", ids)
+        self.assertTrue(any(
+            x.get("reason") == "below-min-confidence" and x.get("file") == "src/a.py"
+            for x in result["filtered"]))
+
+
+# --------------------------------------------------------------------------- #
+# run() idiom_floor band cap — end-to-end (NOISE-01, D-01/D-02, A1, Findings
+# #2 / NEW-2). Structural twin of TestRunMinConfidence.
+# --------------------------------------------------------------------------- #
+class TestIdiomFloor(unittest.TestCase):
+    """Proves the `idiom_floor` envelope key caps `idiom`-category findings at a
+    tunable max band via the SINGLE post-band adjustment: it only LOWERS, is
+    scoped to category=='idiom', is ACTIVE BY DEFAULT at "medium" (absent key, A1),
+    DISABLES only on the literal "off"/"none" sentinel (distinct from an absent
+    key), treats an unknown value as the medium cap (fail-safe), writes literal
+    "low" (keeping category=='idiom', Finding NEW-2), and leaves the byte-stable
+    default path (GOLDEN_DIGEST / non-idiom bands / stable_hash) unchanged."""
+
+    def _envelope(self, **over):
+        # A single idiom finding at agent_confidence=100 that scores 100 -> would
+        # band "critical" (well above medium), so the cap is observable when active.
+        base = {
+            "command": "deep-review",  # finalize cutoff 70 so a capped-to-medium
+                                       # (score-70..79) idiom survives the sub-thr
+                                       # filter and is inspectable in findings[].
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="if-base", agent_confidence=100,
+                             severity="critical", category="idiom",
+                             file="src/a.py", line=10),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def _only(self, result):
+        self.assertEqual(len(result["findings"]), 1,
+                         "expected exactly one survivor, got %r" % (result["findings"],))
+        return result["findings"][0]
+
+    # --- the cap only lowers ------------------------------------------------- #
+    def test_cap_down_critical_to_medium(self):
+        # idiom would be "critical"; floor "medium" lowers it to "medium".
+        g = self._only(score.run(self._envelope(idiom_floor="medium")))
+        self.assertEqual(g["band"], "medium")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_cap_up_is_noop(self):
+        # An idiom already at "warning" with floor "critical" is NEVER raised.
+        # A conf-85 critical idiom scores 85 -> band "warning"; floor "critical"
+        # is HIGHER, so the band is unchanged.
+        g = self._only(score.run(self._envelope(
+            idiom_floor="critical",
+            findings=[make_finding(id="if-warn", agent_confidence=85,
+                                   severity="critical", category="idiom",
+                                   file="src/b.py", line=20)])))
+        self.assertEqual(g["band"], "warning")
+
+    def test_cap_at_floor_is_noop(self):
+        # An idiom already AT the floor band is unchanged (strict `>` compare).
+        g = self._only(score.run(self._envelope(
+            idiom_floor="warning",
+            findings=[make_finding(id="if-eq", agent_confidence=85,
+                                   severity="critical", category="idiom",
+                                   file="src/c.py", line=30)])))
+        self.assertEqual(g["band"], "warning")
+
+    # --- disable (the literal off/none sentinel) ----------------------------- #
+    def test_off_disables_cap(self):
+        # The literal "off" sentinel -> cap INERT; the idiom keeps its full band.
+        g = self._only(score.run(self._envelope(idiom_floor="off")))
+        self.assertEqual(g["band"], "critical")
+
+    def test_none_sentinel_disables_cap(self):
+        # The literal "none" string is ALSO a disable sentinel (config.py would
+        # have normalized it to "off", but score.py accepts either spelling).
+        g = self._only(score.run(self._envelope(idiom_floor="none")))
+        self.assertEqual(g["band"], "critical")
+
+    # --- scope: idiom category ONLY ------------------------------------------ #
+    def test_non_idiom_not_capped(self):
+        # A NON-idiom finding at the SAME (critical) band with floor "medium" is
+        # untouched — the cap is scoped to category=='idiom' only (D-02).
+        g = self._only(score.run(self._envelope(
+            idiom_floor="medium",
+            findings=[make_finding(id="if-dep", agent_confidence=100,
+                                   severity="critical", category="dep-array",
+                                   file="src/d.py", line=40)])))
+        self.assertEqual(g["band"], "critical")
+        self.assertEqual(g["category"], "dep-array")
+
+    # --- default-active (A1): absent key still caps -------------------------- #
+    def test_default_active_absent_key_caps_at_medium(self):
+        # NO idiom_floor key -> score.py internally defaults the cap to "medium",
+        # so a would-be-critical idiom is capped at "medium" (A1).
+        g = self._only(score.run(self._envelope()))
+        self.assertEqual(g["band"], "medium")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_explicit_none_matches_absent(self):
+        # envelope idiom_floor=None (explicit) is byte-identical to omitting it:
+        # both default to the medium cap (A1).
+        g = self._only(score.run(self._envelope(idiom_floor=None)))
+        self.assertEqual(g["band"], "medium")
+
+    # --- crash-safe: an unknown value is NOT the off sentinel ---------------- #
+    def test_unknown_string_is_not_off_falls_back_to_medium_cap(self):
+        # A bogus string is NOT the off sentinel -> treated as the medium cap
+        # (fail-safe), so an idiom critical is still lowered to "medium".
+        g = self._only(score.run(self._envelope(idiom_floor="bogus")))
+        self.assertEqual(g["band"], "medium")
+
+    def test_non_str_value_falls_back_to_medium_cap(self):
+        # A non-str envelope value (int/dict/bool) -> the medium cap (never raises,
+        # never disables). The scorer re-validates independent of config.py.
+        for bad in (70, {"x": 1}, True, 3.5, ["off"]):
+            g = self._only(score.run(self._envelope(idiom_floor=bad)))
+            self.assertEqual(g["band"], "medium",
+                             "malformed idiom_floor=%r must fall back to medium cap"
+                             % (bad,))
+
+    # --- Finding NEW-2: "low" writes literal "low", stays category=='idiom' --- #
+    def test_low_floor_writes_literal_low_and_keeps_category(self):
+        # idiom_floor "low" caps a would-be-critical idiom at the LITERAL "low"
+        # band (NOT None), and the finding STAYS category=='idiom' (it is NOT
+        # re-categorized to suppression — the render layer disambiguates by
+        # category, Plan 03). Use /deep-review so a low-band finding still surfaces.
+        g = self._only(score.run(self._envelope(idiom_floor="low")))
+        self.assertEqual(g["band"], "low")
+        self.assertEqual(g["category"], "idiom")
+
+    # --- byte-stable default path (non-idiom finding unchanged) -------------- #
+    def test_byte_stable_default_non_idiom_unchanged(self):
+        # A NON-idiom finding run with NO idiom_floor key has an unchanged band /
+        # orchestrator_score / stable_hash vs a run where the key is absent — the
+        # cap never touches a non-idiom finding, and the default path is stable.
+        env = self._envelope(
+            findings=[make_finding(id="if-stable", agent_confidence=100,
+                                   severity="critical", category="bug",
+                                   file="src/e.py", line=50)])
+        g = self._only(score.run(env))
+        self.assertEqual(g["band"], "critical")
+        self.assertEqual(g["orchestrator_score"], 100)
+        # A second identical run yields the SAME stable_hash (determinism intact).
+        g2 = self._only(score.run(dict(env)))
+        self.assertEqual(g["stable_hash"], g2["stable_hash"])
+
+    def test_golden_digest_still_frozen(self):
+        # The scoring math is byte-stable: the frozen digest is unmoved.
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
+
+    def test_band_boundaries_unchanged(self):
+        # band_for is untouched by the cap (the cap is a POST-band adjustment).
+        self.assertEqual(score.band_for(95), "critical")
+        self.assertEqual(score.band_for(80), "warning")
+        self.assertEqual(score.band_for(70), "medium")
+        self.assertIsNone(score.band_for(69))
+
+    # --- the helpers directly ------------------------------------------------ #
+    def test_usable_idiom_floor_three_states(self):
+        # absent/None -> "medium" (cap active, A1)
+        self.assertEqual(score._usable_idiom_floor(None), "medium")
+        # off/none -> None (disabled)
+        self.assertIsNone(score._usable_idiom_floor("off"))
+        self.assertIsNone(score._usable_idiom_floor("none"))
+        self.assertIsNone(score._usable_idiom_floor("OFF"))
+        # valid band (incl. low) -> that band
+        for band in ("critical", "warning", "medium", "low"):
+            self.assertEqual(score._usable_idiom_floor(band), band)
+        self.assertEqual(score._usable_idiom_floor("LOW"), "low")
+        # anything else -> "medium" (fail-safe, NOT None/disabled)
+        for bad in ("bogus", "", 70, True, 3.5, {}, []):
+            self.assertEqual(score._usable_idiom_floor(bad), "medium",
+                             "malformed %r must fall back to medium" % (bad,))
+
+    def test_cap_idiom_band_lowers_only_and_scoped(self):
+        # Non-idiom is never capped regardless of floor.
+        self.assertEqual(score._cap_idiom_band("bug", "critical", "medium"),
+                         "critical")
+        # idiom above floor -> lowered.
+        self.assertEqual(score._cap_idiom_band("idiom", "critical", "medium"),
+                         "medium")
+        # idiom at/below floor -> unchanged.
+        self.assertEqual(score._cap_idiom_band("idiom", "medium", "critical"),
+                         "medium")
+        self.assertEqual(score._cap_idiom_band("idiom", "low", "medium"), "low")
+        # disabled sentinel -> unchanged.
+        self.assertEqual(score._cap_idiom_band("idiom", "critical", "off"),
+                         "critical")
+        # a would-be-None idiom band is never raised to the cap.
+        self.assertIsNone(score._cap_idiom_band("idiom", None, "medium"))
+
+
+# --------------------------------------------------------------------------- #
+# config.py -> envelope -> score.py provenance (Finding #2): explicit off reaches
+# score.py as DISABLED and is DISTINCT from the zero-config default cap.
+# --------------------------------------------------------------------------- #
+class TestIdiomFloorEnvelopeIntegration(unittest.TestCase):
+    """The end-to-end proof that `absent != off`: a real `[noise] idiom_floor =
+    "off"` .vibe-check.toml resolves through config.load_config to the literal
+    "off" sentinel, is injected on the score.py envelope, and DISABLES the cap;
+    while the zero-config path (no toml -> the orchestrator OMITS the key) still
+    caps the SAME idiom finding at "medium"."""
+
+    def _idiom_env(self, **over):
+        base = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": {},
+            "carryforward": [],
+            "findings": [
+                make_finding(id="int-idiom", agent_confidence=100,
+                             severity="critical", category="idiom",
+                             file="src/z.py", line=99),
+            ],
+        }
+        base.update(over)
+        return base
+
+    def test_explicit_off_travels_from_config_and_disables(self):
+        # 1) A real .vibe-check.toml with `[noise] idiom_floor = "off"`.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, ".vibe-check.toml")
+            with open(path, "w") as fh:
+                fh.write('[noise]\nidiom_floor = "off"\n')
+            values, warnings = config.load_config(path)
+        # 2) config.py resolves it to the LITERAL "off" sentinel (NOT None).
+        self.assertEqual(values["idiom_floor"], "off")
+        self.assertEqual(warnings, [])
+        # 3) The orchestrator INJECTS that sentinel on the envelope; the cap is
+        #    DISABLED -> the idiom keeps its full "critical" band.
+        result = score.run(self._idiom_env(idiom_floor=values["idiom_floor"]))
+        g = result["findings"][0]
+        self.assertEqual(g["band"], "critical")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_zero_config_default_caps_the_same_finding(self):
+        # No toml -> the orchestrator OMITS the key -> the SAME idiom finding IS
+        # capped at "medium" (A1). This is what makes absent != off provable.
+        result = score.run(self._idiom_env())  # no idiom_floor key
+        g = result["findings"][0]
+        self.assertEqual(g["band"], "medium")
+        self.assertEqual(g["category"], "idiom")
+
+    def test_absent_and_off_are_distinct_end_to_end(self):
+        # Both paths in ONE assertion: absent -> "medium", explicit off -> "critical".
+        absent = score.run(self._idiom_env())["findings"][0]
+        off = score.run(self._idiom_env(idiom_floor="off"))["findings"][0]
+        self.assertEqual(absent["band"], "medium")
+        self.assertEqual(off["band"], "critical")
+        self.assertNotEqual(absent["band"], off["band"])
+
+
+# --------------------------------------------------------------------------- #
+# _coerce_confidence — the extracted module-level coercion helper (CONF-02)
+# --------------------------------------------------------------------------- #
+class TestCoerceConfidence(unittest.TestCase):
+    """The shared coercion (single source of truth for garbage->0) reused by both
+    compute_score and the min_confidence filter. int/float accepted (float
+    truncated); bool/non-finite/garbage -> 0."""
+
+    def test_int_passthrough(self):
+        self.assertEqual(score._coerce_confidence(85), 85)
+        self.assertEqual(score._coerce_confidence(0), 0)
+
+    def test_float_truncated(self):
+        self.assertEqual(score._coerce_confidence(85.0), 85)
+        self.assertEqual(score._coerce_confidence(85.9), 85)
+
+    def test_bool_rejected(self):
+        self.assertEqual(score._coerce_confidence(True), 0)
+        self.assertEqual(score._coerce_confidence(False), 0)
+
+    def test_non_finite_rejected(self):
+        self.assertEqual(score._coerce_confidence(float("nan")), 0)
+        self.assertEqual(score._coerce_confidence(float("inf")), 0)
+        self.assertEqual(score._coerce_confidence(float("-inf")), 0)
+
+    def test_garbage_zero(self):
+        self.assertEqual(score._coerce_confidence("70"), 0)
+        self.assertEqual(score._coerce_confidence(None), 0)
+        self.assertEqual(score._coerce_confidence({}), 0)
+
+
+# --------------------------------------------------------------------------- #
 # C1 — float agent_confidence must NOT be silently zeroed (deep-review C1)
 # --------------------------------------------------------------------------- #
 class TestFloatConfidence(unittest.TestCase):
@@ -2070,6 +3198,291 @@ class TestMalformedInputMatrix(unittest.TestCase):
                 result = score.run(envelope)  # must NOT raise
                 self.assertTrue(result["scored_by_script"])
                 self.assertEqual(result["findings"], [])
+
+
+# --------------------------------------------------------------------------- #
+# Fable second-model review fixes (v2.7 findings doc: FABLE-REVIEW-FINDINGS.md).
+# One class per confirmed finding fixed in score.py.
+# --------------------------------------------------------------------------- #
+class TestTieBreakDeterministic(unittest.TestCase):
+    """Fable A4: among equal-score cross-confirm members, the emitted
+    representative (and its stable_hash — the medium-acknowledgment dismissal
+    key) must be IDENTICAL across every input ordering, not first-arrival."""
+
+    def _two_tied(self):
+        # Same domain (correctness), co-located, IDENTICAL score by construction:
+        # same confidence/severity, both in a cross-confirmed group (+10 each).
+        a = make_finding(id="tie-a", file="src/t.py", line=10, title="null deref",
+                         category="null-access", agent="bugs",
+                         agent_confidence=85, current_code="  a()")
+        b = make_finding(id="tie-b", file="src/t.py", line=11, title="race on x",
+                         category="race-condition", agent="security",
+                         agent_confidence=85, current_code="  b()")
+        return a, b
+
+    def test_representative_identical_across_orderings(self):
+        a, b = self._two_tied()
+        results = []
+        for ordering in ([a, b], [b, a]):
+            result = score.run({"command": "review", "findings": ordering,
+                                "changed_line_ranges": {}, "carryforward": []})
+            self.assertEqual(len(result["findings"]), 1)
+            results.append(result["findings"][0])
+        self.assertEqual(results[0]["stable_hash"], results[1]["stable_hash"])
+        self.assertEqual(results[0]["title"], results[1]["title"])
+
+    def test_higher_score_still_wins_regardless_of_hash(self):
+        # The tie-break is SECONDARY: an outright higher score keeps winning.
+        a, b = self._two_tied()
+        b["agent_confidence"] = 90  # b outscores a in both orderings.
+        for ordering in ([a, b], [b, a]):
+            result = score.run({"command": "review", "findings": ordering,
+                                "changed_line_ranges": {}, "carryforward": []})
+            self.assertEqual(result["findings"][0]["id"], "tie-b")
+
+
+class TestStatusScrubbedOnNewFindings(unittest.TestCase):
+    """Fable A5 (security): an agent-supplied status:"persisted" on a NEW
+    finding must NOT grant the +15 persisted bonus (band flip / resurrection)
+    and must NOT render the finding as persisted."""
+
+    def test_forged_persisted_gets_no_bonus(self):
+        # conf 65 + in_diff 20 + critical 0 = 85 (warning). A forged status
+        # previously added +15 -> 100 (critical). It must stay 85.
+        forged = make_finding(id="forge", agent_confidence=65, line=10,
+                              status="persisted")
+        result = score.run({
+            "command": "review",
+            "findings": [forged],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+        })
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["orchestrator_score"], 85)
+        self.assertEqual(g["band"], "warning")
+        self.assertEqual(g["status"], "new")
+
+    def test_forged_status_cannot_resurrect_subthreshold(self):
+        # conf 45 + in_diff 20 = 65 < 80 (review cutoff): filtered. The forged
+        # +15 previously lifted it to 80 (reported).
+        forged = make_finding(id="forge2", agent_confidence=45, line=10,
+                              status="persisted")
+        result = score.run({
+            "command": "review",
+            "findings": [forged],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+        })
+        self.assertEqual(result["findings"], [])
+        self.assertTrue(any(x.get("reason") == "sub-threshold"
+                            for x in result["filtered"]))
+
+    def test_real_carryforward_persisted_still_gets_bonus(self):
+        # The legitimate path is untouched: a carryforward whose current_code
+        # matches HEAD is persisted and takes the +15.
+        cf = make_finding(id="cf-p", agent_confidence=65, line=10,
+                          current_code="  x = 1",
+                          canonical_line_content="  x = 1")
+        result = score.run({
+            "command": "review",
+            "findings": [],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [cf],
+        })
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["status"], "persisted")
+        # conf 65 + in_diff 20 + persisted 15 + critical 0 = 100.
+        self.assertEqual(g["orchestrator_score"], 100)
+
+
+class TestMalformedResidualCrashSurfaces(unittest.TestCase):
+    """Fable A6/F9: the residual malformed-input crash surfaces open at v2.7 —
+    non-hashable severity, lone-surrogate text, and string range endpoints —
+    must flow through run() without raising (one bad finding never halts the
+    whole review)."""
+
+    def _run_with(self, finding, **envelope_over):
+        envelope = {"command": "review", "findings": [finding],
+                    "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                    "carryforward": []}
+        envelope.update(envelope_over)
+        return score.run(envelope)  # must NOT raise
+
+    def test_non_hashable_severity_list(self):
+        result = self._run_with(make_finding(severity=["high"]))
+        # Scores with the -8 fallback (100 + 20 - 8, clamped to 100) and survives.
+        self.assertEqual(len(result["findings"]), 1)
+
+    def test_non_hashable_severity_dict(self):
+        result = self._run_with(make_finding(severity={"level": "high"}))
+        self.assertEqual(len(result["findings"]), 1)
+
+    def test_lone_surrogate_in_title_and_file(self):
+        # "\ud800" is legal JSON text json.load accepts; stable_hash must not
+        # raise UnicodeEncodeError on it, and the output must survive strict
+        # JSON serialization.
+        odd = make_finding(title="bad \ud800 title", file="src/a.py")
+        result = self._run_with(odd)
+        self.assertEqual(len(result["findings"]), 1)
+        json.dumps(result, allow_nan=False)  # round-trips
+
+    def test_distinct_surrogates_hash_distinct(self):
+        # surrogatepass keeps the hash injective: distinct lone surrogates in
+        # otherwise-identical findings produce distinct stable_hashes.
+        h1 = score.stable_hash("a.py", "x", "t \ud800")
+        h2 = score.stable_hash("a.py", "x", "t \ud801")
+        self.assertNotEqual(h1, h2)
+
+    def test_string_range_endpoints_do_not_crash(self):
+        # F9: [["8","14"]] previously raised TypeError str-vs-int. Now the pair
+        # reads as "not a usable range" -> in_diff False (no +20).
+        result = self._run_with(
+            make_finding(agent_confidence=100, line=10),
+            changed_line_ranges={"src/a.py": [["8", "14"]]})
+        self.assertEqual(len(result["findings"]), 1)
+        # 100 + 0 (no in_diff: unusable range) + 0 critical = 100.
+        self.assertEqual(result["findings"][0]["orchestrator_score"], 100)
+
+    def test_line_in_ranges_direct(self):
+        self.assertFalse(score._line_in_ranges(10, [["8", "14"]]))
+        self.assertFalse(score._line_in_ranges(10, [[None, 14]]))
+        self.assertFalse(score._line_in_ranges(10, [7, "x"]))
+        self.assertFalse(score._line_in_ranges(10, "not-a-list"))
+        self.assertTrue(score._line_in_ranges(10, [[8, 14]]))
+
+
+class TestNonFiniteOutputSanitized(unittest.TestCase):
+    """Fable A11: a non-finite float smuggled through a passthrough field must
+    never reach stdout as a bare NaN/Infinity token (invalid JSON). run()'s
+    output is sanitized (non-finite -> null)."""
+
+    def test_nan_in_intent_doc_match_sanitized(self):
+        smuggled = make_finding(
+            id="nan-1", agent_confidence=100, line=10,
+            intent_doc_match={"doc": "PLAN.md", "confidence": float("nan")})
+        result = score.run({
+            "command": "review", "findings": [smuggled],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(len(result["findings"]), 1)
+        # Strict serialization succeeds; the NaN became null.
+        text = json.dumps(result, allow_nan=False)
+        self.assertNotIn("NaN", text)
+        self.assertIsNone(result["findings"][0]["intent_doc_match"]["confidence"])
+
+    def test_infinity_sanitized(self):
+        smuggled = make_finding(id="inf-1", agent_confidence=100, line=10,
+                                extra_metric=float("inf"))
+        result = score.run({
+            "command": "review", "findings": [smuggled],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        json.dumps(result, allow_nan=False)
+        self.assertIsNone(result["findings"][0]["extra_metric"])
+
+    def test_finite_floats_pass_through_unchanged(self):
+        f = make_finding(id="fin-1", agent_confidence=100, line=10,
+                         extra_metric=0.75)
+        result = score.run({
+            "command": "review", "findings": [f],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(result["findings"][0]["extra_metric"], 0.75)
+
+
+class TestAbsorbedMembersRecorded(unittest.TestCase):
+    """Fable A2 (NEW-ABSORB): a member that loses the cross-confirm dedup is
+    absorbed into the survivor but must be RECORDED in filtered[] with a reason
+    naming the survivor's stable_hash — never silently deleted."""
+
+    def test_loser_lands_in_filtered_with_survivor_hash(self):
+        winner = make_finding(id="w", file="src/x.py", line=10,
+                              title="sql injection", category="injection",
+                              agent="security", agent_confidence=95)
+        loser = make_finding(id="l", file="src/x.py", line=11,
+                             title="missing auth check", category="auth",
+                             agent="bugs", agent_confidence=70)
+        result = score.run({
+            "command": "review", "findings": [winner, loser],
+            "changed_line_ranges": {"src/x.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(len(result["findings"]), 1)
+        survivor = result["findings"][0]
+        self.assertEqual(survivor["id"], "w")
+        absorbed = [x for x in result["filtered"]
+                    if str(x.get("reason", "")).startswith("absorbed-into: ")]
+        self.assertEqual(len(absorbed), 1)
+        self.assertEqual(absorbed[0]["title"], "missing auth check")
+        self.assertEqual(absorbed[0]["reason"],
+                         "absorbed-into: " + survivor["stable_hash"])
+
+    def test_singleton_group_records_nothing(self):
+        solo = make_finding(id="solo", agent_confidence=100, line=10)
+        result = score.run({
+            "command": "review", "findings": [solo],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
+        self.assertFalse(any(str(x.get("reason", "")).startswith("absorbed-into")
+                             for x in result["filtered"]))
+
+
+class TestSilencedMarkerSpellings(unittest.TestCase):
+    """Fable A13: real-world suppression spellings — golangci-lint's mandatory
+    //nolint (no space), flake8's #noqa (no space), and case drift (# NOQA) —
+    must all read as silenced. The canonical spaced spellings keep working."""
+
+    def test_new_spellings_silence(self):
+        for line in ("x() //nolint:errcheck",
+                     "y = f()  #noqa",
+                     "z = g()  # NOQA",
+                     "w() // NOLINT"):
+            with self.subTest(line=line):
+                self.assertTrue(score.silenced_nearby([line]))
+
+    def test_canonical_spellings_still_silence(self):
+        for line in ("a // nolint", "b # noqa", "c eslint-disable-next-line",
+                     "@SuppressWarnings(\"x\")", "#[allow(dead_code)]"):
+            with self.subTest(line=line):
+                self.assertTrue(score.silenced_nearby([line]))
+
+    def test_plain_code_not_silenced(self):
+        self.assertFalse(score.silenced_nearby(["nolint = True", "x = 1"]))
+
+
+class TestIntentDocDropReason(unittest.TestCase):
+    """Fable F8: a drop DRIVEN by the intent-doc penalty must be labeled
+    "intent-doc-match" in filtered[], not "sub-threshold" (two distinct drop
+    mechanisms were indistinguishable in the user-facing report)."""
+
+    def _envelope(self, finding):
+        return {"command": "review", "findings": [finding],
+                "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                "carryforward": []}
+
+    def test_intent_doc_drop_labeled(self):
+        # conf 60 + in_diff 20 - 100 (strong match) + 0 = -20 < 0 -> drop.
+        f = make_finding(agent_confidence=60, line=10,
+                         intent_doc_match={"doc": "PLAN.md", "confidence": 0.95})
+        result = score.run(self._envelope(f))
+        self.assertEqual(result["findings"], [])
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("intent-doc-match", reasons)
+        self.assertNotIn("sub-threshold", reasons)
+
+    def test_silenced_keeps_precedence(self):
+        # Both silenced AND intent-matched: the label stays "silenced" (the
+        # pre-existing overlap behavior is preserved).
+        f = make_finding(agent_confidence=60, line=10,
+                         intent_doc_match={"doc": "PLAN.md", "confidence": 0.95},
+                         source_window=["a", "b // nolint", "c", "d", "e"])
+        result = score.run(self._envelope(f))
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("silenced", reasons)
+
+    def test_plain_negative_stays_subthreshold(self):
+        # No intent match, no marker: conf 0 - 20 (low severity) = -20 -> the
+        # generic label is unchanged.
+        f = make_finding(agent_confidence=0, severity="low", line=10)
+        result = score.run(self._envelope(f))
+        reasons = [x.get("reason") for x in result["filtered"]]
+        self.assertIn("sub-threshold", reasons)
 
 
 if __name__ == "__main__":

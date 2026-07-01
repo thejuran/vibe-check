@@ -73,6 +73,43 @@ The plugin works out of the box with no configuration. One optional knob control
 
 `/review` always uses Sonnet (and downgrades language agents to Haiku on very large diffs) regardless of this setting — it's tuned for cheap iteration.
 
+### `.vibe-check.toml` (repo-level config)
+
+Drop a `.vibe-check.toml` at your repo root to tune reviews per project. **Every key is optional** — a repo with **no** `.vibe-check.toml` runs exactly as before, with no warning and no behavior change. Any invalid key falls back to its default and surfaces a one-line note on the report's **config-health line** (near the top of the review), so a misconfiguration is never silently applied and never breaks the review.
+
+```toml
+# .vibe-check.toml  (repo root — all keys optional)
+
+[review]
+thresholds = { critical = 95, warning = 80, medium = 70 }  # band-label cutoffs (defaults shown)
+
+[agents]
+disabled = []          # agent names to skip dispatching (default: none)
+top_model = "opus"     # opus | fable  (default: opus)
+
+[noise]
+idiom_floor = "medium"   # cap the `idiom` category at this max band (default: "medium")
+                         #   band name (critical|warning|medium|low) to cap, or off|none to disable
+#   codex = "auto"       # (Phase 33 — not active yet)
+```
+
+| Key | Default | Values | Effect |
+|---|---|---|---|
+| `[review].thresholds` | `{ critical = 95, warning = 80, medium = 70 }` | three score floors, strictly descending, `medium ≥ 70` | The **band labels** a finding's score maps to (Critical / Warning / Medium). Absent ⇒ the built-in 95 / 80 / 70. |
+| `[agents].disabled` | `[]` | list of agent names | Agents to skip dispatching. Disabling a **core** agent (`bugs`/`security`) is honored but **announced** on the config-health line (coverage reduced, never silent). |
+| `[agents].top_model` | `opus` | `opus`, `fable` | Top-tier model for the two judgment-gating agents (`bugs` + `architecture`) in `/deep-review` — the toml equivalent of `VIBE_CHECK_TOP_MODEL`. |
+| `[noise].idiom_floor` | `"medium"` | a band name (`critical` / `warning` / `medium` / `low`) or `off` / `none` to disable | Caps the **`idiom`** category's band at this max, so idioms never block finalize — **active by default at `medium`** (this is the one knob whose default is an active cap). `off` / `none` disables the cap (idioms may then reach any band). `"low"` caps idioms at the `low` band — a **supported** value, NOT a disable: a low-capped idiom still renders, in the report's **Low / Informational** listing. Applies ONLY to `category == "idiom"` and only ever LOWERS a band (never raises one). |
+
+**Precedence (per knob):** `CLI flag` > `.vibe-check.toml` > built-in default. For `top_model` this reads concretely as **`VIBE_CHECK_TOP_MODEL` (env) > `top_model` (toml) > `opus`** — a shell override still wins over the repo config, coherent with the env-var table above.
+
+**Two layers, don't conflate them.** `thresholds` tunes only the **band labels** — what counts as Critical vs Warning vs Medium. A *separate*, fixed layer decides which banded findings actually surface: `/review` shows findings scoring **≥ 80**, `/deep-review` shows **≥ 70**. This phase does not tune that per-command cutoff. So a band floor set below a command's cutoff (e.g. `critical = 72`) takes effect only under the command with the lower cutoff (`/deep-review`); under `/review` those findings are still banded but filtered out as sub-threshold. That's intended — the config is valid and accepted, not rejected.
+
+#### The `// vibe-ignore` marker
+
+To suppress a specific finding inline, add a **`// vibe-ignore: <reason>`** comment within ±2 lines of it. A `vibe-ignore` **with a reason** suppresses the nearby finding — it joins the existing silenced markers (`eslint-disable`, `# noqa`, `// nolint`, `@SuppressWarnings`, `#[allow(`) and rides the same suppression path.
+
+**The reason is required** — that is what distinguishes `vibe-ignore` from the other markers. A **bare** `// vibe-ignore` (no reason after the colon, or no colon at all) does **NOT** suppress anything; instead it is itself surfaced as a low **suppression-without-reason** finding in the report's **Suppression (audit)** section, so every suppression stays auditable. Write `// vibe-ignore: false positive — validated upstream`, not a bare `// vibe-ignore`.
+
 ---
 
 ## ✨ Features

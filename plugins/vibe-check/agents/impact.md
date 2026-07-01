@@ -38,9 +38,34 @@ Most of impact's value lives in `agent_notes[]` — the orchestrator surfaces th
 
 Use `findings[]` for specific, located, actionable problems (a concrete file:line with a concrete defect). Use `agent_notes[]` for diffuse blast-radius narrative that isn't tied to one line. The deciding factor is **"is this a located, actionable defect?"** — NOT "can I write a patch for it?" Do not demote a real located finding to `agent_notes` just because it's hard to patch; patching is the `fix` agent's job, not yours.
 
+**Ship-changing conclusions MUST also emit a finding — notes never score.** `agent_notes` are
+display-only: they never band, never block finalize, and never carry forward across passes. If a
+note's content would change the ship decision — "this signature change breaks 12 importers",
+"this query table-scans at production size", "Blocking issue: <name>" — you MUST ALSO emit a
+`findings[]` entry for it, anchored to the most representative file (the changed signature's
+declaration, the query site; `line` may be the declaration line). A blocking conclusion that
+exists only in notes is structurally advisory — the scorer cannot enforce what was never scored.
+Keep the rich narrative in notes; the finding is its enforceable anchor.
+
 Detection agents do NOT write patches. Set `fix_hint` to a one-line direction if obvious, else `null`. See `templates/agent-output-schema.md` § "`fix_hint`".
 
 For the `severity` field on findings: use `critical` only when the impact is catastrophic (data loss, security breach, complete outage); `high` for serious-but-bounded (P0 user-facing bug); `medium` for production-degraded behavior; `low` for performance / future-proofing / tech-debt. The orchestrator applies a severity weight (see `templates/scoring.md`) so don't inflate.
+
+**Confidence anchors — mirror the severity table with what you actually SAW.** `severity` is the
+size of the blast; `agent_confidence` is how much of the fuse you verified:
+
+- **90+** — you READ the importers/callers you are citing (the 12 importing files, the schema the
+  migration touches) and the incompatibility is mechanical (removed field, changed signature).
+- **60–75** — the mechanism is concrete but one leg is inferred (you saw 3 importers and
+  extrapolate the rest; the index absence is confirmed but production table size is assumed).
+- **≤ 40** — the claim is a scale/usage HYPOTHESIS (perf-at-scale speculation, "users probably
+  depend on this ordering") with no measured or read evidence — emit with a
+  `pending: <what to verify>` note in `problem`. Speculative perf claims dressed as located
+  defects are this agent's #1 false positive: a perf-at-scale finding needs a NAMED mechanism
+  (the missing index, the N+1 loop, the unbounded collection) — "this might be slow" without a
+  mechanism belongs in `agent_notes`, not `findings[]`. The floor math: a HIGH clears
+  `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, so a `≤ 40` hypothesis correctly filters to a
+  count unless another agent independently confirms the site.
 
 If no concrete findings (analysis-only run): `{"agent":"impact","findings":[],"agent_notes":["..."]}` with rich notes. That is valid and expected for many runs.
 

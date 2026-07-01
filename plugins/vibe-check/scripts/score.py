@@ -35,13 +35,65 @@ _RE_AVAILABLE = bool(re)
 SEVERITY_WEIGHT = {"critical": 0, "high": -3, "medium": -8, "low": -20}
 SEVERITY_FALLBACK = -8  # scoring.md:26 (unset / unrecognized => medium-equivalent)
 
-# review.md:685 — the canonical 5 silenced markers (NOT false-positive-rules.md's
-# slightly-different list). Fixed-string substring match over a ±2-line window.
-SILENCED_MARKERS = ("eslint-disable", "# noqa", "// nolint", "@SuppressWarnings",
-                    "#[allow(")
+# review.md:685 — the canonical silenced markers (NOT false-positive-rules.md's
+# slightly-different list). Fixed-string substring match over a ±2-line window,
+# CASE-INSENSITIVE: every needle below is lowercase and silenced_nearby matches
+# against line.lower(), so `# NOQA` (valid flake8) is caught. Both spaced and
+# unspaced spellings are listed for the two markers real tools emit without a
+# space (Fable A13): golangci-lint REQUIRES `//nolint` (no space) and flake8
+# accepts `#noqa` — the spaced-only needles missed both, so a finding the author
+# legitimately suppressed took no -50 and was reported anyway.
+SILENCED_MARKERS = ("eslint-disable", "# noqa", "#noqa", "// nolint", "//nolint",
+                    "@suppresswarnings", "#[allow(")
+
+# NOISE-02/03 (D-03) — the `vibe-ignore` marker token. Deliberately NOT a member
+# of SILENCED_MARKERS: unlike the 5 bare fixed-string markers, vibe-ignore is
+# REASON-AWARE — a `vibe-ignore: <reason>` (non-empty reason) suppresses, but a
+# BARE `vibe-ignore` (no/empty reason) must NOT suppress (it surfaces a synthetic
+# audit finding instead, run()). If it were a plain SILENCED_MARKERS member a bare
+# marker would wrongly suppress. Recognition is folded into silenced_nearby via the
+# reason-aware _vibe_ignore_scan below.
+_VIBE_IGNORE = "vibe-ignore"
+
+# NOISE-03 (D-04, A2) — the synthetic "suppression without reason" audit finding
+# score.py emits for a BARE vibe-ignore. FIXED strings (T-32-04 Information
+# Disclosure): the title/category/canonical are NEVER derived from the marker line
+# or any repo-controlled text, so no untrusted text feeds the render or the hash.
+_SUPPRESSION_CATEGORY = "suppression"   # maps to NO domain (never cross-confirms).
+_SUPPRESSION_TITLE = "suppression without reason"
+# A FIXED canonical marker-line content string fed to stable_hash (NOT the marker's
+# actual line text — no repo text in the hash) so the synthetic finding hashes
+# deterministically per (file, marker_line) across runs, even when line is null.
+_SUPPRESSION_CANONICAL = "vibe-ignore (no reason)"
+# A fixed NON-NULL score strictly below the medium floor (70). It is INERT w.r.t.
+# the frozen band math because it NEVER flows through band_for — the band is
+# HAND-SET to the literal "low". It exists ONLY to satisfy review.md's Phase 3/4
+# "has orchestrator_score" structural gate (Finding #1).
+_SUPPRESSION_SCORE = 0
+# impact-01 — a DISTINCT status the multi-pass carry-forward path EXCLUDES. The
+# synthetic finding is REGENERATED fresh every pass from the live ±2 window scan,
+# so it must NOT be carried forward: review.md Phase 0.5 re-ingests only findings
+# whose status ∈ {new, persisted, needs-recheck}, and "audit" is deliberately NOT
+# in that allowlist — so a synthetic finding is naturally regenerated-not-carried
+# (never double-counted, never mis-classified needs-recheck/fixed-since-last from
+# its empty current_code). This value is INERT for the STRUCTURAL gates (Phase 3
+# step 5 / the Phase-4 render gate key on band/orchestrator_score/stable_hash, NOT
+# status) and for the RENDER selector (the Suppression audit section selects by
+# category=="suppression", NOT status), so rendering and gate-passing are unchanged
+# — ONLY carry-forward inclusion changes, which is the whole point (impact-01).
+_SUPPRESSION_STATUS = "audit"
 
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
+
+# scoring.md:37-42 — the built-in band-boundary floors band_for() applies when no
+# `thresholds` override is present. This is a DIFFERENT layer from THRESHOLDS above:
+# THRESHOLDS is the per-command finalize cutoff (which findings surface for /review
+# vs /deep-review); _DEFAULT_BANDS is the critical/warning/medium LABEL boundaries.
+# The v2.8 `thresholds` config knob (D-02) parameterizes THESE floors, defaulting to
+# the whole set so the no-config path stays byte-identical (frozen GOLDEN_DIGEST).
+# Do NOT retune these literals (behavior-preserving) and do NOT conflate with THRESHOLDS.
+_DEFAULT_BANDS = {"critical": 95, "warning": 80, "medium": 70}
 
 # HARDEN-01 — DOCUMENTATION ONLY (not a reject gate). The three fields a
 # well-formed finding normally carries. Per orchestrator correction (this phase),
@@ -78,35 +130,310 @@ def stable_hash(file, canonical_line_content, title):
     canonical_line_content = (canonical_line_content
                               if isinstance(canonical_line_content, str) else "")
     title = title if isinstance(title, str) else ""
+    # "surrogatepass" (Fable A6): a lone surrogate ("\ud800") is LEGAL JSON text
+    # that json.load accepts, but a plain .encode() raises UnicodeEncodeError —
+    # one crafted finding would halt the whole run at the fail-closed gate.
+    # surrogatepass encodes it deterministically (distinct surrogates stay
+    # distinct bytes, so injectivity holds) and is byte-identical to strict UTF-8
+    # for all valid text — the frozen golden digest is unmoved.
     return hashlib.sha256(
-        (file + "\x00" + canonical_line_content + "\x00" + title).encode()
+        (file + "\x00" + canonical_line_content + "\x00" + title)
+        .encode("utf-8", "surrogatepass")
     ).hexdigest()
 
 
-def band_for(score):
-    """Score -> band (scoring.md:37-42). <70 is below both thresholds => None."""
-    if score >= 95:
+def _usable_bands(thresholds):
+    """Return a validated {critical,warning,medium} band-floor dict, or _DEFAULT_BANDS.
+
+    CRASH-SAFE (Finding #2 / T-30-06). The `thresholds` value arrives on the stdin
+    envelope from the orchestrator (which got it from config.py). config.py validates
+    it UPSTREAM (strictly-descending ints in [1,100], medium>=70) and should never send
+    a malformed value — but score.py must not TRUST its input: a stale or buggy config.py
+    must never crash the scorer. So this accepts the dict ONLY when all three floors are
+    present AND each is a USABLE non-bool int; on ANY violation it falls back to the WHOLE
+    built-in _DEFAULT_BANDS set (not a per-sub-key mix), matching config.py's whole-set
+    posture and keeping the reasoning trivial.
+
+    The bool exclusion is mandatory: `isinstance(True, int)` is True, so a plain int
+    check would wrongly accept a bool floor. A WRONG-TYPE sub-key — e.g. {"critical":"80"}
+    (string), None, or a float — would otherwise reach `score >= "80"` and raise TypeError;
+    this guard prevents that. A non-dict thresholds (incl. None, the zero-config path)
+    also falls back to the whole default set. This mirrors score.py's existing null/
+    type-safe posture (stable_hash / _safe_window): coerce-or-default, never raise.
+    """
+    # Return a COPY of the frozen default (dict(...)) — never the module-level object
+    # by reference — so a future caller that mutates the returned band-floor dict
+    # cannot silently corrupt _DEFAULT_BANDS and the frozen GOLDEN_DIGEST (bugs-003 /
+    # lang-py-002). Behavior is unchanged: band_for only READS these values.
+    if not isinstance(thresholds, dict):
+        return dict(_DEFAULT_BANDS)
+    floors = {}
+    for key in ("critical", "warning", "medium"):
+        v = thresholds.get(key)
+        # Present AND a usable non-bool int, else the WHOLE set defaults.
+        if not (isinstance(v, int) and not isinstance(v, bool)):
+            return dict(_DEFAULT_BANDS)
+        floors[key] = v
+    return floors
+
+
+def band_for(score, thresholds=None):
+    """Score -> band (scoring.md:37-42). <medium floor is below both thresholds => None.
+
+    `thresholds` is an OPTIONAL band-floor override (v2.8 config knob, D-02). When it
+    is absent / None OR malformed (non-dict, missing sub-key, or a wrong-type/non-int/
+    bool sub-key), band_for uses the built-in _DEFAULT_BANDS literals (95/80/70) — so
+    the no-config default path is byte-identical to v2.7 (the frozen GOLDEN_DIGEST and
+    the 8 TestBandBoundaries assertions are unchanged). A fully-valid all-int dict is
+    honored (tunable). See _usable_bands for the crash-safe validation (Finding #2).
+    band_for is the SINGLE writer of `band` (single call site in run()); do not compute
+    a band anywhere else.
+    """
+    bands = _usable_bands(thresholds)
+    if score >= bands["critical"]:
         return "critical"
-    if score >= 80:
+    if score >= bands["warning"]:
         return "warning"
-    if score >= 70:
+    if score >= bands["medium"]:
         return "medium"
     return None
 
 
+# --------------------------------------------------------------------------- #
+# idiom_floor band cap (NOISE-01, D-01/D-02) — a per-category POST-band
+# adjustment on `idiom`-category findings. band_for stays the single band
+# WRITER; this is the ONE clearly-scoped adjustment applied immediately after the
+# single band-write site, and it only ever LOWERS a band. See run() for the site.
+# --------------------------------------------------------------------------- #
+
+# Severity rung ordering for the cap comparison (critical > warning > medium >
+# low > None). None is the LOWEST rung so a would-be-None idiom band is never
+# "raised" to the cap. The literal band "low" IS a valid cap target (Finding
+# NEW-2) — note band_for never RETURNS "low" (its floor is None), but the cap can
+# WRITE "low" as the capped label.
+_BAND_SEVERITY = {"critical": 4, "warning": 3, "medium": 2, "low": 1, None: 0}
+
+# The valid idiom_floor cap bands (INCLUDING "low", Finding NEW-2) and the disable
+# sentinels — mirrored from config.py's allowlist so the scorer re-validates
+# independently ("don't trust your input", like _usable_bands).
+_IDIOM_FLOOR_BANDS = ("critical", "warning", "medium", "low")
+_IDIOM_FLOOR_DISABLE = ("off", "none")
+_DEFAULT_IDIOM_FLOOR = "medium"   # A1: absent key => the cap is ACTIVE at medium.
+
+
+def _usable_idiom_floor(raw):
+    """Resolve the RAW `idiom_floor` envelope value to a usable cap band, or None.
+
+    CRASH-SAFE, THREE-STATE (Finding #2, mirroring _usable_bands' "don't trust
+    your input" posture — a stale/buggy config.py must never crash the scorer or
+    silently disable the cap):
+
+      1. `raw is None` (ABSENT key)                 -> "medium"  (cap ACTIVE, A1).
+      2. `raw` is "off"/"none" (case-insensitive)   -> None      (cap DISABLED —
+         the EXPLICIT user off; this is WHY config.py returns the literal "off"
+         sentinel and not None, so an absent key and an explicit off are
+         distinguishable HERE on the envelope).
+      3. `raw` is a valid band name (incl. "low")   -> that band (cap at it).
+      4. anything else (unknown string, non-str)    -> "medium"  (fail-safe: a bad
+         value KEEPS the cap active, matching config.py's malformed->medium; an
+         unknown string is NOT the off sentinel, so it never disables).
+
+    The three-state resolution is CENTRALIZED here (not split with a
+    `raw if raw is not None else "medium"` in run()) so the off-sentinel semantics
+    are unambiguous in exactly one place.
+    """
+    if raw is None:
+        return _DEFAULT_IDIOM_FLOOR
+    if isinstance(raw, str):
+        low = raw.lower()
+        if low in _IDIOM_FLOOR_DISABLE:
+            return None
+        if low in _IDIOM_FLOOR_BANDS:
+            return low
+    return _DEFAULT_IDIOM_FLOOR
+
+
+def _cap_idiom_band(category, band, idiom_floor):
+    """Cap an `idiom`-category finding's `band` at idiom_floor. LOWER-ONLY.
+
+    Scoped to category == "idiom" (D-02): a non-idiom finding is returned
+    unchanged. The cap resolved by _usable_idiom_floor: None (disabled) => the
+    band is returned unchanged; otherwise the band is lowered to the cap ONLY when
+    it is strictly HIGHER-severity than the cap (never raised). Touches ONLY the
+    band LABEL — never `category`, so a low-capped idiom finding STAYS
+    category == "idiom" (Finding NEW-2; the render layer disambiguates by
+    category, Plan 03).
+    """
+    if category != "idiom":
+        return band
+    cap = _usable_idiom_floor(idiom_floor)
+    if cap is None:
+        return band  # explicit off/none => cap disabled.
+    if _BAND_SEVERITY.get(band, 0) > _BAND_SEVERITY[cap]:
+        return cap
+    return band
+
+
+# --------------------------------------------------------------------------- #
+# vibe-ignore reason-aware scan (NOISE-02/03, D-03) — a PER-TOKEN scan over the
+# pre-resolved ±2 source_window. Returns one occurrence record per `vibe-ignore`
+# TOKEN found (NOT one per line, NOT first-token-only), each carrying its window
+# `index` (0=L-2 … 4=L+2) and its `kind` ("reasoned" | "bare"). A reasoned
+# occurrence rides the EXISTING -50 silenced path (folded into silenced_nearby);
+# a bare occurrence surfaces a synthetic audit finding in run().
+#
+# REPORT-ONLY LIMITATION (D-03, OUT OF SCOPE): a `vibe-ignore` token sitting
+# INSIDE a string literal triggers this scan exactly as the 5 existing
+# SILENCED_MARKERS substring markers already do (`eslint-disable` inside a string
+# literal already suppresses identically). This is a PRE-EXISTING,
+# comment-syntax-agnostic substring behavior shared by ALL markers; D-03 inherits
+# it ("behaviorally consistent with the other markers"). We deliberately add NO
+# comment-syntax parsing here that the other markers lack — the per-token
+# iteration stays a pure substring/token scan over the pre-resolved window (no
+# I/O, no comment-syntax parsing). This note builds no guard.
+# --------------------------------------------------------------------------- #
+
+# A colon then a NON-EMPTY (non-whitespace) reason ⇒ reasoned; else bare. The
+# text scanned is only the segment AFTER a token up to (not consuming) the NEXT
+# vibe-ignore token on the same line, so `// vibe-ignore // vibe-ignore: r`
+# classifies the first token as bare (its trailing segment has no reason before
+# the next token) and the second as reasoned.
+_VIBE_IGNORE_REASON_RE = re.compile(r"\s*:\s*(\S.*)?$", re.DOTALL)
+
+
+def _has_comment_leadin(line, pos):
+    """Is the `_VIBE_IGNORE` token at `pos` preceded by a comment lead-in?
+
+    A genuine marker begins a comment, so its token is preceded — after stripping
+    intervening whitespace — by a comment lead-in (`//` or `#`) or by nothing at
+    all (the token starts the line). A `vibe-ignore` occurrence preceded by an
+    ordinary word character is REASON TEXT of an earlier marker (e.g. the second
+    "vibe-ignore" in `// vibe-ignore: see other vibe-ignore usage above`), NOT a
+    separate marker (bugs-001).
+    """
+    prefix = line[:pos].rstrip()
+    return prefix == "" or prefix.endswith("//") or prefix.endswith("#")
+
+
+def _is_marker_shaped_tail(line, pos):
+    """Does the token at `pos` look like a real marker by its OWN trailing text?
+
+    The comment-lead-in test alone (`_has_comment_leadin`) is NOT sufficient once
+    an EARLIER marker on the same line is REASONED and its reason text quotes a
+    sibling comment lead-in right before repeating the token (bugs-002), e.g.:
+
+        // vibe-ignore: like the // vibe-ignore in foo.py
+        # vibe-ignore: see the # vibe-ignore above
+
+    Here the SECOND token's immediate prefix is `//`/`#`, so the lead-in test wrongly
+    admits it as a fresh (bare) marker and splits it off — producing a spurious
+    "suppression without reason" finding for a marker that IS reasoned.
+
+    A GENUINE trailing marker is shaped like a marker in its own right: after its
+    token, either nothing but whitespace remains (a real trailing BARE marker, e.g.
+    `// vibe-ignore: reason // vibe-ignore`) or a colon-introduced reason follows (a
+    real trailing REASONED marker, e.g. `// vibe-ignore // vibe-ignore: r`). Arbitrary
+    prose continuing the earlier reason (` in foo.py`) is neither, so it is rejected
+    as in-reason text. This distinguishes bugs-002's in-reason quote from the genuine
+    trailing-marker contracts, both of which the tests lock.
+    """
+    tail = line[pos + len(_VIBE_IGNORE):]
+    return tail.strip() == "" or bool(_VIBE_IGNORE_REASON_RE.match(tail))
+
+
+def _is_fresh_marker_start(line, pos):
+    """Is the `_VIBE_IGNORE` token at `pos` a GENUINE fresh marker start?
+
+    Combines both signals: a genuine subsequent marker (a) opens a fresh `//`/`#`
+    comment (`_has_comment_leadin` — drops in-reason prose whose token is preceded
+    by an ordinary word, bugs-001) AND (b) is itself marker-shaped by its own tail
+    (`_is_marker_shaped_tail` — drops an in-reason quote of a sibling lead-in that
+    continues into prose, bugs-002). Both are required so the same-line contracts
+    hold (`// vibe-ignore: r // vibe-ignore` still detects the trailing bare marker;
+    `// vibe-ignore // vibe-ignore: r` still detects both) while a REASONED marker
+    whose reason quotes another comment lead-in is NOT mis-split.
+    """
+    return _has_comment_leadin(line, pos) and _is_marker_shaped_tail(line, pos)
+
+
+def _vibe_ignore_scan(source_window):
+    """Per-TOKEN reason-aware scan of the ±2 window for `vibe-ignore` markers.
+
+    Returns a LIST of occurrence dicts — ONE per `_VIBE_IGNORE` TOKEN found in the
+    window (Finding #2: iterate every token in each line, not just the first) —
+    each `{"index": <0-based window index>, "kind": "reasoned"|"bare"}`.
+
+    For each string window line, the `_VIBE_IGNORE` occurrences that are GENUINE
+    markers are walked (bugs-001: the first occurrence, plus any subsequent
+    occurrence that is a fresh comment-marker start per _is_fresh_marker_start — an
+    in-reason `vibe-ignore` word inside an earlier marker's reason is NOT a
+    separate marker and is skipped). For each genuine marker, the text AFTER that
+    token up to (but not consuming) the NEXT genuine `_VIBE_IGNORE` marker on the
+    line is classified: a colon then a non-empty (`.strip()` non-blank) reason ⇒
+    "reasoned"; otherwise (no colon, colon with only-whitespace reason, or the next
+    marker immediately follows) ⇒ "bare". Non-str lines are skipped. Pure scan over
+    the pre-resolved window (no I/O); never raises on malformed window content
+    (mirrors silenced_nearby's crash-safe posture, T-32-05).
+    """
+    occurrences = []
+    if not source_window:
+        return occurrences
+    tok_len = len(_VIBE_IGNORE)
+    for index, line in enumerate(source_window):
+        if not isinstance(line, str):
+            continue
+        # Collect this line's token start offsets first, so each token's trailing
+        # segment can end at the NEXT token's start (not the line end).
+        raw_starts = []
+        pos = line.find(_VIBE_IGNORE)
+        while pos != -1:
+            raw_starts.append(pos)
+            pos = line.find(_VIBE_IGNORE, pos + tok_len)
+        # bugs-001: keep the FIRST occurrence unconditionally (preserving the
+        # deliberate substring/prose behavior shared with the other markers), but
+        # DROP any SUBSEQUENT occurrence that is not a fresh comment-marker start —
+        # such an occurrence is `vibe-ignore` text INSIDE an earlier marker's reason
+        # (e.g. `// vibe-ignore: see other vibe-ignore usage`), NOT a real second
+        # marker. Dropping it means a reasoned token's reason segment correctly
+        # extends past the in-reason word to the next GENUINE marker (or line end),
+        # so the reasoned marker is no longer mis-split into a false bare finding.
+        starts = [s for i, s in enumerate(raw_starts)
+                  if i == 0 or _is_fresh_marker_start(line, s)]
+        for k, start in enumerate(starts):
+            seg_start = start + tok_len
+            seg_end = starts[k + 1] if k + 1 < len(starts) else len(line)
+            after = line[seg_start:seg_end]
+            m = _VIBE_IGNORE_REASON_RE.match(after)
+            reasoned = bool(m and m.group(1) and m.group(1).strip())
+            occurrences.append({
+                "index": index,
+                "kind": "reasoned" if reasoned else "bare",
+            })
+    return occurrences
+
+
 def silenced_nearby(source_window):
-    """Any of the 5 canonical markers in any line of the ±2 window (D-13 inclusive).
+    """Any of the 5 canonical markers, OR any REASONED vibe-ignore, in the ±2 window.
 
     The orchestrator supplies source_window = [L-2, L-1, L, L+1, L+2] pre-resolved
-    (D-05); this is a pure substring scan.
+    (D-05); this is a pure substring scan. D-13 inclusive [L-2 .. L+2].
+
+    NOISE-02 (D-03): a `vibe-ignore: <reason>` marker (a REASONED occurrence from
+    _vibe_ignore_scan) OR-s in exactly like the 5 fixed-string markers, so the
+    nearby finding takes the existing -50 (compute_score) and drops with reason
+    "silenced". A BARE `vibe-ignore` does NOT set silenced (that is run()'s
+    synthetic-finding job, NOISE-03).
     """
     if not source_window:
         return False
-    return any(
-        marker in line
-        for line in source_window
-        for marker in SILENCED_MARKERS
-    )
+    # Case-insensitive (Fable A13): needles are all-lowercase, so match against
+    # the lowered line (catches `# NOQA` and any other case drift).
+    if any(marker in line.lower()
+           for line in source_window
+           for marker in SILENCED_MARKERS
+           if isinstance(line, str)):
+        return True
+    return any(o["kind"] == "reasoned" for o in _vibe_ignore_scan(source_window))
 
 
 def _first_line(text):
@@ -244,6 +571,29 @@ def _intent_doc_penalty(finding):
     return 0
 
 
+def _coerce_confidence(raw):
+    """Coerce a raw agent_confidence VALUE to an int; garbage => 0 (single source
+    of truth, reused by compute_score AND the min_confidence filter so the two can
+    never drift).
+
+    Accept int OR float (JSON from LLM agents routinely carries floats like 85.0),
+    but reject bool (True is an int subclass) — mirrors the numeric guard in
+    _intent_doc_penalty. A float is truncated via int().
+    NON-FINITE guard (HOLE 2): json.load accepts bare NaN/Infinity/-Infinity as
+    floats; they pass the isinstance(int,float) check, then int(float('nan')) raises
+    ValueError and int(float('inf')) raises OverflowError. The import-free bound
+    `-1e308 < raw < 1e308` rejects all three (every comparison with NaN is False;
+    inf < 1e308 is False; -1e308 < -inf is False) while any legitimate 0-100
+    confidence (incl. floats like 85.0) passes — so a non-finite confidence coerces
+    to 0 like other garbage instead of crashing. (`import math` is FORBIDDEN here:
+    the AST import-ban test pins the import set to {json,hashlib,re,sys}.)
+    """
+    return (int(raw)
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool)
+            and -1e308 < raw < 1e308
+            else 0)
+
+
 def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     """Apply the score formula (scoring.md:11-29) in the LOCKED operation order.
 
@@ -256,23 +606,11 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     self-reports per agent-output-schema hard rule #4); compute_score does not
     re-derive them.
     """
-    # 1. Start from agent_confidence (defensive coercion: garbage => 0).
-    # Accept int OR float (JSON from LLM agents routinely carries floats like
-    # 85.0), but reject bool (True is an int subclass) — mirrors the numeric
-    # guard in _intent_doc_penalty. A float is truncated via int().
-    # NON-FINITE guard (HOLE 2): json.load accepts bare NaN/Infinity/-Infinity as
-    # floats; they pass the isinstance(int,float) check, then int(float('nan'))
-    # raises ValueError and int(float('inf')) raises OverflowError. The import-free
-    # bound `-1e308 < raw_conf < 1e308` rejects all three (every comparison with NaN
-    # is False; inf < 1e308 is False; -1e308 < -inf is False) while any legitimate
-    # 0-100 confidence (incl. floats like 85.0) passes — so a non-finite confidence
-    # coerces to 0 like other garbage instead of crashing. (`import math` is FORBIDDEN
-    # here: the AST import-ban test pins the import set to {json,hashlib,re,sys}.)
-    raw_conf = finding.get("agent_confidence", 0)
-    s = (int(raw_conf)
-         if isinstance(raw_conf, (int, float)) and not isinstance(raw_conf, bool)
-         and -1e308 < raw_conf < 1e308
-         else 0)
+    # 1. Start from agent_confidence (defensive coercion: garbage => 0). The
+    # coercion (int/float accepted, float truncated, bool/non-finite/garbage => 0)
+    # lives in _coerce_confidence so it is the SINGLE source of truth shared with
+    # the min_confidence pre-scoring filter (they can never drift).
+    s = _coerce_confidence(finding.get("agent_confidence", 0))
 
     # 2. Additive/subtractive bonuses (intent-doc penalty is mutually exclusive).
     if in_diff:
@@ -288,7 +626,13 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
         s += 15                                   # scoring.md:19
 
     # 3. Severity weight LAST, before clamp (scoring.md:21-26). Unset/other => -8.
+    # Fable A6: a non-str severity (a list/dict from a malformed-but-parseable
+    # finding) is UNHASHABLE — a raw dict.get would TypeError, exit non-zero, and
+    # halt the WHOLE run at the orchestrator's fail-closed gate. Non-str coerces
+    # to None, which takes the same -8 fallback as any unrecognized severity.
     severity = finding.get("severity")
+    if not isinstance(severity, str):
+        severity = None
     s += SEVERITY_WEIGHT.get(severity, SEVERITY_FALLBACK)
 
     # 4. pre_clamp.
@@ -684,6 +1028,25 @@ def run(envelope):
     changed_line_ranges = envelope.get("changed_line_ranges", {}) or {}
     reviewed_union = set(envelope.get("reviewed_union", []) or [])
     file_line_totals = envelope.get("file_line_totals", {}) or {}
+    # v2.8 config knob (D-02, CONFIG-04): optional band-floor override. No `or {}` —
+    # absent AND explicit-None both yield None, so band_for uses the built-in literals
+    # and a zero-config run stays byte-identical. band_for() is crash-safe against a
+    # malformed value (whole-set fallback), so no re-validation is needed here.
+    thresholds = envelope.get("thresholds")
+    # v2.8 confidence knob (CONF-02, D-03/D-04): optional pre-scoring drop floor. No
+    # `or 0` — absent AND explicit-None both yield None, which the isinstance(int)
+    # gate below reads as "no filter" (byte-stable default). score.py's contract is
+    # "crash-safe against ANY envelope value" regardless of who fills it, so the
+    # filter guards the type itself (mirrors the thresholds crash-safety posture).
+    min_confidence = envelope.get("min_confidence")
+    # v2.8 idiom band cap (NOISE-01, D-01/D-02, A1): optional per-category cap on
+    # `idiom`-category findings. No `or` coercion — the RAW value goes straight to
+    # _cap_idiom_band, whose _usable_idiom_floor resolves the THREE distinct states
+    # (absent/None -> the "medium" default cap ACTIVE per A1; the literal
+    # "off"/"none" sentinel -> disabled; a valid band -> that cap). Centralizing the
+    # absent->medium default INSIDE the helper (not `idiom_floor or "medium"` here)
+    # is what keeps the explicit "off" sentinel distinguishable from an absent key.
+    idiom_floor = envelope.get("idiom_floor")
 
     # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
     # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
@@ -749,6 +1112,19 @@ def run(envelope):
             _route_malformed(f, reason)
     findings = valid_findings
 
+    # --- status scrub on NEW findings (Fable A5, security) ------------------- #
+    # `status` is a SCORING input (+15 persisted, and the multi-pass carry-forward
+    # allowlist) that only the carry-forward loop below may set. On a NEW agent
+    # finding it is agent-forgeable: a finding arriving with "status":"persisted"
+    # (an agent emitting an extra field — or an attacker-authored diff steering
+    # one) would take the +15, enough to flip warning->critical or resurrect a
+    # sub-threshold finding, and would render a fresh finding as "PERSISTED".
+    # Hard rule #4 already recomputes in_diff/silenced from raw facts; scrub
+    # `status` at the same trust boundary. Carryforward entries are untouched —
+    # their status is ALWAYS recomputed by carry_forward_status below, never read
+    # from the input.
+    findings = [{k: v for k, v in f.items() if k != "status"} for f in findings]
+
     # --- Carry-forward (review.md:672-678) ----------------------------------- #
     # Each carryforward finding carries a pre-resolved canonical_line_content
     # (the orchestrator read HEAD). null => fixed-since-last (excluded).
@@ -774,6 +1150,82 @@ def run(envelope):
             persisted_ids.add(id(cf))
         working.append(cf)
     working.extend(findings)
+
+    # --- min_confidence pre-scoring filter (CONF-02, D-03) — BEFORE cross-confirm #
+    # Drop any working finding (new OR carryforward — NO carve-out, D-03) whose
+    # coerced agent_confidence < min_confidence, routing it to filtered[] with a
+    # DISTINCT reason. Running BEFORE cross_confirm_group is what guarantees a
+    # dropped finding neither cross-confirms nor influences any survivor's score
+    # (CONF-02's "no influence" clause). The isinstance(int) gate is the crash-safe
+    # short-circuit: a malformed/absent/None value leaves `working` UNTOUCHED so the
+    # zero-config default path is byte-stable (GOLDEN_DIGEST unmoved). Strict `<` so
+    # a finding at exactly N SURVIVES (CONF-02 "below N", D-03).
+    if isinstance(min_confidence, int) and not isinstance(min_confidence, bool):
+        kept_working = []
+        for m in working:
+            if _coerce_confidence(m.get("agent_confidence", 0)) < min_confidence:
+                filtered.append({
+                    "file": m.get("file"),
+                    "line": m.get("line"),
+                    "title": m.get("title"),
+                    "reason": "below-min-confidence",
+                })
+            else:
+                kept_working.append(m)
+        working = kept_working
+
+    # --- Bare vibe-ignore audit collection (NOISE-03, D-04, A2) -------------- #
+    # Collect BARE vibe-ignore occurrences from every working member's window into
+    # a de-dup set keyed by (file, marker_line). A bare marker does NOT suppress
+    # (Task 1), so a member's fate (kept / silenced / sub-threshold) is irrelevant
+    # to the audit — the marker's presence is a fact about the SOURCE, so we scan
+    # `working` (all findings that reached scoring) independent of the drop/keep
+    # loop below. De-dup by (file, marker_line): the SAME physical marker seen from
+    # multiple co-located findings' windows collapses to ONE synthetic finding,
+    # while two DISTINCT bare markers (distinct lines) stay two. The synthetic
+    # findings are emitted AFTER the threshold filter (A2 exemption) so the
+    # sub-threshold drop never sees them.
+    bare_marker_keys = []          # ordered unique (file, marker_line) pairs
+    _bare_seen = set()
+    for member in working:
+        window = _safe_window(member.get("source_window"))
+        bare = [o for o in _vibe_ignore_scan(window) if o["kind"] == "bare"]
+        if not bare:
+            continue
+        # lang-py-001 (crash guard, mirrors NEW-1 for the OTHER key half): coerce
+        # `file` to a safe HASHABLE value BEFORE it enters the `(file, marker_line)`
+        # set key. score.py accepts a malformed-but-parseable finding whose `file`
+        # is a non-str, potentially UNHASHABLE shape (a list/dict) — a raw
+        # `_bare_seen.add((file, marker_line))` / `key not in _bare_seen` on such a
+        # value raises `TypeError: unhashable type`, exits non-zero, and halts the
+        # WHOLE run at review.md's Phase 3 fail-closed gate (the same halt-class the
+        # NEW-1 `line` guard prevents). Coerce to "" for any non-str, mirroring the
+        # SYNTHETIC-FINDING block below (`file_str = file if isinstance(file, str)
+        # else ""`), and thread this SAME coerced value through `bare_marker_keys`
+        # so the emitted synthetic finding's `file` matches what was deduped.
+        file_key = member.get("file")
+        if not isinstance(file_key, str):
+            file_key = ""
+        # NEW-1 (crash guard): resolve the member's line through the EXISTING
+        # _as_line helper FIRST. score.py DELIBERATELY accepts line:null (file-level
+        # findings) and non-int lines (malformed-but-parseable) and MUST NOT raise
+        # here — a raw `finding_line - 2 + index` on a null/str/float/bool line
+        # would TypeError, exit non-zero, and halt the WHOLE run at review.md's
+        # Phase 3 fail-closed check (T-32-10, the same halt-class as Finding #1
+        # reached through a different trigger). A usable int => marker_line
+        # arithmetic; None => marker_line stays None (line:null synthetic finding,
+        # no arithmetic) — which still passes the Phase 3/4 gates (they do not
+        # require a non-null line, Finding NEW-1).
+        finding_line = _as_line(member.get("line"))
+        for o in bare:
+            if finding_line is not None:
+                marker_line = finding_line - 2 + o["index"]  # 0=L-2 … 4=L+2
+            else:
+                marker_line = None
+            key = (file_key, marker_line)
+            if key not in _bare_seen:
+                _bare_seen.add(key)
+                bare_marker_keys.append(key)
 
     # --- Cross-confirm grouping BEFORE scoring (attribution drives +10) ------- #
     groups = cross_confirm_group(working)
@@ -801,13 +1253,35 @@ def run(envelope):
                 scored_members.append((decision["score"], member, decision))
         if not scored_members:
             continue
-        # Highest score wins (stable: keep first on ties via max over score only).
-        scored_members.sort(key=lambda t: t[0], reverse=True)
+        # Highest score wins. Tie-break (Fable A4): the old stable sort kept
+        # whichever tied member arrived FIRST, so among equal-score members the
+        # emitted representative — and its stable_hash, the key that persists a
+        # medium acknowledgment — depended on agent-return order; a Medium the
+        # owner dismissed could silently re-surface as unacknowledged on a pass
+        # where the agents returned in a different order. Equal scores now
+        # tie-break on each member's OWN stable_hash, which is derived purely
+        # from finding content, so the representative (and dismissal key) is
+        # identical across every input ordering.
+        scored_members.sort(key=lambda t: (
+            -t[0],
+            stable_hash(t[1].get("file", ""), t[2]["canonical_for_hash"],
+                        t[1].get("title", "")),
+        ))
         best_score, best_member, best_decision = scored_members[0]
-        # Members that lost the dedup are absorbed into the survivor (not emitted).
+        # Members that lost the dedup are absorbed into the survivor; each loser
+        # is RECORDED in filtered[] below (Fable A2) once the survivor's
+        # stable_hash exists to point at.
         survivor = dict(best_member)
         survivor["orchestrator_score"] = best_score
-        survivor["band"] = band_for(best_score)
+        survivor["band"] = band_for(best_score, thresholds)
+        # v2.8 idiom_floor cap (NOISE-01, D-01/D-02): the ONE post-band adjustment.
+        # band_for above stays the single band WRITER; this LOWERS the label of an
+        # `idiom`-category survivor to idiom_floor (default "medium", A1), scoped to
+        # category=="idiom" and never touching `category` or `orchestrator_score`
+        # (so GOLDEN_DIGEST / stable_hash / non-idiom bands stay byte-stable). Do
+        # NOT add a second band-computation branch elsewhere.
+        survivor["band"] = _cap_idiom_band(
+            survivor.get("category"), survivor["band"], idiom_floor)
         survivor["attribution"] = attribution
         survivor["stable_hash"] = stable_hash(
             survivor.get("file", ""),
@@ -816,6 +1290,20 @@ def run(envelope):
         )
         if "status" not in survivor:
             survivor["status"] = "new"
+        # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
+        # appended to NEITHER findings NOR filtered[] — so when two DISTINCT
+        # same-domain defects landed within ±2 lines, the real second bug was
+        # unrecoverable, violating the "never silently drop" principle. Each
+        # loser is still absorbed (one survivor per group) but is now RECORDED
+        # in filtered[] with a reason naming its survivor's stable_hash, so the
+        # owner can see what was folded into what.
+        for _, loser, _ in scored_members[1:]:
+            filtered.append({
+                "file": loser.get("file"),
+                "line": loser.get("line"),
+                "title": loser.get("title"),
+                "reason": "absorbed-into: " + survivor["stable_hash"],
+            })
         survivors.append((survivor, best_score))
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
@@ -831,12 +1319,51 @@ def run(envelope):
             continue
         kept.append(survivor)
 
-    return {
+    # --- Synthetic bare-marker "suppression" audit findings (NOISE-03, A2) ---- #
+    # The ONE synthetic finding score.py emits and the ONE exemption from the
+    # sub-threshold drop: appended to `kept` HERE, AFTER the threshold loop, so the
+    # `sc < threshold` filter never sees it (A2 — guaranteed visible as an
+    # informational `low` audit finding, NOT dropped). It carries the FULL survivor
+    # shape — band literal "low", a fixed NON-NULL orchestrator_score, a stable_hash
+    # from the existing stable_hash(file, canonical, title) helper, an attribution
+    # of length <=1, and status "audit" (_SUPPRESSION_STATUS) — precisely so
+    # review.md's Phase 3 fail-closed check (halts if any survivor lacks
+    # band/orchestrator_score/stable_hash) and Phase 4 render gate (halts if any
+    # finding lacks band/orchestrator_score) never trip on it (Finding #1), while
+    # the "audit" status keeps it OUT of the multi-pass carry-forward allowlist so
+    # it is regenerated fresh each pass, never carried-and-double-counted
+    # (impact-01). Its `line` may be null for a file-level marker (NEW-1) — neither
+    # gate requires a non-null line, so it still passes both.
+    # category "suppression" is NOT in CATEGORY_DOMAIN, so it maps to no domain and
+    # never cross-confirms (+10) nor is capped by idiom_floor.
+    for file, marker_line in bare_marker_keys:
+        file_str = file if isinstance(file, str) else ""
+        kept.append({
+            "file": file,
+            "line": marker_line,   # may be None (NEW-1) — passes the gates.
+            "title": _SUPPRESSION_TITLE,
+            "category": _SUPPRESSION_CATEGORY,
+            "band": "low",                       # hand-set literal (NOT band_for).
+            "orchestrator_score": _SUPPRESSION_SCORE,  # fixed non-null < medium(70).
+            "attribution": ["vibe-check"],       # length <=1 => never cross-confirmed.
+            "stable_hash": stable_hash(
+                file_str, _SUPPRESSION_CANONICAL, _SUPPRESSION_TITLE),
+            # impact-01: "audit", NOT "new" — the carry-forward allowlist
+            # {new, persisted, needs-recheck} excludes it, so the synthetic finding
+            # is regenerated fresh each pass rather than carried forward and
+            # double-counted / mis-statused. Gate- and render-inert (see the
+            # _SUPPRESSION_STATUS definition).
+            "status": _SUPPRESSION_STATUS,
+        })
+
+    # Fable A11: sanitize non-finite floats at the output boundary so the
+    # envelope is ALWAYS strict JSON (see _sanitize_nonfinite).
+    return _sanitize_nonfinite({
         "scored_by_script": True,
         "findings": kept,
         "fixed_since_last": fixed_since_last,
         "filtered": filtered,
-    }
+    })
 
 
 def _as_line(x):
@@ -848,6 +1375,32 @@ def _as_line(x):
     sentinel as out-of-range / non-grouping rather than crashing with a TypeError.
     """
     return x if isinstance(x, int) and not isinstance(x, bool) else None
+
+
+def _sanitize_nonfinite(obj):
+    """Recursively replace non-finite floats (NaN/Infinity/-Infinity) with None.
+
+    Fable A11: json.dump's default allow_nan=True writes bare `NaN`/`Infinity`
+    tokens — NOT valid JSON — for any non-finite float an agent smuggled through
+    a passthrough field (e.g. intent_doc_match.confidence rides the survivor
+    copy untouched; the _coerce_confidence guard only protects the score MATH,
+    not the output). A strict downstream parser (jq, any non-Python consumer)
+    rejects the whole envelope. run() sanitizes its return value through this,
+    and the __main__ shim passes allow_nan=False as the fail-closed backstop.
+
+    Import-free non-finite test (the AST import-set test bans `math`): the
+    `-1e308 < x < 1e308` bound is the same idiom as _coerce_confidence — every
+    comparison with NaN is False, inf/-inf fall outside the bound, every
+    legitimate JSON-borne float passes. Depth is bounded by what json.load
+    already parsed, so recursion mirrors the input's own limits.
+    """
+    if isinstance(obj, float) and not (-1e308 < obj < 1e308):
+        return None
+    if isinstance(obj, list):
+        return [_sanitize_nonfinite(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _sanitize_nonfinite(v) for k, v in obj.items()}
+    return obj
 
 
 def _valid_finding(member):
@@ -900,12 +1453,24 @@ def _line_in_ranges(line, ranges):
     A non-int line (None / null / other) is treated as out-of-range (returns
     False) rather than raising — a file-level finding with line=null simply is
     not in any diff range.
+
+    Fable F9: the pair ELEMENTS get the same guard as the pair length — a range
+    like [["8","14"]] (string line numbers, a plausible orchestrator-side drift
+    in the LLM-assembled hunk JSON) previously raised `TypeError: '<=' not
+    supported between 'str' and 'int'` and halted the whole run. A non-int
+    endpoint (via _as_line) now reads as "not a usable range" (False), and a
+    non-sequence pair / non-list ranges container is skipped the same way.
     """
     line = _as_line(line)
     if line is None:
         return False
-    for pair in ranges or []:
-        if len(pair) >= 2 and pair[0] <= line <= pair[1]:
+    if not isinstance(ranges, (list, tuple)):
+        return False
+    for pair in ranges:
+        if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+            continue
+        start, end = _as_line(pair[0]), _as_line(pair[1])
+        if start is not None and end is not None and start <= line <= end:
             return True
     return False
 
@@ -916,12 +1481,29 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
 
     Returns a dict: {"drop": bool, "reason": str|None, "score": int|None,
     "canonical_for_hash": str}. The keep/drop gate differs by mode:
-      - diff mode: out-of-diff findings are dropped (reason "out-of-diff")
+      - diff mode: in_diff drives ONLY the +20 bonus — an out-of-diff finding is
+        NOT dropped here (Fable A12: this docstring used to claim a drop with
+        reason "out-of-diff" that never existed in the code; without the +20
+        most out-of-diff findings fall sub-threshold, but a high-confidence one
+        CAN surface — that is current, deliberate-until-redesigned behavior,
+        locked by test_in_diff_recomputed_overrides_agent_claim)
       - --all mode: in_reviewed_set membership gates (reason "not-in-reviewed-set")
         — a TRANSIENT keep/drop boolean, NOT serialized onto the finding, and the
         +20 in_diff term never fires in --all (review.md:684).
     """
+    # lang-py-001 (crash guard): coerce `file` to a safe HASHABLE str BEFORE it is
+    # used as a dict key / set membership below (`file_line_totals.get(file)`,
+    # `file in reviewed_union`, `changed_line_ranges.get(file, [])`). A
+    # malformed-but-parseable finding whose `file` is a non-str, potentially
+    # UNHASHABLE shape (list/dict) would otherwise raise `TypeError: unhashable
+    # type` on those lookups, exit non-zero, and halt the WHOLE run at review.md's
+    # Phase 3 fail-closed gate. A non-str `file` is never a real path (so it can
+    # never legitimately be a reviewed_union member or a *_totals/ranges key), so
+    # coercing it to "" is behavior-preserving for real input while never raising —
+    # mirroring _as_line / _safe_window's coerce-at-read posture.
     file = member.get("file", "")
+    if not isinstance(file, str):
+        file = ""
     line = member.get("line", 0)
     source_window = _safe_window(member.get("source_window"))
 
@@ -952,7 +1534,13 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     else:
         in_diff = _line_in_ranges(line, changed_line_ranges.get(file, []))
 
-    persisted = id(member) in persisted_ids or member.get("status") == "persisted"
+    # Fable A5: `persisted` comes ONLY from the identity set the carry-forward
+    # loop built — the sole legitimate writer of status=="persisted" (it adds
+    # id(cf) of the very dict it appends to `working`, so the identity always
+    # hits here). The old `or member.get("status") == "persisted"` fallback was
+    # redundant for real carryforward members and was the forgery surface for an
+    # agent-supplied status on a new finding (+15 from an unverified input).
+    persisted = id(member) in persisted_ids
 
     score = compute_score(
         member,
@@ -963,7 +1551,17 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     )
     if score is None:
         # pre-clamp < 0 => DROP (D-14). Reason is the dominant drop cause.
-        reason = "silenced" if silenced else "sub-threshold"
+        # Fable F8: an intent-doc-driven drop (the -100 strong-match / -30
+        # penalty forcing pre-clamp < 0) was mislabeled "sub-threshold" —
+        # conflating "the code matches the plan" with "the score was too low"
+        # in the user-facing filtered[] report. silenced keeps precedence when
+        # both apply (preserves the existing label in the overlap case).
+        if silenced:
+            reason = "silenced"
+        elif _intent_doc_penalty(member) < 0:
+            reason = "intent-doc-match"
+        else:
+            reason = "sub-threshold"
         return {"drop": True, "reason": reason, "score": None,
                 "canonical_for_hash": canonical_for_hash}
     return {"drop": False, "reason": None, "score": score,
@@ -980,4 +1578,8 @@ if __name__ == "__main__":
     # of rendering unscored findings.
     envelope = json.load(sys.stdin)
     result = run(envelope)
-    json.dump(result, sys.stdout)
+    # allow_nan=False (Fable A11): the fail-closed backstop behind run()'s
+    # _sanitize_nonfinite — if a non-finite float ever reaches serialization
+    # anyway, raise (non-zero exit -> orchestrator halts) rather than emit the
+    # bare `NaN` token, which is not valid JSON.
+    json.dump(result, sys.stdout, allow_nan=False)

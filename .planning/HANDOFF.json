@@ -1,0 +1,30 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-07-01T20:52:01.094Z",
+  "phase": "33",
+  "phase_name": "codex-legibility-safer-fix-loop-default-orchestrator-only-kn",
+  "phase_dir": ".planning/phases/33-codex-legibility-safer-fix-loop-default-orchestrator-only-kn",
+  "plan": 2,
+  "task": 1,
+  "total_tasks": 3,
+  "status": "paused",
+  "orchestrator": "julian-orchestrator:milestone",
+  "branch": "feat/framework-skill-reviewer",
+  "head": "04c1461",
+  "completed_tasks": [
+    {"id": "33-01", "name": "config.py codex knob (off/auto/on) + tests", "status": "done", "commits": ["83cbfae", "80155e9", "04c1461"], "note": "Wave 1 complete: source + tests committed, SUMMARY written, 311 tests green, score.py byte-unchanged"}
+  ],
+  "remaining_tasks": [
+    {"id": "33-02", "name": "review.md + deep-review.md orchestrator wiring (LEGIBLE-01/02/03)", "status": "not_started", "wave": 2, "tasks": 3, "files": ["plugins/vibe-check/commands/review.md", "plugins/vibe-check/commands/deep-review.md"], "note": "Task1 = Phase-0 pre-mode normalizer ($SCOPE_ARGS) over 6 scope sites; Task2 = Phase 0.6 --codex parse/binds + Step-A guard; Task3 = deep-review MOVE smoke gate into Phase 2c launch guard + off short-circuit + on prominence + Phase 3 outcome line + :36 contract note"}
+  ],
+  "blockers": [],
+  "human_actions_pending": [],
+  "decisions": [
+    {"decision": "codex is a config.py-validated orchestrator-only knob (never in score.py envelope); malformed → auto + fixed KEY-named warning", "rationale": "D-14 + Phase-30 tested-helper pattern; keeps GOLDEN_DIGEST frozen", "phase": "33"},
+    {"decision": "on == auto-dispatch + LOUDER skip prominence; NEVER forces a launch onto a correctness fail-closed skip", "rationale": "SAFE-01 — forcing a non-representable diff would silently review the wrong code", "phase": "33"},
+    {"decision": "33-02 fixes 3 codex-found control-path bugs: smoke-gate moved into Phase-2c launch guard (runs iff Codex launches); pre-mode $SCOPE_ARGS normalizer over 6 scope sites (also fixes latent --min-confidence bug)", "rationale": "codex adversarial found off still hit Phase-2b hard-block, --codex parsed after mode detection, --all $NARROW mis-reads flag value — all fixed, codex final verdict APPROVE", "phase": "33"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Resume /julian-orchestrator:milestone. It re-reads ROADMAP (Phase 33 in progress), the phase loop finds 33-01 has a SUMMARY (skip) and 33-02 incomplete → dispatch the Wave-2 executor for 33-02. Then BUILD-VERIFY (skipped — no typecheck), TEST-VERIFY (pytest -q in plugins/vibe-check/scripts), then Sub-step 5 DEEP REVIEW (/vibe-check:deep-review 33), then Phase 34 CLOSE.",
+  "context_notes": "Phase 33 (Codex legibility + safer fix-loop, LEGIBLE-01/02/03, prose+config only) passed DISCUSS + PLAN + a HARD adversarial gate (codex 4 passes / 3 rewrites, cap raised to 3 with owner authorization at the cap, final APPROVE). Both plans (33-01/33-02) plan-checker-PASSED and codex-APPROVED. Wave 1 (33-01) is DONE. Only Wave 2 (33-02, the orchestrator-prose wiring) + verify + deep-review + Phase 34 remain. GOTCHAS for the resumer: codex-adversarial Skill is disable-model-invocation -> call the companion directly (nohup + gtimeout detached, Monitor on log-GROWTH not broker updatedAt, cancel+relaunch on stall). Bash stat mtime goes stale mid-session -> use md5/content-grep to confirm a subagent write landed. .planning is gitignored -> force-add SUMMARY/plan/context files. Test runner is bare 'pytest -q' from plugins/vibe-check/scripts (NOT python3 -m pytest). run_verify_gate is BASH not zsh. NO plugin.json bump until Phase 34."
+}

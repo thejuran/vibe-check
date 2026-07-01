@@ -1,0 +1,82 @@
+{
+  "phase": "30-config-surface-foundation",
+  "mode": "deep",
+  "passes": [
+    {
+      "pass_number": 1,
+      "range": "3fe02fb..8036e02",
+      "agents": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python",
+        "framework-skill"
+      ],
+      "findings": [
+        {
+          "id": "lang-py-001",
+          "band": "medium",
+          "status": "fixed-since-last",
+          "severity": "medium",
+          "agent_confidence": 95,
+          "file": "plugins/vibe-check/scripts/config.py",
+          "title": "shallow copy shares _DEFAULT_VALUES['disabled'] mutable list",
+          "stable_hash": "p30-langpy-001"
+        },
+        {
+          "id": "impact-01",
+          "band": "medium",
+          "status": "fixed-since-last",
+          "severity": "medium",
+          "agent_confidence": 72,
+          "file": "plugins/vibe-check/commands/review.md",
+          "title": "Phase 0.5 early-exits bypass unconditional Phase 0.6",
+          "stable_hash": "p30-impact-01"
+        },
+        {
+          "id": "F-01",
+          "band": "medium",
+          "status": "fixed-since-last",
+          "severity": "medium",
+          "agent_confidence": 88,
+          "file": "plugins/vibe-check/commands/deep-review.md",
+          "title": "MUST-read enumeration omits Phase 0.6",
+          "stable_hash": "p30-fskill-01"
+        },
+        {
+          "id": "F-02",
+          "band": "medium",
+          "status": "fixed-since-last",
+          "severity": "medium",
+          "agent_confidence": 75,
+          "file": "plugins/vibe-check/commands/review.md",
+          "title": "degrade-vs-warn discriminant not explicit",
+          "stable_hash": "p30-fskill-02"
+        }
+      ],
+      "medium_count": 5,
+      "critical_count": 0,
+      "warning_count": 0,
+      "low_count": 13,
+      "unfixed_critical_warning": 0
+    },
+    {
+      "pass_number": 2,
+      "range": "8036e02..HEAD",
+      "agents": [
+        "bugs",
+        "framework-skill"
+      ],
+      "note": "re-review of the 8 fixes (5 medium + 3 low); both agents CLEAN, 0 new findings, 192 tests green, GOLDEN_DIGEST intact",
+      "findings": [],
+      "critical_count": 0,
+      "warning_count": 0,
+      "medium_count": 0,
+      "low_count": 0,
+      "unfixed_critical_warning": 0
+    }
+  ],
+  "medium_acknowledgments": {}
+}
