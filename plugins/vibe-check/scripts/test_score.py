@@ -1587,12 +1587,14 @@ class TestRunMinConfidence(unittest.TestCase):
         # overlapping category, DIFFERENT agent) must NOT lend its +10 cross-confirm
         # to the survivor: the survivor's score equals the no-drop baseline where
         # the low finding was simply absent.
+        # null-access -> "correctness" domain: two agents at the same file/line
+        # with overlapping domains cross-confirm (+10 when both are present).
         survivor = make_finding(id="mc-surv", agent_confidence=85,
                                 severity="critical", file="src/c.py", line=30,
-                                category="bug", agent="bugs")
+                                category="null-access", agent="bugs")
         low_twin = make_finding(id="mc-twin", agent_confidence=50,
                                 severity="critical", file="src/c.py", line=30,
-                                category="bug", agent="security")
+                                category="null-access", agent="security")
 
         # With min_confidence=70 the twin drops -> survivor scores alone (85, no +10).
         with_drop = score.run(self._envelope(min_confidence=70,
@@ -1617,11 +1619,14 @@ class TestRunMinConfidence(unittest.TestCase):
 
     def test_exactly_n_survives(self):
         # Strict `<`: a finding at exactly min_confidence SURVIVES; one at N-1 drops.
+        # Use /deep-review (finalize cutoff 70) so a conf-70 finding scores 70 and
+        # clears the SEPARATE per-command cutoff — isolating the confidence filter's
+        # strict `<` from the post-scoring sub-threshold layer.
         at_n = make_finding(id="mc-at", agent_confidence=70, severity="critical",
                             file="src/d.py", line=40)
         below = make_finding(id="mc-69", agent_confidence=69, severity="critical",
                              file="src/e.py", line=50)
-        result = score.run(self._envelope(min_confidence=70,
+        result = score.run(self._envelope(min_confidence=70, command="deep-review",
                                           findings=[at_n, below]))
         ids = [g["id"] for g in result["findings"]]
         self.assertIn("mc-at", ids)
