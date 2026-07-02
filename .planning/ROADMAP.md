@@ -249,7 +249,10 @@ ahead of it after the v2.8 merge + all Fable docs).
   3. **A measured report lands in `docs/efficacy/`.** A catch-rate / false-positive-rate report lands in `plugins/vibe-check/docs/efficacy/`, replacing the self-documented "no aggregate numbers" gap in `RESULTS.md` with measured ones, with limitations stated honestly (small N, four repos, organic-only) (B3-03).
   4. **The report says what the numbers imply.** The report states explicitly what the measured numbers imply for the B3-gated scorer design challenges — proceed / don't / need more data — the input to the next milestone's scoping (B3-03).
 
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 36-01-PLAN.md — Build the run-kit: 3 organic should-catch + >=2 should-quiet reversed-fix patches, per-diff answer key (SITE+AXIS+BAND, A8/A16 folded, D-11 table), owner run-checklist (B3-01)
+- [ ] 36-02-PLAN.md — Owner drives /deep-review N=3 per diff and archives run state (WAIT gate, B3-02)
+- [ ] 36-03-PLAN.md — Score archived runs vs the pre-registered key + append the catch/FP report to RESULTS-v2.9.md (B3-02/B3-03)
 **UI hint**: no
 
 ### Phase 37: Close
