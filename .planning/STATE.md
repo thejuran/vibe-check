@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
 status: executing
-stopped_at: Completed 35-01-PLAN.md (codex knob wired live)
-last_updated: "2026-07-02T01:52:47.085Z"
+stopped_at: Phase 36 context gathered
+last_updated: "2026-07-02T10:25:04.983Z"
 last_activity: 2026-07-02 -- Phase 35 execution started
 progress:
   total_phases: 17
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 6
 ---
 
 # Project State
@@ -169,8 +169,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-02T01:52:19.373Z
-Stopped at: Completed 35-01-PLAN.md (codex knob wired live)
+Last session: 2026-07-02T10:25:04.977Z
+Stopped at: Phase 36 context gathered
 STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
 Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).
 Do NOT blind-resume the old Phase-33 orchestrator resume files — 33-02 needs a rebase first.
