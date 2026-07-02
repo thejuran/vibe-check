@@ -140,7 +140,7 @@ Full per-phase detail: `.planning/milestones/v2.8-ROADMAP.md`. Deferred into v2.
 
 ### 🚧 v2.9 Prove it (Phases 35-37) — IN PROGRESS
 
-- [ ] **Phase 35: Make v2.8 whole** - Rebase + execute the frozen 33-02 wiring (`--codex` flag, always-announce Codex line, fix-loop label), then run the deferred v2.8 planted-fixture smoke proofs + Phase 33's deep-review gate
+- [x] **Phase 35: Make v2.8 whole** - Rebase + execute the frozen 33-02 wiring (`--codex` flag, always-announce Codex line, fix-loop label), then run the deferred v2.8 planted-fixture smoke proofs + Phase 33's deep-review gate (completed 2026-07-02)
 - [ ] **Phase 36: B3 — first measured quality numbers** - Build the committed organic ground-truth test set (≥3 should-catch + ≥2 should-quiet, per-diff answer key), owner drives `/deep-review` N=3 per diff, score against the key → catch-rate / FP-rate report in `docs/efficacy/`
 - [ ] **Phase 37: Close** - Bump plugin.json 2.8.0→2.9.0, annotated tag `v2.9`, publish (main + tag + branch), milestone audit
 
@@ -193,7 +193,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 | 32. Idiom floor + `vibe-ignore` marker | v2.8 | 3/3 | Complete | 2026-07-01 |
 | 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | Partial — 33-01 shipped; 33-02 deferred to v2.9 Phase 35 | 2026-07-01 |
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred to v2.9 Phase 35) | 2026-07-01 |
-| 35. Make v2.8 whole | v2.9 | 1/2 | In Progress|  |
+| 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
 | 36. B3 — first measured quality numbers | v2.9 | 0/? | Not started | - |
 | 37. Close | v2.9 | 0/? | Not started | - |
 
@@ -234,7 +234,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 
 **Plans**: 2 plans
 - [x] 35-01-PLAN.md — Rebase + execute the frozen 33-02 wiring (`$SCOPE_ARGS` normalizer + `--codex` parse/bind + deep-review off-short-circuit/smoke-move/outcome-line + Step-A guard comment) — LEGIBLE-01/02/03
-- [ ] 35-02-PLAN.md — Deferred v2.8 proofs: script-level knob proofs + 3 live runs + two scoped deep reviews, recorded in RESULTS-v2.9.md — PROOF-01/02
+- [x] 35-02-PLAN.md — Deferred v2.8 proofs: script-level knob proofs + 3 live runs + two scoped deep reviews, recorded in RESULTS-v2.9.md — PROOF-01/02
 **UI hint**: no
 
 ### Phase 36: B3 — first measured quality numbers
