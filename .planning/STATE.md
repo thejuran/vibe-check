@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
-status: planning
-stopped_at: Phase 35 context gathered
-last_updated: "2026-07-02T00:31:04.652Z"
-last_activity: 2026-07-01 — v2.9 roadmap created (9/9 requirements mapped, Phases 35–37)
+status: executing
+stopped_at: Completed 35-01-PLAN.md (codex knob wired live)
+last_updated: "2026-07-02T01:52:47.085Z"
+last_activity: 2026-07-02 -- Phase 35 execution started
 progress:
   total_phases: 17
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** v2.9 "Prove it" ROADMAP created (Phases 35–37, sequential). Ready to plan Phase 35 (Make v2.8 whole — rebase + execute 33-02, then run the deferred v2.8 smoke proofs).
+**Current focus:** Phase 35 — Make v2.8 whole
 
 ## Current Position
 
-Phase: 35 — Make v2.8 whole (not started — ready to plan)
-Plan: —
-Status: Roadmap approved; ready to plan Phase 35
-Last activity: 2026-07-01 — v2.9 roadmap created (9/9 requirements mapped, Phases 35–37)
+Phase: 35 (Make v2.8 whole) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 35
+Last activity: 2026-07-02 -- Phase 35 execution started
 
 ## Performance Metrics
 
@@ -66,6 +66,7 @@ Last activity: 2026-07-01 — v2.9 roadmap created (9/9 requirements mapped, Pha
 | Phase 32 P02 | 8min | 2 tasks | 2 files |
 | Phase 32 P03 | 5min | 2 tasks | 4 files |
 | Phase 33 P01 | 4min | 2 tasks | 2 files |
+| Phase 35 P01 | 9min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,9 @@ Earlier decisions (v2.8) still on record:
 - Phase 30 P02: band_for parameterized to band_for(score, thresholds=None); default path byte-identical, GOLDEN_DIGEST unchanged.
 - Phase 32-01: idiom_floor cap ACTIVE by default at medium (A1); explicit off/none returns the literal 'off' sentinel (NOT None) end-to-end so absent != off is provable at the scorer; malformed fails SAFE to medium.
 - Phase 32-02: vibe-ignore reasoned marker (within +/-2) rides the existing -50 silenced path; bare marker does NOT suppress but emits ONE synthetic low 'suppression' finding per bare occurrence.
+- [Phase 35]: 35-01: --min-confidence folded into the Phase-0 $SCOPE_ARGS normalizer alongside --codex — Shared parse-timing bug; the normalizer ADDS GSD/PR/range reach + fixes the --all narrow-parse mis-read, never changes byte-correct diff/--all behavior
+- [Phase 35]: 35-01: HIGH-B MOVE-SMOKE-INTO-2c — BashOutput smoke gate relocated inside the launch guard — So a non-launching Codex never hard-blocks the native review (SAFE-01/SAFE-02); Phase 2b header repurposed to a pointer, not deleted
+- [Phase 35]: 35-01: rebase discipline held (D-06) — Executed diff deviates from frozen 33-02 ONLY by re-anchored line numbers + the one bare-all alias composition sentence; no design change
 
 ### Pending Todos
 
@@ -165,8 +169,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-01T23:58:47.149Z
-Stopped at: Phase 35 context gathered
+Last session: 2026-07-02T01:52:19.373Z
+Stopped at: Completed 35-01-PLAN.md (codex knob wired live)
 STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
 Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).
 Do NOT blind-resume the old Phase-33 orchestrator resume files — 33-02 needs a rebase first.

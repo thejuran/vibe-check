@@ -193,7 +193,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 | 32. Idiom floor + `vibe-ignore` marker | v2.8 | 3/3 | Complete | 2026-07-01 |
 | 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | Partial — 33-01 shipped; 33-02 deferred to v2.9 Phase 35 | 2026-07-01 |
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred to v2.9 Phase 35) | 2026-07-01 |
-| 35. Make v2.8 whole | v2.9 | 0/? | Not started | - |
+| 35. Make v2.8 whole | v2.9 | 1/2 | In Progress|  |
 | 36. B3 — first measured quality numbers | v2.9 | 0/? | Not started | - |
 | 37. Close | v2.9 | 0/? | Not started | - |
 
@@ -233,7 +233,7 @@ ahead of it after the v2.8 merge + all Fable docs).
   5. **Phase 33 finally gets its gate.** A `/vibe-check:deep-review` pass over the Phase-33 surface (the 33-01 shipped diff + the new 33-02 diff) comes back clean — no unresolved critical/warning findings — closing the deep-review gate that never ran at v2.8's manual close (PROOF-02).
 
 **Plans**: 2 plans
-- [ ] 35-01-PLAN.md — Rebase + execute the frozen 33-02 wiring (`$SCOPE_ARGS` normalizer + `--codex` parse/bind + deep-review off-short-circuit/smoke-move/outcome-line + Step-A guard comment) — LEGIBLE-01/02/03
+- [x] 35-01-PLAN.md — Rebase + execute the frozen 33-02 wiring (`$SCOPE_ARGS` normalizer + `--codex` parse/bind + deep-review off-short-circuit/smoke-move/outcome-line + Step-A guard comment) — LEGIBLE-01/02/03
 - [ ] 35-02-PLAN.md — Deferred v2.8 proofs: script-level knob proofs + 3 live runs + two scoped deep reviews, recorded in RESULTS-v2.9.md — PROOF-01/02
 **UI hint**: no
 

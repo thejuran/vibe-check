@@ -122,6 +122,10 @@ All plan `<verification>` gates pass:
 - **Pre-flight reminder for any smoke/dogfood run:** the installed-plugin cache must equal repo `plugin.json` before running (stale cache poisoned 4 of the last 5 milestones).
 - No blockers.
 
+## Self-Check: PASSED
+
+All created/modified files exist on disk and all four commit hashes (`01df9db`, `46817b8`, `29825e0`, `76b8122`) are present in the git log.
+
 ---
 *Phase: 35-make-v2-8-whole*
 *Completed: 2026-07-02*
