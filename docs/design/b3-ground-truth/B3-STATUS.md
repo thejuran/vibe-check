@@ -1,52 +1,89 @@
-# B3 — Product-quality ground-truth harness (SHELVED, resume-ready)
+# B3 — Product-quality ground-truth harness (RUN-KIT BUILT — Wave 2 owner runs pending)
 
-> **Status:** Opus, 2026-07-01. SHELVED by owner decision — B3 is its own sub-project (needs a
-> real corpus + many `/deep-review` runs the owner must drive). This banks the verified work so
-> it resumes cleanly. Do NOT treat as complete.
+> **Status:** Phase 36 Plan 36-01 (2026-07-03) built the complete run-kit. Wave 1 (assistant)
+> is DONE; Wave 2 (owner-driven `/deep-review` runs, N=3 per diff) is the current gate; Wave 3
+> (assistant scores + reports into `plugins/vibe-check/docs/efficacy/RESULTS-v2.9.md`) follows.
+> Superseded history: originally SHELVED 2026-07-01 (Opus) pending owner runtime.
 
 ## What B3 measures
+
 The gap vibe-check self-documents (`RESULTS.md:64`): no aggregate catch-rate / false-positive-
 rate across a realistic surface. B3 runs vibe-check on real diffs with **known outcomes** and
 scores: does it catch the real bug (should-catch), and stay quiet on clean code (should-quiet)?
 
-## The hard blocker (why it's shelved)
+## The hard gate (why Wave 2 waits on the owner)
+
 Measurement = run `/deep-review` on each diff, N=3, score output vs answer key. `/deep-review`
-is a **user-triggered skill** — the assistant CANNOT invoke it. So the catch-rate step
-inherently requires the owner to run the reviews. Running `score.py` directly tests only the
-scoring half (needs mock agent findings), which measures nothing about catch-rate. So B3 cannot
-be fully automated; it needs owner run-time.
+is a **user-triggered skill** — the assistant CANNOT invoke it. The owner drives all 18 runs
+from `RUN-CHECKLIST.md` (pure copy-paste; resumable at any run boundary across days).
 
 ## Decisions locked
+
 - **Repos:** triggarr (Py/FastAPI), seedsyncarr (Py+TS), dashboard (Py+React), + roonseek
   (pure Py, buggy history) — the languages/frameworks the owner relies on vibe-check for.
-- **Ground-truth sourcing:** ORGANIC-ONLY. Exclude any fix tagged CR-/WR-/DR-/review-pass/codex
-  — those bugs were *found by vibe-check itself*, so using them is circular (re-asking it to
-  find what it already found). Only human/other-tool-found bugs count as an honest "catches
-  unseen bugs" test.
+- **Ground-truth sourcing:** ORGANIC-ONLY, enforced by the FAIL-CLOSED regex
+  `DR[0-9]|DR-|CR-|WR-|review-pass|codex` (comment-stripped, case-insensitive) — any hit =
+  vibe-check-found = EXCLUDED (circular self-testing). Evidence persisted per patch in
+  `diffs/<id>.provenance`.
 - **Test set:** committed (reusable — re-run each milestone to catch review-quality regression).
+- **D-12:** the dashboard-unbounded-dict "anchor" (`052845e`, subject `fix(42): DR3m-01 ...`)
+  is EXCLUDED — a live regex hit. Replaced by a clean-organic third catch (seedsyncarr).
+- **D-02:** owner_confirmed: true — should-quiet picks confirmed as-is (2026-07-03).
 
-## Verified should-catch diffs (parent = the buggy state, before the fix removed it)
+## The committed test set (6 diffs, all with .provenance sidecars)
 
-| File in diffs/ | Repo | Bug | Fix commit | What SHOULD catch it |
+| diffs/ file | Repo | Role | Source commit | base_sha (runs detach here) |
 |---|---|---|---|---|
-| `dashboard-unbounded-dict.BUGGY.py` | dashboard | `_machine_alert_last_sent: dict = {}` grows unbounded (~10MB @ 100k entries); fix adds OrderedDict FIFO eviction | `052845e` | `bugs` / `impact` (memory leak visible in diff) — the ANCHOR case |
-| `triggarr-autoescape.BUGGY.py` | triggarr | Jinja2 autoescape config; fix moves to a preconfigured env | `e11187e` | `security` / framework (XSS surface) |
-| *(not yet captured)* triggarr secret-in-logs | triggarr | `logger.warning(..., exc=exc)` where `exc` is an httpx error whose URL carries the *arr API key + a pydantic ValidationError echoing the payload; fix → safe scalars (`status_code`, `error_count()`) | `d47b4c2` | `security` (PII/secret-in-logs) — SUBTLE, high-value; a naive reviewer misses it |
+| `triggarr-secret-in-logs.patch` (+`.BUGGY.py`) | triggarr | should-catch: secret/PII (API key) in logs via `exc=exc` | `d47b4c2` reversed | `f4366a2...` (clone HEAD at build) |
+| `triggarr-autoescape.patch` (+`.BUGGY.py`) | triggarr | should-catch: XSS surface — preconfigured autoescape env removed | `e11187e` reversed | `e11187e...` (PINNED — fails current HEAD) |
+| `third-organic-should-catch.patch` | seedsyncarr | should-catch: unclamped >100% progress percentage | `879266c` reversed | `3db8b48...` (clone HEAD at build) |
+| `should-quiet-1.patch` | triggarr | should-quiet: SSRF-hardening feature | `1a8c9f9` forward | `98eb419...` (= `1a8c9f9^`) |
+| `should-quiet-2.patch` | seedsyncarr | should-quiet: optional-JSON-body feature | `3c27e17` forward | `84aff27...` (= `3c27e17^`) |
+| `should-quiet-3.patch` | roonseek | should-quiet: transfer-cancel boundary feature | `2a6bbd9` forward | `1027691...` (= `2a6bbd9^`) |
 
-**Note on the buggy `.py` files:** these are the *whole parent file* at `<fix>^`. For a diff-mode
-review, reconstruct the diff as `git show <fix>` REVERSED (the fix's removal = the bug's
-addition), or review the buggy file against its fixed successor. The answer key is "the review
-must surface the bug the fix later removed, ≥ threshold."
+`dashboard-unbounded-dict.BUGGY.py` remains in `diffs/` as a captured asset but is NOT in the
+measured set (D-12 — non-organic).
 
-## To resume B3 (the run-kit that still needs building)
-1. Capture the triggarr secret-in-logs parent file + reconstruct all three as reviewable diffs.
-2. Add 2-3 should-STAY-QUIET diffs (clean feature commits that shipped fine) — the FP side.
-3. Optionally mine roonseek walkthrough transcripts (scattered across session `.jsonl` dirs) for
-   real user-facing bugs — highest-quality but laborious; deferred.
-4. Write a per-diff answer key (expected findings + expected band).
-5. Owner runs `/deep-review` on each, N=3; assistant scores vs key → first catch/FP numbers.
+Every `.provenance` sidecar records: fix/feature sha + checked subject/body snippet
+(fail-closed regex clean), base_sha (`git apply --check` exit 0 verified), the FULL-worktree
+proof pair (EXPECTED_TREE_DIFF_SHA256 over the full no-pathspec diff + EXPECTED_TOUCHED_PATHS),
+pure-M `name-status:` evidence, and (should-quiet) per-hunk subject-agnostic `git log -L`
+line-survival output.
+
+## To resume B3 (current state → next steps)
+
+Wave 1 artifacts (ALL COMMITTED, Plan 36-01):
+
+1. ✅ 3 should-catch + 3 should-quiet patches + `.provenance` sidecars (base_shas, tree-diff
+   sha256 proof pairs, pure-M gates, organic gates).
+2. ✅ `ANSWER-KEY-b3.md` — SITE+AXIS+BAND three-gate key, per-row base_sha, A8/A16 folded,
+   D-07/D-08/D-09 + head-check rules, D-11 decision table. Pre-registered BEFORE any run.
+3. ✅ `PREREGISTRATION.md` — the SEPARATE fail-closed manifest (follow-up commit) recording the
+   key's committing commit + committed-blob SHA-256. IMMUTABLE once the first `runs/` commit
+   exists; Wave 3 scores only from the committed blob and exits non-zero on mismatch.
+4. ✅ `RUN-CHECKLIST.md` — owner copy-paste sweep: `set -euo pipefail` fail-closed blocks,
+   pre-registration gate + cache CONTENT-assert (STEP 0), uniform detach-to-base_sha
+   apply-ONCE blocks, per-run `apply --reverse --check` pre-review proof + FULL-worktree proof
+   (tree.diff + sha256 + name-only + no-untracked), unconditional `.b3-inprogress` sentinel,
+   exact Phase-5 fix-loop decline instructions, EXPECTED_HEAD argv assert, per-run boundary
+   commits (`runs(36-02): <id> run <n> captured`), revert-once-after-run-3,
+   sentinel-keyed RESUME-AT-NEXT-RUN + FAILED-RUN RECOVERY blocks per diff.
+
+Next:
+
+5. **Wave 2 (OWNER):** drive the 18 runs from `RUN-CHECKLIST.md` (3 per diff; resumable at any
+   run boundary). The single non-copy-paste action per run is `/vibe-check:deep-review`.
+6. **Wave 3 (assistant, Plan 36-03):** score every archived `runs/<id>/run-<n>/state.json`
+   against the committed key blob at the pre-registered commit; write the catch/FP report +
+   D-11 proceed/don't/need-more-data verdicts into
+   `plugins/vibe-check/docs/efficacy/RESULTS-v2.9.md`. Hard-stop before aggregation on any
+   unscoreable run (owner waiver required, recorded in the report).
 
 ## Cross-references
+
+- Answer key: `docs/design/b3-ground-truth/ANSWER-KEY-b3.md`
+- Pre-registration manifest: `docs/design/b3-ground-truth/PREREGISTRATION.md`
+- Run checklist: `docs/design/b3-ground-truth/RUN-CHECKLIST.md`
 - Method template (single-agent): `plugins/vibe-check/docs/efficacy/ANSWER-KEY.md`
 - The self-documented gap: `plugins/vibe-check/docs/efficacy/RESULTS.md:64`
 - Full harness design: `../product-quality-harness.md`
