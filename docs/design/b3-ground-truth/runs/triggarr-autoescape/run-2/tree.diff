@@ -1,0 +1,25 @@
+diff --git a/triggarr/web/routes.py b/triggarr/web/routes.py
+index ab6dd8f..77e8408 100644
+--- a/triggarr/web/routes.py
++++ b/triggarr/web/routes.py
+@@ -17,7 +17,6 @@ from pathlib import Path
+ 
+ import aiosqlite
+ import httpx
+-import jinja2
+ import pydantic
+ from fastapi import APIRouter, Request
+ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+@@ -43,11 +42,7 @@ _PKG_DIR = Path(__file__).resolve().parent.parent
+ TEMPLATES_DIR = _PKG_DIR / "templates"
+ STATIC_DIR = _PKG_DIR / "static"
+ 
+-_jinja_env = jinja2.Environment(
+-    loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
+-    autoescape=True,
+-)
+-templates = Jinja2Templates(env=_jinja_env)
++templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)
+ templates.env.globals["triggarr_version"] = get_display_version()
+ # Shared mutable dict for update info. The scheduler lifespan assigns this
+ # same object to app.state.update_info so both sides share it without
