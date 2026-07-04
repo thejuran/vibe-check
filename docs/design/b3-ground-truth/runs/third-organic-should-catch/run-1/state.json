@@ -1,0 +1,147 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "3db8b48bfd20e7ed873343ddc45b7e47d27e3b0e",
+      "timestamp": "2026-07-04T14:03:41Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted vs HEAD)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [
+        {
+          "agent": "bugs",
+          "id": "bugs-001",
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 308,
+          "title": "Removed clamp lets download-progress label exceed 100% for extracted files",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This hunk deletes the `Math.min(100, ...)` clamp (and the comment explaining it) from percentDownloaded. When localSize > remoteSize \u2014 the exact case the deleted comment described for extracted files (unpacked local size > compressed remote archive size) \u2014 percentDownloaded now evaluates to a value >100 (e.g. 199). The progress-bar WIDTH in transfer-row.component.html:35 re-clamps independently, so the bar is fine; but the numeric label at transfer-row.component.html:28 renders the raw value with no clamp, so the user sees a nonsensical '199%'.",
+          "current_code": "const percentDownloaded: number = remoteSize > 0\n    ? Math.trunc(100.0 * localSize / remoteSize)\n    : 100;",
+          "fix_hint": "restore Math.min(100, ...) on the computed percent (or clamp the label in the template) so extracted files with localSize > remoteSize don't display >100%",
+          "why_it_matters": "Extracted archive rows will show impossible progress percentages like '199%' in the transfer list, a visible correctness regression the removed comment explicitly guarded against.",
+          "silenced_marker_nearby": false,
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "f86dbdbd3dfb645da34495786cb52003565ecafea556ad38bc8facd7ef009caf",
+          "status": "new"
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 307,
+          "title": "Progress can exceed 100% and break downstream completion logic",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 96,
+          "intent_doc_match": null,
+          "problem": "Removing the clamp means any file with local_size greater than remote_size now emits values like 200 for percentDownloaded. The existing service spec explicitly covers extracted archives with local unpacked size greater than remote archive size and expects 100, so this change would fail that test. Downstream, transfer-row displays the raw percent label while only clamping the bar width, and it treats completion as percentDownloaded === 100, so a 200% file can show a full bar with a 200% label but miss completion styling/Done handling.",
+          "current_code": "const percentDownloaded: number = remoteSize > 0\n    ? Math.trunc(100.0 * localSize / remoteSize)\n    : 100;",
+          "fix_hint": "Restore the upper bound, e.g. Math.min(100, Math.trunc(100.0 * localSize / remoteSize)), or if >100% is now intentional, update all consumers and tests so labels, success state, and Done logic use a separate normalized progress value.",
+          "why_it_matters": "A 200% file can show a full bar with a 200% label but miss completion styling/Done handling; existing tests break.",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "architecture",
+            "codex-adversarial"
+          ],
+          "stable_hash": "dd98ccf61985a89399b70a5826169f1681aac7905f59ab24f67300618b1ed55d",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-1",
+          "file": "src/angular/src/app/tests/unittests/services/files/view-file.service.spec.ts",
+          "line": 246,
+          "title": "Removed clamp breaks existing percentDownloaded test vectors \u2014 CI test suite will fail",
+          "category": "blast-radius",
+          "cwe": "CWE-682",
+          "severity": "high",
+          "agent_confidence": 95,
+          "in_diff": false,
+          "intent_doc_match": "unknown",
+          "problem": "The diff removes the Math.min(100, ...) clamp so percentDownloaded = Math.trunc(100.0 * localSize / remoteSize). The existing unit test 'should correctly set ViewFile percent downloaded' asserts two vectors that depend on the clamp: [20, 10, 100] now computes Math.trunc(200) = 200, and [100, 50, 100] now computes Math.trunc(200) = 200. Both expect(file.percentDownloaded).toBe(100) assertions will now fail. The diff changes production code without updating these test vectors, so the Angular unit suite (a CI gate) breaks.",
+          "current_code": "// spec.ts vectors still assert [20,10,100] and [100,50,100]",
+          "fix_hint": "Update test vectors 246-247 to the new unclamped expectations (200, 200) and refresh the comment, OR restore the clamp if >100% is not the intended behavior.",
+          "why_it_matters": "A red test suite blocks the CI pipeline and the release. The stale comment at spec line 245 still describes the old clamp-at-100 contract.",
+          "silenced_marker_nearby": false,
+          "orchestrator_score": 92,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "f7438239150ad22242eb31151b442c68b12ae1abd50f7c02755d013ea8222a71",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-2",
+          "file": "src/angular/src/app/pages/files/transfer-row.component.html",
+          "line": 28,
+          "title": "Progress percentage label now renders >100% (e.g. '199%') for extracted files",
+          "category": "blast-radius",
+          "cwe": "CWE-682",
+          "severity": "medium",
+          "agent_confidence": 90,
+          "in_diff": false,
+          "intent_doc_match": "no",
+          "problem": "The removed comment and clamp existed specifically because extracted files have local (unpacked) size larger than remote (compressed archive) size, producing ratios like 200%. The template renders the numeric label directly at line 28 with no defensive clamp \u2014 an extracted file will display '199%' or '200%'. The progress-bar WIDTH at line 35 has its own inline guard so bar geometry is safe, but the text label is not, and [class.progress-fill--success]=\"percentDownloaded === 100\" (line 33) no longer matches, so a fully-downloaded/extracted file loses its success styling.",
+          "current_code": "<span>{{ file.percentDownloaded | number:'1.0-1' }}%</span>",
+          "fix_hint": "If >100% is unintended, restore the clamp in view-file.service.ts; if the label must always cap at 100, clamp at the display site too.",
+          "why_it_matters": "User-facing regression: reintroduces the visible >100% bug for every extracted-archive file and silently drops the green success styling on completed extracted files.",
+          "silenced_marker_nearby": false,
+          "orchestrator_score": 82,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "4cca4b9fb42f5c847fad9ea941404adb1eb02bc424d3564c3935dbb46e65bdf8",
+          "status": "new"
+        },
+        {
+          "agent": "language-typescript",
+          "id": "ts-001",
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 307,
+          "title": "Removed Math.min(100, ...) clamp reintroduces the >100% progress bug the removed comment explicitly documented",
+          "category": "correctness",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 85,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "For an extracted file where local_size (unpacked) exceeds remote_size (compressed archive), percentDownloaded now computes as e.g. 199 instead of being clamped to 100, which will render as \"199%\" in the UI exactly as the deleted comment warned.",
+          "current_code": "const percentDownloaded: number = remoteSize > 0\n    ? Math.trunc(100.0 * localSize / remoteSize)\n    : 100;",
+          "fix_hint": "Restore the Math.min(100, ...) clamp or add compensating clamping at every display site.",
+          "why_it_matters": "Visible UI correctness regression for extracted files.",
+          "silenced_marker_nearby": false,
+          "orchestrator_score": 97,
+          "band": "critical",
+          "attribution": [
+            "language-typescript"
+          ],
+          "stable_hash": "3119308fe09acccd3548bbd011add0b6ec06227539c6651a3b81537a263cc365",
+          "status": "new"
+        }
+      ]
+    }
+  ],
+  "medium_acknowledgments": {}
+}
