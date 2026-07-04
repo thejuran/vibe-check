@@ -31,3 +31,24 @@
   unscoreable, the bad run dir archived (`run-2.failed-<ts>`), `uv.lock` scope-reverted,
   and run 2 REPEATED via the FAILED-RUN RECOVERY block. The gate did exactly its job.
   Watch-for: if this recurs on the retry, investigate which review step invokes uv.
+
+- **N-04 (N-03 recurred on the retry → prevention applied, should-quiet-1 run 2 retry,
+  2026-07-04):** the retry's review completed (state written 11:17 local) but `uv.lock` was
+  again modified mid-run (mtime 11:13; +83 lines, same bcrypt-era re-resolution) — the
+  retry was therefore ALSO unscoreable per D-06 and was discarded before capture; its
+  evidence (state.json + contaminated tree.diff) is archived at
+  `runs/should-quiet-1/run-2.failed-1783179419/`. **Root cause (investigated per N-03's
+  watch-for):** the deep-review orchestrator's coverage step is consume-only by contract
+  (`deep-review.md` Phase 1d: "NEVER run a coverage or test command"), so the writer is a
+  reviewer AGENT running an exploratory `uv run …` verification command; at this pinned old
+  base the committed lock is stale relative to `pyproject.toml`, so any default `uv run`
+  re-locks. Agent behavior is non-deterministic per run — run 1 was clean, both run-2
+  attempts were hit — so re-rolling is not a fix. **Prevention (protocol addition for
+  uv-managed repos at old bases):** set the macOS immutable flag on the lockfile for the
+  duration of a diff's runs — `chflags uchg <repo>/uv.lock` after the fresh/resume block,
+  `chflags nouchg <repo>/uv.lock` before the step-9 revert. The flag blocks modify AND
+  rename-over (uv's atomic write), is invisible to git, and an agent's failed `uv run` is
+  itself harmless to the measurement (the review proceeds; equivalent to the command not
+  being run). Applied to `~/triggarr/uv.lock` (in effect for should-quiet-1 runs 2–3).
+  `~/roonseek` also has a `uv.lock` — apply the same flag when should-quiet-3's fresh block
+  runs; `~/seedsyncarr` has none (n/a for should-quiet-2).

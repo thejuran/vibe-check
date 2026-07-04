@@ -1,0 +1,121 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-07-04T14:59:59Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted working tree)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "agent": "bugs",
+          "id": "bugs-001",
+          "file": "triggarr/web/validation.py",
+          "line": 87,
+          "title": "IPv4-mapped IPv6 path skips BLOCKED_HOSTS re-check, reopening metadata-IP SSRF bypass",
+          "category": "logic-error",
+          "cwe": "CWE-918",
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new IPv4-mapped check re-tests the mapped address only against is_link_local/is_loopback/is_unspecified/is_multicast, but NOT against BLOCKED_HOSTS. BLOCKED_HOSTS is enforced only by the string comparison at line 77 (`hostname in BLOCKED_HOSTS`). For an IPv4-mapped literal the hostname string is e.g. `::ffff:100.100.100.200`, which does not string-match any BLOCKED_HOSTS entry, so line 77 passes. `100.100.100.200` (Alibaba Cloud metadata) is a plain public IP: it is not loopback/link-local/unspecified/multicast, so both line 82 (outer IPv6) and line 87 (mapped IPv4) pass. Verified: `http://[::ffff:100.100.100.200]` is ACCEPTED, defeating the metadata block that D-10 and this hunk exist to enforce. (169.254.169.254 happens to also be link-local so it is still caught, but 100.100.100.200 relies solely on the BLOCKED_HOSTS string match.)",
+          "current_code": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n                return (False, \"Blocked address\")",
+          "fix_hint": "also block when str(mapped) is in BLOCKED_HOSTS (and/or when mapped.is_private per policy) so mapped forms of BLOCKED_HOSTS entries like 100.100.100.200 are rejected",
+          "why_it_matters": "An attacker-supplied *arr URL using an IPv4-mapped IPv6 literal reaches cloud metadata endpoints that BLOCKED_HOSTS is specifically meant to protect, re-opening the SSRF hole this change set out to close.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+            "                return (False, \"Blocked address\")",
+            "    except ValueError:"
+          ],
+          "canonical_line_content": "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "97473186f676de13ec595390f429789ec7c49e9784b294aa9fd5c71db50f3bbb",
+          "status": "new"
+        },
+        {
+          "agent": "security",
+          "id": "sec-001",
+          "file": "triggarr/web/validation.py",
+          "line": 82,
+          "title": "SSRF bypass via NAT64 well-known prefix (64:ff9b::/96) embedding blocked IPv4 addresses",
+          "category": "ssrf",
+          "cwe": "CWE-918",
+          "severity": "high",
+          "agent_confidence": 90,
+          "in_diff": true,
+          "intent_doc_match": "Diff comment references 'D-10' -- a design decision to block IPv4-embedded-in-IPv6 SSRF bypasses (the same class this finding is in), so this is a direct miss of the diff's own stated goal.",
+          "problem": "The diff adds detection for IPv4-mapped IPv6 addresses (::ffff:0:0/96 prefix) via addr.ipv4_mapped, but does not handle the NAT64 'Well-Known Prefix' 64:ff9b::/96 (RFC 6052), which also encodes an arbitrary IPv4 address directly in the low 32 bits. Python's ipaddress.IPv6Address.ipv4_mapped only recognizes the ::ffff:0:0/96 form and returns None for 64:ff9b::/96 addresses, so the new check does not fire, and none of is_link_local/is_loopback/is_unspecified/is_multicast on the outer IPv6Address catch it either (verified: is_loopback is False and is_global is True for 64:ff9b::127.0.0.1). Verified directly against validate_arr_url: validate_arr_url('http://[64:ff9b::127.0.0.1]:8080/') and validate_arr_url('http://[64:ff9b::169.254.169.254]/latest/meta-data/') both return (True, '') -- loopback and the cloud metadata IP are allowed through when expressed via the NAT64 prefix even though their plain IPv4 forms are blocked. On hosts/containers with NAT64 enabled (common in IPv6-only or dual-stack cloud/container networking), traffic to these addresses is actually routed to the embedded IPv4 destination, giving a real SSRF path to loopback services or the cloud metadata endpoint.",
+          "current_code": "addr = ipaddress.ip_address(hostname)\nif addr.is_link_local or addr.is_loopback or addr.is_unspecified or addr.is_multicast:\n    return (False, \"Blocked address\")\nif isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n    mapped = addr.ipv4_mapped\n    if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n        return (False, \"Blocked address\")",
+          "fix_hint": "Generalize the embedded-IPv4 extraction beyond ipv4_mapped: for an IPv6Address, also check the 64:ff9b::/96 NAT64 prefix (and consider 6to4 2002::/16) by extracting the trailing 32 bits as an IPv4Address and re-running the same is_link_local/is_loopback/is_unspecified/is_multicast checks against it, mirroring the pattern already used for ipv4_mapped.",
+          "why_it_matters": "This is exactly the SSRF class the diff is trying to close (per the D-10 reference) -- an attacker who controls the *arr URL can use an alternate IPv6 embedding of a blocked IPv4 address to reach loopback services or the 169.254.169.254 cloud metadata endpoint on any deployment where NAT64 is present, silently bypassing the newly-added protection.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    try:",
+            "        addr = ipaddress.ip_address(hostname)",
+            "        if addr.is_link_local or addr.is_loopback or addr.is_unspecified or addr.is_multicast:",
+            "            return (False, \"Blocked address\")",
+            "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10"
+          ],
+          "canonical_line_content": "        if addr.is_link_local or addr.is_loopback or addr.is_unspecified or addr.is_multicast:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "8dcd2791f98608346fa014f914a0b3e771ffb44477657c9551ae0b11a0ba7fb0",
+          "status": "new"
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped IPv6 bypasses explicit metadata IP blocklist",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 86,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new IPv4-mapped IPv6 branch only checks address classes, not the explicit BLOCKED_HOSTS set. I verified `validate_arr_url(\"http://[::ffff:100.100.100.200]\")` returns `(True, \"\")` while `http://100.100.100.200` is blocked. Since `100.100.100.200` is intentionally listed as a cloud metadata address, any downstream HTTP stack that accepts IPv4-mapped IPv6 can bypass the SSRF guard.",
+          "current_code": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n                return (False, \"Blocked address\")",
+          "fix_hint": "After `mapped = addr.ipv4_mapped`, reject `str(mapped) in BLOCKED_HOSTS` before or alongside the mapped address-class checks, and add a regression test for `http://[::ffff:100.100.100.200]`.",
+          "why_it_matters": "100.100.100.200 is intentionally listed as a cloud metadata address, so any downstream HTTP stack that accepts IPv4-mapped IPv6 can bypass the SSRF guard.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "            return (False, \"Blocked address\")",
+            "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+          ],
+          "canonical_line_content": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "86bbcdb51e3b15f4a36cb946bbcaeb79f0787ba8e7a2ec31d051b2db2fe44def",
+          "status": "new"
+        }
+      ]
+    }
+  ]
+}

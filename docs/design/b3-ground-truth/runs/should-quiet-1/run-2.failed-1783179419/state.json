@@ -1,0 +1,152 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-07-04T15:17:49Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted working tree)",
+      "agents_run": [
+        "triage",
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "agent": "bugs",
+          "id": "bugs-001",
+          "file": "triggarr/web/validation.py",
+          "line": 87,
+          "title": "IPv4-mapped IPv6 bypasses BLOCKED_HOSTS metadata-IP block",
+          "category": "logic-error",
+          "cwe": "CWE-918",
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new IPv4-mapped IPv6 handling re-checks only is_link_local/is_loopback/is_unspecified/is_multicast on the mapped address, but does NOT re-check it against BLOCKED_HOSTS. BLOCKED_HOSTS contains 100.100.100.200 (Alibaba cloud metadata), a public IP that is none of link-local/loopback/unspecified/multicast. The literal-string check compares the raw hostname '::ffff:100.100.100.200', which is not in the set, so the mapped form of a blocklisted metadata IP passes validation. Verified: '::ffff:100.100.100.200'.ipv4_mapped == 100.100.100.200 and all four is_* flags are False.",
+          "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "fix_hint": "also block when str(mapped) in BLOCKED_HOSTS (and mirror the same BLOCKED_HOSTS check on the outer addr) so IPv4-mapped forms of blocklisted metadata IPs are rejected",
+          "why_it_matters": "An attacker configuring an *arr URL as http://[::ffff:100.100.100.200]/ reaches the Alibaba cloud metadata endpoint that BLOCKED_HOSTS is specifically meant to defend against.",
+          "source_window": [
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+            "                return (False, \"Blocked address\")",
+            "    except ValueError:",
+            "        # Not an IP literal (e.g. \"radarr\") -- perfectly fine."
+          ],
+          "canonical_line_content": "if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "eae4668b885424aff219b2167924a12b52d89835b7b230596ae18ca533898578",
+          "status": "new"
+        },
+        {
+          "agent": "security",
+          "id": "sec-001",
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "SSRF bypass via deprecated IPv4-compatible IPv6 notation (::a.b.c.d) not covered by the new ipv4_mapped check",
+          "category": "ssrf",
+          "cwe": "CWE-918",
+          "severity": "high",
+          "agent_confidence": 97,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new mitigation only handles IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) via addr.ipv4_mapped. Python's ipaddress module returns None for ipv4_mapped on the older but still-parseable 'IPv4-compatible' IPv6 notation (::a.b.c.d, e.g. ::169.254.169.254 or ::127.0.0.1). Those addresses are also not is_link_local, not is_loopback, not is_unspecified, and not is_multicast on the IPv6Address itself, so they pass both the pre-existing checks and the new one untouched. Verified: validate_arr_url('http://[::169.254.169.254]/') returns (True, ''), and validate_arr_url('http://[::127.0.0.1]/') also returns (True, '').",
+          "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "fix_hint": "Also extract and check the embedded IPv4 from the deprecated ::a.b.c.d form (e.g. derive ipaddress.IPv4Address(addr.packed[-4:]) when addr is in ::/96) and apply the same checks; or use addr.is_global / addr.is_private / addr.is_reserved as a broader fallback covering the whole class of IPv4-in-IPv6 encodings.",
+          "why_it_matters": "An attacker configuring the *arr URL can supply http://[::169.254.169.254]/ or http://[::127.0.0.1]/ to reach cloud-provider instance metadata or loopback services, exfiltrating IAM credentials or hitting internal-only endpoints.",
+          "source_window": [
+            "            return (False, \"Blocked address\")",
+            "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+          ],
+          "canonical_line_content": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "e5a6d7d7c9f0819852082f4978d3ce06833925e58ce9f0cf8ffdd9c73378b54d",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-ssffff-metadata-bypass",
+          "file": "triggarr/web/validation.py",
+          "line": 87,
+          "title": "IPv4-mapped IPv6 path skips BLOCKED_HOSTS re-check: Alibaba metadata IP (100.100.100.200) bypasses SSRF filter",
+          "category": "blast-radius",
+          "cwe": "CWE-918",
+          "severity": "medium",
+          "agent_confidence": 90,
+          "in_diff": true,
+          "intent_doc_match": "partial",
+          "problem": "The diff closes the IPv4-mapped IPv6 SSRF vector only for link-local/loopback/unspecified/multicast, but does NOT re-check the mapped IPv4 against BLOCKED_HOSTS (the cloud-metadata deny set). Verified at runtime: validate_arr_url('http://[::ffff:100.100.100.200]:7878') returns (True, '') while the plain form correctly returns (False, 'Blocked hostname').",
+          "current_code": "if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+          "fix_hint": "In the ipv4_mapped branch, also reject when str(mapped) in BLOCKED_HOSTS (re-run the same deny checks applied to the plain hostname, not just the is_* address-class flags).",
+          "why_it_matters": "This function is the sole SSRF gate before an *arr URL is persisted to config and later used as an HTTP target. An operator- or attacker-supplied URL of the form http://[::ffff:100.100.100.200]:7878 slips past the exact filter this change hardened.",
+          "source_window": [
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+            "                return (False, \"Blocked address\")",
+            "    except ValueError:",
+            "        # Not an IP literal (e.g. \"radarr\") -- perfectly fine."
+          ],
+          "canonical_line_content": "if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "d0fe1afa5c808805fd737cd0fc17d2e582e29c839f96842b716fa6360a6ce88d",
+          "status": "new"
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped addresses bypass explicit blocked metadata IPs",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 94,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new IPv4-mapped branch only checks address classes on the mapped IPv4 value. It never compares the mapped value against BLOCKED_HOSTS, so a blocked endpoint like 100.100.100.200 is rejected as raw IPv4 but accepted as http://[::ffff:100.100.100.200]:7878. That defeats the explicit metadata-service blocklist for any environment where IPv4-mapped IPv6 connects to the IPv4 target.",
+          "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "fix_hint": "After computing mapped, compare str(mapped) against BLOCKED_HOSTS before allowing the URL, and add a regression test for http://[::ffff:100.100.100.200]:7878.",
+          "why_it_matters": "Defeats the explicit metadata-service blocklist via IPv4-mapped IPv6 encoding.",
+          "source_window": [
+            "            return (False, \"Blocked address\")",
+            "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+          ],
+          "canonical_line_content": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "930eb3efeac67fdf890d896158cd749316e45321cbc4df2566e48017f6d37d61",
+          "status": "new"
+        }
+      ]
+    }
+  ],
+  "medium_acknowledgments": {}
+}
