@@ -1,0 +1,84 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "f4366a261fcf9bab01b48ad89279aac973a7d9b1",
+      "timestamp": "2026-07-04T03:38:21Z",
+      "mode": "deep",
+      "diff_range": "working-tree (staged+unstaged vs HEAD)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "agent": "security",
+          "id": "sec-001",
+          "file": "triggarr/clients/base.py",
+          "line": 250,
+          "title": "pydantic.ValidationError logged raw, embedding untrusted API response content",
+          "category": "data-exposure",
+          "cwe": "CWE-532",
+          "severity": "medium",
+          "agent_confidence": 90,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The diff changed logger.warning(...) from logging only exc.error_count() (an int) to logging the full pydantic.ValidationError object via {exc}. str(ValidationError) includes each failing field's input_value (verified empirically). Since validate_connection() parses SystemStatus.model_validate(response.json()) from a third-party/self-hosted Radarr/Sonarr instance, any unexpected field in that response is now written verbatim into the daemon's logs. The loguru redacting sink (triggarr/logging.py) only does literal substring replacement against a small list of known secret values -- it has no awareness of this new field-value content, so nothing here gets scrubbed either way; more data now flows into logs than before.",
+          "current_code": "        except pydantic.ValidationError as exc:\n            logger.warning(\n                \"{app}: Unexpected API response format: {exc}\",\n                app=self._app_name,\n                exc=exc,\n            )\n            return False",
+          "fix_hint": "Use a sanitized summary (e.g. f\"{exc.error_count()} validation error(s)\" or list only field names/error types, never input_value) instead of the raw exception object; the codebase already has triggarr.search.engine._sanitize_exc for exactly this purpose.",
+          "why_it_matters": "Turns a previously-safe integer-count log line into one that echoes back arbitrary content sent by the configured Radarr/Sonarr instance, widening the log's exposure surface without any corresponding redaction coverage.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "            )",
+            "            return False",
+            "        except pydantic.ValidationError as exc:",
+            "            logger.warning(",
+            "                \"{app}: Unexpected API response format: {exc}\","
+          ],
+          "orchestrator_score": 82,
+          "band": "warning",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "37c199459c6dbcd83bb4abe329d4cca21b37ce79164a06f6e024ce0ff9a68e11",
+          "status": "new"
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "triggarr/clients/base.py",
+          "line": 232,
+          "title": "Raw exception strings can leak URLs and response data into logs",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 87,
+          "intent_doc_match": null,
+          "problem": "The new `{exc}` logging on HTTP and validation failures formats library exceptions directly. `httpx.HTTPStatusError` strings include the full request URL, while config validation only rejects `apikey=` and still permits other query tokens or userinfo. `pydantic.ValidationError` strings include `input_value`, so an unexpected JSON response from a misrouted proxy or wrong upstream can be copied into logs. The app redacts only known configured secret values, so arbitrary URL tokens or response fields are not guaranteed to be scrubbed.",
+          "current_code": "                logger.warning(\n                    \"{app}: Unexpected HTTP error: {exc}\",\n                    app=self._app_name,\n                    exc=exc,\n                )",
+          "fix_hint": "Avoid logging raw exception strings here. Log status code/reason for HTTP failures, and use `exc.error_count()` or `exc.errors(include_input=False)` for validation failures. If URL context is required, sanitize userinfo and query values before logging.",
+          "why_it_matters": "Raw exception strings widen what reaches the logs beyond the configured-secret redaction list: URL query tokens/userinfo and validation input_value content from an unexpected upstream are not guaranteed to be scrubbed.",
+          "source_window": [
+            "                )",
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,"
+          ],
+          "orchestrator_score": 84,
+          "band": "warning",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "abf725408afcdc5982b610efc65ebbab2c8f99e38d0ff94ed5c1cd2aa18d2807",
+          "status": "new"
+        }
+      ]
+    }
+  ]
+}
