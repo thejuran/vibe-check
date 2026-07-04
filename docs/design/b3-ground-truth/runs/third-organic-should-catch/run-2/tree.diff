@@ -1,0 +1,17 @@
+diff --git a/src/angular/src/app/services/files/view-file.service.ts b/src/angular/src/app/services/files/view-file.service.ts
+index a4c49c4..9c4b272 100644
+--- a/src/angular/src/app/services/files/view-file.service.ts
++++ b/src/angular/src/app/services/files/view-file.service.ts
+@@ -304,11 +304,8 @@ export class ViewFileService implements OnDestroy {
+         if (remoteSize == null) {
+             remoteSize = 0;
+         }
+-        // Clamp at 100: extracted files have a local size larger than the
+-        // remote archive (unpacked > compressed), which would otherwise render
+-        // a >100% progress value (e.g. "199%").
+         const percentDownloaded: number = remoteSize > 0
+-            ? Math.min(100, Math.trunc(100.0 * localSize / remoteSize))
++            ? Math.trunc(100.0 * localSize / remoteSize)
+             : 100;
+ 
+         // Translate the status
