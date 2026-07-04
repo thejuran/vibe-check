@@ -1,0 +1,58 @@
+# Provenance — third-organic-should-catch.patch (should-catch #3)
+
+diff_id: third-organic-should-catch
+role: should-catch
+mechanism: unclamped download-progress percentage (>100% rendered)
+source_repo: ~/seedsyncarr
+fix_sha: 879266c546cb739be88c854f13fdddd9bbc22a3b
+fix_subject: fix(ui): clamp transfer progress at 100% for extracted files
+touched_paths (patch, product-file-scoped): src/angular/src/app/services/files/view-file.service.ts
+planted_hunk: view-file.service.ts @@ -304,11 +304,8 @@ (the percentDownloaded computation)
+
+## Why this replaces the dashboard 052845e case (D-12)
+The dashboard-unbounded-dict fix `052845e` carries subject `fix(42): DR3m-01 ...` —
+a live hit for the FAIL-CLOSED organic regex (DR = Deep-Review finding = vibe-check
+found it), so the organic-only rule (D-12) categorically EXCLUDES it. This third
+should-catch is a clean-organic, human/walkthrough-found bug fix mined from
+seedsyncarr, keeping the should-catch set at the >=3 floor with zero circular
+self-testing.
+
+## What the reversed patch re-introduces
+The fix (879266c) wrapped the percentage in `Math.min(100, ...)`. Extracted files
+have local_size (unpacked) > remote_size (compressed archive), so
+`Math.trunc(100 * local / remote)` exceeds 100 and rendered e.g. "199%" on the
+dashboard, and mis-fired the `=== 100` success state. The reversed patch (this
+.patch = `git diff 879266c 879266c^`, product file only) removes the clamp and its
+explanatory comment, re-introducing the >100% bug. The commit body records it as a
+"pre-existing defect surfaced during the v1.4.0 milestone-end walkthrough" (organic,
+human-found — NOT a vibe-check DR finding). The patch is scoped to the PRODUCT file
+only; the fix's test-vector file is fixture churn and is intentionally excluded so
+the review surface is the real defect.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 3db8b48bfd20e7ed873343ddc45b7e47d27e3b0e
+base_sha_note: the actual ~/seedsyncarr clone HEAD at build time (main). The reversed
+  patch `git apply --check`ed clean at this SHA (exit 0) — recorded 2026-07-03.
+
+## Full-worktree proof pair (codex pass-3 fix 3, pass-5 fix 1)
+Computed on a detached checkout of base_sha with the patch applied, over the FULL
+tracked diff (`git diff`, NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: d99180365a66f9efef72f7e01afb3c23ad707c6e6f1917d378df75e5b1ad7790
+EXPECTED_TOUCHED_PATHS: src/angular/src/app/services/files/view-file.service.ts
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "fix(ui): clamp transfer progress at 100% for extracted files" +
+  body (percentDownloaded > 100% mechanism; "Pre-existing defect surfaced during the
+  v1.4.0 milestone-end walkthrough")
+regex_result: NO HITS (organic-confirmed — comment-stripped `grep -v '^#' | grep -iE`)
+
+## PURE-M gate (codex pass-4 fix 2)
+name-status (whole fix commit — both files M, no A/D/R/C):
+M	src/angular/src/app/services/files/view-file.service.ts
+M	src/angular/src/app/tests/unittests/services/files/view-file.service.spec.ts
+The committed patch is scoped to the product file only; the whole commit is pure-M so
+even the full-commit form would create/delete nothing.
+
+## Security gate (T-36-01)
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → NO matches. No
+  secret involved (numeric-clamp UI bug).

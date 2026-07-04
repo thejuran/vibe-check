@@ -1,0 +1,49 @@
+# Provenance — triggarr-autoescape.patch (should-catch #2)
+
+diff_id: triggarr-autoescape
+role: should-catch
+source_repo: ~/triggarr
+fix_sha: e11187e190b82f281543039e8c3857c6343c54a2
+fix_subject: fix: use preconfigured jinja2.Environment for autoescape
+touched_paths: triggarr/web/routes.py
+planted_hunks: routes.py @@ -17,7 +17,6 @@ (drops the `import jinja2`); routes.py @@ -43,11 +42,7 @@ (drops the preconfigured autoescape env)
+
+## What the reversed patch re-introduces
+The fix (e11187e) built a preconfigured `jinja2.Environment(autoescape=True)` and
+passed it via `Jinja2Templates(env=_jinja_env)` — because Starlette removed the
+`**env_options` passthrough, so `Jinja2Templates(directory=..., autoescape=True)`
+silently NO-OPs autoescape on newer versions. The reversed patch (this .patch =
+`git diff e11187e e11187e^`) removes the preconfigured env and reverts to
+`Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)` — which no longer
+enables escaping, re-opening the XSS surface. Subtler than a raw `autoescape=False`:
+the reviewer must recognize that LOSING the preconfigured env re-enables the XSS
+surface on the current Starlette.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: e11187e190b82f281543039e8c3857c6343c54a2
+base_sha_note: VERIFIED 2026-07-03 — the reversed patch FAILS `git apply --check`
+  against current triggarr HEAD (f4366a2) at routes.py:43 (the file drifted since the
+  fix). Its pre-image is the e11187e fixed tree, so it applies only on a detached
+  checkout of e11187e (`git apply --check` exit 0 there — verified).
+
+## Full-worktree proof pair (codex pass-3 fix 3, pass-5 fix 1)
+Computed on a detached checkout of e11187e with the patch applied, over the FULL
+tracked diff (`git diff`, NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: 4fdadb707be17419f294383df421d2fcaad4bb9df6e7536a32029420670bb89a
+EXPECTED_TOUCHED_PATHS: triggarr/web/routes.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "fix: use preconfigured jinja2.Environment for autoescape" +
+  body ("Starlette removed the **env_options passthrough in Jinja2Templates, breaking
+  autoescape=True on newer versions. Pass a preconfigured jinja2.Environment instead,
+  which is the supported API.")
+regex_result: NO HITS (organic-confirmed — comment-stripped `grep -v '^#' | grep -iE`)
+
+## PURE-M gate (codex pass-4 fix 2)
+name-status:
+M	triggarr/web/routes.py
+(only M — no A/D/R/C)
+
+## Security gate (T-36-01)
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → NO matches. No
+  secret involved (config-surface change only).
