@@ -1,0 +1,55 @@
+# Provenance — should-quiet-2.patch
+
+diff_id: should-quiet-2
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/seedsyncarr
+feature_sha: 3c27e170ee6bc0c8d70c6234f7f91f52dafe8ef0
+feature_subject: feat(111-02): extend RestService.post with optional JSON body
+touched_paths (patch, product-file-scoped): src/angular/src/app/services/utils/rest.service.ts
+planted_hunk: rest.service.ts @@ -53,10 +53,11 @@ export class RestService (post-image L53-63)
+
+## What the patch is
+A byte-exact FORWARD `git show 3c27e17 -- src/angular/src/app/services/utils/rest.service.ts`.
+It ADDS an already-shipped, clean, backward-compatible feature: it widens
+`post(url)` to `post(url, body?: object)` and passes `body ?? null` to `_http.post`
+so the four existing no-body callers are unaffected. Defect-free TypeScript/Angular
+product code — the WebReaction pipeline (map/catchError/shareReplay) is unchanged.
+Safe ON the API-contract/typing axis (A16 note): the optional param is
+backward-compatible; no injection, no unhandled promise, no resource leak.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 84aff278f2b735dffef0e91d58bb597b1986caf2
+base_sha_note: = 3c27e17^ (the forward diff's natural pre-image). The forward feature
+  diff does NOT apply at the current seedsyncarr HEAD (the feature is already present
+  there), so base_sha is the pre-feature parent; `git apply --check` exit 0 verified
+  on a detached checkout of 3c27e17^ (2026-07-03).
+
+## Full-worktree proof pair (codex pass-3 fix 3, pass-5 fix 1)
+Computed on a detached checkout of base_sha with the patch applied, FULL `git diff`
+(NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: 3cb198dc37a4780e61eef0fd4d6b2817733b8796aa80769feb0d08f24d731f0d
+EXPECTED_TOUCHED_PATHS: src/angular/src/app/services/utils/rest.service.ts
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(111-02): extend RestService.post with optional JSON body"
+  + body ("Change signature from post(url) to post(url, body?: object); Pass body ??
+  null as second arg ...; WebReaction pipeline ... unchanged")
+regex_result: NO HITS (organic-confirmed)
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic, codex second-pass fix)
+`git log -L53,63:src/angular/src/app/services/utils/rest.service.ts 3c27e17..HEAD`:
+  →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified.
+
+## PURE-M gate (codex pass-4 fix 2)
+name-status:
+M	src/angular/src/app/services/utils/rest.service.ts
+(only M — no A/D/R/C)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` → only the git-show commit-hash
+  header line; no secret in the diff body.
+
+## size-comparability
++3 insertions / -2 on one product file — small, focused, comparable to the
+should-catch diffs (Pitfall 5).

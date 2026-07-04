@@ -1,0 +1,59 @@
+# Provenance — should-quiet-1.patch
+
+diff_id: should-quiet-1
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/triggarr
+feature_sha: 1a8c9f9375959d8d8c20af9dfcb7e0c98ea56fb8
+feature_subject: feat(59-02): block IPv4-mapped IPv6 and multicast addresses in validate_arr_url
+touched_paths (patch, product-file-scoped): triggarr/web/validation.py
+planted_hunk: validation.py @@ -79,8 +79,13 @@ def validate_arr_url (post-image L79-91)
+
+## What the patch is
+A byte-exact FORWARD `git show 1a8c9f9 -- triggarr/web/validation.py`. It ADDS an
+already-shipped, clean SSRF-hardening feature: it extends the existing
+link-local/loopback/unspecified block-list with `is_multicast`, and adds an
+IPv4-mapped-IPv6 inspection branch. This is defect-free feature code — reviewing it
+should produce NO critical/warning finding. Safe ON the SSRF/input-validation axis
+(A16 three-gate note): the addition tightens the SSRF guard; it introduces no leak,
+no injection, no resource issue.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 98eb4196e2c060b38775ab40d6d23e2dc2bee024
+base_sha_note: = 1a8c9f9^ (the forward diff's natural pre-image). The forward feature
+  diff does NOT apply at the current triggarr HEAD (the feature is already present
+  there), so base_sha is the pre-feature parent; `git apply --check` exit 0 verified
+  on a detached checkout of 1a8c9f9^ (2026-07-03).
+
+## Full-worktree proof pair (codex pass-3 fix 3, pass-5 fix 1)
+Computed on a detached checkout of base_sha with the patch applied, FULL `git diff`
+(NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: a8137f5d877240428bd3aef44c93ba2b650d19063dd6aa6485c332bd7a17d37a
+EXPECTED_TOUCHED_PATHS: triggarr/web/validation.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(59-02): block IPv4-mapped IPv6 and multicast addresses in
+  validate_arr_url" + body ("Add addr.is_multicast ...; Add IPv4-mapped IPv6
+  inspection via addr.ipv4_mapped (D-10); ... All 782 tests pass, ruff clean")
+regex_result: NO HITS (organic-confirmed). Note: the body's "D-10" token does NOT
+  match the regex — `DR[0-9]` requires literal `DR`+digit and `DR-` requires literal
+  `DR-`; `D-10` is neither. Verified explicitly.
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic, codex second-pass fix)
+Per touched hunk, `git log -L<start>,<end>:<file> 1a8c9f9..HEAD` (empty = no later
+rewrite of the selected lines, regardless of the later commit's subject):
+  L79,91:triggarr/web/validation.py  →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified.
+
+## PURE-M gate (codex pass-4 fix 2)
+name-status:
+M	triggarr/web/validation.py
+(only M — no A/D/R/C; an added-file patch would be untracked-after-apply and invisible
+to the review)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` → only the git-show commit-hash
+  header line; no secret in the diff body.
+
+## size-comparability
++6 insertions on one product file — small, focused, comparable to the ~4-8-line
+should-catch diffs (Pitfall 5).

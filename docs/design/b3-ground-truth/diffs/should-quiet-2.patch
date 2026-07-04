@@ -1,0 +1,29 @@
+commit 3c27e170ee6bc0c8d70c6234f7f91f52dafe8ef0
+Author: thejuran <thejuran@users.noreply.github.com>
+Date:   Tue Jun 2 17:37:06 2026 -0400
+
+    feat(111-02): extend RestService.post with optional JSON body
+    
+    - Change signature from post(url) to post(url, body?: object)
+    - Pass body ?? null as second arg to _http.post so no-body callers
+      continue to receive null (four existing callers unaffected)
+    - WebReaction pipeline (map/catchError/shareReplay) unchanged
+
+diff --git a/src/angular/src/app/services/utils/rest.service.ts b/src/angular/src/app/services/utils/rest.service.ts
+index 35d20c4..72560fd 100644
+--- a/src/angular/src/app/services/utils/rest.service.ts
++++ b/src/angular/src/app/services/utils/rest.service.ts
+@@ -53,10 +53,11 @@ export class RestService {
+     /**
+      * Send backend a POST request and generate a WebReaction response
+      * @param {string} url
++     * @param {object} [body] - optional JSON body; when omitted, sends null (preserving prior no-body callers)
+      * @returns {Observable<WebReaction>}
+      */
+-    public post(url: string): Observable<WebReaction> {
+-        return this._http.post(url, null, {responseType: "text"}).pipe(
++    public post(url: string, body?: object): Observable<WebReaction> {
++        return this._http.post(url, body ?? null, {responseType: "text"}).pipe(
+             map(this.handleSuccess(url)),
+             catchError(this.handleError(url)),
+             shareReplay(1)

@@ -1,0 +1,58 @@
+# Provenance — should-quiet-3.patch
+
+diff_id: should-quiet-3
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/roonseek
+feature_sha: 2a6bbd910d16cc32fccb001ab9822997db8300c4
+feature_subject: feat(22-03): add slskd transfer cancel boundary
+touched_paths (patch, product-file-scoped): src/roonseek/transfer.py
+planted_hunks: transfer.py @@ -201,6 +201,18 @@ (new cancel_download method, post-image L201-218);
+  @@ -208,6 +220,7 @@ (add success_statuses param, L220); @@ -243,7 +256,8 @@ (use expected_statuses, L256-257)
+
+## What the patch is
+A byte-exact FORWARD `git show 2a6bbd9 -- src/roonseek/transfer.py`. It ADDS an
+already-shipped, clean feature: a `cancel_download(username, transfer_id)` method
+that DELETEs a slskd transfer, plus a `success_statuses` parameter on the private
+`_request_json` helper. Defect-free Python product code — note it URL-encodes both
+path segments with `quote(..., safe="")` (no path-injection) and the existing
+"API key never logged" invariant (T-02-03) is preserved. Safe ON the
+HTTP-client/input-handling axis (A16 note): no injection, no leak, no unhandled path.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 10276919fc2f1123cf0d8da7c0d43488087f1bc7
+base_sha_note: = 2a6bbd9^ (the forward diff's natural pre-image). The forward feature
+  diff does NOT apply at the current roonseek HEAD (the feature is already present).
+  `git apply --check` exit 0 was verified on a detached checkout of 2a6bbd9^ built as
+  a TEMPORARY linked worktree (the owner's main roonseek checkout has an unrelated
+  uncommitted .planning/config.json and was left UNTOUCHED) (2026-07-03).
+
+## Full-worktree proof pair (codex pass-3 fix 3, pass-5 fix 1)
+Computed on a detached checkout of base_sha (temp worktree) with the patch applied,
+FULL `git diff` (NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: 66fe1425076d445854818d56e9010bac80a3a6e0b75e8d8225881bed8dfeae69
+EXPECTED_TOUCHED_PATHS: src/roonseek/transfer.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(22-03): add slskd transfer cancel boundary" (body empty)
+regex_result: NO HITS (organic-confirmed)
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic, codex second-pass fix)
+Per touched hunk, `git log -L<start>,<end>:src/roonseek/transfer.py 2a6bbd9..HEAD`:
+  L201,218  →  (empty — SURVIVED)
+  L220,220  →  (empty — SURVIVED)
+  L256,257  →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified.
+
+## PURE-M gate (codex pass-4 fix 2)
+name-status:
+M	src/roonseek/transfer.py
+(only M — no A/D/R/C)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` → only the git-show commit-hash
+  header line and code identifiers (_TRANSFERS_DOWNLOAD_ROOT, TransferEnqueueError);
+  no secret in the diff body.
+
+## size-comparability
++15 insertions on one product file — small, focused, comparable to the should-catch
+diffs (Pitfall 5).

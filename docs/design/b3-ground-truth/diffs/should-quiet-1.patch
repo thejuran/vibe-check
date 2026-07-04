@@ -1,0 +1,30 @@
+commit 1a8c9f9375959d8d8c20af9dfcb7e0c98ea56fb8
+Author: thejuran <thejuran@users.noreply.github.com>
+Date:   Wed Apr 15 16:37:07 2026 -0400
+
+    feat(59-02): block IPv4-mapped IPv6 and multicast addresses in validate_arr_url
+    
+    - Add addr.is_multicast to existing SSRF check
+    - Add IPv4-mapped IPv6 inspection via addr.ipv4_mapped (D-10)
+    - Mapped addresses checked for loopback/link-local/unspecified/multicast
+    - All 782 tests pass, ruff clean
+
+diff --git a/triggarr/web/validation.py b/triggarr/web/validation.py
+index 6138bea..9412e39 100644
+--- a/triggarr/web/validation.py
++++ b/triggarr/web/validation.py
+@@ -79,8 +79,13 @@ def validate_arr_url(url: str) -> tuple[bool, str]:
+ 
+     try:
+         addr = ipaddress.ip_address(hostname)
+-        if addr.is_link_local or addr.is_loopback or addr.is_unspecified:
++        if addr.is_link_local or addr.is_loopback or addr.is_unspecified or addr.is_multicast:
+             return (False, "Blocked address")
++        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10
++        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
++            mapped = addr.ipv4_mapped
++            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:
++                return (False, "Blocked address")
+     except ValueError:
+         # Not an IP literal (e.g. "radarr") -- perfectly fine.
+         pass
