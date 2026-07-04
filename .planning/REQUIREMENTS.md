@@ -37,7 +37,7 @@ Requirements for milestone v2.9. Each maps to exactly one roadmap phase (35–37
 
 ### B3 (first measured quality numbers)
 
-- [ ] **B3-01**: A committed ground-truth test set exists: ≥3 should-catch + ≥2 should-quiet
+- [x] **B3-01**: A committed ground-truth test set exists: ≥3 should-catch + ≥2 should-quiet
   reviewable diffs, ORGANIC-ONLY sourcing (no vibe-check-found bugs), with a per-diff answer key
   (expected finding + expected band) that folds in the deferred A8 (`/health` name-exemption)
   and A16 (axis-vs-site ambiguity) answer-key fixes
@@ -95,7 +95,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEGIBLE-03 | Phase 35 | Complete |
 | PROOF-01 | Phase 35 | Pending |
 | PROOF-02 | Phase 35 | Pending |
-| B3-01 | Phase 36 | Pending |
+| B3-01 | Phase 36 | Complete |
 | B3-02 | Phase 36 | Pending |
 | B3-03 | Phase 36 | Pending |
 | CLOSE-01 | Phase 37 | Pending |

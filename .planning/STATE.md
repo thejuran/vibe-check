@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
 status: executing
-stopped_at: Phase 36 context gathered
-last_updated: "2026-07-02T10:25:04.983Z"
-last_activity: 2026-07-02 -- Phase 35 execution started
+stopped_at: Completed 36-01-PLAN.md (B3 run-kit built; Wave 2 owner runs next)
+last_updated: "2026-07-04T03:17:31.502Z"
+last_activity: 2026-07-04 -- Phase 36 execution started
 progress:
   total_phases: 17
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 6
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 35 — Make v2.8 whole
+**Current focus:** Phase 36 — B3 — first measured quality numbers
 
 ## Current Position
 
-Phase: 35 (Make v2.8 whole) — EXECUTING
-Plan: 2 of 2
-Status: Executing Phase 35
-Last activity: 2026-07-02 -- Phase 35 execution started
+Phase: 36 (B3 — first measured quality numbers) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 36
+Last activity: 2026-07-04 -- Phase 36 execution started
 
 ## Performance Metrics
 
@@ -67,6 +67,7 @@ Last activity: 2026-07-02 -- Phase 35 execution started
 | Phase 32 P03 | 5min | 2 tasks | 4 files |
 | Phase 33 P01 | 4min | 2 tasks | 2 files |
 | Phase 35 P01 | 9min | 3 tasks | 2 files |
+| Phase 36 P01 | 21min | 5 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,9 @@ Earlier decisions (v2.8) still on record:
 - [Phase 35]: 35-01: --min-confidence folded into the Phase-0 $SCOPE_ARGS normalizer alongside --codex — Shared parse-timing bug; the normalizer ADDS GSD/PR/range reach + fixes the --all narrow-parse mis-read, never changes byte-correct diff/--all behavior
 - [Phase 35]: 35-01: HIGH-B MOVE-SMOKE-INTO-2c — BashOutput smoke gate relocated inside the launch guard — So a non-launching Codex never hard-blocks the native review (SAFE-01/SAFE-02); Phase 2b header repurposed to a pointer, not deleted
 - [Phase 35]: 35-01: rebase discipline held (D-06) — Executed diff deviates from frozen 33-02 ONLY by re-anchored line numbers + the one bare-all alias composition sentence; no design change
+- [Phase 36]: 36-01: third organic should-catch = seedsyncarr 879266c (unclamped >100% progress); dashboard 052845e excluded per D-12 (DR3m-01 regex hit)
+- [Phase 36]: 36-01: should-quiet picks owner-confirmed (confirm-all): triggarr 1a8c9f9, seedsyncarr 3c27e17, roonseek 2a6bbd9; 355c57f rejected by the line-survival gate
+- [Phase 36]: 36-01: answer key pre-registered at ANSWER_KEY_COMMIT ef0ab67 with digest in the separate PREREGISTRATION.md manifest (key blob never contains its own hash)
 
 ### Pending Todos
 
@@ -169,8 +173,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-02T10:25:04.977Z
-Stopped at: Phase 36 context gathered
+Last session: 2026-07-04T03:17:31.498Z
+Stopped at: Completed 36-01-PLAN.md (B3 run-kit built; Wave 2 owner runs next)
 STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
 Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).
 Do NOT blind-resume the old Phase-33 orchestrator resume files — 33-02 needs a rebase first.

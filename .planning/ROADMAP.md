@@ -194,7 +194,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 | 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | Partial — 33-01 shipped; 33-02 deferred to v2.9 Phase 35 | 2026-07-01 |
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred to v2.9 Phase 35) | 2026-07-01 |
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
-| 36. B3 — first measured quality numbers | v2.9 | 0/? | Not started | - |
+| 36. B3 — first measured quality numbers | v2.9 | 1/3 | In Progress|  |
 | 37. Close | v2.9 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
@@ -250,7 +250,7 @@ ahead of it after the v2.8 merge + all Fable docs).
   4. **The report says what the numbers imply.** The report states explicitly what the measured numbers imply for the B3-gated scorer design challenges — proceed / don't / need more data — the input to the next milestone's scoping (B3-03).
 
 **Plans**: 3 plans
-- [ ] 36-01-PLAN.md — Build the run-kit: 3 organic should-catch + >=2 should-quiet reversed-fix patches, per-diff answer key (SITE+AXIS+BAND, A8/A16 folded, D-11 table), owner run-checklist (B3-01)
+- [x] 36-01-PLAN.md — Build the run-kit: 3 organic should-catch + >=2 should-quiet reversed-fix patches, per-diff answer key (SITE+AXIS+BAND, A8/A16 folded, D-11 table), owner run-checklist (B3-01)
 - [ ] 36-02-PLAN.md — Owner drives /deep-review N=3 per diff and archives run state (WAIT gate, B3-02)
 - [ ] 36-03-PLAN.md — Score archived runs vs the pre-registered key + append the catch/FP report to RESULTS-v2.9.md (B3-02/B3-03)
 **UI hint**: no

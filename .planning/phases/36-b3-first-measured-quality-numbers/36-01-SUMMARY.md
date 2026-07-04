@@ -177,3 +177,9 @@ from git before any run).
 - **36-03 (assistant):** score archived `runs/<id>/run-<n>/state.json` against the committed
   key blob at `ef0ab67`; enforce the manifest gates; write the catch/FP report + D-11
   verdicts into `plugins/vibe-check/docs/efficacy/RESULTS-v2.9.md`.
+
+## Self-Check: PASSED
+
+All 18 claimed files exist on disk; all 6 claimed commits (435d563, 98e5aff, cea17e6,
+ef0ab67, cca63e2, b661c57) exist in git history; the manifest digest re-verifies against
+the committed key blob.
