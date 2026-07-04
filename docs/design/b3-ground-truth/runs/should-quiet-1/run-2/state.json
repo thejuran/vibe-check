@@ -1,0 +1,121 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-07-04T15:49:33Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (working tree vs HEAD)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "agent": "bugs",
+          "file": "triggarr/web/validation.py",
+          "line": 87,
+          "title": "IPv4-mapped IPv6 bypasses BLOCKED_HOSTS metadata check",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new IPv4-mapped IPv6 branch only re-tests the mapped address against is_link_local/is_loopback/is_unspecified/is_multicast, but NOT against BLOCKED_HOSTS. The BLOCKED_HOSTS set exists to block cloud metadata IPs, and 100.100.100.200 (Alibaba metadata) is neither link-local, loopback, unspecified, nor multicast. So a URL like http://[::ffff:100.100.100.200]/ passes: the raw hostname '::ffff:100.100.100.200' is not in BLOCKED_HOSTS (line 77), and the mapped 100.100.100.200 is not caught by the four flag checks (line 87). Verified with ipaddress + urlparse: the address reaches the SSRF-protected metadata endpoint. This defeats the exact protection the mapped-address handling was added for. 169.254.169.254 (GCP/AWS metadata) happens to be caught because it is link-local, but the string-listed metadata IPs are not covered.",
+          "current_code": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n                return (False, \"Blocked address\")",
+          "fix_hint": "also re-check str(mapped) against BLOCKED_HOSTS (and consider mapped.is_private) inside the ipv4_mapped branch",
+          "why_it_matters": "An attacker can reach cloud-metadata services listed in BLOCKED_HOSTS by wrapping the IPv4 metadata IP in an IPv4-mapped IPv6 literal, bypassing the SSRF guard this module is responsible for.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+            "                return (False, \"Blocked address\")",
+            "    except ValueError:"
+          ],
+          "canonical_line_content": "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "bfab50b47991f08cc8ec9c3f51ba931c600efeb5fc123e1daf449b6c0ad86071",
+          "status": "new"
+        },
+        {
+          "id": "sec-001",
+          "agent": "security",
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "SSRF bypass via NAT64 and 6to4 IPv6-embedded-IPv4 addresses not unwrapped",
+          "category": "ssrf",
+          "cwe": "CWE-918",
+          "severity": "medium",
+          "agent_confidence": 85,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new check only unwraps IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) via addr.ipv4_mapped. It does not unwrap NAT64 well-known-prefix addresses (64:ff9b::/96) or 6to4 addresses (2002::/16, via addr.sixtofour), both of which Python's ipaddress module classifies as is_global=True / not link-local/loopback/multicast on the wrapper address itself. An attacker can encode a blocked target (e.g. the cloud metadata IP 169.254.169.254, or 127.0.0.1) as 64:ff9b::a9fe:a9fe or 2002:a9fe:a9fe:: and the validator will accept it as a valid *arr URL, even though the embedded IPv4 address is one this function is explicitly trying to block.",
+          "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n    mapped = addr.ipv4_mapped\n    if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n        return (False, \"Blocked address\")",
+          "fix_hint": "also check addr.sixtofour and manually unwrap the NAT64 well-known prefix (64:ff9b::/96, RFC 6052) by extracting the low 32 bits when addr is in that network, then apply the same is_link_local/is_loopback/is_unspecified/is_multicast/BLOCKED_HOSTS checks to the unwrapped IPv4 address in all three cases (ipv4_mapped, sixtofour, NAT64).",
+          "why_it_matters": "This function exists specifically to prevent SSRF against cloud metadata services (169.254.169.254 is in BLOCKED_HOSTS) and loopback/link-local targets. Since the underlying HTTP client connects to the literal IP once validation passes, an attacker who can set this URL can reach internal-only endpoints by wrapping the target IP in an alternate IPv6 transition encoding, defeating the purpose of this new hardening pass.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "            return (False, \"Blocked address\")",
+            "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+          ],
+          "canonical_line_content": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "orchestrator_score": 97,
+          "band": "critical",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "42b697edc7df0b54a3dfc784d4c50b1db8149a7529cc86c551c81ad653488dc3",
+          "status": "new"
+        },
+        {
+          "id": "codex-001",
+          "agent": "codex-adversarial",
+          "file": "triggarr/web/validation.py",
+          "line": 80,
+          "title": "Legacy numeric IPv4 forms bypass the address block",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 93,
+          "intent_doc_match": null,
+          "problem": "The validator only applies blocked-address checks when `ipaddress.ip_address(hostname)` succeeds, then treats every `ValueError` as a safe hostname. I verified `validate_arr_url('http://2130706433/')` and `validate_arr_url('http://2852039166/')` return allowed, while `httpx.URL` preserves those hosts and the OS resolver maps them to `127.0.0.1` and `169.254.169.254`. Because saved URLs are later passed directly to `httpx.AsyncClient(base_url=...)`, this leaves a real loopback/cloud-metadata SSRF bypass despite the new IPv4-mapped IPv6 checks.",
+          "current_code": "    try:\n        addr = ipaddress.ip_address(hostname)\n        ...\n    except ValueError:\n        # Not an IP literal (e.g. \"radarr\") -- perfectly fine.\n        pass",
+          "fix_hint": "Do not fall through blindly on IP parse failures. Canonicalize the host first, reject numeric-looking hosts that `ipaddress` cannot parse, or enforce the blocked-address policy on resolved socket addresses at request time. Add regression tests for forms such as `2130706433`, `127.1`, `0x7f000001`, `2852039166`, and `0xA9.0xFE.0xA9.0xFE`.",
+          "why_it_matters": "Non-canonical numeric host forms (decimal/octal/hex IPv4) parse as ValueError in ipaddress but resolve to loopback/metadata addresses at the OS level, so saved URLs reach blocked targets despite the new hardening.",
+          "source_window": [
+            "        return (False, \"Blocked hostname\")",
+            "",
+            "    try:",
+            "        addr = ipaddress.ip_address(hostname)",
+            "        if addr.is_link_local or addr.is_loopback or addr.is_unspecified or addr.is_multicast:"
+          ],
+          "canonical_line_content": "    try:",
+          "orchestrator_score": 90,
+          "band": "warning",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "f2a919858f19bce60c3986c54fb505da4734ec492ffe7e76c7e6571d304f74d4",
+          "status": "new"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
