@@ -22,3 +22,12 @@
   against the UNTOUCHED state file (mtime verified older than the remedy). No run was
   discarded; no state was regenerated. Expect the same remedy to be needed for other
   old-base pins if local tool artifacts exist in those repos.
+
+- **N-03 (real gate catch → run repeated, should-quiet-1 run 2, 2026-07-04):** the step-8f1
+  full-worktree proof FAILED because `uv.lock` was modified during the review run (a
+  dependency re-resolution side effect while the review's agents executed — bcrypt et al.
+  folded into the lockfile at the old base). Unlike N-02 this was a REAL tree contamination:
+  the reviewed tree was not purely the planted diff, so per D-06 the run was marked
+  unscoreable, the bad run dir archived (`run-2.failed-<ts>`), `uv.lock` scope-reverted,
+  and run 2 REPEATED via the FAILED-RUN RECOVERY block. The gate did exactly its job.
+  Watch-for: if this recurs on the retry, investigate which review step invokes uv.
