@@ -1,0 +1,89 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "f4366a261fcf9bab01b48ad89279aac973a7d9b1",
+      "timestamp": "2026-07-04T03:52:42Z",
+      "mode": "deep",
+      "diff_range": "uncommitted working tree (HEAD, detached)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python",
+        "framework-fastapi"
+      ],
+      "findings": [
+        {
+          "agent": "compliance",
+          "id": "compliance-1",
+          "file": "triggarr/clients/base.py",
+          "line": 232,
+          "title": "Revert of prior security fix reintroduces raw exception logging in validate_connection",
+          "category": "rule-violation",
+          "cwe": "CWE-532",
+          "severity": "medium",
+          "agent_confidence": 58,
+          "in_diff": true,
+          "silenced_marker_nearby": false,
+          "current_code": "logger.warning(\n    \"{app}: Unexpected HTTP error: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "problem": "CLAUDE.md (root, Deep Code Review Convention item 1) states: 'No API keys in logs, responses, or HTML. SecretStr discipline maintained.' The global CLAUDE.md security section also states: 'Never log sensitive data (passwords, tokens, PII, auth headers).' This diff is an exact, line-for-line revert of commit d47b4c2, titled 'fix(security): prevent potential key leakage in validate_connection log messages', which had deliberately replaced {exc} interpolation with {status} and {count} at these exact call sites specifically to address 'potential key leakage'. The working-tree diff silently reintroduces {exc} logging with no comment or commit message explaining why the prior, security-motivated fix is being undone.",
+          "why_it_matters": "The prior fix was authored specifically because logging the raw exception object was judged a key-leakage risk at this call site. Reverting it without acknowledgment removes that safety margin: a future httpx or pydantic version bump could change what str(exc) includes, silently reintroducing the exact issue already found and fixed once. Empirically verified (repo-pinned httpx 0.28.1, pydantic 2.12.5) that str(HTTPStatusError) currently contains only status code + URL, and the redacting sink would catch the key if it ever appeared -- so this is a regression-of-a-named-fix / process concern, not a confirmed live vulnerability.",
+          "fix_hint": "Either keep the pre-diff form (log {status}/{count} rather than the raw exception) to preserve the original security fix's intent, or, if reverting is intentional, add a code comment and commit message explicitly documenting that decision so it isn't silently lost again on the next refactor.",
+          "intent_doc_match": null,
+          "source_window": [
+            "                )",
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,"
+          ],
+          "canonical_line_content": "                logger.warning(",
+          "orchestrator_score": 90,
+          "band": "warning",
+          "attribution": [
+            "compliance"
+          ],
+          "stable_hash": "15d2045524bb3b93c07016bf384098dcc03cba471bab1a59772cb7cd790097fc",
+          "status": "new"
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "triggarr/clients/base.py",
+          "line": 232,
+          "title": "Raw HTTPStatusError logging can leak URL credentials",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 90,
+          "in_diff": true,
+          "silenced_marker_nearby": false,
+          "current_code": "logger.warning(\n    \"{app}: Unexpected HTTP error: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "problem": "The changed warning now formats the full httpx.HTTPStatusError. httpx includes the failed request URL in that exception string, and this repo's URL validation accepts http(s) URLs with userinfo while collect_secrets() only redacts configured API/auth secrets, not credentials embedded in the base URL. A configured reverse-proxy URL like https://user:pass@host would therefore write user:pass to stderr and the web log buffer on any non-401 validation failure. This is a regression from the prior status-code-only log.",
+          "why_it_matters": "Credentials embedded in a user-configured base URL (reverse-proxy userinfo) are not in the redaction secrets list, so they would land verbatim in stderr and the web-UI log buffer on any non-401 validation failure.",
+          "fix_hint": "Do not log exc directly. Keep logging exc.response.status_code, or add a shared sanitizer that logs status plus a URL with userinfo/query stripped and add a regression test proving URL credentials do not appear in validate_connection logs.",
+          "intent_doc_match": null,
+          "source_window": [
+            "                )",
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,"
+          ],
+          "canonical_line_content": "                logger.warning(",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "a2cec7c06bd5416dc5cc0bd4e103891c1ac3e180bb60126be50952c5f1179c44",
+          "status": "new"
+        }
+      ]
+    }
+  ]
+}
