@@ -31,6 +31,11 @@ IMMUTABLE from your first run commit onward — never edit it; Wave 3 derives MA
 (the last manifest commit strictly preceding the first `runs/` commit) and hard-fails on any
 manifest commit after (or landing together with) the first `runs/` commit.**
 
+Mirror of the manifest values (recorded at pre-registration, 2026-07-03 — the gate below
+still READS them from PREREGISTRATION.md; this mirror is for eyeball cross-checking only):
+`ANSWER_KEY_COMMIT = ef0ab67cb45957167c99eff468077348432e1474` ·
+`ANSWER_KEY_SHA256 = 1463544803309db052c0d33e19af1022d4d424b81c5e8b42f9c6d29c34b3fca1`
+
 Do not start runs unless this fail-closed block passes:
 
 ```bash

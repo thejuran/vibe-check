@@ -61,6 +61,9 @@ Wave 1 artifacts (ALL COMMITTED, Plan 36-01):
 3. ✅ `PREREGISTRATION.md` — the SEPARATE fail-closed manifest (follow-up commit) recording the
    key's committing commit + committed-blob SHA-256. IMMUTABLE once the first `runs/` commit
    exists; Wave 3 scores only from the committed blob and exits non-zero on mismatch.
+   Mirror of the recorded values (the manifest is authoritative):
+   ANSWER_KEY_COMMIT = `ef0ab67cb45957167c99eff468077348432e1474`,
+   ANSWER_KEY_SHA256 = `1463544803309db052c0d33e19af1022d4d424b81c5e8b42f9c6d29c34b3fca1`.
 4. ✅ `RUN-CHECKLIST.md` — owner copy-paste sweep: `set -euo pipefail` fail-closed blocks,
    pre-registration gate + cache CONTENT-assert (STEP 0), uniform detach-to-base_sha
    apply-ONCE blocks, per-run `apply --reverse --check` pre-review proof + FULL-worktree proof
