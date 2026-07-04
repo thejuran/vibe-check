@@ -1,0 +1,57 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "f4366a261fcf9bab01b48ad89279aac973a7d9b1",
+      "timestamp": "2026-07-04T04:07:30Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (HEAD, detached)",
+      "agents_run": ["bugs", "security", "architecture", "impact", "test-sufficiency", "compliance", "language-python"],
+      "findings": [
+        {
+          "id": "codex-001",
+          "agent": "codex-adversarial",
+          "title": "Raw exception logging can leak URL credentials and response contents",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 93,
+          "file": "triggarr/clients/base.py",
+          "line": 232,
+          "problem": "The new {exc} logging expands previously safe summaries into str(exc). For httpx.HTTPStatusError raised by raise_for_status(), that string includes the full request URL; repository validation only blocks apikey= and explicitly allows other query params, so proxy tokens or userinfo can be persisted in logs. For pydantic.ValidationError, the string includes input_value, which can include malformed upstream response bodies. This violates the existing sanitization pattern in triggarr/search/engine.py that reduces HTTP errors to status/type and validation errors to counts.",
+          "why_it_matters": "Turns bounded diagnostics into raw exception logging on a network trust boundary: URL query tokens or userinfo and upstream response-body fragments can be persisted into logs that the sanitize-at-source pattern previously kept structurally clean.",
+          "fix_hint": "Do not log raw exc here. Keep HTTP {exc.response.status_code} for status errors and validation error ({exc.error_count()} issues) for validation failures, or move the existing sanitizer into a shared non-cyclic utility and use it from both call sites.",
+          "current_code": "                logger.warning(",
+          "intent_doc_match": null,
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": ["architecture", "codex-adversarial"],
+          "stable_hash": "386e5bfe080a099faed57ce532b1a2b3dd8dfbcb1537a2520a0a3b33eea9249d",
+          "status": "new"
+        },
+        {
+          "id": "arch-002",
+          "agent": "architecture",
+          "title": "Raw ValidationError logging bypasses the established _sanitize_exc convention",
+          "category": "pattern-consistency",
+          "severity": "medium",
+          "agent_confidence": 92,
+          "file": "triggarr/clients/base.py",
+          "line": 252,
+          "problem": "Same deviation for the pydantic.ValidationError branch: the diff replaces the structured count=exc.error_count() field with the raw {exc}/exc=exc. The established solution _sanitize_exc() handles this exact type explicitly - pydantic.ValidationError maps to 'validation error ({count} issues)' (engine.py line 42-43), which is essentially the pre-diff message this branch already produced. _on_job_error (scheduler.py line 408) and the CR-01 tracking handler both route pydantic.ValidationError through _sanitize_exc precisely because raw pydantic error output can echo back input field values. The established pattern is to summarize by error count, not dump the full validation-error repr.",
+          "why_it_matters": "A pydantic ValidationError's str() renders every failing field with its offending input value and location. If an *arr status response ever echoes a credential-bearing field, the raw validation-error text carries it into the log message; the diff abandons the codebase's summarize-by-count convention that made the leak structurally impossible at source.",
+          "fix_hint": "Route this branch through _sanitize_exc (triggarr/search/engine.py) or keep the summarize-by-count form: 'validation error ({exc.error_count()} issues)'.",
+          "current_code": "                \"{app}: Unexpected API response format: {exc}\",",
+          "intent_doc_match": null,
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": ["architecture"],
+          "stable_hash": "42d32b3abf750b401094ba29ecf444f3e6e4fc734b30282d6da09b1b0d5f8ab5",
+          "status": "new"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
