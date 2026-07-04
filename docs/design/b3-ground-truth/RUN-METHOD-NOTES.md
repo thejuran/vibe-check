@@ -52,3 +52,11 @@
   being run). Applied to `~/triggarr/uv.lock` (in effect for should-quiet-1 runs 2–3).
   `~/roonseek` also has a `uv.lock` — apply the same flag when should-quiet-3's fresh block
   runs; `~/seedsyncarr` has none (n/a for should-quiet-2).
+
+- **N-05 (N-02 recurrence as predicted, should-quiet-2 run 1, 2026-07-04):** the step-8f3
+  no-untracked guard tripped in `~/seedsyncarr` on 20 pre-existing owner-local tool
+  artifacts (`.orchestrator.json` Jun 1, `.playwright-mcp/*.yml` Jun 2–3) — gitignored at
+  current main but not at the pinned old base `84aff27`. Same diagnosis and remedy as N-02
+  (mtimes pre-date the measurement by a month; `git diff` unaffected — 8f1/8f2 passed;
+  paths added to `~/seedsyncarr/.git/info/exclude`, gate re-ran clean, capture executed
+  against the untouched state file). No run discarded; no state regenerated.
