@@ -1,0 +1,13 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-07-04T19:21:00Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (working tree vs HEAD)",
+      "agents_run": ["bugs", "security", "architecture", "impact", "test-sufficiency", "language-typescript", "framework-angular"],
+      "findings": []
+    }
+  ]
+}
