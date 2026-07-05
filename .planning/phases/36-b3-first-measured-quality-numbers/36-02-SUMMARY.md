@@ -153,6 +153,13 @@ None — plan executed exactly as written. The single task is a WAIT gate; the o
 - **Wave 3 guard reminder:** T-36-05 — spot-check the first captured triggarr-secret-in-logs state confirms no runtime secret was captured into a committed file before bulk scoring (the buggy line is `exc=exc`, an object with no literal key).
 - **For the report:** the Codex-participation picture (16/18 with a codex-adversarial finding; should-quiet-2 silent on all 3; should-quiet-3 run-1 Codex-present-no-finding) belongs in the method notes, not the catch/FP math.
 
+## Self-Check: PASSED
+
+- `36-02-SUMMARY.md` — FOUND
+- commit `b5afac3` (docs(36-02): plan complete — 18/18 scoreable) — FOUND
+- `docs/design/b3-ground-truth/` working tree — CLEAN (nothing modified during close-out)
+- all 18 scoreable runs — verified on disk (len(passes)==1, head_sha==base_sha, tree.diff.sha256==kit EXPECTED_TREE_DIFF_SHA256)
+
 ---
 *Phase: 36-b3-first-measured-quality-numbers*
 *Completed: 2026-07-05*

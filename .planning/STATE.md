@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
 status: executing
-stopped_at: Completed 36-01-PLAN.md (B3 run-kit built; Wave 2 owner runs next)
-last_updated: "2026-07-04T03:17:31.502Z"
-last_activity: 2026-07-04 -- Phase 36 execution started
+stopped_at: Completed 36-02-PLAN.md (B3 owner runs archived; 18/18 scoreable verified — Wave 3 scoring next)
+last_updated: "2026-07-05T18:01:18.066Z"
+last_activity: 2026-07-05 -- Phase 36 Wave 2 complete (18/18 scoreable runs archived + verified)
 progress:
   total_phases: 17
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 6
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 36 (B3 — first measured quality numbers) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3 (36-01 + 36-02 complete; 36-03 Wave 3 scoring next)
 Status: Executing Phase 36
-Last activity: 2026-07-04 -- Phase 36 execution started
+Last activity: 2026-07-05 -- Phase 36 Wave 2 complete (18/18 scoreable runs archived + verified)
 
 ## Performance Metrics
 
@@ -134,6 +134,9 @@ Earlier decisions (v2.8) still on record:
 - [Phase 36]: 36-01: third organic should-catch = seedsyncarr 879266c (unclamped >100% progress); dashboard 052845e excluded per D-12 (DR3m-01 regex hit)
 - [Phase 36]: 36-01: should-quiet picks owner-confirmed (confirm-all): triggarr 1a8c9f9, seedsyncarr 3c27e17, roonseek 2a6bbd9; 355c57f rejected by the line-survival gate
 - [Phase 36]: 36-01: answer key pre-registered at ANSWER_KEY_COMMIT ef0ab67 with digest in the separate PREREGISTRATION.md manifest (key blob never contains its own hash)
+- [Phase 36]: 36-02: owner drove /deep-review N=3 across all 6 diffs — 18/18 SCOREABLE runs committed + verified (len(passes)==1, head_sha==base_sha, tree.diff.sha256==kit EXPECTED value); pre-registration ordering intact (ANSWER_KEY_COMMIT ef0ab67 ancestor of HEAD, committed-blob digest == PREREGISTRATION.md ANSWER_KEY_SHA256, manifest touched once at cca63e2 strictly before first runs/ commit eca98ec)
+- [Phase 36]: 36-02: D-06 exercised — should-quiet-1 run-2 captured, marked unscoreable, repeated (2 archived run-2.failed-* dirs; N-01/N-04 uv.lock mid-review rewrites → chflags immutable-flag prevention @ 4eff2aa); every diff has exactly 3 scoreable runs, no holes
+- [Phase 36]: 36-02: Codex outcome recorded honestly from state attribution — codex-adversarial finding present in 16/18 runs; should-quiet-2 produced 0 findings all 3 runs (nothing to attribute, NOT skip evidence); should-quiet-3 run-1 had Codex in agents_run but no surviving codex-attributed finding. Runs measured shipped codex=auto (no --codex forcing)
 
 ### Pending Todos
 
@@ -173,7 +176,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-04T03:17:31.498Z
+Last session: 2026-07-05T18:01:18.063Z
 Stopped at: Completed 36-01-PLAN.md (B3 run-kit built; Wave 2 owner runs next)
 STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
 Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).

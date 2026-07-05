@@ -41,7 +41,7 @@ Requirements for milestone v2.9. Each maps to exactly one roadmap phase (35–37
   reviewable diffs, ORGANIC-ONLY sourcing (no vibe-check-found bugs), with a per-diff answer key
   (expected finding + expected band) that folds in the deferred A8 (`/health` name-exemption)
   and A16 (axis-vs-site ambiguity) answer-key fixes
-- [ ] **B3-02**: The owner runs `/deep-review` on each test diff (N=3 per diff) and every run
+- [x] **B3-02**: The owner runs `/deep-review` on each test diff (N=3 per diff) and every run
   is scored against the answer key
 - [ ] **B3-03**: A catch-rate / false-positive-rate report lands in
   `plugins/vibe-check/docs/efficacy/` with limitations stated honestly (small N, four repos,
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROOF-01 | Phase 35 | Pending |
 | PROOF-02 | Phase 35 | Pending |
 | B3-01 | Phase 36 | Complete |
-| B3-02 | Phase 36 | Pending |
+| B3-02 | Phase 36 | Complete |
 | B3-03 | Phase 36 | Pending |
 | CLOSE-01 | Phase 37 | Pending |
 
