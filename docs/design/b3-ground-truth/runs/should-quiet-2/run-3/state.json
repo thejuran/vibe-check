@@ -1,0 +1,15 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-07-04T19:31:15Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (working tree, detached HEAD @ 84aff27)",
+      "agents_run": ["bugs", "security", "architecture", "impact", "test-sufficiency", "language-typescript", "framework-angular"],
+      "codex": {"joined": true, "verdict": "approve", "findings": 0},
+      "findings": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
