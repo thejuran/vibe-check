@@ -266,7 +266,8 @@ ahead of it after the v2.8 merge + all Fable docs).
   2. **Tagged and published.** An annotated tag `v2.9` is created and the milestone is published — merge/fast-forward `main`, then push main + tag + branch (CLOSE-01).
   3. **Audited.** The milestone audit is clean and covers the v2.8 evidence debt that became Phase-35 requirements (CLOSE-01).
 
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 37-01-PLAN.md — Bump plugin.json 2.8.0→2.9.0 + honest README efficacy pointer (8/9·6/9), then FF main + annotated tag `v2.9` + push main/tag/branch + exact-hash verify gate (CLOSE-01)
 **UI hint**: no
 
 ## Backlog
