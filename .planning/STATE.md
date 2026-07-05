@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
 status: executing
-stopped_at: Completed 36-02-PLAN.md (B3 owner runs archived; 18/18 scoreable verified — Wave 3 scoring next)
-last_updated: "2026-07-05T18:01:18.066Z"
-last_activity: 2026-07-05 -- Phase 36 Wave 2 complete (18/18 scoreable runs archived + verified)
+stopped_at: Completed 36-03-PLAN.md (B3 scored — catch-rate 8/9, FP-rate 6/9; report appended to RESULTS-v2.9.md; Phase 36 COMPLETE)
+last_updated: "2026-07-05T18:16:28.743Z"
+last_activity: 2026-07-05 -- Phase 36 Wave 3 complete (18/18 runs scored vs pre-registered key blob; first measured catch/FP numbers)
 progress:
   total_phases: 17
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 6
+  completed_plans: 5
+  percent: 12
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 36 (B3 — first measured quality numbers) — EXECUTING
-Plan: 3 of 3 (36-01 + 36-02 complete; 36-03 Wave 3 scoring next)
-Status: Executing Phase 36
-Last activity: 2026-07-05 -- Phase 36 Wave 2 complete (18/18 scoreable runs archived + verified)
+Phase: 36 (B3 — first measured quality numbers) — COMPLETE (ready for verification)
+Plan: 3 of 3 (36-01 + 36-02 + 36-03 all complete)
+Status: Phase 36 complete — first measured numbers landed (catch-rate 8/9, FP-rate 6/9)
+Last activity: 2026-07-05 -- Phase 36 Wave 3 complete (18/18 runs scored vs pre-registered key blob; report in RESULTS-v2.9.md)
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Last activity: 2026-07-05 -- Phase 36 Wave 2 complete (18/18 scoreable runs arch
 | Phase 33 P01 | 4min | 2 tasks | 2 files |
 | Phase 35 P01 | 9min | 3 tasks | 2 files |
 | Phase 36 P01 | 21min | 5 tasks | 19 files |
+| Phase 36 P03 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,9 @@ Earlier decisions (v2.8) still on record:
 - [Phase 36]: 36-02: owner drove /deep-review N=3 across all 6 diffs — 18/18 SCOREABLE runs committed + verified (len(passes)==1, head_sha==base_sha, tree.diff.sha256==kit EXPECTED value); pre-registration ordering intact (ANSWER_KEY_COMMIT ef0ab67 ancestor of HEAD, committed-blob digest == PREREGISTRATION.md ANSWER_KEY_SHA256, manifest touched once at cca63e2 strictly before first runs/ commit eca98ec)
 - [Phase 36]: 36-02: D-06 exercised — should-quiet-1 run-2 captured, marked unscoreable, repeated (2 archived run-2.failed-* dirs; N-01/N-04 uv.lock mid-review rewrites → chflags immutable-flag prevention @ 4eff2aa); every diff has exactly 3 scoreable runs, no holes
 - [Phase 36]: 36-02: Codex outcome recorded honestly from state attribution — codex-adversarial finding present in 16/18 runs; should-quiet-2 produced 0 findings all 3 runs (nothing to attribute, NOT skip evidence); should-quiet-3 run-1 had Codex in agents_run but no surviving codex-attributed finding. Runs measured shipped codex=auto (no --codex forcing)
+- [Phase 36]: 36-03: FIRST measured numbers — catch-rate 8/9, FP-rate 6/9 (exact fractions D-09, FULL 9+9 pre-registered denominators, 18/18 scoreable, zero holes, no owner waiver). Scored from state.passes[-1].findings[] vs the committed key blob at ef0ab67 (score-from-blob gate: MANIFEST_COMMIT cca63e2 ordering proven, digest match, ancestry, runs/-clean + descent, per-diff FULL-worktree tree.diff consistency); score.py/test_score.py/config.py byte-frozen; pytest 356+221 green
+- [Phase 36]: 36-03: autoescape run-1 = the pre-registered right-site-wrong-axis MISS (detected-below-threshold) — SITE ok but fleet named deprecation/breaks-startup, one finding explicitly "NOT an XSS regression"; runs 2-3 named XSS/autoescape → 2/3. should-quiet-2 clean 0/3; should-quiet-1 + -3 = 3/3 FP each. Codex contributed all 8 catches (codex=auto)
+- [Phase 36]: 36-03: D-11 verdict = PROCEED on H-CORE/H-LANE/B-SEV/B-REWEIGHT (FP + axis-stability challenges this run implicates; should-quiet FPs are agent-self-sufficient not +10-cross-confirm-rescued → H-CORE/H-LANE not primarily H-DUP/B-XCONF) AND grow the committed set next milestone (N=3 coarse). Input to next-milestone B3-gated-challenge scoping, NOT an in-phase scorer change (formula frozen). Report appended to RESULTS-v2.9.md (no RESULTS-v3.md)
 
 ### Pending Todos
 
@@ -176,7 +180,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-05T18:01:18.063Z
+Last session: 2026-07-05T18:16:17.226Z
 Stopped at: Completed 36-01-PLAN.md (B3 run-kit built; Wave 2 owner runs next)
 STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
 Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).

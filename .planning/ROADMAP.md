@@ -141,7 +141,7 @@ Full per-phase detail: `.planning/milestones/v2.8-ROADMAP.md`. Deferred into v2.
 ### 🚧 v2.9 Prove it (Phases 35-37) — IN PROGRESS
 
 - [x] **Phase 35: Make v2.8 whole** - Rebase + execute the frozen 33-02 wiring (`--codex` flag, always-announce Codex line, fix-loop label), then run the deferred v2.8 planted-fixture smoke proofs + Phase 33's deep-review gate (completed 2026-07-02)
-- [ ] **Phase 36: B3 — first measured quality numbers** - Build the committed organic ground-truth test set (≥3 should-catch + ≥2 should-quiet, per-diff answer key), owner drives `/deep-review` N=3 per diff, score against the key → catch-rate / FP-rate report in `docs/efficacy/`
+- [x] **Phase 36: B3 — first measured quality numbers** - Build the committed organic ground-truth test set (≥3 should-catch + ≥2 should-quiet, per-diff answer key), owner drives `/deep-review` N=3 per diff, score against the key → catch-rate / FP-rate report in `docs/efficacy/` (completed 2026-07-05)
 - [ ] **Phase 37: Close** - Bump plugin.json 2.8.0→2.9.0, annotated tag `v2.9`, publish (main + tag + branch), milestone audit
 
 ## Progress
@@ -194,7 +194,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 | 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | Partial — 33-01 shipped; 33-02 deferred to v2.9 Phase 35 | 2026-07-01 |
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred to v2.9 Phase 35) | 2026-07-01 |
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
-| 36. B3 — first measured quality numbers | v2.9 | 2/3 | In Progress|  |
+| 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete   | 2026-07-05 |
 | 37. Close | v2.9 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
@@ -252,7 +252,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 **Plans**: 3 plans
 - [x] 36-01-PLAN.md — Build the run-kit: 3 organic should-catch + >=2 should-quiet reversed-fix patches, per-diff answer key (SITE+AXIS+BAND, A8/A16 folded, D-11 table), owner run-checklist (B3-01)
 - [x] 36-02-PLAN.md — Owner drives /deep-review N=3 per diff and archives run state (WAIT gate, B3-02)
-- [ ] 36-03-PLAN.md — Score archived runs vs the pre-registered key + append the catch/FP report to RESULTS-v2.9.md (B3-02/B3-03)
+- [x] 36-03-PLAN.md — Score archived runs vs the pre-registered key + append the catch/FP report to RESULTS-v2.9.md (B3-02/B3-03)
 **UI hint**: no
 
 ### Phase 37: Close

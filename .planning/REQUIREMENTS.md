@@ -43,7 +43,7 @@ Requirements for milestone v2.9. Each maps to exactly one roadmap phase (35–37
   and A16 (axis-vs-site ambiguity) answer-key fixes
 - [x] **B3-02**: The owner runs `/deep-review` on each test diff (N=3 per diff) and every run
   is scored against the answer key
-- [ ] **B3-03**: A catch-rate / false-positive-rate report lands in
+- [x] **B3-03**: A catch-rate / false-positive-rate report lands in
   `plugins/vibe-check/docs/efficacy/` with limitations stated honestly (small N, four repos,
   organic-only) and an explicit statement of what the numbers imply for the B3-gated design
   challenges (proceed / don't / need more data)
@@ -97,7 +97,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PROOF-02 | Phase 35 | Pending |
 | B3-01 | Phase 36 | Complete |
 | B3-02 | Phase 36 | Complete |
-| B3-03 | Phase 36 | Pending |
+| B3-03 | Phase 36 | Complete |
 | CLOSE-01 | Phase 37 | Pending |
 
 **Coverage:**
