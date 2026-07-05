@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
-status: ready_to_plan
-stopped_at: Phase 36 complete (3/3) — ready to discuss Phase 999.1
-last_updated: 2026-07-05T18:23:20.768Z
-last_activity: 2026-07-05 -- Phase 36 Wave 3 complete (18/18 runs scored vs pre-registered key blob; first measured catch/FP numbers)
+status: planning
+stopped_at: Phase 37 context gathered
+last_updated: "2026-07-05T21:22:28.538Z"
+last_activity: 2026-07-05
 progress:
   total_phases: 17
   completed_phases: 2
@@ -181,8 +181,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-05T18:16:17.226Z
-Stopped at: Completed 36-01-PLAN.md (B3 run-kit built; Wave 2 owner runs next)
+Last session: 2026-07-05T21:22:28.533Z
+Stopped at: Phase 37 context gathered
 STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
 Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).
 Do NOT blind-resume the old Phase-33 orchestrator resume files — 33-02 needs a rebase first.
