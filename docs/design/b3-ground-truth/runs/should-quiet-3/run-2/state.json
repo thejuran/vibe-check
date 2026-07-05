@@ -1,0 +1,32 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-07-05T17:38:02Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (HEAD + staged + unstaged)",
+      "agents_run": ["bugs", "security", "architecture", "impact", "test-sufficiency", "language-python", "codex-adversarial"],
+      "findings": [
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "Cancel uses an unvalidated identifier that does not match slskd's transfer id contract",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 82,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "orchestrator_score": 99,
+          "band": "critical",
+          "attribution": ["codex-adversarial"],
+          "stable_hash": "f57e0666ef33748533388c42160e1fa75189dca49e81929fa56ba0e3c8f1425e",
+          "status": "new"
+        }
+      ]
+    }
+  ]
+}
