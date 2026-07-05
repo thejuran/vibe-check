@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
-status: executing
-stopped_at: Completed 36-03-PLAN.md (B3 scored — catch-rate 8/9, FP-rate 6/9; report appended to RESULTS-v2.9.md; Phase 36 COMPLETE)
-last_updated: "2026-07-05T18:16:28.743Z"
+status: ready_to_plan
+stopped_at: Phase 36 complete (3/3) — ready to discuss Phase 999.1
+last_updated: 2026-07-05T18:23:20.768Z
 last_activity: 2026-07-05 -- Phase 36 Wave 3 complete (18/18 runs scored vs pre-registered key blob; first measured catch/FP numbers)
 progress:
   total_phases: 17
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 36 — B3 — first measured quality numbers
+**Current focus:** Phase 999.1 — framework review agents fastapi express vue angular
 
 ## Current Position
 
-Phase: 36 (B3 — first measured quality numbers) — COMPLETE (ready for verification)
-Plan: 3 of 3 (36-01 + 36-02 + 36-03 all complete)
-Status: Phase 36 complete — first measured numbers landed (catch-rate 8/9, FP-rate 6/9)
-Last activity: 2026-07-05 -- Phase 36 Wave 3 complete (18/18 runs scored vs pre-registered key blob; report in RESULTS-v2.9.md)
+Phase: 999.1
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-05
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Last activity: 2026-07-05 -- Phase 36 Wave 3 complete (18/18 runs scored vs pre-
 |-------|-------|-------|----------|
 | 09 | 2 | - | - |
 | 24 | 1 | - | - |
+| 36 | 3 | - | - |
 
 **Recent Trend:**
 

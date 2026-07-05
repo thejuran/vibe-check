@@ -194,7 +194,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 | 33. Codex legibility + safer fix-loop default | v2.8 | 1/2 | Partial — 33-01 shipped; 33-02 deferred to v2.9 Phase 35 | 2026-07-01 |
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred to v2.9 Phase 35) | 2026-07-01 |
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
-| 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete   | 2026-07-05 |
+| 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete    | 2026-07-05 |
 | 37. Close | v2.9 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
