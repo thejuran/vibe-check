@@ -240,3 +240,181 @@ issue a reviewer raised turned out to be a false alarm, a cosmetic wording nit t
 minor hardening idea for the backlog, none of them a real bug. So the whole debt is paid and this doc's
 headline is PASS. The one thing deliberately left for later is the owner's formal sign-off, which
 happens when the v2.9 milestone is closed (Phase 37).
+
+---
+
+# B3 — First measured catch-rate / false-positive-rate (Phase 36, B3-02/B3-03)
+
+**Headline: catch-rate 8/9 · false-positive-rate 6/9** (no rounding — exact fractions).
+
+This is vibe-check's FIRST aggregate catch-rate / false-positive-rate — the number the tool has
+never had, closing the self-documented gap at `RESULTS.md:64` ("no aggregate numbers"). It scores
+18 owner-driven `/deep-review` runs (6 organic diffs × N=3) against a per-diff answer key that was
+committed and cryptographically sealed BEFORE any run existed. The full per-run worksheet — every
+gate result and every SITE/AXIS/BAND verdict — lives at
+`docs/design/b3-ground-truth/SCORING-b3.md`; this section aggregates it.
+
+## Method
+
+- **Organic-only sourcing (D-03).** All 6 diffs are real shipped commits from four of the owner's
+  repos (triggarr, seedsyncarr, roonseek + the angular front-end), selected by a FAIL-CLOSED
+  provenance regex (`DR[0-9]|DR-|CR-|WR-|review-pass|codex` → no hits) so no vibe-check-found bug
+  can enter the set (no circular self-testing). The 3 should-catch diffs are the *reversed* fix
+  patches (the bug the fix removed); the 3 should-quiet diffs are shipped feature commits whose
+  selected lines no later commit rewrote (line-level, subject-agnostic survival evidence in each
+  `.provenance` sidecar).
+- **Independence via state isolation (N=3, genuinely independent).** Each run happened on a
+  DETACHED checkout of the diff's pinned `base_sha` with the reversed/feature patch applied ONCE and
+  kept applied across all 3 runs; every archived state carries `len(passes) == 1` (a fresh
+  empty-state sample, never a carry-forward accumulation) AND `head_sha == base_sha` (the pinned
+  tree, proven by `apply --reverse --check`). The patch's FULL-worktree diff sha
+  (`git diff`, NO pathspec) is IDENTICAL across the diff's 3 runs and equals the kit-build
+  `EXPECTED_TREE_DIFF_SHA256` (with `name-only` = the single touched path and a no-untracked
+  assert) — so every scored run reviewed exactly the planted diff and nothing else (no out-of-path
+  side effect). Phase-5 auto-fixes were declined (report-only) so the reviewed tree stays the
+  planted tree.
+- **Pinned-base scope.** Each diff was reviewed against its recorded `base_sha` tree, NOT the
+  repo's current HEAD (e.g. triggarr-autoescape at `e11187e`, secret-in-logs at `f4366a2`,
+  unclamped-% at `3db8b48`). A scope-bound, not a defect — the answer-key line numbers are keyed to
+  that exact tree.
+- **Scored from state, not transcript (D-06).** Every verdict was read from
+  `state.passes[-1].findings[]` (`file`/`line`/`title`/`category`/`band`/`attribution`), never the
+  chat transcript (which shows only a filtered COUNT and cannot separate a catch from a
+  below-threshold detection). Bands were read, never recomputed (`score.py` single-writer,
+  ROBUST-01).
+- **Score-from-blob pre-registration gate (the number is provable end-to-end).** Scoring read the
+  answer key ONLY from the committed blob at `ANSWER_KEY_COMMIT = ef0ab67`, whose hash was read from
+  the committed manifest blob at `MANIFEST_COMMIT = cca63e2` (`git show
+  MANIFEST_COMMIT:PREREGISTRATION.md`) — the manifest's own ordering proven (it is the last manifest
+  commit strictly preceding the first `runs/` commit `eca98ec`; any post-run or same-commit manifest
+  edit would EXIT NON-ZERO). The gate: `git merge-base --is-ancestor ef0ab67 HEAD` (exit 0), the
+  recomputed blob SHA-256 == the manifest's `ANSWER_KEY_SHA256` (match — else refuse to score),
+  `git status --porcelain runs/` empty, and every `runs/` commit descends from BOTH the key and the
+  manifest. The live working key/manifest were byte-identical to their blobs (no drift), but scoring
+  read only the blobs regardless.
+- **Complete denominator (no aggregation over holes, codex pass-5 fix 3).** All 18 expected runs
+  passed the isolation+pin+tree.diff checks → exactly 3 scoreable runs per diff, ZERO holes, NO
+  owner waiver. The headline denominators are therefore the FULL pre-registered run set (9
+  should-catch runs, 9 should-quiet runs), never a scored-runs-only subset. (Wave 2's two
+  `should-quiet-1/run-2.failed-*` archives were D-06 recoveries — unscoreable runs that were
+  repeated — and are NOT part of the 18.)
+- **Codex = shipped default (D-13).** Runs measured `codex=auto` (no `--codex` forcing, no toml
+  overrides beyond what the source repos already carry). The per-run Codex-contribution is recorded,
+  not forced.
+- **Frozen scoring surface.** `score.py` / `test_score.py` / `config.py` are byte-unchanged this
+  phase; `pytest -q` in `plugins/vibe-check/scripts` stays green (356 passed, 221 subtests). This
+  phase writes docs only.
+
+## Scoring rules (pre-registered, from the committed key blob)
+
+- **Catch (should-catch, D-07 three-gate):** SITE (right file + within the planted hunk) AND AXIS
+  (the finding names the required MECHANISM, not merely a defect at the right location) AND BAND
+  (rendered band ≥ the row's floor). SITE-only, or SITE+AXIS-below-band, = `detected-below-threshold`
+  = a MISS in the headline (A16).
+- **FP (should-quiet, D-08):** any finding with band **critical OR warning**; medium/low =
+  noise-notes (not FPs).
+
+## Per-diff scoring — should-catch (catch-rate)
+
+| # | diff-id | AXIS the finding must name | floor | Expected | Observed | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | triggarr-secret-in-logs | API-key/PII leaked into logs via `logger.warning(..., exc=exc)` | warning | catch ×3 | catch, catch, catch (codex named the credential-leak all 3) | **3/3** |
+| 2 | triggarr-autoescape | XSS surface re-enabled — autoescape silently NO-OPs on current Starlette | warning | catch ×3 | **MISS (right-site-wrong-axis)**, catch, catch | **2/3** |
+| 3 | third-organic-should-catch | unclamped percentage / missing `Math.min(100,…)` clamp → >100% | medium | catch ×3 | catch, catch, catch | **3/3** |
+
+**Headline catch-rate = 8/9.** The one miss (autoescape run-1) is the pre-registered SUBTLE case:
+all reviewers saw the reverted line (`routes.py:45`) but framed it as a *deprecation / breaks-startup*
+nit — one finding EXPLICITLY wrote "this is NOT an XSS regression" — so it names the wrong mechanism.
+Runs 2 and 3 on the same diff DID name the XSS/autoescape consequence and caught it. The axis, not
+the site, flapped.
+
+## Per-diff scoring — should-quiet (false-positive-rate)
+
+| # | diff-id | Safe ON axis (what makes silence correct) | Expected | Observed | Verdict |
+|---|---|---|---|---|---|
+| 4 | should-quiet-1 | SSRF / input-validation — the diff TIGHTENS the host block-list | clean ×3 | FP, FP, FP (crit/warn SSRF-bypass alarms, scores 82-100) | **3/3 FP** |
+| 5 | should-quiet-2 | API contract / typing — `post(url)` widened to `post(url, body?)` | clean ×3 | clean, clean, clean (0 findings) | **0/3 FP** |
+| 6 | should-quiet-3 | HTTP-client / path-injection / error-handling boundary-add | clean ×3 | FP, FP, FP (cross-lane: coverage-gap, default-semantics, id-contract) | **3/3 FP** |
+
+**Headline false-positive-rate = 6/9.** should-quiet-2 was clean all 3 runs; should-quiet-1 and
+should-quiet-3 fired a critical/warning every run.
+
+## Honest limitations (B3-03 — mirrors `RESULTS.md` numbered-caveat style)
+
+1. **Small N.** N=3 per diff (9 catch runs, 9 quiet runs total). This cannot support fine
+   thresholds or stable rates — a single run flipping moves a diff's fraction by 1/3. Every number
+   here is coarse by construction; the D-11 verdict below says so explicitly.
+2. **Four repos, six diffs.** triggarr, seedsyncarr, roonseek, and the angular front-end — the
+   owner's own stack, not a broad multi-project or multi-language trial. It measures these defect
+   classes on these repos; it does not measure recall across the whole surface.
+3. **Organic-only sourcing.** Diffs are real shipped commits (fail-closed provenance regex), which
+   keeps the test honest but constrains the set to defects that actually shipped-then-fixed (or
+   shipped-clean) — not an adversarially designed difficulty curve.
+4. **Single threshold.** These are `/deep-review` runs (surface cutoff ≥70), not `/review` (≥80).
+   The FP-rate in particular would differ at the stricter `/review` bar.
+5. **Codex non-determinism.** Under `codex=auto` the adversarial pass is model-nondeterministic;
+   it contributed to all 8 catches but also to some should-quiet FPs, adding run-to-run variance
+   that N=3 cannot average out.
+6. **Pinned-base scope.** Every diff was reviewed against its recorded `base_sha` tree, not the
+   repo's live HEAD (e.g. autoescape at `e11187e`). A scope-bound of the ground-truth method, not a
+   tool defect.
+
+## D-11 verdict — PROCEED on the FP-driving challenges; NEED MORE DATA on the coarse rate
+
+Evaluated against the pre-registered D-11 table (read from the committed key blob). Vocabulary:
+high catch + ~zero FP → "don't proceed — park"; low catch OR **high FP → proceed on the implicated
+challenge(s)**; middle → "need more data — grow the set".
+
+- **Catch side (8/9): encouraging, not alone decisive.** High catch would, WITH ~zero FP, argue
+  "park the challenges." But the FP arm dominates.
+- **FP side (6/9): high → PROCEED on the implicated challenges.** Two of three should-quiet diffs
+  fired critical/warning every run. Mapping each observed failure mode to its pre-registered
+  challenge:
+  - **should-quiet-1 (3/3 FP)** → **H-CORE + H-LANE.** Multiple independent lanes (bugs, security,
+    impact, codex) each fire critical/warning on the SAME SSRF site, at self-sufficient scores
+    (bugs alone = 100) — NOT band crossings rescued by the +10 cross-confirm. The finding is emitted
+    at the agent (H-CORE — filtering is agent-side and can't help) and multi-lane-duplicated
+    (H-LANE).
+  - **should-quiet-3 (3/3 FP)** → **H-LANE + B-SEV.** Cross-lane noise (test-coverage gap,
+    default-status-set semantics, slskd id-contract) with borderline warnings crossing the action
+    bar — the severity-label instability B-SEV targets.
+  - **autoescape (2/3 catch, axis-flapping miss)** → **B-REWEIGHT (with B-SEV).** An unstable
+    per-diff catch fraction driven by which axis the fleet named on the same planted item — the
+    reweight/severity-stability pair.
+  - **H-DUP / B-XCONF: implicated only weakly.** One should-quiet-1 run showed a codex finding
+    cross-attributed with security, but it was already critical on its own — so this set does NOT
+    cleanly demonstrate a cross-confirm rescuing a borderline FP. Flagged as watch-for, not
+    triggered.
+- **NEED MORE DATA on the rate itself.** N=3 is coarse: a 6/9 FP-rate could be anywhere from ~3/9
+  to ~7/9 with a larger set. So the actionable verdict is: **PROCEED on H-CORE / H-LANE / B-SEV /
+  B-REWEIGHT** (the FP and axis-stability challenges this run implicates), and **GROW the committed
+  set next milestone** before trusting the exact rate. This verdict is the INPUT to next-milestone
+  scoping of the B3-gated design challenges — NOT an in-phase decision to change the scorer (the
+  formula stays frozen this milestone).
+
+## Plain-language summary (for the owner)
+
+We finally have real numbers. We ran the reviewer on six real diffs from your own repos — three
+that hide a genuine bug (an API key leaking into logs, a lost XSS protection, and a progress bar
+that can read over 100%) and three that are perfectly fine changes — three times each, eighteen runs
+total, all scored against an answer key we locked and cryptographically sealed BEFORE any run.
+
+**On the buggy diffs it caught the bug in 8 of the 9 runs.** It nailed the leaked-key and the
+over-100% bugs every single time. The one miss was subtle: on one of the three XSS runs it noticed
+the exact changed line but described it as an old-API-deprecation cleanup rather than "this turns
+off HTML escaping and re-opens an XSS hole" — right place, wrong reason — so we honestly score it a
+miss. The other two XSS runs got it right.
+
+**On the clean diffs it raised a false alarm in 6 of the 9 runs.** One clean diff it left completely
+alone all three times (perfect). But the other two clean diffs drew a critical/warning every run —
+on one, several different reviewers all flagged the same networking-security spot; on the other, the
+alarms were a grab-bag (missing tests, an edge-case default, a naming-contract quibble). That's the
+weak spot this measurement exposes: when a diff merely *touches* security- or networking-sensitive
+code, the tool tends to fire even when the change itself is fine.
+
+**What it means:** high catch rate (good — it's a reliable safety net for real bugs), but a
+too-high false-alarm rate on sensitive-looking clean code. Because we only have three runs per diff,
+these numbers are rough — the honest next step is to grow the test set and, separately, to work on
+the specific noise sources this run pointed at (multiple reviewers piling onto the same spot;
+borderline warnings crossing the "act on this" line). We did NOT touch the scoring code this
+milestone — this report is the evidence that says WHERE to aim next.
