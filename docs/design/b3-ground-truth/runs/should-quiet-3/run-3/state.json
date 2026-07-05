@@ -1,0 +1,52 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-07-05T17:46:10Z",
+      "mode": "deep",
+      "diff_range": "working-tree (HEAD + staged + unstaged)",
+      "agents_run": ["triage", "bugs", "security", "architecture", "impact", "test-sufficiency", "language-python"],
+      "findings": [
+        {
+          "agent": "impact",
+          "id": "impact-empty-set-falsy-pitfall",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses=set() silently falls back to {200,201} default",
+          "category": "breaking-api",
+          "cwe": "CWE-697",
+          "severity": "low",
+          "agent_confidence": 88,
+          "orchestrator_score": 88,
+          "band": "warning",
+          "attribution": ["impact"],
+          "stable_hash": "2410948061772b924b2b546c7509d6553d6bf6bad417966b73e8816a5d0b0284",
+          "status": "new",
+          "problem": "expected_statuses = success_statuses or {200, 201} conflates None with an explicit empty set on a shared private helper.",
+          "current_code": "expected_statuses = success_statuses or {200, 201}",
+          "fix_hint": "Use success_statuses if success_statuses is not None else {200, 201}."
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 209,
+          "title": "202 Accepted is treated as terminal cancel success",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 76,
+          "orchestrator_score": 93,
+          "band": "warning",
+          "attribution": ["codex-adversarial"],
+          "stable_hash": "e72ce497e80b4870d453095777679c4fa11c48c82141b6a8552360fa37cb3924",
+          "status": "new",
+          "problem": "cancel_download() accepts HTTP 202 and returns the same empty success shape as 200/204; 202 only means accepted-for-later-processing.",
+          "current_code": "result = self._request_json(",
+          "fix_hint": "Do not treat 202 as completed success; poll get_user_downloads() until the transfer is absent/cancelled before final cleanup."
+        }
+      ]
+    }
+  ]
+}
