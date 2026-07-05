@@ -60,3 +60,7 @@
   (mtimes pre-date the measurement by a month; `git diff` unaffected — 8f1/8f2 passed;
   paths added to `~/seedsyncarr/.git/info/exclude`, gate re-ran clean, capture executed
   against the untouched state file). No run discarded; no state regenerated.
+  **Also hit in `~/roonseek` (should-quiet-3 run 1, 2026-07-05):** 18 `nas-*.txt` debug
+  scratch files, mtimes May 14–17 (seven weeks pre-measurement) — `nas-*.txt` added to
+  `~/roonseek/.git/info/exclude`, same clean re-run. All three source repos have now needed
+  the old-base exclude remedy exactly once; 8f1/8f2 passed in every case.
