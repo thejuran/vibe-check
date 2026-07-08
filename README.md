@@ -25,6 +25,14 @@ It is GSD-aware: if your project uses [GSD](https://github.com/open-gsd/gsd-core
 
 ---
 
+## 📊 Measured Efficacy
+
+v2.9 ships vibe-check's first measured quality numbers, scored from 18 owner-run `/deep-review` passes over an organic ground-truth set: **catch-rate 8/9, false-positive-rate 6/9** (exact fractions, no rounding).
+
+These are small-N (N=3 per diff, 9 catch runs + 9 quiet runs, four repos, organic-only) — indicative, not statistically tight, and not a claim of generalized accuracy. Full method, per-diff scoring, and honest limitations: [`docs/efficacy/RESULTS-v2.9.md`](plugins/vibe-check/docs/efficacy/RESULTS-v2.9.md).
+
+---
+
 ## 🚀 Quick Start
 
 Open Claude Code and run:
