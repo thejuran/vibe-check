@@ -98,7 +98,8 @@ top_model = "opus"     # opus | fable  (default: opus)
 [noise]
 idiom_floor = "medium"   # cap the `idiom` category at this max band (default: "medium")
                          #   band name (critical|warning|medium|low) to cap, or off|none to disable
-#   codex = "auto"       # (Phase 33 — not active yet)
+codex = "auto"           # gate the /deep-review Codex adversarial pass (default: "auto")
+                         #   off | auto | on   (overridable per run with --codex)
 ```
 
 | Key | Default | Values | Effect |
@@ -107,6 +108,7 @@ idiom_floor = "medium"   # cap the `idiom` category at this max band (default: "
 | `[agents].disabled` | `[]` | list of agent names | Agents to skip dispatching. Disabling a **core** agent (`bugs`/`security`) is honored but **announced** on the config-health line (coverage reduced, never silent). |
 | `[agents].top_model` | `opus` | `opus`, `fable` | Top-tier model for the two judgment-gating agents (`bugs` + `architecture`) in `/deep-review` — the toml equivalent of `VIBE_CHECK_TOP_MODEL`. |
 | `[noise].idiom_floor` | `"medium"` | a band name (`critical` / `warning` / `medium` / `low`) or `off` / `none` to disable | Caps the **`idiom`** category's band at this max, so idioms never block finalize — **active by default at `medium`** (this is the one knob whose default is an active cap). `off` / `none` disables the cap (idioms may then reach any band). `"low"` caps idioms at the `low` band — a **supported** value, NOT a disable: a low-capped idiom still renders, in the report's **Low / Informational** listing. Applies ONLY to `category == "idiom"` and only ever LOWERS a band (never raises one). |
+| `[noise].codex` | `"auto"` | `off`, `auto`, `on` (also settable per run via `--codex off\|auto\|on`) | Gates the **Codex (GPT-5-codex) adversarial pass** in `/deep-review`. `off` never attempts Codex (short-circuits all Codex plumbing). `auto` (default) runs it when Codex is installed, authenticated, and the diff is representable — behavior unchanged from prior versions. `on` uses the same dispatch decision as `auto` but surfaces any skip reason prominently. `/review` never runs Codex, so this knob only affects `/deep-review`, which prints one Codex outcome line per run (joined / skipped: reason / off via config). Orchestrator-only — never enters the score envelope. |
 
 **Precedence (per knob):** `CLI flag` > `.vibe-check.toml` > built-in default. For `top_model` this reads concretely as **`VIBE_CHECK_TOP_MODEL` (env) > `top_model` (toml) > `opus`** — a shell override still wins over the repo config, coherent with the env-var table above.
 
