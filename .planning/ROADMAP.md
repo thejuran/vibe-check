@@ -203,6 +203,19 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 
 ## Backlog
 
+> **Pruned 2026-07-08 (post-v2.9 retro):** shipped items removed; full write-ups live in
+> git history (pre-prune tip: `745da96`) and the milestone archives. Shipped: **999.0**
+> (neutral fix menu — v2.9 LEGIBLE-03 D-07), **999.1** (framework agents — fleet 7→12,
+> v2.7), **999.4** (tunable config + confidence axis + noise knobs — v2.8), **999.6**
+> (test-sufficiency agent — v2.5), **999.7** (score.py deterministic core — v2.4, crash-
+> proof v2.5), **999.9** (ROBUST-01/03/04 — v2.5; cross-confirm regression test v2.7),
+> **999.10** (NOISE-01 ceiling v2.6, noise knobs v2.8, Codex legibility v2.9), **999.14**
+> (dogfood-found defects — v2.4). Still open below: **999.2**, **999.3**, **999.5**,
+> **999.8**, **999.12** (D-01 estimate *brackets* shipped in v2.8; the measured-actuals
+> half remains), **999.13** (architecture.md + README efficacy exist; the threat-model /
+> honesty / lifecycle pass remains). The 2026-06-22 tier journal below is retained as a
+> dated historical record — its item states are superseded by this note.
+
 > **Priority order (re-prioritized 2026-06-22, correctness-first lens).**
 > Phase *numbers* are stable identifiers, not sequence. The intended order of
 > attack is the tiers below. Rationale: lens = **build-for-myself**
@@ -259,57 +272,6 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 > deterministic-core refactor to ship and prove itself before 999.8/999.9 build
 > on it. Don't make any other single item its own milestone.
 
-### Phase 999.0: Safer fix-loop default — strip apply-all "(Recommended)" **[TOP-3 #3] [QUICK WIN]** (BACKLOG)
-
-**Goal:** Change the fix-loop default away from "Apply all findings
-(Recommended)." The fix loop is an autonomous committer making semantic edits to
-things like race conditions; apply-all-and-commit is too aggressive even with the
-good injection hardening. Default to "Apply selected" / "I'll apply them myself,"
-or at minimum strip "(Recommended)" from the all-apply option.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Why 999.0 / why split out:** Pure UX/safety, ~5-minute edit, independent of the
-deterministic-core work. Pulled out of 999.8 as a standalone immediate quick win
-(Tier 0) so it ships before the larger correctness block. Numbered 999.0 to mark
-it front-of-queue.
-
-**Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.1: Framework review agents — FastAPI, Express, Vue, Angular (BACKLOG)
-
-**Goal:** Add framework-specific review agents to vibe-check so reviews of framework code get framework-aware checks (today only `framework-react` exists). Priority order is by actual repo usage across the user's projects.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Priority order (by repo count):**
-
-1. ✅ **framework-fastapi** — 5 repos (dashboard, gsdboard, roonseek, triggarr, VolvLog). Highest impact. SHIPPED in milestone v2.1 (see milestones/v2.1-ROADMAP.md). Checks: dependency-injection misuse, missing async discipline, Pydantic/validation gaps, wrong status codes.
-2. **framework-express** — 3 repos (iPlayarr, iviewarr, ytfortv). Checks: middleware ordering, unhandled async route errors, missing error-handling middleware, security header defaults.
-3. **framework-vue** — 2 repos (iPlayarr frontend, VolvLog). Checks: reactivity pitfalls (ref vs reactive), Composition API misuse, lifecycle/cleanup, key props.
-4. **framework-angular** — 1 repo (seedsync). Checks: RxJS subscription leaks, change-detection, DI, lifecycle hooks.
-5. **framework-electron** — 1 repo (sonoscrub; its React side is already covered by framework-react). Checks: main-vs-renderer process boundary, `nodeIntegration`/`contextIsolation` security settings (CVE-class — misconfiguration is a real vuln), IPC input validation, `webPreferences` hardening, preload-script exposure. Security-heavy — arguably higher value per build than its 1-repo count suggests.
-6. **framework-react-native** — 0 of the author's repos; **driven by shared-user need** (mageema's `templepocus-new` is React Native 0.81 / Expo 54 / React Navigation). NOT covered by `framework-react` (shares JSX+hooks but different surface: no DOM, native components, FlatList perf, Platform.OS, native listener cleanup, Reanimated rules, Expo SDK/permissions, app.json config). Prioritize as "shared-tool value for the one other user," not by author-repo count. Triage must distinguish react-native from react (presence of `react-native`/`expo` deps).
-
-**Implementation notes:**
-
-- Each agent is a self-contained file following the `plugins/vibe-check/agents/framework-react.md` pattern.
-- Add a trigger-condition row to the dispatch tables in `commands/review.md` and `commands/deep-review.md` (e.g. "triage.frameworks includes fastapi").
-- `agents/triage.md` likely needs to detect these frameworks so the dispatch conditions fire.
-- Additive — no risk to existing agents. Languages are already fully covered (TS + Python); no language-agent gaps.
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
 ### Phase 999.2: Gitleaks deterministic secret-scan pre-pass (BACKLOG)
 
 **Goal:** Run gitleaks before the AI agent fan-out and feed CONFIRMED secret hits to the security agent for severity/explanation, instead of having the LLM detect secrets from scratch. Closes the pure-LLM security gap the README concedes; deterministic ground truth with zero hallucination.
@@ -352,80 +314,6 @@ Plans:
 
 - [ ] TBD (promote with /gsd:review-backlog when ready)
 
-### Phase 999.6: Test-sufficiency agent — risk-weighted coverage judgment (BACKLOG)
-
-**Goal:** A `/deep-review` agent that judges whether changed code is *adequately* tested — the judgment layer raw coverage tooling can't provide. It does NOT recompute coverage; it **consumes the project's own coverage output** (or runs the project's existing coverage command when present) and reasons about *which gaps are dangerous*, flagging them in plain language. Today vibe-check has NO dedicated coverage agent — only an incidental "Test coverage gaps" bullet in `impact.md`, which has no rubric and competes with blast-radius analysis.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Why (motivating evidence — bridgarr, measured 2026-06-22):** ran vitest coverage on `thejuran/bridgarr` (TS monorepo, Vitest). Headline ~86% stmts / ~72% branch / 278 tests passing — looks reassuring and would let a non-engineer stop looking. But the table told a different story the % hides: `core/src/sabnzbd/router.ts` (a REQUEST ROUTER — high-risk) sat at **46% stmt / 26% branch**, the worst-covered file in the repo, while low-risk files were near 100%. Branch coverage (54% in core) meant >half the conditional/error paths never execute in a test. **A coverage tool gives the number; it does NOT say "the one request-handling file is half-tested and that's the scary gap."** That judgment is the agent's job.
-
-**Design constraints:**
-
-- **Don't recompute, consume.** Lean on the project's coverage tool (vitest/pytest-cov/go test -cover/etc.) for raw numbers; the agent adds the risk-weighting + plain-language verdict on top — same "deterministic tool detects, AI adjudicates" division as the Gitleaks/SARIF items (999.2/999.3).
-- **Risk-weight the gaps.** A 46% router > a 0% healthz. Weight by what the file DOES (request handling, auth, input parsing, money/data mutation) not just by the raw %. Surface branch-coverage weakness explicitly (happy-path-tested / failure-path-untested is the classic trap).
-- **deep-review only** (judgment-tier, like architecture/impact). Plain `/review` stays fast.
-- **Non-engineer framing** — output should read "your X handles requests but only 26% of its branches are tested; the error paths at L146–208 are unguarded," not a bare coverage table. High value under the build-for-myself lens ([[vibe-check-backlog-reweight]]): catches the "high coverage so I'm fine" trap a PM-not-coder is most likely to fall into.
-- **Complements, doesn't duplicate, GSD:** `gsd:add-tests` / `gsd:validate-phase` (Nyquist) cover the *phase/requirement* level; this is the *diff* level inside a review pass.
-
-**Source:** observed during competitive-analysis discussion; see `docs/superpowers/specs/2026-06-22-competitive-analysis-and-feature-gaps.md` (§ test-coverage gap).
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.4: Tunable config — confidence axis, `--min-confidence`, thresholds & agent roster (BACKLOG)
-
-**Goal:** Make vibe-check's review knobs first-class and tunable per-repo without
-forking the plugin. Two strands, one config surface:
-
-1. **Confidence axis** — surface `agent_confidence` as a visible, filterable
-   field plus an optional `--min-confidence N` knob, matching the false-positive
-   control every serious competitor exposes (Greptile 0–5, Qodo 0–10,
-   Anthropic 0–100).
-
-2. **Repo-level config** — the 80/70 band thresholds, the enabled-agent roster,
-   and top-model selection, configurable via a `.vibe-check.toml` (or a CLAUDE.md
-   block) instead of baked into templates. Today tuning means editing plugin
-   internals — real fork pressure for a solo project.
-
-*(Merged 2026-06-22: the external-review item "configurable thresholds & agent
-roster" was folded in here rather than kept as a separate phase — both touch the
-same knob surface, so they should ship as one config schema, not two
-mechanisms.)*
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Design decisions:**
-
-- **Supplement, do NOT rewrite the formula** (from competitive analysis, D2).
-  `agent_confidence` is already computed and folded into `scoring.md` via a
-  carefully calibrated formula — re-deriving it re-opens the painful
-  severity-weight tuning. Instead **surface** it as a filterable field and add
-  `--min-confidence N` that filters *before* scoring. Keeps the band math
-  untouched.
-
-- **One config schema for all knobs** — `--min-confidence`, thresholds, agent
-  roster, and top-model live in the same `.vibe-check.toml`, not separate
-  mechanisms. Naturally consumes the deterministic core (999.7): thresholds are
-  an input to the scoring script, so this is cleaner to build once 999.7 exists.
-
-- **Low risk** — surfacing and parameterizing, not rewiring. The confidence
-  strand is the only part that touches the core pipeline; the config strand is
-  pure input-plumbing.
-
-**Source:** `docs/superpowers/specs/2026-06-22-competitive-analysis-and-feature-gaps.md`
-(confidence axis) + `docs/superpowers/specs/2026-06-22-external-review-triage.md`
-(config surface)
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
 ### Phase 999.5: CI / PR-comment posting mode (BACKLOG)
 
 **Goal:** An additive opt-in mode (`/vibe-check:review --pr <n>`) that posts threshold-filtered, already-scored findings to a GitHub PR. The biggest reach expansion — meets teams where their PRs live.
@@ -451,47 +339,12 @@ Plans:
 
 ---
 
-> **Phases 999.7–999.13 below** come from an independent external engineering
+> **Phases 999.8 / 999.12 / 999.13 below** (the rest of that set — 999.7, 999.9, 999.10 — has shipped; see prune note above) — they come from an independent external engineering
 > review (2026-06-22). The reviewer's overall read: "the engineering quality is
 > real, so most of this is sharpening rather than rescue." Three items were
 > flagged as highest-leverage and are marked **[TOP-3]**. Full review and the
 > cluster→phase mapping live in
 > `docs/superpowers/specs/2026-06-22-external-review-triage.md`.
-
-### Phase 999.7: Extract deterministic core into a script **[TOP-3 #1]** (BACKLOG)
-
-**Goal:** Move the pure functions the orchestrator currently asks the model to
-compute by hand on every run — `in_diff`, the silenced-marker grep, the sha256
-stable hash, the scoring formula, banding, and the carry-forward compare — into
-one `score.py`/`.mjs` that the orchestrator pipes findings through. Makes them
-exact, identical run-to-run, and unit-testable.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Why this is #1:** Single biggest correctness win in the review. Most of the
-robustness cluster (999.9) is downstream of it — once scoring lives in a script
-the model *cannot* silently skip it (rendered findings only exist if the script
-ran), which is a stronger enforcement mechanism than the prose "HARD CONTRACT."
-Extracting it also shrinks the orchestrator prose enough that much of that
-scaffolding becomes unnecessary, and it dissolves the 999.8 state double-write
-for free by collapsing to a single writer.
-
-**Design notes:**
-
-- Pure-function boundary: the script takes findings in, emits scored/banded
-  findings + carry-forward deltas out. No review logic, no model judgment moves
-  into it — only the arithmetic and string-matching that's deterministic anyway.
-
-- Treat "the script ran" as the machine-checkable invariant (see 999.9).
-- Sequence FIRST among the review phases — 999.8 and 999.9 both lean on it.
-
-**Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ### Phase 999.8: State single-writer for the fix loop **[TOP-3 #2]** (BACKLOG)
 
@@ -512,74 +365,6 @@ or at minimum make recovery deterministic instead of best-effort prose.
 
 - The fix-loop *default* safety change that used to live here is now its own
   front-of-queue quick win, **999.0**.
-
-**Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.9: Robustness — cross-confirm matcher, carry-forward hash, invariants (BACKLOG)
-
-**Goal:** Three correctness hardenings the reviewer grouped together:
-
-1. **Harden the cross-confirm matcher.** Today it's first-token substring +
-   line ±2 — fragile enough that `codex-adversarial.md` tells Codex to "phrase
-   titles plainly" to game it (a code smell). Move to category-overlap + line
-   proximity, or token-set Jaccard, so cross-confirmation doesn't hinge on two
-   agents sharing a word.
-
-2. **Fix the carry-forward content compare keying on `current_code`'s first
-   line.** A generic first line (`}`, a common call, a closing paren) causes hash
-   collisions and mis-tracked persistence. Hash more surrounding context, or fall
-   back to a window when the first line is low-entropy.
-
-3. **Add machine-checkable invariants where cheap.** Detect-and-warn after the
-   fact for things prose can't enforce (e.g. parallel-dispatch). The scoring-ran
-   invariant comes free with 999.7.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Design notes:** Partly downstream of 999.7 — the matcher and hash are pure
-functions that belong in the same script, and the invariants are easiest to
-enforce once the deterministic core exists. **Sequence after 999.7.**
-
-**Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.10: Noise & Codex legibility — opt-in Codex, idiom floor, suppression marker (BACKLOG)
-
-**Goal:** Three signal-to-noise / legibility changes:
-
-1. **Make Codex opt-in, not auto-probed.** The probe path silently degrades in
-   many ways (not installed, not authed, no timeout binary, non-representable
-   diff) so most users get native-only and never know. An explicit `--codex`
-   flag or `VIBE_CHECK_CODEX=1` makes it legible and removes a brittle surface
-   from the default path. (The fallback engineering is good; the auto-discovery
-   is where it leaks. Pairs with the 999.13 honesty-disclosure doc.)
-
-2. **Tame idiom noise.** Taste-level idiom findings (Go CamelCase, Rust
-   combinators / `&str` over `String`, Python `if __name__`) currently rely on
-   severity weight to filter what the agent is told to report. Give idiom/style a
-   hard floor that keeps it out of Medium, add an always-informational "style"
-   tier that never blocks finalize, or split idioms into an opt-in agent.
-
-3. **Add a persistent suppression marker** (`// vibe-ignore: <reason>`). The
-   pipeline already greps `eslint-disable` / `# noqa` / `#[allow(`; a native
-   marker stops an accepted-but-unfixable finding from resurfacing every pass.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Design notes:** Three independent sub-features — can be split into separate
-plans or promoted individually. The Codex-opt-in change is the largest surface
-reduction; the suppression marker is the cheapest win.
 
 **Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
 
@@ -654,63 +439,6 @@ cluster. Mostly README + spec edits; no pipeline risk.
 those lands avoids documenting soon-to-be-stale behavior.
 
 **Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
-
-Plans:
-
-- [ ] TBD (promote with /gsd:review-backlog when ready)
-
-### Phase 999.14: Dogfood-found defects — fix what `--all` caught in itself **[BUGS]** (BACKLOG)
-
-**Goal:** Fix the concrete defects the Phase-12 `/vibe-check:deep-review --all`
-dogfood found in vibe-check's **own** orchestration prose. Unlike every other
-backlog item (which is *improve / add / configure*), these are **real bugs** —
-the tool caught them in itself. Phase 12 deliberately left them unfixed (fixing
-orchestration code was out of close-phase scope), so they land here as the
-v2.4 head.
-
-**Requirements:** TBD
-
-**Plans:** 0 plans
-
-**Critical (3) — fix first:**
-
-1. `commands/review.md:893` — abandon-resume hint prints the OLD namespace
-   (`/turingmind-code-review:…`) **and** an unbound `{{command}}` placeholder →
-   the resume command it prints is copy-paste-broken. User-facing. (Line 827 in
-   the same file already shows the correct self-identity render.)
-
-2. `commands/deep-review.md:36` — stale hardcoded line-number citations into
-   `review.md` (cites ~454/~581; real ~524/~646), off 70–80 lines → the
-   orchestrator silently follows them to the wrong place at runtime. Fix: cite
-   section names, not line numbers.
-
-3. `templates/false-positive-rules.md:48` — band table keys off raw confidence
-   and invents a phantom "High" band, contradicting `scoring.md`'s
-   score-derived banding. (Cross-confirmed bugs + architecture + impact.)
-
-**Warning (6):** architecture.md spec contradictions (#4, → feeds 999.13);
-orphaned second scoring contract in `false-positive-rules.md` (#5/#7, → feeds
-999.7's "one source of truth"); `--all --finalize` archives the wrong/nonexistent
-state file (#6, the exact bug that made Phase 12 skip `--finalize`, → adjacent to
-999.8); untrusted `PRIOR_PHASE` → `mv` with a prose-only allowlist (#8, → the
-literal 999.7 thesis); Codex `title` carried without a char-allowlist (#9).
-
-**Notable Medium / bonus:** Codex `fix_hint`/`title` injection path; markdown
-fence-escape in `current_code`; multi-site fix commit drops sibling staged files;
-version-header drift. **Quick win:** the fix-agent commit-title allowlist rejects
-`=`, so a legitimate finding quoting `flag=value` (`shell=True`) can never be
-committed — widen safely or auto-sanitize the commit title.
-
-**Why this is the v2.4 head, not a feature:** these are defects of the
-*cross-file-drift / prose-can't-enforce* class — the exact class 999.7
-(deterministic core) and 999.8 (single-writer state) exist to eliminate. The
-dogfood didn't just find bugs; it **empirically validated the correctness-core
-thesis**, which is why v2.4 pairs the fixes (999.14) with the structural work
-(999.7→999.9) in one milestone. Several findings explicitly feed those phases
-(annotated above) — fix the instance in 999.14, prevent the class in 999.7/999.8,
-fold the doc-drift items into 999.13.
-
-**Source:** `.planning/phases/12-dogfood-efficacy-test-milestone-close/12-DOGFOOD-FINDINGS-BACKLOG.md`
 
 Plans:
 
