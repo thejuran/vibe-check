@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
-status: ready_to_plan
-stopped_at: Phase 37 complete (1/1) — ready to discuss Phase 999.1
-last_updated: 2026-07-08T17:15:12.284Z
-last_activity: 2026-07-08
+status: Awaiting next milestone
+stopped_at: Phase 37 planned (1 plan, checker passed iter 1)
+last_updated: "2026-07-08T18:11:55.492Z"
+last_activity: 2026-07-08 — Milestone v2.9 completed and archived
 progress:
   total_phases: 17
   completed_phases: 3
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-08
+Phase: Milestone v2.9 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-08 — Milestone v2.9 completed and archived
 
 ## Performance Metrics
 
@@ -184,20 +184,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-05T21:43:02.004Z
-Stopped at: Phase 37 planned (1 plan, checker passed iter 1)
-STATE + REQUIREMENTS traceability updated. Ready to plan Phase 35.
-Resume: `/gsd:plan-phase 35` (Make v2.8 whole — rebase + execute 33-02, then the v2.8 smoke proofs).
-Do NOT blind-resume the old Phase-33 orchestrator resume files — 33-02 needs a rebase first.
-
+Last session: 2026-07-08 — v2.9 milestone completed and archived (audit 9/9, tag v2.9 published).
+Stopped at: milestone close. Resume: `/gsd:new-milestone` to scope the next milestone
+(D-11 input: PROCEED on H-CORE/H-LANE/B-SEV/B-REWEIGHT scorer challenges; grow the B3 set).
 ## Operator Next Steps
 
-- **Next:** `/gsd:plan-phase 35` — Make v2.8 whole. First step is rebasing the frozen 33-02 plan
-  against the post-Fable `commands/review.md` / `commands/deep-review.md`; the rebased plan re-passes
-  the codex adversarial gate before execution. Wiring lands BEFORE the smoke proofs (D-04).
-
-- Then Phase 36 (B3 — first measured quality numbers; owner drives ~15–18 `/deep-review` runs) and
-  Phase 37 (close — bump 2.8.0→2.9.0, tag `v2.9`, publish, audit).
-
-- Pre-flight before any dogfood/smoke run in Phases 35–36: installed-plugin cache must equal repo
-  `plugin.json`.
+- Start the next milestone with /gsd-new-milestone
