@@ -50,7 +50,7 @@ Requirements for milestone v2.9. Each maps to exactly one roadmap phase (35–37
 
 ### Close
 
-- [ ] **CLOSE-01**: `plugins/vibe-check/.claude-plugin/plugin.json` is bumped 2.8.0 → 2.9.0,
+- [x] **CLOSE-01**: `plugins/vibe-check/.claude-plugin/plugin.json` is bumped 2.8.0 → 2.9.0,
   an annotated tag `v2.9` is created, and the milestone is published (merge/ff `main`, push
   main + tag + branch)
 
@@ -98,7 +98,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | B3-01 | Phase 36 | Complete |
 | B3-02 | Phase 36 | Complete |
 | B3-03 | Phase 36 | Complete |
-| CLOSE-01 | Phase 37 | Pending |
+| CLOSE-01 | Phase 37 | Complete |
 
 **Coverage:**
 - v1 requirements: 9 total

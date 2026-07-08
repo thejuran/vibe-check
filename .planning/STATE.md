@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.9
 milestone_name: Prove it
-status: planning
-stopped_at: Phase 37 planned (1 plan, checker passed iter 1)
-last_updated: "2026-07-05T21:43:02.015Z"
-last_activity: 2026-07-05
+status: executing
+stopped_at: Phase 37 Plan 01 complete — v2.9 PUBLISHED (main+tag+branch pushed, PUBLISH-VERIFIED); milestone audit delegated to wrapper
+last_updated: "2026-07-08T00:00:00.000Z"
+last_activity: 2026-07-08
 progress:
   total_phases: 17
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 6
-  completed_plans: 5
-  percent: 12
+  completed_plans: 6
+  percent: 18
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-05
+Phase: 37-close
+Plan: 01 (complete)
+Status: v2.9 published — plugin 2.9.0, annotated tag v2.9 on 17950c0, main+tag+feat/v2.9 pushed and exact-hash verified (PUBLISH-VERIFIED). Milestone audit + archive delegated to the wrapper orchestrator (D-06).
+Last activity: 2026-07-08
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Last activity: 2026-07-05
 | Phase 35 P01 | 9min | 3 tasks | 2 files |
 | Phase 36 P01 | 21min | 5 tasks | 19 files |
 | Phase 36 P03 | 15min | 2 tasks | 2 files |
+| Phase 37 P01 | 9min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 36]: 36-03: FIRST measured numbers — catch-rate 8/9, FP-rate 6/9 (exact fractions D-09, FULL 9+9 pre-registered denominators, 18/18 scoreable, zero holes, no owner waiver). Scored from state.passes[-1].findings[] vs the committed key blob at ef0ab67 (score-from-blob gate: MANIFEST_COMMIT cca63e2 ordering proven, digest match, ancestry, runs/-clean + descent, per-diff FULL-worktree tree.diff consistency); score.py/test_score.py/config.py byte-frozen; pytest 356+221 green
 - [Phase 36]: 36-03: autoescape run-1 = the pre-registered right-site-wrong-axis MISS (detected-below-threshold) — SITE ok but fleet named deprecation/breaks-startup, one finding explicitly "NOT an XSS regression"; runs 2-3 named XSS/autoescape → 2/3. should-quiet-2 clean 0/3; should-quiet-1 + -3 = 3/3 FP each. Codex contributed all 8 catches (codex=auto)
 - [Phase 36]: 36-03: D-11 verdict = PROCEED on H-CORE/H-LANE/B-SEV/B-REWEIGHT (FP + axis-stability challenges this run implicates; should-quiet FPs are agent-self-sufficient not +10-cross-confirm-rescued → H-CORE/H-LANE not primarily H-DUP/B-XCONF) AND grow the committed set next milestone (N=3 coarse). Input to next-milestone B3-gated-challenge scoping, NOT an in-phase scorer change (formula frozen). Report appended to RESULTS-v2.9.md (no RESULTS-v3.md)
+- [Phase 37]: 37-01: v2.9 PUBLISHED — plugin.json 2.8.0→2.9.0 (commit 17950c0), README ## 📊 Measured Efficacy pointer (8/9 · 6/9 + small-N caveat + RESULTS-v2.9.md link). main FF bbecf55→17950c0 (no merge, no checkout), annotated tag v2.9 (object b1c34342, peels to main, 2.9.0 tree), ONE atomic push of main+tag+feat/v2.9, exact-hash verify PUBLISH-VERIFIED for all three refs. Pre-publish anchor bbecf559 (STATE=A fresh capture). No .planning path in the release commit; score.py/test_score.py/config.py byte-frozen. CLOSE-01 criterion 3 (audited) delegated to the wrapper orchestrator (D-06).
 
 ### Pending Todos
 
