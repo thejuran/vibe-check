@@ -195,7 +195,7 @@ ahead of it after the v2.8 merge + all Fable docs).
 | 34. Efficacy test + version bump + tag (CLOSE) | v2.8 | 0/? | Superseded — manual close (bump+tag+publish done; smoke proofs deferred to v2.9 Phase 35) | 2026-07-01 |
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
 | 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete    | 2026-07-05 |
-| 37. Close | v2.9 | 1/1 | Complete   | 2026-07-08 |
+| 37. Close | v2.9 | 1/1 | Complete    | 2026-07-08 |
 
 > Full per-phase detail for shipped milestones lives in the archives under
 > `.planning/milestones/` (e.g. `v2.4-ROADMAP.md`, `v2.5-ROADMAP.md`, `v2.8-ROADMAP.md`).
