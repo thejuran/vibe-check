@@ -26,13 +26,13 @@ Requirements for milestone v2.9. Each maps to exactly one roadmap phase (35–37
 
 ### Proof (v2.8 evidence debt)
 
-- [ ] **PROOF-01**: Every v2.8 knob has a passing planted-fixture smoke proof: a
+- [x] **PROOF-01**: Every v2.8 knob has a passing planted-fixture smoke proof: a
   `.vibe-check.toml` repo has its knobs honored while a no-config repo behaves as v2.7;
   `--min-confidence` drops sub-N findings before scoring with the count in the honesty summary;
   `idiom` is capped at `idiom_floor`; a reasoned `vibe-ignore` suppresses within ±2 and a bare
   marker self-flags; the Codex line announces (tested against the REAL 33-02 wiring); a
   malformed config degrades per-key with a warning, never fatally
-- [ ] **PROOF-02**: The Phase-33 surface (33-01 shipped diff + 33-02 new diff) passes a clean
+- [x] **PROOF-02**: The Phase-33 surface (33-01 shipped diff + 33-02 new diff) passes a clean
   `/vibe-check:deep-review` gate — no unresolved critical/warning findings
 
 ### B3 (first measured quality numbers)
@@ -93,8 +93,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LEGIBLE-01 | Phase 35 | Complete |
 | LEGIBLE-02 | Phase 35 | Complete |
 | LEGIBLE-03 | Phase 35 | Complete |
-| PROOF-01 | Phase 35 | Pending |
-| PROOF-02 | Phase 35 | Pending |
+| PROOF-01 | Phase 35 | Complete |
+| PROOF-02 | Phase 35 | Complete |
 | B3-01 | Phase 36 | Complete |
 | B3-02 | Phase 36 | Complete |
 | B3-03 | Phase 36 | Complete |
