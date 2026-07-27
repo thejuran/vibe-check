@@ -165,98 +165,132 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 - [ ] **Phase 44: Close — 2.10.0 release** — plugin.json → 2.10.0, README efficacy AND measured-cost numbers replaced, annotated tag `v2.10`, atomic hash-verified publish
 
 ### Phase 38: Grow the B3 set + Claude-5 baseline
+
 **Goal**: The committed ground-truth set is grown to 10–12 organic diffs with sealed answer keys, the v2.10 pass bar is pre-registered before any change, and the whole set has a clean ×3 baseline on the UNCHANGED v2.9.0 plugin running on the current Claude 5 harness — the anchor every later comparison is measured against
 **Depends on**: Phase 37 (v2.9 shipped — the existing committed 6-diff B3 kit + its 18 recorded baseline runs)
 **Requirements**: SET-01, SET-02, SET-03
 **Success Criteria** (what must be TRUE):
+
   1. The committed set contains 10–12 organic diffs — 4–6 new (≥1–2 should-catch, the rest should-quiet, weighted toward clean-but-security/networking-sensitive changes), each with a patch + provenance sidecar + sealed per-diff answer key, all passing the unchanged v2.9 fail-closed sourcing rules (organic-only, no vibe-check-found bugs, reversed-fix should-catches, line-survival-proven should-quiets)
   2. The v2.10 pass bar and decision rule (FP-rate ≤ half the pre-change baseline AND catch-rate no worse; at most one retune on failed diffs only) are pre-registered in the sealed manifest, provably ordered before any COMPAT/DIET/SCORER/AGENT change lands
   3. Every diff — new AND carried-over — has an owner-driven ×3 pre-change baseline recorded on the unchanged v2.9.0 plugin on the current Claude 5 harness, captured under installed-cache parity pre-flight and the v2.9 state-isolation gates (fresh state, `len(passes)==1`, full-worktree tree-diff equality)
   4. That same baseline is written up as the Opus 5 re-measure: the v2.9-vs-Claude-5 catch/FP comparison on the identical unchanged plugin is stated explicitly, so the model-generation shift is separated from every later intervention
+
 **Plans:** 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 38-01-PLAN.md — Seal-1: pre-register the v2.10 pass bar + decision rule (PREREGISTRATION-v2.10.md) + seed RUN-METHOD-NOTES-v2.10.md (harness fingerprint machinery)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 38-02-PLAN.md — RUN-CHECKLIST-v2.10.md part A (carried 6, runs-v2.10/ targets, 2.9.0 cache parity) — opens owner WAIT 1 (18-run re-measure)
 - [ ] 38-03-PLAN.md — Mine the four repos, owner confirms picks (checkpoint; D-04 STOP branch), build 4-6 new kits (patch + provenance)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 38-04-PLAN.md — ANSWER-KEY-v2.10.md + seal-2 (single follow-up manifest commit) + checklist part B — opens owner WAIT 2 (new-diff baselines)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 38-05-PLAN.md — Owner runs checkpoint (~30-36 runs) + integrity gate ladder + SCORING-v2.10.md (scored from state vs both sealed blobs)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 38-06-PLAN.md — RESULTS-v2.10.md baseline + explicit Opus 5 re-measure (v2.9 8/9 · 6/9 vs Claude-5 on the carried 6) + phase-exit integrity checks
 
 > **Owner-runtime**: the ×3 baseline runs are `/deep-review` invocations the OWNER drives — the assistant cannot invoke them. The phase delivers the run-checklist with exact commands; runs are resumable across days.
 
 ### Phase 39: Claude-5 compatibility + measured cost
+
 **Goal**: A user reading the docs sees what actually runs on the Claude 5 generation, and every review pass reports what it actually cost instead of a stale guess
 **Depends on**: Phase 38 (SET-02 pre-registration must be sealed before any change lands)
 **Requirements**: COMPAT-01, COMPAT-02
 **Success Criteria** (what must be TRUE):
+
   1. The README model table, tiering rationale, and configuration section describe the Claude 5 generation as it actually runs; the `opus`/`fable` `top_model` allowlist is kept and documented as supported
   2. Every review pass ends by printing measured token usage/cost from the runs it actually performed, and the static `$0.50` / `$1.80` / `$2–5` estimates no longer appear as the user-facing cost story anywhere in docs or command output
   3. The change is output-only — the review pipeline's findings, scoring, and state are unaffected (`score.py` / `config.py` behavior unchanged, suite green)
+
 **Plans**: TBD
 
 ### Phase 40: Prose diet — restructure for Opus 5
+
 **Goal**: The two orchestrator files are rebuilt for a model that follows instructions — each rule stated once, scar tissue gone, deterministic logic in tested scripts — with a materially smaller per-invocation context footprint and no loss of catch-rate
 **Depends on**: Phase 39 (COMPAT-02's cost-reporting block lands first so the restructure carries it, not the other way round)
 **Requirements**: DIET-01, DIET-02, DIET-03, DIET-04
 **Success Criteria** (what must be TRUE):
+
   1. `commands/review.md` (~80K tokens) and `commands/deep-review.md` (~35K) are restructured for the Opus 5 generation — each rule stated once, anti-improvisation scar tissue removed, progressive-disclosure layout — with the before/after measured token count recorded and materially reduced
   2. The ranked deterministic prose families from `docs/design/prose-to-code-inventory.md` are extracted into tested stdlib-Python scripts, and the inventory's deliberate keep-list is honored (the blocks it judged not worth extracting are still prose)
   3. The Phase 4.5→5 state single-writer property is verified on the restructured flow: either the fix-loop desync class is structurally gone, or its recovery is deterministic and tested (absorbs backlog 999.8)
   4. Every restructure batch is validated before the next lands — behavior contract preserved (phase sequence, output paths, fail-closed guards) and catch-rate no worse than the Phase-38 baseline on a B3 spot-check
+
 **Plans**: TBD
 
 > **Owner-runtime**: the per-batch B3 spot-check runs are owner-driven `/deep-review` invocations.
 
 ### Phase 41: Wave 1 — scorer-side noise interventions
+
 **Goal**: The scoring formula freeze lifts (Wave-1-scoped): the scorer becomes less noisy on self-declared severity labels and overconfident agents, same-site lane pile-on collapses, and no change costs an owner run until it is proven not to silence a known catch
 **Depends on**: Phase 40 (SCORER-01 replays POST-DIET run data — tuning must target the system that ships)
 **Requirements**: SCORER-01, SCORER-02, SCORER-03, SCORER-04, SCORER-05
 **Success Criteria** (what must be TRUE):
+
   1. An offline replay harness re-scores archived + Phase-38 baseline + post-diet run data under each candidate scorer change and rejects — before any owner run is spent — any candidate that would silence one of the baseline catches (zero-catch-regression guardrail holds)
   2. B-SEV, B-REWEIGHT, and H-LANE all land in `score.py` with regression-locking tests and a documented, updated golden digest: a borderline finding needs corroborating signal to reach critical/warning, habitual per-agent overconfidence no longer maps 1:1 into banding, and same-site cross-lane / same-model agreement stops counting as independent corroboration
   3. Per-agent confidence calibration is derived from the accumulated ground-truth run data — not hand-picked constants — and the derivation is recorded so it can be re-derived next milestone
   4. A live spot-check (the 2 known-noisy should-quiet diffs ×3) confirms the shipped Wave-1 behavior matches what the replay harness predicted, before Wave 2 begins
+
 **Plans**: TBD
 
 > **Owner-runtime**: the SCORER-05 live spot-check (2 diffs ×3) is owner-driven.
 
 ### Phase 42: Wave 2 — agent-side noise interventions
+
 **Goal**: The loud lanes stop firing on safe, control-tightening changes and stop escalating "sensitive area, no demonstrated defect" observations into alarms — prompt-only, building on the scorer changes proven in Phase 41
 **Depends on**: Phase 41 (Wave 2 starts only after the Wave-1 live spot-check confirms the replay prediction)
 **Requirements**: AGENT-01, AGENT-02
 **Success Criteria** (what must be TRUE):
+
   1. The loud lanes (bugs, security, impact + the codex translation contract) treat a diff that tightens a control — narrows an allowlist, adds validation, adds a clamp — as presumptively safe on that axis unless a concrete bypass is named
   2. The same lanes carry confidence ceilings for "sensitive area, no demonstrated defect" findings, with the actual B3 false alarms baked in as never-flag exemplar classes
   3. The changes are prompt-only — no scoring surface (`score.py` / `test_score.py` / `config.py`) is touched in this phase
+
 **Plans**: TBD
 
 ### Phase 43: Prove — full post-change measurement
+
 **Goal**: The full grown set is honestly re-measured against the sealed keys on the fully changed system, and the pre-registered pass bar is evaluated pass-or-miss with its limitations disclosed
 **Depends on**: Phase 42 (measures the system after the diet and both intervention waves land)
 **Requirements**: PROVE-01, PROVE-02, PROVE-03
 **Success Criteria** (what must be TRUE):
+
   1. The owner re-runs the full grown set ×3 post-change (~30–36 runs); every run is scored from state (not the transcript) against the sealed keys, with complete pre-registered denominators, no holes, under the v2.9 isolation gates
   2. `RESULTS-v2.10.md` evaluates the pre-registered bar honestly (pass or miss) and carries the honest-limitations section, including the tune-vs-measure overlap caveat and the note that baseline and post-change runs are both on the Claude 5 harness so the comparison is clean across the model-generation shift
   3. At most one retune is used — failed diffs only, ×3 — and whether it was used or not is recorded
+
 **Plans**: TBD
 
 > **Owner-runtime**: the ~30–36 post-change runs (plus any retune re-runs) are owner-driven `/deep-review` invocations.
 
 ### Phase 44: Close — 2.10.0 release
+
 **Goal**: v2.10 ships as a published plugin release carrying the new measured efficacy AND cost numbers
 **Depends on**: Phase 43 (ships the proven numbers)
 **Requirements**: CLOSE-01
 **Success Criteria** (what must be TRUE):
+
   1. plugin.json is bumped to 2.10.0 and an annotated tag `v2.10` is created
   2. The README efficacy section AND the measured-cost numbers are replaced with the v2.10 measurements plus their caveats
   3. main + tag + branch are pushed in one atomic, exact-hash-verified publish
+
 **Plans**: TBD
 
 ## Progress
 
 **Execution Order:** phases execute in numeric order; v2.9 (35 → 36 → 37) is archived — see `.planning/milestones/v2.9-ROADMAP.md`.
-
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|

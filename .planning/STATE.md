@@ -4,12 +4,12 @@ milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
 status: "Roadmap created — awaiting `/gsd:plan-phase 38`"
 stopped_at: Phase 38 context gathered
-last_updated: "2026-07-27T20:24:19.670Z"
+last_updated: "2026-07-27T21:36:24.181Z"
 last_activity: 2026-07-27 — v2.10 re-scoped (Opus 5 rebuild + quiet down) and roadmapped to Phases 38–44
 progress:
   total_phases: 13
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
