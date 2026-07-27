@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
 status: planning
-last_updated: "2026-07-27T19:52:47.461Z"
+last_updated: "2026-07-27T20:30:00.000Z"
 last_activity: 2026-07-27
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 38 — grow the B3 set to 10–12 diffs + pre-register the pass bar + baseline the new diffs on unchanged v2.9.0
+**Current focus:** Phase 38 — grow the B3 set to 10–12 diffs, pre-register the pass bar, and baseline the whole set ×3 on the UNCHANGED v2.9.0 plugin on the current Claude 5 harness (dual duty: the Opus 5 re-measure)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 38 — Grow the B3 set + Claude-5 baseline (ready to plan)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-27 — Milestone v2.10 started
+Status: Roadmap created — awaiting `/gsd:plan-phase 38`
+Progress: [--------------------] 0% (0/7 phases)
+Last activity: 2026-07-27 — v2.10 re-scoped (Opus 5 rebuild + quiet down) and roadmapped to Phases 38–44
 
 ## Performance Metrics
 
@@ -183,13 +184,31 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08 — v2.10 "Quiet down" scoped and roadmapped (Phases 38–42, 5 sequential
-phases; 14 requirements, 100% mapped). ROADMAP.md, STATE.md, REQUIREMENTS.md written.
-Stopped at: roadmap created. Resume: `/gsd:plan-phase 38` to plan the first phase
-(grow the B3 set to 10–12 diffs, pre-register the pass bar, baseline the new diffs on the
-unchanged v2.9.0 system — measurement runs are OWNER-driven; the assistant cannot invoke
-`/deep-review`).
+Last session: 2026-07-27 — v2.10 RE-SCOPED to "Opus 5 rebuild + quiet down" (the seeded-but-unstarted
+"Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
+re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
+sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
+reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
+replaced; milestone history + the 999.x backlog preserved).
+Stopped at: roadmap created. Resume: `/gsd:plan-phase 38`.
+
+Load-bearing sequencing notes for whoever plans next:
+- **Phase 38 gates everything.** SET-02's pre-registration must be provably ordered BEFORE any
+  COMPAT/DIET/SCORER/AGENT change lands, and SET-03's ×3 baseline runs on the UNCHANGED v2.9.0 plugin.
+  Nothing in Phases 39–42 may land until 38's baseline + sealed manifest are committed.
+- **The SET-03 baseline is dual-duty**: it is both the pre-change anchor for the noise work AND the
+  Opus 5 / Claude 5 re-measure (same unchanged plugin, new model generation).
+- **Phase 40 (diet) precedes Phase 41 (scorer) deliberately** — SCORER-01 replays POST-DIET run data so
+  the tuning lands on the system that actually ships. Never tune-then-restructure.
+- **Measurement is OWNER-RUNTIME.** Phases 38, 40 (per-batch spot-checks), 41 (SCORER-05 spot-check),
+  and 43 (~30–36 runs) all need owner-driven `/deep-review` invocations — the assistant CANNOT invoke
+  `/deep-review`. Each of those phases must deliver an exact-command run-checklist; runs are resumable
+  across days.
+- **Recurring pre-flight**: the installed-plugin cache must equal repo `plugin.json` before ANY
+  measurement run (a stale cache poisoned 4 of the last 5 milestones).
+- Noise-wave design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md`.
+  Prose-diet inventory: `docs/design/prose-to-code-inventory.md` (honor its extract-vs-keep judgments).
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd:plan-phase 38`
+- Plan the first phase with `/gsd:plan-phase 38` (Grow the B3 set + Claude-5 baseline — SET-01/02/03)
