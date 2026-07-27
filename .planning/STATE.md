@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.9
-milestone_name: Prove it
-status: Awaiting next milestone
-stopped_at: Phase 37 planned (1 plan, checker passed iter 1)
-last_updated: "2026-07-08T18:11:55.492Z"
-last_activity: 2026-07-08 — Milestone v2.9 completed and archived
+milestone: v2.10
+milestone_name: Opus 5 rebuild + quiet down
+status: planning
+last_updated: "2026-07-27T19:52:47.461Z"
+last_activity: 2026-07-27
 progress:
-  total_phases: 17
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
-  percent: 18
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 999.1 — framework review agents fastapi express vue angular
+**Current focus:** Phase 38 — grow the B3 set to 10–12 diffs + pre-register the pass bar + baseline the new diffs on unchanged v2.9.0
 
 ## Current Position
 
-Phase: Milestone v2.9 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-08 — Milestone v2.9 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-27 — Milestone v2.10 started
 
 ## Performance Metrics
 
@@ -184,9 +183,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-08 — v2.9 milestone completed and archived (audit 9/9, tag v2.9 published).
-Stopped at: milestone close. Resume: `/gsd:new-milestone` to scope the next milestone
-(D-11 input: PROCEED on H-CORE/H-LANE/B-SEV/B-REWEIGHT scorer challenges; grow the B3 set).
+Last session: 2026-07-08 — v2.10 "Quiet down" scoped and roadmapped (Phases 38–42, 5 sequential
+phases; 14 requirements, 100% mapped). ROADMAP.md, STATE.md, REQUIREMENTS.md written.
+Stopped at: roadmap created. Resume: `/gsd:plan-phase 38` to plan the first phase
+(grow the B3 set to 10–12 diffs, pre-register the pass bar, baseline the new diffs on the
+unchanged v2.9.0 system — measurement runs are OWNER-driven; the assistant cannot invoke
+`/deep-review`).
+
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first phase with `/gsd:plan-phase 38`
