@@ -173,7 +173,15 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
   2. The v2.10 pass bar and decision rule (FP-rate ≤ half the pre-change baseline AND catch-rate no worse; at most one retune on failed diffs only) are pre-registered in the sealed manifest, provably ordered before any COMPAT/DIET/SCORER/AGENT change lands
   3. Every diff — new AND carried-over — has an owner-driven ×3 pre-change baseline recorded on the unchanged v2.9.0 plugin on the current Claude 5 harness, captured under installed-cache parity pre-flight and the v2.9 state-isolation gates (fresh state, `len(passes)==1`, full-worktree tree-diff equality)
   4. That same baseline is written up as the Opus 5 re-measure: the v2.9-vs-Claude-5 catch/FP comparison on the identical unchanged plugin is stated explicitly, so the model-generation shift is separated from every later intervention
-**Plans**: TBD
+**Plans:** 6 plans
+
+Plans:
+- [ ] 38-01-PLAN.md — Seal-1: pre-register the v2.10 pass bar + decision rule (PREREGISTRATION-v2.10.md) + seed RUN-METHOD-NOTES-v2.10.md (harness fingerprint machinery)
+- [ ] 38-02-PLAN.md — RUN-CHECKLIST-v2.10.md part A (carried 6, runs-v2.10/ targets, 2.9.0 cache parity) — opens owner WAIT 1 (18-run re-measure)
+- [ ] 38-03-PLAN.md — Mine the four repos, owner confirms picks (checkpoint; D-04 STOP branch), build 4-6 new kits (patch + provenance)
+- [ ] 38-04-PLAN.md — ANSWER-KEY-v2.10.md + seal-2 (single follow-up manifest commit) + checklist part B — opens owner WAIT 2 (new-diff baselines)
+- [ ] 38-05-PLAN.md — Owner runs checkpoint (~30-36 runs) + integrity gate ladder + SCORING-v2.10.md (scored from state vs both sealed blobs)
+- [ ] 38-06-PLAN.md — RESULTS-v2.10.md baseline + explicit Opus 5 re-measure (v2.9 8/9 · 6/9 vs Claude-5 on the carried 6) + phase-exit integrity checks
 
 > **Owner-runtime**: the ×3 baseline runs are `/deep-review` invocations the OWNER drives — the assistant cannot invoke them. The phase delivers the run-checklist with exact commands; runs are resumable across days.
 
@@ -289,7 +297,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
 | 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete | 2026-07-05 |
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
-| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 0/? | Not started | - |
+| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 0/6 | Planned | - |
 | 39. Claude-5 compatibility + measured cost | v2.10 | 0/? | Not started | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 0/? | Not started | - |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
