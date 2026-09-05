@@ -109,3 +109,8 @@ The single follow-up commit appends exactly five bare lines — `NEW_ANSWER_KEY_
 `NEW_ANSWER_KEY_SHA256`, `DENOM_CATCH_RUNS`, `DENOM_QUIET_RUNS`, `DENOM_TOTAL_RUNS` — in
 the declared order, beneath this header; field names in this sentence are backticked so
 no whitelist-shaped line exists before seal-2.
+NEW_ANSWER_KEY_COMMIT: 5f687d95f9be4fef2c0fcd78491c308d4c3861e8
+NEW_ANSWER_KEY_SHA256: f58f888c9f4dc86d0e34d5a152c781cb7e9913087405e6e25980bd77e3d753d4
+DENOM_CATCH_RUNS: 15
+DENOM_QUIET_RUNS: 21
+DENOM_TOTAL_RUNS: 36
