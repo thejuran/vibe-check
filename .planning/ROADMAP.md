@@ -11,7 +11,7 @@
 - ✅ **v2.7 Framework coverage** — Phases 24-29 (shipped 2026-06-30)
 - ✅ **v2.8 Tunable, quieter reviews** — Phases 30-34 (shipped 2026-07-01 — early manual close by owner directive; 33-02 wiring + Phase-34 smoke proofs deferred into v2.9)
 - ✅ **v2.9 Prove it** — Phases 35-37 (shipped 2026-07-08 — codex knob live end-to-end + vibe-check's first measured numbers: catch 8/9 · FP 6/9)
-- 🚧 **v2.10 Opus 5 rebuild + quiet down** — Phases 38-44 (in progress)
+- 🚧 **v2.10 Opus 5 rebuild + quiet down** — Phases 38, 40-44 (in progress; Phase 39 dissolved 2026-09-05)
 
 ## Phases
 
@@ -154,15 +154,23 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 
 </details>
 
-## v2.10 Opus 5 rebuild + quiet down (Phases 38-44) — IN PROGRESS
+## v2.10 Opus 5 rebuild + quiet down (Phases 38, 40-44) — IN PROGRESS
 
 - [ ] **Phase 38: Grow the B3 set + Claude-5 baseline** — Grow the committed organic test set 6 → 10–12 diffs (sealed keys, provenance sidecars), pre-register the pass bar + decision rule, and baseline every diff ×3 on the UNCHANGED v2.9.0 plugin running on the current Claude 5 harness (dual duty: the Opus 5 re-measure)
-- [ ] **Phase 39: Claude-5 compatibility + measured cost** — README/config docs made current for the Claude 5 generation (opus/fable allowlist kept + documented), and every review pass prints measured token cost instead of the static $0.50/$1.80/$2–5 estimates (999.12)
-- [ ] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify the Phase 4.5→5 single-writer property (999.8) — each batch guardrailed by a B3 spot-check against the Phase-38 baseline
+- [ ] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify (verify-only) the Phase 4.5→5 single-writer property (999.8), move every executable helper to trusted-plugin-root resolution + pre-edit path validation in the fix agent (TRUST-01/02), correct the cost anchors to the current model lineup — each batch guardrailed by a CAPPED B3 spot-check, full ×3 once at phase end
 - [ ] **Phase 41: Wave 1 — scorer-side noise interventions** — Lift the scoring-formula freeze (Wave-1-scoped): B-SEV severity stability, B-REWEIGHT per-agent confidence calibration, H-LANE pile-on collapse — tuned offline via a zero-catch-regression replay harness on POST-DIET run data, then confirmed by a live spot-check
 - [ ] **Phase 42: Wave 2 — agent-side noise interventions** — Prompt-only H-CORE: safe-change recognition + confidence ceilings on the loud lanes (bugs, security, impact, codex contract), with the real B3 false alarms baked in as never-flag classes
 - [ ] **Phase 43: Prove — full post-change measurement** — Owner re-runs the full grown set ×3, scored from state against the sealed keys, evaluated honestly against the pre-registered bar in `RESULTS-v2.10.md`, with at most one retune
-- [ ] **Phase 44: Close — 2.10.0 release** — plugin.json → 2.10.0, README efficacy AND measured-cost numbers replaced, annotated tag `v2.10`, atomic hash-verified publish
+- [ ] **Phase 44: Close — 2.10.0 release** — plugin.json → 2.10.0, README efficacy numbers replaced + README model/cost docs made current for Claude 5 (COMPAT-01, static corrected anchors — no measured-cost claim), annotated tag `v2.10`, atomic hash-verified publish
+
+> **Re-scoped 2026-09-05 (owner decision, after an external source review of the plugin + a live model-lineup check):**
+> - **Phase 39 DISSOLVED.** COMPAT-02 (measured cost per pass) is RETURNED to backlog **999.12** — no measurement mechanism exists (the orchestrator explicitly cannot tokenize; no harness usage signal is designed) and it is off the quiet-down path. COMPAT-01 (Claude-5 docs) folds into Phase 44. Phase 40 now depends directly on Phase 38.
+> - **Phase 40 GAINS TRUST-01/02.** The `score.py` / `guard.py` / `config.py` resolvers (and the fix agent's own guard copy) are repo-first today, so a reviewed PR that plants `plugins/vibe-check/scripts/score.py` is executed in Phase 3 with no prompt, and a planted `guard.py` neutralizes the traversal guard the fix agent relies on. In-threat-model (the diff is attacker-authored). Resolution moves to `${CLAUDE_PLUGIN_ROOT}` with one explicit owner-set dev override; the fix agent validates paths BEFORE its first edit.
+> - **Phase 40 GAINS the cost-anchor correction** inside DIET-01: Sonnet 5 $2/$10 (the anchors say Sonnet 4.6 $3/$15), Opus 5 $5/$25, Fable 5.1 $10/$50 with 0.025× cache reads, Haiku 4.5 $1/$5, and ~30% more tokens per character on the 4.7+ tokenizer (the 3.5 chars/token proxy is low).
+> - **DIET-03 is verify-only; DIET-04's per-batch live spot-check is CAPPED** (2 diffs ×1 per batch; the full ×3 once at phase end) to protect the owner-run budget (~80 runs milestone-wide).
+> - **Model defaults UNCHANGED** — every agent pins a family alias that already resolves to the current lineup (Sonnet 5 / Opus 5 / Haiku 4.5; Fable 5.1 opt-in). A default change mid-milestone would confound the baseline-vs-post-change comparison. Fable-as-default is backlog **999.17** (v2.11 A/B).
+> - **New backlog:** **999.15** (fix agent: hunk-isolated commits + real verification), **999.16** (deterministic framework routing + bounded chunks replacing the Haiku downgrade), **999.17** (Fable 5.1 top-tier A/B).
+> - **Baseline operational note (Phase 38, before run 1):** the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but the gate requires every session's typed model value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value each session; do not update Claude Code mid-baseline (the CLI pin is what holds the subagent alias→model mapping constant).
 
 ### Phase 38: Grow the B3 set + Claude-5 baseline
 
@@ -202,34 +210,25 @@ Plans:
 
 > **Owner-runtime**: the ×3 baseline runs are `/deep-review` invocations the OWNER drives — the assistant cannot invoke them. The phase delivers the run-checklist with exact commands; runs are resumable across days.
 
-### Phase 39: Claude-5 compatibility + measured cost
-
-**Goal**: A user reading the docs sees what actually runs on the Claude 5 generation, and every review pass reports what it actually cost instead of a stale guess
-**Depends on**: Phase 38 (SET-02 pre-registration must be sealed before any change lands)
-**Requirements**: COMPAT-01, COMPAT-02
-**Success Criteria** (what must be TRUE):
-
-  1. The README model table, tiering rationale, and configuration section describe the Claude 5 generation as it actually runs; the `opus`/`fable` `top_model` allowlist is kept and documented as supported
-  2. Every review pass ends by printing measured token usage/cost from the runs it actually performed, and the static `$0.50` / `$1.80` / `$2–5` estimates no longer appear as the user-facing cost story anywhere in docs or command output
-  3. The change is output-only — the review pipeline's findings, scoring, and state are unaffected (`score.py` / `config.py` behavior unchanged, suite green)
-
-**Plans**: TBD
-
 ### Phase 40: Prose diet — restructure for Opus 5
 
 **Goal**: The two orchestrator files are rebuilt for a model that follows instructions — each rule stated once, scar tissue gone, deterministic logic in tested scripts — with a materially smaller per-invocation context footprint and no loss of catch-rate
-**Depends on**: Phase 39 (COMPAT-02's cost-reporting block lands first so the restructure carries it, not the other way round)
-**Requirements**: DIET-01, DIET-02, DIET-03, DIET-04
+**Depends on**: Phase 38 (SET-02 sealed and the SET-03 baseline recorded before any change lands — Phase 39 dissolved 2026-09-05)
+**Requirements**: DIET-01, DIET-02, DIET-03, DIET-04, TRUST-01, TRUST-02
 **Success Criteria** (what must be TRUE):
 
-  1. `commands/review.md` (~80K tokens) and `commands/deep-review.md` (~35K) are restructured for the Opus 5 generation — each rule stated once, anti-improvisation scar tissue removed, progressive-disclosure layout — with the before/after measured token count recorded and materially reduced
+  1. `commands/review.md` (~80K tokens) and `commands/deep-review.md` (~35K) are restructured for the Opus 5 generation — each rule stated once, anti-improvisation scar tissue removed, progressive-disclosure layout — with the before/after measured token count recorded and materially reduced; the Phase-0.3 budget-gate price anchors and the deep-review cost note are corrected to the current lineup as part of the rewrite (Sonnet 5 $2/$10, Opus 5 $5/$25, Fable 5.1 $10/$50 + 0.025× cache reads, Haiku 4.5 $1/$5, ~30% tokenizer uplift), still rendered as D-01 wide brackets
   2. The ranked deterministic prose families from `docs/design/prose-to-code-inventory.md` are extracted into tested stdlib-Python scripts, and the inventory's deliberate keep-list is honored (the blocks it judged not worth extracting are still prose)
-  3. The Phase 4.5→5 state single-writer property is verified on the restructured flow: either the fix-loop desync class is structurally gone, or its recovery is deterministic and tested (absorbs backlog 999.8)
-  4. Every restructure batch is validated before the next lands — behavior contract preserved (phase sequence, output paths, fail-closed guards) and catch-rate no worse than the Phase-38 baseline on a B3 spot-check
+  3. The Phase 4.5→5 state single-writer property is VERIFIED on the restructured flow — verify-only (2026-09-05): if the restructure dissolves the fix-loop desync class for free, that is recorded; if it does not, the item returns to backlog 999.8 rather than growing into state-machine work inside this phase
+  4. Every restructure batch is validated before the next lands — behavior contract preserved (phase sequence, output paths, fail-closed guards; suite green + envelope byte-stability) and a CAPPED live B3 spot-check (2 diffs — one should-catch, one should-quiet — ×1 per batch); the full ×3 spot-check against the Phase-38 baseline runs ONCE at phase end, catch-rate no worse
+  5. Every executable helper the commands and agents invoke (`scripts/score.py`, `scripts/guard.py`, `scripts/config.py`, and the fix agent's own guard resolution) resolves from the TRUSTED plugin install (`${CLAUDE_PLUGIN_ROOT}`, with one explicit owner-set dev-override env var) — never from the repository under review; the repo-first arm is gone from every copy, and a planted `plugins/vibe-check/scripts/*.py` in a reviewed repo is provably never executed (TRUST-01)
+  6. The fix agent validates every path in a finding's file set (regex + guard.py containment) BEFORE its first Read/Edit, not only before commit — a traversal path is refused before anything touches disk (TRUST-02)
 
 **Plans**: TBD
 
-> **Owner-runtime**: the per-batch B3 spot-check runs are owner-driven `/deep-review` invocations.
+> **Owner-runtime**: the capped per-batch spot-checks (2 runs per batch) and the single end-of-phase ×3 spot-check are owner-driven `/deep-review` invocations.
+
+> **Planning inputs (2026-09-05, from the external source review — inputs, NOT requirements):** (a) the reviewer's extraction list adds two families the inventory lacks — dispatch-manifest generation and report rendering — plus per-phase latency recording; weigh them against the inventory's keep-list at plan time. (b) TRUST-01 needs a short spike first: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py itself, outside the orchestrator's shell). (c) The dev override must be an env var the OWNER sets, never anything read from the reviewed repo. (d) The cost-anchor correction lands in the Phase-0.3 budget-gate block and the deep-review cost note as part of the rewrite, not as a separate pass.
 
 ### Phase 41: Wave 1 — scorer-side noise interventions
 
@@ -277,13 +276,13 @@ Plans:
 
 ### Phase 44: Close — 2.10.0 release
 
-**Goal**: v2.10 ships as a published plugin release carrying the new measured efficacy AND cost numbers
+**Goal**: v2.10 ships as a published plugin release carrying the new measured efficacy numbers and README/config docs that describe the Claude 5 generation as it actually runs
 **Depends on**: Phase 43 (ships the proven numbers)
-**Requirements**: CLOSE-01
+**Requirements**: CLOSE-01, COMPAT-01
 **Success Criteria** (what must be TRUE):
 
   1. plugin.json is bumped to 2.10.0 and an annotated tag `v2.10` is created
-  2. The README efficacy section AND the measured-cost numbers are replaced with the v2.10 measurements plus their caveats
+  2. The README efficacy section is replaced with the v2.10 measurements plus their caveats, and the README model table / tiering rationale / configuration section describe the Claude 5 generation as it actually runs (Sonnet 5 / Opus 5 / Haiku 4.5; Fable 5.1 opt-in; `opus`/`fable` allowlist kept) with the corrected static cost anchors — no "measured" cost is claimed (that stays backlog 999.12) (COMPAT-01)
   3. main + tag + branch are pushed in one atomic, exact-hash-verified publish
 
 **Plans**: TBD
@@ -332,7 +331,7 @@ Plans:
 | 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete | 2026-07-05 |
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 4/6 | In Progress|  |
-| 39. Claude-5 compatibility + measured cost | v2.10 | 0/? | Not started | - |
+| 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 0/? | Not started | - |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
@@ -356,6 +355,12 @@ Plans:
 > half remains), **999.13** (architecture.md + README efficacy exist; the threat-model /
 > honesty / lifecycle pass remains). The 2026-06-22 tier journal below is retained as a
 > dated historical record — its item states are superseded by this note.
+
+> **Added 2026-09-05 (external source review + model-lineup check):** **999.15**, **999.16**, **999.17**
+> appended at the end of this section; **999.12** RETURNED from v2.10 (was COMPAT-02) with a
+> feasibility-spike gate. Suggested v2.11 order: 999.15 → 999.16 → 999.17 — all three sit in the
+> "makes MY reviews better" tier; 999.17 costs ~6 owner runs. None may land inside v2.10's measured
+> window (they change what the fix loop commits / which specialists dispatch / which model judges).
 
 > **Priority order (re-prioritized 2026-06-22, correctness-first lens).**
 > Phase *numbers* are stable identifiers, not sequence. The intended order of
@@ -528,6 +533,14 @@ the cost-reconciliation item in 999.13).
 the pass already performed. Complements 999.13's "pick one source of truth" by
 replacing the guess with a measurement.
 
+**Returned to backlog 2026-09-05** (was v2.10 COMPAT-02 / Phase 39): NO measurement
+mechanism exists — the orchestrator explicitly cannot tokenize (review.md Phase 0.2
+anti-pattern) and no harness per-Task usage signal is designed or known to be readable
+from command prose. **Gate: a feasibility spike before any promotion** — if a command
+cannot read actual per-Task usage from the harness, this item is an estimate with a new
+label and should be DROPPED, not built. The static anchors are corrected in v2.10
+(Phase 40 DIET-01 + Phase 44 COMPAT-01) regardless.
+
 **Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
 
 Plans:
@@ -580,6 +593,107 @@ cluster. Mostly README + spec edits; no pipeline risk.
 those lands avoids documenting soon-to-be-stale behavior.
 
 **Source:** `docs/superpowers/specs/2026-06-22-external-review-triage.md`
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.15: Fix agent — hunk-isolated commits + real verification (BACKLOG)
+
+**Goal:** The fix agent commits ONLY the change it made for a finding, verifies the fix
+with something stronger than a re-read, and never sweeps a file's pre-existing
+uncommitted edits into a `fix(review-pass-N)` commit.
+
+**Why (verified 2026-09-05 against `agents/fix.md`):** step 6 runs `git add -- <file>`
+on whole files, so when the default (uncommitted-work) review mode accepts a fix in a
+file that also holds unfinished edits, those edits are committed under the fix's
+message — the commit lies about its contents. Step 5's verification is "re-read, confirm
+syntactically plausible"; no test or type-check runs. (The path-validation-before-edit
+slice of the same reviewer finding is v2.10 TRUST-02, not this item.)
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Design notes:**
+
+- Capture `git diff -- <file>` before editing; after editing, isolate the delta and stage
+  only those hunks (`git apply --cached` on the computed patch) — never the whole file.
+- **Owner decision (2026-09-05):** when the fix cannot be separated cleanly from
+  pre-existing edits, leave it APPLIED BUT UNCOMMITTED and say so in the fix result — do
+  not refuse the fix, do not commit ambiguously.
+- Replace the plausibility re-read with the cheapest relevant real check available in
+  the repo (targeted test file, type-check, or lint on the touched file); report which
+  check ran, or that none was available — "verified" must mean something ran.
+- Off the v2.10 measured path (Phase 43 runs are report-only), so this is v2.11 work.
+
+**Source:** external source review of the plugin, 2026-09-05 (reviewer item 2), reproduced by the reviewer.
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.16: Dispatch inputs — deterministic framework routing + bounded chunks for large diffs (BACKLOG)
+
+**Goal:** Specialist dispatch is decided by a tested script that reads the changed files'
+actual imports plus package metadata (not by a Haiku agent that is told to look for
+imports but is given no diff body), and a large diff is reviewed in bounded chunks
+instead of downgrading every language/framework reviewer to Haiku.
+
+**Why (verified 2026-09-05):** `agents/triage.md` derives `frameworks` "from imports
+actually present in the diff", but the Phase-1 prompt in `commands/review.md` supplies
+only `git diff --stat`, `--name-only`, and a root listing — no diff content. An edit
+inside an existing framework file usually carries no import in the hunk at all
+(`triage.md` already patches exactly this gap per-framework for React Native rather than
+structurally). The `size_tier == "large"` rule downgrades all `language-*`/`framework-*`
+agents to Haiku; the 2026-09 Sonnet 5 price cut ($2/$10) shrinks what that saves from 3×
+to 2× on input while still costing specialist quality. The one v2.9 miss was NOT a
+routing miss (the FastAPI lane fired; the miss was wrong-axis), so this is quality work,
+not an urgent fix.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Design notes:**
+
+- `detect_frameworks(files) -> set` as a stdlib script: scan the changed files' imports
+  (whole file, not hunk) + `package.json` / `pyproject.toml` / `go.mod` metadata; cache
+  per run; feed the existing Selection table. Keep the `"skill"` file-shape exception.
+- Reuse the `--all` chunk planner (`$CHUNK_PLAN`, Phase 0.2) for diff-mode large diffs;
+  delete the Haiku downgrade rule.
+- MUST NOT land inside v2.10 — it changes which specialists fire, which would confound
+  the baseline-vs-post-change measurement (the milestone's tune-vs-measure caveat).
+
+**Source:** external source review of the plugin, 2026-09-05 (reviewer item 5); Sonnet 5 pricing verified on the live pricing page the same day.
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.17: Top-tier Fable 5.1 A/B on the B3 set (BACKLOG)
+
+**Goal:** Decide with data whether `/deep-review`'s default `<TOP>` tier should move from
+Opus 5 to Fable 5.1 for the two judgment-gating agents (`bugs` + `architecture`).
+
+**Why:** Anthropic's guidance (verified 2026-09-05) is Opus-5-first, Fable when evals at
+higher effort still fall short — and vibe-check has no eval of Fable on this fleet. Fable
+5.1 is 2× Opus on base price but its cache reads are 0.025× (vs 0.1×), which matters for
+the position-stable `<files>` block the chunk agents share. The security agent stays on
+Sonnet in both commands, so Fable's dual-use safety measures do not bear on the default.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Design notes:** Run the 2 known-noisy should-quiet diffs + 1 should-catch diff ×3 with
+`VIBE_CHECK_TOP_MODEL=fable` against the v2.10 post-change numbers (~9 owner runs, or ~6
+if the catch diff is dropped); score from state against the sealed keys; decide on FP-rate
+and catch-rate, not on vibes. Do NOT change the default inside v2.10 — it would confound
+Phase 43. The README's "Fable ~2× Opus, ~3.3× Sonnet" line is corrected in v2.10 Phase 44
+regardless of this outcome (Sonnet 5 is now $2/$10, so Fable is 5× Sonnet on input).
+
+**Source:** model-lineup check 2026-09-05 (live models overview + pricing pages).
 
 Plans:
 

@@ -155,6 +155,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 38]: 38-03: 6 new B3 kits owner-confirmed (confirm-all, live) + committed at ccf887c — catches triggarr-session-rotation (0866332 reversed, base clone-HEAD f4366a2) + triggarr-settings-form-split (542d5dd reversed, base pinned to the fix itself); quiets should-quiet-4..7 (9be610a SSRF validator, f64a874 log-sanitize, 3d042c8 pydantic bounds, 05cfd1b safe_float parse); set total 12 (D-01 target); D-03/D-04 triggers did NOT fire
 - [Phase 38]: 38-03: SET-01 deliberately left Pending — the plan delivers its inventory half; the sealed per-diff answer key half lands in 38-04 (a blob cannot contain its own hash)
 - [Phase 38]: 38-04: ground truth sealed — ANSWER-KEY-v2.10 at 5f687d9 (6 new rows, 12 kit digest lines from ccf887c blobs, no self-hash) digest-bound by seal-2 633f1dd (pure five-line byte-append, pinned-verifier proven, manifest FINAL at 2 commits; DENOM 15/21/36); checklist part B (debe57a) regen-validated — WAIT 2 OPEN (18 new-diff baseline runs); SET-01 complete
+- [2026-09-05 re-scope, owner decision after an external source review + live model-lineup check]: Phase 39 DISSOLVED — COMPAT-02 (measured cost) returned to backlog 999.12 (no mechanism: the orchestrator cannot tokenize; needs a feasibility spike), COMPAT-01 (Claude-5 docs + corrected static cost anchors) → Phase 44. Phase 40 GAINS TRUST-01/02 (helpers resolve from `${CLAUDE_PLUGIN_ROOT}` + owner-set dev override, never repo-first — today a reviewed PR can plant `plugins/vibe-check/scripts/score.py`/`guard.py` and Phase 3 executes it unprompted; fix agent validates paths BEFORE its first edit) and the cost-anchor correction inside DIET-01. DIET-03 verify-only; DIET-04 spot-checks CAPPED (2 diffs ×1 per batch, full ×3 once at phase end). Model defaults UNCHANGED (aliases already resolve to Sonnet 5 / Opus 5 / Haiku 4.5; Fable 5.1 opt-in). New backlog 999.15 (fix-agent hunk isolation + real verification; ambiguous → leave applied-but-uncommitted), 999.16 (deterministic framework routing + bounded chunks replacing the Haiku downgrade), 999.17 (Fable 5.1 top-tier A/B). Reviewer items 3 (confidence vs severity) and 4 (orchestration out of prompts) were already Phase 41 / Phase 40 nearly verbatim — nothing added.
 - [Phase 38]: 38-04: settings-form-split band floor = warning (correctness/data-loss — silent loss of saved settings is action-bar, not the v2.9 medium display-nit precedent); session-rotation = warning (security)
 
 ### Pending Todos
@@ -172,6 +173,8 @@ None yet.
 - [Phase 36] B3 needs OWNER RUNTIME (~15–18 `/deep-review` runs; the skill is user-triggered — the assistant cannot run it). The phase delivers a run-checklist with exact commands; runs are resumable and spreadable across days.
 - [Phases 35/36] Stale installed-plugin cache poisons dogfood/smoke runs (recurred in 4 of the last 5 milestones) — pre-flight: installed version must equal repo `plugin.json` before any run.
 - [Phase 37] The v2.8 evidence debt needs NO separate retroactive audit — it became v2.9 requirements (Phase 35), so the v2.9 milestone audit covers it.
+- [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
+- [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
 
 ## Deferred Items
 
@@ -207,7 +210,7 @@ Load-bearing sequencing notes for whoever plans next:
 
 - **Phase 38 gates everything.** SET-02's pre-registration must be provably ordered BEFORE any
   COMPAT/DIET/SCORER/AGENT change lands, and SET-03's ×3 baseline runs on the UNCHANGED v2.9.0 plugin.
-  Nothing in Phases 39–42 may land until 38's baseline + sealed manifest are committed.
+  Nothing in Phases 40–42 may land until 38's baseline + sealed manifest are committed (Phase 39 dissolved 2026-09-05).
 
 - **The SET-03 baseline is dual-duty**: it is both the pre-change anchor for the noise work AND the
   Opus 5 / Claude 5 re-measure (same unchanged plugin, new model generation).
@@ -215,8 +218,8 @@ Load-bearing sequencing notes for whoever plans next:
 - **Phase 40 (diet) precedes Phase 41 (scorer) deliberately** — SCORER-01 replays POST-DIET run data so
   the tuning lands on the system that actually ships. Never tune-then-restructure.
 
-- **Measurement is OWNER-RUNTIME.** Phases 38, 40 (per-batch spot-checks), 41 (SCORER-05 spot-check),
-  and 43 (~30–36 runs) all need owner-driven `/deep-review` invocations — the assistant CANNOT invoke
+- **Measurement is OWNER-RUNTIME.** Phases 38 (36 runs), 40 (CAPPED per-batch spot-checks, 2 runs each, plus ONE
+  end-of-phase ×3), 41 (SCORER-05 spot-check, 6 runs), and 43 (~30–36 runs) all need owner-driven `/deep-review` invocations — the assistant CANNOT invoke
   `/deep-review`. Each of those phases must deliver an exact-command run-checklist; runs are resumable
   across days.
 
@@ -228,4 +231,6 @@ Load-bearing sequencing notes for whoever plans next:
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd:plan-phase 38` (Grow the B3 set + Claude-5 baseline — SET-01/02/03)
+- Phase 38 is EXECUTING (4/6 plans). Next: the OWNER drives the 36 baseline runs (WAIT 1: carried 6 ×3; WAIT 2: new 6 ×3) per `docs/design/b3-ground-truth/RUN-CHECKLIST-v2.10.md` — fix the session model explicitly first (see Blockers/Concerns). Then 38-05 (score from state) and 38-06 (RESULTS-v2.10 baseline + Opus 5 re-measure).
+- After Phase 38 closes: plan Phase 40 directly (`/gsd:plan-phase 40`) — Phase 39 was dissolved 2026-09-05; Phase 40 now carries DIET-01..04 + TRUST-01/02 (run the `${CLAUDE_PLUGIN_ROOT}` spike first).
+- Re-scope record: ROADMAP.md v2.10 header note (2026-09-05) + REQUIREMENTS.md (21 active, COMPAT-02 withdrawn) + PROJECT.md Key Decisions.
