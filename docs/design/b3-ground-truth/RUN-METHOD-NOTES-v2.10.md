@@ -171,3 +171,13 @@ per-session block header is the SINGULAR timestamped form. The plural seed heade
 the `$(date …)` template line inside the documented append command (which sits inside a
 bash fence, starting with `{ echo`) both fall outside the anchored gate pattern, so a
 zero-fingerprint file can never satisfy it.
+
+## Seal verifier pin
+
+verifier-commit: a407539115872137dc55d99aef439a9c5a4f16d9
+verifier-sha256: 7be8ed39e9ad38a521caa17316fcea8894a7f25ab54b72af7b673a9bff75daaf
+
+Every consumer of the seal check first asserts the live verifier file's sha256 equals
+verifier-sha256 AND that exactly one commit ever touched the path, then executes the
+check via `git show <verifier-commit>:<path> | python3 -` — the pinned blob, never the
+working file.
