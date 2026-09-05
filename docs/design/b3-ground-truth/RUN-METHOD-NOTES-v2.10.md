@@ -159,7 +159,7 @@ state.json, tree.diff, tree.diff.sha256, session.txt, clear.txt.
 
 ### Known harness-shift component
 
-v2.9 runs were on codex-cli 0.133.0; the current CLI is 0.145.0 — record this as an
+v2.9 runs were on codex-cli 0.133.0; the current CLI is 0.153.4 (pin corrected from 0.145.0 on 2026-09-05, before any fingerprint or run — codex was upgraded after the original pin) — record this as an
 explicit harness-shift component in the RESULTS-v2.10.md limitations (the harness =
 model + CLI versions bundled; the re-measure cannot decompose model vs codex-cli within
 the shift).
@@ -185,7 +185,7 @@ working file.
 ## Harness pin
 
 pin-claude-code: 2.1.261 (Claude Code)
-pin-codex: codex-cli 0.145.0
+pin-codex: codex-cli 0.153.4
 pin-model: fable 5
 
 Every session fingerprint must tuple-match these three lines; correction is legal ONLY
