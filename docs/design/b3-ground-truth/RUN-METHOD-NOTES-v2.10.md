@@ -196,3 +196,9 @@ claude-code: 2.1.261 (Claude Code)
 model: Fable 5.1
 codex: codex-cli 0.153.4
 cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
+
+## Harness fingerprint — 2026-09-05T18:09:56-0400
+claude-code: 2.1.261 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
