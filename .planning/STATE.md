@@ -4,13 +4,13 @@ milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
 status: executing
 stopped_at: Phase 38 context gathered
-last_updated: "2026-09-05T19:59:08.946Z"
+last_updated: "2026-09-05T20:06:53.488Z"
 last_activity: 2026-09-05 -- Phase 38 execution started
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 6
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 38 (Grow the B3 set + Claude-5 baseline) — EXECUTING
-Plan: 1 of 6
+Plan: 2 of 6
 Status: Executing Phase 38
-Progress: [--------------------] 0% (0/7 phases)
+Progress: [██░░░░░░░░] 17%
 Last activity: 2026-09-05 -- Phase 38 execution started
 
 ## Performance Metrics
@@ -73,6 +73,7 @@ Last activity: 2026-09-05 -- Phase 38 execution started
 | Phase 36 P01 | 21min | 5 tasks | 19 files |
 | Phase 36 P03 | 15min | 2 tasks | 2 files |
 | Phase 37 P01 | 9min | 2 tasks | 2 files |
+| Phase 38 P01 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 36]: 36-03: autoescape run-1 = the pre-registered right-site-wrong-axis MISS (detected-below-threshold) — SITE ok but fleet named deprecation/breaks-startup, one finding explicitly "NOT an XSS regression"; runs 2-3 named XSS/autoescape → 2/3. should-quiet-2 clean 0/3; should-quiet-1 + -3 = 3/3 FP each. Codex contributed all 8 catches (codex=auto)
 - [Phase 36]: 36-03: D-11 verdict = PROCEED on H-CORE/H-LANE/B-SEV/B-REWEIGHT (FP + axis-stability challenges this run implicates; should-quiet FPs are agent-self-sufficient not +10-cross-confirm-rescued → H-CORE/H-LANE not primarily H-DUP/B-XCONF) AND grow the committed set next milestone (N=3 coarse). Input to next-milestone B3-gated-challenge scoping, NOT an in-phase scorer change (formula frozen). Report appended to RESULTS-v2.9.md (no RESULTS-v3.md)
 - [Phase 37]: 37-01: v2.9 PUBLISHED — plugin.json 2.8.0→2.9.0 (commit 17950c0), README ## 📊 Measured Efficacy pointer (8/9 · 6/9 + small-N caveat + RESULTS-v2.9.md link). main FF bbecf55→17950c0 (no merge, no checkout), annotated tag v2.9 (object b1c34342, peels to main, 2.9.0 tree), ONE atomic push of main+tag+feat/v2.9, exact-hash verify PUBLISH-VERIFIED for all three refs. Pre-publish anchor bbecf559 (STATE=A fresh capture). No .planning path in the release commit; score.py/test_score.py/config.py byte-frozen. CLOSE-01 criterion 3 (audited) delegated to the wrapper orchestrator (D-06).
+- [Phase 38]: 38-01: seal-1 committed — SEAL1=4c67283b46540f997b8a5c6b530996da880b53ed pre-registers the v2.10 pass bar + decision rule with the ordered seal-2 append-only whitelist; RUN-METHOD-NOTES-v2.10.md seeded (N-01 mandatory per-run clear.txt gate, timestamped fingerprint session IDs, exact Claude-5 model grammar, harness-pin tuple equality, pre-run session.txt binding)
 
 ### Pending Todos
 
@@ -185,7 +187,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-27T20:24:19.665Z
+Last session: 2026-09-05T20:06:13.914Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
