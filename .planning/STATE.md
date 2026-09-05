@@ -4,13 +4,13 @@ milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
 status: executing
 stopped_at: Phase 38 context gathered
-last_updated: "2026-09-05T20:33:21.788Z"
+last_updated: "2026-09-05T20:53:08.342Z"
 last_activity: 2026-09-05 -- Phase 38 execution started
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 38 (Grow the B3 set + Claude-5 baseline) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Executing Phase 38
-Progress: [███░░░░░░░] 33%
+Progress: [█████░░░░░] 50%
 Last activity: 2026-09-05 -- Phase 38 execution started
 
 ## Performance Metrics
@@ -75,6 +75,7 @@ Last activity: 2026-09-05 -- Phase 38 execution started
 | Phase 37 P01 | 9min | 2 tasks | 2 files |
 | Phase 38 P01 | 6min | 2 tasks | 2 files |
 | Phase 38 P02 | 23min | 2 tasks | 3 files |
+| Phase 38 P03 | 10min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,8 @@ Earlier decisions (v2.8) still on record:
 - [Phase 37]: 37-01: v2.9 PUBLISHED — plugin.json 2.8.0→2.9.0 (commit 17950c0), README ## 📊 Measured Efficacy pointer (8/9 · 6/9 + small-N caveat + RESULTS-v2.9.md link). main FF bbecf55→17950c0 (no merge, no checkout), annotated tag v2.9 (object b1c34342, peels to main, 2.9.0 tree), ONE atomic push of main+tag+feat/v2.9, exact-hash verify PUBLISH-VERIFIED for all three refs. Pre-publish anchor bbecf559 (STATE=A fresh capture). No .planning path in the release commit; score.py/test_score.py/config.py byte-frozen. CLOSE-01 criterion 3 (audited) delegated to the wrapper orchestrator (D-06).
 - [Phase 38]: 38-01: seal-1 committed — SEAL1=4c67283b46540f997b8a5c6b530996da880b53ed pre-registers the v2.10 pass bar + decision rule with the ordered seal-2 append-only whitelist; RUN-METHOD-NOTES-v2.10.md seeded (N-01 mandatory per-run clear.txt gate, timestamped fingerprint session IDs, exact Claude-5 model grammar, harness-pin tuple equality, pre-run session.txt binding)
 - [Phase 38]: 38-02: verifier pinned (a407539/7be8ed39…) + harness pin (claude-code 2.1.261 / codex-cli 0.145.0 / fable 5) committed BEFORE WAIT 1; part-A checklist script-generated (T1-T7) with regeneration byte-equality + sandbox-exercised recovery; WAIT 1 OPEN (carried-6 re-measure, 18 runs); SET-03 stays Pending until the runs land
+- [Phase 38]: 38-03: 6 new B3 kits owner-confirmed (confirm-all, live) + committed at ccf887c — catches triggarr-session-rotation (0866332 reversed, base clone-HEAD f4366a2) + triggarr-settings-form-split (542d5dd reversed, base pinned to the fix itself); quiets should-quiet-4..7 (9be610a SSRF validator, f64a874 log-sanitize, 3d042c8 pydantic bounds, 05cfd1b safe_float parse); set total 12 (D-01 target); D-03/D-04 triggers did NOT fire
+- [Phase 38]: 38-03: SET-01 deliberately left Pending — the plan delivers its inventory half; the sealed per-diff answer key half lands in 38-04 (a blob cannot contain its own hash)
 
 ### Pending Todos
 
@@ -189,7 +192,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-05T20:32:55.355Z
+Last session: 2026-09-05T20:52:40.414Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
