@@ -1,0 +1,69 @@
+# Provenance — should-quiet-4.patch
+
+diff_id: should-quiet-4
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/triggarr
+feature_sha: 9be610a486707ef2a9e268a0f5cb593b673b44f2
+feature_subject: feat(71-02): add validate_url_ssrf field_validator to InstanceConfig
+touched_paths (patch, product-file-scoped): triggarr/models/config.py
+planted_hunk: config.py @@ -88,6 +88,28 @@ class InstanceConfig(BaseModel) (post-image L88-115)
+
+## What the patch is
+A byte-exact FORWARD `git show 9be610a -- triggarr/models/config.py`. It ADDS an
+already-shipped, clean SSRF-hardening feature: a new `@field_validator("url")`
+named `validate_url_ssrf`, defined AFTER `reject_apikey_in_url` so the Pydantic v2
+definition-order guarantee preserves the apikey= rejection firing first. It blocks
+cloud-metadata IPs/hosts plus link-local/unspecified/multicast IP literals, permits
+loopback + localhost (same-host *arr, a deliberate documented decision), and uses a
+local import to avoid a circular module-level import. This is defect-free feature
+code — reviewing it should produce NO critical/warning finding. Safe ON the
+SSRF/input-validation axis (the measured weak spot: v2.9 should-quiet-1 FP'd 3/3
+on exactly this class of change): the addition tightens the SSRF guard; it
+introduces no leak, no injection, no resource issue.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 14eecb580499ec2ab4e8d469c768479509a9695a
+base_sha_note: = 9be610a^ (the forward diff's natural pre-image). The forward
+  feature diff does NOT apply at the current triggarr HEAD (the feature is already
+  present there), so base_sha is the pre-feature parent; `git apply --check` exit 0
+  verified on a detached linked-worktree checkout of 9be610a^ (2026-09-05).
+
+## Full-worktree proof pair
+Computed on a detached checkout of base_sha with the patch applied, FULL `git diff`
+(NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: f71a773021b0d8f95c12e7a53886ea438d73bc6f5e7507dca7512218c8a0a0fe
+EXPECTED_TOUCHED_PATHS: triggarr/models/config.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(71-02): add validate_url_ssrf field_validator to
+  InstanceConfig" + body ("New @field_validator(\"url\") named validate_url_ssrf,
+  defined AFTER reject_apikey_in_url so Pydantic v2 definition-order guarantee
+  preserves the apikey= rejection firing first (Pitfall 2 / T-71-01b) ... Blocks
+  cloud-metadata IPs/hosts + link-local/unspecified/multicast IP literals")
+regex_result: NO HITS (0). Plain-read: PASS — planned GSD hardening feature
+  (phase 71-02); "Pitfall 2" and "T-71-01b" are the source repo's own research/
+  threat-register refs, not review findings; "D-01/D-02" tokens do not match the
+  regex (`DR[0-9]` needs literal DR+digit, `DR-` needs literal DR-). ORGANIC.
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic)
+Per touched hunk, `git log -L<start>,<end>:<file> 9be610a..HEAD` (empty = no later
+rewrite of the selected lines, regardless of the later commit's subject):
+  L88,115:triggarr/models/config.py  →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified. Re-verified 2026-09-05.
+
+## PURE-M gate
+name-status:
+M	triggarr/models/config.py
+(only M — no A/D/R/C; an added-file patch would be untracked-after-apply and
+invisible to the review)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → only the
+  git-show commit-hash header line and long Python identifiers
+  (validate_arr_url_config, reject_apikey_in_url, ...); no secret-shaped token in
+  the diff body.
+
+## size-comparability
++22 insertions on one product file, pure addition — above the existing quiet max
+(+14) but single-file, single-mechanism (one validator block). Flagged borderline
+in the evidence table; owner-confirmed 2026-09-05 (confirm-all).

@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Triggarr{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Settings</h1>
+
+{% if auth_is_disabled %}
+<div class="bg-red-900/30 border border-red-900/80 rounded-lg p-4 mb-6 flex items-start gap-3">
+  <svg class="text-red-500 flex-shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-2h2v2h-2zm0-4V7h2v6h-2z"/></svg>
+  <div>
+    <p class="text-sm font-semibold text-red-200">Authentication Override</p>
+    <p class="text-sm text-red-200/90 mt-0.5">Authentication is disabled. Auth mode can only be changed back from the config file.</p>
+  </div>
+</div>
+{% endif %}
+
+<form method="post" action="{{ request.url_for('save_settings') }}" class="space-y-8">
+    <!-- General section -->
+    <section class="bg-triggarr-card rounded-lg border border-triggarr-border p-5">
+        <h2 class="text-lg font-semibold mb-4">General</h2>
+        <div class="grid grid-cols-1 gap-4 max-w-md">
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Log Level</label>
+                <select name="log_level"
+                        class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                    {% for level in ['debug', 'info', 'warning', 'error'] %}
+                    <option value="{{ level }}" {% if log_level == level %}selected{% endif %}>
+                        {{ level | capitalize }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Hard Max Items Per Cycle</label>
+                <input type="number" name="hard_max_per_cycle" value="{{ hard_max_per_cycle }}"
+                       min="0" max="1000"
+                       class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                <p class="text-xs text-triggarr-muted mt-1">0 = unlimited. Caps total items per app per cycle.</p>
+            </div>
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Max History Rows</label>
+                <input type="number" name="max_history_rows" value="{{ max_history_rows }}"
+                       min="0" max="100000"
+                       class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                <p class="text-xs text-triggarr-muted mt-1">0 = unlimited. Max resolved rows kept in search history.</p>
+            </div>
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Request Timeout (seconds)</label>
+                <input type="number" name="request_timeout" value="{{ request_timeout }}"
+                       min="5" max="300" step="1"
+                       class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                <p class="text-xs text-triggarr-muted mt-1">Timeout for outbound HTTP requests to *arr apps.</p>
+            </div>
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Page Size</label>
+                <input type="number" name="page_size" value="{{ page_size }}"
+                       min="10" max="500"
+                       class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                <p class="text-xs text-triggarr-muted mt-1">Items per page when querying *arr APIs.</p>
+            </div>
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Tracking Window (minutes)</label>
+                <input type="number" name="tracking_window_minutes" value="{{ tracking_window_minutes }}"
+                       min="5" max="1440"
+                       class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                <p class="text-xs text-triggarr-muted mt-1">How long to wait for grabs after a search before marking unresolved.</p>
+            </div>
+            <div>
+                <label class="block text-sm text-triggarr-muted mb-1">Max Consecutive Failures</label>
+                <input type="number" name="max_consecutive_failures" value="{{ max_consecutive_failures }}"
+                       min="1" max="100"
+                       class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                <p class="text-xs text-triggarr-muted mt-1">After N consecutive search cycle failures, escalate log level from warning to error.</p>
+            </div>
+            <div>
+                <div class="flex items-center gap-3 mt-2">
+                    <input type="checkbox" name="skip_unreleased"
+                           {% if skip_unreleased %}checked{% endif %}
+                           class="accent-triggarr-green w-4 h-4"
+                           id="skip_unreleased">
+                    <label for="skip_unreleased" class="text-sm">Skip Unreleased Movies</label>
+                </div>
+                <p class="text-xs text-triggarr-muted mt-1">
+                    Skip Radarr movies without a past digital or physical release date.
+                </p>
+            </div>
+        </div>
+    </section>
+</form>
+
+<!-- Security section (D-01: after General, D-02: separate form) -->
+<section class="bg-triggarr-card rounded-lg border border-triggarr-border p-5 mt-8">
+  <h2 class="text-lg font-semibold mb-4">Security</h2>
+
+  <!-- Auth Method (D-10, D-11, D-12, D-13) -->
+  <form method="post" action="{{ request.url_for('save_security') }}">
+    <div class="max-w-md">
+      <label class="block text-sm text-triggarr-muted mb-1">Authentication Method</label>
+      <select id="auth-method-select" name="auth_method"
+              class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+        {% for mode in ['Forms', 'Basic', 'External'] %}
+        <option value="{{ mode }}" {% if auth_method == mode %}selected{% endif %}>{{ mode }}</option>
+        {% endfor %}
+      </select>
+      <div id="method-warning" class="text-amber-500 text-sm mt-2" style="display:none"></div>
+    </div>
+    <div class="flex justify-end mt-4">
+      <button type="submit"
+              class="bg-triggarr-green hover:bg-triggarr-green-dark text-white font-medium px-6 py-2 rounded text-sm transition-colors cursor-pointer">
+        Save
+      </button>
+    </div>
+  </form>
+
+  <div class="border-t border-triggarr-border my-6"></div>
+
+  <!-- Password Change (D-04, D-05, D-06) -->
+  <div id="password-section">
+    {% include "partials/security_password.html" %}
+  </div>
+
+  <div class="border-t border-triggarr-border my-6"></div>
+
+  <!-- API Key Management (D-07, D-08, D-09) -->
+  <div id="apikey-section"
+       hx-target="this"
+       hx-swap="innerHTML">
+    {% include "partials/security_apikey.html" %}
+  </div>
+</section>
+
+<!-- Per-app sections: Radarr, Sonarr, Lidarr -->
+<form method="post" action="{{ request.url_for('save_settings') }}" class="space-y-8 mt-8">
+    {% for app_name, instances in apps.items() %}
+    <section class="bg-triggarr-card rounded-lg border border-triggarr-border p-5">
+        <h2 class="text-lg font-semibold capitalize mb-4">{{ app_name }}</h2>
+
+        {% if not instances %}
+        <p class="text-triggarr-muted text-sm">No instances configured. Add one below.</p>
+        {% endif %}
+
+        {% for inst_name, inst in instances.items() %}
+        {% set sanitized = inst_name | replace(' ', '-') | replace('.', '-') %}
+        <details open class="bg-triggarr-bg rounded-lg border border-triggarr-border mb-3">
+            <summary class="flex items-center justify-between px-4 py-3 cursor-pointer">
+                <span class="font-medium">{{ inst_name }} &mdash; {{ "Enabled" if inst.enabled else "Disabled" }}</span>
+                <button hx-post="{{ request.url_for('remove_instance', app_name=app_name, instance_name=inst_name) }}"
+                        hx-confirm="Remove instance '{{ inst_name }}'? This cannot be undone."
+                        hx-target="body" hx-swap="outerHTML"
+                        class="text-red-400 hover:text-red-300 text-sm"
+                        type="button" data-stop-propagation>
+                    Remove
+                </button>
+            </summary>
+            <div class="px-4 pb-4">
+                <div class="flex items-center gap-2 mb-3">
+                    <input type="checkbox" name="{{ app_name }}__{{ inst_name }}__enabled"
+                           {% if inst.enabled %}checked{% endif %}
+                           class="accent-triggarr-green w-4 h-4"
+                           id="enabled-{{ app_name }}-{{ sanitized }}">
+                    <label for="enabled-{{ app_name }}-{{ sanitized }}" class="text-sm">Enabled</label>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">URL</label>
+                        <input type="text" name="{{ app_name }}__{{ inst_name }}__url" value="{{ inst.url }}"
+                               placeholder="http://{{ app_name }}:{% if app_name == 'radarr' %}7878{% elif app_name == 'lidarr' %}8686{% else %}8989{% endif %}"
+                               class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">API Key</label>
+                        <input type="password" name="{{ app_name }}__{{ inst_name }}__api_key" value=""
+                               placeholder="{{ '********' if inst.has_api_key else 'Paste API key' }}"
+                               class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">Search Interval (minutes)</label>
+                        <input type="number" name="{{ app_name }}__{{ inst_name }}__search_interval" value="{{ inst.search_interval }}"
+                               min="1" class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">Missing Items Per Cycle</label>
+                        <input type="number" name="{{ app_name }}__{{ inst_name }}__search_missing_count" value="{{ inst.search_missing_count }}"
+                               min="0" class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">Cutoff Items Per Cycle</label>
+                        <input type="number" name="{{ app_name }}__{{ inst_name }}__search_cutoff_count" value="{{ inst.search_cutoff_count }}"
+                               min="0" class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                    </div>
+                </div>
+                <!-- Tag fields -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">Missing Tag</label>
+                        <input type="text" name="{{ app_name }}__{{ inst_name }}__missing_tag" value="{{ inst.missing_tag }}"
+                               list="tags-{{ app_name }}-{{ sanitized }}-missing"
+                               hx-get="/api/tags/{{ app_name }}/{{ inst_name }}"
+                               hx-trigger="focus once"
+                               hx-target="#tags-{{ app_name }}-{{ sanitized }}-missing"
+                               hx-swap="innerHTML"
+                               placeholder="Leave empty to search all"
+                               class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                        <datalist id="tags-{{ app_name }}-{{ sanitized }}-missing"></datalist>
+                        <p class="text-xs text-triggarr-muted mt-1">Leave empty to search all items. Autocomplete loads from the *arr instance when focused.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-triggarr-muted mb-1">Cutoff Tag</label>
+                        <input type="text" name="{{ app_name }}__{{ inst_name }}__cutoff_tag" value="{{ inst.cutoff_tag }}"
+                               list="tags-{{ app_name }}-{{ sanitized }}-cutoff"
+                               hx-get="/api/tags/{{ app_name }}/{{ inst_name }}"
+                               hx-trigger="focus once"
+                               hx-target="#tags-{{ app_name }}-{{ sanitized }}-cutoff"
+                               hx-swap="innerHTML"
+                               placeholder="Leave empty to search all"
+                               class="w-full bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm">
+                        <datalist id="tags-{{ app_name }}-{{ sanitized }}-cutoff"></datalist>
+                        <p class="text-xs text-triggarr-muted mt-1">Leave empty to search all items. Autocomplete loads from the *arr instance when focused.</p>
+                    </div>
+                </div>
+            </div>
+        </details>
+        {% endfor %}
+
+        <!-- Add Instance inline form -->
+        <div class="flex items-center gap-2 mt-4">
+            <input type="text" name="instance_name" placeholder="New instance name"
+                   class="bg-triggarr-bg border border-triggarr-border rounded px-3 py-2 text-sm"
+                   form="add-{{ app_name }}">
+            <input type="hidden" name="app_name" value="{{ app_name }}" form="add-{{ app_name }}">
+            <button type="submit" form="add-{{ app_name }}"
+                    class="bg-triggarr-green hover:bg-triggarr-green-dark text-white font-medium px-4 py-2 rounded text-sm transition-colors">
+                + Add
+            </button>
+        </div>
+    </section>
+    {% endfor %}
+
+    <div class="flex justify-end">
+        <button type="submit"
+                class="bg-triggarr-green hover:bg-triggarr-green-dark text-white font-medium px-6 py-2 rounded transition-colors">
+            Save Settings
+        </button>
+    </div>
+</form>
+
+<!-- Add-instance forms must live outside the main settings form to avoid nested <form> (illegal in HTML) -->
+{% for app_name in apps %}
+<form id="add-{{ app_name }}" method="post" action="{{ request.url_for('add_instance') }}"></form>
+{% endfor %}
+
+<script nonce="{{ csp_nonce }}">
+function updateMethodWarning(value) {
+    var el = document.getElementById('method-warning');
+    if (value === 'External') {
+        el.textContent = 'Login page will be bypassed. Ensure your reverse proxy handles auth.';
+        el.style.display = 'block';
+    } else if (value === 'Basic') {
+        el.textContent = 'Browser will show a native popup instead of the login page.';
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
+    }
+}
+// Initialize warning on page load if a non-Forms method is already selected
+(function() {
+    var select = document.querySelector('select[name="auth_method"]');
+    if (select) updateMethodWarning(select.value);
+})();
+
+function toggleApiKeyVisibility() {
+    var input = document.getElementById('api-key-input');
+    var showIcon = document.getElementById('eye-icon-show');
+    var hideIcon = document.getElementById('eye-icon-hide');
+    if (input.type === 'password') {
+        input.type = 'text';
+        showIcon.classList.add('hidden');
+        hideIcon.classList.remove('hidden');
+    } else {
+        input.type = 'password';
+        showIcon.classList.remove('hidden');
+        hideIcon.classList.add('hidden');
+    }
+}
+
+function copyApiKey(btn) {
+    var key = document.getElementById('api-key-input').value;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(key).then(function() {
+            btn.innerHTML = '<span class="text-sm">Copied!</span>';
+            setTimeout(function() {
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+            }, 2000);
+        });
+    }
+}
+
+function showRegenConfirm() {
+    document.getElementById('regen-confirm').classList.remove('hidden');
+    document.getElementById('regen-btn').classList.add('hidden');
+}
+
+function cancelRegen() {
+    document.getElementById('regen-confirm').classList.add('hidden');
+    document.getElementById('regen-btn').classList.remove('hidden');
+}
+
+function confirmRegen() {
+    htmx.ajax('POST', '{{ request.url_for("regenerate_api_key_endpoint") }}', {
+        target: '#apikey-section',
+        swap: 'innerHTML'
+    });
+}
+
+// SEC-01 D-05: auth-method onchange binding (replaces inline onchange).
+var authMethodSelect = document.getElementById('auth-method-select');
+if (authMethodSelect) {
+    authMethodSelect.addEventListener('change', function(e) {
+        updateMethodWarning(e.target.value);
+    });
+}
+
+// SEC-01 D-05: remove-button event.stopPropagation (replaces inline onclick on remove buttons).
+document.querySelectorAll('[data-stop-propagation]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) { e.stopPropagation(); });
+});
+
+// SEC-01 D-05: delegated listener on #apikey-section (parent stays mounted across
+// hx-swap='innerHTML' of partials/security_apikey.html). Captures clicks on all
+// future swapped-in [data-action] buttons.
+var apikeySection = document.getElementById('apikey-section');
+if (apikeySection) {
+    apikeySection.addEventListener('click', function(e) {
+        var target = e.target.closest('[data-action]');
+        if (!target) return;
+        switch (target.dataset.action) {
+            case 'apikey-toggle': toggleApiKeyVisibility(); break;
+            case 'apikey-copy': copyApiKey(target); break;
+            case 'apikey-regen-show': showRegenConfirm(); break;
+            case 'apikey-regen-confirm': confirmRegen(); break;
+            case 'apikey-regen-cancel': cancelRegen(); break;
+        }
+    });
+}
+</script>
+{% endblock %}

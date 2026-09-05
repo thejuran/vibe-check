@@ -1,0 +1,68 @@
+# Provenance — triggarr-session-rotation.patch (should-catch #4)
+
+diff_id: triggarr-session-rotation
+role: should-catch
+source_repo: ~/triggarr
+fix_sha: 0866332737090e613787765617611e95933c079d
+fix_subject: fix(auth): rotate session secret on password change to evict other sessions
+touched_paths (patch, product-file-scoped): triggarr/web/routes.py
+planted_hunks: routes.py @@ -1445,17 +1445,7 @@ change_password (drops the session_secret rotation from the atomic config write); routes.py @@ -1469,26 +1459,11 @@ (drops the fresh-cookie re-issue under the new secret)
+
+## What the reversed patch re-introduces
+The fix (0866332) made `change_password` rotate `session_secret` in the SAME atomic
+config write as the new password hash — every auth path (AuthMiddleware, login,
+Basic auth) validates cookies against that secret, so all existing sessions are
+evicted immediately, and the acting request is re-issued a fresh cookie under the
+new secret so the password-changer stays logged in. The reversed patch (this
+.patch = `git diff 0866332 0866332^ -- triggarr/web/routes.py`) removes both the
+rotation and the re-issue: after a password change, every cookie signed with the
+old (unchanged) secret stays valid for the full 30-day COOKIE_MAX_AGE — a stolen
+or compromised session SURVIVES the password change, defeating the most common
+reason users change a password (locking out an active intruder). Security-axis
+session-eviction defect; subtle because the remaining code still "works" — the
+password hash updates fine, only the eviction guarantee is silently gone.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: f4366a261fcf9bab01b48ad89279aac973a7d9b1
+base_sha_note: the actual ~/triggarr clone HEAD at build time (main). The reversed
+  patch `git apply --check`ed clean at this SHA (exit 0, on a detached linked
+  worktree) — recorded 2026-09-05.
+
+## Full-worktree proof pair
+Computed on a detached checkout of base_sha with the patch applied, over the FULL
+tracked diff (`git diff`, NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: a924c81952b7dde940204efa0eeee3d4cb621efdff057f47fcb31f78be3a0bfe
+EXPECTED_TOUCHED_PATHS: triggarr/web/routes.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "fix(auth): rotate session secret on password change to evict
+  other sessions" + body ("Previously, changing the account password updated only
+  the password hash -- the session_secret was left unchanged ... This reverses a
+  deliberate v2.6 decision (threat T-58-07 \"accept\", test
+  test_password_change_old_session_still_valid) that treated session survival as
+  by-design.")
+regex_result: NO HITS (0). Plain-read: PASS — threat-model-driven product fix
+  reversing a deliberate earlier "accept" disposition; no vibe-check/deep-review/
+  review-pass provenance anywhere in the prose. The "T-58-07" token is a threat-
+  register ref, not a review finding. ORGANIC.
+
+## PURE-M gate
+name-status (full commit):
+M	tests/test_auth_integration.py
+M	tests/test_auth_routes.py
+M	triggarr/web/routes.py
+(only M rows — no A/D/R/C; the patch is product-file-scoped to routes.py, the two
+test files are excluded from the kit by the product-files pathspec)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → one hit, the
+  removed line `new_session_secret = generate_session_secret()` — a function CALL,
+  no literal value. On the .BUGGY.py → only Python identifiers
+  (generate_session_secret, SecurityHeadersMiddleware, ...) and comment-separator
+  dashes; no secret-shaped token. No literal secret committed.
+
+## size-comparability
+Reversed −27/+2 on one product file — deletion-heavy vs the existing catches
+(−4..−6) but a single-mechanism removal, the same shape as triggarr-autoescape
+(+1/−6) scaled up. Flagged borderline in the evidence table; owner-confirmed
+2026-09-05 (confirm-all).

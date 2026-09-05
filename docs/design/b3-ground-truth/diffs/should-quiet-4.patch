@@ -1,0 +1,49 @@
+commit 9be610a486707ef2a9e268a0f5cb593b673b44f2
+Author: thejuran <thejuran@users.noreply.github.com>
+Date:   Tue Jun 2 19:04:31 2026 -0400
+
+    feat(71-02): add validate_url_ssrf field_validator to InstanceConfig
+    
+    - New @field_validator("url") named validate_url_ssrf, defined AFTER
+      reject_apikey_in_url so Pydantic v2 definition-order guarantee preserves
+      the apikey= rejection firing first (Pitfall 2 / T-71-01b)
+    - Uses local import to avoid circular import at module level
+    - Validates url field unconditionally — disabled instances with metadata/
+      link-local URLs are rejected at startup (intended hardening D-01/D-02)
+    - Blocks cloud-metadata IPs/hosts + link-local/unspecified/multicast IP literals
+    - Permits loopback IP literals + localhost DNS name (same-host *arr, D-02)
+    - Web-form strict path (routes.py:561 validate_arr_url) unchanged
+
+diff --git a/triggarr/models/config.py b/triggarr/models/config.py
+index 16ccd69..79a0df6 100644
+--- a/triggarr/models/config.py
++++ b/triggarr/models/config.py
+@@ -88,6 +88,28 @@ class InstanceConfig(BaseModel):
+                 raise ValueError(msg)
+         return v
+ 
++    @field_validator("url")
++    @classmethod
++    def validate_url_ssrf(cls, v: str) -> str:
++        """D-01/D-02: Apply relaxed SSRF validation at config-load time.
++
++        Permits loopback IP literals and the localhost DNS name (legitimate
++        same-host *arr installs) but still blocks cloud-metadata addresses
++        (169.254.169.254, metadata.google.internal, etc.) and link-local /
++        unspecified / multicast IP literals.
++
++        Runs on the url field unconditionally — a disabled instance with a
++        genuinely-unsafe URL (metadata / link-local / non-http / malformed)
++        is still rejected at startup (intended hardening per D-01/D-02).
++        Raises ValueError on violation so Pydantic surfaces a ValidationError.
++        """
++        from triggarr.web.validation import validate_arr_url_config
++
++        ok, err = validate_arr_url_config(v)
++        if not ok:
++            raise ValueError(err)
++        return v
++
+     @model_validator(mode="after")
+     def at_least_one_search_count(self) -> InstanceConfig:
+         """Ensure at least one search count is positive when instance is enabled."""

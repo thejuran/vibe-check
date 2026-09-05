@@ -1,0 +1,53 @@
+commit f64a87428ed6438bfbd821dfcf8fdc41ac644998
+Author: thejuran <thejuran@users.noreply.github.com>
+Date:   Sun May 31 18:51:35 2026 -0400
+
+    feat(101-05): add sanitize_log_value import and wrap add/remove/update debug logs in model/model.py (GREEN)
+    
+    - Add `from common import AppError, sanitize_log_value` (model.py had no common import)
+    - Line 81 add_file: Adding file '{}' -> sanitize_log_value(file.name)
+    - Line 97 remove_file: Removing file '{}' -> sanitize_log_value(filename)
+    - Line 112 update_file: Updating file '{}' -> sanitize_log_value(file.name)
+    - __files dict keys, lookups, deletions, and listener notifications stay raw
+    - sanitize_log_value(file.name)==2, sanitize_log_value(filename)==1, >=4 total; all 17 test_model tests pass
+
+diff --git a/src/python/model/model.py b/src/python/model/model.py
+index f1b6649..979c312 100644
+--- a/src/python/model/model.py
++++ b/src/python/model/model.py
+@@ -3,7 +3,7 @@ import threading
+ from abc import ABC, abstractmethod
+ from typing import Set
+ 
+-from common import AppError
++from common import AppError, sanitize_log_value
+ from .file import ModelFile
+ 
+ class ModelError(AppError):
+@@ -78,7 +78,7 @@ class Model:
+         """
+         Add a file to the model
+         """
+-        self.logger.debug("LftpModel: Adding file '{}'".format(file.name))
++        self.logger.debug("LftpModel: Adding file '{}'".format(sanitize_log_value(file.name)))
+         if file.name in self.__files:
+             raise ModelError("File already exists in the model")
+         # Freeze the file to make it immutable before storing
+@@ -94,7 +94,7 @@ class Model:
+         """
+         Remove the file from the model
+         """
+-        self.logger.debug("LftpModel: Removing file '{}'".format(filename))
++        self.logger.debug("LftpModel: Removing file '{}'".format(sanitize_log_value(filename)))
+         if filename not in self.__files:
+             raise ModelError("File does not exist in the model")
+         file = self.__files[filename]
+@@ -109,7 +109,7 @@ class Model:
+         """
+         Update an already existing file
+         """
+-        self.logger.debug("LftpModel: Updating file '{}'".format(file.name))
++        self.logger.debug("LftpModel: Updating file '{}'".format(sanitize_log_value(file.name)))
+         if file.name not in self.__files:
+             raise ModelError("File does not exist in the model")
+         old_file = self.__files[file.name]

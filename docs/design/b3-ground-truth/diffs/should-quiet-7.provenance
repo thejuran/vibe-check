@@ -1,0 +1,63 @@
+# Provenance — should-quiet-7.patch
+
+diff_id: should-quiet-7
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/triggarr
+feature_sha: 05cfd1b70eb4052927bcd063587dceba2d8ac06c
+feature_subject: feat(75-02): parse and render shutdown_drain_timeout in settings handler
+touched_paths (patch, product-file-scoped): triggarr/web/routes.py
+planted_hunks: routes.py @@ -60,7 +60,7 @@ (adds safe_float to the validation import); @@ -443,6 +443,7 @@ (GET render-context entry); @@ -546,6 +547,7 @@ (POST safe_float parse into new_config[general])
+
+## What the patch is
+A byte-exact FORWARD `git show 05cfd1b -- triggarr/web/routes.py`. It ADDS the
+already-shipped, clean settings-handler half of the drain-timeout feature: imports
+`safe_float`, renders `shutdown_drain_timeout` in the GET context dict adjacent to
+`max_consecutive_failures`, and parses the POSTed value via
+`safe_float(form.get("shutdown_drain_timeout"), 60.0, 1.0, 3600.0)` — a bounded,
+default-clamped parse mirroring the existing `safe_int` parses beside it. This is
+defect-free feature code — reviewing it should produce NO critical/warning
+finding. Safe ON the settings input-parse path: user form input flows only through
+the bounded safe_float helper (default 60.0, floor 1.0, ceiling 3600.0); no raw
+interpolation, no injection surface, no resource issue.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: ce567d331b4c10aeeafd24975b75719906f471d6
+base_sha_note: = 05cfd1b^ (the forward diff's natural pre-image). base_sha is the
+  pre-feature parent; `git apply --check` exit 0 verified on a detached
+  linked-worktree checkout of 05cfd1b^ (2026-09-05).
+
+## Full-worktree proof pair
+Computed on a detached checkout of base_sha with the patch applied, FULL `git diff`
+(NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: d94fb90d156febbb3e26a8a9a2037db7cef13f5c1e71806487dccc224efff671
+EXPECTED_TOUCHED_PATHS: triggarr/web/routes.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(75-02): parse and render shutdown_drain_timeout in
+  settings handler" + body ("Add safe_float to validation import (sorted before
+  safe_int per ruff I) ... Add shutdown_drain_timeout safe_float parse to POST
+  new_config[general] dict")
+regex_result: NO HITS (0). Plain-read: PASS — planned GSD phase work (75-02);
+  pure feature commit, no vibe-check/deep-review/review-pass reference. ORGANIC.
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic)
+Per touched hunk, `git log -L<start>,<end>:<file> 05cfd1b..HEAD` (empty = no later
+rewrite of the selected lines, regardless of the later commit's subject):
+  L60,66:triggarr/web/routes.py    →  (empty — SURVIVED)
+  L443,449:triggarr/web/routes.py  →  (empty — SURVIVED)
+  L547,553:triggarr/web/routes.py  →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified. Re-verified 2026-09-05.
+
+## PURE-M gate
+name-status:
+M	triggarr/web/routes.py
+(only M — no A/D/R/C)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → only the
+  git-show commit-hash header line and long identifiers (safe_log_level,
+  max_consecutive_failures, shutdown_drain_timeout, ...); no secret-shaped token
+  in the diff body.
+
+## size-comparability
++3/−1 on one product file — squarely inside the existing set's band.

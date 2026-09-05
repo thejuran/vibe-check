@@ -1,0 +1,62 @@
+# Provenance — should-quiet-6.patch
+
+diff_id: should-quiet-6
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/triggarr
+feature_sha: 3d042c8705a6021ad18f55c409386787c8f515f1
+feature_subject: feat(75-01): add finite-only shutdown_drain_timeout GeneralConfig field
+touched_paths (patch, product-file-scoped): triggarr/models/config.py
+planted_hunk: config.py @@ -132,6 +132,11 @@ class GeneralConfig(BaseModel) (post-image L132-142)
+
+## What the patch is
+A byte-exact FORWARD `git show 3d042c8 -- triggarr/models/config.py`. It ADDS an
+already-shipped, clean config-validation feature: a new `shutdown_drain_timeout`
+field on GeneralConfig declared `Field(default=60.0, ge=1.0, allow_inf_nan=False)`
+— ge=1.0 rejects zero/negative (a typo cannot disable the drain), and
+allow_inf_nan=False rejects inf/nan (ge=1.0 alone accepts +inf in pydantic v2).
+This is defect-free feature code — reviewing it should produce NO critical/warning
+finding. Safe ON the input-validation axis: the field is bounds-guarded tighter
+than the surrounding existing fields; it introduces no leak, no injection, no
+resource issue. (The deliberate absence of a model-level upper bound is documented
+in the commit body — the form clamp is the UI ceiling and the env override is a
+shutdown-time escape hatch.)
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 9bfd4a63dcac983a544a651d53d76612d08a4933
+base_sha_note: = 3d042c8^ (the forward diff's natural pre-image). base_sha is the
+  pre-feature parent; `git apply --check` exit 0 verified on a detached
+  linked-worktree checkout of 3d042c8^ (2026-09-05).
+
+## Full-worktree proof pair
+Computed on a detached checkout of base_sha with the patch applied, FULL `git diff`
+(NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: 75704ed5244f3955f52454fb6123ab170b341e63c10ce20726f3e495080c3923
+EXPECTED_TOUCHED_PATHS: triggarr/models/config.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(75-01): add finite-only shutdown_drain_timeout
+  GeneralConfig field" + body ("Field(default=60.0, ge=1.0, allow_inf_nan=False)
+  — no upper bound on model ... allow_inf_nan=False rejects inf/nan (ge=1.0 alone
+  accepts +inf in pydantic v2)")
+regex_result: NO HITS (0). Plain-read: PASS — planned GSD phase work (75-01);
+  pure feature commit, no vibe-check/deep-review/review-pass reference. ORGANIC.
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic)
+Per touched hunk, `git log -L<start>,<end>:<file> 3d042c8..HEAD` (empty = no later
+rewrite of the selected lines, regardless of the later commit's subject):
+  L132,142:triggarr/models/config.py  →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified. Re-verified 2026-09-05.
+
+## PURE-M gate
+name-status:
+M	triggarr/models/config.py
+(only M — no A/D/R/C)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → only the
+  git-show commit-hash header line and long identifiers
+  (TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT, max_consecutive_failures, ...); no
+  secret-shaped token in the diff body.
+
+## size-comparability
++5/−0 on one product file — squarely inside the existing set's band.

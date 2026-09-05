@@ -1,0 +1,66 @@
+# Provenance — triggarr-settings-form-split.patch (should-catch #5)
+
+diff_id: triggarr-settings-form-split
+role: should-catch
+source_repo: ~/triggarr
+fix_sha: 542d5ddb685c992f94cc18e9c780a176067ddaa7
+fix_subject: fix(walkthrough): General settings fields lived in a separate form from the Save button, so saving never submitted them
+touched_paths (patch, product-file-scoped): triggarr/templates/settings.html
+planted_hunks: settings.html @@ -15,17 +15,14 @@ (re-wraps the General section in its own submit-button-less form); @@ -36,49 +33,49 @@ (strips the form="settings-form" association attributes from the General inputs); @@ -90,7 +87,7 @@ and @@ -134,10 +131,7 @@ (form-boundary restructuring)
+
+## What the reversed patch re-introduces
+The fix (542d5dd) associated the General settings fields with the instances form
+via the HTML `form="settings-form"` attribute (Security stays a separate form since
+nested forms are illegal HTML). The reversed patch (this .patch =
+`git diff 542d5dd 542d5dd^ -- triggarr/templates/settings.html`) re-splits the
+General section into its own `<form action=save_settings>` with NO submit button,
+while the 'Save Settings' button sits in a separate form holding only the instance
+fields: clicking Save submits only the instances form, so every General field
+(skip_unreleased, log_level, counts, etc.) is ABSENT from the POST and silently
+reset to its form-default on each save. Silent data-loss-on-save; the page renders
+and "saves" without error — the reviewer must notice the form-association break.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 542d5ddb685c992f94cc18e9c780a176067ddaa7
+base_sha_note: VERIFIED 2026-09-05 — the reversed patch FAILS `git apply --check`
+  against current triggarr HEAD (f4366a2) (settings.html drifted since the fix).
+  Its pre-image is the 542d5dd fixed tree, so it applies only on a detached
+  checkout of 542d5dd itself (`git apply --check` exit 0 there, on a detached
+  linked worktree — verified; the triggarr-autoescape pinned-base precedent).
+
+## Full-worktree proof pair
+Computed on a detached checkout of base_sha with the patch applied, over the FULL
+tracked diff (`git diff`, NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: 40ae123ce9910d937b8afdf51dcd98de048eec6b86bbdb4be1c0661fbc88cd91
+EXPECTED_TOUCHED_PATHS: triggarr/templates/settings.html
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "fix(walkthrough): General settings fields lived in a
+  separate form from the Save button, so saving never submitted them" + body
+  ("Caught by /walkthrough run 20260531-194500-walk-through-the, step 6: settings
+  save under config lock. ... General fields now associate with the instances form
+  via form=\"settings-form\"")
+regex_result: NO HITS (0). Plain-read: PASS — found by the owner's manual
+  app-walkthrough skill (clicking through the running app), NOT by code review;
+  no vibe-check/deep-review/review-pass provenance. ORGANIC (human-found runtime
+  defect).
+
+## PURE-M gate
+name-status (full commit):
+M	tests/test_web.py
+M	triggarr/templates/settings.html
+(only M rows — no A/D/R/C; the patch is product-file-scoped to settings.html, the
+test file is excluded from the kit by the product-files pathspec)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → only Tailwind
+  CSS utility-class strings (`bg-triggarr-card rounded-lg border ...`) and form
+  attribute values (`form="settings-form"`, field names). On the .BUGGY.html →
+  only CSS classes, element ids, and one SVG path fragment. No secret-shaped
+  token; no literal secret committed.
+
+## size-comparability
+Reversed +12/−18 on one product file — insertions inside the +3..+15 band; total
+churn 30 is above the existing catches but repetitive (the same `form=` attribute
+removed from each General input). Flagged borderline in the evidence table;
+owner-confirmed 2026-09-05 (confirm-all).

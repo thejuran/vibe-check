@@ -1,0 +1,63 @@
+# Provenance — should-quiet-5.patch
+
+diff_id: should-quiet-5
+role: should-quiet (clean shipped FEATURE — no defect; any critical/warning is an FP per D-08)
+source_repo: ~/seedsyncarr
+feature_sha: f64a87428ed6438bfbd821dfcf8fdc41ac644998
+feature_subject: feat(101-05): add sanitize_log_value import and wrap add/remove/update debug logs in model/model.py (GREEN)
+touched_paths (patch, product-file-scoped): src/python/model/model.py
+planted_hunks: model.py @@ -3,7 +3,7 @@ (adds sanitize_log_value to the common import); @@ -78,7 +78,7 @@ (add_file debug log); @@ -94,7 +94,7 @@ (remove_file debug log); @@ -109,7 +109,7 @@ (update_file debug log)
+
+## What the patch is
+A byte-exact FORWARD `git show f64a874 -- src/python/model/model.py`. It ADDS an
+already-shipped, clean log-sanitization feature: imports `sanitize_log_value` from
+`common` and wraps the file-name interpolation in the add_file/remove_file/
+update_file debug log lines (`'{}'.format(sanitize_log_value(file.name))` etc.);
+dict keys, lookups, deletions, and listener notifications stay raw by design. This
+is defect-free feature code — reviewing it should produce NO critical/warning
+finding. Safe ON the log-sanitization/secret-handling axis: the change strictly
+REDUCES what reaches the logs; it introduces no leak, no injection, no behavior
+change outside log formatting.
+
+## base_sha (the run block detaches to this and HEAD-asserts before applying)
+base_sha: 70354771a331f7def6c8116556f58d865f644cd9
+base_sha_note: = f64a874^ (the forward diff's natural pre-image). base_sha is the
+  pre-feature parent; `git apply --check` exit 0 verified on a detached
+  linked-worktree checkout of f64a874^ (2026-09-05).
+
+## Full-worktree proof pair
+Computed on a detached checkout of base_sha with the patch applied, FULL `git diff`
+(NO pathspec):
+EXPECTED_TREE_DIFF_SHA256: 8af04cc658b5a672d2d6be7af9fc042aae81742c56a01a5d030e4d86ea630060
+EXPECTED_TOUCHED_PATHS: src/python/model/model.py
+
+## Organic provenance (FAIL-CLOSED regex DR[0-9]|DR-|CR-|WR-|review-pass|codex)
+checked_subject_body: "feat(101-05): add sanitize_log_value import and wrap
+  add/remove/update debug logs in model/model.py (GREEN)" + body ("Add `from
+  common import AppError, sanitize_log_value` (model.py had no common import) ...
+  all 17 test_model tests pass")
+regex_result: NO HITS (0). Plain-read: PASS — planned GSD phase work (101-05);
+  "(GREEN)" is a TDD stage tag, not review provenance; no vibe-check/deep-review/
+  review-pass reference. ORGANIC.
+
+## LINE-LEVEL untouched-since evidence (subject-agnostic)
+Per touched hunk, `git log -L<start>,<end>:<file> f64a874..HEAD` (empty = no later
+rewrite of the selected lines, regardless of the later commit's subject):
+  L3,9:src/python/model/model.py     →  (empty — SURVIVED)
+  L78,84:src/python/model/model.py   →  (empty — SURVIVED)
+  L94,100:src/python/model/model.py  →  (empty — SURVIVED)
+  L109,115:src/python/model/model.py →  (empty — SURVIVED)
+All selected lines survive to HEAD unmodified. Re-verified 2026-09-05.
+
+## PURE-M gate
+name-status:
+M	src/python/model/model.py
+(only M — no A/D/R/C)
+
+## Security gate
+literal_secret_scan: `grep -nE '[A-Za-z0-9_-]{20,}'` on the patch → only the
+  git-show commit-hash header line; no secret in the diff body. (The feature's
+  whole point is keeping values OUT of logs.)
+
+## size-comparability
++4/−4 on one product file — squarely inside the existing set's band.
