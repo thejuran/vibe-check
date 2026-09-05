@@ -40,6 +40,18 @@ from `RUN-CHECKLIST.md` (pure copy-paste; resumable at any run boundary across d
 | `should-quiet-1.patch` | triggarr | should-quiet: SSRF-hardening feature | `1a8c9f9` forward | `98eb419...` (= `1a8c9f9^`) |
 | `should-quiet-2.patch` | seedsyncarr | should-quiet: optional-JSON-body feature | `3c27e17` forward | `84aff27...` (= `3c27e17^`) |
 | `should-quiet-3.patch` | roonseek | should-quiet: transfer-cancel boundary feature | `2a6bbd9` forward | `1027691...` (= `2a6bbd9^`) |
+| `triggarr-session-rotation.patch` (+`.BUGGY.py`) | triggarr | should-catch: session-secret rotation on password change removed — stolen sessions survive | `0866332` reversed | `f4366a2...` (clone HEAD at build) |
+| `triggarr-settings-form-split.patch` (+`.BUGGY.html`) | triggarr | should-catch: General settings split from the Save button's form — silent reset on save | `542d5dd` reversed | `542d5dd...` (PINNED — fails current HEAD) |
+| `should-quiet-4.patch` | triggarr | should-quiet: SSRF `validate_url_ssrf` validator feature | `9be610a` forward | `14eecb5...` (= `9be610a^`) |
+| `should-quiet-5.patch` | seedsyncarr | should-quiet: log-sanitization feature | `f64a874` forward | `7035477...` (= `f64a874^`) |
+| `should-quiet-6.patch` | triggarr | should-quiet: finite-only drain-timeout field feature | `3d042c8` forward | `9bfd4a6...` (= `3d042c8^`) |
+| `should-quiet-7.patch` | triggarr | should-quiet: bounded `safe_float` settings-parse feature | `05cfd1b` forward | `ce567d3...` (= `05cfd1b^`) |
+
+**v2.10 growth (Phase 38):** rows 7-12 above were added by plan 38-03 (owner-confirmed
+live, 2026-09-05) and sealed by seal-2 of
+`docs/design/b3-ground-truth/PREREGISTRATION-v2.10.md` (new-key digest + literal
+denominators) — the grown set is 12 diffs (5 should-catch / 7 should-quiet; 36 runs at
+N=3), run from `RUN-CHECKLIST-v2.10.md` (part A carried, part B new).
 
 `dashboard-unbounded-dict.BUGGY.py` remains in `diffs/` as a captured asset but is NOT in the
 measured set (D-12 — non-organic).
