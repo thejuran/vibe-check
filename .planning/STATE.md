@@ -4,13 +4,13 @@ milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
 status: executing
 stopped_at: Phase 38 context gathered
-last_updated: "2026-09-05T20:53:08.342Z"
+last_updated: "2026-09-05T21:11:41.655Z"
 last_activity: 2026-09-05 -- Phase 38 execution started
 progress:
   total_phases: 13
   completed_phases: 0
   total_plans: 6
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 38 (Grow the B3 set + Claude-5 baseline) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Executing Phase 38
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 Last activity: 2026-09-05 -- Phase 38 execution started
 
 ## Performance Metrics
@@ -76,6 +76,7 @@ Last activity: 2026-09-05 -- Phase 38 execution started
 | Phase 38 P01 | 6min | 2 tasks | 2 files |
 | Phase 38 P02 | 23min | 2 tasks | 3 files |
 | Phase 38 P03 | 10min | 3 tasks | 14 files |
+| Phase 38 P04 | 16min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -153,6 +154,8 @@ Earlier decisions (v2.8) still on record:
 - [Phase 38]: 38-02: verifier pinned (a407539/7be8ed39…) + harness pin (claude-code 2.1.261 / codex-cli 0.145.0 / fable 5) committed BEFORE WAIT 1; part-A checklist script-generated (T1-T7) with regeneration byte-equality + sandbox-exercised recovery; WAIT 1 OPEN (carried-6 re-measure, 18 runs); SET-03 stays Pending until the runs land
 - [Phase 38]: 38-03: 6 new B3 kits owner-confirmed (confirm-all, live) + committed at ccf887c — catches triggarr-session-rotation (0866332 reversed, base clone-HEAD f4366a2) + triggarr-settings-form-split (542d5dd reversed, base pinned to the fix itself); quiets should-quiet-4..7 (9be610a SSRF validator, f64a874 log-sanitize, 3d042c8 pydantic bounds, 05cfd1b safe_float parse); set total 12 (D-01 target); D-03/D-04 triggers did NOT fire
 - [Phase 38]: 38-03: SET-01 deliberately left Pending — the plan delivers its inventory half; the sealed per-diff answer key half lands in 38-04 (a blob cannot contain its own hash)
+- [Phase 38]: 38-04: ground truth sealed — ANSWER-KEY-v2.10 at 5f687d9 (6 new rows, 12 kit digest lines from ccf887c blobs, no self-hash) digest-bound by seal-2 633f1dd (pure five-line byte-append, pinned-verifier proven, manifest FINAL at 2 commits; DENOM 15/21/36); checklist part B (debe57a) regen-validated — WAIT 2 OPEN (18 new-diff baseline runs); SET-01 complete
+- [Phase 38]: 38-04: settings-form-split band floor = warning (correctness/data-loss — silent loss of saved settings is action-bar, not the v2.9 medium display-nit precedent); session-rotation = warning (security)
 
 ### Pending Todos
 
@@ -192,7 +195,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-05T20:52:40.414Z
+Last session: 2026-09-05T21:11:18.737Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
