@@ -181,3 +181,12 @@ Every consumer of the seal check first asserts the live verifier file's sha256 e
 verifier-sha256 AND that exactly one commit ever touched the path, then executes the
 check via `git show <verifier-commit>:<path> | python3 -` — the pinned blob, never the
 working file.
+
+## Harness pin
+
+pin-claude-code: 2.1.261 (Claude Code)
+pin-codex: codex-cli 0.145.0
+pin-model: fable 5
+
+Every session fingerprint must tuple-match these three lines; correction is legal ONLY
+while zero fingerprints and zero runs-v2.10 commits exist.
