@@ -282,3 +282,20 @@ claude-code: 2.1.261 (Claude Code)
 model: Fable 5.1
 codex: codex-cli 0.153.4
 cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
+- should-quiet-1 run 1 (2026-09-05, capture cf6d4e9, triggarr session fingerprint 62c2c6a on re-pinned 2.1.261): codex JOINED (codex-adversarial in agents-dispatched) but contributed 0 attributed findings; 4 native findings persisted (medium/low tier).
+- **N-08 (interrupted run → unscoreable, should-quiet-1 run 2, attested 2026-09-05 23:36:37 / passed
+  2026-09-06 14:02:43Z — owner decision: REPEAT):** the review stopped mid-run when the source-repo
+  session hit a usage/credit limit and was resumed ~10.4 h later by an owner-typed "continue"
+  (a codex broker process started 09:56 local shows at least partial re-dispatch on resume). The
+  conversation boundary was intact (only /clear → /deep-review → "continue"), the pre-run
+  ordering gate would have passed, and the harness was re-verified after the fact (same Claude
+  Code process pid 4690 running since 23:10:15; CLI 2.1.261; STEP 0 re-run 10:xx local PASSED;
+  no cache file modified overnight) — but an interrupted-and-resumed execution is not a single
+  uninterrupted sample of the shipped default, so per D-06 it is unscoreable. Evidence archived
+  via the FAILED-RUN RECOVERY block as `runs-v2.10/should-quiet-1/run-2.failed-1788703614/`
+  (clear.txt, session.txt, the interrupted run's state.json, failed-reason.txt), commit 0c0e09a;
+  state cleared; patch + sentinel + uv-flag intact; run 2 restarts at its PRE-RUN block.
+  RULES ADOPTED: (a) a run that stops for any reason is reported to the assistant and archived
+  as failed — never resumed with "continue"; (b) the first run of each calendar day is preceded
+  by STEP 0 and a fresh STEP 0.25 fingerprint (this morning's STEP 0 ran after the fact; a fresh
+  fingerprint is committed before today's first scoreable run).
