@@ -260,3 +260,4 @@ cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.
   `seedsyncarr-main.json.b3-n07-parked` for the rest of this diff so a "main"-resolving pass can
   never append to it; restored verbatim at this diff's revert step.
 - third-organic-should-catch run 2 (2026-09-05, capture 68937bf, N-07 deviation): codex JOINED (agents-dispatched "(joined)"); 1 medium finding attributed ("Removing the clamp breaks completed-file progress").
+- third-organic-should-catch run 3 (2026-09-05, capture f8e4b5d): state written to the expected key seedsyncarr-.json this time; codex JOINED; 1 medium finding attributed. Diff 3 complete: 3/3 runs captured (f0896a1, 68937bf, f8e4b5d), clone restored main@b00081b, parked seedsyncarr-main.json restored verbatim.
