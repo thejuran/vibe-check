@@ -299,3 +299,9 @@ cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.
   as failed — never resumed with "continue"; (b) the first run of each calendar day is preceded
   by STEP 0 and a fresh STEP 0.25 fingerprint (this morning's STEP 0 ran after the fact; a fresh
   fingerprint is committed before today's first scoreable run).
+
+## Harness fingerprint — 2026-09-06T10:07:19-0400
+claude-code: 2.1.261 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
