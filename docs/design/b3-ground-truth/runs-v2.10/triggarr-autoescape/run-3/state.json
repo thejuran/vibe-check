@@ -1,0 +1,166 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "e11187e190b82f281543039e8c3857c6343c54a2",
+      "timestamp": "2026-09-06T02:14:12Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted changes; HEAD detached at e11187e)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python",
+        "framework-fastapi"
+      ],
+      "codex": {
+        "status": "joined",
+        "findings": 1,
+        "cross_confirmed": 0,
+        "scope": "working-tree",
+        "smoke_check": "PASS (__SMOKE_OK__ observed via background-task output file)"
+      },
+      "findings": [
+        {
+          "agent": "bugs",
+          "id": "bugs-001",
+          "file": "triggarr/web/routes.py",
+          "line": 45,
+          "title": "Revert reintroduces deprecated env_options passthrough removed in newer Starlette",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This diff is a straight revert of the immediately preceding commit e11187e ('fix: use preconfigured jinja2.Environment for autoescape'), whose message states Starlette removed the **env_options passthrough. Verified against the locked starlette 0.52.1: Jinja2Templates.__init__ accepts **env_options but emits DeprecationWarning('Extra environment options are deprecated. Use a preconfigured jinja2.Environment instead.'). Confirmed at runtime \u2014 constructing Jinja2Templates(directory=..., autoescape=True) raises that warning; under -W error::DeprecationWarning it raises outright. fastapi/starlette are entirely unpinned in pyproject.toml (line 15: \"fastapi\" with no specifier), so any uv sync can pull the version where the assert/TypeError path lands and this becomes an import-time crash of the whole web module, since line 45 runs at module scope.",
+          "current_code": "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+          "fix_hint": "restore the preconfigured jinja2.Environment from e11187e (loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True), or pin starlette/fastapi if the kwarg form is kept",
+          "why_it_matters": "Module-scope construction means a Starlette upgrade turns this from a warning into an import-time failure that takes down every web route, not a degraded single request. The fix it reverts was already made deliberately with that reason recorded in the commit message.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "STATIC_DIR = _PKG_DIR / \"static\"",
+            "",
+            "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+            "templates.env.globals[\"triggarr_version\"] = get_display_version()",
+            "# Shared mutable dict for update info. The scheduler lifespan assigns this"
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "7c3d117e94ce95ed4d8fea241c46e930caeb9c1519ab901fb5757908f0bbd149",
+          "status": "new"
+        },
+        {
+          "agent": "architecture",
+          "id": "arch-001",
+          "file": "triggarr/web/routes.py",
+          "line": 45,
+          "title": "Diff reverts security-motivated commit e11187e back to deprecated Jinja2Templates env_options form",
+          "category": "pattern-consistency",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 95,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This diff is a byte-exact revert of the immediately preceding commit e11187e ('fix: use preconfigured jinja2.Environment for autoescape'), whose message states: 'Starlette removed the **env_options passthrough in Jinja2Templates, breaking autoescape=True on newer versions. Pass a preconfigured jinja2.Environment instead, which is the supported API.' `git show e11187e -- triggarr/web/routes.py` produces exactly the inverse of this hunk. The diff reintroduces the deprecated `Jinja2Templates(directory=..., autoescape=True)` **env_options form that e11187e was written to eliminate, with no accompanying change elsewhere in the tree (the diff touches only these two hunks) that would justify undoing the fix. Verified against the pinned starlette 0.52.1 in .venv (uv.lock line 597): `Jinja2Templates.__init__` emits `DeprecationWarning: Extra environment options are deprecated. Use a preconfigured jinja2.Environment instead.` whenever `env_options` is non-empty, and the `env=` keyword is the documented replacement \u2014 the established form is the one being removed here, not the one being added. This reverses a deliberate, documented architectural decision recorded one commit ago.",
+          "current_code": "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+          "fix_hint": "Restore the e11187e form \u2014 build `jinja2.Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)` and pass `Jinja2Templates(env=_jinja_env)`; if the revert is intentional, record the constraint in the commit message.",
+          "why_it_matters": "The reverted-to API is on Starlette's announced removal path. Once `**env_options` is dropped, `autoescape=True` becomes a silently ignored kwarg rather than an error, and `_create_env`'s `env_options.setdefault('autoescape', True)` is the only thing that would keep escaping on. Autoescape is the sole XSS defense for every template render in this dashboard, which interpolates instance names, config values and log text. A future dependency bump would degrade that defense without any test or type failure to signal it. Beyond the security tail-risk, silently undoing the prior commit loses the decision record: the next person reads the current line, sees no rationale, and may re-derive the same fix a third time.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "STATIC_DIR = _PKG_DIR / \"static\"",
+            "",
+            "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+            "templates.env.globals[\"triggarr_version\"] = get_display_version()",
+            "# Shared mutable dict for update info. The scheduler lifespan assigns this"
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "141b2eb25fe00a07e1eb8464f8a4563e0b815b6549286bae559989a71eb3e2c9",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-001",
+          "file": "triggarr/web/routes.py",
+          "line": 45,
+          "title": "Revert to deprecated **env_options passthrough re-arms the autoescape break that commit e11187e fixed",
+          "category": "breaking-api",
+          "cwe": "CWE-79",
+          "severity": "high",
+          "agent_confidence": 92,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This diff is a direct revert of HEAD commit e11187e, whose message reads: 'Starlette removed the **env_options passthrough in Jinja2Templates, breaking autoescape=True on newer versions. Pass a preconfigured jinja2.Environment instead, which is the supported API.' The new line re-adopts exactly the pattern that commit removed. I read the installed Starlette 0.52.1 source at .venv/lib/python3.11/site-packages/starlette/templating.py: `Jinja2Templates.__init__` still accepts `**env_options`, but it now emits `DeprecationWarning('Extra environment options are deprecated. Use a preconfigured jinja2.Environment instead.')` before forwarding them. I confirmed empirically that on the currently locked version autoescape does still end up True (verified: `t.env.autoescape` -> True, plus the DeprecationWarning fires). So this is NOT a break today \u2014 it is a break re-armed for the next Starlette upgrade, and the deprecation notice is the vendor's stated intent to remove the passthrough. The consequence when the kwarg is finally dropped is not a crash but a SILENT failure mode: `**env_options` would be swallowed or rejected, and if swallowed, `_create_env` falls back to `env_options.setdefault('autoescape', True)` \u2014 which is why this may look safe. The dangerous variant is a version where the kwarg raises TypeError (hard startup crash of every route in the file) or is ignored without the setdefault (autoescape off = stored-XSS across all 10 TemplateResponse call sites rendering user-controlled instance names and config values). Neither pyproject.toml nor uv.lock pins starlette or fastapi (both are bare \"fastapi\"), so an unpinned `uv sync` or a Docker rebuild can pull the removal version with no code change and no test signal.",
+          "current_code": "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+          "fix_hint": "Restore the preconfigured jinja2.Environment form from e11187e (explicit FileSystemLoader + autoescape=True), which is the API Starlette documents as supported; or, if the revert is intentional, pin starlette in pyproject.toml and add a test asserting templates.env.autoescape is True.",
+          "why_it_matters": "The whole point of e11187e was to move off an API the vendor is actively deprecating. Reverting it puts the app back on a deprecated path whose eventual removal disables HTML autoescaping across every rendered page \u2014 and the CLAUDE.md deep-review contract explicitly guards 'No API keys in logs, responses, or HTML'. An autoescape regression here is not cosmetic: routes.py renders user-supplied instance names and config values into the dashboard.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "STATIC_DIR = _PKG_DIR / \"static\"",
+            "",
+            "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+            "templates.env.globals[\"triggarr_version\"] = get_display_version()",
+            "# Shared mutable dict for update info. The scheduler lifespan assigns this"
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "60ea48fb7f9dfe611a7caa4f0065d8e34c764964644e99c83f893a461d5321b3",
+          "status": "new"
+        },
+        {
+          "agent": "codex-adversarial",
+          "id": "codex-001",
+          "file": "triggarr/web/routes.py",
+          "line": 45,
+          "title": "Preserve the supported Jinja2 environment initialization",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 97,
+          "intent_doc_match": null,
+          "problem": "The Dockerfile installs with `pip install .` without using uv.lock, and pyproject.toml leaves FastAPI unpinned. Starlette removed `**env_options`, including this `autoescape` argument, from Jinja2Templates ([release notes](https://starlette.dev/release-notes/)). If a fresh build resolves that version, importing routes raises TypeError and prevents the entire application from starting. The local locked Starlette 0.52.1 accepts the call, so local verification can miss this production failure.",
+          "current_code": "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+          "fix_hint": "Retain the explicit jinja2.Environment(autoescape=True) passed through env=, and verify application import against the dependencies resolved by the Docker build.",
+          "why_it_matters": "If a fresh build resolves that version, importing routes raises TypeError and prevents the entire application from starting.",
+          "source_window": [
+            "STATIC_DIR = _PKG_DIR / \"static\"",
+            "",
+            "templates = Jinja2Templates(directory=str(TEMPLATES_DIR), autoescape=True)",
+            "templates.env.globals[\"triggarr_version\"] = get_display_version()",
+            "# Shared mutable dict for update info. The scheduler lifespan assigns this"
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "2da77ea6abf9d145c2223ae05e89ba74317eed8b4b94c8c1d3d9eb3f31dc37fa",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 45,
+          "title": "No test asserts templates.env.autoescape, so an autoescape regression ships silently",
+          "reason": "absorbed-into: 60ea48fb7f9dfe611a7caa4f0065d8e34c764964644e99c83f893a461d5321b3"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
