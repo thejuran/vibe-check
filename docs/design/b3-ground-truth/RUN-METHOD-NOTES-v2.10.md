@@ -202,3 +202,28 @@ claude-code: 2.1.261 (Claude Code)
 model: Fable 5.1
 codex: codex-cli 0.153.4
 cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
+
+## Per-run Codex outcome (D-13 — owner-reported one-liner + state.json agents_run check; ledger committed at diff boundaries)
+
+- triggarr-secret-in-logs run 1 (2026-09-05, capture 48dd571): codex JOINED — owner: "Codex smoke check: PASS via the background-shell output file (the deprecated TaskOutput reader could not re-open the reaped task, so collection used the harness's documented output-file path)"; state.json: 1 finding attributed to codex-adversarial (agents_run lists the 8 native agents only — codex participation is visible via finding attribution, as in v2.9 scoring).
+- HARNESS OBSERVATION (runs 1-2, 2026-09-05): the shipped deep-review collects the Codex result via the TaskOutput reader, which Claude Code 2.1.261 reports as deprecated and which fails to re-open a reaped background task ("Error: No task found with ID: <id>"); the command then falls back to the documented background-shell output-file path and Codex still joins. Not a run defect (state.json unaffected); record in RESULTS-v2.10 limitations as a harness-shift component and as Phase 40 (orchestration rewrite) input.
+
+## v2.10 run-time deviations (recorded in the open, before scoring)
+
+- **N-06 (state-key deviation, triggarr-secret-in-logs run 2, 2026-09-05 — owner decision: ACCEPT with deviation recorded):**
+  the fresh block detached `~/triggarr` at base f4366a2 (reflog 18:02:22) and run 1 wrote the
+  expected detached key `triggarr-.json`. At 20:45:59 (reflog: "checkout: moving from f4366a2… to
+  main"; no hook — origin in the owner's session/terminal, not identified) the clone was switched
+  onto branch `main` (same commit). Run 2 (pass ts 2026-09-06T01:03:08Z) therefore wrote its state
+  to `triggarr-main.json`; that file did not pre-exist (pass_number 1). The reviewed tree, HEAD and
+  diff scope (HEAD..working-tree) were identical to run 1 — only the state filename differed.
+  Remedy: the post-run block (checklist lines 472-519, original bytes sha256
+  da8acaae4737ae14591eaa8d64f81c9be34d69ab0472f527bc96e6de962b494b) was executed with EXACTLY ONE
+  substitution — line 4 `STATE_FILE=$STATE_DIR/triggarr-.json` → `triggarr-main.json` (modified
+  bytes sha256 a4045873e149a74b45193104dc70294bb281f7c7bc822eef5c6337e6eff87e60); every assert
+  (pre-run ordering, len(passes)==1, head==base, full-worktree sha, touched-path set, no strays,
+  commit scope, sealed v2.9 tree) passed unchanged; capture commit 7072418. Step 8h removed
+  `triggarr-main.json`, so no carry-forward channel remains. The clone was re-detached at f4366a2
+  before run 3 (expected key `triggarr-.json` restored). Watch-for: any branch switch in a source
+  clone mid-diff changes the state key — check `git branch --show-current` is EMPTY before every run.
+- triggarr-secret-in-logs run 2 (2026-09-05, capture 7072418, N-06 deviation): codex JOINED — codex-adversarial finding conf 99 (reproduced Basic-Auth credential leak on a 502); Codex result again collected via the output-file fallback after the deprecated TaskOutput reader failed ("No task found with ID").
