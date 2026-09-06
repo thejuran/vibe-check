@@ -1,0 +1,1 @@
+UNSCOREABLE (D-06): review interrupted mid-run by a usage/credit stop after the 2026-09-05T23:36:37-0400 CLEARED attestation; resumed by an owner-typed "continue" the next morning; pass timestamp 2026-09-06T14:02:43Z (~10.4h after attestation). Not a single uninterrupted execution of the shipped default; archived as evidence, not scored. Owner decision 2026-09-06: repeat run 2.
