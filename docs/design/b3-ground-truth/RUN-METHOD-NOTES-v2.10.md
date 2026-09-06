@@ -276,3 +276,9 @@ cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.
   local) coincides with the on-disk update but its session process was launched at 22:17. The
   guide session (this assistant) still runs 2.1.261 but predates the env change, so a further
   on-disk auto-update is possible; STEP 0.25 hard-stops on it before any run, by design.
+
+## Harness fingerprint — 2026-09-05T23:13:29-0400
+claude-code: 2.1.261 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
