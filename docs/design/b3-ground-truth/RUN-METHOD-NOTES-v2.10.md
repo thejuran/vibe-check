@@ -238,3 +238,25 @@ claude-code: 2.1.261 (Claude Code)
 model: Fable 5.1
 codex: codex-cli 0.153.4
 cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
+- third-organic-should-catch run 1 (2026-09-05, capture f0896a1, seedsyncarr session fingerprint 93b42fa): codex JOINED (agents-dispatched: "joined, working-tree scope, smoke-check PASS"); 1 medium finding attributed ("Restore the 100% cap for extracted files").
+
+- **N-07 (state-key deviation #2 — TOOL-SIDE, third-organic-should-catch run 2, 2026-09-05 — accepted under the N-06 policy):**
+  the clone stayed detached at 3db8b48 (reflog: no checkout after 22:16:27), yet the shipped
+  command wrote run 2's state to `seedsyncarr-HEAD.json` (run 1 had written `seedsyncarr-.json`).
+  review.md Phase 0.5 binds `BRANCH_SLUG=$(git branch --show-current | tr '/' '-')` (empty when
+  detached); the orchestrating model evidently derived the slug via an `--abbrev-ref HEAD`-style
+  call this pass. This is nondeterminism of the MEASURED tool's prose orchestration on a detached
+  checkout (Phase 40 orchestration-rewrite input; RESULTS-v2.10 limitations). The file was fresh
+  (pass_number 1, single pass, head==base, ts 02:46:14Z after clear.txt 22:34:34-0400); tree,
+  HEAD and diff scope identical to run 1. Remedy identical in form to N-06: post-run block
+  (checklist lines 1460-1507, original bytes sha256 fe6b2820d7356771c70a4ac1e16d5064b9fa61b77d0418beaefc15a433b52526) executed with EXACTLY ONE substitution —
+  line 4 STATE_FILE `seedsyncarr-.json` → `seedsyncarr-HEAD.json` (modified bytes sha256 43a81b02686553a2879e27bebfdd63a42bf625a6287b08f2fd98a859416571ed);
+  every assert passed unchanged; capture commit 68937bf; step 8h removed the file (no carry-forward).
+  STANDING RULE from here (assistant-applied, recorded per occurrence): before each post-run,
+  identify the ONE state JSON modified after that run's clear.txt; if its name differs from the
+  checklist's STATE_FILE, capture it via the same one-line substitution and log the run here;
+  before each pre-run, assert NO state JSON is newer than the previous run's capture. Protective:
+  the owner's pre-existing `seedsyncarr-main.json` (15:51 today, real state) is parked as
+  `seedsyncarr-main.json.b3-n07-parked` for the rest of this diff so a "main"-resolving pass can
+  never append to it; restored verbatim at this diff's revert step.
+- third-organic-should-catch run 2 (2026-09-05, capture 68937bf, N-07 deviation): codex JOINED (agents-dispatched "(joined)"); 1 medium finding attributed ("Removing the clamp breaks completed-file progress").
