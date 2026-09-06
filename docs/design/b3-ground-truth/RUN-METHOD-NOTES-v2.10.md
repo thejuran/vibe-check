@@ -261,3 +261,18 @@ cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.
   never append to it; restored verbatim at this diff's revert step.
 - third-organic-should-catch run 2 (2026-09-05, capture 68937bf, N-07 deviation): codex JOINED (agents-dispatched "(joined)"); 1 medium finding attributed ("Removing the clamp breaks completed-file progress").
 - third-organic-should-catch run 3 (2026-09-05, capture f8e4b5d): state written to the expected key seedsyncarr-.json this time; codex JOINED; 1 medium finding attributed. Diff 3 complete: 3/3 runs captured (f0896a1, 68937bf, f8e4b5d), clone restored main@b00081b, parked seedsyncarr-main.json restored verbatim.
+- **HARNESS DRIFT CAUGHT AND REVERSED (2026-09-05 23:05-23:15 local, no run affected):** the native
+  Claude Code installer auto-updated the CLI symlink `~/.local/bin/claude` from 2.1.261 to 2.1.263
+  at 23:05:xx local. The STEP 0.25 fingerprint block for the relaunched `~/triggarr` session
+  HARD-STOPPED ("HARNESS DRIFT — claude-code differs from the WAIT-1 pin") BEFORE any run was
+  triggered on 2.1.263; the pre-run attestation files that block had already written for
+  should-quiet-1 run 1 were removed under the PRE-RUN (0) not-triggered rule (no state, no run).
+  Remedy: symlink re-pointed to the on-disk `versions/2.1.261` binary (byte-identical to the one the
+  pin was taken from) and `DISABLE_AUTOUPDATER=1` set in `~/.claude/settings.json` `env` for the
+  campaign; `claude --version` re-verified == pin. Coverage statement: all 9 runs captured so far
+  (diffs 1-3) executed inside Claude Code processes launched on 2.1.261 — fingerprints 18:04:05,
+  18:09:56 and 22:17:54 each asserted `claude --version` == pin at session start, and a running
+  process does not change binary mid-flight; diff-3 run 3's pass timestamp (03:05:32Z = 23:05:32
+  local) coincides with the on-disk update but its session process was launched at 22:17. The
+  guide session (this assistant) still runs 2.1.261 but predates the env change, so a further
+  on-disk auto-update is possible; STEP 0.25 hard-stops on it before any run, by design.
