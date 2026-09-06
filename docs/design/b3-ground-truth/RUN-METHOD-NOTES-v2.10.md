@@ -232,3 +232,9 @@ cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.
 - triggarr-autoescape run 1 (2026-09-05, capture 8655240): codex JOINED — codex-adversarial dispatched; 1 high finding attributed ("Unsupported autoescape argument prevents startup"); owner saw no Codex line in the transcript.
 - triggarr-autoescape run 2 (2026-09-05, capture 5aa6dbe): codex JOINED — codex-adversarial dispatched; 1 high finding attributed ("Preserve the supported Jinja2 environment initialization").
 - triggarr-autoescape run 3 (2026-09-05, capture bccf302): codex JOINED — codex-adversarial dispatched; 1 high finding attributed. Diff 2 complete: 3/3 runs captured (8655240, 5aa6dbe, bccf302), clone restored main@f4366a2.
+
+## Harness fingerprint — 2026-09-05T22:17:54-0400
+claude-code: 2.1.261 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
