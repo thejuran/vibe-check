@@ -321,3 +321,4 @@ claude-code: 2.1.261 (Claude Code)
 model: Fable 5.1
 codex: codex-cli 0.153.4
 cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
+- should-quiet-2 run 1 (2026-09-07, capture 8108268, seedsyncarr session fingerprint 0f7d643): codex record in the pass: NO codex key of either form; agents_run = bugs, security, architecture, impact, test-sufficiency, language-typescript, framework-angular. 5 findings — 5 warning (bugs ×1, impact ×4), across config.service.ts:66-68, rest.service.ts:60, mock-rest.service.ts:5, rest.service.spec.ts:92. State written to the expected detached key seedsyncarr-.json (no N-07 drift this pass); pass ts 2026-09-07T23:53:17Z after CLEARED 19:42:21-0400. Owner's real seedsyncarr-main.json parked as .b3-n07-parked for the duration of this diff (sha256 05c09076de029697…), restore at revert.
