@@ -1,0 +1,183 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-09-07T23:53:17Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted changes vs HEAD 84aff27)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "Config save still issues GET to a POST-only, body-driven backend route",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": false,
+          "intent_doc_match": null,
+          "problem": "The diff adds the optional `body` parameter to RestService.post() explicitly to support the config-set POST migration (recent commits fffa81a/fe0e07d migrated the backend GET->POST), but the only caller that needs it was not updated. ConfigService.set() still calls `this._restService.sendRequest(url)` (an HTTP GET) against `/server/config/set/${section}/${option}/${value}`. The backend registers that path via `web_app.add_post_handler(\"/server/config/set\", ...)` \u2014 POST-only, no path params, reading `section`/`key`/`value` from `bottle.request.json`. So every config save from the UI hits a route that no longer exists for GET: it 404s (or is swallowed by the SPA catch-all, as the backend test at test_config.py:226 notes), the WebReaction comes back unsuccessful, and the local `_config` BehaviorSubject is never updated. Note the body field name is `key`, not `option`, and the value must NOT be double-URI-encoded as the current caller does.",
+          "current_code": "const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));\nconst url = this.CONFIG_SET_URL(section, option, valueEncoded);\nconst obs = this._restService.sendRequest(url);",
+          "fix_hint": "call this._restService.post(\"/server/config/set\", {section, key: option, value: valueStr}) \u2014 drop CONFIG_SET_URL and the double encodeURIComponent, since the value now travels in the JSON body",
+          "why_it_matters": "Every settings change in the UI silently fails to persist; the user sees an error (or nothing) and the in-memory config diverges from the server.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "source_window": [
+            "            const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));",
+            "            const url = this.CONFIG_SET_URL(section, option, valueEncoded);",
+            "            const obs = this._restService.sendRequest(url);",
+            "            obs.pipe(takeUntil(this.destroy$)).subscribe({",
+            "                next: reaction => {"
+          ],
+          "orchestrator_score": 85,
+          "band": "warning",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "8d5bc54bf09c4e3752de993473be69d9ccab606bd37bb021bd722eb990f01779",
+          "status": "new"
+        },
+        {
+          "id": "impact-001",
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 66,
+          "title": "Frontend config.set() still sends GET to removed path-param route \u2014 config saving is broken end-to-end",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "critical",
+          "agent_confidence": 88,
+          "in_diff": false,
+          "intent_doc_match": "partial",
+          "problem": "The backend was migrated in commit 386f68c: src/python/web/handler/config.py now registers `/server/config/set` via `web_app.add_post_handler` (POST only, no path params) and reads `section`/`key`/`value` from `bottle.request.json`. The frontend was NOT migrated in lockstep. config.service.ts:22 still builds `CONFIG_SET_URL = /server/config/set/${section}/${option}/${value}` and line 66 still calls `this._restService.sendRequest(url)` \u2014 an HTTP GET against a URL shape that no longer has a registered route. Every settings save in the UI will 404 (the integration test at src/python/tests/integration/test_web/test_handler/test_config.py:226 documents that a GET to /server/config/set is intercepted by the SPA catch-all). This diff adds the `body` parameter to RestService.post \u2014 the enabling half of the migration \u2014 but no caller was updated to use it, so the capability is added and left unwired. Whether this is intentional wave sequencing or a dropped hand-off, the tree as it stands has a broken settings page: backend POST-only, frontend GET-only, zero overlap.",
+          "current_code": "const url = this.CONFIG_SET_URL(section, option, valueEncoded);\nconst obs = this._restService.sendRequest(url);",
+          "fix_hint": "Migrate config.service.ts to `this._restService.post(\"/server/config/set\", {section, key: option, value})` and drop the double encodeURIComponent (the body is JSON, not a path segment); update config.service.spec.ts expectations to POST.",
+          "why_it_matters": "Backend and frontend now disagree on both HTTP verb and payload location for the config-set endpoint. If shipped in this state, no user can change any setting \u2014 Sonarr/Radarr URLs, API keys, paths, debug flags \u2014 from the web UI. This is a complete outage of the settings surface, not a degradation.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "        } else {",
+            "            // Double-encode the value",
+            "            const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));",
+            "            const url = this.CONFIG_SET_URL(section, option, valueEncoded);",
+            "            const obs = this._restService.sendRequest(url);"
+          ],
+          "orchestrator_score": 88,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "7d32143cc17244fe2fad4d6e84ba722779e4192edfc5e7cb192e5dfc3ebf7a0c",
+          "status": "new"
+        },
+        {
+          "id": "impact-002",
+          "file": "src/angular/src/app/services/utils/rest.service.ts",
+          "line": 60,
+          "title": "`body ?? null` erases the Content-Type header Angular would otherwise infer, so bottle.request.json returns None",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 72,
+          "in_diff": true,
+          "intent_doc_match": "partial",
+          "problem": "HttpClient infers `Content-Type: application/json` from the body's runtime type. An object body gets the JSON content type; `null` does not (no body, no inferred type). That coalescing is correct for the three existing no-body callers, but the new backend handler depends on the header being present: config.py's comment states explicitly that with a wrong or absent content-type, `bottle.request.json` \"returns None silently\" \u2014 which the handler then maps to a 400 \"Invalid request body\". So the object path must actually carry the header. Angular's inference does handle a plain object literal, but this is fragile in two concrete ways: (a) a caller passing an already-serialized string would be typed out by `body?: object` yet a `new String()` or a class instance with a custom `toJSON` can serialize unexpectedly; (b) if any future interceptor clones the request with `setHeaders` before the body serializer runs, the inferred type can be lost. Marked pending: I did not execute a request to observe the wire headers \u2014 the mechanism is read from Angular's serializer contract and config.py's own comment, not measured.",
+          "current_code": "return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+          "fix_hint": "Set the header explicitly on the object path rather than relying on inference: when body is provided, pass `{responseType: \"text\", headers: {\"Content-Type\": \"application/json\"}}`.",
+          "why_it_matters": "A silently-absent Content-Type does not fail loudly \u2014 bottle returns None, the handler returns a generic 400 \"Invalid request body\", and the UI shows a save failure with no diagnostic. That failure mode is indistinguishable from a validation rejection, which makes it expensive to debug in the field.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "     */",
+            "    public post(url: string, body?: object): Observable<WebReaction> {",
+            "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+            "            map(this.handleSuccess(url)),",
+            "            catchError(this.handleError(url)),"
+          ],
+          "orchestrator_score": 89,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "eebb9a3d22818c1356dded6f81bbcd94d9b9488baa4fa4c0885107ac95fefaef",
+          "status": "new"
+        },
+        {
+          "id": "impact-003",
+          "file": "src/angular/src/app/tests/mocks/mock-rest.service.ts",
+          "line": 5,
+          "title": "MockRestService has no `post` method at all \u2014 any spec exercising the new body path against the mock fails at runtime",
+          "category": "blast-radius",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 90,
+          "in_diff": false,
+          "intent_doc_match": "partial",
+          "problem": "MockRestService exposes only `sendRequest`; it has no `post` stub, let alone a two-arg one. It is imported by the autoqueue, model-file, server-command, config, and version-check specs. Today that is latent \u2014 those specs spy on the injected instance rather than call through \u2014 but the moment config.service.ts is migrated to `post(url, body)` (finding impact-001), the config spec's mock has no method to spy on and `spyOn(mockRestService, \"post\")` throws \"post() method does not exist\". The mock is the shared seam for five spec files, so it must be widened as part of the same change, not after.",
+          "current_code": "export class MockRestService {\n    public sendRequest(_url: string): Observable<WebReaction> {\n        return null!;\n    }\n}",
+          "fix_hint": "Add `public post(_url: string, _body?: object): Observable<WebReaction> { return null!; }` (and a `delete` stub) so the mock's surface matches RestService.",
+          "why_it_matters": "The mock silently drifting from the real service turns a mechanical signature change into five confusing spec failures in unrelated suites, which is the kind of breakage that gets 'fixed' by weakening assertions rather than by widening the mock.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "import {WebReaction} from \"../../services/utils/rest.service\";",
+            "",
+            "export class MockRestService {",
+            "    public sendRequest(_url: string): Observable<WebReaction> {",
+            "        return null!;"
+          ],
+          "orchestrator_score": 82,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "517fc2b81462ba7729760126a32e5d23b7b010fbcfbecda9527d737fc62f2db0",
+          "status": "new"
+        },
+        {
+          "id": "impact-004",
+          "file": "src/angular/src/app/tests/unittests/services/utils/rest.service.spec.ts",
+          "line": 92,
+          "title": "rest.service.spec.ts covers only sendRequest \u2014 the changed post() method has zero direct test coverage",
+          "category": "blast-radius",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 92,
+          "in_diff": false,
+          "intent_doc_match": "partial",
+          "problem": "The spec file for the changed file has four tests, all against `sendRequest` (GET). There is no test asserting that `post(url)` still sends a null body, that `post(url, {a: 1})` sends that object, or \u2014 most importantly given the backend's content-type sensitivity \u2014 that the outgoing request carries `Content-Type: application/json` when a body is present. The one behavioral guarantee this diff's JSDoc explicitly claims (\"when omitted, sends null (preserving prior no-body callers)\") is untested, so a future refactor to `body || null` or `body ?? undefined` would regress the three restart/model-file callers with nothing to catch it.",
+          "current_code": "// spec contains only: should create an instance, should send http GET on sendRequest, should return correct data on sendRequest, should get error message on sendRequest error 404, ... network error",
+          "fix_hint": "Add two HttpTestingController cases: `post(url)` \u2192 expect `req.request.body` toBeNull, and `post(url, {section:\"a\"})` \u2192 expect body toEqual the object and `req.request.detectContentTypeHeader()` / headers.get(\"Content-Type\") to be application/json.",
+          "why_it_matters": "This is the exact seam the config-set migration depends on. Shipping the enabling parameter with no test pins the contract only by convention, and the null-preservation promise is the thing three existing production callers silently rely on.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "",
+            "        expect(subscriberIndex).toBe(1);",
+            "        httpMock.verify();",
+            "    }));",
+            "});"
+          ],
+          "orchestrator_score": 84,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "e85e3f03d82fb771f4a7bf784993d0c9aa232c4ee8950c286759dff19b4c7a50",
+          "status": "new"
+        }
+      ]
+    }
+  ],
+  "medium_acknowledgments": {}
+}
