@@ -18,9 +18,8 @@ RESULTS-v2.9.md precedent and is what those appends attach to.
 ## Method
 
 - **Grown set: 6 carried + 6 new, sealed at TWO independent seals.** The 6 v2.9 diffs are carried
-  over unchanged and scored against the v2.9 key blob; 6 new organic diffs (3 should-catch, 3
-  should-quiet — plus one v2.9 should-catch reclassified into the new denominators) were built this
-  phase and scored against a separate v2.10 key blob. The two seals never touch each other: the
+  over unchanged and scored against the v2.9 key blob; 6 new organic diffs (2 should-catch, 4
+  should-quiet) were built this phase and scored against a separate v2.10 key blob. The two seals never touch each other: the
   v2.9 manifest, key, `runs/`, and existing kit files under `diffs/` are byte-unchanged. Final
   composition: **5 should-catch diffs (15 runs) + 7 should-quiet diffs (21 runs) = 36**.
 - **Organic-only sourcing (D-03), carried forward.** All diffs are real shipped commits from the
