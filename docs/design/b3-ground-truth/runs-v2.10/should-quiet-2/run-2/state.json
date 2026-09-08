@@ -1,0 +1,153 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-09-08T00:06:48Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [
+        {
+          "id": "impact-001",
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "ConfigService.set() still issues GET to the removed value-bearing config/set path \u2014 all settings writes are broken",
+          "category": "breaking-api",
+          "cwe": "CWE-758",
+          "severity": "critical",
+          "agent_confidence": 92,
+          "in_diff": false,
+          "intent_doc_match": "partial",
+          "problem": "The backend half of phase 111-01 landed (commits 386f68c, fe0e07d, fffa81a): src/python/web/handler/config.py:26 now registers /server/config/set via web_app.add_post_handler with NO path parameters, reading section/key/value from bottle.request.json. The old GET route /server/config/set/<section>/<option>/<value> is unregistered \u2014 the integration test test_old_value_bearing_path_returns_404 (src/python/tests/integration/test_web/test_handler/test_config.py:207) asserts it returns exactly 404. But the frontend was NOT migrated: ConfigService.CONFIG_SET_URL still builds `/server/config/set/${section}/${option}/${value}` (config.service.ts:21-22) and ConfigService.set() calls this._restService.sendRequest(url) (GET) at config.service.ts:68. Every settings write from the UI will now 404. The single production caller is settings-page.component.ts:148, so 100% of user-facing settings changes fail. This diff adds the `body` parameter to RestService.post() \u2014 the enabling primitive for the migration \u2014 but the calling half was not changed, so the widened signature is currently dead code and the app is in a broken intermediate state. Whether that is acceptable depends on whether this diff is an isolated wave-1 commit with wave 2 pending; if this ships to the NAS as-is, settings are unusable.",
+          "current_code": "const url = this.CONFIG_SET_URL(section, option, valueEncoded);\nconst obs = this._restService.sendRequest(url);",
+          "fix_hint": "Change CONFIG_SET_URL to the bare \"/server/config/set\" and call this._restService.post(url, {section, key: option, value: valueStr}) \u2014 dropping the double encodeURIComponent, since JSON body needs no path escaping.",
+          "why_it_matters": "Frontend and backend contracts are now divergent. Shipping this pair without the frontend call-site migration produces a silent P0: the settings page appears functional but every save returns 404 and the config never persists.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "            const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));",
+            "            const url = this.CONFIG_SET_URL(section, option, valueEncoded);",
+            "            const obs = this._restService.sendRequest(url);",
+            "            obs.pipe(takeUntil(this.destroy$)).subscribe({",
+            "                next: reaction => {"
+          ],
+          "canonical_line_content": "            const obs = this._restService.sendRequest(url);",
+          "orchestrator_score": 92,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "60b7994873c9071bbf7719de53e0ac53792ee568de3786b71977e64355b045f7",
+          "status": "new"
+        },
+        {
+          "id": "impact-002",
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 65,
+          "title": "Double URL-encoding in ConfigService.set() must be removed when migrating to a JSON body, or values are stored percent-encoded",
+          "category": "breaking-api",
+          "cwe": "CWE-116",
+          "severity": "high",
+          "agent_confidence": 78,
+          "in_diff": false,
+          "intent_doc_match": "partial",
+          "problem": "config.service.ts:65 applies encodeURIComponent twice to the value; the old backend compensated with urllib unquote, which commit 386f68c explicitly removed (\"rewrite config.py \u2014 POST handler + route registration + remove unquote\"). Once the frontend switches to post(url, body), the JSON body carries the value verbatim \u2014 so if the double-encoding line is carried over unchanged during migration, a value like \"test space\" is written to config as \"test%2520space\" and \"/test/leadingslash\" as \"%252Ftest%252Fleadingslash\". This corrupts stored config silently: no error surfaces, the value simply comes back wrong on the next GET. The existing frontend unit tests at config.service.spec.ts:217-227 specifically exercise space, slash, doublequote and leading-slash values, so they will need to change shape too. Flagging as a pre-positioned trap for the wave-2 migration, not a defect in the current file state.",
+          "current_code": "const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));",
+          "fix_hint": "Delete the double-encode entirely when switching to post() with a JSON body; send valueStr raw.",
+          "why_it_matters": "Silently corrupted config values are worse than a 404 \u2014 the user sees a success toast and a wrong stored setting, and the corruption compounds on repeated saves.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "            });",
+            "        } else {",
+            "            // Double-encode the value",
+            "            const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));",
+            "            const url = this.CONFIG_SET_URL(section, option, valueEncoded);"
+          ],
+          "canonical_line_content": "            // Double-encode the value",
+          "orchestrator_score": 75,
+          "band": "medium",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "ebd63f06349a8d49972172c3a6e177a06be8d494ad0e0c845ccff9a4c761f91a",
+          "status": "new"
+        },
+        {
+          "id": "impact-003",
+          "file": "src/angular/src/app/tests/unittests/services/utils/rest.service.spec.ts",
+          "line": 1,
+          "title": "RestService.post() has zero unit-test coverage \u2014 the new body parameter and ?? null fallback are untested",
+          "category": "blast-radius",
+          "cwe": "CWE-1120",
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": false,
+          "intent_doc_match": "unknown",
+          "problem": "grep for \"post\" in src/angular/src/app/tests/unittests/services/utils/rest.service.spec.ts returns no matches \u2014 the spec covers sendRequest (GET) only. So neither the pre-existing post() nor this diff's new `body` parameter has a single assertion. Specifically untested: (a) that post(url) with no body still sends a null body, the backward-compat property the JSDoc claims; (b) that post(url, {\u2026}) serializes the object and that Angular's HttpClient sets Content-Type: application/json \u2014 this matters because config.py's handler comment notes \"wrong/absent content-type \u2192 returns None silently\", which would land as a 400 \"Invalid request body\" rather than a clear failure; (c) the shareReplay(1) interaction with a body-bearing POST. The four existing post() call sites (model-file.service.ts:61,74,87 and server-command.service.ts:26) are all no-body, so the ?? null path is the one that must not regress and is exactly the one with no test.",
+          "current_code": "// spec covers sendRequest only; no post() test exists",
+          "fix_hint": "Add two specs: post(url) \u2192 httpMock.expectOne(url).request.body is null; post(url, {a:1}) \u2192 body deep-equals {a:1} and detectContentTypeHeader is application/json.",
+          "why_it_matters": "This diff's whole purpose is enabling a body on POST; if the content-type or null-fallback behavior is wrong, the failure surfaces as an opaque backend 400 during the wave-2 migration with no test to localize it.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "import {fakeAsync, TestBed} from \"@angular/core/testing\";",
+            "import {provideHttpClient} from \"@angular/common/http\";",
+            "import {HttpTestingController, provideHttpClientTesting} from \"@angular/common/http/testing\";"
+          ],
+          "canonical_line_content": "import {fakeAsync, TestBed} from \"@angular/core/testing\";",
+          "orchestrator_score": 80,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "2bc14ca141fa1b52c78371e4268da1a0861541e9dba418a8524039fe9f77907f",
+          "status": "new"
+        },
+        {
+          "id": "impact-004",
+          "file": "src/angular/src/app/services/utils/rest.service.ts",
+          "line": 59,
+          "title": "body typed as `object` accepts arrays and boxed primitives that the backend rejects with a generic 400",
+          "category": "breaking-api",
+          "cwe": "CWE-1287",
+          "severity": "low",
+          "agent_confidence": 70,
+          "in_diff": true,
+          "intent_doc_match": "partial",
+          "problem": "The parameter is typed `body?: object`, which in TypeScript admits arrays, functions, Date, and boxed primitives \u2014 anything non-primitive. The one consumer this exists for is the config/set handler, which requires a JSON object: config.py rejects non-dict bodies with `if not body or not isinstance(body, dict): return 400 \"Invalid request body\"`. A caller passing an array would compile cleanly and fail only at runtime with a generic 400 that the UI surfaces as an unhelpful message. `Record<string, unknown>` would push that failure to compile time. Low severity because the codebase has exactly one intended body-bearing call site and it is under the author's control; this is future-proofing on a shared primitive used by 6 importing modules.",
+          "current_code": "public post(url: string, body?: object): Observable<WebReaction> {",
+          "fix_hint": "Narrow to `body?: Record<string, unknown>` to match the backend's isinstance(body, dict) contract.",
+          "why_it_matters": "RestService is the single HTTP chokepoint for the whole Angular app; a loose type here propagates weak contracts to every future body-bearing endpoint.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "     * @returns {Observable<WebReaction>}",
+            "     */",
+            "    public post(url: string, body?: object): Observable<WebReaction> {",
+            "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+            "            map(this.handleSuccess(url)),"
+          ],
+          "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+          "orchestrator_score": 70,
+          "band": "medium",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "090dc902fc25585ccc851d3a8045272e97574d7cbce5b6bf604c97f15336da25",
+          "status": "new"
+        }
+      ]
+    }
+  ],
+  "medium_acknowledgments": {}
+}
