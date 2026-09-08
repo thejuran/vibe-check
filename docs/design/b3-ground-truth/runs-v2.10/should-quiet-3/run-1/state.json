@@ -1,0 +1,213 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-09-08T01:34:00Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted: git diff HEAD + staged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "verdict": "approve",
+        "findings": 0
+      },
+      "findings": [
+        {
+          "id": "arch-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 139,
+          "title": "Class docstring declares a closed API surface that the new DELETE verb violates",
+          "category": "separation-of-concerns",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The class docstring of SlskdTransferClient states its API surface as a closed contract: 'Exposes only the download enqueue (POST) and status fetch (GET) endpoints on the /api/v0/transfers/downloads surface... to maintain the dry-run safety boundary.' The diff adds cancel_download(), a third verb (DELETE), without updating that sentence. This is not cosmetic: the sibling client slskd.py enforces its own surface claim mechanically via assert_search_only_operation() (slskd.py:214-228, called at slskd.py:178), which rejects any method/path outside an explicit allowlist. SlskdTransferClient makes the equivalent claim in prose only, and the prose is now false. A reader auditing the dry-run boundary will read a docstring that under-reports the client's destructive capability.",
+          "current_code": "    Exposes only the download enqueue (POST) and status fetch (GET) endpoints on\n    the /api/v0/transfers/downloads surface. This client intentionally has no\n    search capability and is kept separate from the search-only SlskdHttpClient\n    to maintain the dry-run safety boundary.",
+          "fix_hint": "Update the docstring to name the DELETE/cancel endpoint as part of the declared surface, and consider an assert_transfer_only_operation() allowlist mirroring slskd.py so the claim is enforced rather than asserted.",
+          "why_it_matters": "The docstring is the only statement of this client's destructive-capability boundary, and it now understates what the class can do. An auditor checking the dry-run safety boundary would conclude the client cannot cancel or delete anything.",
+          "silenced_marker_nearby": false,
+          "agent": "architecture",
+          "source_window": [
+            "    \"\"\"Transfer-only slskd HTTP client.",
+            "",
+            "    Exposes only the download enqueue (POST) and status fetch (GET) endpoints on",
+            "    the /api/v0/transfers/downloads surface. This client intentionally has no",
+            "    search capability and is kept separate from the search-only SlskdHttpClient"
+          ],
+          "canonical_line_content": "    Exposes only the download enqueue (POST) and status fetch (GET) endpoints on",
+          "orchestrator_score": 80,
+          "band": "warning",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "9fe195ad2c2e956572e0a1c78d75ab7f89775c1301eb295a971db0df2079d199",
+          "status": "new"
+        },
+        {
+          "id": "arch-002",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "Cancellation failures reuse the enqueue-named error type consumers dispatch on",
+          "category": "abstraction",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 62,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "cancel_download() raises TransferEnqueueError on failure (via the shared _request_json path), inheriting an exception whose own docstring reads 'Raised on HTTP errors from slskd during download enqueue or status fetch' (transfer.py:67-68). Cancellation is now a third concern folded under an enqueue-named error type. Downstream, pipeline.py:390-392 dispatches on error.reason against _CANDIDATE_SPECIFIC_TRANSFER_FAILURES = {transfer_failed, timeout, user_offline} (pipeline.py:300-304) to decide candidate-specific retry, and the acquisition layer maintains a distinct terminal state for this path (ACQUISITION_STAGE_CANCEL_FAILED, acquisition.py:27, written by mark_acquisition_cancel_failed at acquisition.py:313). A cancel failure classified as reason='unavailable' or 'timeout' arrives at those consumers indistinguishable from an enqueue failure. The 'timeout' case is the concrete hazard: it IS in the candidate-specific set, so a cancel that times out could be read by pipeline retry logic as a candidate-level enqueue problem. pending: the consumer that calls cancel_download is not in this diff (zero call sites in src/), so whether the timeout misclassification is reachable depends on the unwritten caller's except clauses.",
+          "current_code": "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:\n        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+          "fix_hint": "Either widen TransferEnqueueError's docstring to cover the cancel path, or add a TransferCancelError sibling so consumers can distinguish a failure to start a transfer from a failure to stop one.",
+          "why_it_matters": "The acquisition layer already models cancel failure as its own terminal state, but the transport layer collapses it into the enqueue error type, so retry logic keyed on error.reason cannot tell the two apart. A timed-out cancel can be misrouted into candidate-specific enqueue retry.",
+          "silenced_marker_nearby": false,
+          "agent": "architecture",
+          "source_window": [
+            "        return []",
+            "",
+            "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+            "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+            "        encoded_username = quote(username, safe=\"\")"
+          ],
+          "canonical_line_content": "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+          "orchestrator_score": 74,
+          "band": "medium",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "3a0b857b37ed4ef68817201a7d8d3d5b51b1adcf571abd6b54ac8e4a28f319d5",
+          "status": "new"
+        },
+        {
+          "id": "bugs-002",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Falsy-set fallback: an explicit empty success_statuses silently becomes {200, 201}",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 72,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`expected_statuses = success_statuses or {200, 201}` uses truthiness rather than an `is None` check. An empty set passed explicitly (meaning 'no status is a success') is indistinguishable from the omitted default and silently accepts 200/201. The parameter is typed `set[int] | None`, so the sentinel for 'not provided' is None; the empty set is a legal value that is mishandled. No current caller passes an empty set, so the impact today is latent.",
+          "current_code": "        expected_statuses = success_statuses or {200, 201}\n        if response.status_code not in expected_statuses:",
+          "fix_hint": "use `success_statuses if success_statuses is not None else {200, 201}`",
+          "why_it_matters": "A future caller passing an empty or computed-empty set would get silently wrong acceptance behavior instead of a failure.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "canonical_line_content": "        expected_statuses = success_statuses or {200, 201}",
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "7b3303374a94fea361a0096b4900358673f7818de23c3aeca1b6ac539c31f952",
+          "status": "new"
+        },
+        {
+          "id": "impact-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download raises on HTTP 404, making cancellation of an already-finished/unknown transfer a hard failure",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 72,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "success_statuses={200, 202, 204} deliberately excludes 404. slskd returns 404 for a transfer id it no longer tracks \u2014 which is exactly the state a cancel races into: the transfer completed, already errored out, or slskd restarted and dropped its in-memory transfer table between the poll that recorded the id and the operator pressing Cancel. _request_json then falls through to the `response.status_code not in expected_statuses` branch and raises TransferEnqueueError(reason='unavailable'). Per 22-03-PLAN.md Task 3, the caller (cancel_active_acquisition_action) catches the safe boundary error, marks the acquisition `cancel_failed`, and returns a 409/500 telling the operator cleanup needs review. So the benign, expected outcome 'that transfer is already gone' surfaces to the operator as a failed cancellation and leaves the acquisition parked in cancel_failed \u2014 a terminal-ish state the plan describes as 'visible for operator follow-up'. The local directory cleanup and the atomic wanted_albums/requests/transfers/acquisition_items transition in Task 3 also never run, so the row stays `downloading` while slskd has nothing in flight. This is the single most likely real-world cancel path: cancels are pressed on long-running or stuck transfers, precisely the ones most likely to have terminated server-side first. Note the plan text ('accept 200/202/204 as success') is followed literally; the gap is in the plan, not a deviation from it. pending: confirm slskd's actual DELETE /api/v0/transfers/downloads/{username}/{id} response for an unknown id is 404 rather than 204 \u2014 I inferred it from REST convention, not from slskd docs or a live call.",
+          "current_code": "        result = self._request_json(\n            \"DELETE\",\n            path,\n            success_statuses={200, 202, 204},\n        )",
+          "fix_hint": "Treat 404 as an idempotent no-op success for DELETE (include 404 in success_statuses, or return a sentinel the action layer reads as 'already gone') so cancellation stays idempotent.",
+          "why_it_matters": "The most common cancel scenario \u2014 cancelling a transfer slskd has already dropped \u2014 reports failure to the operator and strands the acquisition in cancel_failed with wanted_albums still 'downloading', requiring manual DB follow-up.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "        return []",
+            "",
+            "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+            "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+            "        encoded_username = quote(username, safe=\"\")"
+          ],
+          "canonical_line_content": "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+          "orchestrator_score": 84,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "93d7b3578b5c1fd103d2c9ddbac6c4155d5ef76adcb7597125b758ebb9094369",
+          "status": "new"
+        },
+        {
+          "id": "impact-002",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses override widens the accepted-status contract for all _request_json callers, including 3xx",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 80,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`expected_statuses = success_statuses or {200, 201}` is a private-method signature change on SlskdTransferClient._request_json. Two behavioral notes. (1) The `or` idiom means an explicitly-passed empty set silently falls back to {200,201} rather than rejecting everything; no caller does this today, but it is a latent footgun for a future caller computing the set dynamically. (2) More substantively, this is now the only knob controlling which statuses are 'success', and it sits after the 401/403, 429, and 5xx branches but has no 3xx guard. httpx.Client does not follow redirects by default, so a slskd behind a reverse proxy that 301/302s the DELETE would land in the `not in expected_statuses` branch and raise 'unavailable' \u2014 correct behavior, but the response body is then never parsed. That is fine; the real point is that the widened contract is per-call and unvalidated, so a future caller passing {200, 302} would get a redirect body parsed as JSON. Blast radius is bounded: _request_json is private to SlskdTransferClient, has 3 call sites all in this file, and the two pre-existing callers (enqueue_download line 187, get_user_downloads line 197) omit the new kwarg and keep identical behavior \u2014 verified by reading both. The sibling SlskdHttpClient._request_json in src/roonseek/slskd.py is a separate implementation and is untouched.",
+          "current_code": "        expected_statuses = success_statuses or {200, 201}\n        if response.status_code not in expected_statuses:",
+          "fix_hint": "Use `success_statuses if success_statuses is not None else {200, 201}` so an explicit empty set is not silently widened.",
+          "why_it_matters": "Low blast radius today (3 in-file call sites, 2 unchanged), but the `or` fallback and the unvalidated per-call status set are the kind of thing a later caller trips over.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "canonical_line_content": "        expected_statuses = success_statuses or {200, 201}",
+          "orchestrator_score": 80,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "82848953c294997230eec47d2cea3b09bb6f4636190a6b0e3e67ffbc74d37d68",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download is synchronous and will be called on a shared SlskdTransferClient concurrently with the pipeline's polling thread",
+          "reason": "absorbed-into: 93d7b3578b5c1fd103d2c9ddbac6c4155d5ef76adcb7597125b758ebb9094369"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 209,
+          "title": "Cancel success_statuses omits 404, making an idempotent cancel report failure",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download raises on 404, making cancellation non-idempotent",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
