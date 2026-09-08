@@ -1,0 +1,199 @@
+{
+ "passes": [
+  {
+   "pass_number": 1,
+   "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+   "timestamp": "2026-09-08T01:08:23.831754+00:00",
+   "mode": "deep",
+   "diff_range": "HEAD (uncommitted working tree; detached HEAD)",
+   "agents_run": [
+    "bugs",
+    "security",
+    "architecture",
+    "impact",
+    "test-sufficiency",
+    "language-typescript",
+    "framework-angular"
+   ],
+   "codex": {
+    "status": "joined",
+    "verdict": "approve",
+    "findings": 0,
+    "cross_confirmed": 0
+   },
+   "scored_by_script": true,
+   "findings": [
+    {
+     "agent": "architecture",
+     "id": "arch-002",
+     "file": "src/angular/src/app/services/utils/rest.service.ts",
+     "line": 59,
+     "title": "New post(url, body?) overload has no direct unit test; rest.service.spec.ts covers only sendRequest",
+     "category": "pattern-consistency",
+     "cwe": null,
+     "severity": "medium",
+     "agent_confidence": 72,
+     "intent_doc_match": null,
+     "problem": "The new `post(url, body?)` overload has no direct unit test, and the method it extends had none either. src/angular/src/app/tests/unittests/services/utils/rest.service.spec.ts (94 lines) contains exactly five tests, all on `sendRequest`: \"should create an instance\", \"should send http GET on sendRequest\", \"should return correct data on sendRequest\", \"should get error message on sendRequest error 404\", \"should get error message on sendRequest network error\". There is no `post` test and no `delete` test in the file. The established pattern in this spec is one transport-shape test plus success/404/network-error reactions per method \u2014 `sendRequest` has all four; `post` now has a new branch (`body ?? null`) with none. 111-02-PLAN.md Task 1's verification is a grep for the signature plus `tsc --noEmit`, which pins the type but never exercises the null-vs-object branch; the body-shape assertion the plan does mandate lives in config.service.spec.ts, testing the caller rather than this branch.",
+     "current_code": "    public post(url: string, body?: object): Observable<WebReaction> {",
+     "fix_hint": "Add two tests to rest.service.spec.ts mirroring the existing sendRequest shape: `post(url)` emits an HttpTestingController request whose `req.request.body` is `null` (pinning the four existing no-body callers), and `post(url, {a: 1})` emits one whose body is the object and whose `Content-Type` is `application/json`. This is the regression guard for T-111-02-02 in the plan's own threat table.",
+     "why_it_matters": "The null-vs-object body branch is the only new behavior in this diff and nothing exercises it; the plan's tsc/grep verification pins the type, not the wire behavior.",
+     "source_window": [
+      "     * @returns {Observable<WebReaction>}",
+      "     */",
+      "    public post(url: string, body?: object): Observable<WebReaction> {",
+      "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+      "            map(this.handleSuccess(url)),"
+     ],
+     "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+     "orchestrator_score": 84,
+     "band": "warning",
+     "attribution": [
+      "architecture"
+     ],
+     "stable_hash": "422b5f3b755a6179714a42e0020f3128ee08da3087271953487b1c0570052635",
+     "status": "new"
+    },
+    {
+     "agent": "impact",
+     "id": "impact-001",
+     "file": "src/angular/src/app/services/settings/config.service.ts",
+     "line": 67,
+     "title": "Settings save is fully broken in-tree: ConfigService.set still GETs the removed value-bearing URL while the backend is already POST-only",
+     "category": "breaking-api",
+     "cwe": "CWE-757",
+     "severity": "critical",
+     "agent_confidence": 95,
+     "intent_doc_match": null,
+     "problem": "Backend plan 111-01 already landed (commits 386f68c/b55339a): src/python/web/handler/config.py:25-28 registers ONLY `web_app.add_post_handler(\"/server/config/set\", ...)` \u2014 the value-bearing path `/server/config/set/<section>/<option>/<value>` is unregistered, and the backend's own integration test `test_old_value_bearing_path_returns_404` asserts that path now returns 404. But ConfigService.set (config.service.ts:65-68) still builds `CONFIG_SET_URL(section, option, valueEncoded)` and calls `this._restService.sendRequest(url)` \u2014 a GET to the deleted path. This diff delivered only Task 1 of the 3-task 111-02 plan (RestService.post signature); Task 2 (rewrite ConfigService.set to `post('/server/config/set', {section, key, value})`) and Task 3 (spec migration) are not present in the working tree. Net effect at HEAD: every Settings-page save returns 404 and the optimistic `_config.next(...)` never fires \u2014 the user's setting silently fails to persist and the UI shows a generic error. The `body?: object` parameter added here has zero callers, so the diff is inert on its own while the repo is in a broken intermediate state.",
+     "current_code": "const url = this.CONFIG_SET_URL(section, option, valueEncoded);\nconst obs = this._restService.sendRequest(url);",
+     "fix_hint": "Land 111-02 Task 2 in the same commit/PR as this signature change: replace the CONFIG_SET_URL + double-encodeURIComponent block with `this._restService.post(\"/server/config/set\", {section, key: option, value: valueStr})` and delete the CONFIG_SET_URL template (config.service.ts:20-22).",
+     "why_it_matters": "Config saving is the Settings page's entire function. Shipping HEAD as-is means no user can change any setting \u2014 including Sonarr/Radarr credentials and lftp rate limits. This is a complete feature outage, not a degradation.",
+     "source_window": [
+      "            // Double-encode the value",
+      "            const valueEncoded = encodeURIComponent(encodeURIComponent(valueStr));",
+      "            const url = this.CONFIG_SET_URL(section, option, valueEncoded);",
+      "            const obs = this._restService.sendRequest(url);",
+      "            obs.pipe(takeUntil(this.destroy$)).subscribe({"
+     ],
+     "canonical_line_content": "            const url = this.CONFIG_SET_URL(section, option, valueEncoded);",
+     "orchestrator_score": 95,
+     "band": "critical",
+     "attribution": [
+      "impact"
+     ],
+     "stable_hash": "d98885e14a5183e7cf332085570210016e7b4a96e5e46c3c68e9d1e3ca0878a6",
+     "status": "new"
+    },
+    {
+     "agent": "impact",
+     "id": "impact-002",
+     "file": "src/e2e/tests/fixtures/seed-state.ts",
+     "line": 72,
+     "title": "E2E suite still drives config/set over GET with path params \u2014 seed fixtures and dashboard throttle tests will 404 against the migrated backend",
+     "category": "blast-radius",
+     "cwe": "CWE-758",
+     "severity": "high",
+     "agent_confidence": 88,
+     "intent_doc_match": null,
+     "problem": "The 111-02 plan's `files_modified` lists only three Angular files, but the GET contract is baked into the e2e layer too and none of it is in scope: src/e2e/tests/fixtures/seed-state.ts:26-27 defines `CONFIG_SET` as a path-param URL and line 72 calls `expectOk(page, CONFIG_SET('lftp','rate_limit',...), 'GET')`; src/e2e/tests/dashboard.page.spec.ts:277 and :308 call `page.request.get('/server/config/set/lftp/rate_limit/100')` and `.../0`; src/e2e/tests/settings.page.ts:16,25,37,60,71,80,89 build the same path-param URLs, and its line 33 comment still asserts \"the backend config/set endpoint is GET-only\" \u2014 now factually wrong. Once the frontend half lands, every one of these seeds/asserts hits the unregistered path and returns 404 (intercepted by the static catch-all, per the backend test's own note), so seeded state never applies and the e2e suite fails in ways that look like UI regressions rather than fixture breakage.",
+     "current_code": "await expectOk(page, CONFIG_SET('lftp', 'rate_limit', bytesPerSec), 'GET');",
+     "fix_hint": "Extend phase 111 scope with an e2e wave: convert seed-state.ts CONFIG_SET and settings.page.ts helpers to `page.request.post('/server/config/set', {data: {section, key, value}})`, update dashboard.page.spec.ts:277/308, and delete the stale GET-only comment at settings.page.ts:33.",
+     "why_it_matters": "A green backend suite plus a green Karma suite would still leave the e2e gate red, and the failures will present as spurious UI bugs. This is uncounted work that blocks the phase's own verification.",
+     "source_window": [
+      "",
+      "async function setRateLimit(page: Page, bytesPerSec: string): Promise<void> {",
+      "    await expectOk(page, CONFIG_SET('lftp', 'rate_limit', bytesPerSec), 'GET');",
+      "}",
+      ""
+     ],
+     "canonical_line_content": "    await expectOk(page, CONFIG_SET('lftp', 'rate_limit', bytesPerSec), 'GET');",
+     "orchestrator_score": 85,
+     "band": "warning",
+     "attribution": [
+      "impact"
+     ],
+     "stable_hash": "2153ce6bbd39e3922fcf6371f05f764513a45238779786c3a42753ecb2c39628",
+     "status": "new"
+    },
+    {
+     "agent": "impact",
+     "id": "impact-003",
+     "file": "src/angular/src/app/tests/mocks/mock-rest.service.ts",
+     "line": 5,
+     "title": "MockRestService has no post() stub \u2014 specs exercising the new POST path get a TypeError, not a mock",
+     "category": "blast-radius",
+     "cwe": "CWE-1071",
+     "severity": "medium",
+     "agent_confidence": 82,
+     "intent_doc_match": null,
+     "problem": "src/angular/src/app/tests/mocks/mock-rest.service.ts declares only `sendRequest(_url)`. It is listed as an importer of rest.service.ts and is the substitute used where RestService is injected. Once ConfigService.set switches from `sendRequest` to `post` (111-02 Task 2), any spec or harness wired to MockRestService will call an undefined `post`, producing `TypeError: this._restService.post is not a function` rather than a controlled null-observable stub. The 111-02 plan's files_modified does not include this mock, so the gap is unplanned. Note the existing config.service.spec.ts uses HttpTestingController rather than this mock, so the break may be latent rather than immediate \u2014 pending: confirm which specs bind MockRestService as the RestService provider.",
+     "current_code": "export class MockRestService {\n    public sendRequest(_url: string): Observable<WebReaction> {\n        return null!;\n    }\n}",
+     "fix_hint": "Add `public post(_url: string, _body?: object): Observable<WebReaction> { return null!; }` to MockRestService so the mock's surface tracks the real service.",
+     "why_it_matters": "A mock that silently lags the interface it doubles converts a clear compile/DI error into a confusing runtime TypeError inside unrelated specs, costing debugging time during the wave-2 landing.",
+     "source_window": [
+      "import {WebReaction} from \"../../services/utils/rest.service\";",
+      "",
+      "export class MockRestService {",
+      "    public sendRequest(_url: string): Observable<WebReaction> {",
+      "        return null!;"
+     ],
+     "canonical_line_content": "export class MockRestService {",
+     "orchestrator_score": 74,
+     "band": "medium",
+     "attribution": [
+      "impact"
+     ],
+     "stable_hash": "5b285808db94cf87ba24ab15fc51dae2235cc4bedc1f9eaf47c3013b59fbf0e6",
+     "status": "new"
+    },
+    {
+     "agent": "impact",
+     "id": "impact-005",
+     "file": "src/angular/src/app/services/utils/rest.service.ts",
+     "line": 59,
+     "title": "`body?: object` types the payload too loosely to catch a field-name mismatch against the backend contract",
+     "category": "breaking-api",
+     "cwe": "CWE-1077",
+     "severity": "low",
+     "agent_confidence": 70,
+     "intent_doc_match": null,
+     "problem": "The backend handler reads exactly three fields (config.py: `body.get(\"section\")`, `body.get(\"key\")`, `body.get(\"value\")`) and 400s on anything else. The Angular side's method param is named `option` while the wire field must be `key` \u2014 the 111-02 plan flags this rename explicitly ('field mapping: body field is \"key\" ... the method param is \"option\"'). Typing the parameter as bare `object` means TypeScript will happily accept `{section, option, value}`; the mismatch surfaces only as a runtime 400 with the generic body \"Invalid request body\", with no compile-time signal and no field-level error message to diagnose from. This is the single most likely mistake in the not-yet-written Task 2, and the signature as designed cannot catch it.",
+     "current_code": "public post(url: string, body?: object): Observable<WebReaction> {",
+     "fix_hint": "Consider a named interface (e.g. `ConfigSetBody {section: string; key: string; value: string}`) at the ConfigService call site, or a generic `post<T extends object>(url: string, body?: T)`, so the section/key/value contract is checked at compile time.",
+     "why_it_matters": "The whole point of phase 111 is getting credentials out of the URL; a silent field-name typo would make every save 400 while the code reads as correct, and the backend's deliberately generic error body gives the developer nothing to go on.",
+     "source_window": [
+      "     * @returns {Observable<WebReaction>}",
+      "     */",
+      "    public post(url: string, body?: object): Observable<WebReaction> {",
+      "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+      "            map(this.handleSuccess(url)),"
+     ],
+     "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+     "orchestrator_score": 70,
+     "band": "medium",
+     "attribution": [
+      "impact"
+     ],
+     "stable_hash": "fc444c0b973d532b11ca6c6f7aec4d1674b967e5655d835950924a8b3b41fb6e",
+     "status": "new"
+    }
+   ],
+   "filtered": [
+    {
+     "file": "src/angular/src/app/services/utils/rest.service.ts",
+     "line": 60,
+     "title": "shareReplay(1) on a body-carrying POST makes a mutation cacheable per-Observable \u2014 resubscription semantics differ from a null-body POST",
+     "reason": "absorbed-into: fc444c0b973d532b11ca6c6f7aec4d1674b967e5655d835950924a8b3b41fb6e"
+    },
+    {
+     "file": "src/angular/src/app/tests/mocks/mock-rest.service.ts",
+     "line": 5,
+     "title": "MockRestService lacks post()/delete() stubs and drifts from the RestService surface it doubles",
+     "reason": "sub-threshold"
+    }
+   ],
+   "fixes_applied": []
+  }
+ ]
+}
