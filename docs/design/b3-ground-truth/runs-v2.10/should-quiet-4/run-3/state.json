@@ -1,0 +1,146 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "14eecb580499ec2ab4e8d469c768479509a9695a",
+      "timestamp": "2026-09-08T17:30:05Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted) vs HEAD 14eecb5",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "verdict": "approve",
+        "findings": 0,
+        "cross_confirmed": 0
+      },
+      "findings": [
+        {
+          "agent": "bugs",
+          "id": "bugs-001",
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "Unconditional URL SSRF validation crashes startup with an uncaught ValidationError on an existing config",
+          "category": "error-handling",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new field_validator raises ValueError for any URL that is non-http(s), malformed, metadata, or link-local, so Settings() raises pydantic.ValidationError at load time. triggarr/config.py:ensure_config() catches only tomllib.TOMLDecodeError/UnicodeDecodeError around load_settings(); its docstring explicitly states 'pydantic.ValidationError (schema bug) continue to propagate uncaught' \u2014 that assumption held while URL content was never validated at load, and this change breaks it by routing user-supplied config data into the same path. Reproduced: a config containing radarr.Default.url = \"radarr:7878\" (no scheme \u2014 a plausible hand-edited value, and a value the pre-change code accepted) now makes ensure_config raise ValidationError instead of the friendly _log_corrupt_config_and_exit path, so the daemon dies with a bare traceback out of asyncio.run(_run()) and the operator gets no config path, no .toml.bak restore hint, and no way to fix it via the web UI (the app never starts). Existing tests all pass because no fixture uses a URL the validator rejects.",
+          "current_code": "        from triggarr.web.validation import validate_arr_url_config\n\n        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+          "fix_hint": "extend the except clause in ensure_config() (triggarr/config.py, around the load_settings call) to also catch pydantic.ValidationError and route it through a friendly log-and-exit that names the offending field and the config path",
+          "why_it_matters": "A previously-working install can fail to boot after upgrade with an unreadable traceback and no in-app recovery route, since the settings UI is unreachable when startup aborts.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    @field_validator(\"url\")",
+            "    @classmethod",
+            "    def validate_url_ssrf(cls, v: str) -> str:",
+            "        \"\"\"D-01/D-02: Apply relaxed SSRF validation at config-load time.",
+            ""
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "464c5f3da64dc874d7eacbfe19f185303b18ae3975df22d06f1b11c0593c1f1c",
+          "status": "new"
+        },
+        {
+          "agent": "bugs",
+          "id": "bugs-002",
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "Loopback URL accepted at config load but rejected by the settings form, wedging save_settings",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 84,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The model validator uses the relaxed validate_arr_url_config (loopback permitted \u2014 the stated D-01/D-02 intent), but triggarr/web/routes.py:561 in save_settings still calls the strict validate_arr_url, which returns (False, 'Blocked address') for loopback literals. Verified directly: 'http://127.0.0.1:7878' and 'http://[::1]:7878' are config:True / form:False. The settings template renders inst.url back into the form field (templates/settings.html:173), so a user whose triggarr.toml legitimately holds a loopback *arr URL \u2014 exactly the same-host homelab case this change was made to permit \u2014 cannot save ANY settings change: every POST resubmits that URL, hits the strict check, and returns a bare 303 redirect back to the settings page with no error shown to the user (only a server-side logger.warning). The relaxation is half-applied: config load was loosened, the form path was not.",
+          "current_code": "        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+          "fix_hint": "switch save_settings (triggarr/web/routes.py:561) to validate_arr_url_config so the form and config-load rules agree, or otherwise reconcile the two validators deliberately",
+          "why_it_matters": "The users this change is meant to unblock get a settings page that silently discards every save, with no visible reason.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    @field_validator(\"url\")",
+            "    @classmethod",
+            "    def validate_url_ssrf(cls, v: str) -> str:",
+            "        \"\"\"D-01/D-02: Apply relaxed SSRF validation at config-load time.",
+            ""
+          ],
+          "orchestrator_score": 96,
+          "band": "critical",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "e39f9b3b901ae41c3f104005f721000bc717756f1a6afb7c4d3fa510d6ea7ff3",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-001",
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "Config-load SSRF rejection is unrecoverable via UI \u2014 bad URL in triggarr.toml hard-crashes startup with a raw ValidationError traceback",
+          "category": "blast-radius",
+          "cwe": "CWE-755",
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new validator makes InstanceConfig construction fail for metadata/link-local/non-http/malformed URLs. That rejection is intended (D-01/D-02) and correctly implemented, but the FAILURE PRESENTATION is not covered by the plan. I read the full startup chain: startup.py:192 calls ensure_config(), and config.py:333-373 catches ONLY tomllib.TOMLDecodeError and UnicodeDecodeError, translating those into a friendly loguru.error + sys.exit(1). config.py:345 explicitly documents that `pydantic.ValidationError` (schema bug) continues to propagate uncaught. Before this diff that carve-out was reasonable \u2014 a ValidationError from triggarr.toml was near-unreachable, since no field validator could reject a plausible hand-edited value. This diff makes ValidationError reachable from ordinary user data (a URL typed into triggarr.toml). Consequence: Triggarr exits with an uncaught pydantic traceback out of asyncio.run(_run()), not the friendly 'edit your config and restart' line the corrupt-TOML path gets. Worse for recovery: the web UI (the documented place to fix instance URLs, per config.py DEFAULT_CONFIG 'Instance configuration is managed through the web UI') never starts, because ensure_config runs before the app does. The user must hand-edit /config/triggarr.toml inside the container to recover \u2014 with only a traceback to tell them which instance is at fault. This is a container that crash-loops with no actionable operator message. Note this is the exact class of UX gap TEST-02 already fixed for corrupt TOML; the same treatment was simply never extended to ValidationError because it was previously unreachable.",
+          "current_code": "        from triggarr.web.validation import validate_arr_url_config\n\n        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+          "fix_hint": "Extend the existing except clause in ensure_config (triggarr/config.py:371) to also catch pydantic.ValidationError, routing it through _log_corrupt_config_and_exit (or a sibling helper) so the operator gets a named-instance error line + sys.exit(1) instead of a raw traceback.",
+          "why_it_matters": "Docker-first deployment (ghcr.io/thejuran/triggarr). A crash-looping container whose only diagnostic is a pydantic traceback, and whose documented repair surface (the web UI) cannot start, turns an intended security hardening into an operator-visible outage with no in-product recovery path.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    @field_validator(\"url\")",
+            "    @classmethod",
+            "    def validate_url_ssrf(cls, v: str) -> str:",
+            "        \"\"\"D-01/D-02: Apply relaxed SSRF validation at config-load time.",
+            ""
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "7b609387d1f123a6df66e4b22dab5c8de9be96cb9ecfb06cb1b8de7ce19b98ea",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "Domain model reaches up into the web layer for validation (deferred import papers over a package-level cycle)",
+          "reason": "intent-doc-match"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "models layer imports from the web layer, creating a layering/import-cycle hazard",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "Function-local import creates a models -> web layering inversion; triggarr.models.config is imported by 14+ modules including __main__",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
