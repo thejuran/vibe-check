@@ -1,0 +1,27 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "70354771a331f7def6c8116556f58d865f644cd9",
+      "timestamp": "2026-09-08T18:04:30Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "verdict": "approve",
+        "findings": 0
+      },
+      "findings": [],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
