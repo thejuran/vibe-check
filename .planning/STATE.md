@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
 status: executing
-stopped_at: Phase 38 context gathered
-last_updated: "2026-09-05T21:11:41.655Z"
-last_activity: 2026-09-05 -- Phase 38 execution started
+stopped_at: Completed 38-05-PLAN.md
+last_updated: "2026-09-08T20:55:43.099Z"
+last_activity: 2026-09-08 -- Phase 38 execution started
 progress:
-  total_phases: 13
+  total_phases: 16
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 38 — Grow the B3 set + Claude-5 baseline
+**Current focus:** Phase 38 — grow-the-b3-set-claude-5-baseline
 
 ## Current Position
 
-Phase: 38 (Grow the B3 set + Claude-5 baseline) — EXECUTING
-Plan: 5 of 6
+Phase: 38 (grow-the-b3-set-claude-5-baseline) — EXECUTING
+Plan: 2 of 6
 Status: Executing Phase 38
-Progress: [███████░░░] 67%
-Last activity: 2026-09-05 -- Phase 38 execution started
+Progress: [████████░░] 83%
+Last activity: 2026-09-08 -- Phase 38 execution started
 
 ## Performance Metrics
 
@@ -77,6 +77,7 @@ Last activity: 2026-09-05 -- Phase 38 execution started
 | Phase 38 P02 | 23min | 2 tasks | 3 files |
 | Phase 38 P03 | 10min | 3 tasks | 14 files |
 | Phase 38 P04 | 16min | 2 tasks | 4 files |
+| Phase 38 P05 | 41min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -157,6 +158,8 @@ Earlier decisions (v2.8) still on record:
 - [Phase 38]: 38-04: ground truth sealed — ANSWER-KEY-v2.10 at 5f687d9 (6 new rows, 12 kit digest lines from ccf887c blobs, no self-hash) digest-bound by seal-2 633f1dd (pure five-line byte-append, pinned-verifier proven, manifest FINAL at 2 commits; DENOM 15/21/36); checklist part B (debe57a) regen-validated — WAIT 2 OPEN (18 new-diff baseline runs); SET-01 complete
 - [2026-09-05 re-scope, owner decision after an external source review + live model-lineup check]: Phase 39 DISSOLVED — COMPAT-02 (measured cost) returned to backlog 999.12 (no mechanism: the orchestrator cannot tokenize; needs a feasibility spike), COMPAT-01 (Claude-5 docs + corrected static cost anchors) → Phase 44. Phase 40 GAINS TRUST-01/02 (helpers resolve from `${CLAUDE_PLUGIN_ROOT}` + owner-set dev override, never repo-first — today a reviewed PR can plant `plugins/vibe-check/scripts/score.py`/`guard.py` and Phase 3 executes it unprompted; fix agent validates paths BEFORE its first edit) and the cost-anchor correction inside DIET-01. DIET-03 verify-only; DIET-04 spot-checks CAPPED (2 diffs ×1 per batch, full ×3 once at phase end). Model defaults UNCHANGED (aliases already resolve to Sonnet 5 / Opus 5 / Haiku 4.5; Fable 5.1 opt-in). New backlog 999.15 (fix-agent hunk isolation + real verification; ambiguous → leave applied-but-uncommitted), 999.16 (deterministic framework routing + bounded chunks replacing the Haiku downgrade), 999.17 (Fable 5.1 top-tier A/B). Reviewer items 3 (confidence vs severity) and 4 (orchestration out of prompts) were already Phase 41 / Phase 40 nearly verbatim — nothing added.
 - [Phase 38]: 38-04: settings-form-split band floor = warning (correctness/data-loss — silent loss of saved settings is action-bar, not the v2.9 medium display-nit precedent); session-rotation = warning (security)
+- [Phase 38]: 38-05: SET-03 BASELINE MEASURED — full-set catch 15/15, FP 19/21 over the sealed denominators (15/21/36), 36/36 runs scoreable, zero holes, no waiver. Carried-6 re-measure vs v2.9: catch 8/9 -> 9/9, FP 6/9 -> 9/9 (should-quiet-2 moved 0/3 -> 3/3 FP; autoescape's right-site-wrong-axis miss did not recur) — Scored from state.passes[-1].findings[] against both sealed key blobs (carried ef0ab67, new 5f687d9) after a 9-gate fail-closed ladder: pinned byte-exact seal verifier, dual digests, ancestry, sidecar seal gate, sealed v2.9 tree byte-identical, isolation grid, security spot-check, and commit-anchored pin-matched pre-run-ordered fingerprint provenance across all 36 runs under ONE harness tuple (2.1.261 / codex-cli 0.153.4 / fable 5.1). Worksheet: docs/design/b3-ground-truth/SCORING-v2.10.md (1180b15)
+- [Phase 38]: 38-05: codex participation is inferred from findings[].agent == codex-adversarial, never the pass-level record — The pass-level codex record is schema-nondeterministic across passes of the same shipped command: >=6 shapes observed (codex_joined bool; codex object with joined/status x verdict x findings x cross_confirmed; a plain string; and outright ABSENCE with a codex-adversarial finding present). Also two pass-timestamp formats and one empty finding title. Phase 40 orchestration-rewrite input; recorded in SCORING-v2.10 §6 and 38-06 limitations
 
 ### Pending Todos
 
@@ -198,13 +201,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-05T21:11:18.737Z
+Last session: 2026-09-08T20:55:32.169Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 38 context gathered
+Stopped at: Completed 38-05-PLAN.md
 
 Load-bearing sequencing notes for whoever plans next:
 

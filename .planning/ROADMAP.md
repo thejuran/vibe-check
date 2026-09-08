@@ -184,7 +184,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
   3. Every diff — new AND carried-over — has an owner-driven ×3 pre-change baseline recorded on the unchanged v2.9.0 plugin on the current Claude 5 harness, captured under installed-cache parity pre-flight and the v2.9 state-isolation gates (fresh state, `len(passes)==1`, full-worktree tree-diff equality)
   4. That same baseline is written up as the Opus 5 re-measure: the v2.9-vs-Claude-5 catch/FP comparison on the identical unchanged plugin is stated explicitly, so the model-generation shift is separated from every later intervention
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -202,7 +202,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 38-05-PLAN.md — Owner runs checkpoint (~30-36 runs) + integrity gate ladder + SCORING-v2.10.md (scored from state vs both sealed blobs)
+- [x] 38-05-PLAN.md — Owner runs checkpoint (~30-36 runs) + integrity gate ladder + SCORING-v2.10.md (scored from state vs both sealed blobs)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -330,7 +330,7 @@ Plans:
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
 | 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete | 2026-07-05 |
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
-| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 4/6 | In Progress|  |
+| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 5/6 | In Progress|  |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 0/? | Not started | - |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
