@@ -1,0 +1,149 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-09-08T01:46:58Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted changes)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "verdict": "approve",
+        "findings": 0
+      },
+      "findings": [
+        {
+          "agent": "architecture",
+          "category": "pattern-consistency",
+          "severity": "low",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "problem": "`expected_statuses = success_statuses or {200, 201}` uses truthiness rather than an explicit `is None` check, while the parameter is typed `set[int] | None = None`. An explicitly-passed empty set (`success_statuses=set()`, meaning \"no status is a success\") is silently coerced to the default `{200, 201}`, inverting the caller's intent. No current caller passes an empty set, so this is latent rather than live. The adjacent code in the same method uses explicit `is not None` for the analogous optional parameter (`if json_body is not None:` at line 231), so the truthiness form is locally inconsistent with the file's own established idiom.",
+          "fix": "Match the neighbouring convention: `expected_statuses = {200, 201} if success_statuses is None else success_statuses`.",
+          "agent_confidence": 78,
+          "intent_doc_match": {
+            "matched": false,
+            "confidence": 0.1,
+            "quote": "accept 200/202/204 as success",
+            "note": "The plan specifies which statuses cancel_download accepts but says nothing about how the default is resolved inside _request_json. The falsy-vs-None handling is an unspecified implementation detail, not an authorized deviation."
+          },
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "current_code": "        expected_statuses = success_statuses or {200, 201}",
+          "orchestrator_score": 78,
+          "band": "medium",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "ffbf1458467b47886aadbd1456728e3344b335bd0f12183a01442b090d0f1288",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download's transfer_id contract has no producer \u2014 slskd transfer IDs are never captured anywhere in the codebase",
+          "category": "blast-radius",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": "partial",
+          "problem": "cancel_download(username, transfer_id) issues DELETE /api/v0/transfers/downloads/{username}/{id}, where slskd identifies the transfer by its own GUID. I traced every producer of transfer identity in this repo and none exists: (1) src/roonseek/schema.sql:341-353 defines `transfers` with `id INTEGER PRIMARY KEY` (a local SQLite rowid) plus username/folder_path/filename \u2014 there is NO column holding an slskd-side id; grep for `slskd_transfer_id`/`external_id` across src/ returns hits only in slskd.py/search.py for SEARCH ids, never transfers. (2) The polling parser `_inspect_transfer_status` (src/roonseek/pipeline.py:724-780) reads only `filename`, `state`, `directory`, and `bytesTransferred` from the slskd response \u2014 it never reads the per-file `id`, so the GUID is discarded on every poll. (3) The dataclass TransferStatus (transfer.py:33-39) declares an `id` field but grep shows it is never constructed outside tests/test_transfer.py:375. The pending caller confirms the mismatch: tests/test_jobs_api.py:659 asserts `fake.calls == [(\"alice\", str(transfer_id))]` where `transfer_id` is the lastrowid from the local `transfers` INSERT (tests/test_jobs_api.py:~570-580). So the wired-up cancel path will send slskd a local integer like \"7\" where slskd expects its own GUID. slskd returns 404 for an unknown id; 404 is not in {200,202,204}, so _request_json raises TransferEnqueueError(\"...HTTP 404\", \"unavailable\") \u2014 the operator's cancel appears to fail (or, per the 22-03 plan step, lands in cancel_failed) even though the DB-side cancellation is correct. This is a design gap the diff's isolated unit tests (which mock the transport and pass a literal string) structurally cannot catch. pending: confirm slskd's DELETE actually keys on the per-file GUID rather than accepting filename, and confirm whether phase 22-03's remaining steps add an id column + capture.",
+          "current_code": "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:\n        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"\n        encoded_username = quote(username, safe=\"\")\n        encoded_transfer_id = quote(transfer_id, safe=\"\")",
+          "fix_hint": "Before wiring the caller, add an slskd-transfer-id column to the `transfers` table and capture the per-file `id` in _inspect_transfer_status/enqueue so a real GUID reaches cancel_download; alternatively treat 404 as an idempotent success (already-gone) so a stale/unknown id does not surface as an operator-visible failure.",
+          "why_it_matters": "The operator-facing outcome of the whole 22-03 cancellation feature depends on this id being the right one. If it is the local rowid, every active cancellation reports failure against slskd while the local DB says cancelled \u2014 the worst split-brain state for this feature, and the one the user will hit on first real use.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        return []",
+            "",
+            "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+            "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+            "        encoded_username = quote(username, safe=\"\")"
+          ],
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "d53e83bf3dded23c4f58b41c1ebe2dea8128b78fb7aa07005e80ef44a10bc9a7",
+          "status": "new"
+        },
+        {
+          "agent": "impact",
+          "id": "impact-002",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses widening silently changes 202/204 semantics for existing callers if ever passed, and 404 is treated as a hard failure for an idempotent DELETE",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 82,
+          "in_diff": true,
+          "intent_doc_match": "match",
+          "problem": "The `success_statuses` parameter is keyword-only with a None default and `expected_statuses = success_statuses or {200, 201}` preserves the prior behavior exactly for enqueue_download and get_user_downloads \u2014 so this is a backward-compatible widening, not a break. Two secondary notes worth recording: (a) `success_statuses or {...}` falls back to the default when an EMPTY set is passed rather than rejecting every status; that is almost certainly never intended by a caller but is a silent-wrong-behavior trap if someone later computes the set dynamically. (b) cancel_download accepts {200,202,204} but not 404. For a DELETE, 404 is the natural 'already cancelled / already completed' response, and the acquisition cancel path is inherently racy \u2014 the transfer can complete between the operator's click and the DELETE. Treating that as TransferEnqueueError(reason='unavailable') means a benign race is reported to the operator as a cancellation failure. Note also that this client is deliberately outside the search-only guard (tests/test_transfer.py:388 asserts transfer.py must NOT reference assert_search_only_operation), so widening the accepted-status set here adds no new dry-run safety exposure \u2014 the DELETE verb is newly reachable, but that surface was already unguarded by design.",
+          "current_code": "        expected_statuses = success_statuses or {200, 201}\n        if response.status_code not in expected_statuses:",
+          "fix_hint": "Use `success_statuses if success_statuses is not None else {200, 201}`, and consider including 404 in cancel_download's accepted set (returning {}) so an already-gone transfer reads as idempotent success.",
+          "why_it_matters": "Neither is a break today, but the 404 handling determines whether a routine cancel/complete race surfaces to the operator as a spurious error once the caller is wired in the next 22-03 step.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "orchestrator_score": 82,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "22da697bb9a78f221f9329997bec3df99b3be85f234266f52e2ce87f6208afc6",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": null,
+          "reason": "intent-doc-match"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "Possible missing authorization check on cancel_download (IDOR) \u2014 caller not visible in diff",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Empty success_statuses set silently falls back to {200, 201}",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download reports 404 (already-gone transfer) as reason \"unavailable\"",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
