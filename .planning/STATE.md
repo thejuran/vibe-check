@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-status: executing
-stopped_at: Completed 38-05-PLAN.md
-last_updated: "2026-09-08T20:55:43.099Z"
-last_activity: 2026-09-08 -- Phase 38 execution started
+status: planning
+stopped_at: Completed 38-06-PLAN.md — Phase 38 COMPLETE (6/6 plans)
+last_updated: "2026-09-08T21:07:53.537Z"
+last_activity: 2026-09-08 -- Phase 38 COMPLETE (38-06 RESULTS-v2.10 + phase-exit verification)
 progress:
   total_phases: 16
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
-  completed_plans: 5
-  percent: 0
+  completed_plans: 6
+  percent: 6
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 
 ## Current Position
 
-Phase: 38 (grow-the-b3-set-claude-5-baseline) — EXECUTING
-Plan: 2 of 6
-Status: Executing Phase 38
-Progress: [████████░░] 83%
-Last activity: 2026-09-08 -- Phase 38 execution started
+Phase: 38 (grow-the-b3-set-claude-5-baseline) — COMPLETE
+Plan: 6 of 6 (all plans complete)
+Status: Phase 38 complete — ready to plan Phase 40 (Phase 39 dissolved 2026-09-05)
+Progress: [██████████] 100%
+Last activity: 2026-09-08 -- Phase 38 COMPLETE (38-06 RESULTS-v2.10 + phase-exit verification)
 
 ## Performance Metrics
 
@@ -78,6 +78,7 @@ Last activity: 2026-09-08 -- Phase 38 execution started
 | Phase 38 P03 | 10min | 3 tasks | 14 files |
 | Phase 38 P04 | 16min | 2 tasks | 4 files |
 | Phase 38 P05 | 41min | 3 tasks | 1 files |
+| Phase 38 P06 | 12min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,9 @@ Earlier decisions (v2.8) still on record:
 - [Phase 38]: 38-04: settings-form-split band floor = warning (correctness/data-loss — silent loss of saved settings is action-bar, not the v2.9 medium display-nit precedent); session-rotation = warning (security)
 - [Phase 38]: 38-05: SET-03 BASELINE MEASURED — full-set catch 15/15, FP 19/21 over the sealed denominators (15/21/36), 36/36 runs scoreable, zero holes, no waiver. Carried-6 re-measure vs v2.9: catch 8/9 -> 9/9, FP 6/9 -> 9/9 (should-quiet-2 moved 0/3 -> 3/3 FP; autoescape's right-site-wrong-axis miss did not recur) — Scored from state.passes[-1].findings[] against both sealed key blobs (carried ef0ab67, new 5f687d9) after a 9-gate fail-closed ladder: pinned byte-exact seal verifier, dual digests, ancestry, sidecar seal gate, sealed v2.9 tree byte-identical, isolation grid, security spot-check, and commit-anchored pin-matched pre-run-ordered fingerprint provenance across all 36 runs under ONE harness tuple (2.1.261 / codex-cli 0.153.4 / fable 5.1). Worksheet: docs/design/b3-ground-truth/SCORING-v2.10.md (1180b15)
 - [Phase 38]: 38-05: codex participation is inferred from findings[].agent == codex-adversarial, never the pass-level record — The pass-level codex record is schema-nondeterministic across passes of the same shipped command: >=6 shapes observed (codex_joined bool; codex object with joined/status x verdict x findings x cross_confirmed; a plain string; and outright ABSENCE with a codex-adversarial finding present). Also two pass-timestamp formats and one empty finding title. Phase 40 orchestration-rewrite input; recorded in SCORING-v2.10 §6 and 38-06 limitations
+- [Phase 38]: 38-06: RESULTS-v2.10.md PUBLISHED (0ec7208, 284 lines) — the milestone's single append-structured results doc (D-07). Full-set Claude-5 baseline catch 15/15, FP 19/21 over the sealed denominators; the family-conditional "## The Claude 5 re-measure (Fable 5) — v2.9 vs Claude 5, carried 6 only" section pairs v2.9's 8/9 catch / 6/9 FP against 9/9 / 9/9 on the identical carried six and identical unchanged plugin. Every number transcribed from SCORING-v2.10.md §5, never re-derived. Sealed pass bar quoted with implied literal targets and explicitly NOT evaluated (Phase 43's job). Phases 41/43 append to this same file. — SET-03's write-up half / ROADMAP success criterion 4; T-38-19 (report/worksheet divergence) mitigated by transcription-only + spot-check; T-38-21 (premature pass-bar evaluation) mitigated by explicit deferral.
+- [Phase 38]: 38-06: CHECKPOINT RESOLVED — Option 1: both Task-2 plan-literal mismatches accepted as RECORDED DEVIATIONS; nothing patched, reverted, or moved to force a literal to pass. (a) The plugin-freeze gate is RE-STATED at its intent — "every plugins/vibe-check/ delta vs v2.9 is status A and confined to non-executable docs/efficacy/, with the executable/prompt surface byte-identical" — because the plan's literal one-A-line assertion is not what was executed: there are TWO A lines, the second being ULTRAREVIEW-SHADOW.md (999.18 status doc, added 9d565f3 / updated 5d2173a, both after SEAL1). T-38-20's threat is unrealized: score.py f3bbaae, test_score.py 7a86600, config.py f9d7ad5, review.md dd71d4f, deep-review.md 4eee361 all byte-identical to v2.9; the diff excluding docs/efficacy/ is empty; all 12 fingerprints record cache-root .../vibe-check/2.9.0 so no repo-side doc reached a run. (b) Check 5 RE-POINTED from the non-existent plugins/vibe-check/README.md to the repo-root README.md — which contains zero RESULTS-v2.10 references and still cites 8/9 - 6/9 linking RESULTS-v2.9.md (D-07 held; the repoint is Phase 44's). — Forcing the literals would have required deleting or rewriting history for a non-executable status doc that cannot affect a review — a worse integrity outcome than an honest deviation record. The composite PHASE-38-EXIT-OK string was NOT emitted; every individual gate it composes passed and is recorded verbatim.
+- [Phase 38]: 38-06: PHASE 38 EXIT PROVEN — manifest FINAL at 2 commits (SEAL1 4c67283, SEAL2 633f1dd); pinned canonical verifier (a407539 / 7be8ed39...75daaf) live-digest-matched, single-commit asserted, executed from its introducing-commit blob returning SEAL2-APPEND-WHITELIST-OK; v2.9 sealed docs+runs untouched (exit 0); diffs/ 14 lines all status A, non-A count 0; KIT-BLOB-EQUALITY-OK 15 v2.9 kit paths byte-equal at HEAD; NEW-KIT-SEAL-OK 14 new kit paths single-introducing-commit with all 12 sealed sha256(diffs/...) digests matching HEAD blobs (key blob 5f687d9); working tree clean. Baseline + sealed manifest are committed — Phases 40+ UNBLOCKED (Phase 39 dissolved). ADVISORY: ULTRAREVIEW-SHADOW.md has TWO introducing commits, so it would fail the one-introducing-commit rule if that rule were ever extended from diffs/ to plugins/vibe-check/docs/efficacy/. — T-38-25 (seal rewrite / weakened verifier) and T-38-26 (sealed kits removed, renamed, type-changed, or rewritten post-addition) both mitigated status-letter-complete in both directions.
 
 ### Pending Todos
 
@@ -201,13 +205,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T20:55:32.169Z
+Last session: 2026-09-08T21:07:45.781Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Completed 38-05-PLAN.md
+Stopped at: Completed 38-06-PLAN.md — Phase 38 COMPLETE (6/6 plans)
 
 Load-bearing sequencing notes for whoever plans next:
 
@@ -234,6 +238,19 @@ Load-bearing sequencing notes for whoever plans next:
 
 ## Operator Next Steps
 
-- Phase 38 is EXECUTING (4/6 plans). Next: the OWNER drives the 36 baseline runs (WAIT 1: carried 6 ×3; WAIT 2: new 6 ×3) per `docs/design/b3-ground-truth/RUN-CHECKLIST-v2.10.md` — fix the session model explicitly first (see Blockers/Concerns). Then 38-05 (score from state) and 38-06 (RESULTS-v2.10 baseline + Opus 5 re-measure).
-- After Phase 38 closes: plan Phase 40 directly (`/gsd:plan-phase 40`) — Phase 39 was dissolved 2026-09-05; Phase 40 now carries DIET-01..04 + TRUST-01/02 (run the `${CLAUDE_PLUGIN_ROOT}` spike first).
-- Re-scope record: ROADMAP.md v2.10 header note (2026-09-05) + REQUIREMENTS.md (21 active, COMPAT-02 withdrawn) + PROJECT.md Key Decisions.
+- **Phase 38 is COMPLETE (6/6 plans).** The Claude-5 baseline is measured, published, and its exit
+  integrity proven: `plugins/vibe-check/docs/efficacy/RESULTS-v2.10.md` (0ec7208) states full-set
+  catch 15/15 · FP 19/21 and the family-conditional "Claude 5 re-measure (Fable 5)" section
+  (carried-6: v2.9 8/9 · 6/9 → Claude-5 9/9 · 9/9). Nothing in Phases 40+ was blocked by it any longer.
+- Next: plan Phase 40 directly (`/gsd:plan-phase 40`) — Phase 39 was dissolved 2026-09-05. Phase 40
+  carries DIET-01..04 + TRUST-01/02; **run the `${CLAUDE_PLUGIN_ROOT}` spike first** (see
+  Blockers/Concerns).
+- The **sealed pass bar is NOT evaluated** — Phase 43 evaluates it against this baseline per the
+  sealed decision rule in PREREGISTRATION-v2.10.md. The **README repoint** (still publishing 8/9 · 6/9
+  → RESULTS-v2.9.md) is **Phase 44's**. Phases 41/43 **append** to RESULTS-v2.10.md — do not create a
+  RESULTS-v2.11 (D-07).
+- The harness freeze (Claude Code 2.1.261 + `DISABLE_AUTOUPDATER=1`, codex-cli 0.153.4, vibe-check
+  2.9.0 cache) is no longer load-bearing for correctness — scoring reads the committed archive — but
+  38-06 did not lift it.
+- Re-scope record: ROADMAP.md v2.10 header note (2026-09-05) + REQUIREMENTS.md (21 active, COMPAT-02
+  withdrawn) + PROJECT.md Key Decisions.

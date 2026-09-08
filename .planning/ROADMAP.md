@@ -156,7 +156,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 
 ## v2.10 Opus 5 rebuild + quiet down (Phases 38, 40-44) — IN PROGRESS
 
-- [ ] **Phase 38: Grow the B3 set + Claude-5 baseline** — Grow the committed organic test set 6 → 10–12 diffs (sealed keys, provenance sidecars), pre-register the pass bar + decision rule, and baseline every diff ×3 on the UNCHANGED v2.9.0 plugin running on the current Claude 5 harness (dual duty: the Opus 5 re-measure)
+- [x] **Phase 38: Grow the B3 set + Claude-5 baseline** — Grow the committed organic test set 6 → 10–12 diffs (sealed keys, provenance sidecars), pre-register the pass bar + decision rule, and baseline every diff ×3 on the UNCHANGED v2.9.0 plugin running on the current Claude 5 harness (dual duty: the Opus 5 re-measure) (completed 2026-09-08)
 - [ ] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify (verify-only) the Phase 4.5→5 single-writer property (999.8), move every executable helper to trusted-plugin-root resolution + pre-edit path validation in the fix agent (TRUST-01/02), correct the cost anchors to the current model lineup — each batch guardrailed by a CAPPED B3 spot-check, full ×3 once at phase end
 - [ ] **Phase 41: Wave 1 — scorer-side noise interventions** — Lift the scoring-formula freeze (Wave-1-scoped): B-SEV severity stability, B-REWEIGHT per-agent confidence calibration, H-LANE pile-on collapse — tuned offline via a zero-catch-regression replay harness on POST-DIET run data, then confirmed by a live spot-check
 - [ ] **Phase 42: Wave 2 — agent-side noise interventions** — Prompt-only H-CORE: safe-change recognition + confidence ceilings on the loud lanes (bugs, security, impact, codex contract), with the real B3 false alarms baked in as never-flag classes
@@ -184,7 +184,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
   3. Every diff — new AND carried-over — has an owner-driven ×3 pre-change baseline recorded on the unchanged v2.9.0 plugin on the current Claude 5 harness, captured under installed-cache parity pre-flight and the v2.9 state-isolation gates (fresh state, `len(passes)==1`, full-worktree tree-diff equality)
   4. That same baseline is written up as the Opus 5 re-measure: the v2.9-vs-Claude-5 catch/FP comparison on the identical unchanged plugin is stated explicitly, so the model-generation shift is separated from every later intervention
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -206,7 +206,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 38-06-PLAN.md — RESULTS-v2.10.md baseline + explicit Opus 5 re-measure (v2.9 8/9 · 6/9 vs Claude-5 on the carried 6) + phase-exit integrity checks
+- [x] 38-06-PLAN.md — RESULTS-v2.10.md baseline + explicit Opus 5 re-measure (v2.9 8/9 · 6/9 vs Claude-5 on the carried 6) + phase-exit integrity checks
 
 > **Owner-runtime**: the ×3 baseline runs are `/deep-review` invocations the OWNER drives — the assistant cannot invoke them. The phase delivers the run-checklist with exact commands; runs are resumable across days.
 
@@ -330,7 +330,7 @@ Plans:
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
 | 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete | 2026-07-05 |
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
-| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 5/6 | In Progress|  |
+| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete   | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 0/? | Not started | - |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
