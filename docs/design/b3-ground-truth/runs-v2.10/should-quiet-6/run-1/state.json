@@ -1,0 +1,107 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "9bfd4a63dcac983a544a651d53d76612d08a4933",
+      "timestamp": "2026-09-08T18:33:44Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted changes vs HEAD 9bfd4a6)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "findings": 1,
+        "cross_confirmed": 0
+      },
+      "findings": [
+        {
+          "id": "impact-01",
+          "file": "triggarr/web/routes.py",
+          "line": 540,
+          "title": "Settings POST whitelist omits shutdown_drain_timeout \u2014 any settings save silently resets an operator's configured value to 60.0",
+          "category": "blast-radius",
+          "cwe": "CWE-1188",
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": false,
+          "intent_doc_match": null,
+          "problem": "`save_settings` (routes.py:539-551) rebuilds `new_config[\"general\"]` from an explicit key-by-key whitelist, then constructs `SettingsModel(**new_config)` (routes.py:612) and persists it via `_settings_to_dict(new_settings)` \u2192 `settings.general.model_dump()` (routes.py:227) \u2192 `_atomic_toml_write` (routes.py:619). Because `shutdown_drain_timeout` is not in the whitelist, the new model gets the 60.0 default, and `model_dump()` writes that default back to triggarr.toml \u2014 silently discarding a value the operator hand-edited in TOML. Note the whitelist also carries `tracking_delay_seconds` explicitly from `current_settings` precisely to avoid this class of loss, so the pattern for preserving a non-form field already exists in this block and was not applied here. Phase plan 75-02 is scheduled to add the form input and parse wiring, so this is a transitional gap within the phase rather than a shipped defect \u2014 but it is real for anyone running the intermediate commit, and it is the concrete failure mode if the phase is halted or shipped after Wave 1. Verified by reading the POST handler, `_settings_to_dict`, and confirming GeneralConfig declares no `extra` policy that would preserve unknown keys.",
+          "current_code": "\"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),\n\"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+          "fix_hint": "Until plan 75-02 lands the form input, carry the value forward like tracking_delay_seconds does: \"shutdown_drain_timeout\": current_settings.general.shutdown_drain_timeout.",
+          "why_it_matters": "An operator who sets a longer drain to protect in-flight search cycles loses that setting the next time they touch any unrelated setting in the UI, with no error and no log line. The config file on disk is rewritten with the default, so the loss is durable, not just in-memory.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "    # Build new config dict from form data",
+            "    new_config: dict = {",
+            "        \"general\": {",
+            "            \"log_level\": safe_log_level(form.get(\"log_level\")),",
+            "            \"hard_max_per_cycle\": safe_int(form.get(\"hard_max_per_cycle\"), 0, 0, 1000),"
+          ],
+          "canonical_line_content": "        \"general\": {",
+          "orchestrator_score": 80,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "1b6a9b938bd1fe87de8115c5cb5944e2a5e65f182b00f3c162f72f09c74fe617",
+          "status": "new"
+        },
+        {
+          "id": "codex-001",
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "Wire the configured timeout into the shutdown drain",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 100,
+          "intent_doc_match": null,
+          "problem": "Setting general.shutdown_drain_timeout has no runtime effect: scheduler.py still initializes _SHUTDOWN_DRAIN_TIMEOUT from the environment with a hardcoded 60-second fallback, and shutdown uses that constant. An operator configuring a longer drain will still force-close resources after 60 seconds while a search cycle may remain active; a shorter configured timeout is likewise ignored.",
+          "why_it_matters": "An operator configuring a longer drain will still force-close resources after 60 seconds while a search cycle may remain active; a shorter configured timeout is likewise ignored.",
+          "fix_hint": "Resolve the drain timeout from the active settings at shutdown, applying the environment override with finite-value validation, and use that resolved value for the timeout and logs. Add an integration test showing a nondefault configured timeout reaches the shutdown drain.",
+          "current_code": "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+          "agent": "codex-adversarial",
+          "source_window": [
+            "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+            "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+            "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+            "    # v2.2: skip Radarr movies without past digital/physical release date",
+            "    skip_unreleased: bool = True"
+          ],
+          "canonical_line_content": "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "d888cc00169fbf2d5c2013e7de481fe2a27a4124e4b6eba6a04b9b151e037a6c",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 135,
+          "title": "Field comment documents a precedence chain whose other two links do not exist yet",
+          "reason": "intent-doc-match"
+        },
+        {
+          "file": "triggarr/config.py",
+          "line": 35,
+          "title": "DEFAULT_CONFIG commented template not updated with the new shutdown_drain_timeout knob",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
