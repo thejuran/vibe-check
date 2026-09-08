@@ -348,3 +348,9 @@ cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.
 - triggarr-settings-form-split run 1 (2026-09-07, capture 4f127ba, triggarr session fingerprint 155cff0): expected key triggarr-.json (no drift). Pass summary (verbatim from state.json): ts: 2026-09-08T02:58:14Z | codex_joined=true | agents_run: ['bugs', 'security', 'architecture', 'impact', 'test-sufficiency', 'compliance'] | findings: 11 | bands: {'critical': 10, 'warning': 1} | by agent: {'bugs': 5, 'security': 1, 'architecture': 1, 'impact': 3, 'codex-adversarial': 1}. CLEARED 2026-09-07T22:45:34-0400.
 - triggarr-settings-form-split run 2 (2026-09-07, capture 916ab5c, triggarr session fingerprint 155cff0): expected key triggarr-.json (no drift). Pass summary (verbatim from state.json): ts: 2026-09-08T03:12:31Z | codex_joined=true | agents_run: ['bugs', 'security', 'architecture', 'impact', 'test-sufficiency', 'compliance'] | findings: 12 | bands: {'critical': 10, 'medium': 1, 'warning': 1} | by agent: {'architecture': 3, 'bugs': 3, 'compliance': 1, 'impact': 3, 'security': 1, 'codex-adversarial': 1}. CLEARED 2026-09-07T23:00:20-0400.
 - **PAUSE 2026-09-07 23:15 local (owner choice at a clean run boundary): 23/36 runs captured** — part A 18/18 complete; triggarr-session-rotation 3/3; triggarr-settings-form-split 2/3 IN PROGRESS (run 3 next). `~/triggarr` left detached at 542d5dd with the patch applied, sentinel present, uv.lock uchg, no state JSON. Resume procedure: `RESUME-MONDAY.md` (rewritten this commit series). Session-start rule adopted today (N-09): the assistant verifies a live `claude` process whose cwd is the source clone before STEP 0.25 and before every pre-run.
+
+## Harness fingerprint — 2026-09-08T12:39:46-0400
+claude-code: 2.1.261 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
