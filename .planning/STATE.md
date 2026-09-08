@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-status: ready_to_plan
-stopped_at: Phase 38 complete (6/6) — ready to discuss Phase 40
-last_updated: 2026-09-08T21:14:56.917Z
-last_activity: 2026-09-08 -- Phase 38 COMPLETE (38-06 RESULTS-v2.10 + phase-exit verification)
+status: planning
+stopped_at: Phase 40 context gathered
+last_updated: "2026-09-08T22:31:16.384Z"
+last_activity: 2026-09-08
 progress:
   total_phases: 16
   completed_phases: 1
@@ -206,13 +206,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T21:07:45.781Z
+Last session: 2026-09-08T22:31:16.377Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Completed 38-06-PLAN.md — Phase 38 COMPLETE (6/6 plans)
+Stopped at: Phase 40 context gathered
 
 Load-bearing sequencing notes for whoever plans next:
 
@@ -243,15 +243,19 @@ Load-bearing sequencing notes for whoever plans next:
   integrity proven: `plugins/vibe-check/docs/efficacy/RESULTS-v2.10.md` (0ec7208) states full-set
   catch 15/15 · FP 19/21 and the family-conditional "Claude 5 re-measure (Fable 5)" section
   (carried-6: v2.9 8/9 · 6/9 → Claude-5 9/9 · 9/9). Nothing in Phases 40+ was blocked by it any longer.
+
 - Next: plan Phase 40 directly (`/gsd:plan-phase 40`) — Phase 39 was dissolved 2026-09-05. Phase 40
   carries DIET-01..04 + TRUST-01/02; **run the `${CLAUDE_PLUGIN_ROOT}` spike first** (see
   Blockers/Concerns).
+
 - The **sealed pass bar is NOT evaluated** — Phase 43 evaluates it against this baseline per the
   sealed decision rule in PREREGISTRATION-v2.10.md. The **README repoint** (still publishing 8/9 · 6/9
   → RESULTS-v2.9.md) is **Phase 44's**. Phases 41/43 **append** to RESULTS-v2.10.md — do not create a
   RESULTS-v2.11 (D-07).
+
 - The harness freeze (Claude Code 2.1.261 + `DISABLE_AUTOUPDATER=1`, codex-cli 0.153.4, vibe-check
   2.9.0 cache) is no longer load-bearing for correctness — scoring reads the committed archive — but
   38-06 did not lift it.
+
 - Re-scope record: ROADMAP.md v2.10 header note (2026-09-05) + REQUIREMENTS.md (21 active, COMPAT-02
   withdrawn) + PROJECT.md Key Decisions.
