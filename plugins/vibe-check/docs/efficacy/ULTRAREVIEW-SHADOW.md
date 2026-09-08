@@ -1,9 +1,10 @@
 # Ultrareview shadow pass — capture template
 
 > **Status:** SCAFFOLDING ONLY — no runs recorded. Backlog **999.18**.
-> **Do not run this while a measured baseline window is open.** As of 2026-09-07 the
-> v2.10 Phase-38 baseline is paused at 10/36 owner runs; this pass competes for the same
-> owner-run budget and must wait until Phase 44 ships or a no-baseline gap opens.
+> **Do not run this while a measured baseline window is open.** As of 2026-09-08 the
+> v2.10 Phase-38 baseline is COMPLETE (36/36 runs committed), so a no-baseline gap is open
+> until Phase 43's re-measure begins; this pass competes for the same owner-run budget, so
+> run it in that gap or after Phase 44 ships — never while Phase 43 runs are in flight.
 
 ## What this is
 
