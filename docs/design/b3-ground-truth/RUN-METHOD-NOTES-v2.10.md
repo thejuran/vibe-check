@@ -373,3 +373,4 @@ claude-code: 2.1.261 (Claude Code)
 model: Fable 5.1
 codex: codex-cli 0.153.4
 cache-root: /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.9.0
+- should-quiet-6 run 1 (2026-09-08, capture 84cf49f, triggarr session fingerprint 0108fd4): expected key triggarr-.json (no drift). Pass summary (verbatim from state.json): ts: 2026-09-08T18:33:44Z | codex={"joined": true, "findings": 1, "cross_confirmed": 0} | agents_run: ['bugs', 'security', 'architecture', 'impact', 'test-sufficiency', 'compliance', 'language-python'] | findings: 2 | bands: {'warning': 1, 'critical': 1} | by agent: {'impact': 1, 'codex-adversarial': 1}. CLEARED 2026-09-08T14:10:42-0400.
