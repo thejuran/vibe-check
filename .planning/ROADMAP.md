@@ -330,7 +330,7 @@ Plans:
 | 35. Make v2.8 whole | v2.9 | 2/2 | Complete   | 2026-07-02 |
 | 36. B3 — first measured quality numbers | v2.9 | 3/3 | Complete | 2026-07-05 |
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
-| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete   | 2026-09-08 |
+| 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 0/? | Not started | - |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |

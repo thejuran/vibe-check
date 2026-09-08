@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-status: planning
-stopped_at: Completed 38-06-PLAN.md — Phase 38 COMPLETE (6/6 plans)
-last_updated: "2026-09-08T21:07:53.537Z"
+status: ready_to_plan
+stopped_at: Phase 38 complete (6/6) — ready to discuss Phase 40
+last_updated: 2026-09-08T21:14:56.917Z
 last_activity: 2026-09-08 -- Phase 38 COMPLETE (38-06 RESULTS-v2.10 + phase-exit verification)
 progress:
   total_phases: 16
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 38 — grow-the-b3-set-claude-5-baseline
+**Current focus:** Phase 40 — prose diet — restructure for opus 5
 
 ## Current Position
 
-Phase: 38 (grow-the-b3-set-claude-5-baseline) — COMPLETE
-Plan: 6 of 6 (all plans complete)
-Status: Phase 38 complete — ready to plan Phase 40 (Phase 39 dissolved 2026-09-05)
+Phase: 40
+Plan: Not started
+Status: Ready to plan
 Progress: [██████████] 100%
-Last activity: 2026-09-08 -- Phase 38 COMPLETE (38-06 RESULTS-v2.10 + phase-exit verification)
+Last activity: 2026-09-08
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Last activity: 2026-09-08 -- Phase 38 COMPLETE (38-06 RESULTS-v2.10 + phase-exit
 | 24 | 1 | - | - |
 | 36 | 3 | - | - |
 | 37 | 1 | - | - |
+| 38 | 6 | - | - |
 
 **Recent Trend:**
 
