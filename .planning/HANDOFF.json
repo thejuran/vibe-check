@@ -1,106 +1,278 @@
 {
   "version": "1.0",
-  "timestamp": "2026-09-08T20:33:35.590Z",
-  "phase": "38",
-  "phase_name": "grow-the-b3-set-claude-5-baseline",
-  "phase_dir": ".planning/phases/38-grow-the-b3-set-claude-5-baseline",
-  "plan": 5,
-  "task": 2,
-  "total_tasks": 3,
-  "status": "paused",
-  "orchestrator": "julian-orchestrator:milestone",
-  "branch": "feat/v2.9",
-  "completed_tasks": [
+  "timestamp": "2026-09-08T21:14:57.112Z",
+  "source": "auto-postool",
+  "partial": true,
+  "phase": "40",
+  "phase_name": null,
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "auto-checkpoint",
+  "completed_tasks": [],
+  "remaining_tasks": [],
+  "blockers": [
     {
-      "id": "38-01",
-      "name": "Seal-1 + kit foundations",
-      "status": "done",
-      "commit": "4c67283"
+      "description": "[Phase 35] The 33-02 plan is codex-APPROVED and frozen but NEEDS REBASING before execution — the Fable remediation edited the same review.md/deep-review.md regions (Phase 0 `$GUARD_PY` resolution near the `$SCOPE_ARGS` normalizer sites; Phase 0.6 `--min-confidence` parse prose). Do NOT blind-resume the old Phase-33 orchestrator resume files; the rebased plan must re-pass the codex adversarial gate.",
+      "type": "technical",
+      "workaround": ""
     },
     {
-      "id": "38-02",
-      "name": "Harness pin + part-A checklist + pinned seal verifier",
-      "status": "done",
-      "commit": "6d8c2af"
+      "description": "[Phase 35] WIRING BEFORE PROOFS: execute 33-02 first, THEN run the v2.8 smoke proofs — the codex-announce proof must test the real wiring, not the inert v2.8 state (D-04).",
+      "type": "technical",
+      "workaround": ""
     },
     {
-      "id": "38-03",
-      "name": "6 new diff kits (12 diffs: 5 catch / 7 quiet)",
-      "status": "done",
-      "commit": "ccf887c"
+      "description": "[Phase 36] B3 needs OWNER RUNTIME (~15–18 `/deep-review` runs; the skill is user-triggered — the assistant cannot run it). The phase delivers a run-checklist with exact commands; runs are resumable and spreadable across days.",
+      "type": "technical",
+      "workaround": ""
     },
     {
-      "id": "38-04",
-      "name": "ANSWER-KEY-v2.10 + seal-2 + part-B checklist",
-      "status": "done",
-      "commit": "debe57a"
+      "description": "[Phases 35/36] Stale installed-plugin cache poisons dogfood/smoke runs (recurred in 4 of the last 5 milestones) — pre-flight: installed version must equal repo `plugin.json` before any run.",
+      "type": "technical",
+      "workaround": ""
     },
     {
-      "id": "38-05/T1",
-      "name": "OWNER completes the x3 baseline runs for every diff (WAIT 1 + WAIT 2)",
-      "status": "done",
-      "commit": "106d8fa",
-      "note": "36/36 run dirs committed 2026-09-05..2026-09-08 (last capture 106d8fa); every dir holds exactly clear.txt/session.txt/state.json/tree.diff/tree.diff.sha256; all clones restored to main; sealed v2.9 runs/ == tag v2.9. Runs 11-36 were assistant-driven via ~/.b3/b3 at owner direction (see RUN-METHOD-NOTES driver-deviation line)."
+      "description": "[Phase 37] The v2.8 evidence debt needs NO separate retroactive audit — it became v2.9 requirements (Phase 35), so the v2.9 milestone audit covers it.",
+      "type": "technical",
+      "workaround": ""
+    },
+    {
+      "description": "[Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.",
+      "type": "technical",
+      "workaround": ""
+    },
+    {
+      "description": "[Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.",
+      "type": "technical",
+      "workaround": ""
     }
   ],
-  "remaining_tasks": [
-    {
-      "id": "38-05/T2",
-      "name": "Run the full integrity gate ladder over the two-seal manifest and the runs-v2.10 archive",
-      "status": "not_started"
-    },
-    {
-      "id": "38-05/T3",
-      "name": "Score every run against its governing blob and write SCORING-v2.10.md",
-      "status": "not_started"
-    },
-    {
-      "id": "38-06/T1",
-      "name": "Author and commit RESULTS-v2.10.md baseline + family-conditional Claude 5 re-measure section",
-      "status": "not_started"
-    },
-    {
-      "id": "38-06/T2",
-      "name": "Phase-final integrity verification (seals, frozen surfaces, v2.9 artifacts)",
-      "status": "not_started"
-    }
-  ],
-  "blockers": [],
-  "human_actions_pending": [
-    {
-      "action": "Keep the harness freeze (Claude Code 2.1.261 symlink + DISABLE_AUTOUPDATER=1, codex-cli 0.153.4, vibe-check 2.9.0 cache) until 38-05 has read every archived state file",
-      "context": "scoring reads the committed archive, so lifting the freeze afterwards is safe; lifting it before is a method-notes deviation",
-      "blocking": false
-    },
-    {
-      "action": "Close the leftover source-repo Claude Code windows (~/triggarr, ~/seedsyncarr) if still open",
-      "context": "no run is in flight; cosmetic",
-      "blocking": false
-    }
-  ],
+  "human_actions_pending": [],
   "decisions": [
     {
-      "decision": "Assistant drives the guide session (all checklist blocks via ~/.b3/b3); owner performs only session launch, /model, /clear, /deep-review, fix-loop decline",
-      "rationale": "owner directive 2026-09-07; blocks are fence-validated byte-exact; 38-05 Task 2 gate ladder is the independent artifact check",
-      "phase": "38"
+      "decision": "v2.9 = 3 SEQUENTIAL phases (35 → 36 → 37) continuing numbering from v2.8's Phase 34. Goal: finish",
+      "rationale": "",
+      "phase": "40"
     },
     {
-      "decision": "State-key drift (<repo>-HEAD.json / <repo>-main.json) captured via the recorded one-line STATE_FILE substitution with both block sha256s logged (N-06/N-07/N-10); never re-run, never hand-edit archives",
-      "rationale": "tool-side nondeterminism of the measured command on detached checkouts; the reviewed tree/HEAD/diff are provably identical",
-      "phase": "38"
+      "decision": "D-01: branch base is `main`; work on new branch `feat/v2.9`; the old `feat/framework-skill-reviewer`",
+      "rationale": "",
+      "phase": "40"
     },
     {
-      "decision": "Fingerprint attested before a source session existed (N-09) left as recorded, with a correction note and a new session-start rule (verify a live claude process in the clone before attesting)",
-      "rationale": "harness tuple was probed from the machine and the model value was confirmed post-launch; no run affected; append-only ledger",
-      "phase": "38"
+      "decision": "D-02: version 2.9.0, not 2.8.1 — `--codex` is a new user-facing capability and the milestone adds a",
+      "rationale": "",
+      "phase": "40"
     },
     {
-      "decision": "Ultrareview shadow pass (backlog 999.18) may run in the now-open no-baseline gap before Phase 43",
-      "rationale": "changes no plugin code; only competes for owner-run budget",
-      "phase": "38"
+      "decision": "D-03: B3 sourcing stays ORGANIC-ONLY (no vibe-check-found bugs — no circular self-testing) and the",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "D-04: WIRING BEFORE PROOFS inside Phase 35 — the frozen 33-02 orchestrator wiring lands first so the",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "D-05: scorer design challenges (H-CORE/H-DUP/H-LANE/B-SEV/B-XCONF/B-PROX/B-REWEIGHT) stay OUT of",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 35 rebases the frozen 33-02 plan (archived at",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 36 resumes `docs/design/b3-ground-truth/B3-STATUS.md`: build the run-kit (3rd should-catch diff",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Recurring-risk pre-flight (Phases 35 + 36): the installed-plugin cache must equal repo `plugin.json`",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "v2.8 spine: a repo-level `.vibe-check.toml` **config surface** was the milestone's vehicle; the noise controls were its first consumers. Phase 30 built the reader/precedence/fail-safe; Phases 31-33 plugged knobs into it. SHIPPED early-manual-close 2026-07-01 (Phases 30–32 full, 33-01 only, Phase 34 superseded).",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phases grouped by **enforcement boundary**: script-enforced knobs (`min_confidence`, `idiom_floor`, `thresholds`, `vibe-ignore`) land in `score.py` via envelope keys; orchestrator-enforced knobs (`disabled` agents, `top_model`, `codex`, the fix-loop label) act in dispatch/prose.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "**The scoring FORMULA stays untouched**: `min_confidence` *filters before scoring*, `thresholds` *parameterize* existing cutoffs, `idiom_floor` *caps* an existing category — no re-weighting. Re-deriving `agent_confidence` is explicitly out of scope.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Load-bearing invariant: a missing/malformed/partial config degrades **per-key** to its built-in default with a warning and **never breaks a review** — zero-config back-compat == v2.7 behavior.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Precedence is **CLI flag > `.vibe-check.toml` > built-in default**, resolved per knob by the orchestrator before passing into the envelope (script-enforced) or acting directly (orchestrator-enforced).",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 30 P01: config.py is the never-raise .vibe-check.toml I/O boundary (load_config -> (values,warnings)); inverts score.py's fail-closed posture — degrades per-key to defaults, __main__ exits 0 always (CONFIG-03).",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 30 P01: D-02 thresholds schema LOCKED — {critical,warning,medium} non-bool ints in [1,100], strictly descending, medium>=70, whole-set fallback to None; two ordered pre-parse DoS guards (regular-file BEFORE 1-MiB cap).",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 30 P02: band_for parameterized to band_for(score, thresholds=None); default path byte-identical, GOLDEN_DIGEST unchanged.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 32-01: idiom_floor cap ACTIVE by default at medium (A1); explicit off/none returns the literal 'off' sentinel (NOT None) end-to-end so absent != off is provable at the scorer; malformed fails SAFE to medium.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "Phase 32-02: vibe-ignore reasoned marker (within +/-2) rides the existing -50 silenced path; bare marker does NOT suppress but emits ONE synthetic low 'suppression' finding per bare occurrence.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 35]: 35-01: --min-confidence folded into the Phase-0 $SCOPE_ARGS normalizer alongside --codex — Shared parse-timing bug; the normalizer ADDS GSD/PR/range reach + fixes the --all narrow-parse mis-read, never changes byte-correct diff/--all behavior",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 35]: 35-01: HIGH-B MOVE-SMOKE-INTO-2c — BashOutput smoke gate relocated inside the launch guard — So a non-launching Codex never hard-blocks the native review (SAFE-01/SAFE-02); Phase 2b header repurposed to a pointer, not deleted",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 35]: 35-01: rebase discipline held (D-06) — Executed diff deviates from frozen 33-02 ONLY by re-anchored line numbers + the one bare-all alias composition sentence; no design change",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-01: third organic should-catch = seedsyncarr 879266c (unclamped >100% progress); dashboard 052845e excluded per D-12 (DR3m-01 regex hit)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-01: should-quiet picks owner-confirmed (confirm-all): triggarr 1a8c9f9, seedsyncarr 3c27e17, roonseek 2a6bbd9; 355c57f rejected by the line-survival gate",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-01: answer key pre-registered at ANSWER_KEY_COMMIT ef0ab67 with digest in the separate PREREGISTRATION.md manifest (key blob never contains its own hash)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-02: owner drove /deep-review N=3 across all 6 diffs — 18/18 SCOREABLE runs committed + verified (len(passes)==1, head_sha==base_sha, tree.diff.sha256==kit EXPECTED value); pre-registration ordering intact (ANSWER_KEY_COMMIT ef0ab67 ancestor of HEAD, committed-blob digest == PREREGISTRATION.md ANSWER_KEY_SHA256, manifest touched once at cca63e2 strictly before first runs/ commit eca98ec)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-02: D-06 exercised — should-quiet-1 run-2 captured, marked unscoreable, repeated (2 archived run-2.failed-* dirs; N-01/N-04 uv.lock mid-review rewrites → chflags immutable-flag prevention @ 4eff2aa); every diff has exactly 3 scoreable runs, no holes",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-02: Codex outcome recorded honestly from state attribution — codex-adversarial finding present in 16/18 runs; should-quiet-2 produced 0 findings all 3 runs (nothing to attribute, NOT skip evidence); should-quiet-3 run-1 had Codex in agents_run but no surviving codex-attributed finding. Runs measured shipped codex=auto (no --codex forcing)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-03: FIRST measured numbers — catch-rate 8/9, FP-rate 6/9 (exact fractions D-09, FULL 9+9 pre-registered denominators, 18/18 scoreable, zero holes, no owner waiver). Scored from state.passes[-1].findings[] vs the committed key blob at ef0ab67 (score-from-blob gate: MANIFEST_COMMIT cca63e2 ordering proven, digest match, ancestry, runs/-clean + descent, per-diff FULL-worktree tree.diff consistency); score.py/test_score.py/config.py byte-frozen; pytest 356+221 green",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-03: autoescape run-1 = the pre-registered right-site-wrong-axis MISS (detected-below-threshold) — SITE ok but fleet named deprecation/breaks-startup, one finding explicitly \"NOT an XSS regression\"; runs 2-3 named XSS/autoescape → 2/3. should-quiet-2 clean 0/3; should-quiet-1 + -3 = 3/3 FP each. Codex contributed all 8 catches (codex=auto)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 36]: 36-03: D-11 verdict = PROCEED on H-CORE/H-LANE/B-SEV/B-REWEIGHT (FP + axis-stability challenges this run implicates; should-quiet FPs are agent-self-sufficient not +10-cross-confirm-rescued → H-CORE/H-LANE not primarily H-DUP/B-XCONF) AND grow the committed set next milestone (N=3 coarse). Input to next-milestone B3-gated-challenge scoping, NOT an in-phase scorer change (formula frozen). Report appended to RESULTS-v2.9.md (no RESULTS-v3.md)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 37]: 37-01: v2.9 PUBLISHED — plugin.json 2.8.0→2.9.0 (commit 17950c0), README ## 📊 Measured Efficacy pointer (8/9 · 6/9 + small-N caveat + RESULTS-v2.9.md link). main FF bbecf55→17950c0 (no merge, no checkout), annotated tag v2.9 (object b1c34342, peels to main, 2.9.0 tree), ONE atomic push of main+tag+feat/v2.9, exact-hash verify PUBLISH-VERIFIED for all three refs. Pre-publish anchor bbecf559 (STATE=A fresh capture). No .planning path in the release commit; score.py/test_score.py/config.py byte-frozen. CLOSE-01 criterion 3 (audited) delegated to the wrapper orchestrator (D-06).",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-01: seal-1 committed — SEAL1=4c67283b46540f997b8a5c6b530996da880b53ed pre-registers the v2.10 pass bar + decision rule with the ordered seal-2 append-only whitelist; RUN-METHOD-NOTES-v2.10.md seeded (N-01 mandatory per-run clear.txt gate, timestamped fingerprint session IDs, exact Claude-5 model grammar, harness-pin tuple equality, pre-run session.txt binding)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-02: verifier pinned (a407539/7be8ed39…) + harness pin (claude-code 2.1.261 / codex-cli 0.145.0 / fable 5) committed BEFORE WAIT 1; part-A checklist script-generated (T1-T7) with regeneration byte-equality + sandbox-exercised recovery; WAIT 1 OPEN (carried-6 re-measure, 18 runs); SET-03 stays Pending until the runs land",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-03: 6 new B3 kits owner-confirmed (confirm-all, live) + committed at ccf887c — catches triggarr-session-rotation (0866332 reversed, base clone-HEAD f4366a2) + triggarr-settings-form-split (542d5dd reversed, base pinned to the fix itself); quiets should-quiet-4..7 (9be610a SSRF validator, f64a874 log-sanitize, 3d042c8 pydantic bounds, 05cfd1b safe_float parse); set total 12 (D-01 target); D-03/D-04 triggers did NOT fire",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-03: SET-01 deliberately left Pending — the plan delivers its inventory half; the sealed per-diff answer key half lands in 38-04 (a blob cannot contain its own hash)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-04: ground truth sealed — ANSWER-KEY-v2.10 at 5f687d9 (6 new rows, 12 kit digest lines from ccf887c blobs, no self-hash) digest-bound by seal-2 633f1dd (pure five-line byte-append, pinned-verifier proven, manifest FINAL at 2 commits; DENOM 15/21/36); checklist part B (debe57a) regen-validated — WAIT 2 OPEN (18 new-diff baseline runs); SET-01 complete",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[2026-09-05 re-scope, owner decision after an external source review + live model-lineup check]: Phase 39 DISSOLVED — COMPAT-02 (measured cost) returned to backlog 999.12 (no mechanism: the orchestrator cannot tokenize; needs a feasibility spike), COMPAT-01 (Claude-5 docs + corrected static cost anchors) → Phase 44. Phase 40 GAINS TRUST-01/02 (helpers resolve from `${CLAUDE_PLUGIN_ROOT}` + owner-set dev override, never repo-first — today a reviewed PR can plant `plugins/vibe-check/scripts/score.py`/`guard.py` and Phase 3 executes it unprompted; fix agent validates paths BEFORE its first edit) and the cost-anchor correction inside DIET-01. DIET-03 verify-only; DIET-04 spot-checks CAPPED (2 diffs ×1 per batch, full ×3 once at phase end). Model defaults UNCHANGED (aliases already resolve to Sonnet 5 / Opus 5 / Haiku 4.5; Fable 5.1 opt-in). New backlog 999.15 (fix-agent hunk isolation + real verification; ambiguous → leave applied-but-uncommitted), 999.16 (deterministic framework routing + bounded chunks replacing the Haiku downgrade), 999.17 (Fable 5.1 top-tier A/B). Reviewer items 3 (confidence vs severity) and 4 (orchestration out of prompts) were already Phase 41 / Phase 40 nearly verbatim — nothing added.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-04: settings-form-split band floor = warning (correctness/data-loss — silent loss of saved settings is action-bar, not the v2.9 medium display-nit precedent); session-rotation = warning (security)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-05: SET-03 BASELINE MEASURED — full-set catch 15/15, FP 19/21 over the sealed denominators (15/21/36), 36/36 runs scoreable, zero holes, no waiver. Carried-6 re-measure vs v2.9: catch 8/9 -> 9/9, FP 6/9 -> 9/9 (should-quiet-2 moved 0/3 -> 3/3 FP; autoescape's right-site-wrong-axis miss did not recur) — Scored from state.passes[-1].findings[] against both sealed key blobs (carried ef0ab67, new 5f687d9) after a 9-gate fail-closed ladder: pinned byte-exact seal verifier, dual digests, ancestry, sidecar seal gate, sealed v2.9 tree byte-identical, isolation grid, security spot-check, and commit-anchored pin-matched pre-run-ordered fingerprint provenance across all 36 runs under ONE harness tuple (2.1.261 / codex-cli 0.153.4 / fable 5.1). Worksheet: docs/design/b3-ground-truth/SCORING-v2.10.md (1180b15)",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-05: codex participation is inferred from findings[].agent == codex-adversarial, never the pass-level record — The pass-level codex record is schema-nondeterministic across passes of the same shipped command: >=6 shapes observed (codex_joined bool; codex object with joined/status x verdict x findings x cross_confirmed; a plain string; and outright ABSENCE with a codex-adversarial finding present). Also two pass-timestamp formats and one empty finding title. Phase 40 orchestration-rewrite input; recorded in SCORING-v2.10 §6 and 38-06 limitations",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-06: RESULTS-v2.10.md PUBLISHED (0ec7208, 284 lines) — the milestone's single append-structured results doc (D-07). Full-set Claude-5 baseline catch 15/15, FP 19/21 over the sealed denominators; the family-conditional \"## The Claude 5 re-measure (Fable 5) — v2.9 vs Claude 5, carried 6 only\" section pairs v2.9's 8/9 catch / 6/9 FP against 9/9 / 9/9 on the identical carried six and identical unchanged plugin. Every number transcribed from SCORING-v2.10.md §5, never re-derived. Sealed pass bar quoted with implied literal targets and explicitly NOT evaluated (Phase 43's job). Phases 41/43 append to this same file. — SET-03's write-up half / ROADMAP success criterion 4; T-38-19 (report/worksheet divergence) mitigated by transcription-only + spot-check; T-38-21 (premature pass-bar evaluation) mitigated by explicit deferral.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-06: CHECKPOINT RESOLVED — Option 1: both Task-2 plan-literal mismatches accepted as RECORDED DEVIATIONS; nothing patched, reverted, or moved to force a literal to pass. (a) The plugin-freeze gate is RE-STATED at its intent — \"every plugins/vibe-check/ delta vs v2.9 is status A and confined to non-executable docs/efficacy/, with the executable/prompt surface byte-identical\" — because the plan's literal one-A-line assertion is not what was executed: there are TWO A lines, the second being ULTRAREVIEW-SHADOW.md (999.18 status doc, added 9d565f3 / updated 5d2173a, both after SEAL1). T-38-20's threat is unrealized: score.py f3bbaae, test_score.py 7a86600, config.py f9d7ad5, review.md dd71d4f, deep-review.md 4eee361 all byte-identical to v2.9; the diff excluding docs/efficacy/ is empty; all 12 fingerprints record cache-root .../vibe-check/2.9.0 so no repo-side doc reached a run. (b) Check 5 RE-POINTED from the non-existent plugins/vibe-check/README.md to the repo-root README.md — which contains zero RESULTS-v2.10 references and still cites 8/9 - 6/9 linking RESULTS-v2.9.md (D-07 held; the repoint is Phase 44's). — Forcing the literals would have required deleting or rewriting history for a non-executable status doc that cannot affect a review — a worse integrity outcome than an honest deviation record. The composite PHASE-38-EXIT-OK string was NOT emitted; every individual gate it composes passed and is recorded verbatim.",
+      "rationale": "",
+      "phase": "40"
+    },
+    {
+      "decision": "[Phase 38]: 38-06: PHASE 38 EXIT PROVEN — manifest FINAL at 2 commits (SEAL1 4c67283, SEAL2 633f1dd); pinned canonical verifier (a407539 / 7be8ed39...75daaf) live-digest-matched, single-commit asserted, executed from its introducing-commit blob returning SEAL2-APPEND-WHITELIST-OK; v2.9 sealed docs+runs untouched (exit 0); diffs/ 14 lines all status A, non-A count 0; KIT-BLOB-EQUALITY-OK 15 v2.9 kit paths byte-equal at HEAD; NEW-KIT-SEAL-OK 14 new kit paths single-introducing-commit with all 12 sealed sha256(diffs/...) digests matching HEAD blobs (key blob 5f687d9); working tree clean. Baseline + sealed manifest are committed — Phases 40+ UNBLOCKED (Phase 39 dissolved). ADVISORY: ULTRAREVIEW-SHADOW.md has TWO introducing commits, so it would fail the one-introducing-commit rule if that rule were ever extended from diffs/ to plugins/vibe-check/docs/efficacy/. — T-38-25 (seal rewrite / weakened verifier) and T-38-26 (sealed kits removed, renamed, type-changed, or rewritten post-addition) both mitigated status-letter-complete in both directions.",
+      "rationale": "",
+      "phase": "40"
     }
   ],
   "uncommitted_files": [],
-  "next_action": "Run /julian-orchestrator:milestone; at the live Phase-38 checkpoint tell it to continue, so /gsd:execute-phase 38 resumes at plan 38-05 Task 2 (Task 1's <verify> completeness precheck should pass: 12 provenance basenames x 3 run dirs = 36).",
-  "context_notes": "38-05 scorer inputs discovered during the campaign (all in RUN-METHOD-NOTES-v2.10.md): the pass-level codex record has >=6 shapes (codex_joined bool; codex object with joined/status +/- verdict +/- cross_confirmed; a plain STRING; absent even with a codex-adversarial finding) -> infer participation from findings[].agent; two pass timestamp formats (...Z and microseconds+offset); one finding with an empty title; state keys drifted on two runs (already captured under canonical names). RESULTS-v2.10 limitations must record the driver split (runs 1-10 owner-pasted, 11-36 assistant-driven) and these tool-side nondeterminisms as Phase 40 inputs. Hook noise: the SessionStart 'checkpoint ... Phase 33' message came from the previous stale HANDOFF.json; this file supersedes it."
+  "next_action": "Ready to plan",
+  "context_notes": "Status: Ready to plan\n\nStopped at: Phase 38 complete (6/6) — ready to discuss Phase 40"
 }
