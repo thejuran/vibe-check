@@ -1,0 +1,128 @@
+{
+ "passes": [
+  {
+   "pass_number": 1,
+   "head_sha": "9bfd4a63dcac983a544a651d53d76612d08a4933",
+   "timestamp": "2026-09-08T18:58:07Z",
+   "mode": "deep",
+   "diff_range": "working-tree (git diff HEAD + staged), detached HEAD 9bfd4a6",
+   "agents_run": [
+    "bugs",
+    "security",
+    "architecture",
+    "impact",
+    "test-sufficiency",
+    "compliance",
+    "language-python",
+    "framework-fastapi"
+   ],
+   "codex": "joined (verdict needs-attention, 1 finding, 0 cross-confirmed)",
+   "findings": [
+    {
+     "id": "impact-01",
+     "file": "triggarr/web/routes.py",
+     "line": 539,
+     "title": "Settings POST whitelist omits shutdown_drain_timeout \u2014 any configured value silently resets to 60.0 on next settings save",
+     "category": "blast-radius",
+     "cwe": null,
+     "severity": "medium",
+     "agent_confidence": 88,
+     "in_diff": false,
+     "intent_doc_match": null,
+     "problem": "The new GeneralConfig.shutdown_drain_timeout field is added in this diff, but the settings POST handler (save_settings) builds new_config[\"general\"] as an EXPLICIT field whitelist (routes.py:539-550) rather than merging over current_settings.general. Any key not in that literal is absent from the dict passed to SettingsModel(**new_config), so Pydantic fills it with the field default (60.0). _settings_to_dict then does settings.general.model_dump() and _atomic_toml_write does a full-file os.replace \u2014 so the reverted 60.0 is written to triggarr.toml, overwriting whatever the operator had set. Concretely: an operator hand-edits shutdown_drain_timeout = 300.0 into triggarr.toml, restarts, then later toggles skip_unreleased in the UI \u2014 their 300.0 is silently reset to 60.0 with no warning. This is a pre-existing structural hazard of the whitelist pattern that this diff newly exposes; note the whitelist already handles exactly this case for tracking_delay_seconds, which has no form input and is explicitly carried forward via `current_settings.general.tracking_delay_seconds`. Phase plan 75-02 is scheduled to add the form input and the safe_float POST parse line, which would close this. The window is real but bounded: it exists only between plan 75-01 (this diff) and 75-02 landing. Flagging because 75-01 is committed as its own atomic commit and the field is documented in the diff comment as operator-settable ('Config value is the default'), so a partial-phase ship or an abandoned 75-02 leaves a data-loss-on-save knob live.",
+     "current_code": "    new_config: dict = {\n        \"general\": {\n            \"log_level\": safe_log_level(form.get(\"log_level\")),\n            ...\n            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,\n            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),\n            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",\n        },\n    }",
+     "fix_hint": "Plan 75-02 adds `\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0)`. Until it lands, carry the field forward like tracking_delay_seconds does: `\"shutdown_drain_timeout\": current_settings.general.shutdown_drain_timeout`.",
+     "why_it_matters": "Silent reversion of a persisted operator setting on an unrelated save is a data-loss class bug \u2014 the operator gets no error, and the shorter drain (60s vs their 300s) only manifests as truncated in-flight search cycles at the next shutdown, far from the action that caused it.",
+     "silenced_marker_nearby": false,
+     "agent": "impact",
+     "source_window": [
+      "",
+      "    # Build new config dict from form data",
+      "    new_config: dict = {",
+      "        \"general\": {",
+      "            \"log_level\": safe_log_level(form.get(\"log_level\")),"
+     ],
+     "canonical_line_content": "    new_config: dict = {",
+     "orchestrator_score": 80,
+     "band": "warning",
+     "attribution": [
+      "impact"
+     ],
+     "stable_hash": "766bf81cc97ca875c46ae62cfceaa9e3b26479c28866eee868cd262e6fdfbd05",
+     "status": "new"
+    },
+    {
+     "id": "codex-001",
+     "file": "triggarr/models/config.py",
+     "line": 139,
+     "title": "Wire the configured timeout into the shutdown drain",
+     "category": "adversarial",
+     "cwe": null,
+     "severity": "medium",
+     "agent_confidence": 100,
+     "problem": "Setting general.shutdown_drain_timeout=120.5 is accepted, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT in scheduler.py:634. That constant is initialized at import from the environment or a hardcoded 60.0; no runtime code reads the new field. With no environment override, a cycle needing more than 60 seconds still hits forced resource closure despite the configured longer drain.",
+     "why_it_matters": "With no environment override, a cycle needing more than 60 seconds still hits forced resource closure despite the configured longer drain.",
+     "fix_hint": "Resolve the drain timeout from the active settings at shutdown, applying the environment override with finite-value validation. Add an integration test proving a nondefault configured timeout reaches the drain and the environment override takes precedence.",
+     "intent_doc_match": null,
+     "agent": "codex-adversarial",
+     "source_window": [
+      "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+      "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+      "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+      "    # v2.2: skip Radarr movies without past digital/physical release date",
+      "    skip_unreleased: bool = True"
+     ],
+     "canonical_line_content": "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+     "current_code": "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+     "orchestrator_score": 100,
+     "band": "critical",
+     "attribution": [
+      "codex-adversarial"
+     ],
+     "stable_hash": "d888cc00169fbf2d5c2013e7de481fe2a27a4124e4b6eba6a04b9b151e037a6c",
+     "status": "new"
+    }
+   ],
+   "filtered": [
+    {
+     "file": "triggarr/models/config.py",
+     "line": 139,
+     "title": "Config field is currently inert \u2014 scheduler still reads the import-time module constant, so the persisted value has no effect until plan 75-03 lands",
+     "reason": "intent-doc-match"
+    },
+    {
+     "file": "triggarr/models/config.py",
+     "line": 139,
+     "title": "shutdown_drain_timeout is dropped by the settings POST handler's whitelist rebuild",
+     "reason": "sub-threshold"
+    },
+    {
+     "file": "triggarr/models/config.py",
+     "line": 139,
+     "title": "New config field has no consumer; scheduler drain still reads env-only module constant",
+     "reason": "sub-threshold"
+    },
+    {
+     "file": "triggarr/models/config.py",
+     "line": 139,
+     "title": "DEFAULT_CONFIG TOML template omits the new shutdown_drain_timeout key",
+     "reason": "sub-threshold"
+    },
+    {
+     "file": "triggarr/config.py",
+     "line": 35,
+     "title": "DEFAULT_CONFIG TOML template omits the new shutdown_drain_timeout knob",
+     "reason": "sub-threshold"
+    },
+    {
+     "file": "triggarr/config.py",
+     "line": 35,
+     "title": "DEFAULT_CONFIG TOML template not updated with the new commented shutdown_drain_timeout key",
+     "reason": "sub-threshold"
+    }
+   ],
+   "fixes_applied": []
+  }
+ ],
+ "medium_acknowledgments": {}
+}
