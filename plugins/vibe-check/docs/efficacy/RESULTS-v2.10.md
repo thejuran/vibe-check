@@ -23,8 +23,11 @@ RESULTS-v2.9.md precedent and is what those appends attach to.
   v2.9 manifest, key, `runs/`, and existing kit files under `diffs/` are byte-unchanged. Final
   composition: **5 should-catch diffs (15 runs) + 7 should-quiet diffs (21 runs) = 36**.
 - **Organic-only sourcing (D-03), carried forward.** All diffs are real shipped commits from the
-  owner's own repos (triggarr, seedsyncarr, roonseek + the angular front-end), selected by the same
-  FAIL-CLOSED provenance regex so no vibe-check-found bug can enter the set. should-catch diffs are
+  owner's own repos — **three** contributing repos: triggarr, seedsyncarr (including its Angular
+  front-end under `src/angular/`), and roonseek — selected by the same
+  FAIL-CLOSED provenance regex so no vibe-check-found bug can enter the set. The D-03 mining pool
+  was four repos (triggarr, seedsyncarr, dashboard, roonseek); dashboard yielded no qualifying
+  candidate and contributed zero diffs to the measured set. should-catch diffs are
   *reversed* fix patches (the bug the fix removed); should-quiet diffs are shipped feature commits
   whose selected lines no later commit rewrote.
 - **Independence via state isolation (N=3, genuinely independent).** Every run happened on a
@@ -201,9 +204,11 @@ Phase 43 evaluates; this document only anchors.
    stable rates — a single run flipping moves a diff's fraction by 1/3. Every number here is coarse
    by construction. The set is twice v2.9's size, which helps the aggregate, but not the per-diff
    resolution.
-2. **Four repos, twelve diffs.** triggarr, seedsyncarr, roonseek, and the angular front-end — the
-   owner's own stack, not a broad multi-project or multi-language trial. It measures these defect
-   classes on these repos; it does not measure recall across the whole surface.
+2. **Three repos, twelve diffs.** triggarr, seedsyncarr (including its Angular front-end), and
+   roonseek — the owner's own stack, not a broad multi-project or multi-language trial. Four repos
+   were mined under D-03, but the fourth (dashboard) yielded no qualifying candidate, so the
+   measured set draws on three. It measures these defect classes on these repos; it does not
+   measure recall across the whole surface.
 3. **Organic-only sourcing.** Diffs are real shipped commits (fail-closed provenance regex), which
    keeps the test honest but constrains the set to defects that actually shipped-then-fixed (or
    shipped-clean) — not an adversarially designed difficulty curve. The reversed-diff construction
