@@ -1,0 +1,69 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "70354771a331f7def6c8116556f58d865f644cd9",
+      "timestamp": "2026-09-08T17:57:03Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted vs HEAD 7035477)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "verdict": "approve",
+        "findings": 0
+      },
+      "findings": [
+        {
+          "id": "impact-001",
+          "file": "src/python/tests/unittests/test_lftp/test_lftp_log_sanitization.py",
+          "line": 11,
+          "title": "CI lint gate (ruff, whole-tree) fails on unused imports in Phase-101 sanitization test files",
+          "category": "blast-radius",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 92,
+          "in_diff": false,
+          "intent_doc_match": "unknown",
+          "problem": "`ruff check src/python/` \u2014 the exact whole-tree command CI runs as a gate separate from pytest \u2014 currently reports 3 F401 errors, all in test modules added by this same CWE-117 sanitization phase: `unittest.mock.call` unused at test_controller/test_controller.py:4:38, `logging` unused at test_lftp/test_lftp_log_sanitization.py:11:8, and `unittest.mock.PropertyMock` unused at test_lftp/test_lftp_log_sanitization.py:13:45. The changed file itself is clean, so this diff does not introduce the errors, but it lands into a tree whose lint gate is already red. All three are auto-fixable (`ruff check --fix`).",
+          "current_code": "import logging",
+          "fix_hint": "Run `ruff check --fix src/python/` to drop the 3 unused test imports before pushing this phase.",
+          "why_it_matters": "CI runs ruff whole-tree as its own gate; a red lint stage blocks the merge of an otherwise-correct security fix, and the failure is unrelated to the change under review so it reads as noise and invites the gate being waved through.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "This is a focused test module that avoids the full pexpect-heavy Lftp integration suite.",
+            "\"\"\"",
+            "import logging",
+            "import unittest",
+            "from unittest.mock import MagicMock, patch, PropertyMock"
+          ],
+          "canonical_line_content": "import logging",
+          "orchestrator_score": 84,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "012dd6fba40d8b83fd1ff02cb83b7856d9a019530af2b0c96fb8544121328e80",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/python/controller/model_builder.py",
+          "line": 559,
+          "title": "Incomplete sweep of the established sanitize_log_value pattern in model_builder.py",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
