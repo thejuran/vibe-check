@@ -1,30 +1,106 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-01T20:52:01.094Z",
-  "phase": "33",
-  "phase_name": "codex-legibility-safer-fix-loop-default-orchestrator-only-kn",
-  "phase_dir": ".planning/phases/33-codex-legibility-safer-fix-loop-default-orchestrator-only-kn",
-  "plan": 2,
-  "task": 1,
+  "timestamp": "2026-09-08T20:33:35.590Z",
+  "phase": "38",
+  "phase_name": "grow-the-b3-set-claude-5-baseline",
+  "phase_dir": ".planning/phases/38-grow-the-b3-set-claude-5-baseline",
+  "plan": 5,
+  "task": 2,
   "total_tasks": 3,
-  "status": "superseded_by_ship",
+  "status": "paused",
   "orchestrator": "julian-orchestrator:milestone",
-  "branch": "feat/framework-skill-reviewer",
-  "head": "04c1461",
+  "branch": "feat/v2.9",
   "completed_tasks": [
-    {"id": "33-01", "name": "config.py codex knob (off/auto/on) + tests", "status": "done", "commits": ["83cbfae", "80155e9", "04c1461"], "note": "Wave 1 complete: source + tests committed, SUMMARY written, 311 tests green, score.py byte-unchanged"}
+    {
+      "id": "38-01",
+      "name": "Seal-1 + kit foundations",
+      "status": "done",
+      "commit": "4c67283"
+    },
+    {
+      "id": "38-02",
+      "name": "Harness pin + part-A checklist + pinned seal verifier",
+      "status": "done",
+      "commit": "6d8c2af"
+    },
+    {
+      "id": "38-03",
+      "name": "6 new diff kits (12 diffs: 5 catch / 7 quiet)",
+      "status": "done",
+      "commit": "ccf887c"
+    },
+    {
+      "id": "38-04",
+      "name": "ANSWER-KEY-v2.10 + seal-2 + part-B checklist",
+      "status": "done",
+      "commit": "debe57a"
+    },
+    {
+      "id": "38-05/T1",
+      "name": "OWNER completes the x3 baseline runs for every diff (WAIT 1 + WAIT 2)",
+      "status": "done",
+      "commit": "106d8fa",
+      "note": "36/36 run dirs committed 2026-09-05..2026-09-08 (last capture 106d8fa); every dir holds exactly clear.txt/session.txt/state.json/tree.diff/tree.diff.sha256; all clones restored to main; sealed v2.9 runs/ == tag v2.9. Runs 11-36 were assistant-driven via ~/.b3/b3 at owner direction (see RUN-METHOD-NOTES driver-deviation line)."
+    }
   ],
   "remaining_tasks": [
-    {"id": "33-02", "name": "review.md + deep-review.md orchestrator wiring (LEGIBLE-01/02/03)", "status": "not_started", "wave": 2, "tasks": 3, "files": ["plugins/vibe-check/commands/review.md", "plugins/vibe-check/commands/deep-review.md"], "note": "Task1 = Phase-0 pre-mode normalizer ($SCOPE_ARGS) over 6 scope sites; Task2 = Phase 0.6 --codex parse/binds + Step-A guard; Task3 = deep-review MOVE smoke gate into Phase 2c launch guard + off short-circuit + on prominence + Phase 3 outcome line + :36 contract note"}
+    {
+      "id": "38-05/T2",
+      "name": "Run the full integrity gate ladder over the two-seal manifest and the runs-v2.10 archive",
+      "status": "not_started"
+    },
+    {
+      "id": "38-05/T3",
+      "name": "Score every run against its governing blob and write SCORING-v2.10.md",
+      "status": "not_started"
+    },
+    {
+      "id": "38-06/T1",
+      "name": "Author and commit RESULTS-v2.10.md baseline + family-conditional Claude 5 re-measure section",
+      "status": "not_started"
+    },
+    {
+      "id": "38-06/T2",
+      "name": "Phase-final integrity verification (seals, frozen surfaces, v2.9 artifacts)",
+      "status": "not_started"
+    }
   ],
   "blockers": [],
-  "human_actions_pending": [],
+  "human_actions_pending": [
+    {
+      "action": "Keep the harness freeze (Claude Code 2.1.261 symlink + DISABLE_AUTOUPDATER=1, codex-cli 0.153.4, vibe-check 2.9.0 cache) until 38-05 has read every archived state file",
+      "context": "scoring reads the committed archive, so lifting the freeze afterwards is safe; lifting it before is a method-notes deviation",
+      "blocking": false
+    },
+    {
+      "action": "Close the leftover source-repo Claude Code windows (~/triggarr, ~/seedsyncarr) if still open",
+      "context": "no run is in flight; cosmetic",
+      "blocking": false
+    }
+  ],
   "decisions": [
-    {"decision": "codex is a config.py-validated orchestrator-only knob (never in score.py envelope); malformed → auto + fixed KEY-named warning", "rationale": "D-14 + Phase-30 tested-helper pattern; keeps GOLDEN_DIGEST frozen", "phase": "33"},
-    {"decision": "on == auto-dispatch + LOUDER skip prominence; NEVER forces a launch onto a correctness fail-closed skip", "rationale": "SAFE-01 — forcing a non-representable diff would silently review the wrong code", "phase": "33"},
-    {"decision": "33-02 fixes 3 codex-found control-path bugs: smoke-gate moved into Phase-2c launch guard (runs iff Codex launches); pre-mode $SCOPE_ARGS normalizer over 6 scope sites (also fixes latent --min-confidence bug)", "rationale": "codex adversarial found off still hit Phase-2b hard-block, --codex parsed after mode detection, --all $NARROW mis-reads flag value — all fixed, codex final verdict APPROVE", "phase": "33"}
+    {
+      "decision": "Assistant drives the guide session (all checklist blocks via ~/.b3/b3); owner performs only session launch, /model, /clear, /deep-review, fix-loop decline",
+      "rationale": "owner directive 2026-09-07; blocks are fence-validated byte-exact; 38-05 Task 2 gate ladder is the independent artifact check",
+      "phase": "38"
+    },
+    {
+      "decision": "State-key drift (<repo>-HEAD.json / <repo>-main.json) captured via the recorded one-line STATE_FILE substitution with both block sha256s logged (N-06/N-07/N-10); never re-run, never hand-edit archives",
+      "rationale": "tool-side nondeterminism of the measured command on detached checkouts; the reviewed tree/HEAD/diff are provably identical",
+      "phase": "38"
+    },
+    {
+      "decision": "Fingerprint attested before a source session existed (N-09) left as recorded, with a correction note and a new session-start rule (verify a live claude process in the clone before attesting)",
+      "rationale": "harness tuple was probed from the machine and the model value was confirmed post-launch; no run affected; append-only ledger",
+      "phase": "38"
+    },
+    {
+      "decision": "Ultrareview shadow pass (backlog 999.18) may run in the now-open no-baseline gap before Phase 43",
+      "rationale": "changes no plugin code; only competes for owner-run budget",
+      "phase": "38"
+    }
   ],
   "uncommitted_files": [],
-  "next_action": "DO NOT blind-resume /julian-orchestrator:milestone — v2.8 SHIPPED 2026-07-01 by owner directive (plugin 2.8.0, merge f19be14 on main, tag v2.8, published) WITHOUT 33-02 and WITHOUT Phase 34's smoke proofs. The 33-02 plan remains codex-APPROVED but MUST BE REBASED before execution: the post-plan Fable remediation (commits 2ead5a9..3bd1c4c) edited the same review.md regions 33-02 targets (Phase 0 gained the $GUARD_PY resolution block near the mode/scope sites the $SCOPE_ARGS normalizer rewrites; Phase 0.6's --min-confidence parse prose changed; min_confidence range is now 0-49). Execute 33-02 as a 2.8.x follow-up or fold into v2.9 scoping — see STATE.md Operator Next Steps.",
-  "context_notes": "Phase 33 (Codex legibility + safer fix-loop, LEGIBLE-01/02/03, prose+config only) passed DISCUSS + PLAN + a HARD adversarial gate (codex 4 passes / 3 rewrites, cap raised to 3 with owner authorization at the cap, final APPROVE). Both plans (33-01/33-02) plan-checker-PASSED and codex-APPROVED. Wave 1 (33-01) is DONE. Only Wave 2 (33-02, the orchestrator-prose wiring) + verify + deep-review + Phase 34 remain. GOTCHAS for the resumer: codex-adversarial Skill is disable-model-invocation -> call the companion directly (nohup + gtimeout detached, Monitor on log-GROWTH not broker updatedAt, cancel+relaunch on stall). Bash stat mtime goes stale mid-session -> use md5/content-grep to confirm a subagent write landed. .planning is gitignored -> force-add SUMMARY/plan/context files. Test runner is bare 'pytest -q' from plugins/vibe-check/scripts (NOT python3 -m pytest). run_verify_gate is BASH not zsh. NO plugin.json bump until Phase 34."
+  "next_action": "Run /julian-orchestrator:milestone; at the live Phase-38 checkpoint tell it to continue, so /gsd:execute-phase 38 resumes at plan 38-05 Task 2 (Task 1's <verify> completeness precheck should pass: 12 provenance basenames x 3 run dirs = 36).",
+  "context_notes": "38-05 scorer inputs discovered during the campaign (all in RUN-METHOD-NOTES-v2.10.md): the pass-level codex record has >=6 shapes (codex_joined bool; codex object with joined/status +/- verdict +/- cross_confirmed; a plain STRING; absent even with a codex-adversarial finding) -> infer participation from findings[].agent; two pass timestamp formats (...Z and microseconds+offset); one finding with an empty title; state keys drifted on two runs (already captured under canonical names). RESULTS-v2.10 limitations must record the driver split (runs 1-10 owner-pasted, 11-36 assistant-driven) and these tool-side nondeterminisms as Phase 40 inputs. Hook noise: the SessionStart 'checkpoint ... Phase 33' message came from the previous stale HANDOFF.json; this file supersedes it."
 }
