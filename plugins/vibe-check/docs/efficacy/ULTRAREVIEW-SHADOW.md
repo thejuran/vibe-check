@@ -68,8 +68,18 @@ vibe-check saw — that is the whole point of reusing the kit.
 ## Adjudication buckets
 
 Score each ultrareview finding against the SAME sealed answer key the vibe-check runs are
-scored against (`docs/design/b3-ground-truth/ANSWER-KEY-v2.10.md`). Do not create a new
-key — reusing the sealed one is what makes this cheap and honest.
+scored against — routing by diff origin, exactly as `SCORING-v2.10.md` does across the
+two-seal split:
+
+- **Carried v2.9 diffs** (including both diffs recommended above, `triggarr-secret-in-logs`
+  and `should-quiet-1`) → the v2.9 blob, `docs/design/b3-ground-truth/ANSWER-KEY-b3.md` @
+  `ef0ab67`.
+- **New v2.10 diffs** → `docs/design/b3-ground-truth/ANSWER-KEY-v2.10.md` @ `5f687d9`.
+  That blob holds rows for the six NEW diffs only; carried diffs have no rows in it.
+
+Do not create a new key — reusing the sealed ones is what makes this cheap and honest.
+Reading the wrong blob for a diff yields zero matching rows and would push every real
+finding into bucket (c) spuriously.
 
 | bucket | meaning | what it implies |
 |---|---|---|
