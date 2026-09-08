@@ -1,0 +1,201 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-09-08T02:00:13Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted) vs HEAD",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "codex": {
+        "joined": true,
+        "verdict": "approve",
+        "findings": 0,
+        "cross_confirmed": 0
+      },
+      "findings": [
+        {
+          "id": "bugs-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Falsy-default on success_statuses silently restores {200, 201} for an empty set",
+          "category": "logic-error",
+          "severity": "medium",
+          "agent_confidence": 72,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`expected_statuses = success_statuses or {200, 201}` uses truthiness, not a None check. The parameter is typed `set[int] | None`, so an explicitly-passed empty set (`success_statuses=set()`, a plausible way to express 'no status is acceptable') is falsy and silently falls back to the default `{200, 201}`, accepting statuses the caller meant to reject. The guard should be `if success_statuses is None`. No current caller passes an empty set \u2014 the only call site in-hunk passes `{200, 202, 204}` \u2014 so this is latent, not live, but it is a real mismatch between the declared `| None` contract and the implemented check.",
+          "current_code": "expected_statuses = success_statuses or {200, 201}",
+          "fix_hint": "use `expected_statuses = {200, 201} if success_statuses is None else success_statuses`",
+          "why_it_matters": "The signature promises None-means-default, but the code means falsy-means-default. A future caller passing an empty or computed-empty set gets silently permissive status handling instead of the strict behavior it asked for.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "cwe": null,
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "canonical_line_content": "        expected_statuses = success_statuses or {200, 201}",
+          "orchestrator_score": 84,
+          "band": "warning",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "df92f5c2cfaf49a305e657688b2190afb699604c50cb702bcc3e27a124c78351",
+          "status": "new"
+        },
+        {
+          "category": "pattern-consistency",
+          "severity": "low",
+          "file": "src/roonseek/transfer.py",
+          "line": 137,
+          "problem": "The SlskdTransferClient class docstring is now factually stale relative to its own API surface. It states \"Exposes only the download enqueue (POST) and status fetch (GET) endpoints on the /api/v0/transfers/downloads surface\", but the class now also exposes cancel_download (DELETE) on that same surface. This docstring is load-bearing in this codebase, not decorative: it is the human-readable half of the dry-run safety boundary whose machine-readable half is assert_search_only_operation in src/roonseek/slskd.py:214 (with _FORBIDDEN_SEGMENTS = {\"downloads\", \"transfers\"}). The two clients are deliberately split so the search client can never reach transfer endpoints; the transfer client's contract is documented purely in prose. A reader auditing the acquisition boundary now gets a docstring that under-reports the client's write capability, and DELETE is the most destructive verb on it.",
+          "agent_confidence": 92,
+          "intent_doc_match": {
+            "matched": true,
+            "quote": "Slskd transfer cancellation is wrapped in `SlskdTransferClient` and never uses the search-only client.",
+            "confidence": 0.45,
+            "note": "The doc authorizes adding cancellation to this class (so the capability itself is not the finding), but says nothing about the docstring that describes the class's surface. The must_have makes the boundary prose more load-bearing, not less."
+          },
+          "agent": "architecture",
+          "id": "architecture-001",
+          "title": "The SlskdTransferClient class docstring is now factually stale relative to its own API surface",
+          "fix_hint": "Update the docstring to enumerate the three endpoints: enqueue (POST), status fetch (GET), and cancel (DELETE). Consider naming DELETE explicitly since it is the only destructive verb on the boundary.",
+          "current_code": "    \"\"\"Transfer-only slskd HTTP client.",
+          "cwe": null,
+          "why_it_matters": null,
+          "in_diff": false,
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "",
+            "class SlskdTransferClient:",
+            "    \"\"\"Transfer-only slskd HTTP client.",
+            "",
+            "    Exposes only the download enqueue (POST) and status fetch (GET) endpoints on"
+          ],
+          "canonical_line_content": "    \"\"\"Transfer-only slskd HTTP client.",
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "c973b4e105eb8cf9f0852789ed72848c2f09f98c2b0739fb46cb526e46e68a21",
+          "status": "new"
+        },
+        {
+          "id": "impact-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download will be called with the local SQLite transfers.id, not the slskd transfer GUID \u2014 cancel is a no-op against real slskd",
+          "category": "blast-radius",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 82,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new `cancel_download(username, transfer_id)` boundary is correct in isolation, but nothing in this repo can supply a real slskd transfer id. `transfers` (src/roonseek/schema.sql:341-353) has columns id/wanted_album_id/username/folder_path/filename/size_bytes/state \u2014 there is NO column holding slskd's per-file transfer GUID, and the pipeline never captures one: `_inspect_transfer_status` (src/roonseek/pipeline.py:723-780) reads only `filename`, `state`, and `bytesTransferred` out of each slskd file dict, discarding `id`. The RED test for the consumer confirms the wiring the plan intends: tests/test_jobs_api.py asserts `fake.calls == [(\"alice\", str(transfer_id))]` where `transfer_id` is the local SQLite rowid returned by `_seed_active_acquisition`. Against a live slskd this produces DELETE /api/v0/transfers/downloads/alice/1, which slskd will answer 404 (or silently no-op) rather than cancelling the real transfer. The operator sees the acquisition marked `cancelled` in the DB and the staging directory deleted, while slskd keeps downloading into a directory that was just removed. This is a correctness gap in the phase's contract, not in the HTTP verb handling. pending: confirm slskd's DELETE-by-id semantics against the deployed slskd version and confirm plan 22-03's intended id source.",
+          "current_code": "def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:\n    encoded_transfer_id = quote(transfer_id, safe=\"\")\n    path = f\"{_TRANSFERS_DOWNLOAD_ROOT}/{encoded_username}/{encoded_transfer_id}\"",
+          "fix_hint": "Persist slskd's per-file transfer id: capture `transfer.get(\"id\")` in _inspect_transfer_status, add a `remote_transfer_id` column to the transfers table (+ migration), and have the cancel action pass that value rather than the local rowid.",
+          "why_it_matters": "Cancel appears to succeed (200, status=cancelled, directory deleted) while the download continues server-side. Divergence between UI state and slskd reality is exactly the class of bug per-item acquisition control exists to eliminate, and the deleted staging directory means the still-running transfer writes to a path that no longer exists.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "        return []",
+            "",
+            "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+            "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+            "        encoded_username = quote(username, safe=\"\")"
+          ],
+          "canonical_line_content": "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+          "orchestrator_score": 99,
+          "band": "critical",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "f2b2b89116738a7ae38edf93eb1ce8266a7451973593288e19378f3bb7a8e705",
+          "status": "new"
+        },
+        {
+          "id": "impact-002",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses widens the accepted-status set for a shared helper without narrowing the 2xx floor \u2014 204 now bypasses the JSON contract for future callers",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 70,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`_request_json` gained a `success_statuses` keyword. The default `{200, 201}` preserves existing behavior for enqueue_download and get_user_downloads, so this change is backward compatible today (verified: the only two other call sites, transfer.py:187 and :197, pass no override). The residual risk is shape drift rather than breakage: `success_statuses or {200, 201}` treats an explicitly-passed empty set as \"use the default\" (falsy), so a caller writing `success_statuses=set()` silently gets 200/201 accepted instead of nothing. Note also the divergence from the sibling client: slskd.py:_request_json rejects any status >= 400 and hard-requires a Mapping payload, while transfer.py now accepts an arbitrary caller-supplied set and returns {} on empty body. The two clients' error contracts are drifting apart, which matters because the codebase deliberately keeps them as parallel boundaries.",
+          "current_code": "expected_statuses = success_statuses or {200, 201}\nif response.status_code not in expected_statuses:",
+          "fix_hint": "Use `success_statuses if success_statuses is not None else {200, 201}` so an explicit empty set is not silently replaced by the default.",
+          "why_it_matters": "A future caller passing an empty or computed-empty set gets permissive behavior rather than strict, which is the wrong failure direction for a boundary whose whole purpose is fail-closed status classification.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "canonical_line_content": "        expected_statuses = success_statuses or {200, 201}",
+          "orchestrator_score": 70,
+          "band": "medium",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "2bfb4553d802c690590dc57caa23466c07f0c61763b2e311ad3bf2e1115f180b",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download reuses _request_json, which inherits enqueue-shaped error semantics that do not all\u2026",
+          "reason": "intent-doc-match"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download does not pass slskd's `remove` query parameter \u2014 cancelled transfers may linger in slskd's queue",
+          "reason": "absorbed-into: f2b2b89116738a7ae38edf93eb1ce8266a7451973593288e19378f3bb7a8e705"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 209,
+          "title": "cancel_download raises 'unavailable' on 404 for an already-gone transfer",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download has no production caller in this diff \u2014 grep across src/ finds the definition only",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 223,
+          "title": "success_statuses: set[int] | None = None combined with `success_statuses or {200, 201}` on line 259\u2026",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixed_since_last": [],
+      "additions": 15,
+      "deletions": 1,
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
