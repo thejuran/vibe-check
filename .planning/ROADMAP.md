@@ -698,3 +698,59 @@ regardless of this outcome (Sonnet 5 is now $2/$10, so Fable is 5× Sonnet on in
 Plans:
 
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.18: Ultrareview shadow pass — external-reviewer finding-class gap analysis (BACKLOG)
+
+**Goal:** Learn which CLASSES of finding Anthropic's `/code-review ultra` surfaces on the
+B3 diffs that vibe-check structurally cannot reach — and turn those into concrete agent /
+lane / prompt backlog items. NOT a precision-recall benchmark against ultrareview.
+
+**Why:** `/code-review ultra` is the strongest general-purpose reviewer the owner already
+has on hand, it reviews the same unit vibe-check does (a branch or PR diff), and it has
+never been pointed at the committed ground-truth set. The B3 kit makes this cheap to do
+honestly: sealed per-diff answer keys already exist, so ultrareview's output can be
+adjudicated against the SAME key the vibe-check runs are scored against, with no new
+ground-truth work. The v2.9 retro precedent is [[v2.5-phase21-shipped]] — the
+test-sufficiency agent's own deep-review found defect classes plan-review could not reach
+BY CONSTRUCTION; that structural-gap finding was worth more than any score. Same shape here.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Design notes:**
+
+- **Scope it as qualitative.** The deliverable is a gap table: for each ultrareview
+  finding, is it (a) also caught by vibe-check, (b) a real defect in the sealed key that
+  vibe-check missed, (c) a real defect OUTSIDE the sealed key (key-expansion candidate),
+  or (d) a false alarm. Bucket (c) is the highest-value output — it means the answer keys
+  are under-specified, which affects every future measurement.
+- **Do NOT compute a catch/FP rate for ultrareview and publish it as a comparison.** The
+  realistic sample is a handful of hand-driven runs vs. vibe-check's ×3-over-10-12-diffs;
+  the error bars would swamp the difference. Any such number would be a
+  competitive-analysis artifact, which is exactly what [[vibe-check-backlog-reweight]]
+  says to deprioritize. If a number is wanted anyway, it must carry its n and its CI.
+- **Different jobs, state it up front.** Ultrareview is a generalist branch/PR reviewer;
+  vibe-check fans out 12+ specialists with a confidence axis and noise ceilings. On a diff
+  seeded with an Electron IPC gap, a miss by ultrareview measures generalist-vs-specialist,
+  not reviewer quality. The write-up must say this before any table.
+- **Owner-runtime, and it cannot be automated.** `/code-review ultra` is user-triggered and
+  billed; the assistant cannot invoke it via Bash or otherwise. Each arm is a manual
+  invocation + a manual capture paste. Budget ~1 run per diff, not ×3.
+- **MUST NOT land inside v2.10's measured window.** It changes no plugin code, so it does
+  not confound Phase 43 the way 999.15/16/17 would — but it competes for the same scarce
+  owner-run budget (~80 runs milestone-wide, 36 of them Phase 38). Run it AFTER Phase 44
+  ships, or in a gap where no measured baseline is open.
+- **Cheapest honest version:** 2 diffs (1 should-catch, 1 should-quiet — reuse the two the
+  Phase-40/41 spot-checks already use, so the vibe-check side is already recorded) ×1 run
+  each. ~2 owner invocations. Expand only if bucket (b)/(c) hits land.
+- Capture scaffolding lives at `plugins/vibe-check/docs/efficacy/ULTRAREVIEW-SHADOW.md`
+  (template committed ahead of the run; see that file for the exact procedure).
+
+**Source:** owner question 2026-09-07 ("is there a way to test this plugin against
+Anthropic's ultrareview?"); scoped to a gap analysis rather than a benchmark in the same
+exchange.
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
