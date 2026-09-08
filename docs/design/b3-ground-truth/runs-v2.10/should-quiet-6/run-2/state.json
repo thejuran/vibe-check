@@ -1,0 +1,113 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "9bfd4a63dcac983a544a651d53d76612d08a4933",
+      "timestamp": "2026-09-08T18:45:02Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted; 1 file, +5/-0)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "codex": {
+        "status": "joined",
+        "findings": 1,
+        "cross_confirmed": 1
+      },
+      "findings": [
+        {
+          "id": "impact-01",
+          "file": "triggarr/web/routes.py",
+          "line": 541,
+          "title": "Settings POST silently resets shutdown_drain_timeout to 60.0 on every save",
+          "category": "schema-change",
+          "cwe": "CWE-665",
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": false,
+          "intent_doc_match": null,
+          "problem": "save_settings rebuilds new_config[\"general\"] as a literal dict enumerating every general key by hand (log_level, hard_max_per_cycle, max_history_rows, request_timeout, page_size, tracking_window_minutes, tracking_delay_seconds, max_consecutive_failures, skip_unreleased). The new shutdown_drain_timeout field is not in that dict, so SettingsModel(**new_config) constructs it at the 60.0 default. _settings_to_dict then serializes settings.general.model_dump() \u2014 which now INCLUDES shutdown_drain_timeout=60.0 \u2014 and _atomic_toml_write persists it. Net effect once the field lands: an operator who hand-edits shutdown_drain_timeout = 300.0 in triggarr.toml loses it the next time anyone saves the Settings form, silently overwritten to 60.0 on disk. Note the existing carve-out on the line above: tracking_delay_seconds is explicitly carried forward from current_settings.general precisely because it has no form input \u2014 the new field needs the same treatment (or the Plan 75-02 form input). Right now the field is orphaned: added to the model with no reader and no writer.",
+          "current_code": "\"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,\n\"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),\n\"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+          "fix_hint": "Either land Plan 75-02's safe_float form parse, or carry the value forward like tracking_delay_seconds: \"shutdown_drain_timeout\": current_settings.general.shutdown_drain_timeout.",
+          "why_it_matters": "Silent data loss of an operator-set config value on an unrelated UI action. The operator sees a drain of 60s while their TOML said 300s, and nothing logs the reset.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "    new_config: dict = {",
+            "        \"general\": {",
+            "            \"log_level\": safe_log_level(form.get(\"log_level\")),",
+            "            \"hard_max_per_cycle\": safe_int(form.get(\"hard_max_per_cycle\"), 0, 0, 1000),",
+            "            \"max_history_rows\": safe_int(form.get(\"max_history_rows\"), 1000, 0, 100_000),"
+          ],
+          "canonical_line_content": "            \"log_level\": safe_log_level(form.get(\"log_level\")),",
+          "orchestrator_score": 80,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "8c6cc60bc016206da5d4d595b35d40ecbaf8a674b28597ec4ebb53ae1cd84397",
+          "status": "new"
+        },
+        {
+          "id": "codex-001",
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "Wire the configured timeout into the shutdown drain",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 100,
+          "problem": "Setting general.shutdown_drain_timeout=120.5 is now accepted, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT, initialized at module import from the environment or a hardcoded 60.0. No runtime code reads the new field. An operator increasing the drain budget therefore still gets forced resource closure after 60 seconds while a search holds the lock; lowering it likewise has no effect.",
+          "why_it_matters": "An operator increasing the drain budget still gets forced resource closure after 60 seconds while a search holds the lock; lowering it likewise has no effect.",
+          "fix_hint": "Resolve the drain timeout at shutdown from the active GeneralConfig, applying the environment override with finite-value validation, and use that resolved value for timeout enforcement and logging. Add an integration test proving a nondefault config value controls the drain.",
+          "intent_doc_match": null,
+          "agent": "codex-adversarial",
+          "source_window": [
+            "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+            "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+            "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+            "    # v2.2: skip Radarr movies without past digital/physical release date",
+            "    skip_unreleased: bool = True"
+          ],
+          "canonical_line_content": "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "impact",
+            "codex-adversarial"
+          ],
+          "stable_hash": "d888cc00169fbf2d5c2013e7de481fe2a27a4124e4b6eba6a04b9b151e037a6c",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "Config field has no consumer \u2014 scheduler drain still reads only the env var at import time",
+          "reason": "absorbed-into: d888cc00169fbf2d5c2013e7de481fe2a27a4124e4b6eba6a04b9b151e037a6c"
+        },
+        {
+          "file": "triggarr/config.py",
+          "line": 34,
+          "title": "New GeneralConfig field omitted from the DEFAULT_CONFIG commented TOML template",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/config.py",
+          "line": 35,
+          "title": "DEFAULT_CONFIG template omits the new shutdown_drain_timeout commented default",
+          "reason": "sub-threshold"
+        }
+      ],
+      "fixes_applied": []
+    }
+  ],
+  "medium_acknowledgments": {}
+}
