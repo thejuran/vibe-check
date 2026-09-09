@@ -331,6 +331,186 @@ class TestTerminalArmsPerConsumer(unittest.TestCase):
             self.assertNotIn("exit 1", line)
 
 
+class TestFixAgentOrdering(unittest.TestCase):
+    """TRUST-02: a prose edit must not move validation back behind the first disk touch.
+
+    D-15 requires THREE gates in `agents/fix.md`, and their ORDER is the whole
+    requirement:
+
+      1. step 0 validates every path known at dispatch — BEFORE the first `Read`;
+      2. a sibling discovered while designing the fix is validated before it is
+         **READ**, not merely before it is edited (F6: the earlier wording gated
+         only the `Edit`, so a traversal path introduced as a "sibling" was still
+         READ first — which is exactly what TRUST-02 forbids);
+      3. the pre-commit gate re-validates the COMPLETE set at step 6 (D-15 moves
+         validation AHEAD of step 1; it does not relocate it).
+
+    Every gate must also fail CLOSED by CONTROL FLOW. `|| { : ...; }` does not:
+    the shell no-op builtin SUCCEEDS, so execution falls through into `git add`
+    and `git commit` after a rejection (reproduced as AFTER_REJECT_REACHED). The
+    scan below forbids that literal across the whole prose corpus.
+    """
+
+    # Anchored on the numbered HEADING, not the bare words "step 0": the
+    # tool-use sentence in the file's header also says "step 0", so an index
+    # compare on that substring would pass no matter where the gate actually
+    # sits (caught by mutation-testing this very class).
+    STEP0 = "0. **Validate every path — BEFORE you read or write anything.**"
+    FIRST_READ = "**Read the file.**"
+    FALL_THROUGH = "|| { : "
+
+    def setUp(self):
+        self.text = _read(FIX_MD)
+
+    # -- gate 1: validation precedes the first disk touch ------------------ #
+
+    def test_step_0_block_precedes_the_first_read_instruction(self):
+        self.assertIn(self.STEP0, self.text)
+        self.assertIn(self.FIRST_READ, self.text)
+        self.assertLess(
+            self.text.index(self.STEP0), self.text.index(self.FIRST_READ),
+            "step 0 must precede the first Read instruction (TRUST-02, D-15)")
+
+    def test_step_0_is_a_numbered_procedure_step_before_step_1(self):
+        proc = self.text.index("## Procedure")
+        step0 = self.text.index("\n0. ", proc)
+        step1 = self.text.index("\n1. ", proc)
+        self.assertLess(step0, step1, "step 0. must be numbered before step 1.")
+
+    def test_prose_states_nothing_is_touched_before_the_gate(self):
+        self.assertIn("Nothing is read and nothing is written until this passes",
+                      self.text)
+
+    # -- gate 2: the sibling is validated before its READ (F6) ------------- #
+
+    def test_sibling_rule_names_read_before_edit(self):
+        """The F6 lock. The instruction must gate the READ, not just the Edit.
+
+        Mutating the sentence to the old Edit-only phrasing must fail HERE.
+        """
+        sentence = ("A sibling discovered while designing the fix (step 3/4) is "
+                    "validated by this SAME gate **BEFORE you READ it**")
+        self.assertIn(sentence, self.text,
+                      "the sibling rule must gate the sibling's READ (F6)")
+        idx = self.text.index(sentence)
+        window = self.text[idx:idx + 400]
+        self.assertLess(
+            window.index("READ"), window.index("edited"),
+            "the sibling rule must name READ before it names editing (F6)")
+        self.assertIn("never read and never edited unvalidated", self.text)
+
+    def test_sibling_gate_bash_permits_the_read_only_on_success(self):
+        gate = self.text.index("<sibling-path>")
+        window = self.text[gate:gate + 500]
+        self.assertIn("may now be READ", window)
+        self.assertIn("the sibling was not read", window)
+        self.assertIn("Do not read the sibling", window)
+
+    def test_old_edit_only_sibling_phrasing_is_absent(self):
+        for stale in ("before it is edited", "before its Edit",
+                      "validated before the Edit"):
+            with self.subTest(phrase=stale):
+                self.assertNotIn(stale, self.text)
+
+    # -- gate 3: the pre-commit gate survives ------------------------------ #
+
+    def test_all_three_gates_reference_the_guard_or_its_owner(self):
+        """Three gates, none removed — counted by INVOCATION, not by mention.
+
+        Counting occurrences of the string `guard.py` is decorative: the prose
+        names it many times, so deleting the entire sibling gate left the count
+        unchanged (proved by mutation-testing this class). Count the executable
+        gate calls instead.
+        """
+        guard_calls = self.text.count('python3 "$GUARD_PY" --root "$GREPO"')
+        self.assertEqual(
+            guard_calls, 2,
+            "expected TWO guard.py gate invocations (step 0 + the sibling gate), "
+            "found %d" % guard_calls)
+        fixcommit_calls = self.text.count(
+            'python3 "$VC_ROOT/scripts/fixcommit.py"')
+        self.assertEqual(fixcommit_calls, 1,
+                         "expected the step-6 gate to invoke fixcommit.py once")
+        self.assertIn("validated a SECOND time", self.text)
+
+    def test_step_6_gate_follows_the_first_read(self):
+        # Scoped to the INVOCATION, not to the first mention: the tool-use
+        # sentence at the head of the file names `fixcommit.py` too, and that
+        # mention legitimately precedes step 1.
+        invocation = self.text.index('--finding-json "$findingfile"')
+        self.assertLess(self.text.index(self.FIRST_READ), invocation,
+                        "the pre-commit gate is the SECOND gate, not the first")
+        self.assertLess(self.text.index(self.STEP0), invocation,
+                        "step 0 is the FIRST gate")
+
+    def test_retained_commit_mechanics(self):
+        for needle in ("EXIT CODE", "--cleanup=verbatim", '-F "$msgfile"',
+                       "trap 'rm -f", "Never use `--no-verify`",
+                       "End-of-options `--`"):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, self.text)
+
+    def test_hard_rules_one_through_five_survive(self):
+        rules = self.text[self.text.index("## Hard rules"):]
+        for n in range(1, 6):
+            with self.subTest(rule=n):
+                self.assertIn("\n%d. **" % n, rules)
+
+    # -- FL-03 (R4): no attacker-influenced value on a command line -------- #
+
+    def test_title_is_not_interpolated_into_a_shell_command(self):
+        """FL-03: the shell expands a command line before the helper runs.
+
+        `--title "<finding.title>"` let a command-substitution title execute at
+        expansion time. Reproduced. The title now travels as serialized JSON.
+        """
+        self.assertNotIn('--title "<finding.title>"', self.text)
+        self.assertNotIn("--title", self.text)
+        self.assertIn("--finding-json", self.text)
+        self.assertIn("Never put a finding's title or paths on a command line",
+                      self.text)
+
+    def test_printf_title_substitution_site_is_gone(self):
+        # The old construction site: printf 'fix(review-pass-%s): %s\n' ... "<finding.title>"
+        self.assertNotIn("printf 'fix(review-pass-", self.text)
+
+    # -- F5: no fall-through gate anywhere in the prose corpus ------------- #
+
+    def test_no_fall_through_gate_in_fix_md(self):
+        self.assertNotIn(self.FALL_THROUGH, self.text,
+                         "a successful-no-op gate lets a rejection fall through "
+                         "into git add / git commit (F5)")
+
+    def test_no_fall_through_gate_anywhere_in_the_corpus(self):
+        for path, text in _corpus():
+            with self.subTest(path=os.path.relpath(path, PLUGIN_ROOT)):
+                self.assertNotIn(
+                    self.FALL_THROUGH, text,
+                    "%s carries a successful-no-op gate; a rejection there falls "
+                    "through into the guarded side effect (F5)" % path)
+
+    def test_the_git_calls_are_inside_the_success_branch(self):
+        start = self.text.index("--finding-json \"$findingfile\"")
+        window = self.text[start:start + 1800]
+        self.assertIn("; then", window)
+        else_idx = window.index("\n   else")
+        for call in ("git add --", "git commit --cleanup=verbatim"):
+            with self.subTest(call=call):
+                self.assertIn(call, window)
+                self.assertLess(window.index(call), else_idx,
+                                "%s must sit in the success branch, above else" % call)
+        self.assertIn("NOTHING is staged and NOTHING is committed",
+                      window[else_idx:])
+
+    # -- the tool-use sentence names both trusted scripts ------------------ #
+
+    def test_tool_sentence_names_both_trusted_scripts(self):
+        head = self.text[:self.text.index("## Procedure")]
+        self.assertIn("`guard.py` at step 0", head)
+        self.assertIn("`fixcommit.py` at step 6", head)
+        self.assertNotIn("in the commit step (nothing else", head)
+
+
 # ======================================================================== #
 # DYNAMIC — the planted-canary proof
 # ======================================================================== #
