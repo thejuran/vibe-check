@@ -1,0 +1,34 @@
+{
+  "_comment": "Batch lifecycle shapes as DATA (40-06). Two independent shapes live here: the snapshot MANIFEST.json that build writes and verify re-checks, and the owner PASS artifact that a barrier consumes. FL-02 (R8): the pass shape constrains VALUES and identities, not merely key presence -- a verdict of PASS whose mechanical fields recorded failures is a schema violation, reported by name.",
+
+  "manifest_required": ["batch", "snapshot_commit", "snapshot_root", "plugin_root", "built_at",
+                        "files", "commit_set", "suite_green", "archive_tree", "hash_exclude"],
+
+  "pass_artifact_required": ["batch", "snapshot_commit", "verdict", "runs", "recorded_by",
+                             "recorded_at"],
+  "verdict_enum": ["PASS", "FAIL"],
+
+  "run_required": ["diff", "run_index", "state_shape", "tree_diff_sha_match", "adjudication",
+                   "report_path", "transcript_path", "trace_validation"],
+
+  "adjudication_enum": ["pending-assistant", "catch", "miss", "clean", "fp"],
+
+  "_comment_values": "FL-02.1/FL-02.4 -- the mechanical fields carry enums with a designated SUCCESS value. state_shape must be PASS, tree_diff_sha_match must be boolean true, trace_validation must not be fail. A run failing any of these cannot count toward a PASS verdict.",
+  "state_shape_enum": ["PASS", "FAIL"],
+  "state_shape_success": "PASS",
+  "tree_diff_sha_match_success": true,
+  "trace_validation_enum": ["pass", "fail", "not-applicable"],
+  "trace_validation_failure": "fail",
+
+  "_comment_identity": "FL-02.2 -- (diff, run_index) is the run identity and must be unique across runs.",
+  "run_identity_keys": ["diff", "run_index"],
+
+  "_comment_artifacts": "FL-02.3 -- each run carries the two captured artifacts and check_pass_artifact asserts both EXIST relative to the artifact's own directory. A run without them is not scoreable.",
+  "run_artifact_keys": ["report_path", "transcript_path"],
+
+  "_comment_adjudication": "adjudication defaults to pending-assistant: the owner records mechanical facts and the assistant adjudicates SITE/AXIS/BAND afterwards (40-09). A barrier refuses an artifact still carrying pending-assistant, so the handoff cannot be skipped.",
+  "adjudication_unresolved": "pending-assistant",
+
+  "_comment_runs": "D-06: each per-batch live check is 2 diffs x1 -- one should-catch and one should-quiet.",
+  "runs_required_per_batch": 2
+}
