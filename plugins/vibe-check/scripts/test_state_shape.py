@@ -355,18 +355,46 @@ class TestNoWritePath(unittest.TestCase):
                     self.assertFalse(any(c in mode for c in "wax"),
                                      "state_shape.py opened a file in mode %r" % mode)
 
-    def test_no_write_capable_imports_or_calls(self):
-        src = open(STATE_SHAPE_PY).read()
-        for banned in ("shutil", "tempfile", "os.remove", "os.rename",
-                       "os.unlink", "os.rmdir", "os.makedirs", "os.replace"):
-            self.assertNotIn(banned, src,
-                             "state_shape.py must have no write path: found %r" % banned)
-
-    def test_no_write_method_calls(self):
+    def test_no_write_capable_imports(self):
+        """AST, not a substring scan: the docstring legitimately says `shutil`."""
+        imported = set()
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                self.assertNotIn(node.func.attr, ("write", "writelines", "truncate"),
-                                 "state_shape.py must not call a write method")
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    imported.add(a.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                imported.add(node.module.split(".")[0])
+        for banned in ("shutil", "tempfile", "pathlib", "subprocess"):
+            self.assertNotIn(banned, imported,
+                             "state_shape.py must have no write path: imports %r" % banned)
+
+    def test_no_mutating_os_calls(self):
+        """`os` is imported for path joins only -- no filesystem mutation."""
+        banned = {"remove", "rename", "unlink", "rmdir", "makedirs", "mkdir",
+                  "replace", "chmod", "truncate", "symlink", "link"}
+        for node in ast.walk(self.tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and getattr(node.func.value, "id", None) == "os"):
+                self.assertNotIn(node.func.attr, banned,
+                                 "state_shape.py must not call os.%s" % node.func.attr)
+
+    def test_only_stderr_and_stdout_are_written(self):
+        """A `.write` is allowed ONLY on a std stream, never on a file handle.
+
+        The module reports reasons on stderr, so a blanket ban on `.write`
+        would be wrong; the property that matters is that no FILE object is
+        ever written to.
+        """
+        for node in ast.walk(self.tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("write", "writelines", "truncate")):
+                target = node.func.value
+                # Must be sys.stdout / sys.stderr
+                ok = (isinstance(target, ast.Attribute)
+                      and target.attr in ("stdout", "stderr")
+                      and getattr(target.value, "id", None) == "sys")
+                self.assertTrue(ok, "state_shape.py writes to something that is "
+                                    "not sys.stdout/sys.stderr")
 
 
 class TestImportSet(unittest.TestCase):
