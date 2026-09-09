@@ -475,18 +475,44 @@ def _assert_completeness(plugin_root):
     return total
 
 
+def _pytest_argv():
+    """How to invoke pytest, in preference order.
+
+    The project's runner is the bare `pytest` executable from the scripts dir —
+    NOT `<interpreter> -m pytest`. Those are different interpreters here: pytest
+    is installed in its own pipx venv, so `sys.executable -m pytest` fails with
+    "No module named pytest" under the very python the owner types
+    (`python3 batchsnap.py build`). Preferring sys.executable would make `build`
+    refuse EVERY valid batch with a bogus "suite is not green".
+    """
+    return [["pytest", "-q"], [sys.executable, "-m", "pytest", "-q"]]
+
+
 def _assert_suite_green(plugin_root):
     scripts = os.path.join(plugin_root, "scripts")
     if not os.path.isdir(scripts):
         raise BatchError("snapshot has no scripts/ directory to test")
-    proc = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=scripts,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, timeout=120)
-    if proc.returncode != 0:
-        tail = "\n".join(proc.stdout.strip().splitlines()[-5:])
-        raise BatchError("suite is not green in the snapshot (pytest exit %d):\n%s"
-                         % (proc.returncode, tail))
-    return proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else "green"
+    attempts = []
+    for argv in _pytest_argv():
+        try:
+            proc = subprocess.run(argv, cwd=scripts, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True, timeout=120)
+        except OSError as exc:
+            attempts.append("%s: %s" % (argv[0], exc))
+            continue
+        out = proc.stdout.strip()
+        # "no pytest here" is NOT a red suite -- fall through to the next runner
+        # rather than reporting a green batch as broken.
+        if proc.returncode != 0 and "No module named pytest" in out:
+            attempts.append("%s: no pytest in that interpreter" % " ".join(argv[:2]))
+            continue
+        if proc.returncode != 0:
+            tail = "\n".join(out.splitlines()[-5:])
+            raise BatchError("suite is not green in the snapshot (pytest exit %d):\n%s"
+                             % (proc.returncode, tail))
+        return out.splitlines()[-1] if out else "green"
+    raise BatchError("cannot run the suite in the snapshot — no usable pytest:\n  %s"
+                     % "\n  ".join(attempts))
 
 
 def build(repo, batch, commit, recorded, snap_root=None, archive_tree=None):

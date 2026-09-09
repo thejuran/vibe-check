@@ -665,6 +665,51 @@ class TestCompleteness(SnapCase):
         proc, _ = self.build(repo, expect=1)
         self.assertIn("suite", proc.stdout.lower())
 
+    def test_build_works_under_the_interpreter_the_owner_types(self):
+        """THE runner bug: `python3 batchsnap.py build` must not report a green
+        batch as red.
+
+        pytest lives in its own pipx venv here, so `sys.executable -m pytest`
+        raises "No module named pytest" under the plain `python3` the lifecycle
+        doc tells the owner to type. A build that resolved the runner as
+        sys.executable would refuse EVERY valid batch with a bogus "suite is not
+        green". This drives build through bare `python3` end to end.
+        """
+        repo = make_repo(self.tmp)
+        recorded = self.record_all(repo, 1)
+        commit = head(repo)
+        proc = subprocess.run(
+            ["python3", BATCHSNAP_PY, "build", "--batch", "1", "--commit", commit,
+             "--recorded", recorded, "--repo", repo, "--snap-root", self.snaproot,
+             "--archive-tree", repo_archive_tree(repo, commit)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
+        snap = self.snap_path(1, commit)
+        if proc.returncode == 0:
+            self._made.append((repo, snap))
+        self.assertEqual(proc.returncode, 0,
+                         "build failed under bare python3:\n%s" % proc.stdout)
+        self.assertNotIn("No module named pytest", proc.stdout)
+        self.assertIn("plugin_root: ", proc.stdout)
+
+    def test_missing_pytest_is_not_reported_as_a_red_suite(self):
+        """The two failures are distinguishable: 'no runner' != 'suite is red'."""
+        repo = make_repo(self.tmp)
+        _, snap = self.build(repo)
+        plug = os.path.join(snap, batchsnap.PLUGIN_SUBDIR)
+        real = batchsnap._pytest_argv
+        try:
+            batchsnap._pytest_argv = lambda: [[sys.executable, "-c",
+                                               "import sys; sys.stdout.write("
+                                               "'No module named pytest'); "
+                                               "sys.exit(1)"]]
+            with self.assertRaises(batchsnap.BatchError) as ctx:
+                batchsnap._assert_suite_green(plug)
+            msg = str(ctx.exception)
+            self.assertIn("no usable pytest", msg)
+            self.assertNotIn("suite is not green", msg)
+        finally:
+            batchsnap._pytest_argv = real
+
     def test_archive_tree_pinned(self):
         """F12: the sealed baseline must be intact in anything the owner runs against."""
         repo = make_repo(self.tmp)
