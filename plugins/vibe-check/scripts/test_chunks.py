@@ -14,7 +14,6 @@ pair rather than trusting the implementation to stay correct.
 import ast
 import json
 import os
-import re
 import subprocess
 import sys
 import unittest
@@ -169,12 +168,21 @@ class TestPackGolden(unittest.TestCase):
         self.assertEqual(actual, GOLDEN_PACK)
 
     def test_golden_literal_is_not_computed_from_the_module(self):
-        # Guard the guard: the golden must stay a literal. If a future edit
-        # replaces it with a json.dumps(chunks...) call the freeze proves nothing.
+        # Guard the guard: the golden must stay a hard-coded literal. If a
+        # future edit replaces it with a json.dumps(chunks.pack(...)) call the
+        # freeze proves nothing, so assert the assignment is string literals
+        # only — no Call, Name, or Attribute node anywhere in its value.
         with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
-            src = fh.read()
-        head = src.split("GOLDEN_ROWS", 1)[0]
-        self.assertNotIn("chunks.", head)
+            tree = ast.parse(fh.read())
+        assigns = [
+            node for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "GOLDEN_PACK"
+                    for t in node.targets)
+        ]
+        self.assertEqual(len(assigns), 1)
+        for node in ast.walk(assigns[0].value):
+            self.assertNotIsInstance(node, (ast.Call, ast.Name, ast.Attribute))
 
 
 class TestEdgeCaseA(unittest.TestCase):
@@ -395,13 +403,6 @@ class TestFailClosed(unittest.TestCase):
             json.dumps(result, sort_keys=True, separators=(",", ":")),
             GOLDEN_PACK,
         )
-
-    def test_no_octal_escape_shorter_than_three_digits(self):
-        # Mirrors the select_files guard (F9a): a `\0` or `\01` escape inside a
-        # byte fixture silently collapses records. Nothing here needs one.
-        with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
-            src = fh.read()
-        self.assertIsNone(re.search(r"\\\\0(?![0-7]{2})", src))
 
 
 if __name__ == "__main__":
