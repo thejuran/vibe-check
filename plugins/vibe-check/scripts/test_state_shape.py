@@ -207,7 +207,7 @@ class TestSchemaFixtures(unittest.TestCase):
 class TestSchemasAreDistinct(unittest.TestCase):
     """F13 regression lock: if an edit collapses the two schemas, these fail."""
 
-    def test_schemas_differ_in_the_load_bearing_fields(self):
+    def test_schemas_are_distinct_in_the_load_bearing_fields(self):
         for field in ("pass_forbidden", "codex_shape", "timestamp_regex", "finding_required"):
             with self.subTest(field=field):
                 self.assertNotEqual(ARCHIVE.get(field), FUTURE.get(field),
@@ -519,7 +519,7 @@ class TestCodexCanonicalShape(unittest.TestCase):
         self.assertIn("codex record is not an object",
                       state_shape.check_pass_entry(entry, FUTURE))
 
-    def test_canonical_record_accepted(self):
+    def test_codex_canonical_shape_accepted(self):
         self.assertEqual(state_shape.check_pass_entry(make_pass(), FUTURE), [])
 
     def test_missing_verdict_rejected(self):
