@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Canonical seal-2 append verifier (owned by 38-02; invoked — never re-embedded — by the
 checklist gates, 38-04 STEP C, the 38-05 ladder, and the 38-06 phase exit).
+Seal-commit derivation is FULL-HISTORY over all branches/tags/remotes (never branch-relative,
+never history-simplified away), with the derived pair bound to the scored tree by ancestry asserts.
 BYTE-exact: compares raw `git show` bytes, so a CRLF rewrite or any seal-1 byte change
 fails; the whitelist suffix is validated with re.fullmatch on bytes (no dollar anchors,
 no line splitting). Exit 0 + SEAL2-APPEND-WHITELIST-OK only for a legal pair.
@@ -10,9 +12,14 @@ ROOT = sys.argv[1] if len(sys.argv) > 1 else '.'
 M = 'docs/design/b3-ground-truth/PREREGISTRATION-v2.10.md'
 def git(*a):
     return subprocess.check_output(('git', '-C', ROOT) + a)
-revs = git('rev-list', '--reverse', 'HEAD', '--', M).decode().split()
+revs = git('log', '--format=%H', '--full-history', '--simplify-merges', '--topo-order',
+           '--reverse', '--branches', '--tags', '--remotes', '--', M).decode().split()
 if len(revs) != 2:
-    sys.exit('SEAL VERIFIER FAIL: manifest commits != 2: %r' % revs)
+    sys.exit('SEAL VERIFIER FAIL: manifest commits != 2 (full-history, all branches/tags/remotes): %r' % revs)
+s1c, s2c = revs
+for a, b, what in ((s1c, s2c, 'SEAL1 -> SEAL2'), (s1c, 'HEAD', 'SEAL1 -> HEAD'), (s2c, 'HEAD', 'SEAL2 -> HEAD')):
+    if subprocess.call(('git', '-C', ROOT, 'merge-base', '--is-ancestor', a, b)) != 0:
+        sys.exit('SEAL VERIFIER FAIL: ancestry broken (%s)' % what)
 s1 = git('show', revs[0] + ':' + M)
 s2 = git('show', revs[1] + ':' + M)
 if not s2.startswith(s1):
