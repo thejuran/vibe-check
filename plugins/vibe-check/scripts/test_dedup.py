@@ -48,10 +48,16 @@ def f(fid, category, title, path, line, score=50):
 # GOLDEN — one fixed finding set, one hand-computed literal.
 #
 # Worked by hand, NOT by calling the module:
-#   a1/a2 both normalize to the token set {sql, injection, in, query} after the
-#   strip removes the quoted symbol and the path -> Jaccard 1.0 >= 0.7, same
-#   category, 2 distinct files -> ONE collapsed group, primary = the higher
-#   score (a2, 90) -> members ordered by (file, line, id):
+#   a1 normalizes to {sql, injection, in}: `build_query` is a stripped quoted
+#   identifier, so `query` is NOT in a1's set.
+#   a2 normalizes to {sql, injection, in, at, query}: the path and the line
+#   number are stripped, `at` and `query` are ordinary words that survive.
+#   Jaccard(a1,a2) = 3/5 = 0.6, BELOW the 0.7 bar — so this pair groups ONLY
+#   via :948's SECOND arm, set-containment after the strip (a1 subset of a2).
+#   That makes the golden a load-bearing test of the substring arm; see
+#   test_golden_groups_via_the_containment_arm_not_jaccard below.
+#   Same category, 2 distinct files -> ONE collapsed group, primary = the
+#   higher score (a2, 90) -> members ordered by (file, line, id):
 #     ("api/orders.py", 12, "a2") < ("api/users.py", 4, "a1")
 #   b1 shares no normalized token with them -> its own group of one, and with
 #   only 1 distinct file it does not collapse.
@@ -67,7 +73,9 @@ GOLDEN_INPUT = [
 
 GOLDEN_OUTPUT = [
     {
-        "key": "security::in|injection|query|sql",
+        # The key is built from the group's SEED — a2, visited first under the
+        # (file, line, id) order because "api/orders.py" < "api/users.py".
+        "key": "security::at|in|injection|query|sql",
         "members": ["a2", "a1"],
         "files": ["api/orders.py", "api/users.py"],
         "primary": "a2",
@@ -105,6 +113,28 @@ class TestGolden(unittest.TestCase):
                             GOLDEN_INPUT[0]["category"])
         # And the expectation itself: exactly one group collapses.
         self.assertEqual(sum(1 for g in GOLDEN_OUTPUT if g["collapsed"]), 1)
+
+    def test_golden_groups_via_the_containment_arm_not_jaccard(self):
+        """Fixture integrity, and a load-bearing check of :948's second arm.
+
+        The hand-computed expectation for this golden was initially wrong: it
+        assumed `build_query` contributed a `query` token to a1. It does not —
+        it is a quoted identifier and is stripped. The real Jaccard is 3/5 =
+        0.6, BELOW the 0.7 bar, so this pair groups only because a1's token set
+        is contained in a2's. Asserting that here means a regression that
+        deleted the containment arm would fail loudly instead of quietly
+        splitting the golden into two groups.
+        """
+        a1 = dedup._normalize(GOLDEN_INPUT[0]["title"])
+        a2 = dedup._normalize(GOLDEN_INPUT[2]["title"])
+        self.assertEqual(a1, {"sql", "injection", "in"})
+        self.assertEqual(a2, {"sql", "injection", "in", "at", "query"})
+        jaccard = len(a1 & a2) / len(a1 | a2)
+        self.assertAlmostEqual(jaccard, 0.6)
+        self.assertLess(jaccard, dedup.JACCARD_THRESHOLD,
+                        "golden must NOT be groupable by Jaccard alone")
+        self.assertTrue(a1 <= a2, "containment is the arm under test")
+        self.assertTrue(dedup._similar(a2, a1))
 
     def test_group_does_not_mutate_the_input(self):
         """review.md:947 — the grouping alters no canonical finding object."""
@@ -372,7 +402,9 @@ class TestCitations(unittest.TestCase):
         self.assertIn("NEW", self._source())
 
     def test_module_states_the_d08_boundary(self):
-        self.assertIn("prose renders", self._source().lower())
+        """Whitespace-collapsed: the sentence wraps in the docstring."""
+        src = " ".join(self._source().lower().split())
+        self.assertIn("it groups; the prose renders", src)
 
 
 class TestImportSet(unittest.TestCase):

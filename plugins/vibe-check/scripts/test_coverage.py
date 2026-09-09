@@ -283,8 +283,16 @@ class TestCitations(unittest.TestCase):
         self.assertIn("review.md:925", self._source())
 
     def test_module_states_the_d08_boundary(self):
-        src = self._source().lower()
-        self.assertIn("prose renders", src)
+        """Whitespace is collapsed first: the sentence wraps across a line in
+        the docstring, and a raw substring check silently missed it."""
+        src = " ".join(self._source().lower().split())
+        self.assertIn("this module computes; the prose renders", src)
+
+    def test_the_d08_phrase_check_is_not_vacuous(self):
+        """Prove the collapsed-whitespace check rejects a module that omits
+        the boundary sentence."""
+        collapsed = " ".join("no boundary statement here".split())
+        self.assertNotIn("this module computes; the prose renders", collapsed)
 
 
 class TestImportSet(unittest.TestCase):
