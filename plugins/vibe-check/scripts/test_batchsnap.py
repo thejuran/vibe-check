@@ -372,8 +372,16 @@ class TestTwoRoots(SnapCase):
 class TestSnapshotImmutable(SnapCase):
 
     def test_snapshot_is_immutable(self):
+        """Every file carrying an integrity claim is read-only after build.
+
+        Generated files are deliberately NOT sealed (FL-01): they carry no
+        integrity claim, and sealing them would turn any legitimate run inside the
+        snapshot into a permission error. test_generated_paths_stay_writable is
+        the twin that pins that exemption so it cannot silently widen.
+        """
         repo = make_repo(self.tmp)
         _, snap = self.build(repo)
+        plug = os.path.join(snap, batchsnap.PLUGIN_SUBDIR)
         writable = []
         seen = 0
         for root, _dirs, files in os.walk(snap):
@@ -381,13 +389,40 @@ class TestSnapshotImmutable(SnapCase):
                 p = os.path.join(root, f)
                 if os.path.islink(p):
                     continue
+                rel = os.path.relpath(p, plug).replace(os.sep, "/")
+                if not rel.startswith("..") and batchsnap.is_excluded(rel):
+                    continue
                 seen += 1
                 if os.access(p, os.W_OK):
-                    writable.append(p)
+                    writable.append(rel)
         # Fixture integrity: the walk actually saw the tree it claims to judge.
         self.assertGreater(seen, 3, "walk found almost nothing -- fixture is vacuous")
         self.assertEqual(writable, [])
         self.assertEqual(self.verify(snap).returncode, 0)
+
+    def test_generated_paths_stay_writable(self):
+        """FL-01: the exemption is exactly HASH_EXCLUDE, and no wider.
+
+        build runs pytest in the snapshot, so the caches exist before sealing.
+        They stay writable; every sibling under the same directory does not.
+        """
+        repo = make_repo(self.tmp)
+        _, snap = self.build(repo)
+        plug = os.path.join(snap, batchsnap.PLUGIN_SUBDIR)
+        excluded = []
+        for root, _dirs, files in os.walk(snap):
+            for f in files:
+                p = os.path.join(root, f)
+                rel = os.path.relpath(p, plug).replace(os.sep, "/")
+                if not rel.startswith("..") and batchsnap.is_excluded(rel):
+                    excluded.append((rel, os.access(p, os.W_OK)))
+        # Fixture integrity: build's own pytest run really did generate caches.
+        self.assertTrue(excluded, "no generated files -- exemption test is vacuous")
+        self.assertEqual([r for r, w in excluded if not w], [],
+                         "a sealed cache file would break any run in the snapshot")
+        # The exemption did NOT widen to the containing directory's real files.
+        self.assertFalse(os.access(os.path.join(plug, "scripts", "test_tiny.py"),
+                                   os.W_OK))
 
     def test_sealed_dirs_stay_traversable(self):
         # chmod -R a-w must clear write bits ONLY; stripping x makes the tree
@@ -505,6 +540,49 @@ class TestSnapshotImmutable(SnapCase):
         self.assertTrue(any(p.endswith(".pyc") for p in man["hash_exclude"]))
         self.assertTrue(any(".pytest_cache" in p for p in man["hash_exclude"]))
         self.assertEqual([f for f in man["files"] if batchsnap.is_excluded(f)], [])
+
+    def test_verify_consumes_the_manifest_exclusion_list_not_the_constant(self):
+        """FL-01: recording the list is not enough -- verify must USE it.
+
+        A build's manifest is judged by the rules THAT BUILD used. Here the
+        manifest records an exclusion the module constant does not carry: verify
+        must honour the recorded one. If verify read HASH_EXCLUDE instead, the
+        newly-excluded file would read as tampering and this exits 1.
+        """
+        repo = make_repo(self.tmp)
+        _, snap = self.build(repo)
+        man_path = os.path.join(snap, "MANIFEST.json")
+        with open(man_path) as fh:
+            man = json.load(fh)
+        # A real, hashed, non-excluded file under the module constant.
+        victim = "agents/fix.md"
+        self.assertIn(victim, man["files"])
+        self.assertFalse(batchsnap.is_excluded(victim))
+
+        man["hash_exclude"] = list(batchsnap.HASH_EXCLUDE) + ["fix.md"]
+        del man["files"][victim]
+        os.chmod(snap, 0o755)
+        os.chmod(man_path, 0o644)
+        write(man_path, json.dumps(man, indent=2, sort_keys=True))
+        os.chmod(man_path, 0o444)
+        os.chmod(snap, 0o555)
+
+        proc = self.verify(snap)
+        self.assertEqual(proc.returncode, 0,
+                         "verify ignored the manifest's recorded hash_exclude and "
+                         "fell back to the module constant:\n%s" % proc.stdout)
+        # Fixture integrity: dropping the file from `files` WITHOUT the matching
+        # exclusion really would be caught -- so the pass above came from the
+        # recorded list, not from a verify that checks nothing.
+        del man["hash_exclude"]
+        os.chmod(snap, 0o755)
+        os.chmod(man_path, 0o644)
+        write(man_path, json.dumps(man, indent=2, sort_keys=True))
+        os.chmod(man_path, 0o444)
+        os.chmod(snap, 0o555)
+        proc2 = self.verify(snap)
+        self.assertEqual(proc2.returncode, 1, proc2.stdout)
+        self.assertIn(victim, proc2.stdout)
 
     def test_manifest_paths_are_plugin_root_relative(self):
         repo = make_repo(self.tmp)
@@ -693,23 +771,66 @@ class TestCommitSet(SnapCase):
         self.assertNotIn(tooling_sha, emitted)
 
     def test_commit_set_fails_on_never_revert_in_allowlist(self):
-        """A typo in the allowlist must fail the command, not revert evidence."""
+        """A typo in the allowlist must fail the command, not revert evidence.
+
+        This isolates the ALLOWLIST guard: 40-01 is wrongly listed in
+        BATCH_PLANS[1] but has NO recorded sha, so there is nothing for the
+        emission guard downstream to catch. Only the allowlist assertion can
+        refuse here -- and it must refuse rather than reporting 40-01 as merely
+        'unrecorded', which would send the owner off to record the very commit
+        that must never enter a revert set.
+        """
         recorded = self.record_all(self.repo, 1)
-        ledger_sha = make_commit(self.repo, "40-01", subject=LEDGER_SUBJECT,
-                                 path=LEDGER_PATH)
-        self.assertEqual(batchsnap.record_commit(self.repo, "40-01", ledger_sha, recorded), 0)
+        with open(recorded) as fh:
+            self.assertNotIn("40-01", json.load(fh))  # fixture: no recorded sha
         real = batchsnap.BATCH_PLANS
         try:
             batchsnap.BATCH_PLANS = dict(real)
             batchsnap.BATCH_PLANS[1] = real[1] + ("40-01",)
             with self.assertRaises(batchsnap.BatchError) as ctx:
                 batchsnap.commit_set(self.repo, 1, recorded)
-            self.assertIn("40-01", str(ctx.exception))
-            self.assertIn("NEVER_REVERT", str(ctx.exception))
+            msg = str(ctx.exception)
+            self.assertIn("40-01", msg)
+            self.assertIn("NEVER_REVERT", msg)
+            # Specifically NOT the unrecorded-plan reason.
+            self.assertNotIn("incomplete", msg.lower())
         finally:
             batchsnap.BATCH_PLANS = real
-        # And the guard actually TRIPPED on the mutation: with the real allowlist
+        # The guard tripped on the mutation only: with the real allowlist
         # restored the same call succeeds, so the assertion is not vacuous.
+        self.assertEqual(len(batchsnap.commit_set(self.repo, 1, recorded)), 7)
+
+    def test_commit_set_fails_on_sha_recorded_under_never_revert_plan(self):
+        """The emission guard, isolated: BATCH_PLANS is CORRECT here.
+
+        The same sha is attributed to both a batch plan and 40-01 in the recorded
+        file, so the allowlist guard sees nothing wrong and only the emission
+        assertion can refuse. Two guards, two distinct defects: one catches a
+        typo in the allowlist, this one catches a mis-recorded identity.
+        """
+        recorded = os.path.join(self.tmp, "PLAN-COMMITS.json")
+        shared = make_commit(self.repo, "40-04", subject=LEDGER_SUBJECT,
+                             path=LEDGER_PATH)
+        for plan in batchsnap.BATCH_PLANS[1]:
+            sha = shared if plan == "40-04" else make_commit(self.repo, plan)
+            self.assertEqual(batchsnap.record_commit(self.repo, plan, sha, recorded), 0)
+        # record_commit refuses cross-plan duplicates, so this is written
+        # directly -- the defect is a recorded file that is already wrong.
+        with open(recorded) as fh:
+            data = json.load(fh)
+        data["40-01"] = [shared]
+        write(recorded, json.dumps(data))
+        # Fixture integrity: the allowlist itself is untouched and correct.
+        self.assertNotIn("40-01", batchsnap.BATCH_PLANS[1])
+        with self.assertRaises(batchsnap.BatchError) as ctx:
+            batchsnap.commit_set(self.repo, 1, recorded)
+        msg = str(ctx.exception)
+        self.assertIn(shared, msg)
+        self.assertIn("40-01", msg)
+        # Remove the bad attribution and the same call succeeds: the guard
+        # tripped on the defect, not on the fixture.
+        del data["40-01"]
+        write(recorded, json.dumps(data))
         self.assertEqual(len(batchsnap.commit_set(self.repo, 1, recorded)), 7)
 
     def test_commit_set_fails_on_unrecorded_plan(self):
@@ -726,11 +847,20 @@ class TestCommitSet(SnapCase):
         recorded = self.record_all(self.repo, 1)
         with open(recorded) as fh:
             data = json.load(fh)
+        good = data["40-04"]
         data["40-04"] = ["b" * 40]
         write(recorded, json.dumps(data))
         with self.assertRaises(batchsnap.BatchError) as ctx:
             batchsnap.commit_set(self.repo, 1, recorded)
-        self.assertIn("b" * 40, str(ctx.exception))
+        msg = str(ctx.exception)
+        self.assertIn("b" * 40, msg)
+        # Pin WHICH assertion refused: any refusal would satisfy a bare
+        # assertRaises, including one raised for an unrelated reason.
+        self.assertIn("does not exist in this repo", msg)
+        # And the guard tripped on the bad sha only.
+        data["40-04"] = good
+        write(recorded, json.dumps(data))
+        self.assertEqual(len(batchsnap.commit_set(self.repo, 1, recorded)), 7)
 
     def test_commit_set_is_revert_order(self):
         recorded = os.path.join(self.tmp, "PLAN-COMMITS.json")
@@ -1001,10 +1131,16 @@ class TestPassArtifact(unittest.TestCase):
 
     def test_artifact_path_escaping_the_directory_is_refused(self):
         art = make_pass()
+        # Write the legitimate artifacts FIRST, then point one run outside the
+        # directory -- the escaping path is never materialized, so this refuses on
+        # containment rather than on absence.
+        path = write_pass(self.tmp, art)
         art["runs"][0]["report_path"] = "../../../etc/passwd"
-        ok, reasons = self.check(art)
+        write(path, json.dumps(art, indent=2))
+        ok, reasons = batchsnap.check_pass_artifact(path)
         self.assertFalse(ok)
-        self.assertTrue(any("report_path" in r for r in reasons), reasons)
+        self.assertTrue(any("report_path" in r and "outside" in r for r in reasons),
+                        reasons)
 
     def test_pass_rejects_failed_trace_validation(self):
         """FL-02.4: any failing trace validation forces FAIL."""
@@ -1148,10 +1284,21 @@ class TestImportSet(unittest.TestCase):
 
     def test_never_revert_constant_carries_a_reason_per_entry(self):
         with open(BATCHSNAP_PY) as fh:
-            src = fh.read()
-        block = src.split("NEVER_REVERT", 1)[1][:1400]
+            lines = fh.read().splitlines()
+        # The COMMENT BLOCK immediately preceding the assignment -- not the first
+        # docstring mention, which would make this assertion vacuous.
+        assign = [i for i, l in enumerate(lines) if l.startswith("NEVER_REVERT = ")]
+        self.assertEqual(len(assign), 1, "NEVER_REVERT is not assigned exactly once")
+        i = assign[0]
+        start = i
+        while start > 0 and lines[start - 1].lstrip().startswith("#"):
+            start -= 1
+        # COMMENT ONLY -- the assignment line names every plan id by itself, so
+        # including it would make the per-plan assertions vacuous.
+        block = "\n".join(lines[start:i])
+        self.assertGreater(i - start, 3, "NEVER_REVERT carries no comment block")
         for plan in ("40-01", "40-06", "40-09", "40-14"):
-            self.assertIn(plan, block)
+            self.assertIn(plan, block, "no reason naming %s" % plan)
         for word in ("ledger", "tooling", "closing"):
             self.assertIn(word, block.lower(), "no reason naming %r near NEVER_REVERT" % word)
 
