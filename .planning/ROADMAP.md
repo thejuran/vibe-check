@@ -224,9 +224,41 @@ Plans:
   5. Every executable helper the commands and agents invoke (`scripts/score.py`, `scripts/guard.py`, `scripts/config.py`, and the fix agent's own guard resolution) resolves from the TRUSTED plugin install (`${CLAUDE_PLUGIN_ROOT}`, with one explicit owner-set dev-override env var) — never from the repository under review; the repo-first arm is gone from every copy, and a planted `plugins/vibe-check/scripts/*.py` in a reviewed repo is provably never executed (TRUST-01)
   6. The fix agent validates every path in a finding's file set (regex + guard.py containment) BEFORE its first Read/Edit, not only before commit — a traversal path is refused before anything touches disk (TRUST-02)
 
-**Plans**: TBD
+**Plans:** 11 plans
 
-> **Owner-runtime**: the capped per-batch spot-checks (2 runs per batch) and the single end-of-phase ×3 spot-check are owner-driven `/deep-review` invocations.
+Plans:
+**Wave 1** *(batch 1 — TRUST + extractions + harness)*
+
+- [ ] 40-01-PLAN.md — Harden verify-seal2-append.py + the append-only SUPERSESSIONS-v2.10.md ledger (D-01..D-04)
+- [ ] 40-02-PLAN.md — TRUST-01: one `${CLAUDE_PLUGIN_ROOT}`-first resolver replaces four repo-first copies (D-12/13/14)
+- [ ] 40-03-PLAN.md — DIET-02 Family 2: chunks.py + select_files.py + tests
+- [ ] 40-04-PLAN.md — DIET-02 Family 3: codex_translate.py + codex_gate.py + tests
+- [ ] 40-05-PLAN.md — Batch-check harness: state_shape.py (envelope shape leg) + footprint.py + the BEFORE footprint
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 40-06-PLAN.md — SPOT-CHECK-v2.10-phase40.md: the 12 owner runs + the named sensitivity pair (D-05/D-06)
+- [ ] 40-07-PLAN.md — TRUST-02: fix agent validates every path BEFORE its first Read/Edit; fixcommit.py (D-15)
+
+**Wave 3** *(batch 2a — blocked on Wave 2)*
+
+- [ ] 40-08-PLAN.md — review.md becomes a spine; always-on phase bodies → phases/review/ (D-09)
+
+**Wave 4** *(batch 2b — blocked on Wave 3)*
+
+- [ ] 40-09-PLAN.md — `--all`/finalize/fix-loop bodies lazy-loaded; chunks.py + select_files.py wired
+
+**Wave 5** *(batch 3 — blocked on Wave 4)*
+
+- [ ] 40-10-PLAN.md — deep-review spine over the shared files; D-11 cost anchors; DIET-03 removal (D-16)
+
+**Wave 6** *(blocked on Wave 5)*
+
+- [ ] 40-11-PLAN.md — Per-mode footprint report, DIET-03 record, DIET-02 inventory reconciliation
+
+> **Batches (D-06, capped at 3, each independently revertable):** batch 1 = 40-01..05 + 40-07; batch 2 = 40-08 + 40-09; batch 3 = 40-10.
+
+> **Owner-runtime**: the capped per-batch spot-checks (2 runs per batch) and the single end-of-phase ×3 spot-check are owner-driven `/deep-review` invocations. Phase-40 total = 12 owner runs; the checklist is delivered by 40-06.
 
 > **Planning inputs (2026-09-05, from the external source review — inputs, NOT requirements):** (a) the reviewer's extraction list adds two families the inventory lacks — dispatch-manifest generation and report rendering — plus per-phase latency recording; weigh them against the inventory's keep-list at plan time. (b) TRUST-01 needs a short spike first: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py itself, outside the orchestrator's shell). (c) The dev override must be an env var the OWNER sets, never anything read from the reviewed repo. (d) The cost-anchor correction lands in the Phase-0.3 budget-gate block and the deep-review cost note as part of the rewrite, not as a separate pass.
 
