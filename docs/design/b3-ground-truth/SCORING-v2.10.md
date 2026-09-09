@@ -449,6 +449,10 @@ session-rotation 3/3 + settings-form-split 3/3.
 **Headline FP-rate = 19/21** — should-quiet-1 3/3 + -2 3/3 + -3 3/3 + -4 3/3 + -5 **1/3** + -6 3/3 +
 -7 3/3.
 
+> Superseded 2026-09-08 — should-quiet-7 excluded by recorded supersession: FP **16/18** over the
+superseded quiet denominator (the sealed 19/21 above is the sealed literal and stands); see
+`docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md` #001.
+
 Zero `detected-below-threshold`, zero `miss`, zero `unscoreable`.
 
 | diff-id | role | fraction |

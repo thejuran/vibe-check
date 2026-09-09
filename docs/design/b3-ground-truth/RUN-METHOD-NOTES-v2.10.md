@@ -182,6 +182,9 @@ verifier-sha256 AND that exactly one commit ever touched the path, then executes
 check via `git show <verifier-commit>:<path> | python3 -` — the pinned blob, never the
 working file.
 
+Re-pinned 2026-09-08 after hardening — the lines above are the Phase-38 pin kept as history; the
+current pin and the count-==-2 consumer rule are ledger entry #004 in `SUPERSESSIONS-v2.10.md`.
+
 ## Harness pin
 
 pin-claude-code: 2.1.261 (Claude Code)

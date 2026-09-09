@@ -130,6 +130,10 @@ should-quiet diffs fired a critical or warning in **every** run; should-quiet-5 
 any silence (2 of its 3 runs clean), and even its single FP is not about the diff's own lines — it is
 an unused-import lint concern in a neighbouring test file.
 
+> Superseded 2026-09-08 — should-quiet-7 excluded by recorded supersession: FP **16/18** over the
+superseded quiet denominator (the sealed 19/21 above is the sealed literal and stands); see
+`docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md` #001.
+
 Two recurring FP shapes are worth naming, because they are what the noise work has to move:
 
 - **Out-of-diff reach.** should-quiet-2 and should-quiet-5 FP'd on *neighbouring* files (the caller,
