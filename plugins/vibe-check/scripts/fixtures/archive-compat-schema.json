@@ -1,0 +1,22 @@
+{
+  "_purpose": "Describes the observed shape of the 37 sealed Phase-38 archive states. Historical fact, not a contract. Never tighten this to make a new state pass; add to future-schema.json instead.",
+  "_census": "Re-derived 2026-09-08 over all 37 docs/design/b3-ground-truth/runs-v2.10/*/run-*/state.json: 37 passes, 214 findings. codex_shape and timestamp_regex are null because the archives are genuinely nondeterministic in both (8 distinct codex shapes, 2 of them a bare string; 35 second-resolution Z timestamps and 2 microsecond +00:00 offsets).",
+  "root_required": ["passes"],
+  "root_optional": ["medium_acknowledgments", "phase_id", "scope_label"],
+  "root_closed": true,
+  "pass_required": ["pass_number", "head_sha", "timestamp", "mode", "diff_range", "agents_run", "findings"],
+  "pass_optional": ["filtered", "fixes_applied", "codex", "codex_joined", "fixed_since_last",
+                    "scored_by_script", "codex_verdict", "additions", "deletions", "notes",
+                    "filtered_count", "filtered_reasons"],
+  "pass_all_only": ["cap_applied", "chunk_total", "capped_chunks"],
+  "pass_forbidden": [],
+  "codex_shape": null,
+  "timestamp_regex": null,
+  "finding_required": ["file", "line", "category", "severity", "agent_confidence", "problem",
+                       "agent", "source_window", "orchestrator_score", "band", "attribution",
+                       "stable_hash", "status"],
+  "finding_optional": ["intent_doc_match", "id", "title", "fix_hint", "why_it_matters", "cwe",
+                       "current_code", "in_diff", "silenced_marker_nearby", "canonical_line_content",
+                       "_normalized_fields", "_orchestrator_note", "fix", "confidence", "pending"],
+  "finding_closed": true
+}

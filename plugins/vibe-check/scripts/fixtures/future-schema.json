@@ -1,0 +1,28 @@
+{
+  "_purpose": "The strict envelope contract for states produced after Phase 40. RESEARCH Q6 section 3 plus D-16. Changing this file is an envelope change and needs a recorded decision.",
+  "_scope": "This schema proves the ENVELOPE shape is stable. It does NOT prove orchestration or rendered reports are unchanged: those are the scorer leg (test_score.py goldens), the script leg (per-script goldens), and the trace leg (plan 40-13). One of four legs.",
+  "root_required": ["medium_acknowledgments", "passes"],
+  "root_optional": [],
+  "root_closed": true,
+  "pass_required": ["pass_number", "head_sha", "timestamp", "mode", "diff_range", "agents_run",
+                    "findings", "filtered", "codex"],
+  "pass_optional": [],
+  "pass_all_only": ["cap_applied", "chunk_total", "capped_chunks"],
+  "pass_forbidden": ["fixes_applied"],
+  "codex_shape": {
+    "required": ["status", "reason", "verdict", "findings"],
+    "closed": true,
+    "status_enum": ["joined", "skipped", "off"],
+    "verdict_enum": ["approve", "needs-attention", null],
+    "findings_type": "int",
+    "reason_regex": "^[a-z0-9]+(-[a-z0-9]+)*$",
+    "reason_nullable": true
+  },
+  "timestamp_regex": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+  "finding_required": ["id", "file", "line", "title", "category", "severity", "agent",
+                       "agent_confidence", "problem", "source_window", "orchestrator_score",
+                       "band", "attribution", "status", "stable_hash"],
+  "finding_optional": ["cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
+                       "silenced_marker_nearby", "intent_doc_match", "canonical_line_content"],
+  "finding_closed": true
+}
