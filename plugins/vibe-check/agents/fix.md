@@ -27,15 +27,12 @@ Detection agents do NOT produce patches; you do. A finding gives you `file`, `li
    **Before committing, validate the untrusted values:**
    - **Every path in the finding's file set** (the primary `finding.file` AND each sibling): reject unless it matches `^[A-Za-z0-9._/-]+$` AND it passes the containment guard below. The regex is only a fast pre-filter (it denies spaces and shell metacharacters) — it does NOT block `..`-traversal, since every character in `../../.git/hooks/pre-commit` is in the class. The **containment check is what stops traversal**, and it is the ONE tested `scripts/guard.py`, NOT an inline `case "$REAL/" in "$ROOT/"*` transcription (Fable A7/B2: the hand-copied inline form guarding THIS auto-committing path failed OPEN when `$ROOT` was empty — the pattern degenerated to `/*`, matching any absolute path; guard.py fails CLOSED on an empty root, refuses absolute escapes and `/repo-other` masquerades, and judges a deleted-file path lexically so a multi-site fix touching a just-deleted sibling still validates). Resolve guard.py yourself (you are a subagent — the orchestrator's shell vars are not in your environment), then validate every path in ONE call; guard.py exits 0 only when ALL `--path` args are contained:
      ```bash
+     # TRUST-01 resolver (fix agent twin) — same two arms as the orchestrator; an unresolved guard means record `errored` for EVERY finding and touch nothing.
+     VC_ROOT="${CLAUDE_PLUGIN_ROOT}"
+     [ -z "$VC_ROOT" ] && VC_ROOT="${VIBE_CHECK_PLUGIN_ROOT:-}"
+     GUARD_PY=""; [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/guard.py" ] && GUARD_PY="$VC_ROOT/scripts/guard.py"
      GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
-     GUARD_PY=""
-     [ -n "$GREPO" ] && [ -f "$GREPO/plugins/vibe-check/scripts/guard.py" ] && GUARD_PY="$GREPO/plugins/vibe-check/scripts/guard.py"
-     if [ -z "$GUARD_PY" ]; then
-       GROOT=$(ls -d "$HOME"/.claude/plugins/cache/thejuran/vibe-check/*/ 2>/dev/null | sort -V | tail -1)
-       GROOT="${GROOT%/}"
-       [ -n "$GROOT" ] && [ -f "$GROOT/scripts/guard.py" ] && GUARD_PY="$GROOT/scripts/guard.py"
-     fi
-     [ -z "$GUARD_PY" ] && [ -f "$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/guard.py" ] && GUARD_PY="$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/guard.py"
+     # /TRUST-01 resolver
      # FAIL CLOSED: no guard resolved, or any path refused (non-zero exit) → the whole finding errors.
      [ -n "$GUARD_PY" ] && python3 "$GUARD_PY" --root "$GREPO" --path "<path-1>" --path "<path-2>" \
        || { : record errored, skip this finding ; }

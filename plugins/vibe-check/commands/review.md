@@ -99,20 +99,29 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
 
 **One-line mode conclusion (LEGIBLE-02):** after resolving the mode/scope above, print EXACTLY ONE conclusion line `Mode: <resolved mode + scope>` and proceed — do NOT narrate the resolution reasoning, and do NOT ask a disambiguation question for an unambiguous alias (the bare-`all` normalization already resolves silently, so this line is the only resolution output the user sees). Example forms (exact wording is discretion within this behavioral bar): `Mode: --all (whole-tree, docs excluded)` / `Mode: --all --include-docs (whole-tree)` / `Mode: --all src/api (narrowed)` / `Mode: diff (uncommitted changes)` / `Mode: PR #42` / `Mode: range a..b` / `Mode: GSD phase 02-foo`. This is PROSE-tightening of the orchestrator's self-narration ONLY — it does NOT change WHICH mode is chosen; the five modes' selection logic below is byte-stable.
 
-**Resolve `$GUARD_PY` ONCE (unconditional — Fable A7/B2).** Path containment is no longer an inline `case "$REAL/" in "$ROOT/"*` transcription — the ≥5 hand-copied snippets had ALREADY drifted (four failed OPEN on an empty `$ROOT`; the deep-review/fix copies silently downgraded findings about deleted files). Every containment decision now calls the ONE tested `scripts/guard.py` (fail-closed: empty root/path, non-dir root, and any escape all refuse; missing-path TOLERANT: a deleted-but-in-diff file is judged lexically; relative `--path` values resolve against `--root`). Bind it here with the SAME 3-arm resolution family as `$SCORE_PY`/`$CONFIG_PY` (guard.py sits in the same `scripts/` dir):
+**Resolve `$GUARD_PY` ONCE (unconditional — Fable A7/B2).** Path containment is no longer an inline `case "$REAL/" in "$ROOT/"*` transcription — the ≥5 hand-copied snippets had ALREADY drifted (four failed OPEN on an empty `$ROOT`; the deep-review/fix copies silently downgraded findings about deleted files). Every containment decision now calls the ONE tested `scripts/guard.py` (fail-closed: empty root/path, non-dir root, and any escape all refuse; missing-path TOLERANT: a deleted-but-in-diff file is judged lexically; relative `--path` values resolve against `--root`). Bind it here with the SAME TRUST-01 resolver that binds `$SCORE_PY`/`$CONFIG_PY` (guard.py sits in the same `scripts/` dir):
+
+`$VC_ROOT`, `$GUARD_PY`, `$CONFIG_PY`, `$SCORE_PY` are bound HERE, once, and carried forward like `$CONFIG_*` — later phases substitute the resolved absolute paths and never re-resolve. The seat line above is the only place the load-time token is spelled on this path; the resolver body reads the value the seat exported. The owner's dev override is the env var `VIBE_CHECK_PLUGIN_ROOT` (exported by the owner; the recommended dev workflow is `claude --plugin-dir <repo>/plugins/vibe-check`, which makes arm (1) the working tree).
 
 ```bash
-GUARD_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GUARD_PY=""
-[ -n "$GUARD_REPO_ROOT" ] && [ -f "$GUARD_REPO_ROOT/plugins/vibe-check/scripts/guard.py" ] && GUARD_PY="$GUARD_REPO_ROOT/plugins/vibe-check/scripts/guard.py"
-if [ -z "$GUARD_PY" ]; then
-  GUARD_ROOT=$(ls -d "$HOME"/.claude/plugins/cache/thejuran/vibe-check/*/ 2>/dev/null | sort -V | tail -1)
-  GUARD_ROOT="${GUARD_ROOT%/}"
-  [ -n "$GUARD_ROOT" ] && [ -f "$GUARD_ROOT/scripts/guard.py" ] && GUARD_PY="$GUARD_ROOT/scripts/guard.py"
-fi
-if [ -z "$GUARD_PY" ] && [ -f "$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/guard.py" ]; then
-  GUARD_PY="$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/guard.py"
-fi
+# TRUST-01 seat — the plugin-root token on the line below is a LOAD-TIME TEXT SUBSTITUTION by Claude Code
+# (the exact braced spelling only; the unbraced form and the bash-default form are NOT substituted, and the
+# shell variable is UNSET). The assignment below is the ONLY place that token is spelled on the orchestrator
+# path, because command bodies are loader-processed and file bytes obtained with `Read` are not. Under plain
+# bash it exports "". (A4: this comment deliberately does NOT spell the token — the seat invariant at
+# behavior line "Static (A1 — the SEAT invariant)" permits it only on the export line or in a Read path.)
+export VIBE_CHECK_PLUGIN_ROOT_SUBST="${CLAUDE_PLUGIN_ROOT}"
+# TRUST-01 resolver — the trusted plugin root arrives from the SEAT line above (a loader substitution the
+# reviewed repo cannot reach). Arm (2) is an env var the OWNER exports (`VIBE_CHECK_PLUGIN_ROOT`) — never
+# read from the reviewed repo. There is NO repo-relative arm and NO cache-glob/marketplace arm. If BOTH arms
+# are empty every consumer takes its terminal arm.
+VC_ROOT="${VIBE_CHECK_PLUGIN_ROOT_SUBST:-}"
+[ -z "$VC_ROOT" ] && VC_ROOT="${VIBE_CHECK_PLUGIN_ROOT:-}"
+# (3) terminal arm is PER CONSUMER (D-13): guard/score FAIL CLOSED on empty; config DEGRADES to defaults.
+GUARD_PY="";  [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/guard.py" ]  && GUARD_PY="$VC_ROOT/scripts/guard.py"
+CONFIG_PY=""; [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/config.py" ] && CONFIG_PY="$VC_ROOT/scripts/config.py"
+SCORE_PY="";  [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/score.py" ]  && SCORE_PY="$VC_ROOT/scripts/score.py"
+# /TRUST-01 resolver
 # Terminal arm: $GUARD_PY EMPTY. Every consumer FAILS CLOSED on that (treats the
 # path as NOT contained / refuses) — a security guard degrades to refusal, never
 # to pass-through. (Contrast: $CONFIG_PY degrades to defaults; $SCORE_PY halts.)
@@ -474,24 +483,11 @@ MIN_CONFIDENCE_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--min-confidenc
 CODEX_FLAG_VAL=$(printf '%s' "$ARGUMENTS" | sed -n 's/.*--codex[ =]\([^ ]*\).*/\1/p')
 ```
 
-**Resolve `scripts/config.py` DEV-SAFE — clone the `$SCORE_PY` resolution ORDER (Phase 3 step 3), but INVERT the terminal arm to DEGRADE, never `exit 1`.** The config reader is OPTIONAL where the scorer is MANDATORY (Pitfall 4): a missing `score.py` HALTS the review (fail-closed), but a missing `config.py` means "no config" → all defaults, and the review still runs. Resolve working-tree FIRST (the copy this phase edits), cache glob SECOND, marketplace THIRD; if none resolves, set `$CONFIG_PY` empty and continue with all-defaults. **Do NOT "fix" this terminal arm back to fail-closed** — the divergence from `$SCORE_PY` is deliberate and load-bearing.
+**`scripts/config.py` shares the Phase-0 TRUST-01 resolver with `$SCORE_PY`, but INVERTS the terminal arm to DEGRADE, never `exit 1`.** The config reader is OPTIONAL where the scorer is MANDATORY (Pitfall 4): a missing `score.py` HALTS the review (fail-closed), but a missing `config.py` means "no config" → all defaults, and the review still runs. `$CONFIG_PY` is resolved ONCE by the Phase-0 TRUST-01 resolver from the trusted plugin root, never from the reviewed repo; if it does not resolve, `$CONFIG_PY` is empty and this phase continues with all-defaults. **Do NOT "fix" this terminal arm back to fail-closed** — the divergence from `$SCORE_PY` is deliberate and load-bearing.
+
+`$CONFIG_PY` was bound ONCE by the Phase-0 TRUST-01 resolver and carried forward — substitute that resolved absolute path in the invocation below and do NOT re-resolve it here. Its terminal arm is this consumer's DEGRADE (the INVERSION vs `$SCORE_PY`'s `exit 1`): when `$CONFIG_PY` is empty there is no config reader, so the run continues with all defaults.
 
 ```bash
-# (1) PREFERRED — working-tree copy under the repo root (the config.py THIS phase consumes).
-CONFIG_PY=""
-if [ -n "$CONFIG_REPO_ROOT" ] && [ -f "$CONFIG_REPO_ROOT/plugins/vibe-check/scripts/config.py" ]; then
-  CONFIG_PY="$CONFIG_REPO_ROOT/plugins/vibe-check/scripts/config.py"
-fi
-# (2) FALLBACK — newest versioned plugin cache (mirrors the $SCORE_PY / Codex resolution).
-if [ -z "$CONFIG_PY" ]; then
-  CONFIG_ROOT=$(ls -d "$HOME"/.claude/plugins/cache/thejuran/vibe-check/*/ 2>/dev/null | sort -V | tail -1)
-  CONFIG_ROOT="${CONFIG_ROOT%/}"
-  [ -n "$CONFIG_ROOT" ] && [ -f "$CONFIG_ROOT/scripts/config.py" ] && CONFIG_PY="$CONFIG_ROOT/scripts/config.py"
-fi
-# (3) FALLBACK — marketplace install.
-if [ -z "$CONFIG_PY" ] && [ -f "$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/config.py" ]; then
-  CONFIG_PY="$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/config.py"
-fi
 # (4) DEGRADE — none resolved (the INVERSION vs $SCORE_PY's `exit 1`): no config reader → run with all defaults.
 #     CONFIG_PY stays empty; the invocation below is skipped and the resolved vars default (see the parse block).
 ```
@@ -806,31 +802,11 @@ The orchestrator still does the work the script CANNOT (it is a pure function �
    - **±2 source window** — pass each finding's `source_window` (the `[L-2, L-1, L, L+1, L+2]` lines, inclusive both directions); the script recomputes `silenced_marker_nearby` from it. The canonical silenced-marker list is `eslint-disable`, `# noqa`, `// nolint`, `@SuppressWarnings`, `#[allow(`, and `// vibe-ignore` — matched CASE-INSENSITIVELY, with the no-space spellings `#noqa` and `//nolint` also recognized (Fable A13: golangci-lint requires `//nolint` with no space, flake8 accepts `#noqa` and `# NOQA`) — quoted here ONCE as the documented envelope input; the script owns the grep-and-suppress decision. **`vibe-ignore` is REASON-REQUIRED (unlike the 5 fixed markers, which are bare fixed strings).** The orchestrator's ONLY job is the same as for the other markers — include the marker text in the resolved `source_window` so the script can see it; the script owns the reason-aware decision entirely: a `// vibe-ignore: <reason>` with a non-empty reason SUPPRESSES the nearby finding (rides the same `-50` silenced path as the fixed markers), while a BARE `// vibe-ignore` (no reason) does NOT suppress and instead self-flags as a low `suppression`-category audit finding (NOISE-02/NOISE-03). Do NOT try to parse or split the reason here — pass the window verbatim; the reasoned-vs-bare discrimination is score.py's, not the orchestrator's.
    - **`$REVIEWED_UNION` (`$ALL_MODE` set only — REVIEW-02, D-03).** In `--all` mode there is no diff, so `in_diff` never gates; validity is decided by `in_reviewed_set` INSIDE the script instead. The orchestrator still RESOLVES the reviewed set: REVIEWED = the **dispatched union** `$REVIEWED_UNION` — the union of every chunk's `$CHUNK_REVIEW_FILES_i` (the post-`files_to_skip_i` files actually sent to agents, Phase 2 Site C step 2), which is the SAME set whose size is `{{R}}` in the Phase-4 coverage note (so REVIEW-02 and `{{R}}` read ONE source and cannot drift — name `$REVIEWED_UNION` once and let both this step and the Phase-4 `{{R}}` count read it). This is **NOT** the pre-triage `$REVIEW_SET`: a finding against a file no reviewer agent saw is invalid (D-03). Pass `reviewed_union` = `$REVIEWED_UNION` and `file_line_totals` = the per-file `wc -l` LINE totals `$CHUNK_PLAN` already carries (computed once in Phase 0.2 step 0.2a, a consumable contract field — do NOT issue a fresh `wc -l "$file"`, single-measurement-source rule); the script keeps a finding iff `finding.file ∈ reviewed_union` AND `1 ≤ finding.line ≤ N`, else DROPS it into `filtered[]` (reason `not-in-reviewed-set` — a hallucinated file or impossible line). The script does NOT re-anchor a near-miss line (D-03). `in_reviewed_set` is a TRANSIENT keep/drop boolean inside the script — it is NOT serialized onto the finding, so the scored `--all` finding stays byte-shape-identical to a diff-mode finding (REVIEW-03/D-05), and the `+20 if in_diff` term simply never fires in `--all` (correct; no scoring edit). This sub-step is `$ALL_MODE`-only — a non-`--all` run passes empty `reviewed_union`/`file_line_totals` and the script gates on `in_diff` instead.
 
-3. **Resolve `scripts/score.py` DEV-SAFE (working-tree FIRST, cache glob FALLBACK).** This phase edits the WORKING TREE, and the installed plugin cache LAGS during dev (it can hold an older version that ships no `score.py`, or none at all) — so resolve the working-tree copy FIRST and the cache only as a fallback, else a stale cached script (or a missing one) would be called. Do NOT hardcode an absolute user path (D-03). Resolve in this order, FAIL CLOSED if none of the three exists:
+3. **`scripts/score.py` is bound by the Phase-0 TRUST-01 resolver (trusted plugin root → the owner's `VIBE_CHECK_PLUGIN_ROOT` override → fail closed).** Do NOT re-resolve it here and do NOT hardcode an absolute user path (D-03). The reviewed repo is NEVER a resolution source: a diff that plants `score.py` under its own tree must never be executed (TRUST-01). For dev against the working tree, run `claude --plugin-dir <repo>/plugins/vibe-check` (or export `VIBE_CHECK_PLUGIN_ROOT`) so arm (1)/(2) points at the copy this phase edits.
+   `$SCORE_PY` was bound ONCE by the Phase-0 TRUST-01 resolver and carried forward like `$CONFIG_THRESHOLDS` — substitute that resolved absolute path here and do NOT re-resolve (no repo-relative lookup, no cache glob, no marketplace path: a reviewed diff must never supply the scorer). Then apply THIS consumer's terminal arm — FAIL CLOSED (D-13):
    ```bash
-   # (1) PREFERRED — working-tree copy under the repo root (the script THIS phase wrote/tested).
-   #     review.md already runs `git rev-parse --show-toplevel` for its containment guards
-   #     (Phase 0.5 / mode-5), so this is an in-file idiom, not a new dependency.
-   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-   SCORE_PY=""
-   if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/plugins/vibe-check/scripts/score.py" ]; then
-     SCORE_PY="$REPO_ROOT/plugins/vibe-check/scripts/score.py"
-   fi
-   # (2) FALLBACK — newest versioned plugin cache (mirrors the deep-review.md Codex resolution).
-   if [ -z "$SCORE_PY" ]; then
-     SCORE_ROOT=$(ls -d "$HOME"/.claude/plugins/cache/thejuran/vibe-check/*/ 2>/dev/null | sort -V | tail -1)
-     SCORE_ROOT="${SCORE_ROOT%/}"
-     [ -n "$SCORE_ROOT" ] && [ -f "$SCORE_ROOT/scripts/score.py" ] && SCORE_PY="$SCORE_ROOT/scripts/score.py"
-   fi
-   # (3) FALLBACK — marketplace install.
-   if [ -z "$SCORE_PY" ] && [ -f "$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/score.py" ]; then
-     SCORE_PY="$HOME/.claude/plugins/marketplaces/thejuran/plugins/vibe-check/scripts/score.py"
-   fi
    # (4) FAIL CLOSED — none resolved.
-   if [ -z "$SCORE_PY" ]; then
-     echo "score.py not found (tried: \$REPO_ROOT/plugins/vibe-check/scripts/score.py, the thejuran/vibe-check cache glob, and the marketplace path) — scoring cannot run, review HALTED." >&2
-     exit 1
-   fi
+   [ -n "$SCORE_PY" ] || { echo "score.py not found under the trusted plugin root (\$VC_ROOT='$VC_ROOT') — scoring cannot run, review HALTED." >&2; exit 1; }
    ```
 
 4. **Build the envelope and INVOKE the script** (one JSON object on stdin → one enriched JSON object on stdout), using the same compound-Bash shape as the mode-5 `python3` heredoc at the top of this file (`$(… python3 … )`, data in on stdin, stdout captured to a shell var, no temp file). Do NOT add `python3` to the frontmatter `allowed-tools` — it runs under the existing compound-Bash convention (only add `Bash(python3:*)` if a live permission prompt actually fires). The envelope keys:
