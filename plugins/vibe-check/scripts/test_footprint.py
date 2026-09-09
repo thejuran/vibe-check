@@ -45,11 +45,19 @@ FOOTPRINT_PY = os.path.join(HERE, "footprint.py")
 PLUGIN_ROOT = os.path.abspath(os.path.join(HERE, ".."))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
-# Verified against `git show 7a386ed:<path> | wc -cw` at planning time.
+# Verified against `git show 7a386ed:<path> | wc -c` at planning time. Bytes
+# are unambiguous; WORDS are not. The plan pinned 27148/12134, which is what
+# BSD `wc -w` reports under en_US.UTF-8 -- it splits on a couple of multibyte
+# symbols (U+2260, U+2298). `LC_ALL=C wc -w` and Python's split() both report
+# 27146/12132. footprint.py records the locale-INDEPENDENT figure because plan
+# 40-14 transcribes it; TestWordCountLocaleDrift locks the +2 relationship so
+# the discrepancy stays visible instead of being rediscovered as a bug.
 REVIEW_MD_BYTES_AT_PIN = 189625
-REVIEW_MD_WORDS_AT_PIN = 27148
+REVIEW_MD_WORDS_AT_PIN = 27146
+REVIEW_MD_WORDS_WC_UTF8 = 27148
 DEEP_MD_BYTES_AT_PIN = 84534
-DEEP_MD_WORDS_AT_PIN = 12134
+DEEP_MD_WORDS_AT_PIN = 12132
+DEEP_MD_WORDS_WC_UTF8 = 12134
 
 EXPECTED_MODES = {"review-plain", "review-all", "deep-plain", "deep-all",
                   "finalize", "fix-loop"}
@@ -158,6 +166,47 @@ class TestPinnedRev(unittest.TestCase):
         stats = footprint.file_stats(PLUGIN_ROOT, "phases/review/00-scope.md",
                                      rev=footprint.PRE_PHASE_REV)
         self.assertIsNone(stats["bytes"])
+
+
+class TestWordCountLocaleDrift(unittest.TestCase):
+    """The recorded word count must not move with the environment.
+
+    Discovered while executing 40-05: the plan pinned 27148/12134 words, which
+    is BSD `wc -w` under en_US.UTF-8. That `wc` splits `off≠config` (U+2260)
+    into two words; `LC_ALL=C wc -w` does not. A footprint number that changes
+    with $LC_ALL is a poor thing for plan 40-14 to transcribe, so footprint.py
+    reports the locale-independent count and these tests keep the +2
+    relationship documented and asserted rather than folkloric.
+    """
+
+    def _wc(self, rel, locale_env):
+        env = dict(os.environ)
+        env.update(locale_env)
+        show = subprocess.run(
+            ["git", "-C", REPO_ROOT, "show",
+             "%s:plugins/vibe-check/%s" % (footprint.PRE_PHASE_REV, rel)],
+            stdout=subprocess.PIPE, timeout=30)
+        proc = subprocess.run(["wc", "-w"], input=show.stdout,
+                              stdout=subprocess.PIPE, env=env, timeout=30)
+        return int(proc.stdout.split()[0])
+
+    def test_c_locale_wc_matches_the_recorded_number(self):
+        for rel, want in (("commands/review.md", REVIEW_MD_WORDS_AT_PIN),
+                          ("commands/deep-review.md", DEEP_MD_WORDS_AT_PIN)):
+            with self.subTest(path=rel):
+                self.assertEqual(self._wc(rel, {"LC_ALL": "C"}), want)
+                self.assertEqual(
+                    footprint.file_stats(PLUGIN_ROOT, rel,
+                                         rev=footprint.PRE_PHASE_REV)["words"],
+                    want)
+
+    def test_utf8_locale_wc_is_the_plans_figure_and_differs_by_two(self):
+        for rel, utf8, stable in (
+                ("commands/review.md", REVIEW_MD_WORDS_WC_UTF8, REVIEW_MD_WORDS_AT_PIN),
+                ("commands/deep-review.md", DEEP_MD_WORDS_WC_UTF8, DEEP_MD_WORDS_AT_PIN)):
+            with self.subTest(path=rel):
+                self.assertEqual(self._wc(rel, {"LC_ALL": "en_US.UTF-8"}), utf8)
+                self.assertEqual(utf8 - stable, 2)
 
 
 class TestPathStats(unittest.TestCase):
