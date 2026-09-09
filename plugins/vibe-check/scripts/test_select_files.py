@@ -85,17 +85,34 @@ class TestParseLsFiles(unittest.TestCase):
         fixture = self._four_record_fixture()
         self.assertEqual(fixture.count(NULL), 4)
 
-    def test_no_short_octal_escape_in_this_file(self):
-        # The other half of the F9a guard: no `\0` or `\01` escape may appear
-        # in a byte literal here. Only the three-digit `\000` form is allowed.
+    def test_no_byte_literal_contains_a_stray_newline(self):
+        # The other half of the F9a guard, and the one that actually
+        # discriminates. The defect's signature is NOT a malformed NUL — it is
+        # a MISSING one: `\0120000` yields no NUL at all, because `\012` is a
+        # newline escape and `0000` is literal text. So the detectable trace a
+        # two-digit escape leaves behind is a stray newline inside a byte
+        # literal, which no ls-files record ever legitimately contains.
+        # (Verified to trip on the original `\0120000` fixture and to pass on
+        # both the byte-join form and the record builder.)
+        #
+        # Scanning raw source text for the escape instead would also match this
+        # file's own prose about the defect, so the parsed literals are scanned.
         with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
-            src = fh.read()
-        # Strip the docstring's prose about the defect before scanning for it.
-        body = src.split('"""', 2)[-1]
-        self.assertIsNone(
-            re.search(r"(?<!\\)\\0(?![0-7]{2})", body),
-            "a short octal escape reintroduces F9a",
-        )
+            tree = ast.parse(fh.read())
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant)
+                    and isinstance(node.value, bytes)):
+                continue
+            # Skip one-byte literals: those are needles (this test's own b"\n",
+            # the b"\000" separator), never record fixtures.
+            if len(node.value) < 2:
+                continue
+            self.assertNotIn(
+                b"\n", node.value,
+                "byte literal at line %d contains a newline — a two-digit "
+                "octal escape may have eaten a NUL separator (F9a)"
+                % node.lineno,
+            )
 
     def test_only_regular_files_survive(self):
         result = select_files.parse_ls_files(self._four_record_fixture())
