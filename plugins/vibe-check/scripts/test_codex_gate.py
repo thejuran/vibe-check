@@ -359,7 +359,10 @@ class TestNoInventedSlugs(unittest.TestCase):
     it.
     """
 
-    SLUG_SHAPE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)+$")
+    # Kebab-case with the hyphen groups OPTIONAL: `unauthenticated` and
+    # `timeout` are single-segment slugs. Requiring a hyphen made this check
+    # fail on them, which is how we learned the guard was not vacuous.
+    SLUG_SHAPE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
     def test_no_slug_string_literal_outside_the_tuple(self):
         with open(CODEX_GATE_PY, "r", encoding="utf-8") as fh:
