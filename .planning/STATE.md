@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-status: planning
+current_plan: 2
+status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-09-08T22:31:16.384Z"
-last_activity: 2026-09-08
+last_updated: "2026-09-24T21:47:25.916Z"
+last_activity: 2026-09-24 -- Phase 40 execution started
 progress:
   total_phases: 16
   completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 20
+  completed_plans: 15
   percent: 6
 ---
 
@@ -21,15 +22,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 40 — prose diet — restructure for opus 5
+**Current focus:** Phase 40 — prose-diet-restructure-for-opus-5
 
 ## Current Position
 
-Phase: 40
-Plan: Not started
-Status: Ready to plan
-Progress: [██████████] 100%
-Last activity: 2026-09-08
+Phase: 40 (prose-diet-restructure-for-opus-5) — EXECUTING
+Plan: 2 of 14
+Current Plan: 2
+Total Plans in Phase: 14
+Status: Executing Phase 40
+Progress: [████████░░] 75%
+Last activity: 2026-09-24 -- Phase 40 execution started
 
 ## Performance Metrics
 
@@ -80,6 +83,8 @@ Last activity: 2026-09-08
 | Phase 38 P04 | 16min | 2 tasks | 4 files |
 | Phase 38 P05 | 41min | 3 tasks | 1 files |
 | Phase 38 P06 | 12min | 2 tasks | 1 files |
+| Phase 40 P01 | 38min | 2 tasks | 5 files |
+| Phase 40 P09 | 45min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -165,6 +170,11 @@ Earlier decisions (v2.8) still on record:
 - [Phase 38]: 38-06: RESULTS-v2.10.md PUBLISHED (0ec7208, 284 lines) — the milestone's single append-structured results doc (D-07). Full-set Claude-5 baseline catch 15/15, FP 19/21 over the sealed denominators; the family-conditional "## The Claude 5 re-measure (Fable 5) — v2.9 vs Claude 5, carried 6 only" section pairs v2.9's 8/9 catch / 6/9 FP against 9/9 / 9/9 on the identical carried six and identical unchanged plugin. Every number transcribed from SCORING-v2.10.md §5, never re-derived. Sealed pass bar quoted with implied literal targets and explicitly NOT evaluated (Phase 43's job). Phases 41/43 append to this same file. — SET-03's write-up half / ROADMAP success criterion 4; T-38-19 (report/worksheet divergence) mitigated by transcription-only + spot-check; T-38-21 (premature pass-bar evaluation) mitigated by explicit deferral.
 - [Phase 38]: 38-06: CHECKPOINT RESOLVED — Option 1: both Task-2 plan-literal mismatches accepted as RECORDED DEVIATIONS; nothing patched, reverted, or moved to force a literal to pass. (a) The plugin-freeze gate is RE-STATED at its intent — "every plugins/vibe-check/ delta vs v2.9 is status A and confined to non-executable docs/efficacy/, with the executable/prompt surface byte-identical" — because the plan's literal one-A-line assertion is not what was executed: there are TWO A lines, the second being ULTRAREVIEW-SHADOW.md (999.18 status doc, added 9d565f3 / updated 5d2173a, both after SEAL1). T-38-20's threat is unrealized: score.py f3bbaae, test_score.py 7a86600, config.py f9d7ad5, review.md dd71d4f, deep-review.md 4eee361 all byte-identical to v2.9; the diff excluding docs/efficacy/ is empty; all 12 fingerprints record cache-root .../vibe-check/2.9.0 so no repo-side doc reached a run. (b) Check 5 RE-POINTED from the non-existent plugins/vibe-check/README.md to the repo-root README.md — which contains zero RESULTS-v2.10 references and still cites 8/9 - 6/9 linking RESULTS-v2.9.md (D-07 held; the repoint is Phase 44's). — Forcing the literals would have required deleting or rewriting history for a non-executable status doc that cannot affect a review — a worse integrity outcome than an honest deviation record. The composite PHASE-38-EXIT-OK string was NOT emitted; every individual gate it composes passed and is recorded verbatim.
 - [Phase 38]: 38-06: PHASE 38 EXIT PROVEN — manifest FINAL at 2 commits (SEAL1 4c67283, SEAL2 633f1dd); pinned canonical verifier (a407539 / 7be8ed39...75daaf) live-digest-matched, single-commit asserted, executed from its introducing-commit blob returning SEAL2-APPEND-WHITELIST-OK; v2.9 sealed docs+runs untouched (exit 0); diffs/ 14 lines all status A, non-A count 0; KIT-BLOB-EQUALITY-OK 15 v2.9 kit paths byte-equal at HEAD; NEW-KIT-SEAL-OK 14 new kit paths single-introducing-commit with all 12 sealed sha256(diffs/...) digests matching HEAD blobs (key blob 5f687d9); working tree clean. Baseline + sealed manifest are committed — Phases 40+ UNBLOCKED (Phase 39 dissolved). ADVISORY: ULTRAREVIEW-SHADOW.md has TWO introducing commits, so it would fail the one-introducing-commit rule if that rule were ever extended from diffs/ to plugins/vibe-check/docs/efficacy/. — T-38-25 (seal rewrite / weakened verifier) and T-38-26 (sealed kits removed, renamed, type-changed, or rewritten post-addition) both mitigated status-letter-complete in both directions.
+- [Phase 40]: 40-01: seal verifier hardened + re-pinned (de8633c / 605e61a3…d081a3) — derivation is now git log --full-history --simplify-merges --topo-order --reverse --branches --tags --remotes plus three merge-base --is-ancestor asserts; the old rev-list HEAD form was proven defeatable by a -s ours side-branch edit (scratch scenario 5 counted 2 and passed). New consumer rule: verifier-path full-history all-ref commit count == 2 and the second commit == the ledger pin.
+- [Phase 40]: 40-01: SUPERSESSIONS-v2.10.md created as the append-only supersession ledger (entries 001-004 = D-01/D-03a/D-03b/D-04), each quoting its sealed statement verbatim. should-quiet-7 excluded -> FP 16/18 superseded vs sealed 19/21 which stands; Phase 43 runs the 11-diff set against BOTH denominators. No sealed byte rewritten; PREREGISTRATION-v2.10.md byte-unchanged; three sealed docs got one pointer line each.
+- [Phase 40]: 40-01: ledger + verifier commits are in NEVER_REVERT and sit outside every batch rollback unit (F18) — reverting would create a third verifier commit and break the count==2 rule entry 004 introduces; a ledger correction is a NEW entry citing the corrected one, never a revert.
+- [Phase 40]: 40-01: acceptance-criteria conflict adjudicated — the three sealed-doc pointers are ONE logical pointer each WRAPPED at 100 columns (numstat 4/4/3, not the plan's literal 1 0), because a single-line pointer is 248/192 columns and would violate the 100-column criterion. The plan's own action text says '(one line, may wrap at 100)'. Likewise three ledger lines exceed 100 deliberately: two verbatim sealed-byte quotes and one copy-paste git command.
+- [Phase ?]: 40-09: spot-check transcripts stay local (gitignored), bound by a committed sha256 — they carry the owner's private instructions and the repo is public
 
 ### Pending Todos
 
@@ -183,6 +193,7 @@ None yet.
 - [Phase 37] The v2.8 evidence debt needs NO separate retroactive audit — it became v2.9 requirements (Phase 35), so the v2.9 milestone audit covers it.
 - [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
+- Pre-batch-1: installed claude CLI 2.1.281 != Phase-40 pin 2.1.261 (fingerprint block stops) — owner decides: run under 2.1.261, or record a Phase-40 pin correction ledger entry
 
 ## Deferred Items
 
@@ -206,7 +217,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T22:31:16.377Z
+Last session: 2026-09-24T21:47:11.434Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be

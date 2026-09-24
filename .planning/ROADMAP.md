@@ -224,41 +224,49 @@ Plans:
   5. Every executable helper the commands and agents invoke (`scripts/score.py`, `scripts/guard.py`, `scripts/config.py`, and the fix agent's own guard resolution) resolves from the TRUSTED plugin install (`${CLAUDE_PLUGIN_ROOT}`, with one explicit owner-set dev-override env var) — never from the repository under review; the repo-first arm is gone from every copy, and a planted `plugins/vibe-check/scripts/*.py` in a reviewed repo is provably never executed (TRUST-01)
   6. The fix agent validates every path in a finding's file set (regex + guard.py containment) BEFORE its first Read/Edit, not only before commit — a traversal path is refused before anything touches disk (TRUST-02)
 
-**Plans:** 11 plans
+**Plans:** 9/14 plans executed
 
 Plans:
-**Wave 1** *(batch 1 — TRUST + extractions + harness)*
+**Wave 1** *(batch 1 — TRUST + extractions + harness; 40-01 is evidence work, outside every rollback unit)*
 
-- [ ] 40-01-PLAN.md — Harden verify-seal2-append.py + the append-only SUPERSESSIONS-v2.10.md ledger (D-01..D-04)
-- [ ] 40-02-PLAN.md — TRUST-01: one `${CLAUDE_PLUGIN_ROOT}`-first resolver replaces four repo-first copies (D-12/13/14)
-- [ ] 40-03-PLAN.md — DIET-02 Family 2: chunks.py + select_files.py + tests
-- [ ] 40-04-PLAN.md — DIET-02 Family 3: codex_translate.py + codex_gate.py + tests
-- [ ] 40-05-PLAN.md — Batch-check harness: state_shape.py (envelope shape leg) + footprint.py + the BEFORE footprint
+- [x] 40-01-PLAN.md — Harden verify-seal2-append.py + the append-only SUPERSESSIONS-v2.10.md ledger (D-01..D-04)
+- [x] 40-02-PLAN.md — TRUST-01: one `${CLAUDE_PLUGIN_ROOT}`-first resolver replaces four repo-first copies (D-12/13/14)
+- [x] 40-03-PLAN.md — DIET-02 Family 2: chunks.py + select_files.py + tests
+- [x] 40-04-PLAN.md — DIET-02 Family 3: codex_translate.py + codex_gate.py + tests
+- [x] 40-05-PLAN.md — Batch-check harness: state_shape.py (two schemas: archive-compat + future) + footprint.py + the pinned BEFORE footprint
+- [x] 40-12-PLAN.md — DIET-02 second tier: coverage.py + dedup.py + statepath.py + finalize_gate.py + tests
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 40-06-PLAN.md — SPOT-CHECK-v2.10-phase40.md: the 12 owner runs + the named sensitivity pair (D-05/D-06)
-- [ ] 40-07-PLAN.md — TRUST-02: fix agent validates every path BEFORE its first Read/Edit; fixcommit.py (D-15)
+- [x] 40-06-PLAN.md — Batch lifecycle: batchsnap.py (immutable snapshots, recorded commit sets, PASS artifacts) + BATCH-LIFECYCLE-v2.10-phase40.md
+- [x] 40-07-PLAN.md — TRUST-02: fix agent validates every path BEFORE its first Read/Edit; fixcommit.py (D-15)
 
-**Wave 3** *(batch 2a — blocked on Wave 2)*
+**Wave 3** *(blocked on Wave 2)*
 
-- [ ] 40-08-PLAN.md — review.md becomes a spine; always-on phase bodies → phases/review/ (D-09)
+- [x] 40-09-PLAN.md — SPOT-CHECK-v2.10-phase40.md: the 12 owner runs, the named sensitivity pair, Phase 40's own fingerprint record (D-05/D-06)
+- [ ] 40-13-PLAN.md — Mode-path validation: tracecheck.py (tool-event read coverage + negative controls) + the assistant-side procedure
 
-**Wave 4** *(batch 2b — blocked on Wave 3)*
+**Wave 4** *(batch 2a — blocked on Wave 3; opens with the batch-1 evidence barrier)*
 
-- [ ] 40-09-PLAN.md — `--all`/finalize/fix-loop bodies lazy-loaded; chunks.py + select_files.py wired
+- [ ] 40-08-PLAN.md — Shared bootstrap + contract; review.md becomes a spine; always-on bodies → phases/review/; prose tests migrated (D-09)
 
-**Wave 5** *(batch 3 — blocked on Wave 4)*
+**Wave 5** *(batch 2b — blocked on Wave 4)*
 
-- [ ] 40-10-PLAN.md — deep-review spine over the shared files; D-11 cost anchors; DIET-03 removal (D-16)
+- [ ] 40-10-PLAN.md — `--all`/finalize/fix-loop bodies lazy-loaded; all DIET-02 scripts wired; batch-2 snapshot built
 
-**Wave 6** *(blocked on Wave 5)*
+**Wave 6** *(batch 3 — blocked on Wave 5; opens with the batch-2 evidence barrier)*
 
-- [ ] 40-11-PLAN.md — Per-mode footprint report, DIET-03 record, DIET-02 inventory reconciliation
+- [ ] 40-11-PLAN.md — deep-review spine over the shared files; D-11 cost anchors; DIET-03 removal (D-16); batch-3 snapshot
 
-> **Batches (D-06, capped at 3, each independently revertable):** batch 1 = 40-01..05 + 40-07; batch 2 = 40-08 + 40-09; batch 3 = 40-10.
+**Wave 7** *(blocked on Wave 6; opens with the batch-3 + end-of-phase evidence barrier)*
 
-> **Owner-runtime**: the capped per-batch spot-checks (2 runs per batch) and the single end-of-phase ×3 spot-check are owner-driven `/deep-review` invocations. Phase-40 total = 12 owner runs; the checklist is delivered by 40-06.
+- [ ] 40-14-PLAN.md — Per-mode footprint report, DIET-03 record, DIET-02 inventory reconciliation, phase-exit verdict
+
+> **Batches (D-06, capped at 3, each independently revertable):** batch 1 = 40-02..05 + 40-07 + 40-12 + 40-13; batch 2 = 40-08 + 40-10; batch 3 = 40-11. **40-01 (verifier + ledger), 40-06 (lifecycle tooling) and 40-09 (checklist) are OUTSIDE every rollback unit** — evidence-integrity and tooling work is not reverted when a live check regresses. Revert is reverse-order over the commit set `batchsnap.py commit-set` records at batch close.
+
+> **Evidence barriers (DIET-04):** advancement between batches is gated by a blocking checkpoint that validates a recorded owner `PASS.json` via `batchsnap.py check-pass` — 40-08 consumes batch 1, 40-11 consumes batch 2, 40-14 consumes batch 3 + the end-of-phase 6 runs. Owner runs target an immutable snapshot, never the working tree.
+
+> **Owner-runtime**: the capped per-batch spot-checks (2 runs per batch) and the single end-of-phase ×3 spot-check are owner-driven `/deep-review` invocations. Phase-40 total = 12 owner runs; the checklist is delivered by 40-09, the snapshot/rollback mechanism by 40-06. The owner records MECHANICAL facts only (exit codes, sha matches, captured report + transcript); SITE/AXIS/BAND adjudication is the assistant's, and `check-pass` refuses an artifact still marked `pending-assistant`.
 
 > **Planning inputs (2026-09-05, from the external source review — inputs, NOT requirements):** (a) the reviewer's extraction list adds two families the inventory lacks — dispatch-manifest generation and report rendering — plus per-phase latency recording; weigh them against the inventory's keep-list at plan time. (b) TRUST-01 needs a short spike first: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py itself, outside the orchestrator's shell). (c) The dev override must be an env var the OWNER sets, never anything read from the reviewed repo. (d) The cost-anchor correction lands in the Phase-0.3 budget-gate block and the deep-review cost note as part of the rewrite, not as a separate pass.
 
@@ -364,7 +372,7 @@ Plans:
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
-| 40. Prose diet — restructure for Opus 5 | v2.10 | 0/? | Not started | - |
+| 40. Prose diet — restructure for Opus 5 | v2.10 | 9/14 | In Progress|  |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
