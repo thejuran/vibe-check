@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 2
+current_plan: 3
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-09-24T21:47:25.916Z"
+last_updated: "2026-09-24T22:05:48.069Z"
 last_activity: 2026-09-24 -- Phase 40 execution started
 progress:
   total_phases: 16
   completed_phases: 1
   total_plans: 20
-  completed_plans: 15
+  completed_plans: 16
   percent: 6
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 40 (prose-diet-restructure-for-opus-5) — EXECUTING
-Plan: 2 of 14
-Current Plan: 2
+Plan: 3 of 14
+Current Plan: 3
 Total Plans in Phase: 14
 Status: Executing Phase 40
-Progress: [████████░░] 75%
+Progress: [████████░░] 80%
 Last activity: 2026-09-24 -- Phase 40 execution started
 
 ## Performance Metrics
@@ -85,6 +85,7 @@ Last activity: 2026-09-24 -- Phase 40 execution started
 | Phase 38 P06 | 12min | 2 tasks | 1 files |
 | Phase 40 P01 | 38min | 2 tasks | 5 files |
 | Phase 40 P09 | 45min | 3 tasks | 4 files |
+| Phase 40 P13 | 20 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -175,6 +176,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 40]: 40-01: ledger + verifier commits are in NEVER_REVERT and sit outside every batch rollback unit (F18) — reverting would create a third verifier commit and break the count==2 rule entry 004 introduces; a ledger correction is a NEW entry citing the corrected one, never a revert.
 - [Phase 40]: 40-01: acceptance-criteria conflict adjudicated — the three sealed-doc pointers are ONE logical pointer each WRAPPED at 100 columns (numstat 4/4/3, not the plan's literal 1 0), because a single-line pointer is 248/192 columns and would violate the 100-column criterion. The plan's own action text says '(one line, may wrap at 100)'. Likewise three ledger lines exceed 100 deliberately: two verbatim sealed-byte quotes and one copy-paste git command.
 - [Phase ?]: 40-09: spot-check transcripts stay local (gitignored), bound by a committed sha256 — they carry the owner's private instructions and the repo is public
+- [Phase 40]: 40-13: mode-path expectations keyed by (batch, mode); review-all, deep-all and fix-loop run as tmux-driven interactive sessions because no gate pre-answer flag exists at 7a386ed; fix-loop and fix-agent are separate properties
 
 ### Pending Todos
 
@@ -217,7 +219,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-24T21:47:11.434Z
+Last session: 2026-09-24T22:05:32.360Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be

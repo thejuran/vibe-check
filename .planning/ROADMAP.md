@@ -224,7 +224,7 @@ Plans:
   5. Every executable helper the commands and agents invoke (`scripts/score.py`, `scripts/guard.py`, `scripts/config.py`, and the fix agent's own guard resolution) resolves from the TRUSTED plugin install (`${CLAUDE_PLUGIN_ROOT}`, with one explicit owner-set dev-override env var) — never from the repository under review; the repo-first arm is gone from every copy, and a planted `plugins/vibe-check/scripts/*.py` in a reviewed repo is provably never executed (TRUST-01)
   6. The fix agent validates every path in a finding's file set (regex + guard.py containment) BEFORE its first Read/Edit, not only before commit — a traversal path is refused before anything touches disk (TRUST-02)
 
-**Plans:** 9/14 plans executed
+**Plans:** 10/14 plans executed
 
 Plans:
 **Wave 1** *(batch 1 — TRUST + extractions + harness; 40-01 is evidence work, outside every rollback unit)*
@@ -244,7 +244,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2)*
 
 - [x] 40-09-PLAN.md — SPOT-CHECK-v2.10-phase40.md: the 12 owner runs, the named sensitivity pair, Phase 40's own fingerprint record (D-05/D-06)
-- [ ] 40-13-PLAN.md — Mode-path validation: tracecheck.py (tool-event read coverage + negative controls) + the assistant-side procedure
+- [x] 40-13-PLAN.md — Mode-path validation: tracecheck.py (tool-event read coverage + negative controls) + the assistant-side procedure
 
 **Wave 4** *(batch 2a — blocked on Wave 3; opens with the batch-1 evidence barrier)*
 
@@ -372,7 +372,7 @@ Plans:
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
-| 40. Prose diet — restructure for Opus 5 | v2.10 | 9/14 | In Progress|  |
+| 40. Prose diet — restructure for Opus 5 | v2.10 | 10/14 | In Progress|  |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
