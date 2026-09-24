@@ -24,3 +24,8 @@ SHARE-PROMPT*.md
 # Python bytecode from the score.py test suite (plugins/vibe-check/scripts/)
 # — compiled artifacts, not tracked; score.py + test_score.py themselves DO ship.
 __pycache__/
+
+# Phase-40 spot-check session transcripts — kept on the owner's machine only. A Claude Code
+# transcript carries the owner's private global instructions and account details verbatim; the
+# run commit binds each one by its transcript.jsonl.sha256 instead.
+docs/design/b3-ground-truth/runs-v2.10-phase40/**/transcript.jsonl
