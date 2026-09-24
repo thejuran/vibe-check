@@ -183,3 +183,52 @@ verifier-commit: de8633cb3e1a295208d89f5be7472e665aec7822
 verifier-sha256: 605e61a3deee6894ef4d30a1869d944d3685645749c601dacbefb81573d081a3
 
 **Sign-off:** owner decision recorded in discuss-phase (D-04), executed 2026-09-08.
+
+## 005 — 2026-09-24 — Phase-40 spot-check sensitivity pair selected (triggarr-secret-in-logs, should-quiet-5)
+
+This entry registers a RULE for the Phase-40 spot-checks. It supersedes no sealed number and moves
+no denominator: every figure quoted below stands exactly as sealed.
+
+**Sealed statement (verbatim, unchanged):**
+
+From `plugins/vibe-check/docs/efficacy/RESULTS-v2.10.md` (per-diff tables), quoted as raw bytes:
+
+```
+| 1 | triggarr-secret-in-logs | carried | secret/API-key/PII leaked into logs (NOT "log formatting") | warning | catch, catch, catch | **3/3** |
+| 10 | should-quiet-5 | new | log-sanitization / secret-handling — wraps file-name interpolation in `sanitize_log_value` | clean, FP, clean | **1/3 FP** |
+```
+
+**Evidence:**
+
+- `triggarr-secret-in-logs` has the LEAST HEADROOM of any should-catch diff. Per `SCORING-v2.10.md`
+  §3.1, the winning finding in all three baseline runs was `codex-adversarial` (critical 100 / 99 /
+  96), and the best NATIVE finding cleared the warning floor (80) by the smallest margin in the set:
+  `impact` warning 82 in run 1 (`bugs` 72 was sub-floor), 88 in run 2, 85 in run 3. Being
+  codex-led, it also directly exercises the Family-3 extraction (40-04) and the deep-review Phase-3
+  rewrite (40-11).
+- `should-quiet-5` is the ONLY should-quiet diff not at 3/3 FP: clean, FP, clean (`SCORING-v2.10.md`
+  §4.5). Its single FP is the "out-of-diff reach" class — `impact` warning 92 on a neighbouring
+  test file, not the diff's own lines — which is exactly the in_diff / reviewed-set prose 40-08
+  rewrites. It is the quiet diff most likely to flip in either direction.
+- Not selected, with reasons:
+  - `triggarr-autoescape` — runner-up. The only should-catch with a historical miss (v2.9: 2/3),
+    but its native winners sit at 82-92, more headroom than secret-in-logs.
+  - `should-quiet-6` — the most STABLE FP in the set (byte-identical codex title at critical/100
+    in all three runs). It cannot get worse, so it carries no signal.
+  - `should-quiet-7` — excluded from the quiet set by entry 001.
+
+**Effect:**
+
+- The D-05 per-batch ×1 checks and the end-of-phase ×3 check run on this pair and no other.
+  Catch-rate-no-worse is judged on `triggarr-secret-in-logs` holding 3/3 at phase end; the
+  `should-quiet-5` FP count is judged against its own 1/3 triplet at ×3 and is informational at ×1.
+  The runbook is `docs/design/b3-ground-truth/SPOT-CHECK-v2.10-phase40.md`.
+- Phase-40 sessions are fingerprinted in `RUN-METHOD-NOTES-phase40.md`.
+  `RUN-METHOD-NOTES-v2.10.md` receives nothing beyond the single pointer line entry 004 already
+  added: Phase-38 scoring walks that file for its own session binding (F15).
+- The sealed-baseline integrity assert is the git TREE of `docs/design/b3-ground-truth/runs-v2.10`,
+  `82c412b6e58b5d5a1dbddca0239f0f4b26833b4a`. The earlier commit-based form (`633f1dd`) predates
+  the archives and would fail on intact evidence (F12).
+
+**Sign-off:** owner decision D-05 recorded in discuss-phase (spot-check sizing and pair), selection
+executed from the sealed evidence 2026-09-24.
