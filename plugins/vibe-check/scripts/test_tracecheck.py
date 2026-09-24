@@ -251,11 +251,13 @@ class TestPassingAndControls(TraceCase):
     def test_child_read_does_not_satisfy_orchestrator_read(self):
         records = without_read(passing_builder(3, "review-plain").records,
                                "phases/review/10-triage.md")
-        b = Builder()
-        b.records = records
-        b.read("phases/review/10-triage.md", parent="toolu_sub")
-        self.assertIn("phase executed without a preceding successful read: 1",
-                      self.check(b.records, 3, "review-plain"))
+        child = Builder()
+        child.read("phases/review/10-triage.md", parent="toolu_sub")
+        at = next(i for i, r in enumerate(records) if any(
+            c.get("text", "").startswith("\u2713 Phase 1 \u2014") for c in r["message"]["content"]))
+        records[at:at] = child.records
+        self.assertEqual(self.check(records, 3, "review-plain"),
+                         ["phase executed without a preceding successful read: 1"])
 
     def test_batch1_trace_fails_batch3_expectations(self):
         """FL-08: the batch dimension is load-bearing."""
