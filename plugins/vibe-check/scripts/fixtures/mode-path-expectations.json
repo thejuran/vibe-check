@@ -1,0 +1,982 @@
+{
+  "_comment": [
+    "Expected phase sequence and lazy reads per (batch, mode path), consumed by tracecheck.py.",
+    "Keyed by batch because the layout changes under the runs: batch 1 is the monolith era (no phases/ files exist yet), batch 2 is the review spine (40-08, 40-10) with the deep command still monolithic, batch 3 is the final layout (40-11 deep spine).",
+    "Entries for sub-files that later plans have not yet created are the specification those plans build to. When a plan moves a sub-file, change the entry here, not the checker.",
+    "Paths are plugin-relative. mandatory_reads: the phase's file(s) must be successfully read by the orchestrator before the phase's first '✓' announcement. always_read: before the first announcement of any kind. required_reads: somewhere in the run. forbidden_reads: never successfully read on this mode path. expected_phases must each be announced as run ('✓'), in this order. skip_only_phases may be announced as skipped ('⊘') or be absent, never run. optional_phases may be run, skipped or absent. Any other label is a failure. The fixtures are non-GSD repos, so Phase 1.5 is skip-only everywhere.",
+    "fix-loop asserts only 'fix-loop body reached' (valid on a declining run); fix-agent adds 'fix agent dispatched' and is only valid on a run that ACCEPTS at least one fix."
+  ],
+  "batches": {
+    "1": {
+      "review-plain": {
+        "noninteractive": true,
+        "flag_reason": "reachable non-interactively; nothing it must reach sits behind an AskUserQuestion",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5",
+          "5"
+        ],
+        "mandatory_reads": {},
+        "always_read": [],
+        "required_reads": [],
+        "forbidden_reads": [],
+        "required_dispatches": []
+      },
+      "review-all": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE stops --all at the Phase-0.3 estimate gate before triage, dispatch and persistence (review.md:375 at 7a386ed); the gate has no pre-answer flag, so an interactive session answers Run full",
+        "expected_phases": [
+          "0",
+          "0.2",
+          "0.3",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "1.5",
+          "5"
+        ],
+        "mandatory_reads": {},
+        "always_read": [],
+        "required_reads": [],
+        "forbidden_reads": [],
+        "required_dispatches": []
+      },
+      "finalize": {
+        "noninteractive": true,
+        "flag_reason": "non-interactive: the seeded state has no outstanding Critical/Warning and no unacknowledged Medium, so finalize reaches the REVIEW.md write without a prompt",
+        "expected_phases": [
+          "0",
+          "0.5"
+        ],
+        "optional_phases": [
+          "0.6"
+        ],
+        "skip_only_phases": [
+          "0.7"
+        ],
+        "mandatory_reads": {},
+        "always_read": [],
+        "required_reads": [
+          "templates/review-md-schema.md"
+        ],
+        "forbidden_reads": [],
+        "required_dispatches": []
+      },
+      "fix-loop": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE is a Phase-5 skip condition (review.md:1022 at 7a386ed); the session answers Step A",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5",
+          "5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5"
+        ],
+        "mandatory_reads": {},
+        "always_read": [],
+        "required_reads": [],
+        "forbidden_reads": [],
+        "required_dispatches": []
+      },
+      "fix-agent": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE is a Phase-5 skip condition (review.md:1022 at 7a386ed); the session answers Step A; Step A must ACCEPT at least one fix",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5",
+          "5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5"
+        ],
+        "mandatory_reads": {},
+        "always_read": [],
+        "required_reads": [],
+        "forbidden_reads": [],
+        "required_dispatches": [
+          "fix"
+        ]
+      },
+      "deep-plain": {
+        "noninteractive": true,
+        "flag_reason": "reachable non-interactively; nothing it must reach sits behind an AskUserQuestion; codex=off in .vibe-check.toml",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "1c",
+          "1d",
+          "2",
+          "2.5",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5",
+          "2c",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": "commands/review.md"
+        },
+        "always_read": [],
+        "required_reads": [],
+        "forbidden_reads": [],
+        "required_dispatches": []
+      },
+      "deep-all": {
+        "noninteractive": false,
+        "flag_reason": "interactive: deep-review.md:36 inherits the Phase-0.3 estimate gate, so the flag would stop the run there exactly as it does for --all (review.md:375 at 7a386ed); codex=off in .vibe-check.toml",
+        "expected_phases": [
+          "0",
+          "0.2",
+          "0.3",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "1c",
+          "1d",
+          "2",
+          "2.5",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "1.5",
+          "2c",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": "commands/review.md"
+        },
+        "always_read": [],
+        "required_reads": [],
+        "forbidden_reads": [],
+        "required_dispatches": []
+      }
+    },
+    "2": {
+      "review-plain": {
+        "noninteractive": true,
+        "flag_reason": "reachable non-interactively; nothing it must reach sits behind an AskUserQuestion",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/review/50-fix-loop.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "review-all": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE stops --all at the Phase-0.3 estimate gate before triage, dispatch and persistence (review.md:375 at 7a386ed); the gate has no pre-answer flag, so an interactive session answers Run full",
+        "expected_phases": [
+          "0",
+          "0.2",
+          "0.3",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "1.5",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": [
+            "phases/review/00-scope.md",
+            "phases/review/00-scope-all.md"
+          ],
+          "0.5": [
+            "phases/review/05-state.md",
+            "phases/review/05-state-all.md"
+          ],
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": [
+            "phases/review/20-dispatch.md",
+            "phases/review/20-dispatch-all.md"
+          ],
+          "3": "phases/review/30-collect-score.md",
+          "4": [
+            "phases/review/40-render.md",
+            "phases/review/40-render-all.md"
+          ],
+          "4.5": [
+            "phases/review/45-persist.md",
+            "phases/review/45-persist-all.md"
+          ],
+          "0.2": "phases/review/02-chunk-plan.md",
+          "0.3": "phases/review/03-estimate-gate.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "finalize": {
+        "noninteractive": true,
+        "flag_reason": "non-interactive: the seeded state has no outstanding Critical/Warning and no unacknowledged Medium, so finalize reaches the REVIEW.md write without a prompt",
+        "expected_phases": [
+          "0",
+          "0.5"
+        ],
+        "optional_phases": [
+          "0.6"
+        ],
+        "skip_only_phases": [
+          "0.7"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [
+          "phases/shared/90-finalize.md",
+          "templates/review-md-schema.md"
+        ],
+        "forbidden_reads": [
+          "phases/review/10-triage.md",
+          "phases/review/20-dispatch.md",
+          "phases/review/50-fix-loop.md",
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md"
+        ],
+        "required_dispatches": []
+      },
+      "fix-loop": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE is a Phase-5 skip condition (review.md:1022 at 7a386ed); the session answers Step A",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5",
+          "5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md",
+          "5": "phases/review/50-fix-loop.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "fix-agent": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE is a Phase-5 skip condition (review.md:1022 at 7a386ed); the session answers Step A; Step A must ACCEPT at least one fix",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5",
+          "5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md",
+          "5": "phases/review/50-fix-loop.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": [
+          "fix"
+        ]
+      },
+      "deep-plain": {
+        "noninteractive": true,
+        "flag_reason": "reachable non-interactively; nothing it must reach sits behind an AskUserQuestion; codex=off in .vibe-check.toml",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "1c",
+          "1d",
+          "2",
+          "2.5",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5",
+          "2c",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md"
+        },
+        "always_read": [
+          "commands/review.md",
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/review/50-fix-loop.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "deep-all": {
+        "noninteractive": false,
+        "flag_reason": "interactive: deep-review.md:36 inherits the Phase-0.3 estimate gate, so the flag would stop the run there exactly as it does for --all (review.md:375 at 7a386ed); codex=off in .vibe-check.toml",
+        "expected_phases": [
+          "0",
+          "0.2",
+          "0.3",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "1c",
+          "1d",
+          "2",
+          "2.5",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "1.5",
+          "2c",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": [
+            "phases/review/00-scope.md",
+            "phases/review/00-scope-all.md"
+          ],
+          "0.5": [
+            "phases/review/05-state.md",
+            "phases/review/05-state-all.md"
+          ],
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": [
+            "phases/review/20-dispatch.md",
+            "phases/review/20-dispatch-all.md"
+          ],
+          "3": "phases/review/30-collect-score.md",
+          "4": [
+            "phases/review/40-render.md",
+            "phases/review/40-render-all.md"
+          ],
+          "4.5": [
+            "phases/review/45-persist.md",
+            "phases/review/45-persist-all.md"
+          ],
+          "0.2": "phases/review/02-chunk-plan.md",
+          "0.3": "phases/review/03-estimate-gate.md"
+        },
+        "always_read": [
+          "commands/review.md",
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      }
+    },
+    "3": {
+      "review-plain": {
+        "noninteractive": true,
+        "flag_reason": "reachable non-interactively; nothing it must reach sits behind an AskUserQuestion",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/review/50-fix-loop.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "review-all": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE stops --all at the Phase-0.3 estimate gate before triage, dispatch and persistence (review.md:375 at 7a386ed); the gate has no pre-answer flag, so an interactive session answers Run full",
+        "expected_phases": [
+          "0",
+          "0.2",
+          "0.3",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "1.5",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": [
+            "phases/review/00-scope.md",
+            "phases/review/00-scope-all.md"
+          ],
+          "0.5": [
+            "phases/review/05-state.md",
+            "phases/review/05-state-all.md"
+          ],
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": [
+            "phases/review/20-dispatch.md",
+            "phases/review/20-dispatch-all.md"
+          ],
+          "3": "phases/review/30-collect-score.md",
+          "4": [
+            "phases/review/40-render.md",
+            "phases/review/40-render-all.md"
+          ],
+          "4.5": [
+            "phases/review/45-persist.md",
+            "phases/review/45-persist-all.md"
+          ],
+          "0.2": "phases/review/02-chunk-plan.md",
+          "0.3": "phases/review/03-estimate-gate.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "finalize": {
+        "noninteractive": true,
+        "flag_reason": "non-interactive: the seeded state has no outstanding Critical/Warning and no unacknowledged Medium, so finalize reaches the REVIEW.md write without a prompt",
+        "expected_phases": [
+          "0",
+          "0.5"
+        ],
+        "optional_phases": [
+          "0.6"
+        ],
+        "skip_only_phases": [
+          "0.7"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [
+          "phases/shared/90-finalize.md",
+          "templates/review-md-schema.md"
+        ],
+        "forbidden_reads": [
+          "phases/review/10-triage.md",
+          "phases/review/20-dispatch.md",
+          "phases/review/50-fix-loop.md",
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md"
+        ],
+        "required_dispatches": []
+      },
+      "fix-loop": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE is a Phase-5 skip condition (review.md:1022 at 7a386ed); the session answers Step A",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5",
+          "5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md",
+          "5": "phases/review/50-fix-loop.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "fix-agent": {
+        "noninteractive": false,
+        "flag_reason": "interactive: TURINGMIND_NONINTERACTIVE is a Phase-5 skip condition (review.md:1022 at 7a386ed); the session answers Step A; Step A must ACCEPT at least one fix",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "2",
+          "3",
+          "4",
+          "4.5",
+          "5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": "phases/review/20-dispatch.md",
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md",
+          "5": "phases/review/50-fix-loop.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": [
+          "fix"
+        ]
+      },
+      "deep-plain": {
+        "noninteractive": true,
+        "flag_reason": "reachable non-interactively; nothing it must reach sits behind an AskUserQuestion; codex=off in .vibe-check.toml",
+        "expected_phases": [
+          "0",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "1c",
+          "1d",
+          "2",
+          "2.5",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "0.2",
+          "0.3",
+          "1.5",
+          "2c",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": "phases/review/00-scope.md",
+          "0.5": "phases/review/05-state.md",
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": [
+            "phases/review/20-dispatch.md",
+            "phases/deep-review/20-selection.md"
+          ],
+          "3": "phases/review/30-collect-score.md",
+          "4": "phases/review/40-render.md",
+          "4.5": "phases/review/45-persist.md",
+          "1c": "phases/deep-review/01c-related-files.md",
+          "1d": "phases/deep-review/01d-coverage.md",
+          "2.5": "phases/deep-review/25-arch-prompt.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "commands/review.md",
+          "phases/deep-review/2c-codex-kickoff.md",
+          "phases/deep-review/30-codex-collect.md",
+          "phases/review/00-scope-all.md",
+          "phases/review/02-chunk-plan.md",
+          "phases/review/03-estimate-gate.md",
+          "phases/review/05-state-all.md",
+          "phases/review/20-dispatch-all.md",
+          "phases/review/40-render-all.md",
+          "phases/review/45-persist-all.md",
+          "phases/review/50-fix-loop.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      },
+      "deep-all": {
+        "noninteractive": false,
+        "flag_reason": "interactive: deep-review.md:36 inherits the Phase-0.3 estimate gate, so the flag would stop the run there exactly as it does for --all (review.md:375 at 7a386ed); codex=off in .vibe-check.toml",
+        "expected_phases": [
+          "0",
+          "0.2",
+          "0.3",
+          "0.5",
+          "0.6",
+          "0.7",
+          "1",
+          "1c",
+          "1d",
+          "2",
+          "2.5",
+          "3",
+          "4",
+          "4.5"
+        ],
+        "optional_phases": [],
+        "skip_only_phases": [
+          "1.5",
+          "2c",
+          "5"
+        ],
+        "mandatory_reads": {
+          "0": [
+            "phases/review/00-scope.md",
+            "phases/review/00-scope-all.md"
+          ],
+          "0.5": [
+            "phases/review/05-state.md",
+            "phases/review/05-state-all.md"
+          ],
+          "0.6": "phases/review/06-config.md",
+          "0.7": "phases/review/07-first-run.md",
+          "1": "phases/review/10-triage.md",
+          "1.5": "phases/review/15-intent.md",
+          "2": [
+            "phases/review/20-dispatch.md",
+            "phases/review/20-dispatch-all.md",
+            "phases/deep-review/20-selection.md"
+          ],
+          "3": "phases/review/30-collect-score.md",
+          "4": [
+            "phases/review/40-render.md",
+            "phases/review/40-render-all.md"
+          ],
+          "4.5": [
+            "phases/review/45-persist.md",
+            "phases/review/45-persist-all.md"
+          ],
+          "0.2": "phases/review/02-chunk-plan.md",
+          "0.3": "phases/review/03-estimate-gate.md",
+          "1c": "phases/deep-review/01c-related-files.md",
+          "1d": "phases/deep-review/01d-coverage.md",
+          "2.5": "phases/deep-review/25-arch-prompt.md"
+        },
+        "always_read": [
+          "phases/shared/00-contract.md",
+          "phases/shared/01-bootstrap.md"
+        ],
+        "required_reads": [],
+        "forbidden_reads": [
+          "commands/review.md",
+          "phases/deep-review/2c-codex-kickoff.md",
+          "phases/deep-review/30-codex-collect.md",
+          "phases/shared/90-finalize.md"
+        ],
+        "required_dispatches": []
+      }
+    }
+  }
+}
