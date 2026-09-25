@@ -218,8 +218,30 @@ capture_print finalize /vibe-check:review --finalize
 
 **Interactive modes** (`review-all`, `deep-all`, `fix-loop`). Launch `claude` in a detached tmux
 session, with the same plugin dir and allowed tools and WITHOUT the flag. Send the slash command,
-answer each question with `tmux send-keys` (use the option's number, then confirm), and watch
-`tmux capture-pane -p` until the run ends. Then export the session's JSONL and its `subagents/`
+answer each question with `tmux send-keys`, and watch `tmux capture-pane -p` until the run ends.
+Two facts from the first live run (2026-09-24, Claude Code 2.1.281): an `AskUserQuestion` is
+answered by moving the highlight with `Up`/`Down` and pressing `Enter` (the first option is
+highlighted on arrival, so `Enter` alone picks it; number keys are not needed); and the FIRST
+launch in any fixture directory shows Claude Code's folder-trust dialog, whose default is
+"No, exit" — the 5-second `send-keys` in `launch_interactive` would land on that dialog and pick
+the default. So, once per fixture directory, BEFORE `launch_interactive`, pre-accept trust in a
+throwaway session and leave it (this is launcher environment, not the thing under test):
+
+```bash
+pretrust() {  # usage: pretrust <mode>   (once per fixture dir, before launch_interactive)
+  local S="trust-$1"
+  tmux new-session -d -s "$S" -c "$WORK/$1/repo" -x 200 -y 50 \
+    "env -u TURINGMIND_NONINTERACTIVE claude --plugin-dir '$PLUGIN_ROOT' \
+     --allowedTools 'Bash,Read,Write,Edit,Grep,Glob,Task,Agent'"
+  sleep 10
+  if tmux capture-pane -p -t "$S" | grep -q 'Yes, I trust this folder'; then
+    tmux send-keys -t "$S" Down; sleep 1; tmux send-keys -t "$S" Enter; sleep 8
+  fi
+  tmux send-keys -t "$S" "/exit" Enter; sleep 4; tmux kill-session -t "$S" 2>/dev/null || true
+}
+```
+A pre-trust session writes a session file OLDER than `.launched`, so `export_session`'s
+`-newer` filter still finds exactly one file. Then export the session's JSONL and its `subagents/`
 directory. The session file has the same `tool_use`/`tool_result`/text records as stream-json.
 Subagent events live in `subagents/agent-*.jsonl`, linked to their dispatch by `toolUseId` in the
 matching `.meta.json`, and `tracecheck.py --subagents` reads that link.
@@ -260,6 +282,19 @@ answer is noted in the batch-close record.
 ---
 
 ## 5. Check
+
+**Batch-1 evidence rule (`sequence_evidence: "none"`, set on every batch-1 entry).** The first
+live batch-1 traces (2026-09-24; record in `40-13-SUMMARY.md`) showed the monolith executing
+phases with no `✓ Phase N` text line — or with the line `echo`ed inside a Bash command — despite
+`review.md:19`. On the monolith there are no lazy reads, so announcement text was the ONLY
+sequence evidence, and it is not evidence. Batch 1 is therefore judged on what its tool events
+can prove: every mandatory read succeeded somewhere in the orchestrator's own events (reported as
+a required read), provenance of every plugin-shaped read, forbidden reads, the always-on
+dispatches (`triage`, `bugs`, `security`; deep adds `architecture`, `impact`,
+`test-sufficiency`) each with child events, plus the canary and envelope asserts below. An
+empty transcript still fails (`no answered orchestrator tool call in transcript`). Batches 2
+and 3 keep the default rule: reads are the evidence and announcements anchor read-before-run
+ordering. Do not copy `"none"` onto a later batch to get a fixture green.
 
 Three fail-closed asserts per mode path. `--plugin-root` is the SAME value that was passed to
 `--plugin-dir`, which is what makes the path-prefix assertion mean something (R2).
@@ -304,14 +339,15 @@ in a way that makes every check vacuous. So, once per batch, after all of §5 ha
 real captured transcript, delete every Read event pair for one mandatory file, and confirm the
 check now FAILS and names that phase.
 
-Use `deep-plain` in batch 1: its only mandatory read is `commands/review.md` before Phase 0, and
-the review mode paths have no lazy reads yet. Use `review-plain` with
+Use `deep-plain` in batch 1: its only mandatory read is `commands/review.md`, and the review mode
+paths have no lazy reads yet. Under the batch-1 rule (§5) that read has no phase anchor, so the
+expected reason names the FILE, not a phase. Use `review-plain` with
 `phases/review/06-config.md` (Phase 0.6) in batches 2 and 3.
 
 ```bash
 case "$BATCH" in
-  1) NC_MODE=deep-plain;   NC_REL=commands/review.md;         NC_LABEL=0 ;;
-  *) NC_MODE=review-plain; NC_REL=phases/review/06-config.md; NC_LABEL=0.6 ;;
+  1) NC_MODE=deep-plain;   NC_REL=commands/review.md;         NC_EXPECT='required file never successfully read: review.md' ;;
+  *) NC_MODE=review-plain; NC_REL=phases/review/06-config.md; NC_EXPECT='phase executed without a preceding successful read: 0.6' ;;
 esac
 NEG="$WORK/negative-control"; mkdir -p "$NEG"
 python3 - "$WORK/$NC_MODE/trace.jsonl" "$NC_REL" "$NEG/trace.jsonl" <<'PY'
@@ -339,7 +375,7 @@ if python3 "$TC" --trace "$NEG/trace.jsonl" --mode "$NC_MODE" --batch "$BATCH" \
      --plugin-root "$PLUGIN_ROOT" 2> "$NEG/reasons.txt"; then
   echo 'NEGATIVE CONTROL PASSED — THE CHECK IS NOT LIVE — STOPPING'; exit 1
 fi
-grep -qx "phase executed without a preceding successful read: $NC_LABEL" "$NEG/reasons.txt" \
+grep -qxF "$NC_EXPECT" "$NEG/reasons.txt" \
   || { echo 'NEGATIVE CONTROL FAILED FOR THE WRONG REASON — STOPPING'; exit 1; }
 cat "$NEG/reasons.txt"   # copy this reason string into the batch-close record
 rm -rf "$NEG"            # the mutated copy is discarded; it is never evidence of anything
