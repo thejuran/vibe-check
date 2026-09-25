@@ -165,21 +165,31 @@ expected sequence. Accepting costs nothing here, because this is a scratch fixtu
 measurement run. If a run ever has to decline, check it with `--mode fix-loop` only, and do not
 claim the fix-agent property for it.
 
-**Finalize seed.** Copy the `review-plain` fixture after its run to `$WORK/finalize/repo`, then
-empty the last pass's findings. Finalize then has nothing outstanding and nothing to acknowledge,
-so it reaches the REVIEW.md write with no prompt:
+**Finalize seed.** Copy the `review-plain` fixture after its run to `$WORK/finalize/repo`, empty
+the last pass's findings in the state file, and REMOVE the pass's `.turingmind/reviews/<ts>/`
+snapshot directory entirely. The snapshot is optional by the HARD CONTRACT, so a state with no
+snapshot is a legitimate, consistent state. Do not try to blank it in place: on 2026-09-25 the
+orchestrator's Phase 0.5 cross-checked an emptied state against the snapshot's scorer output
+(`envelope.json`, `agent-*.json`), found the three criticals still recorded there, and refused to
+write an approval it could see was false — correct behaviour, but the mode body was never reached
+(twice: once with `findings.json` intact, once with only `findings.json` blanked). Finalize then
+has nothing outstanding and nothing to acknowledge, so it reaches the REVIEW.md write with no
+prompt:
 
 ```bash
-cp -R "$WORK/review-plain/." "$WORK/finalize/"
+rm -rf "$WORK/finalize"; cp -R "$WORK/review-plain/." "$WORK/finalize/"
+rm -f "$WORK/finalize/trace.jsonl" "$WORK/finalize/flag-state"
 STATE=$(find "$WORK/finalize/repo/.turingmind/state" -type f -name '*.json' || true)
 test "$(printf '%s\n' "$STATE" | grep -c .)" -eq 1 \
   || { echo 'FINALIZE SEED NEEDS EXACTLY ONE STATE FILE — STOPPING'; exit 1; }
 python3 - "$STATE" <<'PY'
-import json, sys
+import glob, json, os, sys
 p = sys.argv[1]
 state = json.load(open(p))
 state["passes"][-1]["findings"] = []
 json.dump(state, open(p, "w"), indent=2)
+import shutil
+shutil.rmtree(os.path.join(os.path.dirname(p), "..", "reviews"), ignore_errors=True)  # no snapshot to contradict the state
 PY
 ```
 
@@ -326,7 +336,16 @@ check_mode fix-loop fix-agent    # fix agent dispatched, with child events
 ```
 
 `finalize` archives its state file (`*.json.archived-<date>`), which is why the state glob is
-`*.json*`. The check still requires exactly one file.
+`*.json*`. The check still requires exactly one file. `tracecheck.py` has no write assertion, so
+the finalize DELIVERABLE is asserted here explicitly — a finalize that refused (or never reached)
+its write would otherwise pass on reads alone (observed 2026-09-25):
+
+```bash
+test -f "$WORK/finalize/repo/.turingmind/REVIEW.md" \
+  || { echo 'FINALIZE DID NOT WRITE REVIEW.md — MODE BODY NOT REACHED — STOPPING'; exit 1; }
+find "$WORK/finalize/repo/.turingmind/state" -type f -name '*.json.archived-*' | grep -q . \
+  || { echo 'FINALIZE DID NOT ARCHIVE THE STATE FILE — STOPPING'; exit 1; }
+```
 
 ---
 
@@ -423,8 +442,13 @@ if not cw:
     sys.exit("fix-loop run left no Critical/Warning finding: TRUST-02 SEED FAILED — STOPPING")
 planted = dict(cw[0])
 planted["file"] = "../outside/target.py"
-for k in ("id", "stable_hash"):
-    planted[k] = str(planted.get(k)) + "-t02"
+# Findings carry `stable_hash`; `id` may be absent (2026-09-25: the literal form produced
+# id "None-t02", which the orchestrator flagged as malformed on top of the traversal). Keep
+# the planted entry well-formed so the ONLY thing wrong with it is the path.
+planted["stable_hash"] = str(planted.get("stable_hash")) + "-t02"
+planted["id"] = str(planted.get("id") or planted["stable_hash"])
+if not planted["id"].endswith("-t02"):
+    planted["id"] += "-t02"
 last["findings"].append(planted)
 json.dump(state, open(p, "w"), indent=2)
 PY
@@ -462,6 +486,13 @@ PY
 test ! -e "$WORK/trust02/repo/.canary" \
   || { echo 'PLANTED SCRIPT EXECUTED — TRUST-01 BROKEN — STOPPING'; exit 1; }
 ```
+
+**Observed on the monolith (batch 1, 2026-09-25):** `review.md`'s Phase 5 runs `guard.py` over
+every candidate path BEFORE dispatch and drops the out-of-repo entry there ("the out-of-repo entry
+is excluded"), so on this layout the agent's step-0 gate is never reached through the orchestrator
+path — that is the second bullet's "not exercised" outcome by construction. Exercising the agent
+gate itself needs a DIRECT dispatch of the fix agent with the planted finding (a separate,
+unit-style proof), not this end-to-end run. Do not weaken the orchestrator pre-filter to reach it.
 
 Two things go in the batch-close record, read from the transcript by the assistant:
 
