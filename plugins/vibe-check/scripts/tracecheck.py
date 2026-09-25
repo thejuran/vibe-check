@@ -21,6 +21,15 @@ Evidence rules:
 * A plugin file must be read from under the plugin root actually in use. That
   is the end-to-end proof that nested reads resolve against the loaded plugin
   rather than the installed cache or another checkout.
+* An entry may declare `sequence_evidence: "none"` (batch 1, the monolith: its
+  first live traces showed phases running with no `✓` text line, or the line
+  echoed inside a Bash command — review.md:19 notwithstanding). Under that rule
+  announcement text is neither required nor trusted: no sequence reasons are
+  derived, and every mandatory read must simply SUCCEED somewhere in the
+  orchestrator's own events (reported as a required read). Reads, provenance,
+  forbidden reads and dispatches are held exactly as before. The default,
+  `"announcements"`, is the batch-2+ rule where reads are the evidence and
+  announcements anchor the read-before-run ordering.
 
 Reasons are fixed strings naming phase labels or file basenames only — never a
 full foreign path and never transcript content.
@@ -61,10 +70,11 @@ REASONS = (
     "read from outside the plugin root: %s",
     "required agent never dispatched: %s",
     "dispatched agent has no child events: %s",
+    "no answered orchestrator tool call in transcript",
 )
 (R_MALFORMED, R_UNPAIRED, R_NO_ANNOUNCE, R_ABSENT, R_SKIPPED_REQUIRED, R_RAN_SKIP_ONLY,
  R_UNEXPECTED, R_ORDER, R_ALWAYS, R_NO_READ, R_REQUIRED, R_FORBIDDEN, R_PROVENANCE,
- R_NO_DISPATCH, R_NO_CHILDREN) = REASONS
+ R_NO_DISPATCH, R_NO_CHILDREN, R_NO_ACTIVITY) = REASONS
 
 USAGE_REASONS = (
     "usage: tracecheck.py --trace <file> --mode <mode> --batch <N> --plugin-root <path>",
@@ -120,6 +130,11 @@ def _parse_line(line, parent_override, out):
                         {"is_error": c.get("is_error") is True, "parent": parent}))
         elif kind == "text" and rec["type"] == "assistant" and isinstance(c.get("text"), str):
             out.append(("text", None, None, {"text": c["text"], "parent": parent}))
+        elif kind == "text" and rec["type"] == "user" and parent and isinstance(c.get("text"), str):
+            # A sidechain's prompt delivery. It is never an announcement (announcements
+            # come from parent-less assistant text) but it IS the child event a tool-less
+            # subagent leaves behind in a -p trace, so the dispatch is not "childless".
+            out.append(("child_text", None, None, {"parent": parent}))
     return True
 
 
@@ -132,7 +147,9 @@ def _parse_file(path, parent_override, out):
 
 def events(path, subagent_dir=None):
     """Ordered (kind, id, name, payload) events. Kinds: tool_use, tool_result,
-    text, malformed. A malformed line is kept as an event so it is counted.
+    text, child_text (a sidechain's user-role prompt record — child-linkage
+    evidence only, never an announcement), malformed. A malformed line is kept
+    as an event so it is counted.
 
     With `subagent_dir`, each `<stem>.meta.json` names the dispatching
     `toolUseId`, and `<stem>.jsonl`'s events are appended as its children.
@@ -288,10 +305,19 @@ def check(evts, expectation, plugin_root, known_rels=None):
     if unpaired:
         _add(reasons, R_UNPAIRED % unpaired)
 
-    anns = announcements(evts)
-    if not anns:
-        _add(reasons, R_NO_ANNOUNCE)
-    first_any, first_run = _check_sequence(anns, expectation, reasons)
+    by_announcement = _sequence_evidence(expectation) == "announcements"
+    if by_announcement:
+        anns = announcements(evts)
+        if not anns:
+            _add(reasons, R_NO_ANNOUNCE)
+        first_any, first_run = _check_sequence(anns, expectation, reasons)
+    else:
+        first_any, first_run = {}, {}
+        # With announcements out of evidence, an EMPTY transcript must still fail:
+        # the run has to show at least one answered orchestrator tool call.
+        if not any(e[0] == "tool_use" and not e[3]["parent"] and results.get(e[1]) is False
+                   for e in evts):
+            _add(reasons, R_NO_ACTIVITY)
 
     main_reads = successful_reads(evts, main_only=True)
     all_reads = successful_reads(evts)
@@ -304,8 +330,13 @@ def check(evts, expectation, plugin_root, known_rels=None):
         if not read_before(rel, first_ann):
             _add(reasons, R_ALWAYS % _safe_basename(rel))
     for label, rels in expectation["mandatory_reads"].items():
-        if label in first_run and not all(read_before(r, first_run[label])
-                                          for r in _as_list(rels)):
+        if not by_announcement:
+            # No phase anchor exists: the read must have succeeded somewhere.
+            for r in _as_list(rels):
+                if not read_before(r, len(evts)):
+                    _add(reasons, R_REQUIRED % _safe_basename(r))
+        elif label in first_run and not all(read_before(r, first_run[label])
+                                            for r in _as_list(rels)):
             _add(reasons, R_NO_READ % label)
     for rel in expectation["required_reads"]:
         if not read_before(rel, len(evts)):
@@ -335,8 +366,17 @@ _ENTRY_SHAPE = (("expected_phases", list), ("optional_phases", list),
                 ("required_dispatches", list))
 
 
+SEQUENCE_EVIDENCE = ("announcements", "none")
+
+
+def _sequence_evidence(entry):
+    return entry.get("sequence_evidence", SEQUENCE_EVIDENCE[0])
+
+
 def _valid_entry(entry):
-    return isinstance(entry, dict) and all(isinstance(entry.get(k), t) for k, t in _ENTRY_SHAPE)
+    return (isinstance(entry, dict)
+            and all(isinstance(entry.get(k), t) for k, t in _ENTRY_SHAPE)
+            and _sequence_evidence(entry) in SEQUENCE_EVIDENCE)
 
 
 class _Parser(argparse.ArgumentParser):

@@ -88,12 +88,18 @@ class Builder:
                              "message": {"role": "assistant",
                                          "content": [{"type": "text", "text": text}]}})
 
-    def dispatch(self, agent, children=1):
+    def dispatch(self, agent, children=1, toolless=False):
         tid = self._id()
         self.records.append({"type": "assistant", "parent_tool_use_id": None,
                              "message": {"role": "assistant", "content": [
                                  {"type": "tool_use", "id": tid, "name": "Task",
                                   "input": {"subagent_type": agent, "prompt": "x"}}]}})
+        if toolless:
+            # A subagent that answers from its prompt alone: stream-json shows exactly
+            # one child record, the user-role prompt delivery (observed 2026-09-24).
+            self.records.append({"type": "user", "parent_tool_use_id": tid,
+                                 "message": {"role": "user", "content": [
+                                     {"type": "text", "text": "You are the agent."}]}})
         for _ in range(children):
             self.read("src/app.py", parent=tid, absolute="/fixture/src/app.py")
         self.records.append({"type": "user", "parent_tool_use_id": None,
@@ -107,6 +113,10 @@ def passing_builder(batch, mode, root=ROOT):
     """The passing transcript for (batch, mode), derived from the data itself."""
     exp = expectation(batch, mode)
     b = Builder(root)
+    # Every real run answers at least one orchestrator tool call before any phase
+    # evidence (scope resolution reads the repo); a repo file is never a provenance
+    # question, so this changes nothing for the plugin-read checks or the controls.
+    b.read("src/app.py", absolute="/fixture/src/app.py")
     for rel in exp["always_read"]:
         b.read(rel)
     for rel in exp["required_reads"]:
@@ -115,10 +125,20 @@ def passing_builder(batch, mode, root=ROOT):
         for rel in _as_list(exp["mandatory_reads"].get(label, [])):
             b.read(rel)
         b.say("✓ Phase %s — step" % label)
-        if label == "5":
-            for agent in exp["required_dispatches"]:
+        # Review agents are dispatched in Phase 2; the fix agent only in Phase 5.
+        for agent in exp["required_dispatches"]:
+            if (agent == "fix") == (label == "5"):
                 b.dispatch("vibe-check:" + agent)
     return b
+
+
+def announcement_rule(batch, mode):
+    """A copy of (batch, mode) under the DEFAULT announcement rule with no positive
+    tool-event requirements — for tests about announcement sequencing alone."""
+    exp = dict(expectation(batch, mode))
+    exp.pop("sequence_evidence", None)
+    exp["required_dispatches"] = []
+    return exp
 
 
 def is_read_of(rec, rel):
@@ -294,12 +314,13 @@ class TestSequence(TraceCase):
 
     def test_phase_order_mismatch_detected(self):
         b = Builder()
-        exp = expectation(1, "review-plain")
+        exp = announcement_rule(1, "review-plain")
         seq = list(exp["expected_phases"])
         seq[4], seq[5] = seq[5], seq[4]
         for label in seq:
             b.say("✓ Phase %s — step" % label)
-        self.assertEqual(self.check(b.records, 1, "review-plain"),
+        evts = tracecheck.events(self.write(b.records))
+        self.assertEqual(tracecheck.check(evts, exp, ROOT),
                          ["phase order differs from the mode path at: %s" % seq[4]])
 
     def test_always_read_must_precede_first_announcement(self):
@@ -312,9 +333,18 @@ class TestSequence(TraceCase):
                          ["always-read file not read before the first phase: 01-bootstrap.md"])
 
     def test_empty_transcript_fails(self):
-        reasons = self.check([], 1, "review-plain")
+        evts = tracecheck.events(self.write([]))
+        reasons = tracecheck.check(evts, announcement_rule(1, "review-plain"), ROOT)
         self.assertIn("no phase announcements in transcript", reasons)
         self.assertIn("phase absent from run: 0", reasons)
+
+    def test_empty_transcript_fails_every_batch1_mode(self):
+        """Batch 1 opts out of announcement evidence; nothing may still pass."""
+        for mode in sorted(MODES):
+            with self.subTest(mode=mode):
+                reasons = self.check([], 1, mode)
+                self.assertNotEqual(reasons, [])
+                self.assertIn("no answered orchestrator tool call in transcript", reasons)
 
 
 class TestReads(TraceCase):
@@ -367,6 +397,18 @@ class TestDispatch(TraceCase):
         records = passing_builder(3, "fix-loop").records
         self.assertEqual(self.check(records, 3, "fix-agent"),
                          ["required agent never dispatched: fix"])
+
+    def test_toolless_subagent_still_counts_as_a_child(self):
+        """A subagent that never calls a tool leaves only a user-role prompt record under
+        its dispatch id in a -p trace; that record IS the child event (triage, bugs, impact
+        and test-sufficiency all ran tool-less against the batch-1 fixtures)."""
+        b = passing_builder(3, "fix-agent")
+        b.records = [r for r in b.records if r.get("parent_tool_use_id") is None
+                     or not any(c.get("type") in ("tool_use", "tool_result")
+                                for c in r["message"]["content"])]
+        b.dispatch("vibe-check:fix", children=0, toolless=True)
+        self.assertNotIn("dispatched agent has no child events: fix",
+                         self.check(b.records, 3, "fix-agent"))
 
     def test_dispatch_without_child_events_fails(self):
         b = Builder()
@@ -481,6 +523,136 @@ class TestExpectationsData(unittest.TestCase):
                 self.assertFalse(batch[mode]["noninteractive"], mode)
             self.assertEqual(batch["fix-agent"]["required_dispatches"], ["fix"])
             self.assertEqual(batch["fix-loop"]["required_dispatches"], [])
+
+
+class TestSequenceEvidenceNone(TraceCase):
+    """Batch 1 is the monolith, and its first live traces (2026-09-24) showed that it does
+    not announce phases the way review.md:19 promises: early phases run with no `✓` text
+    line, or the line is echoed inside a Bash command. On that layout an announcement is
+    not evidence of anything, so batch-1 entries carry `sequence_evidence: "none"`. Under
+    that rule the checker still holds reads, provenance, forbidden reads and dispatches;
+    it only stops deriving anything from announcement text. A mandatory read that had a
+    phase anchor becomes a read that must succeed SOMEWHERE in the transcript."""
+
+    def exp(self, **over):
+        base = {"expected_phases": ["0", "2"], "optional_phases": [],
+                "skip_only_phases": ["5"], "mandatory_reads": {"0": "commands/review.md"},
+                "always_read": [], "required_reads": [],
+                "forbidden_reads": ["phases/review/06-config.md"],
+                "required_dispatches": [], "sequence_evidence": "none"}
+        base.update(over)
+        return base
+
+    def run_check(self, records, exp, root=ROOT):
+        return tracecheck.check(tracecheck.events(self.write(records)), exp, root)
+
+    def test_silent_run_with_its_reads_is_clean(self):
+        b = Builder()
+        b.read("commands/review.md")            # no announcement anywhere
+        self.assertEqual(self.run_check(b.records, self.exp()), [])
+
+    def test_announcement_text_is_neither_required_nor_trusted(self):
+        b = Builder()
+        b.read("commands/review.md")
+        b.say("✓ Phase 2 — step")
+        b.say("✓ Phase 9 — a label no expectation names")
+        b.say("✓ Phase 5 — a skip-only phase announced as run")
+        self.assertEqual(self.run_check(b.records, self.exp()), [])
+
+    def test_announced_but_never_read_fails_as_a_required_read(self):
+        b = Builder()
+        b.read("src/app.py", absolute="/fixture/src/app.py")   # unrelated activity
+        b.say("✓ Phase 0 — step")               # the announcement proves nothing
+        self.assertEqual(self.run_check(b.records, self.exp()),
+                         ["required file never successfully read: review.md"])
+
+    def test_failed_mandatory_read_is_not_coverage(self):
+        b = Builder()
+        b.read("src/app.py", absolute="/fixture/src/app.py")   # unrelated activity
+        b.read("commands/review.md", ok=False)
+        self.assertEqual(self.run_check(b.records, self.exp()),
+                         ["required file never successfully read: review.md"])
+
+    def test_child_read_does_not_satisfy_the_orchestrator(self):
+        b = Builder()
+        tid = b.dispatch("vibe-check:bugs")
+        b.read("commands/review.md", parent=tid)
+        self.assertIn("required file never successfully read: review.md",
+                      self.run_check(b.records, self.exp()))
+
+    def test_provenance_still_enforced(self):
+        b = Builder()
+        b.read("src/app.py", absolute="/fixture/src/app.py")   # unrelated activity
+        b.read("commands/review.md",
+               absolute="/u/.claude/plugins/cache/thejuran/vibe-check/2.9.0/commands/review.md")
+        reasons = self.run_check(b.records, self.exp())
+        self.assertIn("read from outside the plugin root: review.md", reasons)
+        self.assertIn("required file never successfully read: review.md", reasons)
+
+    def test_forbidden_read_still_enforced(self):
+        b = Builder()
+        b.read("commands/review.md")
+        b.read("phases/review/06-config.md")
+        self.assertEqual(self.run_check(b.records, self.exp()),
+                         ["file read on a mode path that must not load it: 06-config.md"])
+
+    def test_required_dispatch_still_enforced(self):
+        b = Builder()
+        b.read("commands/review.md")
+        self.assertEqual(self.run_check(b.records, self.exp(required_dispatches=["fix"])),
+                         ["required agent never dispatched: fix"])
+
+    def test_always_read_must_still_happen(self):
+        b = Builder()
+        b.read("src/app.py", absolute="/fixture/src/app.py")   # unrelated activity
+        self.assertEqual(self.run_check(b.records, self.exp(always_read=["commands/review.md"],
+                                                             mandatory_reads={})),
+                         ["always-read file not read before the first phase: review.md"])
+
+    def test_negative_control_batch1_deep_plain(self):
+        """The real batch-1 shape: the passing deep-plain transcript minus its one mandatory
+        read must FAIL. If this ever yields [] the batch-1 rule checks nothing."""
+        records = without_read(passing_builder(1, "deep-plain").records, "commands/review.md")
+        reasons = self.check(records, 1, "deep-plain")
+        self.assertNotEqual(reasons, [])
+        self.assertEqual(reasons, ["required file never successfully read: review.md"])
+
+    def test_default_rule_is_unchanged_without_the_key(self):
+        base = self.exp()
+        del base["sequence_evidence"]
+        b = Builder()
+        b.read("commands/review.md")            # silent run under the default rule
+        reasons = self.run_check(b.records, base)
+        self.assertIn("no phase announcements in transcript", reasons)
+        self.assertIn("phase absent from run: 0", reasons)
+
+    def test_activity_floor_fires_only_when_nothing_was_answered(self):
+        b = Builder()
+        b.read("commands/review.md", ok=False)  # attempted, but never answered cleanly
+        self.assertIn("no answered orchestrator tool call in transcript",
+                      self.run_check(b.records, self.exp()))
+        b2 = Builder()
+        b2.read("src/app.py", absolute="/fixture/src/app.py")
+        self.assertNotIn("no answered orchestrator tool call in transcript",
+                         self.run_check(b2.records, self.exp()))
+
+    def test_value_is_validated(self):
+        self.assertTrue(tracecheck._valid_entry(self.exp()))
+        self.assertTrue(tracecheck._valid_entry(self.exp(sequence_evidence="announcements")))
+        base = self.exp()
+        del base["sequence_evidence"]
+        self.assertTrue(tracecheck._valid_entry(base))
+        self.assertFalse(tracecheck._valid_entry(self.exp(sequence_evidence="maybe")))
+        self.assertFalse(tracecheck._valid_entry(self.exp(sequence_evidence=None)))
+
+    def test_only_batch1_opts_out_of_sequence_evidence(self):
+        for mode, exp in EXPECT["batches"]["1"].items():
+            with self.subTest(batch="1", mode=mode):
+                self.assertEqual(exp.get("sequence_evidence"), "none")
+        for batch in ("2", "3"):
+            for mode, exp in EXPECT["batches"][batch].items():
+                with self.subTest(batch=batch, mode=mode):
+                    self.assertNotEqual(exp.get("sequence_evidence"), "none")
 
 
 class TestImportSet(unittest.TestCase):
