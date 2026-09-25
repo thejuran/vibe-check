@@ -232,3 +232,46 @@ From `plugins/vibe-check/docs/efficacy/RESULTS-v2.10.md` (per-diff tables), quot
 
 **Sign-off:** owner decision D-05 recorded in discuss-phase (spot-check sizing and pair), selection
 executed from the sealed evidence 2026-09-24.
+
+## 006 — 2026-09-24 — Phase-40 harness pin corrected: `pin-claude-code` 2.1.261 → 2.1.281 (owner decision)
+
+This entry records a PIN CORRECTION for the Phase-40 spot-checks. It supersedes no sealed number and
+moves no denominator. The Phase-38 pin in `RUN-METHOD-NOTES-v2.10.md` is untouched; only the
+Phase-40 copy in `RUN-METHOD-NOTES-phase40.md` changes, inside the correction window that file
+defines for itself (zero session blocks, zero run commits under `runs-v2.10-phase40/`).
+
+**Sealed statement (verbatim, unchanged):**
+
+From `docs/design/b3-ground-truth/RUN-METHOD-NOTES-v2.10.md` (the Phase-38 harness pin, carried into
+`RUN-METHOD-NOTES-phase40.md` byte-for-byte by plan 40-09), quoted as raw bytes:
+
+```
+pin-claude-code: 2.1.261 (Claude Code)
+pin-codex: codex-cli 0.153.4
+pin-model: fable 5
+```
+
+**Evidence:**
+
+- On 2026-09-24 `claude --version` on the owner's machine printed `2.1.281 (Claude Code)`;
+  `codex --version` printed `codex-cli 0.153.4`, matching its pin. The pinned CLI 2.1.261 is no
+  longer installed. Plan 40-09 recorded this drift at authoring and left the decision to the owner.
+- At the time of this correction `RUN-METHOD-NOTES-phase40.md` held zero `## Harness fingerprint`
+  session blocks and `runs-v2.10-phase40/` held only `PLAN-COMMITS.json` (plan identity records, no
+  run evidence), so the file's own rule permits the correction.
+- The alternative, downgrading Claude Code to 2.1.261 and holding it there for every Phase-40
+  session across days, was put to the owner and declined.
+
+**Effect:**
+
+- `RUN-METHOD-NOTES-phase40.md` now carries `pin-claude-code: 2.1.281 (Claude Code)`. The STEP 0.25
+  fingerprint block accepts 2.1.281 sessions and still stops on any further drift.
+- Every Phase-40 spot-check compared against the sealed Phase-38 baseline (measured on 2.1.261)
+  carries the Claude Code version as a NAMED CONFOUND: a movement on the sensitivity pair has two
+  candidate causes, the Phase-40 change under test and the newer CLI. The per-batch ×1 checks remain
+  the guardrail D-05 sized them as; the proof is Phase 43's full re-measure (entry 003 pins exactly
+  `fable 5.1` there).
+- `pin-codex` and `pin-model` are unchanged. `RUN-METHOD-NOTES-v2.10.md` receives nothing.
+
+**Sign-off:** owner decision 2026-09-24, taken before batch 1 in the milestone-orchestrator session,
+recorded by the assistant.
