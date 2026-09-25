@@ -13,12 +13,13 @@ run to the commit that introduced its session block, never to the working file.
 
 ## Harness pin
 
-Carried byte-for-byte from the Phase-38 pin so that harness drift between the sealed baseline and a
+Carried from the Phase-38 pin (byte-for-byte, except `pin-claude-code`, corrected 2026-09-24 per
+`SUPERSESSIONS-v2.10.md` entry 006) so that harness drift between the sealed baseline and a
 Phase-40 spot-check is detected rather than silently absorbed. These three lines are the only
 column-0 pin lines in this file; every prose mention of a pin label is backticked so an anchored
 grep for each label returns exactly one value.
 
-pin-claude-code: 2.1.261 (Claude Code)
+pin-claude-code: 2.1.281 (Claude Code)
 pin-codex: codex-cli 0.153.4
 pin-model: fable 5
 
@@ -37,6 +38,10 @@ resolved: either run under the pinned CLI, or record a Phase-40 pin correction a
 while zero Phase-40 sessions exist (and accept that CLI version as a named confound against the
 baseline). That is a decision for the owner, taken before batch 1, not something the checklist
 works around.
+
+**Resolved 2026-09-24 (before batch 1):** the owner chose to accept `2.1.281 (Claude Code)` and record
+it. The correction is `SUPERSESSIONS-v2.10.md` entry 006; the Claude Code version is a named confound
+against the 2.1.261 baseline for every Phase-40 spot-check. `pin-codex` and `pin-model` are unchanged.
 
 ## Seal verifier
 
