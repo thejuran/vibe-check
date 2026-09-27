@@ -89,4 +89,4 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
 
 5. **`--all` mode** — reached only via the branch-flip guard above (the `--all` token is present in `$ARGUMENTS`). Whole-codebase selection over tracked files instead of a diff.
 
-   If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/00-scope-all.md** with the Read tool before continuing — it resolves the `--all` scope (narrow parse, containment guard, tracked-file selection, skip rules, and the `$ALL_MODE`/`$REVIEW_SET` bindings). On a plain diff review, do not read it.
+   When the branch-flip guard routes here, **Read $VC_ROOT/phases/review/00-scope-all.md** with the Read tool before continuing (and before announcing Phase 0) — it resolves the `--all` scope (narrow parse, containment guard, tracked-file selection, skip rules, and the `$ALL_MODE`/`$REVIEW_SET` bindings). `$ALL_MODE` is not bound yet at this point: that file binds it, so the `--all` token is the trigger here, not the variable. On a plain diff review, do not read it.

@@ -38,12 +38,13 @@ PRE_PHASE_REV = "7a386ed"
 # One place. 40-08 rewrote review-plain/finalize/fix-loop; 40-10 rewrites
 # review-all (and adds the finalize / fix-loop sub-files it creates); 40-11
 # rewrites deep-*.
-# review-all and deep-* still carry the monolith-era lists until 40-10 / 40-11
-# land: deep-* lists BOTH commands because deep-review.md makes the deep path
-# read review.md, which is now the spine.
+# deep-* still carry the monolith-era lists until 40-11 lands: they list BOTH
+# commands because deep-review.md makes the deep path read review.md, which is
+# now the spine.
 # review-plain is the UPPER BOUND of a non-`--all` review: it includes the
 # first-run file (Phase 0.7) and the GSD-mode intent file (Phase 1.5), each of
-# which a given plain run may skip.
+# which a given plain run may skip. review-all is the same upper bound plus the
+# `--all`-only files (a `--all` run never reads the Phase-1.5 intent file).
 _SPINE_HEAD = [
     "commands/review.md",
     "phases/shared/00-contract.md",
@@ -61,9 +62,20 @@ _REVIEW_ALWAYS_ON = [
     "phases/review/40-render.md",
     "phases/review/45-persist.md",
 ]
+# The `--all`-only files, in phase order. A `--all` review reads every one of
+# them (0.2 and 0.3 are whole phases; the rest are nested reads).
+_REVIEW_ALL_ONLY = [
+    "phases/review/00-scope-all.md",
+    "phases/review/02-chunk-plan.md",
+    "phases/review/03-estimate-gate.md",
+    "phases/review/05-state-all.md",
+    "phases/review/20-dispatch-all.md",
+    "phases/review/40-render-all.md",
+    "phases/review/45-persist-all.md",
+]
 MODE_PATHS = {
     "review-plain": _SPINE_HEAD + _REVIEW_ALWAYS_ON,
-    "review-all": ["commands/review.md"],
+    "review-all": _SPINE_HEAD + _REVIEW_ALWAYS_ON + _REVIEW_ALL_ONLY,
     "deep-plain": ["commands/deep-review.md", "commands/review.md"],
     "deep-all": ["commands/deep-review.md", "commands/review.md"],
     "finalize": _SPINE_HEAD + [
