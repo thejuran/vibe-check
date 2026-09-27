@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 4
+current_plan: 5
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-09-27T18:54:35.290Z"
+last_updated: "2026-09-27T19:19:15.027Z"
 last_activity: 2026-09-24 -- Phase 40 execution started
 progress:
   total_phases: 16
   completed_phases: 1
   total_plans: 20
-  completed_plans: 17
+  completed_plans: 18
   percent: 6
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 40 (prose-diet-restructure-for-opus-5) — EXECUTING
-Plan: 4 of 14
-Current Plan: 4
+Plan: 5 of 14
+Current Plan: 5
 Total Plans in Phase: 14
 Status: Executing Phase 40
-Progress: [█████████░] 85%
+Progress: [█████████░] 90%
 Last activity: 2026-09-24 -- Phase 40 execution started
 
 ## Performance Metrics
@@ -200,8 +200,6 @@ None yet.
 - [Phase 37] The v2.8 evidence debt needs NO separate retroactive audit — it became v2.9 requirements (Phase 35), so the v2.9 milestone audit covers it.
 - [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
-- Pre-batch-1: installed claude CLI 2.1.281 != Phase-40 pin 2.1.261 (fingerprint block stops) — owner decides: run under 2.1.261, or record a Phase-40 pin correction ledger entry
-- test_batchsnap shape test red since 2745c2d: PLAN-COMMITS.json records 40-09 although 40-09 is NEVER_REVERT; settle before 40-10 batchsnap build
 
 ## Deferred Items
 
@@ -225,7 +223,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-27T18:54:29.539Z
+Last session: 2026-09-27T19:19:15.024Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
