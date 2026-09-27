@@ -354,6 +354,13 @@ written differently-named state files before (`<repo>-main.json`, `<repo>-HEAD.j
 Both clones already carry the Phase-38 local exclude for `.turingmind/` (v2.10 STEP 0.5). If the
 clean-tree check below stops on `.turingmind/`, that exclude is missing: tell the assistant.
 
+**Why the launch line carries `--allowedTools`.** The snapshot lives outside the clone, and on
+2026-09-27 the first batch-1 launch without that flag ran under Claude Code's auto-mode permission
+classifier, which blocked the orchestrator's seat line and its read of the snapshot's `review.md`
+as "code from external" before Phase 0 — the review never ran and the attempt was voided. The
+flag pre-approves the tools the review needs, exactly as the assistant-side validation launches do
+(`mode-path-validation-v2.10.md` §4). It changes permission handling only, never the plugin.
+
 ### triggarr-secret-in-logs — prepare (once per check, before run 1)
 
 ```bash
@@ -419,7 +426,7 @@ test "$(tail -1 ~/.b3/p40-verify.out)" = "plugin_root: $PLUGIN_ROOT" \
   || { echo 'verify PRINTED A DIFFERENT PLUGIN ROOT — STOPPING'; exit 1; }
 echo 'Open a NEW terminal tab and paste exactly this one line:'
 echo ''
-echo "  cd ~/triggarr && claude --plugin-dir \"$PLUGIN_ROOT\""
+echo "  cd ~/triggarr && claude --plugin-dir \"$PLUGIN_ROOT\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\""
 echo ''
 echo 'Then come back here and run: p40 fingerprint'
 # END: sil-launch
@@ -489,7 +496,7 @@ test "$(tail -1 ~/.b3/p40-verify.out)" = "plugin_root: $PLUGIN_ROOT" \
   || { echo 'verify PRINTED A DIFFERENT PLUGIN ROOT — STOPPING'; exit 1; }
 echo 'Open a NEW terminal tab and paste exactly this one line:'
 echo ''
-echo "  cd ~/seedsyncarr && claude --plugin-dir \"$PLUGIN_ROOT\""
+echo "  cd ~/seedsyncarr && claude --plugin-dir \"$PLUGIN_ROOT\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\""
 echo ''
 echo 'Then come back here and run: p40 fingerprint'
 # END: sq5-launch
