@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 3
+current_plan: 4
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-09-24T22:05:48.069Z"
+last_updated: "2026-09-27T18:54:35.290Z"
 last_activity: 2026-09-24 -- Phase 40 execution started
 progress:
   total_phases: 16
   completed_phases: 1
   total_plans: 20
-  completed_plans: 16
+  completed_plans: 17
   percent: 6
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 40 (prose-diet-restructure-for-opus-5) — EXECUTING
-Plan: 3 of 14
-Current Plan: 3
+Plan: 4 of 14
+Current Plan: 4
 Total Plans in Phase: 14
 Status: Executing Phase 40
-Progress: [████████░░] 80%
+Progress: [█████████░] 85%
 Last activity: 2026-09-24 -- Phase 40 execution started
 
 ## Performance Metrics
@@ -86,6 +86,7 @@ Last activity: 2026-09-24 -- Phase 40 execution started
 | Phase 40 P01 | 38min | 2 tasks | 5 files |
 | Phase 40 P09 | 45min | 3 tasks | 4 files |
 | Phase 40 P13 | 20 min | 2 tasks | 5 files |
+| Phase 40 P08 | 16m | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,10 @@ Earlier decisions (v2.8) still on record:
 - [Phase 40]: 40-01: acceptance-criteria conflict adjudicated — the three sealed-doc pointers are ONE logical pointer each WRAPPED at 100 columns (numstat 4/4/3, not the plan's literal 1 0), because a single-line pointer is 248/192 columns and would violate the 100-column criterion. The plan's own action text says '(one line, may wrap at 100)'. Likewise three ledger lines exceed 100 deliberately: two verbatim sealed-byte quotes and one copy-paste git command.
 - [Phase ?]: 40-09: spot-check transcripts stay local (gitignored), bound by a committed sha256 — they carry the owner's private instructions and the repo is public
 - [Phase 40]: 40-13: mode-path expectations keyed by (batch, mode); review-all, deep-all and fix-loop run as tmux-driven interactive sessions because no gate pre-answer flag exists at 7a386ed; fix-loop and fix-agent are separate properties
+- [Phase 40]: Owner accepted Claude Code 2.1.281 over the 2.1.261 baseline pin before batch 1 (SUPERSESSIONS entry 006; RUN-METHOD-NOTES-phase40 pin corrected while zero session blocks existed). The CLI version is a named confound for every Phase-40 spot-check against the Phase-38 baseline; Phase 43's full re-measure is the proof.
+- [Phase 40]: Batch-1 mode-path validation: run 1 failed all 3 captured paths (unseated deep-review.md read review.md from the installed cache and executed a repo-planted helper; the monolith does not announce phases as text; one improvised state key). Owner-approved remediation recorded under 40-13: deep-review.md TRUST-01 seat + absolute review.md read pulled forward from 40-11 (857d019); tracecheck batch-1 rule sequence_evidence:"none" with always-on dispatches as evidence and an activity floor (9e92a9d); procedure-doc fixes (pretrust, finalize seed removes the pass snapshot, finalize deliverable assert). Run 2 on batch1-39e11a7eef89: 6/7 rows pass, negative control live, canary silent everywhere; finalize red on evidence FORM only (Bash cat vs Read tool). Owner handed batch 1 over with that exception; the Read-vs-cat evidence rule is decided in 40-08/40-13.
+- [Phase 40]: 40-08: HARD CONTRACT shared at phases/shared/00-contract.md on review.md's stricter wording (F9c); lazy reads are Read-tool instructions in batchsnap's parsed form; the phase-file Read is the evidence, announcements are not
+- [Phase 40]: 40-08: pass-entry key set stated once in 45-persist.md = future-schema.json (9 keys incl. filtered+codex; codex {status joined|skipped|off, reason slug|null, verdict, findings int}; /review writes status off; Z-second timestamps)
 
 ### Pending Todos
 
@@ -196,6 +201,7 @@ None yet.
 - [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
 - Pre-batch-1: installed claude CLI 2.1.281 != Phase-40 pin 2.1.261 (fingerprint block stops) — owner decides: run under 2.1.261, or record a Phase-40 pin correction ledger entry
+- test_batchsnap shape test red since 2745c2d: PLAN-COMMITS.json records 40-09 although 40-09 is NEVER_REVERT; settle before 40-10 batchsnap build
 
 ## Deferred Items
 
@@ -219,7 +225,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-24T22:05:32.360Z
+Last session: 2026-09-27T18:54:29.539Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
