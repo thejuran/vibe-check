@@ -35,18 +35,41 @@ import sys
 # worktree — wave-1 plans edit commands/review.md concurrently (F11).
 PRE_PHASE_REV = "7a386ed"
 
-# One place. 40-08 rewrites review-plain/finalize/fix-loop; 40-10 rewrites
-# review-all; 40-11 rewrites deep-*.
-# Seeded with the BEFORE state: every path is the monolith. deep-* lists BOTH
-# files because deep-review.md:35 makes the deep path read review.md
-# end-to-end.
+# One place. 40-08 rewrote review-plain/finalize/fix-loop; 40-10 rewrites
+# review-all (and adds the finalize / fix-loop sub-files it creates); 40-11
+# rewrites deep-*.
+# review-all and deep-* still carry the monolith-era lists until 40-10 / 40-11
+# land: deep-* lists BOTH commands because deep-review.md makes the deep path
+# read review.md, which is now the spine.
+# review-plain is the UPPER BOUND of a non-`--all` review: it includes the
+# first-run file (Phase 0.7) and the GSD-mode intent file (Phase 1.5), each of
+# which a given plain run may skip.
+_SPINE_HEAD = [
+    "commands/review.md",
+    "phases/shared/00-contract.md",
+    "phases/shared/01-bootstrap.md",
+]
+_REVIEW_ALWAYS_ON = [
+    "phases/review/00-scope.md",
+    "phases/review/05-state.md",
+    "phases/review/06-config.md",
+    "phases/review/07-first-run.md",
+    "phases/review/10-triage.md",
+    "phases/review/15-intent.md",
+    "phases/review/30-collect-score.md",
+    "phases/review/45-persist.md",
+]
 MODE_PATHS = {
-    "review-plain": ["commands/review.md"],
+    "review-plain": _SPINE_HEAD + _REVIEW_ALWAYS_ON,
     "review-all": ["commands/review.md"],
     "deep-plain": ["commands/deep-review.md", "commands/review.md"],
     "deep-all": ["commands/deep-review.md", "commands/review.md"],
-    "finalize": ["commands/review.md"],
-    "fix-loop": ["commands/review.md"],
+    "finalize": _SPINE_HEAD + [
+        "phases/review/00-scope.md",
+        "phases/review/05-state.md",
+        "phases/review/06-config.md",
+    ],
+    "fix-loop": _SPINE_HEAD + _REVIEW_ALWAYS_ON,
 }
 
 # Labelled proxies: the legacy constant and the D-11 restatement. Both are

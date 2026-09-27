@@ -111,20 +111,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
 # bash it exports "". (A4: this comment deliberately does NOT spell the token — the seat invariant at
 # behavior line "Static (A1 — the SEAT invariant)" permits it only on the export line or in a Read path.)
 export VIBE_CHECK_PLUGIN_ROOT_SUBST="${CLAUDE_PLUGIN_ROOT}"
-# TRUST-01 resolver — the trusted plugin root arrives from the SEAT line above (a loader substitution the
-# reviewed repo cannot reach). Arm (2) is an env var the OWNER exports (`VIBE_CHECK_PLUGIN_ROOT`) — never
-# read from the reviewed repo. There is NO repo-relative arm and NO cache-glob/marketplace arm. If BOTH arms
-# are empty every consumer takes its terminal arm.
-VC_ROOT="${VIBE_CHECK_PLUGIN_ROOT_SUBST:-}"
-[ -z "$VC_ROOT" ] && VC_ROOT="${VIBE_CHECK_PLUGIN_ROOT:-}"
-# (3) terminal arm is PER CONSUMER (D-13): guard/score FAIL CLOSED on empty; config DEGRADES to defaults.
-GUARD_PY="";  [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/guard.py" ]  && GUARD_PY="$VC_ROOT/scripts/guard.py"
-CONFIG_PY=""; [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/config.py" ] && CONFIG_PY="$VC_ROOT/scripts/config.py"
-SCORE_PY="";  [ -n "$VC_ROOT" ] && [ -f "$VC_ROOT/scripts/score.py" ]  && SCORE_PY="$VC_ROOT/scripts/score.py"
-# /TRUST-01 resolver
-# Terminal arm: $GUARD_PY EMPTY. Every consumer FAILS CLOSED on that (treats the
-# path as NOT contained / refuses) — a security guard degrades to refusal, never
-# to pass-through. (Contrast: $CONFIG_PY degrades to defaults; $SCORE_PY halts.)
+# The resolver BODY that consumes this seat lives in phases/shared/01-bootstrap.md (the only copy).
 ```
 
 Callers branch on guard.py's EXIT CODE (0 = every `--path` contained; non-zero = refuse), never by parsing its stdout. Do NOT re-inline the `case` compare anywhere in this file, `deep-review.md`, or the agents — that is how the copies drifted apart in the first place.
