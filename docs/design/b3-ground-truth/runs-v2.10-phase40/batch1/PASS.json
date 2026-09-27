@@ -13,7 +13,7 @@
       "report_path": "triggarr-secret-in-logs/run-1/report.md",
       "transcript_path": "triggarr-secret-in-logs/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "catch"
     },
     {
       "diff": "should-quiet-5",
@@ -23,7 +23,10 @@
       "report_path": "should-quiet-5/run-1/report.md",
       "transcript_path": "should-quiet-5/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean"
     }
-  ]
+  ],
+  "adjudicated_by": "assistant",
+  "adjudicated_at": "2026-09-27T18:35:31Z",
+  "adjudication_note": "secret-in-logs: SITE base.py:233/235 (hunk 230-238) + 252/254 (hunk 249-256); AXIS = credentials/keys leaked into logs (CWE-532/209, not formatting); BAND critical from security(100), codex(100), architecture(100), impact(97) >= warning floor -> catch. should-quiet-5: 0 findings reported (2 filtered sub-threshold), no critical/warning -> clean. Both runs driven by the assistant via tmux at the owner's request (2026-09-27); launch line needed --allowedTools (runbook fixed d156f7d); the run reported the config reader denied by the permission classifier (repo has no .vibe-check.toml, defaults identical); the model saw the .b3-inprogress sentinel and inferred a fixture, as Phase-38 runs could. Both session.txt files bind to the later of two back-to-back fingerprint blocks (identical harness tuple)."
 }
