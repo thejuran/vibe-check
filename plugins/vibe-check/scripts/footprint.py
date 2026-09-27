@@ -35,9 +35,8 @@ import sys
 # worktree — wave-1 plans edit commands/review.md concurrently (F11).
 PRE_PHASE_REV = "7a386ed"
 
-# One place. 40-08 rewrote review-plain/finalize/fix-loop; 40-10 rewrites
-# review-all (and adds the finalize / fix-loop sub-files it creates); 40-11
-# rewrites deep-*.
+# One place. 40-08 rewrote review-plain; 40-10 rewrote review-all, finalize and
+# fix-loop; 40-11 owns deep-*.
 # deep-* still carry the monolith-era lists until 40-11 lands: they list BOTH
 # commands because deep-review.md makes the deep path read review.md, which is
 # now the spine.
@@ -78,12 +77,15 @@ MODE_PATHS = {
     "review-all": _SPINE_HEAD + _REVIEW_ALWAYS_ON + _REVIEW_ALL_ONLY,
     "deep-plain": ["commands/deep-review.md", "commands/review.md"],
     "deep-all": ["commands/deep-review.md", "commands/review.md"],
+    # Finalize runs Phase 0, 0.5 and the unconditional 0.6, then the shared
+    # finalize file; it never reads the review phases after 0.6.
     "finalize": _SPINE_HEAD + [
         "phases/review/00-scope.md",
         "phases/review/05-state.md",
         "phases/review/06-config.md",
+        "phases/shared/90-finalize.md",
     ],
-    "fix-loop": _SPINE_HEAD + _REVIEW_ALWAYS_ON,
+    "fix-loop": _SPINE_HEAD + _REVIEW_ALWAYS_ON + ["phases/review/50-fix-loop.md"],
 }
 
 # Labelled proxies: the legacy constant and the D-11 restatement. Both are
