@@ -128,6 +128,30 @@ def _corpus():
     return [(p, _read(p)) for p in _all_prose_files()]
 
 
+def _orchestrator_corpus():
+    """commands/*.md UNION phases/**/*.md — where the orchestrator's consumer sites live.
+
+    Plan 40-08 moved the consumer sites out of commands/review.md into
+    phases/review/*.md, so a check keyed on review.md alone would stop proving
+    anything. The length floor makes an emptied glob fail instead of passing.
+    """
+    files = _prose_files("commands") + _prose_files("phases")
+    assert len(files) > 2, "orchestrator corpus unexpectedly small: %r" % files
+    return [(p, _read(p)) for p in files]
+
+
+def _site(needle, normalize_quotes=False):
+    """(path, text, index) of the ONE corpus file carrying `needle`."""
+    hits = []
+    for path, text in _orchestrator_corpus():
+        hay = text.replace("'", '"') if normalize_quotes else text
+        if needle in hay:
+            hits.append((path, text, hay.index(needle)))
+    assert len(hits) == 1, "expected exactly one site for %r, found %d: %r" % (
+        needle, len(hits), [h[0] for h in hits])
+    return hits[0]
+
+
 def _all_blocks():
     """(path, block) for every resolver block across the whole corpus."""
     out = []
@@ -309,19 +333,21 @@ class TestSeatInvariant(unittest.TestCase):
 
 
 class TestTerminalArmsPerConsumer(unittest.TestCase):
-    """D-13's deliberate inversion survives: score/guard fail closed, config degrades."""
+    """D-13's deliberate inversion survives: score/guard fail closed, config degrades.
 
-    REVIEW_MD = os.path.join(COMMANDS_DIR, "review.md")
+    The consumer sites are searched across commands/*.md and phases/**/*.md: plan
+    40-08 moved them from commands/review.md into the phase files (F8).
+    """
 
     def test_score_consumer_fails_closed_with_the_exact_halt_text(self):
-        self.assertIn(HALT_TEXT, _read(self.REVIEW_MD))
+        _site(HALT_TEXT)
 
     def test_config_consumer_documents_its_degrade_posture(self):
-        self.assertIn("Do NOT \"fix\" this terminal arm back to fail-closed",
-                      _read(self.REVIEW_MD).replace("'", '"'))
+        _site("Do NOT \"fix\" this terminal arm back to fail-closed",
+              normalize_quotes=True)
 
     def test_guard_callers_still_branch_on_the_exit_code(self):
-        self.assertIn("EXIT CODE", _read(self.REVIEW_MD))
+        self.assertTrue(any("EXIT CODE" in text for _, text in _orchestrator_corpus()))
         self.assertIn("EXIT CODE", _read(FIX_MD))
 
     def test_resolver_body_itself_never_exits(self):
@@ -689,10 +715,8 @@ class TestPlantedCanary(unittest.TestCase):
     # -- case (d): the D-13 split lives at the CONSUMER sites ------------- #
 
     def test_case_d_terminal_arm_split_is_consumer_side(self):
-        review = _read(os.path.join(COMMANDS_DIR, "review.md"))
-        # score consumer HALTS
-        self.assertIn(HALT_TEXT, review)
-        halt_idx = review.index(HALT_TEXT)
+        # score consumer HALTS — wherever the site lives in the corpus (F8)
+        _, review, halt_idx = _site(HALT_TEXT)
         self.assertIn("exit 1", review[halt_idx - 400:halt_idx + 400],
                       "the score consumer site must carry the fail-closed exit")
         # the block itself never exits (proved dynamically in case (a) too)
@@ -703,9 +727,8 @@ class TestPlantedCanary(unittest.TestCase):
         # The prose around this site legitimately CITES $SCORE_PY's `exit 1` to
         # document the deliberate inversion, so the assertion is scoped to the
         # site's executable bash, not to the paragraph that describes it.
-        review = _read(os.path.join(COMMANDS_DIR, "review.md"))
-        idx = review.replace("'", '"').index(
-            'Do NOT "fix" this terminal arm back to fail-closed')
+        _, review, idx = _site('Do NOT "fix" this terminal arm back to fail-closed',
+                               normalize_quotes=True)
         window = review[idx:idx + 1200]
         fences = re.findall(r"```bash\n(.*?)```", window, re.DOTALL)
         self.assertTrue(fences, "the config consumer site has no bash block")

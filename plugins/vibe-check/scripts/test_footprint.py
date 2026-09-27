@@ -266,8 +266,9 @@ class TestDriftLocks(unittest.TestCase):
         phases_dir = os.path.join(PLUGIN_ROOT, "phases")
         found = sorted(glob.glob(os.path.join(phases_dir, "**", "*.md"),
                                  recursive=True))
-        if not found:
-            self.skipTest("phases/ not created yet -- 40-08")
+        # phases/ exists from plan 40-08 on; an empty glob here is a path bug,
+        # and skipping on it would turn this lock back into a no-op.
+        self.assertGreater(len(found), 2, "phases/**/*.md glob found %r" % found)
         listed = set()
         for rels in footprint.MODE_PATHS.values():
             listed.update(rels)

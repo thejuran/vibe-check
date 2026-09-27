@@ -56,7 +56,9 @@ _REVIEW_ALWAYS_ON = [
     "phases/review/07-first-run.md",
     "phases/review/10-triage.md",
     "phases/review/15-intent.md",
+    "phases/review/20-dispatch.md",
     "phases/review/30-collect-score.md",
+    "phases/review/40-render.md",
     "phases/review/45-persist.md",
 ]
 MODE_PATHS = {

@@ -2783,52 +2783,74 @@ def has_scored_field_write_path(text):
 
 
 class TestSingleWriterLock(unittest.TestCase):
-    """ROBUST-01 D-10: lock score.py as the single writer of scored fields."""
+    """ROBUST-01 D-10: lock score.py as the single writer of scored fields.
 
-    COMMANDS_DIR = os.path.join(os.path.dirname(SCORE_PY), "..", "commands")
-    REVIEW_MD = os.path.join(COMMANDS_DIR, "review.md")
-    DEEP_REVIEW_MD = os.path.join(COMMANDS_DIR, "deep-review.md")
+    Corpus widened in Phase 40 (F8) — the scoring instructions moved into phases/, so
+    scanning only commands/ would prove nothing.
+    """
+
+    PLUGIN_DIR = os.path.normpath(os.path.join(os.path.dirname(SCORE_PY), ".."))
+    COMMANDS_DIR = os.path.join(PLUGIN_DIR, "commands")
+    PHASES_DIR = os.path.join(PLUGIN_DIR, "phases")
+
+    @classmethod
+    def _corpus(cls):
+        """commands/*.md UNION phases/**/*.md — every orchestrator prose file."""
+        import glob
+        return sorted(glob.glob(os.path.join(cls.COMMANDS_DIR, "*.md"))) + sorted(
+            glob.glob(os.path.join(cls.PHASES_DIR, "**", "*.md"), recursive=True))
 
     @classmethod
     def _read(cls, path):
         with open(path, "r", encoding="utf-8") as fh:
             return fh.read()
 
-    # -- Test 1: the lock HOLDS today (soundness on the real files) -------- #
-    def test_review_md_has_no_by_hand_scored_field_write(self):
-        text = self._read(self.REVIEW_MD)
-        # Whole-file scan (not fenced-only). The load-bearing no-false-positive
-        # proof: must NOT trip on review.md:392 SCOPE_HASH `shasum`, nor on the
-        # scored-field mentions/comparisons/reads/forbidding-prose.
-        self.assertFalse(
-            has_scored_field_write_path(text),
-            "review.md tripped the single-writer lock — a by-hand scored-field "
-            "write path was detected (or a false positive on SCOPE_HASH / a "
-            "scored-field mention).",
-        )
+    @classmethod
+    def _joined(cls):
+        return "\n".join(cls._read(p) for p in cls._corpus())
 
-    def test_deep_review_md_has_no_by_hand_scored_field_write(self):
-        text = self._read(self.DEEP_REVIEW_MD)
-        self.assertFalse(
-            has_scored_field_write_path(text),
-            "deep-review.md tripped the single-writer lock — a by-hand "
-            "scored-field write path was detected.",
-        )
+    # -- Test 1: the lock HOLDS today (soundness on the real files) -------- #
+    def test_no_corpus_file_has_a_by_hand_scored_field_write(self):
+        # Whole-file scan (not fenced-only), per file. The load-bearing
+        # no-false-positive proof: must NOT trip on the SCOPE_HASH `shasum`, nor on
+        # the scored-field mentions/comparisons/reads/forbidding-prose.
+        for path in self._corpus():
+            with self.subTest(path=os.path.relpath(path, self.PLUGIN_DIR)):
+                self.assertFalse(
+                    has_scored_field_write_path(self._read(path)),
+                    "%s tripped the single-writer lock — a by-hand scored-field "
+                    "write path was detected (or a false positive on SCOPE_HASH / a "
+                    "scored-field mention)." % path,
+                )
 
     def test_the_real_files_actually_exist_and_were_read(self):
-        # Guard against the detector silently passing on an empty/missing read.
-        self.assertTrue(os.path.isfile(self.REVIEW_MD), self.REVIEW_MD)
-        self.assertTrue(os.path.isfile(self.DEEP_REVIEW_MD), self.DEEP_REVIEW_MD)
-        self.assertGreater(len(self._read(self.REVIEW_MD)), 1000)
-        self.assertGreater(len(self._read(self.DEEP_REVIEW_MD)), 1000)
-        # Both files DO mention scored fields (so the soundness proof above is
+        # Guard against the detector silently passing on an empty/missing read:
+        # a glob bug that empties the corpus must FAIL, not pass vacuously.
+        corpus = self._corpus()
+        self.assertGreater(len(corpus), 2, corpus)
+        self.assertIn(os.path.join(self.COMMANDS_DIR, "review.md"), corpus)
+        self.assertIn(os.path.join(self.COMMANDS_DIR, "deep-review.md"), corpus)
+        self.assertTrue(any(p.startswith(self.PHASES_DIR + os.sep) for p in corpus),
+                        "phases/ contributed no file to the corpus")
+        for path in corpus:
+            self.assertGreater(len(self._read(path)), 200, path)
+        # The corpus DOES mention scored fields (so the soundness proof above is
         # non-vacuous — the detector saw scored-field tokens and still passed).
-        self.assertRegex(self._read(self.REVIEW_MD), r"stable_hash")
-        self.assertRegex(self._read(self.REVIEW_MD), r"orchestrator_score")
-        # And review.md DOES contain the legitimate SCOPE_HASH `shasum` the
-        # detector must NOT flag — proving the no-false-positive is meaningful.
-        self.assertIn("SCOPE_HASH", self._read(self.REVIEW_MD))
-        self.assertRegex(self._read(self.REVIEW_MD), r"\| *shasum")
+        joined = self._joined()
+        self.assertRegex(joined, r"stable_hash")
+        self.assertRegex(joined, r"orchestrator_score")
+
+    def test_the_real_scope_hash_line_is_scanned_when_present(self):
+        # The legitimate SCOPE_HASH `shasum` line the detector must NOT flag lives
+        # in the `--all` state-key branch. Between plans 40-08 and 40-10 that
+        # branch is a nested read of phases/review/05-state-all.md, which 40-10
+        # creates; once that file exists the line MUST be in the scanned corpus.
+        joined = self._joined()
+        all_state = os.path.join(self.PHASES_DIR, "review", "05-state-all.md")
+        if "SCOPE_HASH" not in joined and not os.path.isfile(all_state):
+            self.skipTest("phases/review/05-state-all.md not created yet -- 40-10")
+        self.assertIn("SCOPE_HASH", joined)
+        self.assertRegex(joined, r"\| *shasum")
 
     # -- Test 2: the lock CATCHES reintroduction (completeness) ------------ #
     def test_catches_unfenced_prose_writers(self):
