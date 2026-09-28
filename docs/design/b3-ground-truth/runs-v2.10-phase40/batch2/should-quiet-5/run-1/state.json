@@ -1,0 +1,47 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "70354771a331f7def6c8116556f58d865f644cd9",
+      "timestamp": "2026-09-28T23:44:26Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted: git diff HEAD + staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/python/model/model.py",
+          "line": 97,
+          "title": "Eager sanitize_log_value call can raise AttributeError on non-str input before the ModelError guard runs",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/python/common/types.py",
+          "line": 54,
+          "title": "sanitize_log_value does not neutralize Unicode line-separator characters (U+2028/U+2029/U+0085)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/python/model/model.py",
+          "line": 112,
+          "title": "sanitize_log_value runs its per-character loop on every add, remove and update, even when DEBUG logging is off",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ],
+  "medium_acknowledgments": {}
+}
