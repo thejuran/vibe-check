@@ -1,0 +1,310 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "f4366a261fcf9bab01b48ad89279aac973a7d9b1",
+      "timestamp": "2026-09-28T23:49:34Z",
+      "mode": "deep",
+      "diff_range": "uncommitted working tree vs HEAD",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "sec-001",
+          "file": "triggarr/clients/base.py",
+          "line": 233,
+          "title": "Regression: raw exception logged in validate_connection() reverts a prior key-leakage fix (HTTPStatusError branch)",
+          "category": "data-exposure",
+          "cwe": "CWE-532",
+          "severity": "medium",
+          "agent_confidence": 85,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This hunk logs the full httpx.HTTPStatusError object (`exc`) instead of just `exc.response.status_code`. `git log` shows this is an exact revert of commit d47b4c2, titled 'fix(security): prevent potential key leakage in validate_connection log messages', which deliberately replaced this same full-exception logging with the narrow, safe `status` field. The diff restores the pre-fix, flagged-as-risky pattern. httpx's HTTPStatusError message embeds the request URL and status line; while this app sends the API key via the X-Api-Key header (not the URL) so today's message text is unlikely to contain it directly, logging the raw exception object removes the safety margin the original fix established and makes correctness depend entirely on the separate redacting sink (triggarr/logging.py) doing an exact substring match on every code path, forever.",
+          "current_code": "            else:\n                logger.warning(\n                    \"{app}: Unexpected HTTP error: {exc}\",\n                    app=self._app_name,\n                    exc=exc,\n                )",
+          "fix_hint": "Revert to logging a pre-extracted safe field (e.g. exc.response.status_code) as in commit d47b4c2, rather than the raw exception object; if richer detail is needed for debugging, log it at debug level and confirm it only ever reaches the redacting sink.",
+          "why_it_matters": "This is a deliberate regression of a previously shipped security fix in this exact file/function, not just a stylistic choice. The log message flows into loguru's buffer_sink, which feeds the in-app web log viewer (triggarr/log_buffer.py) as well as stderr \u2014 both paths rely solely on the redacting sink's literal string-replace of known secrets. If the API key value is ever embedded in exception content that doesn't exactly byte-match the collected `secrets` list (e.g. re-encoded, partially truncated by pydantic/httpx, or if a future *arr client puts the key in the URL for a different endpoint), it will leak past redaction. The prior fix removed this dependency entirely for this code path; this diff reintroduces it.",
+          "silenced_marker_nearby": false,
+          "agent": "security",
+          "source_window": [
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,",
+            "                    exc=exc,"
+          ],
+          "canonical_line_content": "                    \"{app}: Unexpected HTTP error: {exc}\",",
+          "orchestrator_score": 97,
+          "band": "critical",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "087270666450f275acceffac8e766b41d8273165c67c92559527f1198548224c",
+          "status": "new"
+        },
+        {
+          "id": "sec-002",
+          "file": "triggarr/clients/base.py",
+          "line": 252,
+          "title": "Regression: raw exception logged in validate_connection() reverts a prior key-leakage fix (pydantic ValidationError branch)",
+          "category": "data-exposure",
+          "cwe": "CWE-532",
+          "severity": "medium",
+          "agent_confidence": 80,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This hunk logs the full pydantic.ValidationError object (`exc`) instead of just `exc.error_count()`. Like the HTTPStatusError hunk above, this exactly reverts commit d47b4c2 ('fix(security): prevent potential key leakage in validate_connection log messages'). pydantic's ValidationError.__str__ embeds the raw `input_value` that failed validation for each error, which here is derived from the *arr instance's JSON response body (SystemStatus, currently just the `version` field due to `extra='ignore'`, but the exposed surface grows if the model is ever extended or the API returns an unexpected top-level shape). Reverting to logging the full exception removes the deliberate safe/narrow field the original fix chose.",
+          "current_code": "        except pydantic.ValidationError as exc:\n            logger.warning(\n                \"{app}: Unexpected API response format: {exc}\",\n                app=self._app_name,\n                exc=exc,\n            )",
+          "fix_hint": "Revert to logging exc.error_count() (or a sanitized summary of field names only, never input_value) as in commit d47b4c2.",
+          "why_it_matters": "Same rationale as the HTTPStatusError finding: this reintroduces a logging pattern the project previously identified and fixed as a key-leakage risk, and now depends entirely on the redacting sink's exact-substring-match to keep any sensitive content out of stderr and the web UI log viewer, rather than avoiding embedding raw response content in logs in the first place.",
+          "silenced_marker_nearby": false,
+          "agent": "security",
+          "source_window": [
+            "        except pydantic.ValidationError as exc:",
+            "            logger.warning(",
+            "                \"{app}: Unexpected API response format: {exc}\",",
+            "                app=self._app_name,",
+            "                exc=exc,"
+          ],
+          "canonical_line_content": "                \"{app}: Unexpected API response format: {exc}\",",
+          "orchestrator_score": 92,
+          "band": "warning",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "66cb504a179b1be7d67c3b4903a89b3ed52157e59f628ecb0ea1d476c44a559b",
+          "status": "new"
+        },
+        {
+          "id": "arch-1",
+          "file": "triggarr/clients/base.py",
+          "line": 232,
+          "title": "validate_connection now logs raw exceptions, undoing security fix d47b4c2 and skipping the project's _sanitize_exc pattern",
+          "category": "pattern-consistency",
+          "cwe": "CWE-532",
+          "severity": "medium",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This diff is an exact line-for-line undo of commit d47b4c2, 'fix(security): prevent potential key leakage in validate_connection log messages'. `git log -L` shows that commit replaced `exc=exc` with `status=exc.response.status_code` and `count=exc.error_count()` in these same two handlers. The codebase has a settled way to log httpx and pydantic exceptions safely: `_sanitize_exc` in triggarr/search/engine.py:30-44. Its docstring says it exists because raw `str(exc)` 'may contain internal paths, URLs, or API keys that bypass the loguru redacting sink'. It is called at engine.py:366, 619, 881, 1138, 1274 and 1413, and at web/routes.py:968 and 1073. The same file also sanitizes inline in `_request_with_retry` (base.py:71-75: `f\"HTTP {exc.response.status_code}\"` or `type(exc).__name__`). With this change, `validate_connection` becomes the only httpx/pydantic error path in the clients/engine layer that logs the raw exception. `str(HTTPStatusError)` includes the full request URL, which can contain a base_url with userinfo credentials. The redacting sink only scrubs collected secrets such as API keys, so those credentials would not be caught. `str(ValidationError)` includes `input_value` excerpts from the *arr response body.",
+          "current_code": "logger.warning(\n    \"{app}: Unexpected HTTP error: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)\n...\nlogger.warning(\n    \"{app}: Unexpected API response format: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "fix_hint": "Revert to the d47b4c2 form (`status=exc.response.status_code` and `count=exc.error_count()`). If more diagnostic detail was the goal, add it without logging the raw exception. For example, log the pydantic error locations (`[e['loc'] for e in exc.errors()]`) without input values, or move `_sanitize_exc` into a shared module and call it here.",
+          "why_it_matters": "This quietly reopens a hole that was already closed on purpose, on the startup and connection-test path that runs every time a user saves instance settings. The redacting sink cannot catch URL-embedded credentials or response-body content, so they would appear in logs and in the in-app log buffer.",
+          "silenced_marker_nearby": false,
+          "agent": "architecture",
+          "source_window": [
+            "                )",
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,"
+          ],
+          "canonical_line_content": "                logger.warning(",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "0fc5ca3cebd4ae89540bc9743366c256713a5bb17f2c66cedd4a48a5540d9648",
+          "status": "new"
+        },
+        {
+          "id": "impact-1",
+          "file": "triggarr/clients/base.py",
+          "line": 233,
+          "title": "Raw httpx.HTTPStatusError is now logged, bypassing the project's _sanitize_exc convention and leaking URL credentials into logs and the web UI log viewer",
+          "category": "blast-radius",
+          "cwe": "CWE-532",
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The old log line wrote only `exc.response.status_code`. The new one interpolates the whole exception. I checked the current httpx version: str(HTTPStatusError) returns \"Server error '500 ...' for url 'http://u:pw@h:8989/api/v3/system/status'\" and keeps userinfo credentials in plain text. The redacting sink (triggarr/logging.py) and buffer_sink only remove exact values that collect_secrets() returns, which are *arr API keys and auth secrets. Basic-auth userinfo in an instance URL is never in that list, so it is not redacted. The config URL validator only blocks `apikey=` query params, so userinfo URLs (common behind reverse proxies) pass validation. log_buffer entries are rendered on the dashboard (routes.py:389, 1199), so the credential reaches the stderr/docker logs and also the web UI. This also breaks CR-01: every other httpx/pydantic logging site (scheduler.py:212-235, scheduler.py:402-417, routes.py:959-970) sends the exception through engine._sanitize_exc for exactly this reason.",
+          "current_code": "logger.warning(\n    \"{app}: Unexpected HTTP error: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "fix_hint": "Use _sanitize_exc(exc) (or restore `status=exc.response.status_code`) instead of the raw exception, matching the CR-01 sanitization split used elsewhere.",
+          "why_it_matters": "Credentials show up in container logs and on the authenticated dashboard's log panel. This is also a regression of a security convention that deep review enforced earlier (CR-01) and that CLAUDE.md's deep-review checklist item 1 covers (no secrets in logs or HTML).",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,",
+            "                    exc=exc,"
+          ],
+          "canonical_line_content": "                    \"{app}: Unexpected HTTP error: {exc}\",",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "0d51c85e4bfb48891df46b4ff3a553d405f528283bb5c09cc67cb809503df9af",
+          "status": "new"
+        },
+        {
+          "id": "impact-2",
+          "file": "triggarr/clients/base.py",
+          "line": 252,
+          "title": "Raw pydantic.ValidationError logged: dumps untrusted response body fragments (input_value) into logs and the dashboard log viewer",
+          "category": "blast-radius",
+          "cwe": "CWE-532",
+          "severity": "medium",
+          "agent_confidence": 70,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "str(pydantic.ValidationError) includes each failing field's `input_value=` repr, truncated but still present, plus pydantic doc URLs. The input is the JSON body from `/system/status`, or whatever a misconfigured reverse proxy or SSO gateway returns at that URL. The old line logged only the error count, which is also what engine._sanitize_exc emits (`validation error (N issues)`). The new line puts attacker- or proxy-controlled content into log_buffer, which the dashboard renders, and turns a one-line warning into a multi-line one. pending: whether any realistic /system/status or proxy response carries sensitive data; the exposure mechanism itself is confirmed.",
+          "current_code": "logger.warning(\n    \"{app}: Unexpected API response format: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "fix_hint": "Log _sanitize_exc(exc) or the error count. If field-level detail is needed, log only `e['loc']`/`e['type']` from exc.errors(include_input=False).",
+          "why_it_matters": "It diverges from the CR-01 sanitization split that every other pydantic.ValidationError logging site uses, and untrusted upstream content reaches operator-facing logs and the UI.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "        except pydantic.ValidationError as exc:",
+            "            logger.warning(",
+            "                \"{app}: Unexpected API response format: {exc}\",",
+            "                app=self._app_name,",
+            "                exc=exc,"
+          ],
+          "canonical_line_content": "                \"{app}: Unexpected API response format: {exc}\",",
+          "orchestrator_score": 82,
+          "band": "warning",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "081aaaa8f1c94a559170a0de7dd007667ec027d50b4a57ef7d37b7fc01ce28e1",
+          "status": "new"
+        },
+        {
+          "id": "compliance-1",
+          "file": "triggarr/clients/base.py",
+          "line": 233,
+          "title": "New raw-exception logging pattern contradicts established in-file convention for the same exception type",
+          "category": "rule-violation",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 55,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "Root CLAUDE.md (user-global) 'Code Quality' section: 'Everything else \u2014 style, structure, architecture \u2014 yields to the existing codebase's conventions: before introducing a new pattern, check how the same problem is solved elsewhere in the repo and follow that.' This file already has an established pattern for logging an `httpx.HTTPStatusError` caught during a request: `_request_with_retry` (lines 66-76, unchanged by this diff) deliberately avoids interpolating the raw exception, extracting only `f\"HTTP {exc.response.status_code}\"` (or `type(exc).__name__` for transport errors) instead of `str(exc)`. The diff changes the sibling handler in `validate_connection` to do the opposite: it now interpolates the raw exception object (`exc=exc` into `{exc}`) rather than the previously-extracted `exc.response.status_code`, introducing a second, inconsistent pattern for the same exception type in the same class.",
+          "current_code": "logger.warning(\n    \"{app}: Unexpected HTTP error: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "fix_hint": "Match the existing in-file convention used by `_request_with_retry`: log a derived, structured field (e.g. `exc.response.status_code`, or `f\"HTTP {exc.response.status_code}: {exc.response.reason_phrase}\"`) instead of interpolating the exception object directly. If richer diagnostic detail is genuinely needed here (this is a final-failure diagnostic rather than a mid-retry log), consider updating the sibling handler too so the two logging sites stay consistent, and document why the extra detail is warranted here but not there.",
+          "why_it_matters": "Two handlers in the same class, catching the same exception type, now follow contradictory logging conventions with no comment explaining the divergence. The original convention (extract status code / type name, don't stringify the exception) reads as a deliberate choice given the file already has a custom secret-redacting loguru sink (triggarr/logging.py) whose own docstring says it exists specifically because 'API keys ... appear in httpx exception messages or stack traces' \u2014 i.e. the codebase already treats raw exception stringification as something to be wary of. Diverging from that pattern here, even though this specific client authenticates via the `X-Api-Key` header (not a URL query param, so `str(exc)` is unlikely to carry the key today), creates an inconsistent precedent that the next contributor may copy into a context where it's less safe (e.g. a client that puts the key in query params).",
+          "silenced_marker_nearby": false,
+          "agent": "compliance",
+          "source_window": [
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,",
+            "                    exc=exc,"
+          ],
+          "canonical_line_content": "                    \"{app}: Unexpected HTTP error: {exc}\",",
+          "orchestrator_score": 75,
+          "band": "medium",
+          "attribution": [
+            "compliance"
+          ],
+          "stable_hash": "b480b34c686c71942834588cdbbf3400ebbf6663766a614a6ceae0862cd89a39",
+          "status": "new"
+        },
+        {
+          "id": "compliance-2",
+          "file": "triggarr/clients/base.py",
+          "line": 252,
+          "title": "Same raw-exception logging pattern change applied to the ValidationError handler",
+          "category": "rule-violation",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 50,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "Same CLAUDE.md rule as compliance-1 ('before introducing a new pattern, check how the same problem is solved elsewhere in the repo and follow that'). This handler previously logged only `exc.error_count()` (a bare integer, the safest possible summary of a pydantic.ValidationError) and now logs the full exception object via `{exc}`/`exc=exc`. `pydantic.ValidationError.__str__` includes each error's `loc`, `msg`, `type`, and by default the raw `input_value` that failed validation \u2014 i.e. it now emits the actual (partially) parsed API response content into logs/the web log viewer buffer, where before it emitted only a count.",
+          "current_code": "logger.warning(\n    \"{app}: Unexpected API response format: {exc}\",\n    app=self._app_name,\n    exc=exc,\n)",
+          "fix_hint": "If a count alone is too little for debugging, log a bounded, structured summary (e.g. `[e['loc'] for e in exc.errors()]` or `str(exc.errors(include_input=False))`) rather than the full validator dump with input values, to stay consistent with the file's existing preference for extracted/structured fields over raw exception text.",
+          "why_it_matters": "In this specific call site the validated model is `SystemStatus` (only a `version: str` field, `extra='ignore'`), so the practical exposure today is minimal \u2014 but the pattern of 'just interpolate the caught exception' is now present twice in this file and will get copied to other `pydantic.ValidationError` catches over larger, more sensitive Arr API response models (history, queue, movie/series records) where `input_value` echoing could dump substantially more response content into logs than intended.",
+          "silenced_marker_nearby": false,
+          "agent": "compliance",
+          "source_window": [
+            "        except pydantic.ValidationError as exc:",
+            "            logger.warning(",
+            "                \"{app}: Unexpected API response format: {exc}\",",
+            "                app=self._app_name,",
+            "                exc=exc,"
+          ],
+          "canonical_line_content": "                \"{app}: Unexpected API response format: {exc}\",",
+          "orchestrator_score": 70,
+          "band": "medium",
+          "attribution": [
+            "compliance"
+          ],
+          "stable_hash": "1240fd2074f61ed3564d24a64704998c2070d81def626a9d7fec366b14aa28be",
+          "status": "new"
+        },
+        {
+          "id": "codex-001",
+          "file": "triggarr/clients/base.py",
+          "line": 233,
+          "title": "Raw HTTP exceptions leak URL credentials",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 100,
+          "intent_doc_match": null,
+          "problem": "InstanceConfig accepts URLs containing userinfo. A non-401 response now logs the full HTTPStatusError, including that URL. Verified with an accepted http://proxyuser:proxy-password@radarr:7878 URL and a 502 response: the exception contains the plaintext password. collect_secrets() excludes URL credentials, so neither the stderr sink nor the web log buffer redacts them. Previously this branch logged only the status code.",
+          "why_it_matters": "collect_secrets() excludes URL credentials, so neither the stderr sink nor the web log buffer redacts them; a non-401 response logs the plaintext password embedded in the configured URL.",
+          "fix_hint": "Keep logging only the HTTP status code, or explicitly sanitize the URL before logging. Add a regression test using URL credentials and a non-401 error, asserting the password appears in neither log sink.",
+          "agent": "codex-adversarial",
+          "source_window": [
+            "            else:",
+            "                logger.warning(",
+            "                    \"{app}: Unexpected HTTP error: {exc}\",",
+            "                    app=self._app_name,",
+            "                    exc=exc,"
+          ],
+          "canonical_line_content": "                    \"{app}: Unexpected HTTP error: {exc}\",",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "5718c26731398f1ac2e39e62d2c26751958290e01320f0aefde3e47ccd143194",
+          "status": "new"
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/clients/base.py",
+          "line": 252,
+          "title": "ValidationError log now emits multi-line output containing raw response values",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/clients/base.py",
+          "line": 233,
+          "title": "HTTPStatusError log changes from a status code to the full exception string with the URL",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "tests/test_clients.py",
+          "line": 494,
+          "title": "No test pins the log content of validate_connection's non-401 HTTP or validation-error branches, so this regression passes CI",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ],
+  "medium_acknowledgments": {}
+}
