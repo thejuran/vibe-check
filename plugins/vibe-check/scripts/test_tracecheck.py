@@ -652,6 +652,20 @@ class TestSequenceEvidenceNone(TraceCase):
         self.assertFalse(tracecheck._valid_entry(self.exp(sequence_evidence="maybe")))
         self.assertFalse(tracecheck._valid_entry(self.exp(sequence_evidence=None)))
 
+    def test_batch2_deep_only_phases_are_optional_until_they_have_files(self):
+        """Batch 2's deep command is still the monolith: 1c/1d/2.5 have no sub-file to read, so
+        they cannot be evidenced by a read and are optional there; batch 3 gives them files and
+        expects them. The deep always-on agents are the positive evidence in batch 2 instead."""
+        for mode in ("deep-plain", "deep-all"):
+            e2, e3 = EXPECT["batches"]["2"][mode], EXPECT["batches"]["3"][mode]
+            for label in ("1c", "1d", "2.5"):
+                self.assertIn(label, e2["optional_phases"], (mode, label))
+                self.assertNotIn(label, e2["expected_phases"], (mode, label))
+                self.assertIn(label, e3["expected_phases"], (mode, label))
+                self.assertIn(label, e3["mandatory_reads"], (mode, label))
+            for agent in ("triage", "bugs", "security", "architecture", "impact", "test-sufficiency"):
+                self.assertIn(agent, e2["required_dispatches"], (mode, agent))
+
     def test_only_batch1_opts_out_of_sequence_evidence(self):
         for mode, exp in EXPECT["batches"]["1"].items():
             with self.subTest(batch="1", mode=mode):
@@ -691,24 +705,32 @@ class TestReadIsTheEvidence(TraceCase):
         self.assertEqual(self.check(records, 3, "review-plain"),
                          ["phase executed without a preceding successful read: 0.6"])
 
-    def test_unannounced_phase_read_out_of_order_fails(self):
-        """The read of a later phase's file before an earlier phase's evidence is an order
-        violation even when the later phase is never announced."""
+    def test_read_ahead_batching_is_not_an_order_violation(self):
+        """A Read is a prerequisite and may be batched ahead of its phase (the first live deep
+        trace read 10-triage.md just before 07-first-run.md in one turn). Order is therefore
+        judged among ANNOUNCED phases only; an unannounced phase contributes presence, not
+        position."""
         exp = expectation(3, "review-plain")
-        b = passing_builder(3, "review-plain")
-        # Move 0.6's read (unannounced) to BEFORE 0.5's read+announcement.
-        recs = without_announcement(b.records, "0.6")
-        rel06 = _as_list(exp["mandatory_reads"]["0.6"])[0]
-        pair = [r for r in recs if is_read_of(r, rel06) or any(
-            c.get("tool_use_id") and any(is_read_of(x, rel06) and c.get("tool_use_id") in
-            [y.get("id") for y in x["message"]["content"] if isinstance(y, dict)] for x in recs)
-            for c in r["message"]["content"])]
+        recs = without_announcement(passing_builder(3, "review-plain").records, "1")
+        rel1 = _as_list(exp["mandatory_reads"]["1"])[0]
+        ids = {c["id"] for r in recs for c in r["message"]["content"]
+               if c.get("type") == "tool_use" and is_read_of(r, rel1)}
+        pair = [r for r in recs if any(c.get("id") in ids or c.get("tool_use_id") in ids
+                                       for c in r["message"]["content"])]
         rest = [r for r in recs if r not in pair]
-        rel05 = _as_list(exp["mandatory_reads"]["0.5"])[0]
-        i05 = next(i for i, r in enumerate(rest) if is_read_of(r, rel05))
-        moved = rest[:i05] + pair + rest[i05:]
-        reasons = self.check(moved, 3, "review-plain")
-        self.assertIn("phase order differs from the mode path at: 0.6", reasons)
+        rel07 = _as_list(exp["mandatory_reads"]["0.7"])[0]
+        i07 = next(i for i, r in enumerate(rest) if is_read_of(r, rel07))
+        moved = rest[:i07] + pair + rest[i07:]          # phase 1's read now precedes 0.7's
+        self.assertEqual(self.check(moved, 3, "review-plain"), [])
+
+    def test_announced_phases_out_of_order_still_fail(self):
+        b = Builder()
+        exp = announcement_rule(3, "review-plain")
+        seq = list(exp["expected_phases"]); seq[1], seq[2] = seq[2], seq[1]
+        for label in seq:
+            b.say("✓ Phase %s — step" % label)
+        reasons = tracecheck.check(tracecheck.events(self.write(b.records)), exp, ROOT)
+        self.assertIn("phase order differs from the mode path at: %s" % seq[1], reasons)
 
     def test_skip_only_phase_read_but_not_announced_is_not_a_run(self):
         """Reading a skip-only phase's file (to evaluate its skip condition) is not running it."""

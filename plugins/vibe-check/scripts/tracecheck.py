@@ -276,7 +276,8 @@ def _check_sequence(anns, exp, reasons, read_evidence=None):
     read is the evidence that the phase ran; the announcement is ordering
     context for the human and is never load-bearing on its own (first live
     spine trace, 2026-09-28: every phase file read in order, two `✓` lines
-    missing). A phase announced ONLY as skipped is still a skipped required
+    missing). Order is checked among announced phases only — a Read is a
+    prerequisite and may be batched ahead of its phase. A phase announced ONLY as skipped is still a skipped required
     phase, whatever was read — the orchestrator said it did not run it. A
     skip-only phase counts as run only on a `✓` announcement: reading its file
     to evaluate the skip condition is not running it.
@@ -289,14 +290,11 @@ def _check_sequence(anns, exp, reasons, read_evidence=None):
             first_run.setdefault(label, i)
     expected = exp["expected_phases"]
     skip_only, optional = set(exp["skip_only_phases"]), set(exp["optional_phases"])
-    present = {}
     for label in expected:
-        if label in first_run:
-            present[label] = min(first_run[label], read_evidence.get(label, first_run[label]))
-        elif label in first_any:
+        if label in first_run or label in read_evidence and label not in first_any:
+            continue
+        if label in first_any:
             _add(reasons, R_SKIPPED_REQUIRED % label)
-        elif label in read_evidence:
-            present[label] = read_evidence[label]
         else:
             _add(reasons, R_ABSENT % label)
     for label in sorted(first_any, key=first_any.get):
@@ -307,8 +305,10 @@ def _check_sequence(anns, exp, reasons, read_evidence=None):
                 _add(reasons, R_RAN_SKIP_ONLY % label)
         else:
             _add(reasons, R_UNEXPECTED % label)
-    ran = sorted(present, key=present.get)
-    want = [l for l in expected if l in present]
+    # Order is judged among ANNOUNCED phases only: a Read is a prerequisite and may be
+    # batched ahead of its phase, so its position says nothing about execution order.
+    ran = sorted((l for l in expected if l in first_run), key=first_run.get)
+    want = [l for l in expected if l in first_run]
     for got, exp_label in zip(ran, want):
         if got != exp_label:
             _add(reasons, R_ORDER % got)

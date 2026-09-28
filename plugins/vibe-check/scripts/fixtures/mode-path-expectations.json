@@ -6,7 +6,8 @@
     "Paths are plugin-relative. mandatory_reads: the phase's file(s) must be successfully read by the orchestrator before the phase's first '✓' announcement. always_read: before the first announcement of any kind. required_reads: somewhere in the run. forbidden_reads: never successfully read on this mode path. expected_phases must each be announced as run ('✓'), in this order. skip_only_phases may be announced as skipped ('⊘') or be absent, never run. optional_phases may be run, skipped or absent. Any other label is a failure. The fixtures are non-GSD repos, so Phase 1.5 is skip-only everywhere.",
     "fix-loop asserts only 'fix-loop body reached' (valid on a declining run); fix-agent adds 'fix agent dispatched' and is only valid on a run that ACCEPTS at least one fix.",
     "sequence_evidence: batch-1 entries declare \"none\" — the monolith's first live traces (2026-09-24, batch-1 close record in 40-13-SUMMARY.md) showed phases executing with no `✓ Phase N` text line (or the line echoed inside a Bash command) despite review.md:19, so on that layout announcement text is not evidence; batch-1 is judged on reads, provenance, forbidden reads and dispatches, and each mandatory read must succeed somewhere in the transcript. Batches 2 and 3 keep the default \"announcements\" rule (reads are the evidence; announcements anchor read-before-run ordering).",
-    "Batch-1 positive evidence: with announcements out of evidence, review-plain/review-all require the always-on dispatches triage+bugs+security (review.md Phase 1 + the selection table's unconditional rows) and deep-plain/deep-all additionally architecture+impact+test-sufficiency (deep-review.md's Always rows); fix-loop keeps [] and fix-agent keeps [\"fix\"] per FL-09b, so on batch 1 the fix-loop BODY cannot be evidenced by tracecheck — only the fix-agent dispatch can; finalize has no expressible positive read or dispatch, so it is held to the activity floor, provenance and forbidden reads, with its archived state file checked outside tracecheck. Any entry with sequence_evidence none fails an empty transcript (\"no answered orchestrator tool call in transcript\")."
+    "Batch-1 positive evidence: with announcements out of evidence, review-plain/review-all require the always-on dispatches triage+bugs+security (review.md Phase 1 + the selection table's unconditional rows) and deep-plain/deep-all additionally architecture+impact+test-sufficiency (deep-review.md's Always rows); fix-loop keeps [] and fix-agent keeps [\"fix\"] per FL-09b, so on batch 1 the fix-loop BODY cannot be evidenced by tracecheck — only the fix-agent dispatch can; finalize has no expressible positive read or dispatch, so it is held to the activity floor, provenance and forbidden reads, with its archived state file checked outside tracecheck. Any entry with sequence_evidence none fails an empty transcript (\"no answered orchestrator tool call in transcript\").",
+    "Batch-2 deep entries: deep-review.md is still the monolith in batch 2, so the deep-only phases 1c/1d/2.5 have no sub-file to read and cannot be evidenced by a read — they are OPTIONAL in batch 2 only (the first live batch-2 deep trace announced 3 of ~12 phases), and the deep always-on dispatches (triage, bugs, security, architecture, impact, test-sufficiency) are required as positive evidence instead. Batch 3 (40-11) gives them files and expects them again."
   ],
   "batches": {
     "1": {
@@ -503,15 +504,16 @@
           "0.6",
           "0.7",
           "1",
-          "1c",
-          "1d",
           "2",
-          "2.5",
           "3",
           "4",
           "4.5"
         ],
-        "optional_phases": [],
+        "optional_phases": [
+          "1c",
+          "1d",
+          "2.5"
+        ],
         "skip_only_phases": [
           "0.2",
           "0.3",
@@ -548,7 +550,14 @@
           "phases/review/50-fix-loop.md",
           "phases/shared/90-finalize.md"
         ],
-        "required_dispatches": []
+        "required_dispatches": [
+          "triage",
+          "bugs",
+          "security",
+          "architecture",
+          "impact",
+          "test-sufficiency"
+        ]
       },
       "deep-all": {
         "noninteractive": false,
@@ -561,15 +570,16 @@
           "0.6",
           "0.7",
           "1",
-          "1c",
-          "1d",
           "2",
-          "2.5",
           "3",
           "4",
           "4.5"
         ],
-        "optional_phases": [],
+        "optional_phases": [
+          "1c",
+          "1d",
+          "2.5"
+        ],
         "skip_only_phases": [
           "1.5",
           "2c",
@@ -613,7 +623,14 @@
         "forbidden_reads": [
           "phases/shared/90-finalize.md"
         ],
-        "required_dispatches": []
+        "required_dispatches": [
+          "triage",
+          "bugs",
+          "security",
+          "architecture",
+          "impact",
+          "test-sufficiency"
+        ]
       }
     },
     "3": {
