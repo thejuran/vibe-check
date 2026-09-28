@@ -143,3 +143,12 @@ batch: batch2
 batch-sha: 1dd609ba1582d6702c9591153411dc6278fa727a
 snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch2-1dd609ba1582
 plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch2-1dd609ba1582/plugins/vibe-check
+
+## Harness fingerprint — 2026-09-28T19:34:14-0400
+claude-code: 2.1.281 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+batch: batch2
+batch-sha: 1dd609ba1582d6702c9591153411dc6278fa727a
+snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch2-1dd609ba1582
+plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch2-1dd609ba1582/plugins/vibe-check
