@@ -623,8 +623,15 @@ class TestSequenceEvidenceNone(TraceCase):
         b = Builder()
         b.read("commands/review.md")            # silent run under the default rule
         reasons = self.run_check(b.records, base)
-        self.assertIn("no phase announcements in transcript", reasons)
-        self.assertIn("phase absent from run: 0", reasons)
+        # Phase 0 has read evidence, so it is present; phase 2 has neither read nor
+        # announcement, so under the default rule it is absent.
+        self.assertNotIn("phase absent from run: 0", reasons)
+        self.assertIn("phase absent from run: 2", reasons)
+        b2 = Builder()
+        b2.read("src/app.py", absolute="/fixture/src/app.py")   # nothing phase-shaped at all
+        reasons2 = self.run_check(b2.records, base)
+        self.assertIn("no phase announcements in transcript", reasons2)
+        self.assertIn("phase absent from run: 0", reasons2)
 
     def test_activity_floor_fires_only_when_nothing_was_answered(self):
         b = Builder()
@@ -653,6 +660,65 @@ class TestSequenceEvidenceNone(TraceCase):
             for mode, exp in EXPECT["batches"][batch].items():
                 with self.subTest(batch=batch, mode=mode):
                     self.assertNotEqual(exp.get("sequence_evidence"), "none")
+
+
+class TestReadIsTheEvidence(TraceCase):
+    """Batch 2+ (2026-09-28, first live spine trace): the model READ every phase file in order
+    but printed no `✓` line for two trivial phases. The phase's mandatory Read is the evidence
+    that it ran; an announcement is ordering context for the human and never load-bearing on
+    its own. So: a phase whose mandatory file was successfully read is PRESENT even with no
+    announcement; a phase with neither read nor announcement is still ABSENT; a read that comes
+    AFTER the announcement still fails; a missing read with an announcement still fails."""
+
+    def test_read_without_announcement_is_present(self):
+        records = without_announcement(passing_builder(3, "review-plain").records, "0.6")
+        self.assertEqual(self.check(records, 3, "review-plain"), [])
+
+    def test_two_unannounced_phases_still_clean_and_ordered(self):
+        records = without_announcement(passing_builder(3, "review-plain").records, "0.5")
+        records = without_announcement(records, "0.7")
+        self.assertEqual(self.check(records, 3, "review-plain"), [])
+
+    def test_neither_read_nor_announcement_is_absent(self):
+        records = without_read(passing_builder(3, "review-plain").records,
+                               "phases/review/06-config.md")
+        records = without_announcement(records, "0.6")
+        self.assertEqual(self.check(records, 3, "review-plain"), ["phase absent from run: 0.6"])
+
+    def test_missing_read_with_announcement_still_fails(self):
+        records = without_read(passing_builder(3, "review-plain").records,
+                               "phases/review/06-config.md")
+        self.assertEqual(self.check(records, 3, "review-plain"),
+                         ["phase executed without a preceding successful read: 0.6"])
+
+    def test_unannounced_phase_read_out_of_order_fails(self):
+        """The read of a later phase's file before an earlier phase's evidence is an order
+        violation even when the later phase is never announced."""
+        exp = expectation(3, "review-plain")
+        b = passing_builder(3, "review-plain")
+        # Move 0.6's read (unannounced) to BEFORE 0.5's read+announcement.
+        recs = without_announcement(b.records, "0.6")
+        rel06 = _as_list(exp["mandatory_reads"]["0.6"])[0]
+        pair = [r for r in recs if is_read_of(r, rel06) or any(
+            c.get("tool_use_id") and any(is_read_of(x, rel06) and c.get("tool_use_id") in
+            [y.get("id") for y in x["message"]["content"] if isinstance(y, dict)] for x in recs)
+            for c in r["message"]["content"])]
+        rest = [r for r in recs if r not in pair]
+        rel05 = _as_list(exp["mandatory_reads"]["0.5"])[0]
+        i05 = next(i for i, r in enumerate(rest) if is_read_of(r, rel05))
+        moved = rest[:i05] + pair + rest[i05:]
+        reasons = self.check(moved, 3, "review-plain")
+        self.assertIn("phase order differs from the mode path at: 0.6", reasons)
+
+    def test_skip_only_phase_read_but_not_announced_is_not_a_run(self):
+        """Reading a skip-only phase's file (to evaluate its skip condition) is not running it."""
+        b = passing_builder(3, "review-plain")
+        exp = expectation(3, "review-plain")
+        skip_only = [l for l in exp["skip_only_phases"] if l in exp["mandatory_reads"]]
+        if not skip_only:
+            self.skipTest("no skip-only phase with a mandatory read in this entry")
+        b.read(_as_list(exp["mandatory_reads"][skip_only[0]])[0])
+        self.assertEqual(self.check(b.records, 3, "review-plain"), [])
 
 
 class TestImportSet(unittest.TestCase):

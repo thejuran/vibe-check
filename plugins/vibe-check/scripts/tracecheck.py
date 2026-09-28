@@ -12,6 +12,10 @@ Evidence rules:
   exists and is not an error. An announcement line is never evidence of a read,
   a failed Read is not coverage, and a tool_use with no answer (a truncated
   transcript) is not coverage and is reported.
+* The phase's mandatory Read is ALSO the evidence that the phase ran: a phase
+  whose file(s) were successfully read is present even with no `✓` line, and
+  when a `✓` line exists the read must precede it. A phase with neither is
+  absent. Announcements are ordering context for the human reader.
 * Every mode path declares an expected phase sequence, so a phase omitted
   entirely is a failure rather than an invisible absence.
 * Expectations are DATA keyed by (batch, mode): the sub-file layout changes
@@ -263,7 +267,21 @@ def _add(reasons, reason):
         reasons.append(reason)
 
 
-def _check_sequence(anns, exp, reasons):
+def _check_sequence(anns, exp, reasons, read_evidence=None):
+    """Presence and order of the expected phases.
+
+    A phase is PRESENT when it was announced as run (`✓`) OR when every file
+    `mandatory_reads` names for it was successfully read by the orchestrator
+    (`read_evidence`, label -> index of the read that completed the set). The
+    read is the evidence that the phase ran; the announcement is ordering
+    context for the human and is never load-bearing on its own (first live
+    spine trace, 2026-09-28: every phase file read in order, two `✓` lines
+    missing). A phase announced ONLY as skipped is still a skipped required
+    phase, whatever was read — the orchestrator said it did not run it. A
+    skip-only phase counts as run only on a `✓` announcement: reading its file
+    to evaluate the skip condition is not running it.
+    """
+    read_evidence = read_evidence or {}
     first_any, first_run = {}, {}
     for i, label, mark in anns:
         first_any.setdefault(label, i)
@@ -271,11 +289,16 @@ def _check_sequence(anns, exp, reasons):
             first_run.setdefault(label, i)
     expected = exp["expected_phases"]
     skip_only, optional = set(exp["skip_only_phases"]), set(exp["optional_phases"])
+    present = {}
     for label in expected:
-        if label not in first_any:
-            _add(reasons, R_ABSENT % label)
-        elif label not in first_run:
+        if label in first_run:
+            present[label] = min(first_run[label], read_evidence.get(label, first_run[label]))
+        elif label in first_any:
             _add(reasons, R_SKIPPED_REQUIRED % label)
+        elif label in read_evidence:
+            present[label] = read_evidence[label]
+        else:
+            _add(reasons, R_ABSENT % label)
     for label in sorted(first_any, key=first_any.get):
         if label in expected or label in optional:
             continue
@@ -284,8 +307,8 @@ def _check_sequence(anns, exp, reasons):
                 _add(reasons, R_RAN_SKIP_ONLY % label)
         else:
             _add(reasons, R_UNEXPECTED % label)
-    ran = sorted((l for l in expected if l in first_run), key=first_run.get)
-    want = [l for l in expected if l in first_run]
+    ran = sorted(present, key=present.get)
+    want = [l for l in expected if l in present]
     for got, exp_label in zip(ran, want):
         if got != exp_label:
             _add(reasons, R_ORDER % got)
@@ -305,12 +328,30 @@ def check(evts, expectation, plugin_root, known_rels=None):
     if unpaired:
         _add(reasons, R_UNPAIRED % unpaired)
 
+    main_reads = successful_reads(evts, main_only=True)
+
+    def evidence_index(rels):
+        """Index at which the LAST of `rels` was first successfully read, or None."""
+        idxs = []
+        for rel in _as_list(rels):
+            hits = [i for i, p in main_reads if _is(p, rel, roots)]
+            if not hits:
+                return None
+            idxs.append(min(hits))
+        return max(idxs) if idxs else None
+
+    read_evidence = {}
+    for label, rels in expectation["mandatory_reads"].items():
+        idx = evidence_index(rels)
+        if idx is not None:
+            read_evidence[label] = idx
+
     by_announcement = _sequence_evidence(expectation) == "announcements"
     if by_announcement:
         anns = announcements(evts)
-        if not anns:
+        if not anns and not read_evidence:
             _add(reasons, R_NO_ANNOUNCE)
-        first_any, first_run = _check_sequence(anns, expectation, reasons)
+        first_any, first_run = _check_sequence(anns, expectation, reasons, read_evidence)
     else:
         first_any, first_run = {}, {}
         # With announcements out of evidence, an EMPTY transcript must still fail:
@@ -319,9 +360,10 @@ def check(evts, expectation, plugin_root, known_rels=None):
                    for e in evts):
             _add(reasons, R_NO_ACTIVITY)
 
-    main_reads = successful_reads(evts, main_only=True)
     all_reads = successful_reads(evts)
-    first_ann = min(first_any.values()) if first_any else len(evts)
+    first_phase = [i for i in first_any.values()]
+    first_phase += [i for l, i in read_evidence.items() if l in expectation["expected_phases"]]
+    first_ann = min(first_phase) if first_phase else len(evts)
 
     def read_before(rel, limit):
         return any(i < limit and _is(p, rel, roots) for i, p in main_reads)
