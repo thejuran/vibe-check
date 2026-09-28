@@ -319,7 +319,13 @@ absent; a phase announced only as skipped is a skipped required phase whatever w
 phase counts as run only on a `✓`. The first live spine trace read every phase file in order and
 printed no `✓` for Phases 0.5 and 0.7 — under the announcement-keyed rule that was two false
 "absent" reasons for phases that demonstrably ran. The two negative controls are unchanged: a
-missing read with an announcement fails, and a phase with neither fails.
+missing read with an announcement fails, and a phase with neither fails. Order is judged among
+ANNOUNCED phases only: a Read is a prerequisite and may be batched ahead of its phase (the first
+live deep trace read `10-triage.md` just before `07-first-run.md` in one turn), so read position
+says nothing about execution order. In batch 2 the deep-only phases 1c/1d/2.5 still live inside the
+monolithic `deep-review.md` and have no file to read, so they are OPTIONAL in batch 2's deep entries
+and the deep always-on dispatches are required as positive evidence instead; batch 3 (40-11) gives
+them files and expects them again.
 
 Three fail-closed asserts per mode path. `--plugin-root` is the SAME value that was passed to
 `--plugin-dir`, which is what makes the path-prefix assertion mean something (R2).
