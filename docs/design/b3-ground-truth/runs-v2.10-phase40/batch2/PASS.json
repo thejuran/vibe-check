@@ -1,0 +1,29 @@
+{
+  "batch": 2,
+  "snapshot_commit": "1dd609ba1582d6702c9591153411dc6278fa727a",
+  "verdict": "PASS",
+  "recorded_by": "owner",
+  "recorded_at": "2026-09-28T23:51:18Z",
+  "runs": [
+    {
+      "diff": "triggarr-secret-in-logs",
+      "run_index": 1,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "triggarr-secret-in-logs/run-1/report.md",
+      "transcript_path": "triggarr-secret-in-logs/run-1/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-5",
+      "run_index": 1,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "should-quiet-5/run-1/report.md",
+      "transcript_path": "should-quiet-5/run-1/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    }
+  ]
+}
