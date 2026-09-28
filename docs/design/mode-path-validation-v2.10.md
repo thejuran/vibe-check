@@ -311,6 +311,16 @@ empty transcript still fails (`no answered orchestrator tool call in transcript`
 and 3 keep the default rule: reads are the evidence and announcements anchor read-before-run
 ordering. Do not copy `"none"` onto a later batch to get a fixture green.
 
+**Batch-2+ presence rule (2026-09-28, first live spine trace).** A phase is PRESENT when it was
+announced as run OR when every file `mandatory_reads` names for it was successfully read by the
+orchestrator; the read is the evidence that the phase ran, the `✓` line is ordering context for the
+human. When a `✓` line exists the read must still precede it; a phase with neither read nor `✓` is
+absent; a phase announced only as skipped is a skipped required phase whatever was read; a skip-only
+phase counts as run only on a `✓`. The first live spine trace read every phase file in order and
+printed no `✓` for Phases 0.5 and 0.7 — under the announcement-keyed rule that was two false
+"absent" reasons for phases that demonstrably ran. The two negative controls are unchanged: a
+missing read with an announcement fails, and a phase with neither fails.
+
 Three fail-closed asserts per mode path. `--plugin-root` is the SAME value that was passed to
 `--plugin-dir`, which is what makes the path-prefix assertion mean something (R2).
 
