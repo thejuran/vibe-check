@@ -1392,6 +1392,10 @@ class TestCrossConfirmGroup(unittest.TestCase):
                     "changed_line_ranges": {},
                     "carryforward": [],
                     "findings": list(perm),
+                    # The Codex pass joined (orchestrator-set block): the
+                    # codex+native group is a verified second opinion, so the
+                    # B-SEV lone-lane ceiling does not apply to it.
+                    "codex": {"status": "joined"},
                 }
                 result = score.run(envelope)
                 ids = {g["id"]: g for g in result["findings"]}
@@ -1448,6 +1452,8 @@ class TestCrossConfirmGroup(unittest.TestCase):
                     "changed_line_ranges": {},
                     "carryforward": [],
                     "findings": list(perm),
+                    # The Codex pass joined (orchestrator-set block): see above.
+                    "codex": {"status": "joined"},
                 }
                 result = score.run(envelope)
                 ids = {g["id"]: g for g in result["findings"]}
@@ -1881,8 +1887,9 @@ class TestRunEndToEnd(unittest.TestCase):
         self.assertEqual(len(result["findings"]), 1)
         g = result["findings"][0]
         # in_diff recomputed (line 10 in [8,14]) -> 85 + 20 = 105 -> clamp 100.
-        self.assertEqual(g["orchestrator_score"], 100)
-        self.assertEqual(g["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical floor - 1 (94)
+        self.assertEqual(g["orchestrator_score"], 94)
+        self.assertEqual(g["band"], "warning")
         self.assertIn("stable_hash", g)
         self.assertIn("attribution", g)
 
@@ -1980,8 +1987,11 @@ class TestRunThresholds(unittest.TestCase):
         result = score.run(self._envelope(
             thresholds={"critical": 80, "warning": 75, "medium": 70}))
         g = result["findings"][0]
-        self.assertEqual(g["orchestrator_score"], 80)  # score itself unchanged
-        self.assertEqual(g["band"], "critical")        # only the band moved
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at the
+        # TUNED critical floor - 1 (79, not the default 94) — which itself proves
+        # the envelope key threads through run() (the default path scores 80).
+        self.assertEqual(g["orchestrator_score"], 79)
+        self.assertEqual(g["band"], "warning")         # 79 >= the tuned warning 75
 
     def test_two_layer_below_80_band_survives_only_under_deep_review(self):
         # Finding #4 (dead-band / two distinct layers): a low-floor thresholds
@@ -2001,13 +2011,16 @@ class TestRunThresholds(unittest.TestCase):
                                         thresholds=low_floor, findings=[finding]))
         deep_ids = {g["id"]: g for g in deep["findings"]}
         self.assertIn("two-layer", deep_ids)
-        self.assertEqual(deep_ids["two-layer"]["orchestrator_score"], 75)
-        self.assertEqual(deep_ids["two-layer"]["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at the
+        # tuned critical floor - 1 (71): the band is warning, never critical.
+        self.assertEqual(deep_ids["two-layer"]["orchestrator_score"], 71)
+        self.assertEqual(deep_ids["two-layer"]["band"], "warning")
 
         rev = score.run(self._envelope(command="review",
                                        thresholds=low_floor, findings=[finding]))
         self.assertNotIn("two-layer", [g["id"] for g in rev["findings"]])
         # And it is visibly routed to filtered[] as sub-threshold (never silent).
+        # The /review cutoff judges the UNCAPPED 75 (the ceiling never drops).
         self.assertTrue(
             any(x.get("reason") == "sub-threshold" for x in rev["filtered"]),
             "score-75 finding should be filtered sub-threshold under /review",
@@ -2089,7 +2102,10 @@ class TestRunMinConfidence(unittest.TestCase):
         confirmed = score.run(self._envelope(min_confidence=40,
                                              findings=[survivor, low_twin]))
         conf_scores = {g["id"]: g for g in confirmed["findings"]}
-        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"], 95)  # 85+10
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
+        # floor - 1 (94). Two Claude lanes are ONE correlated voter, so 85+10=95 is
+        # capped; 94 != the 85 above still proves the +10 fired.
+        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"], 94)
 
     def test_exactly_n_survives(self):
         # Strict `<`: a finding at exactly min_confidence SURVIVES; one at N-1 drops.
@@ -2111,12 +2127,13 @@ class TestRunMinConfidence(unittest.TestCase):
 
     def test_zero_config_envelope_is_byte_stable(self):
         # No min_confidence key at all -> today's behavior. The base finding scores
-        # 100 -> critical, identical to a run with no confidence filter.
+        # 100 before the lone-lane ceiling, identical to a run with no confidence filter.
         result = score.run(self._envelope())
         self.assertEqual(len(result["findings"]), 1)
         g = result["findings"][0]
-        self.assertEqual(g["orchestrator_score"], 100)
-        self.assertEqual(g["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical floor - 1 (94)
+        self.assertEqual(g["orchestrator_score"], 94)
+        self.assertEqual(g["band"], "warning")
         # No confidence drop is recorded.
         self.assertFalse(any(x.get("reason") == "below-min-confidence"
                              for x in result["filtered"]))
@@ -2279,13 +2296,17 @@ class TestIdiomFloor(unittest.TestCase):
     def test_off_disables_cap(self):
         # The literal "off" sentinel -> cap INERT; the idiom keeps its full band.
         g = self._only(score.run(self._envelope(idiom_floor="off")))
-        self.assertEqual(g["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
+        # floor - 1 (94); warning (not the default medium cap) proves "off" disabled it.
+        self.assertEqual(g["band"], "warning")
 
     def test_none_sentinel_disables_cap(self):
         # The literal "none" string is ALSO a disable sentinel (config.py would
         # have normalized it to "off", but score.py accepts either spelling).
         g = self._only(score.run(self._envelope(idiom_floor="none")))
-        self.assertEqual(g["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
+        # floor - 1 (94); warning (not the default medium cap) proves "none" disabled it.
+        self.assertEqual(g["band"], "warning")
 
     # --- scope: idiom category ONLY ------------------------------------------ #
     def test_non_idiom_not_capped(self):
@@ -2296,7 +2317,9 @@ class TestIdiomFloor(unittest.TestCase):
             findings=[make_finding(id="if-dep", agent_confidence=100,
                                    severity="critical", category="dep-array",
                                    file="src/d.py", line=40)])))
-        self.assertEqual(g["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
+        # floor - 1 (94); warning, not medium, so the idiom cap left it alone.
+        self.assertEqual(g["band"], "warning")
         self.assertEqual(g["category"], "dep-array")
 
     # --- default-active (A1): absent key still caps -------------------------- #
@@ -2349,8 +2372,9 @@ class TestIdiomFloor(unittest.TestCase):
                                    severity="critical", category="bug",
                                    file="src/e.py", line=50)])
         g = self._only(score.run(env))
-        self.assertEqual(g["band"], "critical")
-        self.assertEqual(g["orchestrator_score"], 100)
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical floor - 1 (94)
+        self.assertEqual(g["band"], "warning")
+        self.assertEqual(g["orchestrator_score"], 94)
         # A second identical run yields the SAME stable_hash (determinism intact).
         g2 = self._only(score.run(dict(env)))
         self.assertEqual(g["stable_hash"], g2["stable_hash"])
@@ -2439,10 +2463,12 @@ class TestIdiomFloorEnvelopeIntegration(unittest.TestCase):
         self.assertEqual(values["idiom_floor"], "off")
         self.assertEqual(warnings, [])
         # 3) The orchestrator INJECTS that sentinel on the envelope; the cap is
-        #    DISABLED -> the idiom keeps its full "critical" band.
+        #    DISABLED -> the idiom keeps its full band.
         result = score.run(self._idiom_env(idiom_floor=values["idiom_floor"]))
         g = result["findings"][0]
-        self.assertEqual(g["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
+        # floor - 1 (94); its full band is therefore warning (above the medium cap).
+        self.assertEqual(g["band"], "warning")
         self.assertEqual(g["category"], "idiom")
 
     def test_zero_config_default_caps_the_same_finding(self):
@@ -2454,11 +2480,12 @@ class TestIdiomFloorEnvelopeIntegration(unittest.TestCase):
         self.assertEqual(g["category"], "idiom")
 
     def test_absent_and_off_are_distinct_end_to_end(self):
-        # Both paths in ONE assertion: absent -> "medium", explicit off -> "critical".
+        # Both paths in ONE assertion: absent -> "medium", explicit off -> full band.
         absent = score.run(self._idiom_env())["findings"][0]
         off = score.run(self._idiom_env(idiom_floor="off"))["findings"][0]
         self.assertEqual(absent["band"], "medium")
-        self.assertEqual(off["band"], "critical")
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical floor - 1 (94)
+        self.assertEqual(off["band"], "warning")
         self.assertNotEqual(absent["band"], off["band"])
 
 
@@ -3360,12 +3387,15 @@ class TestMalformedResidualCrashSurfaces(unittest.TestCase):
     def test_string_range_endpoints_do_not_crash(self):
         # F9: [["8","14"]] previously raised TypeError str-vs-int. Now the pair
         # reads as "not a usable range" -> in_diff False (no +20).
+        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
+        # floor - 1 (94). Confidence 80 keeps the proof non-vacuous under the cap:
+        # a spurious +20 would read 94, the correct no-in_diff score reads 80.
         result = self._run_with(
-            make_finding(agent_confidence=100, line=10),
+            make_finding(agent_confidence=80, line=10),
             changed_line_ranges={"src/a.py": [["8", "14"]]})
         self.assertEqual(len(result["findings"]), 1)
-        # 100 + 0 (no in_diff: unusable range) + 0 critical = 100.
-        self.assertEqual(result["findings"][0]["orchestrator_score"], 100)
+        # 80 + 0 (no in_diff: unusable range) + 0 critical = 80.
+        self.assertEqual(result["findings"][0]["orchestrator_score"], 80)
 
     def test_line_in_ranges_direct(self):
         self.assertFalse(score._line_in_ranges(10, [["8", "14"]]))
@@ -3509,6 +3539,159 @@ class TestIntentDocDropReason(unittest.TestCase):
         result = score.run(self._envelope(f))
         reasons = [x.get("reason") for x in result["filtered"]]
         self.assertIn("sub-threshold", reasons)
+
+
+# --------------------------------------------------------------------------- #
+# Lone-lane band ceiling (B-SEV, v2.10 Wave 1, D-01/D-02; templates/scoring.md
+# § "Wave 1 (v2.10)"). A group with no second opinion — Codex-corroborated with
+# the envelope's orchestrator-set `codex` block saying joined, or persisted —
+# has its SCORE capped at the critical floor - 1 before band_for runs.
+# --------------------------------------------------------------------------- #
+class TestLoneLaneCeiling(unittest.TestCase):
+    RANGES = {"src/a.py": [[8, 14]]}
+
+    def _native(self, **over):
+        defaults = dict(id="nat", file="src/a.py", line=10, category="null-access",
+                        agent="bugs", agent_confidence=100, severity="critical",
+                        source_window=["a", "b", "c", "d", "e"])
+        defaults.update(over)
+        return make_finding(**defaults)
+
+    def _codex(self, **over):
+        defaults = dict(id="cdx", file="src/a.py", line=11, category="adversarial",
+                        agent="codex-adversarial", agent_confidence=100,
+                        severity="critical", source_window=["a", "b", "c", "d", "e"])
+        defaults.update(over)
+        return make_finding(**defaults)
+
+    def _run(self, findings, carryforward=None, **over):
+        envelope = {
+            "command": "review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": self.RANGES,
+            "carryforward": carryforward if carryforward is not None else [],
+            "findings": findings,
+        }
+        envelope.update(over)
+        return score.run(envelope)
+
+    def _by_id(self, result):
+        return {g["id"]: g for g in result["findings"]}
+
+    def test_shipped_constants(self):
+        self.assertEqual(score.LONE_LANE_BAND_CEILING, "warning")
+        self.assertEqual(score.CODEX_AGENT, "codex-adversarial")
+
+    def test_lone_lane_capped_at_default_floor_minus_one(self):
+        g = self._by_id(self._run([self._native()]))["nat"]
+        self.assertEqual(g["orchestrator_score"], 94)
+        self.assertEqual(g["band"], "warning")
+
+    def test_cap_respects_tuned_critical_floor(self):
+        g = self._by_id(self._run(
+            [self._native()],
+            thresholds={"critical": 90, "warning": 80, "medium": 70}))["nat"]
+        self.assertEqual(g["orchestrator_score"], 89)
+        self.assertEqual(g["band"], "warning")
+
+    def test_verified_codex_corroboration_reaches_critical(self):
+        res = self._run([self._native(), self._codex()], codex={"status": "joined"})
+        g = self._by_id(res)["nat"]
+        self.assertEqual(sorted(g["attribution"]), ["bugs", "codex-adversarial"])
+        self.assertEqual(g["orchestrator_score"], 100)
+        self.assertEqual(g["band"], "critical")
+
+    def test_self_labelled_codex_without_verified_block_earns_nothing(self):
+        # T1: the SAME self-labelled codex member — block absent, or the pass
+        # skipped / off — is an unverified self-report and never lifts the cap.
+        for label, over in (("absent", {}),
+                            ("skipped", {"codex": {"status": "skipped"}}),
+                            ("off", {"codex": {"status": "off"}})):
+            with self.subTest(block=label):
+                g = self._by_id(self._run([self._native(), self._codex()], **over))["nat"]
+                self.assertEqual(g["orchestrator_score"], 94)
+                self.assertEqual(g["band"], "warning")
+
+    def test_claude_claude_agreement_is_not_a_second_opinion(self):
+        twin = self._native(id="twin", agent="security", line=11)
+        res = self._run([self._native(), twin], codex={"status": "joined"})
+        survivor = res["findings"][0]
+        self.assertEqual(len(survivor["attribution"]), 2)
+        self.assertEqual(survivor["band"], "warning")
+        self.assertEqual(survivor["orchestrator_score"], 94)
+
+    def test_lone_codex_finding_is_capped_too(self):
+        # A1: Codex with no Claude lane beside it has no second opinion either.
+        g = self._by_id(self._run([self._codex()], codex={"status": "joined"}))["cdx"]
+        self.assertEqual(g["orchestrator_score"], 94)
+        self.assertEqual(g["band"], "warning")
+
+    def test_persisted_lifts_the_cap(self):
+        # conf 70 + in_diff 20 + persisted 15 = 105 -> clamp 100 -> critical.
+        cf = make_finding(id="cf-p", file="src/a.py", line=10, title="t",
+                          category="null-access", agent="bugs",
+                          agent_confidence=70, severity="critical",
+                          current_code="return q", canonical_line_content="return q",
+                          source_window=["a", "b", "c", "d", "e"])
+        res = self._run([], carryforward=[cf], pass_number=2)
+        g = self._by_id(res)["cf-p"]
+        self.assertEqual(g["status"], "persisted")
+        self.assertEqual(g["orchestrator_score"], 100)
+        self.assertEqual(g["band"], "critical")
+
+    def test_agent_written_persisted_status_does_not_lift_the_cap(self):
+        # Persistence is the carry-forward identity set, never the finding's own
+        # `status` (Fable A5): a new finding claiming "persisted" stays capped.
+        g = self._by_id(self._run([self._native(status="persisted")]))["nat"]
+        self.assertEqual(g["band"], "warning")
+        self.assertEqual(g["orchestrator_score"], 94)
+
+    def test_ceiling_none_override_restores_critical(self):
+        # The replay-only override path is live: None disables the ceiling.
+        saved = score.LONE_LANE_BAND_CEILING
+        try:
+            score.LONE_LANE_BAND_CEILING = None
+            g = self._by_id(self._run([self._native()]))["nat"]
+            self.assertEqual(g["orchestrator_score"], 100)
+            self.assertEqual(g["band"], "critical")
+        finally:
+            score.LONE_LANE_BAND_CEILING = saved
+        g = self._by_id(self._run([self._native()]))["nat"]
+        self.assertEqual(g["band"], "warning")
+
+    def test_cap_never_drops_a_finding_under_a_low_tuned_floor(self):
+        # critical 72 (config.py accepts it) -> cap 71, below the /review cutoff 80.
+        # The cutoff judges the UNCAPPED score, so the finding stays reported.
+        res = self._run([self._native()],
+                        thresholds={"critical": 72, "warning": 71, "medium": 70})
+        g = self._by_id(res)["nat"]
+        self.assertEqual(g["orchestrator_score"], 71)
+        self.assertEqual(g["band"], "warning")
+        self.assertNotIn("sub-threshold", [x.get("reason") for x in res["filtered"]])
+
+    def test_malformed_codex_block_never_raises_nor_lifts_the_cap(self):
+        for label, bad in (("str", "joined"), ("list", []), ("int-status", {"status": 1}),
+                           ("None", None), ("list-status", {"status": ["joined"]}),
+                           ("upper", {"status": "JOINED"})):
+            with self.subTest(codex=label):
+                res = self._run([self._native(), self._codex()], codex=bad)
+                ids = self._by_id(res)
+                self.assertIn("nat", ids)   # the sibling survives
+                self.assertEqual(ids["nat"]["band"], "warning")
+                self.assertEqual(ids["nat"]["orchestrator_score"], 94)
+
+    def test_non_str_agents_are_neither_codex_nor_claude(self):
+        for bad_agent in (None, 7, ["codex-adversarial"], {"a": 1}):
+            with self.subTest(agent=repr(bad_agent)):
+                members = [{"agent": bad_agent}, {"agent": "codex-adversarial"}]
+                self.assertFalse(score._codex_corroborated(members, True))
+        self.assertTrue(score._codex_corroborated(
+            [{"agent": "bugs"}, {"agent": "codex-adversarial"}], True))
+        self.assertFalse(score._codex_corroborated(
+            [{"agent": "bugs"}, {"agent": "codex-adversarial"}], False))
+        self.assertFalse(score._codex_joined("not-a-dict"))
+        self.assertTrue(score._codex_joined({"codex": {"status": "joined"}}))
 
 
 if __name__ == "__main__":

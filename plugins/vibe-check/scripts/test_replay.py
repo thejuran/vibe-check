@@ -627,5 +627,42 @@ class TestImportSet(unittest.TestCase):
             self.assertNotIn("gateable", fh.read())
 
 
+
+class TestMethodRecordOrdering(unittest.TestCase):
+    """D-15: the calibration method record was committed BEFORE any Wave-1
+    candidate replay report. Each existing candidate report's FIRST commit must
+    descend from (and differ from) CALIBRATION-v2.10.md's first commit. At least
+    one candidate report must exist: an empty set fails, it never skips."""
+
+    CALIBRATION = "docs/design/b3-ground-truth/CALIBRATION-v2.10.md"
+    CANDIDATES = tuple(
+        "docs/design/b3-ground-truth/REPLAY-REPORT-phase41-%s.md" % name
+        for name in ("b-sev", "b-reweight", "h-lane", "combined"))
+
+    def _first_commit(self, rel):
+        res = _git("log", "--format=%H", "--reverse", "--", rel)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = res.stdout.split()
+        return lines[0] if lines else None
+
+    def test_every_candidate_report_follows_the_method_record(self):
+        calib = self._first_commit(self.CALIBRATION)
+        self.assertIsNotNone(calib, "CALIBRATION-v2.10.md has no commit")
+        checked = 0
+        for rel in self.CANDIDATES:
+            if not os.path.exists(os.path.join(REPO_ROOT, rel)):
+                continue
+            with self.subTest(report=rel):
+                first = self._first_commit(rel)
+                self.assertIsNotNone(first, "%s exists but is not committed" % rel)
+                self.assertNotEqual(first, calib,
+                                    "%s landed in the method-record commit" % rel)
+                anc = _git("merge-base", "--is-ancestor", calib, first)
+                self.assertEqual(anc.returncode, 0,
+                                 "%s predates the method record" % rel)
+                checked += 1
+        self.assertGreater(checked, 0, "no candidate replay report exists -- vacuous")
+
+
 if __name__ == "__main__":
     unittest.main()

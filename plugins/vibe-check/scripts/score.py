@@ -1,10 +1,12 @@
 """score.py — the deterministic-core scoring filter for the vibe-check plugin.
 
-Phase 16 (CORE-01). This is a BEHAVIOR-PRESERVING extraction of the orchestrator's
-by-hand scoring prose (templates/scoring.md + commands/review.md Phase 3/4.5). It
-reproduces that prose byte-for-byte in observable behavior. No weight, bonus, band
-cutoff, or threshold is re-tuned here; the cross-confirm matcher and carry-forward
-compare are the CURRENT (un-hardened) logic. Phase 17 hardens; this only freezes.
+Phase 16 (CORE-01) extracted the orchestrator's by-hand scoring prose
+(templates/scoring.md + commands/review.md Phase 3/4.5) into this script, and the
+formula stayed FROZEN through v2.9. The freeze lifted for v2.10 Wave 1, scoped to
+the replay-guardrailed changes documented in templates/scoring.md § "Wave 1
+(v2.10)": the lone-lane band ceiling (B-SEV — a group with no second opinion is
+capped below the critical floor). No other weight, bonus, band cutoff or threshold
+is retuned.
 
 Pure-function boundary (D-05): the script does NO filesystem, git, or shell-out
 I/O. Every raw fact (changed_line_ranges, source_window, canonical_line_content,
@@ -28,7 +30,7 @@ _RE_AVAILABLE = bool(re)
 
 # --------------------------------------------------------------------------- #
 # Constants — transcribed verbatim from templates/scoring.md and review.md:685.
-# Do NOT retune (behavior-preserving extraction).
+# Do NOT retune outside the v2.10 Wave 1 set (templates/scoring.md § "Wave 1 (v2.10)").
 # --------------------------------------------------------------------------- #
 
 # scoring.md:21-26 — severity weight, applied LAST before clamp. Unset/other => -8.
@@ -94,6 +96,21 @@ THRESHOLDS = {"review": 80, "deep-review": 70}
 # the whole set so the no-config path stays byte-identical (frozen GOLDEN_DIGEST).
 # Do NOT retune these literals (behavior-preserving) and do NOT conflate with THRESHOLDS.
 _DEFAULT_BANDS = {"critical": 95, "warning": 80, "medium": 70}
+
+# templates/scoring.md § "Wave 1 (v2.10)" — the Codex lane's agent name
+# (codex_translate.py AGENT_NAME). The string ALONE proves nothing: a native agent
+# can write it on its own finding. A member counts as Codex's only when the
+# envelope's orchestrator-set `codex` block says the Codex pass joined
+# (_codex_joined) — see _codex_corroborated.
+CODEX_AGENT = "codex-adversarial"
+
+# templates/scoring.md § "Wave 1 (v2.10)" — B-SEV lone-lane ceiling (D-02):
+# critical needs a second opinion; a lone lane tops out at warning. A group with
+# no second opinion (_second_opinion) has its SCORE capped at the critical floor
+# minus one BEFORE band_for runs, so band_for stays the single band writer. The
+# shipped value is "warning". `None` disables the ceiling and exists ONLY so
+# scripts/replay.py can replay the other Wave-1 candidates ALONE (D-09).
+LONE_LANE_BAND_CEILING = "warning"
 
 # HARDEN-01 — DOCUMENTATION ONLY (not a reject gate). The three fields a
 # well-formed finding normally carries. Per orchestrator correction (this phase),
@@ -213,6 +230,68 @@ def _usable_bands(thresholds):
             return dict(_DEFAULT_BANDS)
         floors[key] = v
     return floors
+
+
+def _codex_joined(envelope):
+    """True iff the envelope's orchestrator-set `codex` block says the pass joined.
+
+    The block (`{"status": "joined" | "skipped" | "off"}`, phases/review/
+    30-collect-score.md) is written by the orchestrator from the Phase-3 Codex
+    outcome — the same source Phase 4.5 persists as the pass-level `codex.status`.
+    It is the ONLY provenance source: a finding's own `agent` / `category` are
+    agent self-reports, and a native agent reviewing an attacker-authored diff can
+    write `agent: "codex-adversarial"` or `category: "adversarial"` to fake
+    corroboration (T1). Coerce-or-default: a non-dict block, a non-str status, or
+    an absent block => False (no finding is Codex's). Never raises.
+    """
+    if not isinstance(envelope, dict):
+        return False
+    block = envelope.get("codex")
+    if not isinstance(block, dict):
+        return False
+    return block.get("status") == "joined"
+
+
+def _codex_corroborated(members, codex_joined):
+    """A Codex member AND a Claude-lane member in one group, Codex verified joined.
+
+    Codex is the independent voter (D-01); Claude<->Claude agreement is one
+    correlated voter and does NOT count. `codex_joined` must come from
+    _codex_joined(envelope) — without it a member labelled CODEX_AGENT is an
+    unverified self-report and earns nothing (T1). Only str `agent` values count
+    on either side (a missing / non-str agent is neither Codex nor a Claude lane).
+    """
+    if not codex_joined:
+        return False
+    agents = [m.get("agent") for m in members if isinstance(m, dict)]
+    agents = [a for a in agents if isinstance(a, str)]
+    return (any(a == CODEX_AGENT for a in agents)
+            and any(a != CODEX_AGENT for a in agents))
+
+
+def _second_opinion(members, codex_joined, persisted_ids):
+    """D-01 second opinion: Codex-corroborated, OR persisted from a previous pass.
+
+    Persistence is the identity set the carry-forward loop builds (Fable A5) —
+    never a member's own `status`, which is an agent-writable field. `in_diff` is
+    NOT a corroborator.
+    """
+    if _codex_corroborated(members, codex_joined):
+        return True
+    return any(id(m) in persisted_ids for m in members)
+
+
+def _lone_lane_cap(thresholds):
+    """The score cap for a group with no second opinion, or None when disabled.
+
+    critical floor - 1 (94 by default; a config-tuned `thresholds.critical` is
+    respected via _usable_bands), so a lone lane can band warning but never
+    critical. None when LONE_LANE_BAND_CEILING is None (replay-only override).
+    """
+    if LONE_LANE_BAND_CEILING != "warning":
+        return None
+    bands = _usable_bands(thresholds)
+    return bands["critical"] - 1
 
 
 def band_for(score, thresholds=None):
@@ -1085,6 +1164,9 @@ def run(envelope):
     # absent->medium default INSIDE the helper (not `idiom_floor or "medium"` here)
     # is what keeps the explicit "off" sentinel distinguishable from an absent key.
     idiom_floor = envelope.get("idiom_floor")
+    # v2.10 Wave 1 (D-01): orchestrator-verified Codex provenance for the B-SEV
+    # second-opinion test. Absent block => not joined (no finding is Codex's).
+    codex_joined = _codex_joined(envelope)
 
     # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
     # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
@@ -1306,6 +1388,17 @@ def run(envelope):
                         t[1].get("title", "")),
         ))
         best_score, best_member, best_decision = scored_members[0]
+        # The per-command finalize cutoff below judges the UNCAPPED score: the
+        # lone-lane ceiling lowers the band label, it never drops a finding (a
+        # config-tuned critical floor may sit below the /review cutoff).
+        surface_score = best_score
+        # B-SEV (v2.10 Wave 1, D-02): cap the SCORE so band_for stays the single
+        # band writer — do not add a band branch. A group with no second opinion
+        # (Codex-corroborated or persisted, D-01) tops out at critical floor - 1.
+        lone_cap = _lone_lane_cap(thresholds)
+        if lone_cap is not None and not _second_opinion(
+                g["members"], codex_joined, persisted_ids):
+            best_score = min(best_score, lone_cap)
         # Members that lost the dedup are absorbed into the survivor; each loser
         # is RECORDED in filtered[] below (Fable A2) once the survivor's
         # stable_hash exists to point at.
@@ -1342,7 +1435,7 @@ def run(envelope):
                 "title": loser.get("title"),
                 "reason": "absorbed-into: " + survivor["stable_hash"],
             })
-        survivors.append((survivor, best_score))
+        survivors.append((survivor, surface_score))
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
     kept = []

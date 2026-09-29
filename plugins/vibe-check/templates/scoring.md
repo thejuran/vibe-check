@@ -62,3 +62,21 @@ Mid-loop `/review` doesn't enforce — only `--finalize` does.
 | `/deep-review` | ≥70 | + Medium |
 
 "Filtered Issues" summary always shows counts and reasons regardless of threshold.
+
+## Wave 1 (v2.10) — second-opinion rules
+
+The formula freeze lifted for v2.10 Wave 1, scoped to the three changes below; each was replayed offline against the archived B3 runs with zero catch regressions before it landed — `scripts/replay.py`, `docs/design/b3-ground-truth/REPLAY-REPORT-phase41-*.md`.
+
+### Second opinion (D-01)
+
+A finding group has a **second opinion** when either holds:
+
+- **Codex-corroborated** — the group holds a `codex-adversarial` member AND a Claude-lane member at the same site, and the envelope's orchestrator-set `codex.status` is `"joined"`. Provenance comes from that block, never from the finding: a native agent can write `agent: "codex-adversarial"` or `category: "adversarial"` on its own finding, and that self-report earns nothing.
+- **Persisted** — the finding was carried forward from a previous pass and its line is unchanged (`status == "persisted"`, set by the carry-forward compare, never by the agent).
+
+`in_diff` is NOT a corroborator. Claude↔Claude agreement between two Claude lanes is one correlated voter, not a second opinion.
+
+### Lone-lane band ceiling (B-SEV, D-02)
+
+- A group with no second opinion has its score capped at `critical floor − 1` (94 by default; respects a config-tuned `thresholds.critical`) BEFORE banding — it may reach Warning (still finalize-blocking) but never Critical. A lone Codex finding (no Claude lane beside it) is capped too.
+- The cap lowers the band only: the per-command filter threshold still judges the uncapped score, so the ceiling never drops a finding.
