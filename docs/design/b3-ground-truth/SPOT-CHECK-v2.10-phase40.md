@@ -113,6 +113,17 @@ session.txt — ALL before the run may be triggered: the session fingerprint pro
 harness, clear.txt proves each run's conversation boundary, and the ordering (checked at
 archival) proves both existed BEFORE the review ran.
 
+**N-02 — auto-memory (added 2026-09-28 at the batch-3 close; binding for the `final` check):** `/clear`
+does not reset Claude Code's per-project auto-memory (`~/.claude/projects/-Users-julianamacbook-<clone>/memory/`),
+and the measurement sessions had been writing run-by-run notes there — including the expected outcome of
+the very diff under test and a learned amendment to the agent dispatch prompts. Findings are produced by
+subagents in fresh contexts and banded by `score.py`, so the batch verdicts rest on agent output; but the
+session's memory is an uncontrolled variable and a prose-fidelity leak. Before the `final` check's
+`sil-launch`/`sq5-launch`, the assistant moves both clone projects' `memory/` directories to
+`~/.b3/automemory-parked-final/` and restores them after the last `*-revert`; anything a `final` session
+writes to memory is kept beside them as evidence and never merged back. A `final` run whose session
+started with the memory directory present is VOID.
+
 **Fixes are DECLINED on every one of these twelve runs, so no fix-agent behaviour is exercised
 here.** The fix-agent proofs are assistant-side, in plan 40-13.
 
