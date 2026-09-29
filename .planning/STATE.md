@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 5
+current_plan: 6
 status: executing
 stopped_at: Completed 41-03-PLAN.md
-last_updated: "2026-09-29T22:10:18.050Z"
+last_updated: "2026-09-29T22:20:00.983Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 28
-  completed_plans: 24
+  completed_plans: 25
   percent: 13
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 41 (Wave 1 — scorer-side noise interventions) — EXECUTING
-Plan: 5 of 8
-Current Plan: 5
+Plan: 6 of 8
+Current Plan: 6
 Total Plans in Phase: 8
 Status: Executing Phase 41
-Progress: [█████████░] 86%
+Progress: [█████████░] 89%
 Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
@@ -94,6 +94,7 @@ Last activity: 2026-09-29 -- Phase 41 execution started
 | Phase 41 P02 | 65min | 3 tasks | 5 files |
 | Phase 41 P03 | 12 min | 3 tasks | 3 files |
 | Phase 41 P04 | 35 min | 3 tasks | 6 files |
+| Phase 41 P05 | 30min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -196,6 +197,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 41]: 41-02 owner AMENDED runs/triggarr-secret-in-logs/run-2 (ledger 008; v2.9 archive cannot reproduce the catch); replay baseline = REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1; ledger 007 not extended to filtered[] — D-05 stop rule; owner decision 2026-09-29
 - [Phase 41]: 41-03: B-REWEIGHT offsets derived over committed manifest = impact -12, architecture -6, bugs -2 (pool 96/147, ALPHA=20, MIN_LABELED=5); smaller than research's -18/-11 because 41-01 labels every at-SITE finding; label rule not revisited (D-15)
 - [Phase 41]: 41-04 B-SEV: a no-second-opinion group is capped at critical floor - 1 before band_for; second opinion = envelope-verified Codex corroboration or persistence; finalize cutoff judges the uncapped score
+- [Phase 41]: 41-05 B-REWEIGHT: embedded offsets == calibrate derive {architecture:-6,bugs:-2,impact:-12}; lone-lane only; min_confidence/agent_confidence/stable_hash read raw; ALONE replay REGRESSED 0, FP 16/18 -> 14/18 (commit 0ee3818)
 
 ### Pending Todos
 
@@ -238,7 +240,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T22:10:14.167Z
+Last session: 2026-09-29T22:19:56.667Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
