@@ -32,7 +32,7 @@ Must fix before commit:
 
 After the table, for each Critical finding render:
 
-**`{{file}}:{{line}}` — {{title}}** (found by: {{agents_csv}})
+**`{{file}}:{{line}}` — {{title}}** (flagged by: {{members_list}})
 
 Confidence: {{agent_confidence}}
 
@@ -63,6 +63,8 @@ Consider fixing or acknowledge in `--finalize`:
 **Status values:** `NEW`, `PERSISTED (pass N)`, `FIXED-SINCE-LAST`, `NEEDS-RECHECK`. Single-pass mode: always `NEW`.
 
 **`{{agents_csv}}`:** comma-separated agents that flagged it (after dedup).
+
+**`{{members_list}}`:** from the finding's `members` array (survivor first). ONE entry → the agent name alone (identical to the old "found by"). TWO or more → `agent — title; agent — title` in array order, every member's OWN title kept (v2.10 Wave 1 H-LANE, D-03/D-14): a collapsed site shows what each lane said, so a reader sees the security title even when another lane leads.
 
 ---
 

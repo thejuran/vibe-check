@@ -238,6 +238,18 @@ class TestSchemasAreDistinct(unittest.TestCase):
                 self.assertIn("unknown key in finding: %s" % stray,
                               state_shape.check_finding(f, FUTURE))
 
+    def test_wave1_members_key_is_optional_under_future_schema(self):
+        """v2.10 Wave 1 H-LANE (D-14, SUPERSESSIONS 007): `members` is the ONE
+        recorded addition to the closed finding set. A finding carrying it is
+        clean; a misspelt `memberz` is still rejected (the closed set holds)."""
+        member = {"file": "src/app.py", "line": 12, "title": "a title",
+                  "category": "security", "severity": "high", "agent": "security",
+                  "agent_confidence": 80, "problem": "a problem",
+                  "source_window": "a window"}
+        self.assertEqual(state_shape.check_finding(make_finding(members=[member]), FUTURE), [])
+        self.assertEqual(state_shape.check_finding(make_finding(memberz=[member]), FUTURE),
+                         ["unknown key in finding: memberz"])
+
 
 class TestCensusAll37(unittest.TestCase):
     """F13 -- every sealed state validates clean under archive-compat."""

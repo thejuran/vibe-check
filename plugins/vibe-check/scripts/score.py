@@ -7,7 +7,10 @@ the replay-guardrailed changes documented in templates/scoring.md § "Wave 1
 (v2.10)": the lone-lane band ceiling (B-SEV — a group with no second opinion is
 capped below the critical floor) and the lone-lane confidence calibration
 (B-REWEIGHT — derived, lower-only per-agent offsets on a group with no second
-opinion). No other weight, bonus, band cutoff or threshold is retuned.
+opinion), and site grouping (H-LANE — every lane at one file within ±2 lines is
+one row carrying each lane's own record in `members`; the +10 fires only for a
+Codex + Claude pair). No other weight, bonus, band cutoff or threshold is
+retuned.
 
 Pure-function boundary (D-05): the script does NO filesystem, git, or shell-out
 I/O. Every raw fact (changed_line_ranges, source_window, canonical_line_content,
@@ -62,7 +65,7 @@ _VIBE_IGNORE = "vibe-ignore"
 # score.py emits for a BARE vibe-ignore. FIXED strings (T-32-04 Information
 # Disclosure): the title/category/canonical are NEVER derived from the marker line
 # or any repo-controlled text, so no untrusted text feeds the render or the hash.
-_SUPPRESSION_CATEGORY = "suppression"   # maps to NO domain (never cross-confirms).
+_SUPPRESSION_CATEGORY = "suppression"   # groups by site like any finding; scores 0 and never fires.
 _SUPPRESSION_TITLE = "suppression without reason"
 # A FIXED canonical marker-line content string fed to stable_hash (NOT the marker's
 # actual line text — no repo text in the hash) so the synthetic finding hashes
@@ -139,7 +142,23 @@ FINDING_REQUIRED_KEYS = ("id", "file", "line", "title", "category", "severity", 
                          "agent_confidence", "problem", "source_window", "orchestrator_score",
                          "band", "attribution", "status", "stable_hash")
 FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
-                         "silenced_marker_nearby", "intent_doc_match", "canonical_line_content")
+                         "silenced_marker_nearby", "intent_doc_match", "canonical_line_content",
+                         "members")
+# H-LANE (v2.10 Wave 1, D-14): a surviving row's `members` is a list of member
+# RECORDS — each the finding INPUT key set below, i.e. exactly what a finding
+# arrives with (its ORIGINAL multi-line current_code and its own source_window,
+# verbatim), so a member can be carried and re-scored on a later pass through the
+# identical per-finding path. Excluded: the scorer OUTPUTS (recomputed every pass),
+# the hard-rule-#4 booleans (recomputed from raw facts, so an agent's claim carries
+# no evidence), the output-boundary `id`, and `canonical_line_content` — a PER-PASS
+# orchestrator HEAD read (30-collect-score.md step 0) that a stored copy must never
+# stand in for (T-41-37). state_shape validates finding keys only; the member-record
+# shape is this module's own contract (test_score TestSiteGroupingHLane).
+_MEMBER_EXCLUDED_KEYS = ("id", "orchestrator_score", "band", "attribution", "status",
+                         "stable_hash", "members", "in_diff", "silenced_marker_nearby",
+                         "canonical_line_content")
+MEMBER_KEYS = tuple(k for k in FINDING_REQUIRED_KEYS + FINDING_OPTIONAL_KEYS
+                    if k not in _MEMBER_EXCLUDED_KEYS)
 _FINDING_KEY_SYNONYMS = {"suggested_fix": "fix_hint"}
 _UNTITLED = "(untitled finding)"
 
@@ -202,6 +221,61 @@ def stable_hash(file, canonical_line_content, title):
         (file + "\x00" + canonical_line_content + "\x00" + title)
         .encode("utf-8", "surrogatepass")
     ).hexdigest()
+
+
+def _canonical_for_hash(f):
+    """The canonical line text a finding's stable_hash is keyed on.
+
+    The orchestrator-resolved `canonical_line_content` when present (carry-forward
+    path, and fresh findings enriched by 30-collect-score.md), else the finding's
+    own first `current_code` line (diff-mode findings carry no separate
+    canonical). One rule in one place: _score_member and _finding_identity both
+    call it. Non-str values pass through; stable_hash coerces them to "".
+    """
+    canonical = f.get("canonical_line_content")
+    if canonical is None:
+        canonical = _first_line(f.get("current_code", ""))
+    return canonical if canonical is not None else ""
+
+
+def _finding_identity(f):
+    """The lane-aware OCCURRENCE identity of one finding (H-LANE member records).
+
+    (agent, stable_hash(file, canonical, title), line). stable_hash alone cannot
+    tell two identical lines carrying one title apart (it has no line number),
+    and (stable_hash, line) cannot tell two lanes reporting one title at one line
+    apart — so the agent and the line are both part of the identity. Used ONLY to
+    de-duplicate a row's `members` and to recognise the representative's own
+    record in _expand_members; stable_hash itself (the frozen dismissal / carry
+    key) is unchanged. Never raises: non-str agent/file/title coerce to "", a
+    non-int line to None.
+    """
+    agent = f.get("agent")
+    file = f.get("file")
+    title = f.get("title")
+    return (
+        agent if isinstance(agent, str) else "",
+        stable_hash(file if isinstance(file, str) else "",
+                    _canonical_for_hash(f),
+                    title if isinstance(title, str) else ""),
+        _as_line(f.get("line")),
+    )
+
+
+def _member_ref(m):
+    """Project a finding to its member record (MEMBER_KEYS), values verbatim.
+
+    An absent optional key stays absent; `current_code` and `source_window` are
+    copied as-is (never projected to one line). Only the identity/location
+    fields are coerced: agent/file/title to str-or-"", line via _as_line
+    (malformed input never raises and never breaks identity).
+    """
+    ref = {k: m[k] for k in MEMBER_KEYS if k in m}
+    for k in ("agent", "file", "title"):
+        v = m.get(k)
+        ref[k] = v if isinstance(v, str) else ""
+    ref["line"] = _as_line(m.get("line"))
+    return ref
 
 
 def _usable_bands(thresholds):
@@ -417,6 +491,18 @@ def _cap_idiom_band(category, band, idiom_floor):
     if _BAND_SEVERITY.get(band, 0) > _BAND_SEVERITY[cap]:
         return cap
     return band
+
+
+def _effective_band(member, score, thresholds, idiom_floor):
+    """One member's band: band_for(score) then the idiom cap by ITS OWN category.
+
+    H-LANE applies the idiom cap per member, before the row's representative is
+    chosen, so an idiom finding at a site can never lower the band of a
+    co-located non-idiom (e.g. security) member. band_for stays the single band
+    writer; this is the one post-band adjustment.
+    """
+    return _cap_idiom_band(member.get("category"), band_for(score, thresholds),
+                           idiom_floor)
 
 
 # --------------------------------------------------------------------------- #
@@ -696,6 +782,55 @@ def carry_forward_status(finding, canonical_line_content, canonical_window=None)
     return "needs-recheck"
 
 
+def _expand_members(cf):
+    """Expand one carried row's `members` into independent working findings.
+
+    H-LANE (v2.10 Wave 1): an absorbed defect must never vanish with its lead —
+    not when the lead is fixed, suppressed at its own line or falls below the
+    threshold. The orchestrator reads HEAD for every member at the member's OWN
+    file:line (30-collect-score.md step 0: `canonical_line_content` AND
+    `canonical_window` on each members[] entry). Each member record is carried
+    through the identical per-finding call, carry_forward_status(record, head,
+    window), and later scored on its own facts.
+
+    The representative's own record (same lane, same occurrence —
+    _finding_identity) is skipped: the caller carries the representative itself.
+    A member with no HEAD read (absent/null) is `fixed-since-last` and recorded
+    as a stub, never carried on faith (T-41-37). Working findings carry no
+    `members` and no `id`. Returns (expanded, fixed). Pure; never raises — a
+    malformed entry (non-dict, non-str agent or title) is skipped, siblings kept.
+    """
+    raw_members = cf.get("members")
+    if not isinstance(raw_members, list):
+        return [], []
+    rep = {k: v for k, v in cf.items() if k != "members"}
+    rep_id = _finding_identity(rep)
+    expanded = []
+    fixed = []
+    for raw in raw_members:
+        if not isinstance(raw, dict):
+            continue
+        if not isinstance(raw.get("agent"), str) or not isinstance(raw.get("title"), str):
+            continue
+        e = _member_ref(raw)
+        head = raw.get("canonical_line_content")
+        window = raw.get("canonical_window")
+        if _finding_identity(dict(e, canonical_line_content=head)) == rep_id:
+            continue
+        st = carry_forward_status(e, head, window)
+        if st == "fixed-since-last":
+            fixed.append({
+                "file": e.get("file"),
+                "line": e.get("line"),
+                "title": e.get("title"),
+                "band": None,
+                "first_pass_N": None,
+            })
+            continue
+        expanded.append(dict(e, canonical_line_content=head, status=st))
+    return expanded, fixed
+
+
 def _intent_doc_penalty(finding):
     """Mutually-exclusive intent-doc penalty (D-12, scoring.md:16-17).
 
@@ -771,7 +906,7 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted,
         s += 20                                   # scoring.md:15
     s += _intent_doc_penalty(finding)             # scoring.md:16-17 (elif, D-12)
     if cross_confirmed:
-        s += 10                                   # scoring.md:18 (once; len(attr)>=2)
+        s += 10                                   # scoring.md:18 (once; Codex + Claude, D-01)
     if persisted:
         s += 15                                   # scoring.md:19
 
@@ -801,159 +936,15 @@ def _titles_match(title_a, title_b):
     inert artifact of the Phase-16 extraction. Title text is NO LONGER a match
     signal: a shared title token alone must NEVER fire a +10 cross-confirmation
     (it was gameable by phrasing — codex-adversarial.md used to coach exactly
-    that). `cross_confirm_group` keys on category-DOMAIN overlap instead. This
-    function is intentionally UNREFERENCED; do not re-wire it into the matcher.
+    that). `cross_confirm_group` groups by site (file + ±2 lines) only, and the
+    +10 is decided from provenance (D-01). This function is intentionally
+    UNREFERENCED; do not re-wire it into the matcher.
     """
     a = (title_a or "").lower()
     b = (title_b or "").lower()
     if len(a) <= len(b):
         return a in b
     return b in a
-
-
-# scoring-domain map (ROBUST-02 / D-01): a finding's `category` collapses to a
-# coarse DOMAIN; two NON-adversarial findings cross-confirm iff BOTH map to a
-# KNOWN domain AND those domains are EQUAL. `adversarial` is deliberately NOT in
-# this map (no wildcard domain) — Codex's category is resolved by the separate,
-# ambiguity-safe single-domain bridge in cross_confirm_group STEP B, never here.
-# Framework rows fold into the nearest native domain (documented inline).
-CATEGORY_DOMAIN = {
-    # --- security ---
-    "security": "security", "injection": "security", "auth": "security",
-    "data-exposure": "security", "auth-security": "security",
-    "path-traversal": "security", "ssrf": "security",
-    "deserialization": "security", "mass-assignment": "security",
-    "xss": "security", "secrets": "security",
-    # --- correctness ---
-    "null-access": "correctness", "off-by-one": "correctness",
-    "race-condition": "correctness", "resource-leak": "correctness",
-    "error-handling": "correctness", "infinite-loop": "correctness",
-    "state-mutation": "correctness", "concurrency": "correctness",
-    "unsafe-usage": "correctness",
-    # --- design ---
-    "pattern-consistency": "design", "abstraction": "design",
-    "duplication": "design", "dependency": "design",
-    "separation-of-concerns": "design",
-    # --- impact ---
-    "breaking-api": "impact", "schema-change": "impact",
-    "perf-at-scale": "impact", "blast-radius": "impact", "perf": "impact",
-    # --- style ---
-    "type-hints": "style", "mutable-default": "style", "bare-except": "style",
-    "is-vs-eq": "style", "context-manager": "style", "type-safety": "style",
-    "async-discipline": "style", "react-hook": "style", "equality": "style",
-    "dep-array": "style", "idiom": "style",
-    # framework-react: ONLY "hooks" maps to a native domain — it is the exact
-    # TWIN of language-typescript's "react-hook" (already "style" above), so the
-    # headline cross-confirm fires: a React hook bug caught by BOTH
-    # framework-react (category "hooks") AND language-typescript (category
-    # "react-hook") now overlaps at (file, line ±2) and earns the +10 (both
-    # resolve to "style"). framework-react's OTHER categories — "rendering",
-    # "controlled-uncontrolled", "a11y" — are deliberately NOT mapped (they
-    # resolve to None and cross-confirm with NOTHING today; each stands on its
-    # own score), MIRRORING the framework-fastapi non-twin policy below: only a
-    # genuine cross-agent TWIN is mapped, so we never fold a distinct React
-    # finding into the broad "style" bucket where it could spuriously confirm
-    # with — and silently absorb — an unrelated co-located TS style finding
-    # (e.g. an "a11y" defect vs a "type-safety" cast 2 lines away). Broadening
-    # to cover them is a deferred follow-up, not current behavior.
-    # (framework-react's "perf" is already mapped to "impact" above, alongside
-    # language-typescript's "perf" — unchanged; "perf" IS a cross-agent twin.)
-    "hooks": "style",
-    # framework-electron (v2.7, D-06): the FIRST real framework-into-"security"
-    # twin since react's hooks->style. ONLY "ipc-validation" is mapped — it
-    # resolves to "security" because an Electron IPC handler that flows a
-    # renderer-supplied arg into a sink (fs / shell.openExternal / a SQL query /
-    # child_process) co-locates with security's own "injection" / "path-traversal"
-    # findings (both already map to "security" above): it is genuinely the same
-    # defect seen by two reviewers, so when framework-electron flags
-    # "ipc-validation" AND security flags injection/path-traversal at the same
-    # (file, line ±2) they correctly cross-confirm and earn the +10. Because
-    # _categories_overlap compares only the COARSE domain, this twin inherits the
-    # FULL "security"-domain reach: it cross-confirms with — AND, per
-    # cross_confirm_group, can absorb when co-located within ±2 lines — ANY
-    # "security"-domain finding (injection, path-traversal, auth, data-exposure,
-    # xss, secrets, ssrf, etc.), NOT only injection/path-traversal. This is the
-    # SAME broad same-domain behavior every existing security category already
-    # has (injection already overlaps auth/secrets/xss — see
-    # test_same_domain_co_located_confirms) and it is INTENDED: an IPC->sink flow
-    # IS a security defect, so it must behave like one. framework-electron's OTHER
-    # FIVE categories — "webpreferences-hardening", "preload-exposure",
-    # "navigation-safety", "content-loading", "process-hardening" — are
-    # deliberately NOT mapped (they resolve to None and cross-confirm with NOTHING
-    # today; each stands on its own score), MIRRORING the framework-react /
-    # framework-fastapi non-twin policy: only a genuine cross-agent TWIN is mapped,
-    # so a distinct electron misconfiguration is never folded into the broad
-    # "security" bucket where it could spuriously confirm with — and silently
-    # absorb — an unrelated co-located security finding (e.g. a
-    # "webpreferences-hardening" flag-omission note 2 lines from a real injection
-    # defect). Broadening to cover them is a deferred follow-up, not current
-    # behavior.
-    "ipc-validation": "security",
-    # framework-react-native (v2.7, D-06): the SECOND real framework twin (after
-    # electron's ipc-validation->security) and the earned `perf` twin. ONLY
-    # "list-perf" is mapped — it resolves to "impact" because an RN unbounded-list
-    # render (a large/fetched collection in a ScrollView instead of a virtualized
-    # FlatList/FlashList) is a performance defect that co-locates with "impact"'s
-    # own "perf" / "perf-at-scale" / "blast-radius" findings AND framework-react's
-    # "perf" (all already map to "impact" above): it is genuinely the same perf
-    # defect seen by two reviewers, so when framework-react-native flags "list-perf"
-    # AND framework-react/impact flags a perf-domain finding at the same
-    # (file, line ±2) they correctly cross-confirm and earn the +10. Because
-    # _categories_overlap compares only the COARSE domain, this twin inherits the
-    # FULL "impact"-domain reach: it cross-confirms with — AND, per
-    # cross_confirm_group, can absorb when co-located within ±2 lines — ANY
-    # "impact"-domain finding (perf, perf-at-scale, blast-radius, breaking-api,
-    # schema-change), NOT only perf. This is the SAME broad same-domain behavior
-    # every existing impact category already has and it is INTENDED: an unbounded
-    # list IS a perf defect, so it must behave like one. framework-react-native's
-    # OTHER FIVE categories — "platform", "native-cleanup", "reanimated",
-    # "expo-config", "native-component" — are deliberately NOT mapped (they resolve
-    # to None and cross-confirm with NOTHING today; each stands on its own score),
-    # MIRRORING the framework-react / framework-fastapi non-twin policy. In
-    # particular "expo-config"'s AsyncStorage-for-secrets finding is DELIBERATELY
-    # NOT twinned to "security" this milestone (ROADMAP #4 / D-06) — mapping it
-    # would let an RN-mechanism finding spuriously confirm (and silently absorb) an
-    # unrelated co-located security finding. Broadening to cover any of the five is
-    # a deferred follow-up, not current behavior.
-    "list-perf": "impact",
-    # --- compliance ---
-    "rule-violation": "compliance",
-    # framework-fastapi: ONLY its data-exposure/auth-security twins map to
-    # "security" (the two rows already listed above), so ONLY those two can
-    # cross-confirm with a co-located security finding. Its OTHER declared
-    # categories — async-blocking, dependency-injection, pydantic-validation,
-    # response-status, lifecycle-background, routing, openapi-honesty,
-    # file-upload-safety, settings-app-construction — are deliberately NOT in
-    # this map, so they resolve to None (no domain) and cross-confirm with
-    # NOTHING today; each stands on its own score. They are NOT folded into a
-    # native domain here. (Broadening the map to cover them is a deferred
-    # follow-up, not current behavior — keep this comment honest to the map.)
-}
-
-
-def _category_domain(category):
-    """Map a finding's `category` to its coarse domain, or None.
-
-    Defensive (D-02 / Pattern 1): a missing / null / non-str / unknown category
-    maps to None (NO domain) rather than raising — a single malformed finding
-    must not crash run() and trip the orchestrator's fail-closed halt.
-    """
-    if not isinstance(category, str):
-        return None
-    return CATEGORY_DOMAIN.get(category)
-
-
-def _categories_overlap(cat_a, cat_b):
-    """True iff BOTH categories map to a KNOWN domain AND the domains are EQUAL.
-
-    NON-overlap (returns False, never raises) whenever EITHER side is
-    missing / null / non-str / unknown (D-02 — never a wildcard, never a crash).
-    `adversarial` is not in CATEGORY_DOMAIN, so it never overlaps here; it is
-    bridged separately in cross_confirm_group STEP B.
-    """
-    da = _category_domain(cat_a)
-    db = _category_domain(cat_b)
-    return da is not None and da == db
 
 
 def _line_close(finding_a, finding_b):
@@ -972,59 +963,31 @@ def _line_close(finding_a, finding_b):
             and abs(line_a - line_b) <= 2)
 
 
-def _is_adversarial(finding):
-    """A finding whose category is the literal Codex domain `"adversarial"`."""
-    return finding.get("category") == "adversarial"
-
-
 def cross_confirm_group(findings):
-    """Group cross-confirmed findings — ORDER-INDEPENDENT (ROBUST-02, D-01/D-02).
+    """Group findings by SITE — ORDER-INDEPENDENT (H-LANE, v2.10 Wave 1, D-03/D-14).
 
-    Replaces the gameable title-substring matcher with category-DOMAIN overlap +
-    line proximity, computed as an order-independent relation rather than the old
-    greedy "join the first matching group" loop (which made the +10 / absorption
-    outcome depend on input order — round-2 BLOCKER 2).
+    A SITE is the same file within ±2 lines (_line_close). Every lane at a site —
+    native Claude agents and Codex alike — is ONE row, whatever each finding's
+    category: category no longer affects grouping. Components are the connected
+    components of the SYMMETRIC _line_close relation, computed by union-find over
+    all pairs, so membership never depends on input order (a greedy "join the
+    first match" loop would). A ±2 chain (10, 12, 14) is one site.
 
-    Return shape is unchanged so run() is untouched: a list of group dicts
-      {"members": [findings...], "attribution": [unique agent names]}
-    The +10 bonus is applied ONCE during scoring, gated on len(attribution) >= 2;
-    this function only establishes grouping + attribution. run() keeps the
-    highest-scored member of each group and absorbs the rest, so a group is BOTH
-    the absorption/dedup set AND the cross-confirm attribution set.
+    Return shape: a list of group dicts, in first-appearance order of each
+    component's lowest input index, members in input order within a group:
+      {"members": [findings...], "attribution": [unique str agent names]}
+    This function only establishes grouping + attribution. Whether a group earns
+    the +10 is decided by the caller from provenance (D-01, _codex_corroborated):
+    only a Codex member (envelope-verified) plus a Claude-lane member counts —
+    Claude<->Claude agreement at one site earns nothing.
 
-    STEP A — native same-domain absorption components (order-independent):
-      Partition the NON-adversarial findings into connected components under the
-      SYMMETRIC relation `same_file AND |line| <= 2 AND _categories_overlap`.
-      Membership is computed by union-find (all-pairs), so it does NOT depend on
-      iteration order. Each component is one absorption group.
-
-    STEP B — adversarial single-domain bridge (non-grouping, ambiguity-safe):
-      For each `adversarial` finding F, look at the FULL set of co-located native
-      findings (same file, |line| <= 2) and the set of DISTINCT native DOMAINS
-      among them.
-        * EXACTLY ONE distinct native domain co-located  -> F joins THAT domain's
-          component (adds `codex-adversarial` to its attribution => +10, and
-          F is absorbed into the same defect). Because this is computed from the
-          full co-located set, security<->adversarial confirms in EVERY ordering.
-        * ZERO co-located natives, OR 2+ DISTINCT native domains (ambiguous)
-          -> F does NOT bridge: it stands as its OWN group (no +10). Dropping the
-          +10 on an ambiguous multi-domain site is deliberate — never guess which
-          native it confirms, never +10 / delete an unrelated co-located native.
-      Multiple adversarial findings at the same site group together by the same
-      proximity rule (their own component); a native joining lifts attribution
-      to >= 2.
-
-    Pattern 1 (never raise): non-int line => not co-located; missing/non-str/
-    unknown category => NON-overlap; a malformed-line adversarial finds no
-    co-located natives and simply stands alone.
+    Pattern 1 (never raise): a non-int line or a non-str file is not co-located
+    with anything (the finding stands alone); a non-str agent is left out of
+    `attribution`.
     """
-    natives = [f for f in findings if not _is_adversarial(f)]
-    adversarials = [f for f in findings if _is_adversarial(f)]
-
-    # --- STEP A: union-find over the native findings (order-independent) ----- #
-    # parent[] indexes into `natives`. Classic union-find with path compression;
+    # parent[] indexes into `findings`. Classic union-find with path compression;
     # implemented by hand (no itertools/extra imports — frozen import set).
-    parent = list(range(len(natives)))
+    parent = list(range(len(findings)))
 
     def find(i):
         root = i
@@ -1040,120 +1003,27 @@ def cross_confirm_group(findings):
         if ri != rj:
             parent[ri] = rj
 
-    for i in range(len(natives)):
-        for j in range(i + 1, len(natives)):
-            if _line_close(natives[i], natives[j]) and _categories_overlap(
-                natives[i].get("category"), natives[j].get("category")
-            ):
+    for i in range(len(findings)):
+        for j in range(i + 1, len(findings)):
+            if _line_close(findings[i], findings[j]):
                 union(i, j)
 
-    # Materialize native components, preserving input order within each so the
-    # "first member" / attribution ordering is deterministic.
+    # Materialize components in first-appearance order (iterating i ascending
+    # meets each component first at its lowest input index).
     comp_index = {}          # root -> position in `components`
-    components = []          # list of {"members", "attribution", "domain"}
-    for i in range(len(natives)):
+    components = []
+    for i in range(len(findings)):
         root = find(i)
         if root not in comp_index:
             comp_index[root] = len(components)
-            components.append({"members": [], "attribution": [], "domain": None})
+            components.append({"members": [], "attribution": []})
         comp = components[comp_index[root]]
-        f = natives[i]
+        f = findings[i]
         comp["members"].append(f)
         agent = f.get("agent")
-        if agent is not None and agent not in comp["attribution"]:
+        if isinstance(agent, str) and agent not in comp["attribution"]:
             comp["attribution"].append(agent)
-        # A component is single-domain by construction (overlap requires equal
-        # known domains); record it for the STEP B bridge lookup.
-        if comp["domain"] is None:
-            comp["domain"] = _category_domain(f.get("category"))
-
-    # --- STEP B: resolve each adversarial finding against the native set ------ #
-    # ORDER-INDEPENDENCE (round-2 W1): two holes are closed here.
-    #
-    # (a) MULTI-ADVERSARIAL RELAY: proximity for bridging is measured ONLY
-    #     against NATIVE-origin members, never against an already-bridged
-    #     adversarial. We snapshot each component's native members BEFORE the
-    #     adversarial bridge loop and test adv proximity against that snapshot —
-    #     so a 2nd adversarial cannot transitively relay into a native via a 1st
-    #     adversarial that bridged earlier (native@10, adv1@11 bridges, adv2@13
-    #     must NOT relay via adv1 since |13-10|=3>2), in any input ordering.
-    # (b) SINGLE-DOMAIN-TWO-COMPONENTS: when one native domain spans two
-    #     disconnected co-located components (security@10 + security@14, with the
-    #     adv@12 between them), WHICH component the +10 lands on would otherwise
-    #     depend on iteration/input order. Consistent with D-01/D-02's
-    #     ambiguity-safe posture (the multi-DOMAIN case already drops the +10), a
-    #     single domain spread across 2+ disconnected co-located components is
-    #     ALSO ambiguous — the adv cannot confirm a single defect — so we DROP
-    #     the bridge. The bridge fires ONLY when EXACTLY ONE native component is
-    #     co-located, which is order-independent by construction.
-    native_members = [list(comp["members"]) for comp in components]
-    standalone_adversarials = []
-    for adv in adversarials:
-        # Component indices co-located with this adversarial, by NATIVE members
-        # only (the (a) snapshot). A domain may map to MULTIPLE component indices
-        # when it is split across disconnected sites — track them all so the
-        # (b) ambiguity is visible.
-        co_components = []   # list of co-located component indices
-        co_domains = set()   # distinct native domains among those components
-        for idx, comp in enumerate(components):
-            if comp["domain"] is None:
-                continue
-            if any(_line_close(adv, m) for m in native_members[idx]):
-                co_components.append(idx)
-                co_domains.add(comp["domain"])
-        if len(co_domains) == 1 and len(co_components) == 1:
-            # EXACTLY ONE distinct native domain AND exactly one co-located
-            # native component => unambiguous bridge into it.
-            target = co_components[0]
-            comp = components[target]
-            comp["members"].append(adv)
-            agent = adv.get("agent")
-            if agent is not None and agent not in comp["attribution"]:
-                comp["attribution"].append(agent)
-        else:
-            # ZERO co-located natives, 2+ distinct native domains, OR one domain
-            # split across 2+ disconnected components (all ambiguous) => no
-            # bridge.
-            standalone_adversarials.append(adv)
-
-    # Group the non-bridging adversarials among themselves by proximity so two
-    # Codex findings at the same site dedup into one group (attribution stays 1
-    # unless a native joined — which, by construction here, it did not).
-    adv_parent = list(range(len(standalone_adversarials)))
-
-    def adv_find(i):
-        root = i
-        while adv_parent[root] != root:
-            root = adv_parent[root]
-        while adv_parent[i] != root:
-            adv_parent[i], i = root, adv_parent[i]
-        return root
-
-    for i in range(len(standalone_adversarials)):
-        for j in range(i + 1, len(standalone_adversarials)):
-            if _line_close(standalone_adversarials[i],
-                           standalone_adversarials[j]):
-                ri, rj = adv_find(i), adv_find(j)
-                if ri != rj:
-                    adv_parent[ri] = rj
-
-    adv_comp_index = {}
-    for i in range(len(standalone_adversarials)):
-        root = adv_find(i)
-        if root not in adv_comp_index:
-            adv_comp_index[root] = len(components)
-            components.append({"members": [], "attribution": [], "domain": None})
-        comp = components[adv_comp_index[root]]
-        f = standalone_adversarials[i]
-        comp["members"].append(f)
-        agent = f.get("agent")
-        if agent is not None and agent not in comp["attribution"]:
-            comp["attribution"].append(agent)
-
-    # Return the canonical {"members","attribution"} shape (drop the internal
-    # "domain" bookkeeping key) so run() is unchanged.
-    return [{"members": c["members"], "attribution": c["attribution"]}
-            for c in components]
+    return components
 
 
 # --------------------------------------------------------------------------- #
@@ -1164,9 +1034,10 @@ def run(envelope):
 
     Steps (mirroring review.md Phase 3):
       - merge carryforward findings into the working set, computing their status
-        (fixed-since-last excluded; persisted flagged for +15; needs-recheck kept)
-      - group / dedup to establish attribution BEFORE final scoring (cross-confirm
-        +10 needs attribution length)
+        (fixed-since-last excluded; persisted flagged for +15; needs-recheck kept);
+        each carried row's `members` is expanded into findings of their own
+      - group by site (file, ±2 lines) BEFORE final scoring; the +10 needs a
+        Codex + Claude pair with the envelope codex block joined (D-01)
       - recompute in_diff (from changed_line_ranges) / in_reviewed_set (from
         reviewed_union + file_line_totals when all_mode) and silenced (from
         source_window), overriding agent self-reports (hard rule #4)
@@ -1276,16 +1147,32 @@ def run(envelope):
     # `status` at the same trust boundary. Carryforward entries are untouched —
     # their status is ALWAYS recomputed by carry_forward_status below, never read
     # from the input.
-    findings = [{k: v for k, v in f.items() if k != "status"} for f in findings]
+    # `members` (H-LANE, v2.10 Wave 1) is scrubbed at the same boundary: it is
+    # provenance the report renders as "flagged by" and Phase-43 scoring credits
+    # for the axis (SUPERSESSIONS-v2.10.md 007), so an agent-supplied value is
+    # forged provenance (T-41-32). Only orchestrator-supplied carryforward entries
+    # (05-state.md forwards the persisted findings[] whole) may carry a prior-pass
+    # `members`, and it is consumed ONLY by _expand_members (shape-validated,
+    # never raises).
+    findings = [{k: v for k, v in f.items() if k not in ("status", "members")}
+                for f in findings]
 
     # --- Carry-forward (review.md:672-678) ----------------------------------- #
     # Each carryforward finding carries a pre-resolved canonical_line_content
     # (the orchestrator read HEAD). null => fixed-since-last (excluded).
+    # H-LANE (v2.10 Wave 1): every carried row is expanded into its members
+    # first; each member was evaluated at its OWN line by the orchestrator
+    # (30-collect-score.md step 0) and is scored on its own facts, so an absorbed
+    # defect is never dropped because its lead was fixed, suppressed or fell
+    # below threshold. The representative itself is carried exactly as before;
+    # survivors regroup by site below. A working finding never carries `members`
+    # — the group loop rebuilds it from the scored members.
     persisted_ids = set()
     working = []
     for cf in carryforward:
+        rep = {k: v for k, v in cf.items() if k != "members"}
         status = carry_forward_status(
-            cf, cf.get("canonical_line_content"), cf.get("canonical_window")
+            rep, cf.get("canonical_line_content"), cf.get("canonical_window")
         )
         if status == "fixed-since-last":
             fixed_since_last.append({
@@ -1295,13 +1182,18 @@ def run(envelope):
                 "band": cf.get("band"),
                 "first_pass_N": cf.get("first_pass_N"),
             })
-            continue
-        # persisted / needs-recheck both flow through scoring (review.md:678).
-        cf = dict(cf)
-        cf["status"] = status
-        if status == "persisted":
-            persisted_ids.add(id(cf))
-        working.append(cf)
+        else:
+            # persisted / needs-recheck both flow through scoring (review.md:678).
+            rep["status"] = status
+            if status == "persisted":
+                persisted_ids.add(id(rep))
+            working.append(rep)
+        expanded, fixed = _expand_members(cf)
+        fixed_since_last.extend(fixed)
+        for p in expanded:
+            if p["status"] == "persisted":
+                persisted_ids.add(id(p))
+            working.append(p)
     working.extend(findings)
 
     # --- min_confidence pre-scoring filter (CONF-02, D-03) — BEFORE cross-confirm #
@@ -1381,18 +1273,22 @@ def run(envelope):
                 _bare_seen.add(key)
                 bare_marker_keys.append(key)
 
-    # --- Cross-confirm grouping BEFORE scoring (attribution drives +10) ------- #
+    # --- Site grouping BEFORE scoring (H-LANE; provenance drives the +10) ---- #
     groups = cross_confirm_group(working)
 
+    lone_cap = _lone_lane_cap(thresholds)
     survivors = []
     for g in groups:
         attribution = list(g["attribution"])
-        cross_confirmed = len(attribution) >= 2
+        # scoring.md:18 (D-01): the +10 needs a second opinion — a Codex member
+        # (envelope-verified) AND a Claude-lane member at the site. Claude<->Claude
+        # agreement at one site is one correlated voter and earns nothing.
+        cross_confirmed = _codex_corroborated(g["members"], codex_joined)
         # D-01 second opinion, computed BEFORE scoring: it gates both the
         # B-REWEIGHT offset (per member) and the B-SEV ceiling (per group).
         second_opinion = _second_opinion(g["members"], codex_joined, persisted_ids)
-        # Keep the highest-scored member as the surviving representative; score
-        # every member first so "highest-scored" is well-defined.
+        # Score every member first so the representative (the sort below) is
+        # well-defined.
         scored_members = []
         for member in g["members"]:
             decision = _score_member(
@@ -1408,48 +1304,56 @@ def run(envelope):
                     "reason": decision["reason"],
                 })
             else:
-                scored_members.append((decision["score"], member, decision))
+                raw = decision["score"]
+                # B-SEV (v2.10 Wave 1, D-02): a group with no second opinion
+                # (Codex-corroborated or persisted, D-01) tops out at critical
+                # floor - 1. The cap is the SCORE, so band_for stays the single
+                # band writer; it is identical for every member because
+                # second_opinion is a group property.
+                capped = raw
+                if lone_cap is not None and not second_opinion:
+                    capped = min(raw, lone_cap)
+                # Per-member effective band: the idiom cap keyed on THIS member's
+                # own category, so it never leaks onto a co-located non-idiom
+                # member (T-41-33).
+                eff = _effective_band(member, capped, thresholds, idiom_floor)
+                scored_members.append((capped, member, decision, eff, raw))
         if not scored_members:
             continue
-        # Highest score wins. Tie-break (Fable A4): the old stable sort kept
-        # whichever tied member arrived FIRST, so among equal-score members the
-        # emitted representative — and its stable_hash, the key that persists a
-        # medium acknowledgment — depended on agent-return order; a Medium the
-        # owner dismissed could silently re-surface as unacknowledged on a pass
-        # where the agents returned in a different order. Equal scores now
-        # tie-break on each member's OWN stable_hash, which is derived purely
-        # from finding content, so the representative (and dismissal key) is
-        # identical across every input ordering.
+        # Representative: the strongest EFFECTIVE band leads, then the highest
+        # (capped, then uncapped) score, then the member's OWN stable_hash
+        # (Fable A4: the old stable sort kept whichever tied member arrived
+        # FIRST, so the dismissal key depended on agent-return order), then the
+        # agent name — the final tie-break for two lanes reporting one title at
+        # one line (equal hash), so the pick never depends on arrival order.
+        # For a single-category group without the cap this is the old
+        # score-then-hash order. The uncapped key keeps the highest raw score
+        # leading among members the ceiling equalizes, so the finalize cutoff
+        # below still judges the group's best uncapped score.
         scored_members.sort(key=lambda t: (
+            -_BAND_SEVERITY.get(t[3], 0),
             -t[0],
+            -t[4],
             stable_hash(t[1].get("file", ""), t[2]["canonical_for_hash"],
                         t[1].get("title", "")),
+            t[1].get("agent") if isinstance(t[1].get("agent"), str) else "",
         ))
-        best_score, best_member, best_decision = scored_members[0]
+        best_score, best_member, best_decision, best_band, best_raw = scored_members[0]
         # The per-command finalize cutoff below judges the UNCAPPED score: the
         # lone-lane ceiling lowers the band label, it never drops a finding (a
         # config-tuned critical floor may sit below the /review cutoff).
-        surface_score = best_score
-        # B-SEV (v2.10 Wave 1, D-02): cap the SCORE so band_for stays the single
-        # band writer — do not add a band branch. A group with no second opinion
-        # (Codex-corroborated or persisted, D-01) tops out at critical floor - 1.
-        lone_cap = _lone_lane_cap(thresholds)
-        if lone_cap is not None and not second_opinion:
-            best_score = min(best_score, lone_cap)
+        surface_score = best_raw
         # Members that lost the dedup are absorbed into the survivor; each loser
         # is RECORDED in filtered[] below (Fable A2) once the survivor's
         # stable_hash exists to point at.
         survivor = dict(best_member)
         survivor["orchestrator_score"] = best_score
-        survivor["band"] = band_for(best_score, thresholds)
-        # v2.8 idiom_floor cap (NOISE-01, D-01/D-02): the ONE post-band adjustment.
-        # band_for above stays the single band WRITER; this LOWERS the label of an
-        # `idiom`-category survivor to idiom_floor (default "medium", A1), scoped to
-        # category=="idiom" and never touching `category` or `orchestrator_score`
-        # (so GOLDEN_DIGEST / stable_hash / non-idiom bands stay byte-stable). Do
-        # NOT add a second band-computation branch elsewhere.
-        survivor["band"] = _cap_idiom_band(
-            survivor.get("category"), survivor["band"], idiom_floor)
+        # band_for stays the single band WRITER and the idiom cap the ONE
+        # post-band adjustment (NOISE-01), both applied per member above by that
+        # member's OWN category — so the row's band is the strongest applicable
+        # member band, and a security warning absorbed with a higher-scoring
+        # idiom finding stays warning under any idiom_floor.
+        survivor["band"] = best_band
         survivor["attribution"] = attribution
         survivor["stable_hash"] = stable_hash(
             survivor.get("file", ""),
@@ -1458,14 +1362,27 @@ def run(envelope):
         )
         if "status" not in survivor:
             survivor["status"] = "new"
+        # H-LANE (D-14): every lane's own record rides on the row — the survivor
+        # first, then the absorbed members in scored order, de-duplicated by
+        # each member's lane-aware occurrence identity (never by (agent, title),
+        # never by stable_hash alone, never without the agent).
+        members = []
+        seen = set()
+        for _, m, _, _, _ in scored_members:
+            ident = _finding_identity(m)
+            if ident in seen:
+                continue
+            seen.add(ident)
+            members.append(_member_ref(m))
+        survivor["members"] = members
         # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
         # appended to NEITHER findings NOR filtered[] — so when two DISTINCT
-        # same-domain defects landed within ±2 lines, the real second bug was
+        # defects landed within ±2 lines, the real second bug was
         # unrecoverable, violating the "never silently drop" principle. Each
         # loser is still absorbed (one survivor per group) but is now RECORDED
         # in filtered[] with a reason naming its survivor's stable_hash, so the
         # owner can see what was folded into what.
-        for _, loser, _ in scored_members[1:]:
+        for _, loser, _, _, _ in scored_members[1:]:
             filtered.append({
                 "file": loser.get("file"),
                 "line": loser.get("line"),
@@ -1502,8 +1419,8 @@ def run(envelope):
     # it is regenerated fresh each pass, never carried-and-double-counted
     # (impact-01). Its `line` may be null for a file-level marker (NEW-1) — neither
     # gate requires a non-null line, so it still passes both.
-    # category "suppression" is NOT in CATEGORY_DOMAIN, so it maps to no domain and
-    # never cross-confirms (+10) nor is capped by idiom_floor.
+    # category "suppression" is emitted here, after grouping, so it never joins a
+    # site row, never earns the +10 and is never capped by idiom_floor.
     for file, marker_line in bare_marker_keys:
         file_str = file if isinstance(file, str) else ""
         kept.append({
@@ -1683,10 +1600,7 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     # canonical content used for the stable hash: prefer the orchestrator-resolved
     # canonical_line_content (carryforward path); else fall back to the finding's
     # own first current_code line (diff-mode findings carry no separate canonical).
-    canonical = member.get("canonical_line_content")
-    if canonical is None:
-        canonical = _first_line(member.get("current_code", ""))
-    canonical_for_hash = canonical if canonical is not None else ""
+    canonical_for_hash = _canonical_for_hash(member)
 
     if all_mode:
         # in_reviewed_set: file in the dispatched union AND 1 <= line <= N.

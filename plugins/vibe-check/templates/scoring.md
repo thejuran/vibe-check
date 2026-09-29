@@ -15,7 +15,7 @@ orchestrator_score = agent_confidence
   + 20  if finding.agent == "compliance"  (rule-citation bonus — the compliance agent quotes the rule in `problem`)
   − 30  if intent_doc_match.confidence > 0.7  (intent-doc partial match)
   − 100 if intent_doc_match.confidence > 0.9  (intent-doc strong match — REPLACES the −30 above, does not stack)
-  + 10  if cross-confirmed by 2+ agents
+  + 10  if corroborated by a second opinion: a codex-adversarial member AND a Claude-lane member at the same site (provenance = envelope codex.status == "joined"); Claude↔Claude agreement earns nothing (D-01)
   + 15  if persisted from previous pass
 
   + severity weight (applied last, before clamp):
@@ -91,3 +91,13 @@ A finding group has a **second opinion** when either holds:
   - architecture: -6
   - bugs: -2
   - impact: -12
+
+### Site grouping (H-LANE, D-03/D-14)
+
+- A **site** is the same file within ±2 lines. Every lane at one site — native Claude agents and Codex alike — is ONE surviving row; category no longer affects grouping.
+- The row is led by the member with the strongest EFFECTIVE band (its score after the lone-lane ceiling → `band_for` → the idiom cap by that member's OWN category), then the highest score, then the `stable_hash` tie-break, then the agent name — so an idiom-capped member never drags a co-located security warning down, and the pick never depends on arrival order.
+- `attribution` lists every lane; `members` carries every lane's own record, rendered as its title (survivor first, then the absorbed members in scored order). Members are de-duplicated by each member's own lane-aware occurrence identity `(agent, stable_hash(file, canonical, title), line)` — never by (agent, title), never by `stable_hash` alone, and never by `(stable_hash, line)` without the agent: two identical lines with one title are two members, and two lanes at one line with one title are two members. An agent-supplied `members` on a fresh finding is stripped at ingress exactly like `status`.
+- On a later pass every carried row is expanded into its members first: each member is carried on its OWN HEAD read (line + window, the same `carry_forward_status` compare as any finding) and scored on its own facts, so a still-valid member outlives a lead that was fixed, suppressed at its own line or fell sub-threshold, and re-collapses with a lead that survives. A member whose line is gone is recorded in `fixed_since_last`.
+- Absorbed members are recorded in `filtered[]` as `absorbed-into: <hash>` — never silently dropped.
+
+**Freeze lift (v2.10 Wave 1):** the formula freeze lifted for exactly three changes — B-SEV, B-REWEIGHT and H-LANE; every other constant (weights, bonuses, band cutoffs, per-command thresholds) stays frozen. Each change was guarded by an offline replay against the archived B3 runs (`scripts/replay.py`, `docs/design/b3-ground-truth/REPLAY-REPORT-phase41-*.md`) with zero catch regressions on the strict-axis basis recorded in `docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md` entry 007. The B-REWEIGHT offsets are derived, not tuned (`docs/design/b3-ground-truth/CALIBRATION-v2.10.md`). Scope source: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md` D-07.

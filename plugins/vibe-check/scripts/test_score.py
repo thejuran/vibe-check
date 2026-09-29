@@ -28,6 +28,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config  # noqa: E402  (sibling module — the config→envelope→score proof)
 import score  # noqa: E402  (sibling module under test)
+import replay  # noqa: E402  (sibling — loads the pre-H-LANE scorer blob for rollback proofs)
+import state_shape  # noqa: E402  (sibling — the persisted-envelope key-set checker)
+from unittest import mock  # noqa: E402
 
 SCORE_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "score.py")
 
@@ -38,6 +41,11 @@ SCORE_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "score.py")
 # any drift silently breaks them; Pitfall 4). Both golden-digest tests reference
 # this one constant so the frozen value lives in exactly ONE place.
 GOLDEN_DIGEST = "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124"
+
+# The score.py blob at the 41-05 commit (0ee3818) — the last scorer before H-LANE.
+# Content-addressed and immutable: the rollback and mutation proofs run the REAL
+# pre-H-LANE code through replay.load_scorer("blob:" + ...), never a stub.
+PRE_HLANE_SCORER_BLOB = "0f6852ad24a199ee1a556d5595d7f69ce64663cc"
 
 
 # --------------------------------------------------------------------------- #
@@ -769,9 +777,19 @@ class TestSuppressionFinding(unittest.TestCase):
         result = self._run(fs)
         self.assertEqual(len(self._supp(result)), 1)
 
-    # --- no cross-confirm / maps to no domain -------------------------------- #
-    def test_suppression_category_maps_to_no_domain(self):
-        self.assertIsNone(score._category_domain("suppression"))
+    # --- no cross-confirm / never joins a site row ---------------------------- #
+    def test_suppression_category_never_joins_a_site_row(self):
+        # v2.10 Wave 1 H-LANE (D-03): the domain map is retired; the synthetic
+        # suppression finding is emitted AFTER grouping, so it never joins a
+        # site row (no members) and stands alone next to its host.
+        self.assertFalse(hasattr(score, "_category_domain"))
+        f = make_finding(id="host", line=10, agent_confidence=100,
+                         severity="critical",
+                         source_window=["a", "b", "// vibe-ignore", "d", "e"])
+        result = self._run([f])
+        s = self._supp(result)[0]
+        self.assertNotIn("members", s)
+        self.assertEqual(s["attribution"], ["vibe-check"])
 
     def test_synthetic_attribution_never_cross_confirms(self):
         f = make_finding(id="host", line=10, agent_confidence=100,
@@ -1247,25 +1265,36 @@ class TestCrossConfirmGroup(unittest.TestCase):
         self.assertEqual(len(groups[0]["attribution"]), 2)
 
     # --- Test 2: no-confirm, different domain ----------------------------- #
-    def test_different_domain_co_located_does_not_confirm(self):
-        # line 10 & 11, injection (security) + perf (impact) => TWO groups.
+    def test_different_domain_co_located_is_one_site(self):
+        # line 10 & 11, injection (security) + perf (impact) => ONE group.
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category
         a = make_finding(id="a", file="src/a.py", line=10, category="injection",
                          agent="security")
         b = make_finding(id="b", file="src/a.py", line=11, category="perf",
                          agent="impact")
         groups = score.cross_confirm_group([a, b])
-        self.assertEqual(len(groups), 2)
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["attribution"], ["security", "impact"])
 
     # --- Test 3: title game is dead --------------------------------------- #
-    def test_identical_title_different_domain_not_grouped(self):
-        # IDENTICAL title but injection (security) + duplication (design) -> TWO
-        # groups. A shared title token alone can NEVER fire a confirmation (D-01).
+    def test_identical_title_different_domain_one_site_no_plus_ten(self):
+        # IDENTICAL title, injection (security) + duplication (design) at one
+        # site -> ONE group, but a shared title (or a shared site) between two
+        # Claude lanes can NEVER fire the +10 (D-01): the row scores exactly as
+        # the best lone lane.
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category
         a = make_finding(id="a", file="src/a.py", line=10, title="SQL injection",
                          category="injection", agent="security")
         b = make_finding(id="b", file="src/a.py", line=11, title="SQL injection",
                          category="duplication", agent="design")
         groups = score.cross_confirm_group([a, b])
-        self.assertEqual(len(groups), 2)
+        self.assertEqual(len(groups), 1)
+        env = lambda fs: {"command": "deep-review", "changed_line_ranges": {},
+                          "carryforward": [], "findings": fs}
+        both = score.run(env([dict(a), dict(b)]))["findings"]
+        alone = score.run(env([dict(a)]))["findings"]
+        self.assertEqual(len(both), 1)
+        self.assertEqual(both[0]["orchestrator_score"], alone[0]["orchestrator_score"])
 
     # --- Test 4: security <-> adversarial confirm ------------------------- #
     def test_security_and_adversarial_co_located_confirm(self):
@@ -1299,74 +1328,36 @@ class TestCrossConfirmGroup(unittest.TestCase):
                 self.assertEqual(len(groups[0]["attribution"]), 2)
 
     # --- Test 5: D-02 missing category = NON-overlap ---------------------- #
-    def test_missing_category_co_located_does_not_confirm(self):
+    def test_missing_category_co_located_groups_by_site(self):
         # A missing/None/non-str category co-located with a native security
-        # finding does NOT group (NON-overlap, D-02). run() does not raise.
+        # finding groups by site (category is not consulted). run() does not raise.
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category
         native = make_finding(id="sec", file="src/a.py", line=10,
                               category="injection", agent="security")
+        env = lambda fs: {"command": "deep-review", "changed_line_ranges": {},
+                          "carryforward": [], "findings": fs}
         for bad in (None, 12345, ["x"], {"k": "v"}):
             with self.subTest(bad=bad):
                 other = make_finding(id="bad", file="src/a.py", line=11,
                                      category=bad, agent="bugs")
                 groups = score.cross_confirm_group([native, other])
-                self.assertEqual(len(groups), 2)
+                self.assertEqual(len(groups), 1)
+                score.run(env([dict(native), other]))
         # missing-key variant
         other = make_finding(id="nokey", file="src/a.py", line=11, agent="bugs")
         del other["category"]
         groups = score.cross_confirm_group([native, other])
-        self.assertEqual(len(groups), 2)
+        self.assertEqual(len(groups), 1)
 
-    def test_unknown_category_co_located_does_not_confirm(self):
-        # An unknown (not-in-map) category maps to NO domain => NON-overlap.
+    def test_unknown_category_co_located_groups_by_site(self):
+        # An unknown category is no longer special: one site, one group.
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category
         native = make_finding(id="sec", file="src/a.py", line=10,
                               category="injection", agent="security")
         other = make_finding(id="unk", file="src/a.py", line=11,
                              category="totally-made-up-category", agent="bugs")
         groups = score.cross_confirm_group([native, other])
-        self.assertEqual(len(groups), 2)
-
-    # --- Test 6 (PERMUTATION / BLOCKER-2 core): ambiguous multi-domain ---- #
-    def test_ambiguous_multi_domain_adversarial_bridges_nothing(self):
-        # A line 10 injection (security), B line 12 adversarial, C line 14
-        # duplication (design). B is co-located with BOTH A (security) and C
-        # (design) — |12-14|=2 — so B sees TWO distinct native domains and
-        # bridges NEITHER. A and C both emit alone, no +10, in EVERY ordering.
-        a = make_finding(id="A", file="src/a.py", line=10, category="injection",
-                         agent="security", agent_confidence=85, severity="critical",
-                         source_window=["a", "b", "c", "d", "e"])
-        b = make_finding(id="B", file="src/a.py", line=12, category="adversarial",
-                         agent="codex-adversarial", agent_confidence=85,
-                         severity="critical",
-                         source_window=["a", "b", "c", "d", "e"])
-        c = make_finding(id="C", file="src/a.py", line=14, category="duplication",
-                         agent="design", agent_confidence=85, severity="critical",
-                         source_window=["a", "b", "c", "d", "e"])
-        for perm in itertools.permutations([a, b, c]):
-            with self.subTest(perm=[f["id"] for f in perm]):
-                groups = score.cross_confirm_group(list(perm))
-                # No group has 2+ attribution (no cross-confirm anywhere).
-                for g in groups:
-                    self.assertLess(len(g["attribution"]), 2)
-                # Through run(): A and C both survive (>=70), neither absorbed,
-                # neither +10'd. B (adversarial, no bridge) also survives alone.
-                envelope = {
-                    "command": "deep-review",
-                    "all_mode": False,
-                    "pass_number": 1,
-                    "changed_line_ranges": {},
-                    "carryforward": [],
-                    "findings": list(perm),
-                }
-                result = score.run(envelope)
-                ids = {g["id"]: g for g in result["findings"]}
-                self.assertIn("A", ids)
-                self.assertIn("C", ids)
-                # No +10: A's score is exactly its lone value (85 +0 critical = 85).
-                self.assertEqual(ids["A"]["orchestrator_score"], 85)
-                self.assertEqual(ids["C"]["orchestrator_score"], 85)
-                # Attribution on each survivor is single-agent (no cross-confirm).
-                self.assertLess(len(ids["A"]["attribution"]), 2)
-                self.assertLess(len(ids["C"]["attribution"]), 2)
+        self.assertEqual(len(groups), 1)
 
     def test_single_co_located_domain_adversarial_bridges_every_ordering(self):
         # A line 10 injection (security), B line 11 adversarial, C line 20
@@ -1408,119 +1399,21 @@ class TestCrossConfirmGroup(unittest.TestCase):
                 }
                 result = score.run(envelope)
                 ids = {g["id"]: g for g in result["findings"]}
-                # A survives with the +10 cross-confirm (B absorbed into A's group).
-                self.assertIn("A", ids)
-                self.assertEqual(ids["A"]["orchestrator_score"], 95)
-                self.assertEqual(len(ids["A"]["attribution"]), 2)
+                # v2.10 Wave 1 H-LANE (D-03): the site is one row with the +10
+                # (codex + Claude, D-01). A and B tie on band, score and
+                # stable_hash (same title and line text), so the agent name is
+                # the final tie-break: "codex-adversarial" < "security" => B
+                # leads in every ordering, and A rides on the row as a member.
+                self.assertIn("B", ids)
+                self.assertNotIn("A", ids)
+                self.assertEqual(ids["B"]["orchestrator_score"], 95)
+                self.assertEqual(len(ids["B"]["attribution"]), 2)
+                self.assertEqual([m["agent"] for m in ids["B"]["members"]],
+                                 ["codex-adversarial", "security"])
                 # C is unrelated, emits alone with no +10.
                 self.assertIn("C", ids)
                 self.assertEqual(ids["C"]["orchestrator_score"], 85)
                 self.assertLess(len(ids["C"]["attribution"]), 2)
-
-    # --- W1 (a): multi-adversarial relay must NOT bridge ------------------ #
-    def test_second_adversarial_does_not_relay_via_first_every_ordering(self):
-        # native@10 (security), adv1@11 (1 away from native -> bridges),
-        # adv2@13 (3 away from native, but only 2 away from adv1). adv2 must NOT
-        # relay-bridge into the native via adv1 — proximity is measured against
-        # NATIVE-origin members only, so |13-10|=3>2 means adv2 stands alone with
-        # NO spurious +10, in EVERY input ordering.
-        native = make_finding(id="N", file="src/a.py", line=10,
-                              category="injection", agent="security",
-                              agent_confidence=85, severity="critical",
-                              source_window=["a", "b", "c", "d", "e"])
-        adv1 = make_finding(id="A1", file="src/a.py", line=11,
-                            category="adversarial", agent="codex-adversarial",
-                            agent_confidence=85, severity="critical",
-                            source_window=["a", "b", "c", "d", "e"])
-        adv2 = make_finding(id="A2", file="src/a.py", line=13,
-                            category="adversarial", agent="codex-adversarial",
-                            agent_confidence=85, severity="critical",
-                            source_window=["a", "b", "c", "d", "e"])
-        for perm in itertools.permutations([native, adv1, adv2]):
-            with self.subTest(perm=[f["id"] for f in perm]):
-                groups = score.cross_confirm_group(list(perm))
-                # Locate the group containing the native finding.
-                native_group = next(
-                    g for g in groups if any(m["id"] == "N" for m in g["members"])
-                )
-                # adv2 is NOT a member of the native's group (no relay).
-                member_ids = {m["id"] for m in native_group["members"]}
-                self.assertNotIn("A2", member_ids)
-                # adv1 DID bridge (1 away) -> native group attribution is 2.
-                self.assertIn("A1", member_ids)
-                self.assertEqual(
-                    sorted(native_group["attribution"]),
-                    ["codex-adversarial", "security"],
-                )
-                # Through run(): native gets exactly ONE +10 (85+10=95). adv2
-                # stands alone, NO +10 (85). Order-independent.
-                envelope = {
-                    "command": "deep-review",
-                    "all_mode": False,
-                    "pass_number": 1,
-                    "changed_line_ranges": {},
-                    "carryforward": [],
-                    "findings": list(perm),
-                    # The Codex pass joined (orchestrator-set block): see above.
-                    "codex": {"status": "joined"},
-                }
-                result = score.run(envelope)
-                ids = {g["id"]: g for g in result["findings"]}
-                self.assertIn("N", ids)
-                self.assertEqual(ids["N"]["orchestrator_score"], 95)
-                self.assertIn("A2", ids)
-                self.assertEqual(ids["A2"]["orchestrator_score"], 85)
-                self.assertLess(len(ids["A2"]["attribution"]), 2)
-
-    # --- W1 (b): one domain across two disconnected components, deterministic #
-    def test_single_domain_two_components_adversarial_deterministic(self):
-        # security@10 and security@14 are the SAME domain but |10-14|=4>2, so
-        # they are TWO disconnected native components. adv@12 is co-located with
-        # BOTH (|12-10|=2 and |12-14|=2). Even though there is ONE domain, it is
-        # split across two components, so WHICH one would get the +10 is
-        # ambiguous -> DROP the bridge (consistent with the multi-domain
-        # ambiguity drop). The SAME deterministic outcome must hold in EVERY
-        # ordering: no group has 2+ attribution; both natives emit alone (85),
-        # adv emits alone (85).
-        s10 = make_finding(id="S10", file="src/a.py", line=10,
-                           category="injection", agent="security",
-                           agent_confidence=85, severity="critical",
-                           source_window=["a", "b", "c", "d", "e"])
-        s14 = make_finding(id="S14", file="src/a.py", line=14,
-                           category="auth", agent="security",
-                           agent_confidence=85, severity="critical",
-                           source_window=["a", "b", "c", "d", "e"])
-        adv = make_finding(id="ADV", file="src/a.py", line=12,
-                           category="adversarial", agent="codex-adversarial",
-                           agent_confidence=85, severity="critical",
-                           source_window=["a", "b", "c", "d", "e"])
-        for perm in itertools.permutations([s10, s14, adv]):
-            with self.subTest(perm=[f["id"] for f in perm]):
-                groups = score.cross_confirm_group(list(perm))
-                # No cross-confirm anywhere (ambiguous => +10 dropped).
-                for g in groups:
-                    self.assertLess(len(g["attribution"]), 2)
-                # Through run(): both natives + the adv all emit alone at 85,
-                # deterministically, in every ordering.
-                envelope = {
-                    "command": "deep-review",
-                    "all_mode": False,
-                    "pass_number": 1,
-                    "changed_line_ranges": {},
-                    "carryforward": [],
-                    "findings": list(perm),
-                }
-                result = score.run(envelope)
-                ids = {g["id"]: g for g in result["findings"]}
-                self.assertIn("S10", ids)
-                self.assertIn("S14", ids)
-                self.assertIn("ADV", ids)
-                self.assertEqual(ids["S10"]["orchestrator_score"], 85)
-                self.assertEqual(ids["S14"]["orchestrator_score"], 85)
-                self.assertEqual(ids["ADV"]["orchestrator_score"], 85)
-                self.assertLess(len(ids["S10"]["attribution"]), 2)
-                self.assertLess(len(ids["S14"]["attribution"]), 2)
-                self.assertLess(len(ids["ADV"]["attribution"]), 2)
 
     # --- Test 7: defensive — category=None through run() ------------------ #
     def test_none_category_flows_through_run_without_raising(self):
@@ -1539,218 +1432,6 @@ class TestCrossConfirmGroup(unittest.TestCase):
         self.assertTrue(result["scored_by_script"])
         ids = {g["id"]: g for g in result["findings"]}
         self.assertIn("none-cat", ids)
-
-
-# --------------------------------------------------------------------------- #
-# _categories_overlap (ROBUST-02) — the domain-overlap predicate in isolation
-# --------------------------------------------------------------------------- #
-class TestCategoriesOverlap(unittest.TestCase):
-    def test_same_domain_overlaps(self):
-        # Both map to "security".
-        self.assertTrue(score._categories_overlap("injection", "auth"))
-
-    def test_different_domain_does_not_overlap(self):
-        # security vs impact.
-        self.assertFalse(score._categories_overlap("injection", "perf"))
-
-    def test_missing_or_non_str_is_non_overlap(self):
-        # D-02: missing/None/non-str/unknown -> NON-overlap, never raises.
-        for bad in (None, 5, ["x"], {"k": 1}, "unknown-cat"):
-            with self.subTest(bad=bad):
-                self.assertFalse(score._categories_overlap(bad, "injection"))
-                self.assertFalse(score._categories_overlap("injection", bad))
-
-    def test_adversarial_is_not_a_wildcard_domain(self):
-        # `adversarial` is NOT given a domain in the map; it is handled by the
-        # separate bridge, so _categories_overlap('adversarial', X) is False.
-        self.assertFalse(score._categories_overlap("adversarial", "injection"))
-        self.assertFalse(score._categories_overlap("adversarial", "adversarial"))
-
-    def test_test_coverage_is_standalone(self):
-        # test-sufficiency's only category (`test-coverage`) is deliberately NOT
-        # in CATEGORY_DOMAIN: it stands on its own score and must NEVER
-        # cross-confirm with (and thereby absorb) a co-located finding from
-        # another agent. Regression lock for the v2.5 integration-check
-        # observation — if a future edit added `test-coverage` to the domain
-        # map, this fails loudly instead of silently shipping a spurious +10.
-        self.assertIsNone(score._category_domain("test-coverage"))
-        for other in ("null-access", "injection", "type-safety", "perf",
-                      "test-coverage"):
-            with self.subTest(other=other):
-                self.assertFalse(
-                    score._categories_overlap("test-coverage", other))
-
-    def test_react_hooks_twin_cross_confirms_others_standalone(self):
-        # framework-react cross-confirm policy (v2.5): ONLY the genuine
-        # cross-agent twins are mapped — `hooks` (twin of language-typescript's
-        # `react-hook`, both "style") and `perf` (twin of `perf`, both
-        # "impact"). The non-twin React-idiom categories `rendering`,
-        # `controlled-uncontrolled`, `a11y` are deliberately UNMAPPED so a
-        # distinct React finding can never be folded into the broad "style"
-        # bucket and silently absorb an unrelated co-located TS style finding.
-        # Locks the corrected (tightened) behavior so a future re-broadening
-        # regresses loudly.
-        self.assertTrue(score._categories_overlap("hooks", "react-hook"))   # headline twin
-        self.assertTrue(score._categories_overlap("perf", "perf"))          # impact twin
-        for standalone in ("rendering", "controlled-uncontrolled", "a11y"):
-            with self.subTest(standalone=standalone):
-                self.assertIsNone(score._category_domain(standalone))
-                # must NOT overlap an unrelated co-located TS "style" finding
-                self.assertFalse(
-                    score._categories_overlap(standalone, "type-safety"))
-
-    def test_electron_ipc_validation_twin_cross_confirms_others_standalone(self):
-        # framework-electron twin policy (v2.7, D-06): this is the FIRST REAL
-        # v2.7 twin — the express/vue/angular tests above are NO-twin locks.
-        # EXACTLY ONE electron category is mapped: `ipc-validation` -> "security".
-        # An Electron IPC handler that flows a renderer-supplied arg into a sink
-        # IS a security defect, so it correctly co-locates with — and
-        # cross-confirms — security's own injection/path-traversal findings,
-        # earning the +10. Because _categories_overlap compares only the COARSE
-        # domain, ipc-validation inherits the FULL "security"-domain blast radius
-        # (adversarial-review finding, folded in): it cross-confirms with — and,
-        # per cross_confirm_group, can absorb within ±2 lines — EVERY
-        # "security"-domain category, not just injection/path-traversal. This is
-        # the SAME behavior every existing security category already has (see
-        # test_same_domain_co_located_confirms: injection already overlaps
-        # auth/secrets/xss/etc.) and it is exactly correct. Assert the broad
-        # overlap explicitly so a future reader does not mistake the twin for a
-        # narrow two-category link.
-        self.assertEqual(score._category_domain("ipc-validation"), "security")
-        for sec in ("security", "injection", "path-traversal", "auth",
-                    "data-exposure", "xss", "secrets", "ssrf"):
-            with self.subTest(security_domain=sec):
-                self.assertTrue(
-                    score._categories_overlap("ipc-validation", sec))
-        # The OTHER FIVE electron categories are deliberately UNMAPPED — they
-        # resolve to None and stand alone, NEVER spuriously confirming (and thus
-        # absorbing) an unrelated co-located security or impact finding. If a
-        # future edit maps any of the five to a domain, this fails loudly.
-        electron_standalone = (
-            "webpreferences-hardening", "preload-exposure",
-            "navigation-safety", "content-loading", "process-hardening",
-        )
-        for c in electron_standalone:
-            with self.subTest(category=c):
-                self.assertIsNone(score._category_domain(c))
-                self.assertFalse(score._categories_overlap(c, "injection"))
-                self.assertFalse(score._categories_overlap(c, "perf"))
-
-    def test_react_native_list_perf_twin_cross_confirms_others_standalone(self):
-        # framework-react-native twin policy (v2.7, D-06): this is the SECOND
-        # REAL v2.7 twin (after electron's ipc-validation->security). EXACTLY ONE
-        # react-native category is mapped: `list-perf` -> "impact". An RN
-        # unbounded-list render IS a performance defect, so it correctly
-        # co-locates with — and cross-confirms — impact's own perf /
-        # perf-at-scale / blast-radius findings (and framework-react's "perf",
-        # also -> "impact"), earning the +10. Because _categories_overlap
-        # compares only the COARSE domain, list-perf inherits the FULL "impact"
-        # blast radius: it cross-confirms with — and, per cross_confirm_group,
-        # can absorb within ±2 lines — EVERY "impact"-domain category. The
-        # overlap targets below are the real impact-domain CATEGORY KEYS
-        # (perf, perf-at-scale, blast-radius, breaking-api, schema-change), NOT
-        # the bare "impact" DOMAIN NAME — "impact" is the domain VALUE, not a
-        # category key, so _category_domain of the bare "impact" string is None
-        # and overlapping list-perf against the bare "impact" name would be
-        # False (which is why it is NOT an overlap target below). (Contrast the
-        # electron test, which could use "security" as an overlap target only
-        # because security is self-keyed "security": "security".) Assert the
-        # mapping VALUE explicitly, then the broad overlap against the impact
-        # KEYS, so a future reader does not mistake the twin for a narrow link.
-        self.assertEqual(score._category_domain("list-perf"), "impact")
-        for impact_key in ("perf", "perf-at-scale", "blast-radius",
-                           "breaking-api", "schema-change"):
-            with self.subTest(impact_key=impact_key):
-                self.assertTrue(
-                    score._categories_overlap("list-perf", impact_key))
-        # The OTHER FIVE react-native categories are deliberately UNMAPPED — they
-        # resolve to None and stand alone, NEVER spuriously confirming (and thus
-        # absorbing) an unrelated co-located finding. The injection assertion is
-        # the expo-config-NOT-twinned-to-security regression lock (D-06 / ROADMAP
-        # #4): mapping any of the five — ESPECIALLY expo-config -> security —
-        # would fail loudly here.
-        react_native_standalone = (
-            "platform", "native-cleanup", "reanimated",
-            "expo-config", "native-component",
-        )
-        for c in react_native_standalone:
-            with self.subTest(category=c):
-                self.assertIsNone(score._category_domain(c))
-                self.assertFalse(score._categories_overlap(c, "perf"))
-                self.assertFalse(score._categories_overlap(c, "injection"))
-
-    def test_framework_express_categories_standalone(self):
-        # framework-express no-twin policy (v2.7, D-05): ALL SIX Express
-        # categories are deliberately UNMAPPED in CATEGORY_DOMAIN — none has a
-        # genuine cross-agent twin this phase, so each resolves to None and
-        # stands on its own honest score. Adding a twin would let an Express
-        # finding spuriously confirm — and silently absorb — an unrelated
-        # co-located finding from a native domain. This is the regression lock:
-        # if a future edit maps any of the six to a domain, this fails loudly.
-        # The first v2.7 twin lands in Phase 27 (electron ipc-validation ->
-        # security), NOT here. (framework-express)
-        express_categories = (
-            "middleware-order", "async-errors", "error-disclosure",
-            "security-headers", "input-validation", "request-lifecycle",
-        )
-        for c in express_categories:
-            with self.subTest(category=c):
-                # no twin: resolves to no domain
-                self.assertIsNone(score._category_domain(c))
-                # never spuriously confirms a native security finding
-                self.assertFalse(score._categories_overlap(c, "injection"))
-                # never spuriously confirms a native impact finding
-                self.assertFalse(score._categories_overlap(c, "perf"))
-
-    def test_framework_vue_categories_standalone(self):
-        # framework-vue no-twin policy (v2.7, D-05): ALL FIVE Vue categories
-        # are deliberately UNMAPPED in CATEGORY_DOMAIN — none has a genuine
-        # cross-agent twin this phase, so each resolves to None and stands on
-        # its own honest score. Adding a twin would let a Vue finding spuriously
-        # confirm — and silently absorb — an unrelated co-located finding from a
-        # native domain. This is the regression lock: if a future edit maps any
-        # of the five to a domain, this fails loudly. The first v2.7 twin lands
-        # in Phase 27 (electron ipc-validation -> security), NOT here.
-        # (framework-vue)
-        vue_categories = (
-            "reactivity", "composition-api", "lifecycle-cleanup",
-            "template", "props",
-        )
-        for c in vue_categories:
-            with self.subTest(category=c):
-                # no twin: resolves to no domain
-                self.assertIsNone(score._category_domain(c))
-                # never spuriously confirms a native security finding
-                self.assertFalse(score._categories_overlap(c, "injection"))
-                # never spuriously confirms a native impact finding
-                self.assertFalse(score._categories_overlap(c, "perf"))
-
-    def test_framework_angular_categories_standalone(self):
-        # framework-angular no-twin policy (v2.7, D-06): ALL FIVE Angular
-        # categories are deliberately UNMAPPED in CATEGORY_DOMAIN — none has a
-        # genuine cross-agent twin this phase, so each resolves to None and
-        # stands on its own honest score. Adding a twin would let an Angular
-        # finding spuriously confirm — and silently absorb — an unrelated
-        # co-located finding from a native domain. This is the regression lock:
-        # if a future edit maps any of the five to a domain, this fails loudly.
-        # The first v2.7 twin lands in Phase 27 (electron ipc-validation ->
-        # security), NOT here. (framework-angular)
-        #
-        # `lifecycle` subtlety: the generic word `lifecycle` is NOT a
-        # CATEGORY_DOMAIN key (only the unmapped `lifecycle-background` appears,
-        # in a comment) — the assertIsNone line locks it resolves to None.
-        angular_categories = (
-            "rxjs-leaks", "change-detection", "di-scope",
-            "lifecycle", "rxjs-composition",
-        )
-        for c in angular_categories:
-            with self.subTest(category=c):
-                # no twin: resolves to no domain
-                self.assertIsNone(score._category_domain(c))
-                # never spuriously confirms a native security finding
-                self.assertFalse(score._categories_overlap(c, "injection"))
-                # never spuriously confirms a native impact finding
-                self.assertFalse(score._categories_overlap(c, "perf"))
 
 
 # --------------------------------------------------------------------------- #
@@ -2083,20 +1764,23 @@ class TestRunMinConfidence(unittest.TestCase):
 
     def test_dropped_neighbor_supplies_no_cross_confirm(self):
         # A dropped sub-N finding co-located with a survivor twin (same file/line,
-        # overlapping category, DIFFERENT agent) must NOT lend its +10 cross-confirm
-        # to the survivor: the survivor's score equals the no-drop baseline where
-        # the low finding was simply absent.
-        # null-access -> "correctness" domain: two agents at the same file/line
-        # with overlapping domains cross-confirm (+10 when both are present).
+        # DIFFERENT lane) must NOT lend its +10 cross-confirm to the survivor: the
+        # survivor's score equals the no-drop baseline where the low finding was
+        # simply absent.
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category; the
+        # +10 now needs a Codex member (envelope-verified joined) AND a Claude
+        # lane (D-01), so the twin is the Codex lane and every run carries the
+        # orchestrator's `codex` block.
         survivor = make_finding(id="mc-surv", agent_confidence=85,
                                 severity="critical", file="src/c.py", line=30,
                                 category="null-access", agent="bugs")
         low_twin = make_finding(id="mc-twin", agent_confidence=50,
                                 severity="critical", file="src/c.py", line=30,
-                                category="null-access", agent="security")
+                                category="adversarial", agent="codex-adversarial")
+        joined = {"status": "joined"}
 
         # With min_confidence=70 the twin drops -> survivor scores alone (85, no +10).
-        with_drop = score.run(self._envelope(min_confidence=70,
+        with_drop = score.run(self._envelope(min_confidence=70, codex=joined,
                                              findings=[survivor, low_twin]))
         surv_scores = {g["id"]: g for g in with_drop["findings"]}
         self.assertIn("mc-surv", surv_scores)
@@ -2105,23 +1789,19 @@ class TestRunMinConfidence(unittest.TestCase):
         self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"], 85 + BUGS_OFF)
 
         # Baseline: the SAME run with the low twin simply absent (never in input).
-        baseline = score.run(self._envelope(findings=[survivor]))
+        baseline = score.run(self._envelope(codex=joined, findings=[survivor]))
         base_scores = {g["id"]: g for g in baseline["findings"]}
         self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"],
                          base_scores["mc-surv"]["orchestrator_score"])
 
         # Sanity: if the twin were NOT dropped (min_confidence below both), the
         # survivor WOULD get +10 (proves the drop is what suppresses the bonus).
-        confirmed = score.run(self._envelope(min_confidence=40,
+        # Codex + Claude with the block is a second opinion: no B-SEV cap and no
+        # B-REWEIGHT offset, so 85 + 10 = 95.
+        confirmed = score.run(self._envelope(min_confidence=40, codex=joined,
                                              findings=[survivor, low_twin]))
         conf_scores = {g["id"]: g for g in confirmed["findings"]}
-        # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
-        # floor - 1 (94). Two Claude lanes are ONE correlated voter, so 85+10=95 is
-        # capped; 94 != the 85 above still proves the +10 fired.
-        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF (no second opinion,
-        # so the offset applies) -> min(94, 95 + BUGS_OFF).
-        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"],
-                         min(94, 95 + BUGS_OFF))
+        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"], 95)
 
     def test_exactly_n_survives(self):
         # Strict `<`: a finding at exactly min_confidence SURVIVES; one at N-1 drops.
@@ -3022,7 +2702,7 @@ class TestSingleWriterLock(unittest.TestCase):
 class TestMalformedInputMatrix(unittest.TestCase):
     """T1-T21 malformed-shape pinning suite — locks the Wave-1 crash guards."""
 
-    GOOD_RANGES = {"src/a.py": [[8, 14]]}
+    GOOD_RANGES = {"src/a.py": [[8, 14]], "src/keep.py": [[8, 14]]}
 
     def _good_sibling(self, **over):
         # A high-confidence in-diff critical finding that always clears the
@@ -3034,6 +2714,13 @@ class TestMalformedInputMatrix(unittest.TestCase):
                         source_window=["a", "b", "c", "d", "e"])
         defaults.update(over)
         return make_finding(**defaults)
+
+    def _keep_sibling(self):
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category, so
+        # the "keep" probe sits at its OWN site (another file) — a malformed
+        # neighbour at src/a.py:10 would otherwise collapse into one row with it
+        # and the probe would read "absorbed", not "survived".
+        return self._good_sibling(file="src/keep.py")
 
     def _run(self, findings, carryforward=None, command="deep-review"):
         envelope = {
@@ -3064,7 +2751,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         for label, bad in (("str", "i am a string"), ("None", None),
                            ("list", [1, 2, 3]), ("int", 99)):
             with self.subTest(shape=label):
-                result = self._run([bad, self._good_sibling()])
+                result = self._run([bad, self._keep_sibling()])
                 self.assertNotIn(bad, result["findings"])  # the malformed entry is gone
                 self.assertTrue(
                     any("malformed" in r for r in self._reasons(result)),
@@ -3084,7 +2771,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
                                        current_code="return q",
                                        canonical_line_content="return q",
                                        source_window=["a", "b", "c", "d", "e"])
-                result = self._run([self._good_sibling()],
+                result = self._run([self._keep_sibling()],
                                    carryforward=[bad, good_cf])
                 ids = self._ids(result)
                 self.assertIn("cf-keep", ids)   # good carryforward kept
@@ -3103,7 +2790,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
             with self.subTest(missing=key):
                 bad = self._good_sibling(id="missing-" + key)
                 del bad[key]
-                result = self._run([bad, self._good_sibling()])
+                result = self._run([bad, self._keep_sibling()])
                 # The odd finding is KEPT (scored, survives) — not in filtered as malformed.
                 self.assertIn("missing-" + key, self._ids(result))
                 self.assertFalse(
@@ -3117,7 +2804,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         # An empty {} IS a dict, so _valid_finding does NOT reject it. It flows
         # through and is dropped (if at all) by NORMAL scoring (sub-threshold),
         # NEVER by the malformed-container guard. The good sibling survives.
-        result = self._run([{}, self._good_sibling()])
+        result = self._run([{}, self._keep_sibling()])
         self.assertFalse(
             any("malformed" in r for r in self._reasons(result)),
             "empty {} is a dict -> must NOT be a malformed-reject",
@@ -3132,7 +2819,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         for label, lv in (("str", "10"), ("float", 10.0), ("bool", True)):
             with self.subTest(line=label):
                 result = self._run([self._good_sibling(id="oddline", line=lv),
-                                    self._good_sibling()])
+                                    self._keep_sibling()])
                 self.assertIn("oddline", self._ids(result))
                 self._assert_sibling_survives(result)
 
@@ -3141,7 +2828,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         # `for line in source_window` with TypeError before the guard. _safe_window
         # coerces it to [] -> silenced False; the finding is KEPT, no crash.
         result = self._run([self._good_sibling(id="sw99", source_window=99),
-                            self._good_sibling()])
+                            self._keep_sibling()])
         self.assertIn("sw99", self._ids(result))
         self._assert_sibling_survives(result)
         self.assertFalse(score.silenced_nearby(score._safe_window(99)))
@@ -3153,7 +2840,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
             with self.subTest(source_window=label):
                 result = self._run(
                     [self._good_sibling(id="swodd", source_window=sw),
-                     self._good_sibling()])
+                     self._keep_sibling()])
                 self.assertIn("swodd", self._ids(result))
                 self._assert_sibling_survives(result)
 
@@ -3163,7 +2850,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         # this adds the 2-finding D-03 sibling-survival variant.
         bad = self._good_sibling(id="num-cc")
         bad["current_code"] = 12345  # non-string
-        result = self._run([bad, self._good_sibling()])
+        result = self._run([bad, self._keep_sibling()])
         self.assertIn("num-cc", self._ids(result))
         self._assert_sibling_survives(result)
 
@@ -3175,7 +2862,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         # filters to string elements -> [] -> silenced False; the finding is
         # KEPT, no crash; the good sibling survives.
         result = self._run([self._good_sibling(id="sw123", source_window=[1, 2, 3]),
-                            self._good_sibling()])
+                            self._keep_sibling()])
         self.assertIn("sw123", self._ids(result))
         self.assertFalse(score.silenced_nearby(score._safe_window([1, 2, 3])))
         self._assert_sibling_survives(result)
@@ -3197,7 +2884,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
                            ("-Infinity", float("-inf"))):
             with self.subTest(confidence=label):
                 bad = self._good_sibling(id="nf", agent_confidence=conf)
-                result = self._run([bad, self._good_sibling()])  # must not raise
+                result = self._run([bad, self._keep_sibling()])  # must not raise
                 self.assertTrue(result["scored_by_script"])
                 # Scored as if confidence were 0 -> 20 < 70 -> sub-threshold, not
                 # in findings (matches compute_score with confidence=0).
@@ -3236,7 +2923,7 @@ class TestMalformedInputMatrix(unittest.TestCase):
         for bad in ({"x": 1}, "oops", {}, 0):
             with self.subTest(carryforward=bad):
                 with self.assertRaises((TypeError, ValueError)):
-                    self._run([self._good_sibling()], carryforward=bad)
+                    self._run([self._keep_sibling()], carryforward=bad)
 
     def test_t16_black_box_non_list_findings_exits_nonzero(self):
         # Black-box: the fail-closed raise must propagate through the __main__ shim
@@ -3279,8 +2966,8 @@ class TestTieBreakDeterministic(unittest.TestCase):
     key) must be IDENTICAL across every input ordering, not first-arrival."""
 
     def _two_tied(self):
-        # Same domain (correctness), co-located, IDENTICAL score by construction:
-        # same confidence/severity, both in a cross-confirmed group (+10 each).
+        # Co-located (one site), same confidence/severity. Two Claude lanes are
+        # one correlated voter: no +10 for either (D-01, v2.10 Wave 1 H-LANE).
         a = make_finding(id="tie-a", file="src/t.py", line=10, title="null deref",
                          category="null-access", agent="bugs",
                          agent_confidence=85, current_code="  a()")
@@ -3490,8 +3177,31 @@ class TestAbsorbedMembersRecorded(unittest.TestCase):
                     if str(x.get("reason", "")).startswith("absorbed-into: ")]
         self.assertEqual(len(absorbed), 1)
         self.assertEqual(absorbed[0]["title"], "missing auth check")
+        self.assertEqual([m["title"] for m in survivor["members"]],
+                         ["sql injection", "missing auth check"])
         self.assertEqual(absorbed[0]["reason"],
                          "absorbed-into: " + survivor["stable_hash"])
+
+    def test_cross_domain_loser_recorded_and_listed_in_members(self):
+        # v2.10 Wave 1 H-LANE (D-03): same site groups regardless of category —
+        # security injection + impact perf now collapse; the loser is still
+        # RECORDED (A2) and its own title rides on the row (D-14).
+        winner = make_finding(id="w", file="src/x.py", line=10,
+                              title="sql injection", category="injection",
+                              agent="security", agent_confidence=95)
+        loser = make_finding(id="l", file="src/x.py", line=11,
+                             title="slow loop", category="perf",
+                             agent="impact", agent_confidence=70)
+        result = score.run({
+            "command": "review", "findings": [winner, loser],
+            "changed_line_ranges": {"src/x.py": [[8, 14]]}, "carryforward": []})
+        self.assertEqual(len(result["findings"]), 1)
+        survivor = result["findings"][0]
+        absorbed = [x for x in result["filtered"]
+                    if str(x.get("reason", "")).startswith("absorbed-into: ")]
+        self.assertEqual([x["title"] for x in absorbed], ["slow loop"])
+        self.assertEqual(absorbed[0]["reason"], "absorbed-into: " + survivor["stable_hash"])
+        self.assertIn("slow loop", [m["title"] for m in survivor["members"]])
 
     def test_singleton_group_records_nothing(self):
         solo = make_finding(id="solo", agent_confidence=100, line=10)
@@ -3889,8 +3599,13 @@ class TestAgentConfidenceOffset(unittest.TestCase):
 
     def test_unverified_codex_pair_is_lone_and_offset(self):
         # Same pair with no `codex` block: no second opinion, the offset applies.
-        g = self._by_id(self._run([self._native(agent_confidence=60), self._codex()]))["nat"]
+        # v2.10 Wave 1 H-LANE (D-01): without the block the pair also earns no
+        # +10 (the Codex label is an unverified self-report), so the native is
+        # raised to conf 70 to keep the row above the deep-review cutoff:
+        # 70 + in_diff 20 + offset, no +10.
+        g = self._by_id(self._run([self._native(agent_confidence=70), self._codex()]))["nat"]
         self.assertEqual(g["orchestrator_score"], 90 + self.off)
+        self.assertEqual(sorted(g["attribution"]), sorted([self.agent, "codex-adversarial"]))
 
     def test_persisted_group_gets_no_offset(self):
         cf = self._native(id="cf-keep", agent_confidence=50, current_code="  return q",
@@ -3967,3 +3682,886 @@ class TestAgentConfidenceOffset(unittest.TestCase):
         suite.run(result)
         self.assertTrue(result.testsRun > 0)
         self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
+
+
+# --------------------------------------------------------------------------- #
+# H-LANE (v2.10 Wave 1, D-01/D-03/D-14) — site grouping across lanes, members
+# --------------------------------------------------------------------------- #
+def _hl(id_, agent, category, line, conf, title, code=None, window=None,
+        file="src/a.py", severity="critical"):
+    """A finding for the H-LANE tests: explicit lane, site, snippet and window."""
+    return make_finding(id=id_, file=file, line=line, title=title, category=category,
+                        agent=agent, agent_confidence=conf, severity=severity,
+                        current_code=code if code is not None else "  x = 1",
+                        source_window=window if window is not None
+                        else ["a", "b", "c", "d", "e"])
+
+
+def _hl_env(findings, ranges, carryforward=None, **over):
+    env = {"command": "deep-review", "all_mode": False, "pass_number": 1,
+           "changed_line_ranges": ranges,
+           "carryforward": carryforward if carryforward is not None else [],
+           "findings": findings}
+    env.update(over)
+    return env
+
+
+def _carried(R, heads, windows=None, **rep_overrides):
+    """A pass-2 carryforward entry built from a pass-1 row R.
+
+    Simulates the orchestrator's per-member HEAD read (30-collect-score.md step
+    0). A `heads` / `windows` key is an agent name OR an (agent, line) pair; the
+    pair wins. A member with no matching key gets NO `canonical_line_content`
+    (absent = the orchestrator found no line); pass an explicit None to test null.
+    The representative's own read resolves by the same rule from R's agent/line.
+    `rep_overrides` replaces top-level keys of the representative only.
+    """
+    windows = windows or {}
+
+    def key(table, d):
+        pair = (d.get("agent"), d.get("line"))
+        if pair in table:
+            return pair
+        if d.get("agent") in table:
+            return d.get("agent")
+        return None
+
+    entry = dict(R)
+    k = key(heads, R)
+    entry["canonical_line_content"] = heads[k] if k is not None else None
+    wk = key(windows, R)
+    entry["canonical_window"] = windows[wk] if wk is not None else None
+    members = []
+    for m in R["members"]:
+        mm = dict(m)
+        k = key(heads, m)
+        if k is not None:
+            mm["canonical_line_content"] = heads[k]
+        wk = key(windows, m)
+        if wk is not None:
+            mm["canonical_window"] = windows[wk]
+        members.append(mm)
+    entry["members"] = members
+    entry.update(rep_overrides)
+    return entry
+
+
+def _pairs(row):
+    return [(m["agent"], m["title"]) for m in row["members"]]
+
+
+def _absorbed(result):
+    return [x for x in result["filtered"]
+            if str(x.get("reason", "")).startswith("absorbed-into: ")]
+
+
+def _stub_expand(cf):
+    return [], []
+
+
+class TestSiteGroupingHLane(unittest.TestCase):
+    """SCORER-04: one row per site across lanes; +10 only for Codex + Claude."""
+
+    VAL = "triggarr/web/validation.py"
+
+    def _exemplar(self):
+        win = ["a", "b", "c", "d", "e"]
+        return [
+            _hl("a", "bugs", "logic-error", 77, 93, "logic", window=win, file=self.VAL),
+            _hl("b", "security", "ssrf", 78, 82, "ssrf", window=win, file=self.VAL),
+            _hl("c", "impact", "blast-radius", 80, 92, "blast", window=win, file=self.VAL),
+        ]
+
+    def test_cross_domain_co_located_collapse(self):
+        r = score.run(_hl_env(self._exemplar(), {self.VAL: [[77, 85]]}))
+        self.assertEqual(len(r["findings"]), 1)
+        row = r["findings"][0]
+        self.assertEqual(sorted(row["attribution"]), ["bugs", "impact", "security"])
+        self.assertEqual(len(row["members"]), 3)
+        self.assertEqual(row["members"][0]["agent"], row["agent"])
+        self.assertEqual(row["band"], "warning")   # three Claude lanes: no second opinion
+        self.assertEqual(len(_absorbed(r)), 2)
+
+    def test_order_independent_all_permutations(self):
+        chain = [_hl("f%d" % ln, agent, cat, ln, conf, "t%d" % ln)
+                 for ln, agent, cat, conf in ((10, "bugs", "logic-error", 80),
+                                              (12, "security", "ssrf", 80),
+                                              (14, "impact", "perf", 75),
+                                              (16, "design", "duplication", 70))]
+        outs = set()
+        for perm in itertools.permutations(chain):
+            r = score.run(_hl_env([dict(f) for f in perm], {"src/a.py": [[8, 18]]}))
+            self.assertEqual(len(r["findings"]), 1)
+            row = r["findings"][0]
+            outs.add((row["stable_hash"],
+                      tuple((m["agent"], m["title"], m["line"]) for m in row["members"])))
+        self.assertEqual(len(outs), 1, outs)
+
+    def test_greedy_grouping_would_fail(self):
+        # Mutation proof that the permutation test is not vacuous: a greedy
+        # "anchor to the FIRST earlier finding within ±2" grouping depends on
+        # input order for the chain a@10, b@12, c@14; union-find does not.
+        a = _hl("a", "bugs", "x", 10, 80, "a")
+        b = _hl("b", "security", "y", 12, 80, "b")
+        c = _hl("c", "impact", "z", 14, 80, "c")
+
+        def _greedy(findings):
+            group_of = []
+            groups = []
+            for i, f in enumerate(findings):
+                anchor = next((j for j in range(i) if score._line_close(findings[j], f)), None)
+                if anchor is None:
+                    group_of.append(len(groups))
+                    groups.append([f["id"]])
+                else:
+                    group_of.append(group_of[anchor])
+                    groups[group_of[anchor]].append(f["id"])
+            return sorted(sorted(g) for g in groups)
+
+        def _uf(findings):
+            return sorted(sorted(m["id"] for m in g["members"])
+                          for g in score.cross_confirm_group(findings))
+
+        self.assertNotEqual(_greedy([a, c, b]), _greedy([a, b, c]))
+        self.assertEqual(_uf([a, c, b]), _uf([a, b, c]))
+        self.assertEqual(_uf([a, c, b]), [["a", "b", "c"]])
+
+    def test_claude_claude_no_plus_ten(self):
+        sec = _hl("s", "security", "injection", 10, 65, "inj")
+        des = _hl("d", "design", "duplication", 11, 60, "dup")
+        ranges = {"src/a.py": [[8, 14]]}
+        pair = score.run(_hl_env([sec, des], ranges))["findings"]
+        lone = score.run(_hl_env([dict(sec)], ranges))["findings"]
+        self.assertEqual(len(pair), 1)
+        self.assertEqual(pair[0]["orchestrator_score"], lone[0]["orchestrator_score"])
+        self.assertEqual(pair[0]["orchestrator_score"], 85)
+        self.assertEqual(pair[0]["band"], "warning")
+
+    def _codex_pair(self, **over):
+        sec = _hl("s", "security", "injection", 10, 65, "inj")
+        cdx = _hl("c", "codex-adversarial", "adversarial", 11, 60, "adv")
+        return score.run(_hl_env([sec, cdx], {"src/a.py": [[8, 14]]}, **over))["findings"]
+
+    def test_codex_plus_claude_plus_ten_with_block(self):
+        rows = self._codex_pair(codex={"status": "joined"})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["orchestrator_score"], 95)   # 65 + 20 + 10
+        self.assertEqual(rows[0]["band"], "critical")
+
+    def test_codex_plus_claude_plus_ten_without_block_nothing(self):
+        for over in ({}, {"codex": {"status": "skipped"}}, {"codex": "joined"}):
+            with self.subTest(over=over):
+                rows = self._codex_pair(**over)
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["orchestrator_score"], 85)
+                self.assertEqual(rows[0]["band"], "warning")
+
+    def test_members_shape(self):
+        lead = _hl("s", "security", "injection", 10, 80, "inj", code="}\n    return x")
+        other = _hl("b", "bugs", "logic-error", 11, 60, "logic", code="y = 2")
+        solo = _hl("z", "impact", "perf", 40, 80, "slow")
+        r = score.run(_hl_env([lead, other, solo], {"src/a.py": [[8, 42]]}))
+        rows = {g["id"]: g for g in r["findings"]}
+        required = {"file", "line", "title", "category", "severity", "agent",
+                    "agent_confidence", "problem", "source_window"}
+        forbidden = {"band", "stable_hash", "orchestrator_score", "status", "attribution",
+                     "members", "in_diff", "silenced_marker_nearby",
+                     "canonical_line_content", "canonical_window", "id"}
+        for row in rows.values():
+            self.assertIsInstance(row["members"], list)
+            self.assertGreaterEqual(len(row["members"]), 1)
+            for m in row["members"]:
+                self.assertIsInstance(m, dict)
+                self.assertLessEqual(set(m), set(score.MEMBER_KEYS))
+                self.assertLessEqual(required, set(m))
+                self.assertFalse(forbidden & set(m))
+        self.assertEqual(len(rows["s"]["members"]), 2)
+        self.assertEqual(rows["s"]["members"][0]["current_code"], "}\n    return x")
+        self.assertEqual(rows["s"]["members"][1]["current_code"], "y = 2")
+        self.assertEqual(len(rows["z"]["members"]), 1)
+        self.assertEqual(
+            score.MEMBER_KEYS,
+            tuple(k for k in score.FINDING_REQUIRED_KEYS + score.FINDING_OPTIONAL_KEYS
+                  if k not in score._MEMBER_EXCLUDED_KEYS))
+        self.assertEqual(score.MEMBER_KEYS,
+                         ("file", "line", "title", "category", "severity", "agent",
+                          "agent_confidence", "problem", "source_window", "cwe",
+                          "why_it_matters", "fix_hint", "current_code", "intent_doc_match"))
+
+    def test_members_never_feed_stable_hash(self):
+        lead = _hl("s", "security", "injection", 10, 80, "inj")
+        ranges = {"src/a.py": [[8, 14]]}
+        r1 = score.run(_hl_env([lead, _hl("b", "bugs", "x", 11, 50, "first")], ranges))
+        r2 = score.run(_hl_env([dict(lead), _hl("b", "bugs", "x", 11, 50, "second")], ranges))
+        self.assertNotEqual(_pairs(r1["findings"][0]), _pairs(r2["findings"][0]))
+        self.assertEqual(r1["findings"][0]["stable_hash"], r2["findings"][0]["stable_hash"])
+
+    def test_members_survive_output_shaping(self):
+        shaped = score._shape_finding({"id": "x", "title": "t", "members": [{"agent": "a"}],
+                                       "bogus": 1})
+        self.assertEqual(shaped["members"], [{"agent": "a"}])
+        self.assertNotIn("bogus", shaped)
+
+    def test_non_str_member_fields_coerce_and_sibling_survives(self):
+        lead = _hl("s", "security", "injection", 10, 90, "inj")
+        for label, over in (("agent-int", {"agent": 7}), ("agent-none", {"agent": None}),
+                            ("title-list", {"title": ["x"]}), ("title-int", {"title": 5})):
+            with self.subTest(case=label):
+                bad = dict(_hl("b", "bugs", "x", 11, 50, "t"), **over)
+                r = score.run(_hl_env([dict(lead), bad], {"src/a.py": [[8, 14]]}))
+                self.assertEqual(len(r["findings"]), 1)
+                row = r["findings"][0]
+                self.assertEqual(row["id"], "s")
+                key = "agent" if label.startswith("agent") else "title"
+                self.assertEqual(row["members"][1][key], "")
+
+    def _idiom_case(self, idiom_floor):
+        with mock.patch.object(score, "AGENT_CONFIDENCE_OFFSET", {}):
+            idiom = _hl("i", "language-python", "idiom", 10, 100, "idiom")
+            sec = _hl("s", "security", "injection", 11, 70, "injection")
+            over = {} if idiom_floor is None else {"idiom_floor": idiom_floor}
+            ranges = {"src/a.py": [[8, 14]]}
+            ai = score.run(_hl_env([dict(idiom)], ranges, **over))["findings"][0]
+            a_s = score.run(_hl_env([dict(sec)], ranges, **over))["findings"][0]
+            # Fixture sanity: idiom alone OUTSCORES security alone yet bands lower.
+            self.assertGreater(ai["orchestrator_score"], a_s["orchestrator_score"])
+            cap = "medium" if idiom_floor is None else idiom_floor
+            self.assertEqual(ai["band"], cap)
+            self.assertEqual(a_s["band"], "warning")
+            r = score.run(_hl_env([dict(idiom), dict(sec)], ranges, **over))
+        rows = r["findings"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["agent"], "security")
+        self.assertEqual(rows[0]["band"], "warning")
+        self.assertEqual(score.band_for(rows[0]["orchestrator_score"]), rows[0]["band"])
+        self.assertEqual(_pairs(rows[0])[0], ("security", "injection"))
+        self.assertEqual([x["title"] for x in _absorbed(r)], ["idiom"])
+        # Mutation proof: a representative picked by raw score with the cap keyed
+        # on ITS category would have banded the row at the idiom cap.
+        self.assertEqual(score._cap_idiom_band(
+            "idiom", score.band_for(ai["orchestrator_score"]), idiom_floor), cap)
+        self.assertNotEqual(cap, "warning")
+
+    def test_idiom_cap_never_leaks_default_cap(self):
+        self._idiom_case(None)
+
+    def test_idiom_cap_never_leaks_low_cap(self):
+        self._idiom_case("low")
+
+    def test_effective_band_tie_falls_back_to_score_then_hash(self):
+        ranges = {"src/a.py": [[8, 14]]}
+        hi = _hl("h", "security", "injection", 10, 68, "high one")
+        lo = _hl("l", "design", "duplication", 11, 65, "low one")
+        for order in ([hi, lo], [lo, hi]):
+            row = score.run(_hl_env([dict(f) for f in order], ranges))["findings"][0]
+            self.assertEqual(row["id"], "h")          # 88 > 85, both warning
+        t1 = _hl("t1", "security", "injection", 10, 65, "alpha")
+        t2 = _hl("t2", "design", "duplication", 11, 65, "beta")
+        h1 = score.stable_hash("src/a.py", "  x = 1", "alpha")
+        h2 = score.stable_hash("src/a.py", "  x = 1", "beta")
+        want = "t1" if h1 < h2 else "t2"
+        for order in ([t1, t2], [t2, t1]):
+            row = score.run(_hl_env([dict(f) for f in order], ranges))["findings"][0]
+            self.assertEqual(row["id"], want)
+
+    def test_capped_tie_keeps_highest_uncapped_leading(self):
+        # With a tuned critical floor of 75 the lone-lane cap is 74 and equalizes
+        # both members; the uncapped score breaks the tie so the /review cutoff
+        # (80, judged on the uncapped score) still sees the group's best (85).
+        # Titles are chosen so the stable_hash order would favour the 78 member —
+        # without the uncapped key the row would lead with 78 and drop.
+        ranges = {"src/a.py": [[8, 14]]}
+        th = {"critical": 75, "warning": 72, "medium": 70}
+        title = next(t for t in ("t%d" % i for i in range(200))
+                     if score.stable_hash("src/a.py", "  x = 1", t)
+                     < score.stable_hash("src/a.py", "  x = 1", "high"))
+        hi = _hl("hi", "security", "injection", 10, 65, "high")
+        lo = _hl("lo", "design", "duplication", 11, 58, title)
+        for order in ([hi, lo], [lo, hi]):
+            r = score.run(_hl_env([dict(f) for f in order], ranges, command="review",
+                                  thresholds=th))
+            self.assertEqual([g["id"] for g in r["findings"]], ["hi"])
+            self.assertEqual(r["findings"][0]["orchestrator_score"], 74)
+
+    def test_lone_lane_cap_unchanged_by_per_member_move(self):
+        ranges = {"src/a.py": [[8, 14]]}
+        nat = lambda **o: dict(_hl("nat", "security", "null-access", 10, 100, "n"), **o)
+        cdx = _hl("cdx", "codex-adversarial", "adversarial", 11, 100, "c")
+        lone = score.run(_hl_env([nat()], ranges, command="review"))["findings"][0]
+        self.assertEqual((lone["orchestrator_score"], lone["band"]), (94, "warning"))
+        tuned = score.run(_hl_env([nat()], ranges, command="review",
+                                  thresholds={"critical": 90, "warning": 80,
+                                              "medium": 70}))["findings"][0]
+        self.assertEqual((tuned["orchestrator_score"], tuned["band"]), (89, "warning"))
+        both = score.run(_hl_env([nat(), dict(cdx)], ranges, command="review",
+                                 codex={"status": "joined"}))["findings"][0]
+        self.assertEqual((both["orchestrator_score"], both["band"]), (100, "critical"))
+        cf = nat(id="cf", current_code="q = 1", canonical_line_content="q = 1")
+        pers = score.run(_hl_env([], ranges, carryforward=[cf], command="review"))["findings"][0]
+        self.assertEqual((pers["status"], pers["band"]), ("persisted", "critical"))
+
+
+class TestMembersAcrossPasses(unittest.TestCase):
+    """H-LANE carry-forward: every carried row is expanded into its members, each
+    carried on its OWN HEAD read and scored on its own facts (codex passes 2-6)."""
+
+    VAL = "triggarr/web/validation.py"
+    VAL_RANGES = {VAL: [[77, 85]]}
+    A_RANGES = {"src/a.py": [[8, 14]]}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.old = replay.load_scorer("blob:" + PRE_HLANE_SCORER_BLOB)
+
+    def setUp(self):
+        patcher = mock.patch.object(score, "AGENT_CONFIDENCE_OFFSET", {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    # --- fixtures ----------------------------------------------------------- #
+    def _val_findings(self):
+        return [
+            _hl("b", "bugs", "logic-error", 77, 73, "logic", code="b_line",
+                window=["b0", "b1", "b_line", "b3", "b4"], file=self.VAL),
+            _hl("s", "security", "ssrf", 78, 62, "ssrf", code="s_line",
+                window=["s0", "s1", "s_line", "s3", "s4"], file=self.VAL),
+            _hl("i", "impact", "blast-radius", 80, 70, "blast", code="i_line",
+                window=["i0", "i1", "i_line", "i3", "i4"], file=self.VAL),
+        ]
+
+    def _R(self):
+        r = score.run(_hl_env(self._val_findings(), self.VAL_RANGES))
+        self.assertEqual(len(r["findings"]), 1)
+        R = r["findings"][0]
+        self.assertEqual(R["agent"], "bugs")
+        self.assertEqual(R["orchestrator_score"], 93)
+        self.assertEqual([m["agent"] for m in R["members"]], ["bugs", "impact", "security"])
+        return R
+
+    def _pass2(self, entries, findings=None, ranges=None, **over):
+        return score.run(_hl_env(findings or [], ranges or self.VAL_RANGES,
+                                 carryforward=entries, **over))
+
+    def _old_run(self, env):
+        return self.old.run(env)
+
+    def _alone(self, member, head, window=None, **over):
+        e = dict(member, id="alone", canonical_line_content=head, canonical_window=window)
+        e.update(over)
+        return e
+
+    def _ab(self, lead_conf, sec_conf, sec_code="s_line"):
+        lead = _hl("b", "bugs", "logic-error", 10, lead_conf, "logic", code="b_line",
+                   window=["l8", "l9", "b_line", "l11", "l12"])
+        sec = _hl("s", "security", "ssrf", 12, sec_conf, "ssrf", code=sec_code,
+                  window=["b_line", "l11", "s_line", "l13", "l14"])
+        return lead, sec
+
+    # --- two-pass union ----------------------------------------------------- #
+    def test_members_survive_carryforward_without_rediscovery(self):
+        R = self._R()
+        p2 = self._pass2([_carried(R, {"bugs": "b_line", "security": "s_line",
+                                       "impact": "i_line"})])
+        self.assertEqual(len(p2["findings"]), 1)
+        row = p2["findings"][0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(set(_pairs(row)), set(_pairs(R)))
+        self.assertEqual(_pairs(row)[0], (row["agent"], row["title"]))
+        self.assertEqual(p2["fixed_since_last"], [])
+
+    def test_members_union_deterministic_across_orderings(self):
+        R = self._R()
+        other = score.run(_hl_env([_hl("o", "design", "duplication", 5, 80, "other",
+                                       code="o_line", file="src/o.py")],
+                                  {"src/o.py": [[1, 9]]}))["findings"][0]
+        o_entry = _carried(other, {"design": "o_line"})
+        a_entry = _carried(R, {"bugs": "b_line", "security": "s_line", "impact": "i_line"})
+        fresh = _hl("f", "bugs", "logic-error", 77, 60, "logic two", code="b_line",
+                    file=self.VAL)
+        rev = dict(a_entry, members=list(reversed(a_entry["members"])))
+        ranges = dict(self.VAL_RANGES, **{"src/o.py": [[1, 9]]})
+        seen = []
+        for entries, fs in (([a_entry, o_entry], [fresh]), ([o_entry, a_entry], [fresh]),
+                            ([rev, o_entry], [fresh]), ([a_entry, o_entry], [fresh])):
+            r = self._pass2([dict(e) for e in entries], findings=[dict(f) for f in fs],
+                            ranges=ranges)
+            row = next(g for g in r["findings"] if g["file"] == self.VAL)
+            seen.append([(m["agent"], m["title"], m["line"]) for m in row["members"]])
+        self.assertEqual(len(seen[0]), 4)
+        self.assertEqual(seen[0][0][:2], (row["agent"], row["title"]))
+        for s in seen[1:]:
+            self.assertEqual(s, seen[0])
+        idents = [score._finding_identity(m) for m in row["members"]]
+        self.assertEqual(len(set(idents)), 4)
+
+    def test_agent_supplied_members_ignored(self):
+        sec = _hl("s", "security", "injection", 11, 70, "injection")
+        forged = dict(sec, members=[{"agent": "codex-adversarial", "title": "forged"}],
+                      status="persisted")
+        plain = score.run(_hl_env([dict(sec)], self.A_RANGES))["findings"][0]
+        rf = score.run(_hl_env([forged], self.A_RANGES,
+                               codex={"status": "joined"}))["findings"][0]
+        self.assertEqual(_pairs(rf), [("security", "injection")])
+        self.assertEqual(rf["orchestrator_score"], plain["orchestrator_score"])
+        self.assertEqual(rf["band"], plain["band"])
+        self.assertEqual(rf["status"], "new")
+
+    def test_working_findings_never_carry_members(self):
+        # The ingress strip (fresh findings) and the representative split
+        # (carryforward) guarantee no working finding reaches grouping with a
+        # `members` key — the group loop is the ONLY writer of `members`. The
+        # rendered output alone cannot see this (the loop overwrites the key), so
+        # the invariant is locked at the grouping boundary directly.
+        R = self._R()
+        forged = dict(_hl("f", "security", "ssrf", 30, 90, "forged row", file=self.VAL),
+                      members=[{"agent": "codex-adversarial", "title": "forged"}])
+        seen = []
+        real = score.cross_confirm_group
+
+        def spy(findings):
+            seen.extend(findings)
+            return real(findings)
+
+        with mock.patch.object(score, "cross_confirm_group", spy):
+            self._pass2([_carried(R, {"bugs": "b_line", "security": "s_line",
+                                      "impact": "i_line"})], findings=[forged],
+                        ranges={self.VAL: [[28, 85]]})
+        self.assertEqual(len(seen), 4)
+        self.assertEqual([f for f in seen if "members" in f], [])
+
+    def test_malformed_member_entries_skipped(self):
+        R = self._R()
+        base = _carried(R, {"bugs": "b_line", "security": "s_line"})
+        sec_ref = next(m for m in base["members"] if m["agent"] == "security")
+        self.assertEqual(score._expand_members(dict(base, members="nope")), ([], []))
+        self.assertEqual(len(self._pass2([dict(base, members="nope")])["findings"]), 1)
+        messy = dict(base, members=["x", 7, dict(sec_ref, title=5), dict(sec_ref, agent=None),
+                                    sec_ref])
+        expanded, fixed = score._expand_members(messy)
+        self.assertEqual([(e["agent"], e["title"]) for e in expanded], [("security", "ssrf")])
+        self.assertEqual(fixed, [])
+        r = self._pass2([messy])
+        self.assertEqual(len(r["findings"]), 1)
+        self.assertEqual(sorted(_pairs(r["findings"][0])), [("bugs", "logic"), ("security", "ssrf")])
+
+    # --- expansion (codex pass 2/3 BLOCKERs) ---------------------------------- #
+    def test_member_promoted_when_representative_fixed(self):
+        R = self._R()
+        entry = _carried(R, {"security": "s_line"})
+        p2 = self._pass2([dict(entry)])
+        self.assertEqual(len(p2["findings"]), 1)
+        row = p2["findings"][0]
+        self.assertEqual((row["agent"], row["title"], row["category"]),
+                         ("security", "ssrf", "ssrf"))
+        self.assertEqual(row["agent_confidence"], 62)
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["band"], score.band_for(row["orchestrator_score"]))
+        self.assertEqual(row["stable_hash"], score.stable_hash(self.VAL, "s_line", "ssrf"))
+        self.assertEqual(_pairs(row), [("security", "ssrf")])
+        self.assertEqual([x["title"] for x in p2["fixed_since_last"]], ["logic", "blast"])
+        # MUTATION (i): no expansion -> the whole row vanishes with its lead.
+        with mock.patch.object(score, "_expand_members", _stub_expand):
+            m = self._pass2([dict(entry)])
+        self.assertEqual(m["findings"], [])
+        self.assertEqual(len(m["fixed_since_last"]), 1)
+        # MUTATION (ii): the REAL pre-H-LANE scorer -> zero survivors, one fixed.
+        old = self._old_run(_hl_env([], self.VAL_RANGES, carryforward=[dict(entry)]))
+        self.assertEqual(old["findings"], [])
+        self.assertEqual(len(old["fixed_since_last"]), 1)
+
+    def test_member_survives_when_representative_silenced(self):
+        lead, sec = self._ab(84, 70)
+        r1 = score.run(_hl_env([lead, sec], self.A_RANGES))["findings"]
+        self.assertEqual(len(r1), 1)
+        R = r1[0]
+        self.assertEqual((R["agent"], R["orchestrator_score"]), ("bugs", 94))
+        self.assertEqual([m["source_window"] for m in R["members"]],
+                         [lead["source_window"], sec["source_window"]])
+        marked = ["x = 1  # noqa", "l9", "b_line", "l11", "l12"]
+        entry = _carried(R, {"bugs": "b_line", "security": "s_line"}, source_window=marked)
+        # Fixture sanity: the marked lead carried ALONE drops (84+20-50+15 = 69) ...
+        alone = dict(entry)
+        alone.pop("members")
+        ra = self._pass2([alone], ranges=self.A_RANGES)
+        self.assertEqual(ra["findings"], [])
+        self.assertIn(("logic", "sub-threshold"),
+                      [(x["title"], x["reason"]) for x in ra["filtered"]])
+        # ... and survives without the marker (the marker is the cause) ...
+        unmarked = dict(alone, source_window=lead["source_window"])
+        self.assertEqual(len(self._pass2([unmarked], ranges=self.A_RANGES)["findings"]), 1)
+        # ... while the security member carried ALONE is critical (70+20+15).
+        sec_ref = R["members"][1]
+        sa = self._pass2([self._alone(sec_ref, "s_line")], ranges=self.A_RANGES)["findings"]
+        self.assertEqual(len(sa), 1)
+        self.assertEqual(sa[0]["band"], "critical")
+        # The collapsed entry keeps the security member on its own evidence.
+        p2 = self._pass2([dict(entry)], ranges=self.A_RANGES)
+        self.assertEqual(len(p2["findings"]), 1)
+        row = p2["findings"][0]
+        self.assertEqual((row["agent"], row["title"], row["status"], row["band"]),
+                         ("security", "ssrf", "persisted", "critical"))
+        self.assertEqual(row["orchestrator_score"], sa[0]["orchestrator_score"])
+        self.assertEqual(row["stable_hash"], sa[0]["stable_hash"])
+        self.assertEqual(_pairs(row)[0], ("security", "ssrf"))
+        self.assertEqual([(x["title"], x["reason"]) for x in _absorbed(p2)],
+                         [("logic", "absorbed-into: " + row["stable_hash"])])
+        self.assertEqual(p2["fixed_since_last"], [])
+        with mock.patch.object(score, "_expand_members", _stub_expand):
+            self.assertEqual(self._pass2([dict(entry)], ranges=self.A_RANGES)["findings"], [])
+        old = self._old_run(_hl_env([], self.A_RANGES, carryforward=[dict(entry)]))
+        self.assertEqual(old["findings"], [])
+
+    def test_member_survives_when_representative_sub_threshold(self):
+        lead, sec = self._ab(54, 52)
+        r1 = score.run(_hl_env([lead, sec], {"src/a.py": [[10, 14]]}))["findings"]
+        self.assertEqual(len(r1), 1)
+        R = r1[0]
+        self.assertEqual((R["agent"], R["orchestrator_score"], R["band"]),
+                         ("bugs", 74, "medium"))
+        moved = {"src/a.py": [[12, 14]]}
+        entry = _carried(R, {"bugs": "b_line", "security": "s_line"})
+        alone = dict(entry)
+        alone.pop("members")
+        ra = self._pass2([alone], ranges=moved)
+        self.assertEqual(ra["findings"], [])
+        self.assertIn(("logic", "sub-threshold"),
+                      [(x["title"], x["reason"]) for x in ra["filtered"]])
+        sa = self._pass2([self._alone(R["members"][1], "s_line")], ranges=moved)["findings"]
+        self.assertEqual(len(sa), 1)
+        self.assertEqual(sa[0]["band"], "warning")
+        p2 = self._pass2([dict(entry)], ranges=moved)
+        self.assertEqual(len(p2["findings"]), 1)
+        row = p2["findings"][0]
+        self.assertEqual((row["agent"], row["status"], row["band"]),
+                         ("security", "persisted", "warning"))
+        self.assertEqual(row["orchestrator_score"], sa[0]["orchestrator_score"])
+        self.assertEqual(row["stable_hash"], sa[0]["stable_hash"])
+        self.assertEqual([x["title"] for x in _absorbed(p2)], ["logic"])
+        self.assertEqual(p2["fixed_since_last"], [])
+        with mock.patch.object(score, "_expand_members", _stub_expand):
+            self.assertEqual(self._pass2([dict(entry)], ranges=moved)["findings"], [])
+        old = self._old_run(_hl_env([], moved, carryforward=[dict(entry)]))
+        self.assertEqual(old["findings"], [])
+
+    def test_promoted_member_scores_on_own_evidence(self):
+        R = self._R()
+        row = self._pass2([_carried(R, {"security": "s_line"})])["findings"][0]
+        sec_alone = self._pass2([self._alone(R["members"][2], "s_line")])["findings"][0]
+        bugs_alone = self._pass2([self._alone(R["members"][0], "b_line")])["findings"][0]
+        self.assertEqual((row["orchestrator_score"], row["band"]),
+                         (sec_alone["orchestrator_score"], sec_alone["band"]))
+        self.assertNotEqual(row["orchestrator_score"], bugs_alone["orchestrator_score"])
+
+    def test_promotion_needs_recheck_when_member_line_changed(self):
+        R = self._R()
+        row = self._pass2([_carried(R, {"security": "s_line_edited"})])["findings"][0]
+        alone = self._pass2([self._alone(R["members"][2], "s_line_edited")])["findings"][0]
+        self.assertEqual(row["status"], "needs-recheck")
+        self.assertEqual(row["orchestrator_score"], alone["orchestrator_score"])
+        self.assertEqual(row["orchestrator_score"], 82)         # 62 + 20, no +15
+        self.assertEqual(row["band"], "warning")
+        self.assertEqual(row["canonical_line_content"], "s_line_edited")
+        self.assertEqual(_pairs(row), [("security", "ssrf")])
+        self.assertEqual(row["members"][0]["current_code"], "s_line")
+
+    def test_two_alive_members_regroup_into_one_row(self):
+        R = self._R()
+        p2 = self._pass2([_carried(R, {"security": "s_line", "impact": "i_line"})])
+        self.assertEqual(len(p2["findings"]), 1)
+        row = p2["findings"][0]
+        self.assertEqual(sorted(row["attribution"]), ["impact", "security"])
+        self.assertEqual(_pairs(row), [("impact", "blast"), ("security", "ssrf")])
+        self.assertEqual(len(_absorbed(p2)), 1)
+        self.assertEqual([x["title"] for x in p2["fixed_since_last"]], ["logic"])
+        # Chain: security@77 - bugs@79 - impact@81 group through bugs; with bugs
+        # fixed the two survivors are 4 lines apart -> two honest rows.
+        chain = [
+            _hl("s", "security", "ssrf", 77, 62, "ssrf", code="s_line", file=self.VAL),
+            _hl("b", "bugs", "logic-error", 79, 73, "logic", code="b_line", file=self.VAL),
+            _hl("i", "impact", "blast-radius", 81, 70, "blast", code="i_line", file=self.VAL),
+        ]
+        C = score.run(_hl_env(chain, self.VAL_RANGES))["findings"]
+        self.assertEqual(len(C), 1)
+        self.assertEqual(C[0]["agent"], "bugs")
+        p3 = self._pass2([_carried(C[0], {"security": "s_line", "impact": "i_line"})])
+        self.assertEqual(len(p3["findings"]), 2)
+        for row in p3["findings"]:
+            self.assertEqual(_pairs(row), [(row["agent"], row["title"])])
+        self.assertEqual(_absorbed(p3), [])
+
+    def test_promoted_member_and_fresh_rediscovery_collapse_once(self):
+        R = self._R()
+        fresh = _hl("f", "security", "ssrf", 78, 62, "ssrf again", code="s_line",
+                    file=self.VAL)
+        p2 = self._pass2([_carried(R, {"security": "s_line"})], findings=[fresh])
+        self.assertEqual(len(p2["findings"]), 1)
+        self.assertEqual(_pairs(p2["findings"][0]),
+                         [("security", "ssrf"), ("security", "ssrf again")])
+
+    def test_promotion_requires_orchestrator_head_read(self):
+        R = self._R()
+        for heads in ({}, {"bugs": None, "security": None, "impact": None}):
+            with self.subTest(heads=heads):
+                p2 = self._pass2([_carried(R, heads)])
+                self.assertEqual(p2["findings"], [])
+                self.assertEqual([x["title"] for x in p2["fixed_since_last"]],
+                                 ["logic", "blast", "ssrf"])
+        p3 = self._pass2([_carried(R, {"bugs": "b_line"})])
+        self.assertEqual(len(p3["findings"]), 1)
+        self.assertEqual(p3["findings"][0]["agent"], "bugs")
+        self.assertEqual(_pairs(p3["findings"][0]), [("bugs", "logic")])
+        self.assertEqual([x["title"] for x in p3["fixed_since_last"]], ["blast", "ssrf"])
+        bad = dict(_carried(R, {"bugs": "b_line"}), members="not a list")
+        self.assertEqual(score._expand_members(bad), ([], []))
+        self.assertEqual(len(self._pass2([bad])["findings"]), 1)
+
+    # --- identity (codex passes 4, 5, 6) ------------------------------------ #
+    def test_same_title_members_are_distinct_defects(self):
+        # FIXTURE NOTE: different line text -> different stable_hash; this covers
+        # the (agent, title) collapse only. Equal hashes: the next test.
+        s1 = _hl("s1", "security", "injection", 10, 70, "inj", code="q1 = a",
+                 window=["l8", "l9", "q1 = a", "l11", "l12"])
+        s2 = _hl("s2", "security", "injection", 12, 68, "inj", code="q2 = b",
+                 window=["q1 = a", "l11", "q2 = b", "l13", "l14"])
+        R = score.run(_hl_env([s1, s2], self.A_RANGES))["findings"][0]
+        self.assertEqual(R["line"], 10)
+        self.assertEqual(len(R["members"]), 2)
+        self.assertEqual(len({(m["agent"], m["title"]) for m in R["members"]}), 1)
+        self.assertEqual([m["current_code"] for m in R["members"]], ["q1 = a", "q2 = b"])
+        self.assertNotEqual(score._finding_identity(R["members"][0]),
+                            score._finding_identity(R["members"][1]))
+        e2a = _carried(R, {("security", 12): "q2 = b"})
+        pa = self._pass2([dict(e2a)], ranges=self.A_RANGES)
+        self.assertEqual([(r["line"], r["status"]) for r in pa["findings"]], [(12, "persisted")])
+        self.assertEqual(pa["findings"][0]["stable_hash"],
+                         score.stable_hash("src/a.py", "q2 = b", "inj"))
+        self.assertEqual(len(pa["findings"][0]["members"]), 1)
+        self.assertEqual([x["line"] for x in pa["fixed_since_last"]], [10])
+        pb = self._pass2([_carried(R, {("security", 10): "q1 = a"})], ranges=self.A_RANGES)
+        self.assertEqual([(r["line"], r["status"]) for r in pb["findings"]], [(10, "persisted")])
+        self.assertEqual(len(pb["findings"][0]["members"]), 1)
+        self.assertEqual([x["line"] for x in pb["fixed_since_last"]], [12])
+        expanded, _ = score._expand_members(e2a)
+        self.assertEqual([e["line"] for e in expanded], [12])
+        # MUTATION (i): an (agent, title) dedup would have stored one record.
+        collapsed = dict(e2a, members=[e2a["members"][0]])
+        m = self._pass2([collapsed], ranges=self.A_RANGES)
+        self.assertEqual(m["findings"], [])
+        self.assertEqual(len(m["fixed_since_last"]), 1)
+        # MUTATION (ii): no expansion.
+        with mock.patch.object(score, "_expand_members", _stub_expand):
+            self.assertEqual(self._pass2([dict(e2a)], ranges=self.A_RANGES)["findings"], [])
+
+    def test_identical_text_members_at_different_lines(self):
+        t1 = _hl("s1", "security", "injection", 10, 70, "inj", code="execute(query)",
+                 window=["l8", "l9", "execute(query)", "l11", "l12"])
+        t2 = _hl("s2", "security", "injection", 12, 68, "inj", code="execute(query)",
+                 window=["execute(query)", "l11", "execute(query)", "l13", "l14"])
+        R = score.run(_hl_env([t1, t2], self.A_RANGES))["findings"][0]
+        h = score.stable_hash("src/a.py", "execute(query)", "inj")
+        self.assertEqual(R["line"], 10)
+        self.assertEqual([m["line"] for m in R["members"]], [10, 12])
+        self.assertEqual(R["stable_hash"], h)
+        i0, i1 = (score._finding_identity(m) for m in R["members"])
+        self.assertEqual(i0[1], i1[1])
+        self.assertNotEqual(i0, i1)
+        e2a = dict(R, canonical_line_content=None, canonical_window=None,
+                   members=[dict(R["members"][0]),
+                            dict(R["members"][1], canonical_line_content="execute(query)")])
+        pa = self._pass2([dict(e2a)], ranges=self.A_RANGES)
+        self.assertEqual([(r["line"], r["status"]) for r in pa["findings"]], [(12, "persisted")])
+        self.assertEqual(pa["findings"][0]["stable_hash"], h)
+        self.assertEqual(len(pa["findings"][0]["members"]), 1)
+        self.assertEqual([x["line"] for x in pa["fixed_since_last"]], [10])
+        e2b = dict(R, canonical_line_content="execute(query)", canonical_window=None,
+                   members=[dict(R["members"][0], canonical_line_content="execute(query)"),
+                            dict(R["members"][1])])
+        pb = self._pass2([e2b], ranges=self.A_RANGES)
+        self.assertEqual([(r["line"], r["status"]) for r in pb["findings"]], [(10, "persisted")])
+        self.assertEqual(len(pb["findings"][0]["members"]), 1)
+        self.assertEqual([x["line"] for x in pb["fixed_since_last"]], [12])
+        expanded, _ = score._expand_members(e2a)
+        self.assertEqual([e["line"] for e in expanded], [12])
+        # MUTATION (i): a stable_hash-only identity collapses the twins.
+        hash_only = lambda x: score.stable_hash(x.get("file"), score._canonical_for_hash(x),
+                                                x.get("title"))
+        with mock.patch.object(score, "_finding_identity", hash_only):
+            Rm = score.run(_hl_env([dict(t1), dict(t2)], self.A_RANGES))["findings"][0]
+            self.assertEqual(len(Rm["members"]), 1)
+            m = self._pass2([dict(e2a)], ranges=self.A_RANGES)
+            self.assertEqual(m["findings"], [])
+            self.assertEqual([x["line"] for x in m["fixed_since_last"]], [10])
+        with mock.patch.object(score, "_expand_members", _stub_expand):
+            self.assertEqual(self._pass2([dict(e2a)], ranges=self.A_RANGES)["findings"], [])
+        self.assertEqual(score.stable_hash("a", "b", "c"), score.stable_hash("a", "b", "c"))
+        self.assertEqual(GOLDEN_DIGEST,
+                         "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff793124")
+
+    def test_same_site_same_title_different_lanes_survive_min_confidence(self):
+        code, win = "execute(query)", ["l8", "l9", "execute(query)", "l11", "l12"]
+        lb = _hl("lb", "bugs", "logic-error", 10, 85, "dup", code=code, window=win)
+        ls = _hl("ls", "security", "injection", 10, 100, "dup", code=code, window=win)
+        Rb = score.run(_hl_env([dict(lb), dict(ls)], self.A_RANGES))["findings"][0]
+        Rs = score.run(_hl_env([dict(ls), dict(lb)], self.A_RANGES))["findings"][0]
+        for R in (Rb, Rs):
+            self.assertEqual(R["agent"], "bugs")
+            self.assertEqual([m["agent"] for m in R["members"]], ["bugs", "security"])
+            self.assertEqual(R["stable_hash"], score.stable_hash("src/a.py", code, "dup"))
+            i0, i1 = (score._finding_identity(m) for m in R["members"])
+            self.assertEqual(i0[1:], i1[1:])
+            self.assertNotEqual(i0, i1)
+        self.assertEqual((Rb["agent"], Rb["stable_hash"],
+                          [(m["agent"], m["line"]) for m in Rb["members"]]),
+                         (Rs["agent"], Rs["stable_hash"],
+                          [(m["agent"], m["line"]) for m in Rs["members"]]))
+        heads = {("bugs", 10): code, ("security", 10): code}
+        entry = _carried(Rb, heads)
+        p2 = self._pass2([dict(entry)], ranges=self.A_RANGES, min_confidence=90)
+        self.assertEqual(len(p2["findings"]), 1)
+        row = p2["findings"][0]
+        self.assertEqual((row["agent"], row["agent_confidence"], row["status"]),
+                         ("security", 100, "persisted"))
+        self.assertEqual(_pairs(row), [("security", "dup")])
+        self.assertEqual([x["title"] for x in p2["filtered"]
+                          if x.get("reason") == "below-min-confidence"], ["dup"])
+        self.assertEqual(p2["fixed_since_last"], [])
+        expanded, _ = score._expand_members(entry)
+        self.assertEqual([e["agent"] for e in expanded], ["security"])
+        agentless = lambda x: (score.stable_hash(x.get("file"), score._canonical_for_hash(x),
+                                                 x.get("title")),
+                               score._as_line(x.get("line")))
+        with mock.patch.object(score, "_finding_identity", agentless):
+            Rm = score.run(_hl_env([dict(lb), dict(ls)], self.A_RANGES))["findings"][0]
+            self.assertEqual(Rm["agent"], "bugs")
+            self.assertEqual(len(Rm["members"]), 1)
+            self.assertEqual(self._pass2([_carried(Rm, heads)], ranges=self.A_RANGES,
+                                         min_confidence=90)["findings"], [])
+        with mock.patch.object(score, "_expand_members", _stub_expand):
+            self.assertEqual(self._pass2([dict(entry)], ranges=self.A_RANGES,
+                                         min_confidence=90)["findings"], [])
+        self.assertEqual(score.stable_hash("", "", ""), score.stable_hash(None, None, None))
+
+    def test_member_status_uses_own_canonical_window(self):
+        lead, _ = self._ab(84, 70)
+        brace = _hl("s", "security", "ssrf", 12, 70, "ssrf", code="}\n    return resp",
+                    window=["b_line", "l11", "}", "    return resp", "l14"])
+        R = score.run(_hl_env([lead, brace], self.A_RANGES))["findings"][0]
+        self.assertEqual(R["agent"], "bugs")
+        self.assertEqual(R["members"][1]["current_code"], "}\n    return resp")
+        key = ("security", 12)
+        changed = _carried(R, {key: "}"}, windows={key: "}\n    return other"})
+        pw = self._pass2([dict(changed)], ranges=self.A_RANGES)
+        rows = pw["findings"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["agent"], rows[0]["status"], rows[0]["band"],
+                          rows[0]["orchestrator_score"]),
+                         ("security", "needs-recheck", "warning", 90))
+        self.assertEqual(rows[0]["members"][0]["current_code"], "}\n    return resp")
+        self.assertEqual([x["title"] for x in pw["fixed_since_last"]], ["logic"])
+        self.assertEqual(score.carry_forward_status(R["members"][1], "}",
+                                                    "}\n    return other"), "needs-recheck")
+        self.assertEqual(score.carry_forward_status({"current_code": "}"}, "}", None),
+                         "persisted")
+        same = _carried(R, {key: "}"}, windows={key: "}\n    return resp"})
+        pc = self._pass2([same], ranges=self.A_RANGES)["findings"]
+        self.assertEqual((pc[0]["status"], pc[0]["band"]), ("persisted", "critical"))
+        # MUTATION (i): the member projected to a one-line snippet, no window.
+        proj = dict(changed, members=[dict(changed["members"][0]),
+                                      {k: v for k, v in dict(changed["members"][1],
+                                                             current_code="}").items()
+                                       if k != "canonical_window"}])
+        pp = self._pass2([proj], ranges=self.A_RANGES)["findings"]
+        self.assertEqual((pp[0]["status"], pp[0]["band"], pp[0]["orchestrator_score"]),
+                         ("persisted", "critical", 100))
+        # MUTATION (ii): the window dropped inside the member status call.
+        real = score.carry_forward_status
+        with mock.patch.object(score, "carry_forward_status",
+                               lambda f, c, w=None: real(f, c, None)):
+            pm = self._pass2([dict(changed)], ranges=self.A_RANGES)["findings"]
+        self.assertEqual(pm[0]["status"], "persisted")
+
+
+class TestRollbackStateCompat(unittest.TestCase):
+    """Rollback of H-LANE is state-compatible: the REAL pre-H-LANE scorer reads a
+    new-version state without crashing and emits an old-schema envelope; the
+    absorbed-member evidence is lost (the accepted, measured downgrade)."""
+
+    VAL = "triggarr/web/validation.py"
+    RANGES = {VAL: [[77, 85]]}
+
+    @classmethod
+    def setUpClass(cls):
+        # A load failure raises here -> the class ERRORS (a failure), never a skip.
+        cls.old = replay.load_scorer("blob:" + PRE_HLANE_SCORER_BLOB)
+        cls.future = state_shape.load_schema("future")
+        cls.schema_without_members = dict(cls.future, finding_optional=[
+            k for k in cls.future["finding_optional"] if k != "members"])
+
+    def setUp(self):
+        patcher = mock.patch.object(score, "AGENT_CONFIDENCE_OFFSET", {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _R(self):
+        fs = [
+            _hl("b", "bugs", "logic-error", 77, 73, "logic", code="b_line", file=self.VAL),
+            _hl("s", "security", "ssrf", 78, 62, "ssrf", code="s_line", file=self.VAL),
+            _hl("i", "impact", "blast-radius", 80, 70, "blast", code="i_line", file=self.VAL),
+        ]
+        R = score.run(_hl_env(fs, self.RANGES))["findings"][0]
+        self.assertEqual(len(R["members"]), 3)
+        return R
+
+    def test_old_scorer_tolerates_new_version_state(self):
+        entry = _carried(self._R(), {"bugs": "b_line", "security": "s_line",
+                                     "impact": "i_line"},
+                         windows={"bugs": "b_line\n  nextLine()"})
+        out = self.old.run(_hl_env([], self.RANGES, carryforward=[entry]))
+        self.assertEqual(len(out["findings"]), 1)
+        row = out["findings"][0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertNotIn("members", row)
+        self.assertEqual(state_shape.check_finding(row, self.schema_without_members), [])
+
+    def test_old_scorer_loses_absorbed_evidence_when_representative_fixed(self):
+        entry = _carried(self._R(), {"security": "s_line"})
+        out = self.old.run(_hl_env([], self.RANGES, carryforward=[entry]))
+        self.assertEqual(out["findings"], [])
+        self.assertEqual(len(out["fixed_since_last"]), 1)
+
+    def test_current_schema_accepts_members_and_old_schema_rejects_it(self):
+        row = self._R()
+        self.assertIn("members", row)
+        self.assertEqual(state_shape.check_finding(row, self.future), [])
+        self.assertEqual(state_shape.check_finding(row, self.schema_without_members),
+                         ["unknown key in finding: members"])
+
+    def test_new_scorer_reads_old_version_state(self):
+        cf = _hl("cf", "security", "ssrf", 78, 62, "ssrf", code="s_line", file=self.VAL)
+        cf["canonical_line_content"] = "s_line"
+        out = score.run(_hl_env([], self.RANGES, carryforward=[cf]))
+        self.assertEqual(len(out["findings"]), 1)
+        row = out["findings"][0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(_pairs(row), [("security", "ssrf")])
+
+
+class TestRetiredDomainCode(unittest.TestCase):
+    """STEP B and CATEGORY_DOMAIN are gone; category never affects grouping."""
+
+    def test_removed_names_absent(self):
+        for name in ("CATEGORY_DOMAIN", "_category_domain", "_categories_overlap",
+                     "_is_adversarial"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(score, name))
+        self.assertTrue(hasattr(score, "_titles_match"))   # the documented inert helper
+
+    def test_category_never_affects_grouping(self):
+        for ca, cb in (("injection", "perf"), ("logic-error", "ssrf"),
+                       ("adversarial", "idiom"), (None, "suppression")):
+            with self.subTest(pair=(ca, cb)):
+                a = _hl("a", "security", ca, 10, 80, "a")
+                b = _hl("b", "bugs", cb, 11, 80, "b")
+                self.assertEqual(len(score.cross_confirm_group([a, b])), 1)
+                far = dict(b, line=20)
+                self.assertEqual(len(score.cross_confirm_group([a, far])), 2)
