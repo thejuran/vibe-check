@@ -1,0 +1,163 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-09-29T23:14:00Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "imp-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "cancel_download expects the slskd transfer id, but the transfers table only stores a local integer PK",
+          "category": "schema-change",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 68,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "cancel_download sends DELETE to /api/v0/transfers/downloads/{username}/{id}, where {id} is slskd's transfer id (a GUID in slskd's API). The transfers table (schema.sql:341-353) has no column for the slskd id; its only id is the local INTEGER PRIMARY KEY. The phase 22-03 RED test tests/test_jobs_api.py:659 asserts `fake.calls == [(\"alice\", str(transfer_id))]`, where transfer_id is the local SQLite rowid. If the cancel endpoint is built to satisfy that test, every real cancel will send an integer like \"17\" that slskd cannot match, get a 404/400, raise TransferEnqueueError, and leave the acquisition stuck in cancel_failed. The fake client hides this in tests. Still to verify: the exact slskd route constraint and whether 404 or 400 comes back.",
+          "current_code": "path = f\"{_TRANSFERS_DOWNLOAD_ROOT}/{encoded_username}/{encoded_transfer_id}\"",
+          "fix_hint": "persist the slskd transfer id (from the enqueue response or a GET match on filename) in a new transfers column with a db.py migration, and pass that value to cancel_download; update the test_jobs_api contract to match",
+          "why_it_matters": "Active cancellation is the headline feature of this plan. With the local id passed through, the slskd side of the cancel never works in production, the remote download keeps running, and the operator sees cancel_failed.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "        return []",
+            "",
+            "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+            "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+            "        encoded_username = quote(username, safe=\"\")"
+          ],
+          "canonical_line_content": "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+          "orchestrator_score": 73,
+          "band": "medium",
+          "attribution": [
+            "bugs",
+            "impact"
+          ],
+          "stable_hash": "8e46a75cfd53857c8f57e86b9840433cac0547e5a42cd7ee9253bd58895a88ed",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 204,
+              "title": "cancel_download expects the slskd transfer id, but the transfers table only stores a local integer PK",
+              "category": "schema-change",
+              "severity": "high",
+              "agent": "impact",
+              "agent_confidence": 68,
+              "problem": "cancel_download sends DELETE to /api/v0/transfers/downloads/{username}/{id}, where {id} is slskd's transfer id (a GUID in slskd's API). The transfers table (schema.sql:341-353) has no column for the slskd id; its only id is the local INTEGER PRIMARY KEY. The phase 22-03 RED test tests/test_jobs_api.py:659 asserts `fake.calls == [(\"alice\", str(transfer_id))]`, where transfer_id is the local SQLite rowid. If the cancel endpoint is built to satisfy that test, every real cancel will send an integer like \"17\" that slskd cannot match, get a 404/400, raise TransferEnqueueError, and leave the acquisition stuck in cancel_failed. The fake client hides this in tests. Still to verify: the exact slskd route constraint and whether 404 or 400 comes back.",
+              "source_window": [
+                "        return []",
+                "",
+                "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+                "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+                "        encoded_username = quote(username, safe=\"\")"
+              ],
+              "cwe": null,
+              "why_it_matters": "Active cancellation is the headline feature of this plan. With the local id passed through, the slskd side of the cancel never works in production, the remote download keeps running, and the operator sees cancel_failed.",
+              "fix_hint": "persist the slskd transfer id (from the enqueue response or a GET match on filename) in a new transfers column with a db.py migration, and pass that value to cancel_download; update the test_jobs_api contract to match",
+              "current_code": "path = f\"{_TRANSFERS_DOWNLOAD_ROOT}/{encoded_username}/{encoded_transfer_id}\"",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 204,
+              "title": "Tests pass a filename as transfer_id, but slskd's DELETE endpoint expects a transfer GUID",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 35,
+              "problem": "tests/test_transfer.py:301 calls cancel_download with transfer_id='folder/01 track.flac', and 22-RESEARCH.md says cancel is called 'for known transfer ids or source files'. slskd's DELETE /transfers/downloads/{username}/{id} takes the transfer's GUID. Passing a percent-encoded filename would get a 404, which bugs-001 turns into an error, and the download would keep running. pending: confirm callers pass the slskd transfer 'id' field and not the filename.",
+              "source_window": [
+                "        return []",
+                "",
+                "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+                "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+                "        encoded_username = quote(username, safe=\"\")"
+              ],
+              "cwe": null,
+              "why_it_matters": "Active cancellation would never stop the download, even though the user asked to cancel it.",
+              "fix_hint": "document or validate that transfer_id is the slskd transfer id from get_user_downloads, and have callers never pass the filename",
+              "current_code": "def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses uses truthy `or` fallback instead of `is None` check",
+          "reason": "absorbed-into: 3772bb11bc227bdd950fe5a2c232a88d295b8744303b148bbd3c3bd3db865af5"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "An empty success_statuses set silently falls back to the {200, 201} default",
+          "reason": "absorbed-into: 3772bb11bc227bdd950fe5a2c232a88d295b8744303b148bbd3c3bd3db865af5"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 261,
+          "title": "Cancel failures raise TransferEnqueueError, so an enqueue handler would also catch them",
+          "reason": "absorbed-into: 3772bb11bc227bdd950fe5a2c232a88d295b8744303b148bbd3c3bd3db865af5"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 261,
+          "title": "Cancel failures surface as TransferEnqueueError with the generic 'unavailable' reason",
+          "reason": "absorbed-into: 3772bb11bc227bdd950fe5a2c232a88d295b8744303b148bbd3c3bd3db865af5"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "Tests pass a filename as transfer_id, but slskd's DELETE endpoint expects a transfer GUID",
+          "reason": "absorbed-into: 8e46a75cfd53857c8f57e86b9840433cac0547e5a42cd7ee9253bd58895a88ed"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 260,
+          "title": "Cancel of an already-removed or finished transfer (404) raises as 'unavailable'",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 137,
+          "title": "SlskdTransferClient's documented surface contract no longer matches its methods",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "A 404 on DELETE is treated as a hard failure instead of an idempotent cancel",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 209,
+          "title": "Cancel is sent without remove=true, so cancelled transfers stay in slskd and are visible to the status poller",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
