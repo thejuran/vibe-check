@@ -2349,6 +2349,13 @@
       "runs-v2.10/should-quiet-7/run-3"
     ]
   },
+  "guardrail_amendments": {
+    "runs/triggarr-secret-in-logs/run-2": {
+      "approved": "2026-09-29",
+      "ledger_entry": "008",
+      "reason": "v2.9 archive holds state.json only (no filtered[], no transcript); the baseline replay bridges the codex catch into the co-located compliance row, whose title is axis=false. The original separating inputs are unrecoverable. Owner amendment, SUPERSESSIONS-v2.10.md entry 008."
+    }
+  },
   "quiet_runs": {
     "headline": [
       "runs-v2.10/should-quiet-1/run-1",
