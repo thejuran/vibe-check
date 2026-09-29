@@ -133,10 +133,16 @@ also the check that catches a run accidentally launched with `$SNAP_ROOT`:
 
 ```bash
 set -euo pipefail
-grep -nE '(turingmind-code-review/plugins/vibe-check|plugins/cache/)' <transcript> \
+grep -nE '(turingmind-code-review/plugins/vibe-check|plugins/cache/thejuran/vibe-check)' \
+  <transcript> \
   && { echo 'RUN TOUCHED A NON-SNAPSHOT PLUGIN PATH — RUN IS VOID, STOPPING'; exit 1; }
 echo 'provenance clean'
 ```
+
+The pattern names the vibe-check cache path only. A bare `plugins/cache/` would also match
+`plugins/cache/openai-codex`, which every Codex-joined run legitimately loads, and would void valid
+runs. `SPOT-CHECK-v2.10-phase40.md` uses this same narrowed pattern plus a positive `$PLUGIN_ROOT`
+presence check.
 
 A match means the run exercised something outside the snapshot; discard it and re-run after
 re-verifying. Isolation is checked here, not assumed.
