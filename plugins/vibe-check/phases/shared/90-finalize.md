@@ -12,7 +12,7 @@ If `$ARGUMENTS` contains `--finalize`:
 - Compute current state from the state object parsed out of `$STATE_FILE`:
   - `outstanding_cw` = last pass's findings with band ∈ {critical, warning} AND status ≠ fixed-since-last
   - `unacknowledged_medium` = last pass's findings with band == medium AND no entry in state's `medium_acknowledgments`
-- Compute the gate's inputs, then let `finalize_gate.py` pick the branch. Its input is exactly six keys, built with a JSON encoder (booleans as JSON `true`/`false`, counts as JSON integers):
+- Compute the gate's inputs, then let `finalize_gate.py` pick the branch. Its input is ONE JSON object whose only key is `flags`, and `flags` holds exactly the six keys below, built with a JSON encoder (booleans as JSON `true`/`false`, counts as JSON integers): `{"flags": {"state_file_present": true, "outstanding_cw": 0, "unacknowledged_medium": 0, "noninteractive": false, "pr_mode": false, "range_mode": false}}`. Passing the six keys bare, without the `flags` wrapper, is malformed input and the gate refuses it.
   - `state_file_present` — `[ -f "$STATE_FILE" ]`
   - `outstanding_cw`, `unacknowledged_medium` — the two counts above (`0` when there is no state file)
   - `noninteractive` — `$TURINGMIND_NONINTERACTIVE` is set to a truthy value

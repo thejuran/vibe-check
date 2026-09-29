@@ -72,11 +72,21 @@ _REVIEW_ALL_ONLY = [
     "phases/review/40-render-all.md",
     "phases/review/45-persist-all.md",
 ]
+# The deep-only files. The Codex pair is read only when `codex` is not `off`,
+# so like review-plain these rows are an upper bound.
+_DEEP_ONLY = [
+    "phases/deep-review/01c-related-files.md",
+    "phases/deep-review/01d-coverage.md",
+    "phases/deep-review/20-selection.md",
+    "phases/deep-review/25-arch-prompt.md",
+    "phases/deep-review/2c-codex-kickoff.md",
+    "phases/deep-review/30-codex-collect.md",
+]
 MODE_PATHS = {
     "review-plain": _SPINE_HEAD + _REVIEW_ALWAYS_ON,
     "review-all": _SPINE_HEAD + _REVIEW_ALWAYS_ON + _REVIEW_ALL_ONLY,
-    "deep-plain": ["commands/deep-review.md", "commands/review.md"],
-    "deep-all": ["commands/deep-review.md", "commands/review.md"],
+    "deep-plain": ["commands/deep-review.md", "commands/review.md"] + _DEEP_ONLY,
+    "deep-all": ["commands/deep-review.md", "commands/review.md"] + _DEEP_ONLY,
     # Finalize runs Phase 0, 0.5 and the unconditional 0.6, then the shared
     # finalize file; it never reads the review phases after 0.6.
     "finalize": _SPINE_HEAD + [

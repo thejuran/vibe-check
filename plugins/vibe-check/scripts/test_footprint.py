@@ -216,8 +216,14 @@ class TestPathStats(unittest.TestCase):
         combined = footprint.path_stats(PLUGIN_ROOT, "deep-plain", rev=rev)
         parts = [footprint.file_stats(PLUGIN_ROOT, rel, rev=rev)
                  for rel in footprint.MODE_PATHS["deep-plain"]]
-        self.assertEqual(combined["bytes"], sum(p["bytes"] for p in parts))
-        self.assertEqual(combined["words"], sum(p["words"] for p in parts))
+        present = [p for p in parts if p["bytes"] is not None]
+        absent = [rel for rel, p in zip(footprint.MODE_PATHS["deep-plain"], parts)
+                  if p["bytes"] is None]
+        # The phases/ files postdate the pin, so at the pin they are reported
+        # as missing and contribute nothing; they are never silently dropped.
+        self.assertEqual(combined["missing"], absent)
+        self.assertEqual(combined["bytes"], sum(p["bytes"] for p in present))
+        self.assertEqual(combined["words"], sum(p["words"] for p in present))
         # No dedup: deep-plain legitimately lists two files today.
         self.assertEqual(combined["bytes"],
                          REVIEW_MD_BYTES_AT_PIN + DEEP_MD_BYTES_AT_PIN)
