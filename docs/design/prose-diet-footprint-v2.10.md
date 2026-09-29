@@ -98,10 +98,12 @@ include the Codex pair, which is read only when `codex` is not `off`.
 The target was a **soft** 40% reduction on the plain review path. The figure achieved is
 **−41.67%** by bytes and by the 2.7 proxy (189,625 → 110,616 bytes; 70,231 → 40,964 proxy
 tokens). That is an upper-bound AFTER row, and no AFTER measurement was taken.
-The target was **not a gate**. The gates were the per-batch checks and the catch rate, and they are recorded in the PASS
-artifacts, not here. **No prose was cut to reach a number.** The restructure moved prose behind lazy
-reads and turned mechanical rules into scripts. The figure is whatever that produced. Had it come in
-under 40%, this section would say so and nothing would have been cut to close the gap.
+
+The target was **not a gate**. The gates were the per-batch checks and the catch rate, and they are
+recorded in the PASS artifacts, not here. **No prose was cut to reach a number.** The restructure
+moved prose behind lazy reads and turned mechanical rules into scripts. The figure is whatever that
+produced. Had it come in under 40%, this section would say so and nothing would have been cut to
+close the gap.
 
 ## 5. Where each path's change comes from
 
