@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 7
+current_plan: 8
 status: executing
 stopped_at: Completed 41-03-PLAN.md
-last_updated: "2026-09-29T22:40:47.067Z"
+last_updated: "2026-09-29T22:57:11.270Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 28
-  completed_plans: 26
+  completed_plans: 27
   percent: 13
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 41 (Wave 1 — scorer-side noise interventions) — EXECUTING
-Plan: 7 of 8
-Current Plan: 7
+Plan: 8 of 8
+Current Plan: 8
 Total Plans in Phase: 8
 Status: Executing Phase 41
-Progress: [█████████░] 93%
+Progress: [██████████] 96%
 Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
@@ -96,6 +96,7 @@ Last activity: 2026-09-29 -- Phase 41 execution started
 | Phase 41 P04 | 35 min | 3 tasks | 6 files |
 | Phase 41 P05 | 30min | 3 tasks | 5 files |
 | Phase 41 P06 | 18 min | 3 tasks | 10 files |
+| Phase 41 P07 | 13 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -201,6 +202,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 41]: 41-05 B-REWEIGHT: embedded offsets == calibrate derive {architecture:-6,bugs:-2,impact:-12}; lone-lane only; min_confidence/agent_confidence/stable_hash read raw; ALONE replay REGRESSED 0, FP 16/18 -> 14/18 (commit 0ee3818)
 - [Phase 41]: H-LANE (41-06): site grouping (same file ±2) across all lanes; +10 only Codex+Claude with codex joined (D-01); members carry each lane's own record; representative key (band, capped, uncapped, hash, agent)
 - [Phase 41]: D-16 spot-check picks from COMBINED replay: should-quiet-3 + should-quiet-1 (predicted FP 5/6); COMBINED FP 16/18 -> 14/18, REGRESSED 0
+- [Phase 41]: 41-07: spot-check pair should-quiet-3 (2/3) + should-quiet-1 (3/3, D-16 tie); predicted FP 5/6; snapshot batch4-cd8f5b00de73
 
 ### Pending Todos
 
@@ -220,6 +222,7 @@ None yet.
 - [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
 - RESOLVED 2026-09-29: 41-02 blocker (runs/triggarr-secret-in-logs/run-2 UNEVALUABLE) closed by owner amendment, SUPERSESSIONS-v2.10.md entry 008; baseline replay REPRODUCED 25 / 26 · AMENDED 1.
+- 41-07 STEP 0 pre-flight stops at the clone-clean gate: owner's ~/roonseek has uncommitted .planning/ROADMAP.md + untracked .codex-review/ — owner commits or moves it aside, then runs SPOT-CHECK-v2.10-phase41.md
 
 ## Deferred Items
 
@@ -243,7 +246,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T22:40:42.237Z
+Last session: 2026-09-29T22:56:59.355Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be

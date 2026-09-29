@@ -311,7 +311,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 41-07-PLAN.md — batchsnap.py Phase-41 unit + recorded shas; RUN-METHOD-NOTES-phase41.md + SPOT-CHECK-v2.10-phase41.md (replay-chosen pair named with evidence before run 1); snapshot built + pre-flight proven
+- [x] 41-07-PLAN.md — batchsnap.py Phase-41 unit + recorded shas; RUN-METHOD-NOTES-phase41.md + SPOT-CHECK-v2.10-phase41.md (replay-chosen pair named with evidence before run 1); snapshot built + pre-flight proven
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
@@ -406,7 +406,7 @@ Plans:
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
-| 41. Wave 1 — scorer-side noise interventions | v2.10 | 6/8 | In Progress|  |
+| 41. Wave 1 — scorer-side noise interventions | v2.10 | 7/8 | In Progress|  |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
 | 44. Close — 2.10.0 release | v2.10 | 0/? | Not started | - |
