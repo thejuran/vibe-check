@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 2
+current_plan: 3
 status: executing
-stopped_at: Phase 41 context gathered
-last_updated: "2026-09-29T21:49:15.215Z"
+stopped_at: Completed 41-02-PLAN.md
+last_updated: "2026-09-29T21:55:16.895Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 41 (Wave 1 — scorer-side noise interventions) — EXECUTING
-Plan: 2 of 8
-Current Plan: 2
+Plan: 3 of 8
+Current Plan: 3
 Total Plans in Phase: 8
 Status: Executing Phase 41
-Progress: [████████░░] 75%
+Progress: [████████░░] 79%
 Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
@@ -91,6 +91,7 @@ Last activity: 2026-09-29 -- Phase 41 execution started
 | Phase 40 P11 | 18m | 4 tasks | 27 files |
 | Phase 40 P14 | 45m | 4 tasks | 4 files |
 | Phase 41 P01 | 25 min | 2 tasks | 2 files |
+| Phase 41 P02 | 65min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase ?]: 40-14: DIET-01 AFTER leg is proxy-only (footprint.py --measure is a no-op); plain path -41.67% on bytes and the 2.7 proxy vs the 40% soft target
 - [Phase ?]: 40-14: DIET-03 recorded as dissolved; W1 phases/review/45-persist.md is the single state.passes writer; nothing returns to 999.8
 - [Phase 41]: 41-01: catch-manifest AXIS labels calibrated to the sealed v2.9 autoescape run-1 MISS (revert/convention/divergence framings axis=false; titleless findings axis=false)
+- [Phase 41]: 41-02 owner AMENDED runs/triggarr-secret-in-logs/run-2 (ledger 008; v2.9 archive cannot reproduce the catch); replay baseline = REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1; ledger 007 not extended to filtered[] — D-05 stop rule; owner decision 2026-09-29
 
 ### Pending Todos
 
@@ -208,7 +210,7 @@ None yet.
 - [Phase 37] The v2.8 evidence debt needs NO separate retroactive audit — it became v2.9 requirements (Phase 35), so the v2.9 milestone audit covers it.
 - [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
-- 41-02 BLOCKED: protected catch runs/triggarr-secret-in-logs/run-2 UNEVALUABLE (axis-false) under baseline replay; owner decision needed (ledger 008 amendment or extend ledger 007 to absorbed members). replay.py Tasks 2-3 + test_replay.py uncommitted in working tree.
+- RESOLVED 2026-09-29: 41-02 blocker (runs/triggarr-secret-in-logs/run-2 UNEVALUABLE) closed by owner amendment, SUPERSESSIONS-v2.10.md entry 008; baseline replay REPRODUCED 25 / 26 · AMENDED 1.
 
 ## Deferred Items
 
@@ -232,13 +234,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T21:49:11.918Z
+Last session: 2026-09-29T21:55:12.861Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 41 context gathered
+Stopped at: Completed 41-02-PLAN.md
 
 Load-bearing sequencing notes for whoever plans next:
 

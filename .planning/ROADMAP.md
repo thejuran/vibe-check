@@ -291,7 +291,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 41-02-PLAN.md — replay.py offline harness (envelope reconstruction, blob/rev/path scorer loading with overrides, strict-axis guardrail, FP prediction) + test_replay.py + baseline fidelity report
+- [x] 41-02-PLAN.md — replay.py offline harness (envelope reconstruction, blob/rev/path scorer loading with overrides, strict-axis guardrail, FP prediction) + test_replay.py + baseline fidelity report
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -406,7 +406,7 @@ Plans:
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
-| 41. Wave 1 — scorer-side noise interventions | v2.10 | 1/8 | In Progress|  |
+| 41. Wave 1 — scorer-side noise interventions | v2.10 | 2/8 | In Progress|  |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
 | 44. Close — 2.10.0 release | v2.10 | 0/? | Not started | - |
