@@ -132,3 +132,101 @@ The falsifiable form per family:
   (CHUNK-01 sort-key, edge-case-A) in a way a tested unit would catch.
 - **Family 3:** exhibit a codex output (RTL override, zero-width injection, >300-char note)
   that the two hand-copies sanitize differently.
+
+---
+
+## Phase 40 reconciliation (v2.10)
+
+Appended at the close of v2.10 Phase 40. The ranked families, the second tier and the KEEP list
+above are left as they were written. This section records what the phase did with them.
+
+**How it was checked before it was written (F7, FL-13).** The following loop ran against the tree
+at `1f91df8` and passed for all nine modules. For each module it checks three things: the script
+exists under `plugins/vibe-check/scripts/`, its `test_<name>.py` sits beside it, and `<name>.py` is
+referenced under `plugins/vibe-check/phases/`. A failure prints `MISSING SCRIPT`, `MISSING TEST` or
+`BUILT BUT NOT WIRED` and exits non-zero.
+
+```bash
+for m in chunks select_files codex_translate codex_gate fixcommit coverage dedup statepath \
+         finalize_gate; do
+  test -f "plugins/vibe-check/scripts/$m.py"      || { echo "MISSING SCRIPT $m"; exit 1; }
+  test -f "plugins/vibe-check/scripts/test_$m.py" || { echo "MISSING TEST $m"; exit 1; }
+  grep -rq "$m.py" plugins/vibe-check/phases/     || { echo "BUILT BUT NOT WIRED $m"; exit 1; }
+done
+```
+
+The loop's reference check is loose. For `coverage`, one of its two matches is
+`01d-coverage.md:24`, which names the unrelated Python `coverage.py` tool. So each row below also
+names the file with a real `python3 "$VC_ROOT/scripts/<name>.py"` invocation. A stricter grep for
+that exact form found an invocation for all nine modules.
+
+### Extracted and wired
+
+| D-07 item | Script | Invoked from (`phases/`) |
+|---|---|---|
+| F1: path validation (pre-phase, `18f3c6c`) | `guard.py` | `shared/01-bootstrap.md` |
+| F2: chunk packer + risk math | `chunks.py` | `review/02-chunk-plan.md (+2)` |
+| `--all` symlink (mode-120000) filter | `select_files.py` | `review/00-scope-all.md` |
+| skip-rules matcher | `select_files.py` | `review/00-scope-all.md` |
+| F3: codex output sanitization | `codex_translate.py` | `deep-review/30-codex-collect.md` |
+| codex diff-representability | `codex_gate.py` | `deep-review/2c-codex-kickoff.md` |
+| commit message + title allowlist | `fixcommit.py` | `review/50-fix-loop.md` |
+| per-mode state-path resolution | `statepath.py` | `review/05-state-all.md` |
+| finalize gate | `finalize_gate.py` | `shared/90-finalize.md` |
+| coverage R/T/S arithmetic | `coverage.py` | `review/40-render-all.md` |
+| cross-file dedup grouping | `dedup.py` | `review/40-render-all.md` |
+
+Every script above is locked by the `test_<name>.py` beside it in `plugins/vibe-check/scripts/`
+(`test_guard.py`, `test_chunks.py`, `test_select_files.py`, `test_codex_translate.py`,
+`test_codex_gate.py`, `test_fixcommit.py`, `test_statepath.py`, `test_finalize_gate.py`,
+`test_coverage.py`, `test_dedup.py`); the loop above asserts each one exists. F1-F3 are the ranked
+Families 1-3.
+
+Wired by: `fixcommit.py` in 40-07; `codex_translate.py` and `codex_gate.py` in 40-11; the rest in
+40-10. `chunks.py` is also invoked from `review/03-estimate-gate.md` and `review/40-render-all.md`.
+`guard.py` is resolved once in the bootstrap as `$GUARD_PY` and used from the scope and coverage
+files.
+
+### Keep-list confirmed still prose (D-08)
+
+| Kept as prose | Where it lives now (`phases/`) |
+|---|---|
+| `<files>` block builder + ext→fence map | `review/20-dispatch-all.md` |
+| report rendering | `review/40-render.md`, `review/40-render-all.md` |
+| one-pass churn table (the git call; ranking math is `chunks.py`) | `review/02-chunk-plan.md` |
+| `wc -l` / `wc -c` size measurement | `review/02-chunk-plan.md`, `review/10-triage.md` |
+| `--all` cost bracket + time band ranges | `review/03-estimate-gate.md` |
+| plugin-script resolver (the TRUST-01 bash template) | `shared/01-bootstrap.md` |
+
+**Coverage and dedup boundary.** The arithmetic (R/T/S buckets, skip reasons) and the grouping rule
+are extracted into `coverage.py` and `dedup.py`. How the numbers and groups are presented stays
+prose in `review/40-render-all.md`. That split satisfies both D-07 (extract the deterministic part)
+and D-08 (keep rendering as prose).
+
+DIET-02's settled scope shipped complete, because the check above passed. Nothing is left unbuilt.
+
+### Phase-exit record (DIET-04 end-of-phase check)
+
+Transcribed from `docs/design/b3-ground-truth/runs-v2.10-phase40/final/PASS.json`: verdict `PASS`,
+adjudicated in `330ad0e`, snapshot `batch3-e79bff32c01f`. `batchsnap.py check-pass` validated it at
+the phase-close barrier. The batch-3 artifact (`batch3/PASS.json`, `9fcd69f`) also validated.
+
+The six runs and their adjudications: `triggarr-secret-in-logs` run-1 catch, run-2 catch, run-3
+catch; `should-quiet-5` run-1 clean, run-2 clean, run-3 clean.
+
+- **DIET-04 gate:** `triggarr-secret-in-logs` **3/3 catch** against its Phase-38 baseline of 3/3,
+  so catch-rate is no worse. The site (`base.py` 230-238 / 249-256) and axis (credentials and API
+  keys written to logs, CWE-532) were met in every run.
+- **For information only:** `should-quiet-5` **0/3 FP** (Phase-38 triplet: 1/3 FP). Each run
+  reported 0 findings. Phase 43 is the real false-positive proof.
+
+**Measurement conditions** (from the artifact's `adjudication_note`, quoted):
+
+- "both clone projects' Claude Code auto-memory PARKED per runbook N-02"
+- Codex: "sil 1/2/3 JOINED (needs-attention,1 each); sq5 1 SKIPPED (unavailable: launch gate
+  wants BashOutput, absent in CC 2.1.281), sq5 2 JOINED (approve), sq5 3 SKIPPED —
+  improvisation-dependent gate, plugin fix deferred (see 40 deferred-items)". Here "sil" is
+  `triggarr-secret-in-logs` and "sq5" is `should-quiet-5`. This plugin defect was deferred, not
+  fixed in Phase 40.
+- "Usage-limit pause 21:33-22:50 during sil run 1 (after report rendered) and sq5 run 2 (before
+  dispatch); both auto-resumed in place, not voided."
