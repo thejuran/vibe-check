@@ -1,0 +1,41 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "70354771a331f7def6c8116556f58d865f644cd9",
+      "timestamp": "2026-09-29T03:06:05Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/python/model/model.py",
+          "line": 97,
+          "title": "sanitize_log_value on a non-str name raises AttributeError before the model's own checks run",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/python/model/model.py",
+          "line": 81,
+          "title": "Sanitizer now runs on every add_file, even when DEBUG logging is off",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "skipped",
+        "reason": "unavailable",
+        "verdict": null,
+        "findings": 0
+      }
+    }
+  ]
+}
