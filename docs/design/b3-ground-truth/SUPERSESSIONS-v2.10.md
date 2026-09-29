@@ -275,3 +275,76 @@ pin-model: fable 5
 
 **Sign-off:** owner decision 2026-09-24, taken before batch 1 in the milestone-orchestrator session,
 recorded by the assistant.
+
+## 007 — 2026-09-29 — a collapsed H-LANE row's member titles satisfy AXIS (D-14, Phase 41)
+
+This entry registers a RULE for scoring a site that the Phase-41 H-LANE grouping collapses into one
+row. It supersedes no sealed number and moves no denominator: every figure quoted below stands
+exactly as sealed, and the three-gate rule itself is unchanged.
+
+**Sealed statement (verbatim, unchanged):**
+
+From `docs/design/b3-ground-truth/SCORING-v2.10.md` §3 preamble, lines 279-282 (the sentence ends
+mid-line 282), quoted as raw bytes:
+
+```
+A **catch** requires SITE (right file + within the planted hunk, keyed to the row's base_sha) AND
+AXIS (the finding names the key's required MECHANISM, honoring the row's NOT-clause) AND BAND
+(rendered band ≥ the row's floor). SITE-only, or SITE+AXIS-below-band, = `detected-below-threshold`
+= a MISS in the headline.
+```
+
+From `docs/design/b3-ground-truth/ANSWER-KEY-b3.md` lines 5-6 (the scoring-input rule; the sentence
+begins on line 5 and ends on line 6), quoted as raw bytes:
+
+```
+Scoring input: `state.passes[-1].findings[]` from the archived per-run
+`runs/<diff-id>/run-<n>/state.json` (D-06 — never the chat transcript).
+```
+
+From `docs/design/b3-ground-truth/ANSWER-KEY-b3.md` lines 31-32 (the AXIS gate), quoted as raw
+bytes:
+
+```
+2. **AXIS** — the finding's `title` (+ `category` as corroboration) names the defect
+   MECHANISM in the row's AXIS column — not merely a defect at the right location.
+```
+
+**Evidence:**
+
+- H-LANE (Phase 41, D-03) collapses every same-site finding across domains into ONE surviving row,
+  led by the strongest lane. Scores clamp at 100, so at most catch sites several lanes tie and the
+  lead is effectively picked by the `stable_hash` tie-break, not by which title names the defect
+  (`41-RESEARCH.md` Pitfall 1).
+- In 12-14 of the 26 protected catch runs the lead title names a different axis. The two exemplars:
+  on `triggarr-autoescape`, `codex-adversarial` "Deprecated template env options can break startup
+  when warnings are fatal" (`runs/triggarr-autoescape/run-2`), which the autoescape NOT-clause
+  excludes; on `triggarr-secret-in-logs`, `compliance` "Raw exception logged instead of sanitized
+  summary, bypassing established _sanitize_exc convention"
+  (`runs-v2.10-phase40/final/triggarr-secret-in-logs/run-2`), a convention framing that names no
+  leak. Under a lead-title-only reading Phase 43 would score those runs `detected-below-threshold`.
+- The catch finding is NOT lost. It is a member of the surviving row, and it is recorded in
+  `filtered[]` as `absorbed-into: <hash>` (the Fable-A2 mechanism), where the scoring input above
+  never looks.
+- Rejected alternatives (CONTEXT D-14): collapse-in-report-only, which widens the phase into the
+  prose renderer; and lead-title-only, under which H-LANE fails the zero-regression guardrail on
+  the affected catch runs.
+- Every finding at SITE in the 29 archived catch runs is pre-adjudicated for AXIS, with the
+  deciding phrase, in `docs/design/b3-ground-truth/REPLAY-CATCH-MANIFEST-v2.10.json`, committed
+  before any harness or scorer candidate exists.
+
+**Effect:**
+
+1. From the first scored run that carries a `members` key (Phase-41 H-LANE and later), the AXIS
+   gate is satisfied when the surviving row's OWN title OR ANY `members[].title` on that row names
+   the required mechanism, honoring the row's NOT-clause. SITE and BAND are still judged on the
+   surviving row's own `file:line` and `band`.
+2. The offline replay guardrail (`plugins/vibe-check/scripts/replay.py`, plan 41-02) applies this
+   same basis. It is the manifest's `_rules.axis_basis`.
+3. Nothing about `state.passes[-1].findings[]` as the scoring input changes. `filtered[]` is still
+   not scored.
+4. The rule applies to the Phase-41 spot-check and to Phase 43. The sealed denominators are
+   untouched.
+
+**Sign-off:** owner decision D-14, recorded in discuss-phase 2026-09-29 after the Phase-41 research
+surfaced the representative-vs-AXIS conflict; registered here before H-LANE lands.
