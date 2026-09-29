@@ -53,7 +53,7 @@ Parse the returned `results[]`. Each has `status ∈ {applied, obsolete, needs-h
 
 **Why a dedicated agent, not inline orchestrator edits:** the agent gets its own context window to read files and reason about each fix without bloating the orchestrator's context, and the semantic-edit approach removes the substring-uniqueness failure mode entirely.
 
-**The fix agent is the only apply path.** Do NOT apply fixes inline from the orchestrator. The orchestrator's `allowed-tools` retains `Edit`/`Bash(git:*)` only for the documented inline-fallback case below; everything else — including findings the user hand-specifies after a `needs-human` — is re-dispatched to the `fix` agent so there is exactly one commit-message convention and one `fixes_applied[]` write site.
+**The fix agent is the only apply path.** Do NOT apply fixes inline from the orchestrator. The orchestrator's `allowed-tools` retains `Edit`/`Bash(git:*)` only for the documented inline-fallback case below; everything else — including findings the user hand-specifies after a `needs-human` — is re-dispatched to the `fix` agent so there is exactly one commit-message convention.
 
 **Inline fallback (narrow, fully specified).** Apply a fix inline from the orchestrator ONLY when re-dispatching the agent is impossible for this invocation (e.g. the finding edits the `fix` agent's own spec, or `$TURINGMIND_NONINTERACTIVE` blocks a sub-dispatch). When you do:
 - Commit through the SAME trusted helper `agents/fix.md` step 6 uses — `fixcommit.py` — never a hand-built commit. Serialize the finding record `{"pass_number": …, "title": …, "paths": [...]}` with the Write tool (`paths` = the finding's validated file set: every file the fix touched, primary + siblings); never put the title or a path on a command line, because the shell expands a command line before any helper runs. The helper re-validates every path (regex pre-filter + `guard.py` containment) and the title, REJECTS rather than strips, and writes the commit message file. The git calls sit INSIDE its success branch, so a rejection makes them unreachable:
@@ -71,14 +71,13 @@ Parse the returned `results[]`. Each has `status ∈ {applied, obsolete, needs-h
   fi
   ```
   `$findingfile` (the path of the record you wrote) and `<validated finding file set>` are runtime values you substitute. The `--` pathspec on BOTH `git add` and `git commit` is the finding's validated file set — NOT a single `<finding.file>` and NOT a pathspec-less commit that would sweep in everything else that happens to be staged (the pathspec is what scopes the commit to exactly this finding's files). The message goes in by file via `-F`, never inline `-m` (that reintroduces the title-injection vector); no `--no-verify`.
-- Record a synthetic result `{id, status: "applied", commit_sha, files_touched, summary}` so it renders and persists identically to agent results.
-- It MUST append to `state.passes[-1].fixes_applied[]` exactly like agent results (see below) — an inline fix that skips this write breaks Phase 0.5 carry-forward (the fix won't be seen next pass and the finding gets re-flagged as still-present).
+- Record a synthetic result `{id, status: "applied", commit_sha, files_touched, summary}` so it renders identically to agent results.
 
 **Render results** under a `### Fixes applied` heading, grouped by status:
 - `applied` → link each `commit_sha`, show the one-line `summary`.
 - `obsolete` / `needs-human` / `errored` → list with `summary` so the user can address them by hand (or pick "I'll apply them myself" at the next Step A iteration). These are reported outcomes, never silent drops.
 
-Append `applied` commit SHAs (from the agent's results AND any inline-fallback applies) to `state.passes[-1].fixes_applied[]` so Phase 0.5 carry-forward sees them on next pass. **This is a second write to the state file, after Phase 4.5 already persisted it** — do it safely: re-read `.turingmind/state/<file>.json` from disk, append to `passes[-1].fixes_applied[]`, and write the whole file back in one operation. Do not assume an in-memory copy is still authoritative (a fix-loop iteration or rerun may have rewritten the file since Phase 4.5). If the write is interrupted, the committed fixes still exist in git but won't be recorded — on the next pass, carry-forward will re-flag them as still-present, so the read-modify-write here is what keeps git and state consistent.
+State carries no per-pass applied-commit list: Phase 0.5 carry-forward is content-based (`score.py` compares the canonical finding content), so nothing read it. Fix commits are recorded in git history by their `fix(review-pass-N):` messages. See DIET-03 (D-16).
 
 ### Step C — Decide what to do next
 
