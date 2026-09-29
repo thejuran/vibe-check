@@ -285,13 +285,36 @@ Plans:
 **Plans**: 8 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 41-01-PLAN.md — Catch manifest (26 guardrail + 3 calibration-only runs, every survivor at SITE axis-adjudicated) + SUPERSESSIONS entry 007 (D-14 member titles satisfy AXIS)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 41-02-PLAN.md — replay.py offline harness (envelope reconstruction, blob/rev/path scorer loading with overrides, strict-axis guardrail, FP prediction) + test_replay.py + baseline fidelity report
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 41-03-PLAN.md — calibrate.py (D-15 method: α=20, min n=5, lower-only, lone-lane) + test_calibrate.py + CALIBRATION-v2.10.md method record committed before any candidate replay (+ D-16 tie-break)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 41-04-PLAN.md — B-SEV: lone-lane score ceiling below the critical floor; envelope `codex` block provenance (T1); ALONE replay report; method-record ordering test
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 41-05-PLAN.md — B-REWEIGHT: derived per-agent offsets embedded + embedded==derived lock with mutation proof; ALONE replay report
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 41-06-PLAN.md — H-LANE: proximity-only cross-lane grouping, D-01 +10 gating, `members` key (schema + render), STEP-B/CATEGORY_DOMAIN retired; ALONE + COMBINED replay reports; freeze-lift paragraph
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 41-07-PLAN.md — batchsnap.py Phase-41 unit + recorded shas; RUN-METHOD-NOTES-phase41.md + SPOT-CHECK-v2.10-phase41.md (replay-chosen pair named with evidence before run 1); snapshot built + pre-flight proven
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [ ] 41-08-PLAN.md — BARRIER on the 6 owner runs; D-11 adjudication (D-12 on a miss); RESULTS-v2.10.md Phase-41 section append; SCORER-01..05 complete
 
 > **Owner-runtime**: the SCORER-05 live spot-check (2 diffs ×3) is owner-driven.
@@ -669,12 +692,15 @@ slice of the same reviewer finding is v2.10 TRUST-02, not this item.)
 
 - Capture `git diff -- <file>` before editing; after editing, isolate the delta and stage
   only those hunks (`git apply --cached` on the computed patch) — never the whole file.
+
 - **Owner decision (2026-09-05):** when the fix cannot be separated cleanly from
   pre-existing edits, leave it APPLIED BUT UNCOMMITTED and say so in the fix result — do
   not refuse the fix, do not commit ambiguously.
+
 - Replace the plausibility re-read with the cheapest relevant real check available in
   the repo (targeted test file, type-check, or lint on the touched file); report which
   check ran, or that none was available — "verified" must mean something ran.
+
 - Off the v2.10 measured path (Phase 43 runs are report-only), so this is v2.11 work.
 
 **Source:** external source review of the plugin, 2026-09-05 (reviewer item 2), reproduced by the reviewer.
@@ -710,8 +736,10 @@ not an urgent fix.
 - `detect_frameworks(files) -> set` as a stdlib script: scan the changed files' imports
   (whole file, not hunk) + `package.json` / `pyproject.toml` / `go.mod` metadata; cache
   per run; feed the existing Selection table. Keep the `"skill"` file-shape exception.
+
 - Reuse the `--all` chunk planner (`$CHUNK_PLAN`, Phase 0.2) for diff-mode large diffs;
   delete the Haiku downgrade rule.
+
 - MUST NOT land inside v2.10 — it changes which specialists fire, which would confound
   the baseline-vs-post-change measurement (the milestone's tune-vs-measure caveat).
 
@@ -775,25 +803,31 @@ BY CONSTRUCTION; that structural-gap finding was worth more than any score. Same
   vibe-check missed, (c) a real defect OUTSIDE the sealed key (key-expansion candidate),
   or (d) a false alarm. Bucket (c) is the highest-value output — it means the answer keys
   are under-specified, which affects every future measurement.
+
 - **Do NOT compute a catch/FP rate for ultrareview and publish it as a comparison.** The
   realistic sample is a handful of hand-driven runs vs. vibe-check's ×3-over-10-12-diffs;
   the error bars would swamp the difference. Any such number would be a
   competitive-analysis artifact, which is exactly what [[vibe-check-backlog-reweight]]
   says to deprioritize. If a number is wanted anyway, it must carry its n and its CI.
+
 - **Different jobs, state it up front.** Ultrareview is a generalist branch/PR reviewer;
   vibe-check fans out 12+ specialists with a confidence axis and noise ceilings. On a diff
   seeded with an Electron IPC gap, a miss by ultrareview measures generalist-vs-specialist,
   not reviewer quality. The write-up must say this before any table.
+
 - **Owner-runtime, and it cannot be automated.** `/code-review ultra` is user-triggered and
   billed; the assistant cannot invoke it via Bash or otherwise. Each arm is a manual
   invocation + a manual capture paste. Budget ~1 run per diff, not ×3.
+
 - **MUST NOT land inside v2.10's measured window.** It changes no plugin code, so it does
   not confound Phase 43 the way 999.15/16/17 would — but it competes for the same scarce
   owner-run budget (~80 runs milestone-wide, 36 of them Phase 38). Run it AFTER Phase 44
   ships, or in a gap where no measured baseline is open.
+
 - **Cheapest honest version:** 2 diffs (1 should-catch, 1 should-quiet — reuse the two the
   Phase-40/41 spot-checks already use, so the vibe-check side is already recorded) ×1 run
   each. ~2 owner invocations. Expand only if bucket (b)/(c) hits land.
+
 - Capture scaffolding lives at `plugins/vibe-check/docs/efficacy/ULTRAREVIEW-SHADOW.md`
   (template committed ahead of the run; see that file for the exact procedure).
 
