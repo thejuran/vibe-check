@@ -5,7 +5,7 @@ milestone_name: Opus 5 rebuild + quiet down
 current_plan: 6
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-09-29T00:13:05.316Z"
+last_updated: "2026-09-29T00:13:10.761Z"
 last_activity: 2026-09-24 -- Phase 40 execution started
 progress:
   total_phases: 16
@@ -87,6 +87,7 @@ Last activity: 2026-09-24 -- Phase 40 execution started
 | Phase 40 P09 | 45min | 3 tasks | 4 files |
 | Phase 40 P13 | 20 min | 2 tasks | 5 files |
 | Phase 40 P08 | 16m | 3 tasks | 18 files |
+| Phase 40 P11 | 18m | 4 tasks | 27 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 40]: Batch-1 mode-path validation: run 1 failed all 3 captured paths (unseated deep-review.md read review.md from the installed cache and executed a repo-planted helper; the monolith does not announce phases as text; one improvised state key). Owner-approved remediation recorded under 40-13: deep-review.md TRUST-01 seat + absolute review.md read pulled forward from 40-11 (857d019); tracecheck batch-1 rule sequence_evidence:"none" with always-on dispatches as evidence and an activity floor (9e92a9d); procedure-doc fixes (pretrust, finalize seed removes the pass snapshot, finalize deliverable assert). Run 2 on batch1-39e11a7eef89: 6/7 rows pass, negative control live, canary silent everywhere; finalize red on evidence FORM only (Bash cat vs Read tool). Owner handed batch 1 over with that exception; the Read-vs-cat evidence rule is decided in 40-08/40-13.
 - [Phase 40]: 40-08: HARD CONTRACT shared at phases/shared/00-contract.md on review.md's stricter wording (F9c); lazy reads are Read-tool instructions in batchsnap's parsed form; the phase-file Read is the evidence, announcements are not
 - [Phase 40]: 40-08: pass-entry key set stated once in 45-persist.md = future-schema.json (9 keys incl. filtered+codex; codex {status joined|skipped|off, reason slug|null, verdict, findings int}; /review writes status off; Z-second timestamps)
+- [Phase 40]: 40-11: /deep-review is a spine over the shared phase files (own seat + bootstrap Read before any phase, never reads review.md); codex=off short-circuit in the spine; codex_gate.py/codex_translate.py own Family 3; D-11 anchors corrected in both sites; DIET-03 dissolved (Phase-5 fixes_applied write removed, Phase 4.5 sole writer). Batch-3 snapshot batch3-d74452263961 built, not handed over.
 
 ### Pending Todos
 
