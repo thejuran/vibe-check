@@ -385,9 +385,12 @@ expected reason names the FILE, not a phase. Use `review-plain` with
 `phases/review/06-config.md` (Phase 0.6) in batches 2 and 3.
 
 ```bash
+# Batches 2+: the removed read makes 0.6 either "executed without a preceding successful read"
+# (the run announced it) or "absent" (the run never printed a ✓ for it — presence came from the read
+# alone, see §5). Both mean the deletion was caught; either is the live-control reason.
 case "$BATCH" in
-  1) NC_MODE=deep-plain;   NC_REL=commands/review.md;         NC_EXPECT='required file never successfully read: review.md' ;;
-  *) NC_MODE=review-plain; NC_REL=phases/review/06-config.md; NC_EXPECT='phase executed without a preceding successful read: 0.6' ;;
+  1) NC_MODE=deep-plain;   NC_REL=commands/review.md;         NC_EXPECT='^required file never successfully read: review\.md$' ;;
+  *) NC_MODE=review-plain; NC_REL=phases/review/06-config.md; NC_EXPECT='^(phase executed without a preceding successful read: 0\.6|phase absent from run: 0\.6)$' ;;
 esac
 NEG="$WORK/negative-control"; mkdir -p "$NEG"
 python3 - "$WORK/$NC_MODE/trace.jsonl" "$NC_REL" "$NEG/trace.jsonl" <<'PY'
@@ -415,7 +418,7 @@ if python3 "$TC" --trace "$NEG/trace.jsonl" --mode "$NC_MODE" --batch "$BATCH" \
      --plugin-root "$PLUGIN_ROOT" 2> "$NEG/reasons.txt"; then
   echo 'NEGATIVE CONTROL PASSED — THE CHECK IS NOT LIVE — STOPPING'; exit 1
 fi
-grep -qxF "$NC_EXPECT" "$NEG/reasons.txt" \
+grep -qE "$NC_EXPECT" "$NEG/reasons.txt" \
   || { echo 'NEGATIVE CONTROL FAILED FOR THE WRONG REASON — STOPPING'; exit 1; }
 cat "$NEG/reasons.txt"   # copy this reason string into the batch-close record
 rm -rf "$NEG"            # the mutated copy is discarded; it is never evidence of anything
