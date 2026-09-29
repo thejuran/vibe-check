@@ -282,7 +282,17 @@ Plans:
   3. Per-agent confidence calibration is derived from the accumulated ground-truth run data — not hand-picked constants — and the derivation is recorded so it can be re-derived next milestone
   4. A live spot-check (the 2 known-noisy should-quiet diffs ×3) confirms the shipped Wave-1 behavior matches what the replay harness predicted, before Wave 2 begins
 
-**Plans**: TBD
+**Plans**: 8 plans
+
+Plans:
+- [ ] 41-01-PLAN.md — Catch manifest (26 guardrail + 3 calibration-only runs, every survivor at SITE axis-adjudicated) + SUPERSESSIONS entry 007 (D-14 member titles satisfy AXIS)
+- [ ] 41-02-PLAN.md — replay.py offline harness (envelope reconstruction, blob/rev/path scorer loading with overrides, strict-axis guardrail, FP prediction) + test_replay.py + baseline fidelity report
+- [ ] 41-03-PLAN.md — calibrate.py (D-15 method: α=20, min n=5, lower-only, lone-lane) + test_calibrate.py + CALIBRATION-v2.10.md method record committed before any candidate replay (+ D-16 tie-break)
+- [ ] 41-04-PLAN.md — B-SEV: lone-lane score ceiling below the critical floor; envelope `codex` block provenance (T1); ALONE replay report; method-record ordering test
+- [ ] 41-05-PLAN.md — B-REWEIGHT: derived per-agent offsets embedded + embedded==derived lock with mutation proof; ALONE replay report
+- [ ] 41-06-PLAN.md — H-LANE: proximity-only cross-lane grouping, D-01 +10 gating, `members` key (schema + render), STEP-B/CATEGORY_DOMAIN retired; ALONE + COMBINED replay reports; freeze-lift paragraph
+- [ ] 41-07-PLAN.md — batchsnap.py Phase-41 unit + recorded shas; RUN-METHOD-NOTES-phase41.md + SPOT-CHECK-v2.10-phase41.md (replay-chosen pair named with evidence before run 1); snapshot built + pre-flight proven
+- [ ] 41-08-PLAN.md — BARRIER on the 6 owner runs; D-11 adjudication (D-12 on a miss); RESULTS-v2.10.md Phase-41 section append; SCORER-01..05 complete
 
 > **Owner-runtime**: the SCORER-05 live spot-check (2 diffs ×3) is owner-driven.
 
