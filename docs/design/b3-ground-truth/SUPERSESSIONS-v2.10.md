@@ -348,3 +348,61 @@ bytes:
 
 **Sign-off:** owner decision D-14, recorded in discuss-phase 2026-09-29 after the Phase-41 research
 surfaced the representative-vs-AXIS conflict; registered here before H-LANE lands.
+
+## 008 — 2026-09-29 — v2.9 catch `runs/triggarr-secret-in-logs/run-2` AMENDED in the offline replay guardrail (D-05, Phase 41)
+
+This entry records that ONE recorded catch cannot be reconstructed by the offline replay from its
+surviving archive. It supersedes no sealed number and moves no denominator: the sealed verdict below
+stands exactly as recorded, and the run stays one of the 26 protected catch runs.
+
+**Sealed statement (verbatim, unchanged):**
+
+From `docs/design/b3-ground-truth/SCORING-b3.md` §3.1 (`triggarr-secret-in-logs`), the run-2 row,
+quoted as raw bytes:
+
+```
+| 2 | len=1,head=f4366a2 ✓ | ✓ | `codex-adversarial` L232 [critical] "Raw HTTPStatusError logging can leak URL credentials" (compliance L232 [warning] corroborates) | ✓ | ✓ (credential leak) | ✓ (critical) | **catch** | ✓ |
+```
+
+From the same file, §5: `**Headline catch-rate = 8/9** (should-catch runs)`.
+
+**Evidence:**
+
+- The v2.9 archive `runs/triggarr-secret-in-logs/run-2/` holds only `state.json`, `tree.diff` and
+  `tree.diff.sha256`. `state.passes[-1]` carries `findings[]` with exactly two rows at SITE
+  (`triggarr/clients/base.py` L232): `compliance` warning and `codex-adversarial` critical, the
+  recorded catch. There is no `filtered[]` and no session transcript, so the scorer's full original
+  input set is not archived.
+- Replaying those two survivors through the baseline scorer blob (plan 41-02,
+  `plugins/vibe-check/scripts/replay.py baseline`) bridges the codex finding into the single
+  co-located native domain (`compliance`). Compliance leads the surviving row at critical and the
+  codex finding is absorbed into `filtered[]`. The surviving row's title is the one the manifest
+  adjudicates axis=false ("names no leaked secret"), and the baseline scorer emits no `members`, so
+  the entry-007 member-title rule cannot apply. The replay basis is `axis-false`.
+- The most likely cause is native findings at the same site in the original run that made the bridge
+  ambiguous and then fell below threshold. They are not in the archive and cannot be recovered. This
+  is the reconstruction-fidelity limit for v2.9-era inputs (CONTEXT D-07), not a harness defect.
+- Every repair inside the disclosed method was ruled out: a per-run patch, using the archived
+  attribution or recorded bands as a scorer input, or inventing the missing inputs.
+- The other secret-in-logs catches reproduce under the baseline replay and stay fully protected:
+  `runs/triggarr-secret-in-logs/run-1` and `run-3` (v2.9), `runs-v2.10/triggarr-secret-in-logs/run-1..3`
+  (Phase 38), and `runs-v2.10-phase40/final/triggarr-secret-in-logs/run-1..3` (Phase 40). The three
+  Phase-40 batch spot-check runs were never protected (calibration-only) and are unaffected.
+
+**Effect:**
+
+1. `REPLAY-CATCH-MANIFEST-v2.10.json` gains a `guardrail_amendments` entry for
+   `runs/triggarr-secret-in-logs/run-2` that references this entry (`008`). The offline guardrail
+   reports that run as AMENDED. It is not excluded and is not counted as REPRODUCED.
+2. The baseline replay reads **REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1**. The protected
+   denominator stays 26.
+3. A candidate scorer is still judged on all 25 REPRODUCED catches. The AMENDED run passes through
+   the guardrail unchanged. It neither blocks nor excuses a candidate.
+4. Entry 007 is NOT extended. `filtered[]` absorbed members do not count toward AXIS, and
+   `filtered[]` is still not scored.
+5. The sealed v2.9 verdict (**catch**) and the headline **8/9** stand. The sealed archives are not
+   touched. The amendment applies only to the offline replay guardrail, not to how any recorded or
+   future live run is scored.
+
+**Sign-off:** owner decision 2026-09-29 (Option 1, "amend"), taken after plan 41-02 stopped at the
+D-05 stop rule with this run UNEVALUABLE. Recorded by the assistant.
