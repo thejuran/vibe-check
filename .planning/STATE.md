@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: Not started
-status: planning
+current_plan: 2
+status: executing
 stopped_at: Phase 41 context gathered
-last_updated: "2026-09-29T21:25:48.225Z"
-last_activity: 2026-09-29 -- Phase 41 planning complete
+last_updated: "2026-09-29T21:37:46.797Z"
+last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 28
-  completed_plans: 20
+  completed_plans: 21
   percent: 13
 ---
 
@@ -22,17 +22,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 41 — wave 1 — scorer side noise interventions
+**Current focus:** Phase 41 — Wave 1 — scorer-side noise interventions
 
 ## Current Position
 
-Phase: 41
-Plan: 14 of 14
-Current Plan: Not started
+Phase: 41 (Wave 1 — scorer-side noise interventions) — EXECUTING
+Plan: 2 of 8
+Current Plan: 2
 Total Plans in Phase: 8
-Status: Ready to plan
-Progress: [██████████] 100%
-Last activity: 2026-09-29 -- Phase 41 planning complete
+Status: Executing Phase 41
+Progress: [████████░░] 75%
+Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
 
@@ -90,6 +90,7 @@ Last activity: 2026-09-29 -- Phase 41 planning complete
 | Phase 40 P08 | 16m | 3 tasks | 18 files |
 | Phase 40 P11 | 18m | 4 tasks | 27 files |
 | Phase 40 P14 | 45m | 4 tasks | 4 files |
+| Phase 41 P01 | 25 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -188,6 +189,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 40]: 40-11: /deep-review is a spine over the shared phase files (own seat + bootstrap Read before any phase, never reads review.md); codex=off short-circuit in the spine; codex_gate.py/codex_translate.py own Family 3; D-11 anchors corrected in both sites; DIET-03 dissolved (Phase-5 fixes_applied write removed, Phase 4.5 sole writer). Batch-3 snapshot batch3-d74452263961 built, not handed over.
 - [Phase ?]: 40-14: DIET-01 AFTER leg is proxy-only (footprint.py --measure is a no-op); plain path -41.67% on bytes and the 2.7 proxy vs the 40% soft target
 - [Phase ?]: 40-14: DIET-03 recorded as dissolved; W1 phases/review/45-persist.md is the single state.passes writer; nothing returns to 999.8
+- [Phase 41]: 41-01: catch-manifest AXIS labels calibrated to the sealed v2.9 autoescape run-1 MISS (revert/convention/divergence framings axis=false; titleless findings axis=false)
 
 ### Pending Todos
 
@@ -229,7 +231,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T04:02:27.577Z
+Last session: 2026-09-29T21:37:40.959Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
