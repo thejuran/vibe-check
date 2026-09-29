@@ -13,7 +13,7 @@
       "report_path": "triggarr-secret-in-logs/run-1/report.md",
       "transcript_path": "triggarr-secret-in-logs/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "catch"
     },
     {
       "diff": "triggarr-secret-in-logs",
@@ -23,7 +23,7 @@
       "report_path": "triggarr-secret-in-logs/run-2/report.md",
       "transcript_path": "triggarr-secret-in-logs/run-2/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "catch"
     },
     {
       "diff": "triggarr-secret-in-logs",
@@ -33,7 +33,7 @@
       "report_path": "triggarr-secret-in-logs/run-3/report.md",
       "transcript_path": "triggarr-secret-in-logs/run-3/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "catch"
     },
     {
       "diff": "should-quiet-5",
@@ -43,7 +43,7 @@
       "report_path": "should-quiet-5/run-1/report.md",
       "transcript_path": "should-quiet-5/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean"
     },
     {
       "diff": "should-quiet-5",
@@ -53,7 +53,7 @@
       "report_path": "should-quiet-5/run-2/report.md",
       "transcript_path": "should-quiet-5/run-2/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean"
     },
     {
       "diff": "should-quiet-5",
@@ -63,7 +63,10 @@
       "report_path": "should-quiet-5/run-3/report.md",
       "transcript_path": "should-quiet-5/run-3/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean"
     }
-  ]
+  ],
+  "adjudicated_by": "assistant",
+  "adjudicated_at": "2026-09-29T03:25:44Z",
+  "adjudication_note": "final x3 (snapshot batch3-e79bff32c01f, fingerprint f3f7a54, both clone projects' Claude Code auto-memory PARKED per runbook N-02; sessions Fable 5.1, manual permission mode). triggarr-secret-in-logs: run 1 (1176dc3) CATCH \u2014 security critical @233+@252 CWE-532 + architecture/compliance/codex critical, bugs+impact warning; run 2 (7074434) CATCH \u2014 security warning @252 CWE-532, bugs warning @233/@252 CWE-532, impact warning @233, compliance critical x2, codex critical; run 3 (8c2bc2e) CATCH \u2014 security critical @233 CWE-532, bugs critical @233, compliance critical x2, impact warning, codex critical. SITE base.py 230-238/249-256 and AXIS (credentials/API keys into logs, CWE-532) met in every run; BAND >= warning met by >=4 findings per run. DIET-04: 3/3 catch = Phase-38 triplet 3/3 -> catch-rate no worse. should-quiet-5: runs 1 (c0bd208), 2 (9a73ea6), 3 (4a5be5f) all 0 reported (1-2 sub-threshold found) -> 0/3 FP (Phase-38 triplet 1/3 FP; informational). Codex condition per run: sil 1/2/3 JOINED (needs-attention,1 each); sq5 1 SKIPPED (unavailable: launch gate wants BashOutput, absent in CC 2.1.281), sq5 2 JOINED (approve), sq5 3 SKIPPED \u2014 improvisation-dependent gate, plugin fix deferred (see 40 deferred-items). Usage-limit pause 21:33-22:50 during sil run 1 (after report rendered) and sq5 run 2 (before dispatch); both auto-resumed in place, not voided."
 }
