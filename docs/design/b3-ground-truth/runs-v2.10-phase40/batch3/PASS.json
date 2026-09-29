@@ -13,7 +13,7 @@
       "report_path": "triggarr-secret-in-logs/run-1/report.md",
       "transcript_path": "triggarr-secret-in-logs/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "catch"
     },
     {
       "diff": "should-quiet-5",
@@ -23,7 +23,10 @@
       "report_path": "should-quiet-5/run-1/report.md",
       "transcript_path": "should-quiet-5/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean"
     }
-  ]
+  ],
+  "adjudicated_by": "assistant",
+  "adjudicated_at": "2026-09-29T01:17:20Z",
+  "adjudication_note": "batch 3 (snapshot batch3-e79bff32c01f): triggarr-secret-in-logs run 1 = CATCH \u2014 SITE base.py 233/235/252/254 (key 230-238/249-256), AXIS credentials/secrets into logs (CWE-532: security warning @233 'api key/secret', impact warning @235 request URL userinfo, codex critical 'reverse-proxy credentials', architecture critical x2), BAND critical x3 + warning x3; 7 reported / 2 filtered; 8 agents + codex needs-attention. should-quiet-5 run 1 = CLEAN \u2014 0 reported (3 found sub-threshold), codex 0 findings. Caveat recorded (not a void: committed runs are evidence): the orchestrating session in ~/triggarr carried auto-memory (feedback_deep_review_harness_notes.md items 18-20) naming this diff's prior outcomes and a learned dispatch-prompt amendment; findings are subagent-produced from fresh contexts and score.py-banded, so the catch rests on agent output, but the final x3 check runs with both clone projects' auto-memory parked."
 }
