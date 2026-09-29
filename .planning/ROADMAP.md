@@ -157,7 +157,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 ## v2.10 Opus 5 rebuild + quiet down (Phases 38, 40-44) — IN PROGRESS
 
 - [x] **Phase 38: Grow the B3 set + Claude-5 baseline** — Grow the committed organic test set 6 → 10–12 diffs (sealed keys, provenance sidecars), pre-register the pass bar + decision rule, and baseline every diff ×3 on the UNCHANGED v2.9.0 plugin running on the current Claude 5 harness (dual duty: the Opus 5 re-measure) (completed 2026-09-08)
-- [ ] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify (verify-only) the Phase 4.5→5 single-writer property (999.8), move every executable helper to trusted-plugin-root resolution + pre-edit path validation in the fix agent (TRUST-01/02), correct the cost anchors to the current model lineup — each batch guardrailed by a CAPPED B3 spot-check, full ×3 once at phase end
+- [x] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify (verify-only) the Phase 4.5→5 single-writer property (999.8), move every executable helper to trusted-plugin-root resolution + pre-edit path validation in the fix agent (TRUST-01/02), correct the cost anchors to the current model lineup — each batch guardrailed by a CAPPED B3 spot-check, full ×3 once at phase end (completed 2026-09-29)
 - [ ] **Phase 41: Wave 1 — scorer-side noise interventions** — Lift the scoring-formula freeze (Wave-1-scoped): B-SEV severity stability, B-REWEIGHT per-agent confidence calibration, H-LANE pile-on collapse — tuned offline via a zero-catch-regression replay harness on POST-DIET run data, then confirmed by a live spot-check
 - [ ] **Phase 42: Wave 2 — agent-side noise interventions** — Prompt-only H-CORE: safe-change recognition + confidence ceilings on the loud lanes (bugs, security, impact, codex contract), with the real B3 false alarms baked in as never-flag classes
 - [ ] **Phase 43: Prove — full post-change measurement** — Owner re-runs the full grown set ×3, scored from state against the sealed keys, evaluated honestly against the pre-registered bar in `RESULTS-v2.10.md`, with at most one retune
@@ -224,7 +224,7 @@ Plans:
   5. Every executable helper the commands and agents invoke (`scripts/score.py`, `scripts/guard.py`, `scripts/config.py`, and the fix agent's own guard resolution) resolves from the TRUSTED plugin install (`${CLAUDE_PLUGIN_ROOT}`, with one explicit owner-set dev-override env var) — never from the repository under review; the repo-first arm is gone from every copy, and a planted `plugins/vibe-check/scripts/*.py` in a reviewed repo is provably never executed (TRUST-01)
   6. The fix agent validates every path in a finding's file set (regex + guard.py containment) BEFORE its first Read/Edit, not only before commit — a traversal path is refused before anything touches disk (TRUST-02)
 
-**Plans:** 13/14 plans executed
+**Plans:** 14/14 plans complete
 
 Plans:
 **Wave 1** *(batch 1 — TRUST + extractions + harness; 40-01 is evidence work, outside every rollback unit)*
@@ -260,7 +260,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6; opens with the batch-3 + end-of-phase evidence barrier)*
 
-- [ ] 40-14-PLAN.md — Per-mode footprint report, DIET-03 record, DIET-02 inventory reconciliation, phase-exit verdict
+- [x] 40-14-PLAN.md — Per-mode footprint report, DIET-03 record, DIET-02 inventory reconciliation, phase-exit verdict
 
 > **Batches (D-06, capped at 3, each independently revertable):** batch 1 = 40-02..05 + 40-07 + 40-12 + 40-13; batch 2 = 40-08 + 40-10; batch 3 = 40-11. **40-01 (verifier + ledger), 40-06 (lifecycle tooling) and 40-09 (checklist) are OUTSIDE every rollback unit** — evidence-integrity and tooling work is not reverted when a live check regresses. Revert is reverse-order over the commit set `batchsnap.py commit-set` records at batch close.
 
@@ -372,7 +372,7 @@ Plans:
 | 37. Close | v2.9 | 1/1 | Complete | 2026-07-08 |
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
-| 40. Prose diet — restructure for Opus 5 | v2.10 | 13/14 | In Progress|  |
+| 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 0/? | Not started | - |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |

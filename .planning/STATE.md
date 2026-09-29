@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 6
-status: executing
-stopped_at: Phase 40 context gathered
-last_updated: "2026-09-29T00:13:10.761Z"
+current_plan: 14
+status: ready_to_plan
+stopped_at: Phase 40 complete (14/14) — ready to discuss Phase 41
+last_updated: 2026-09-29T03:43:32.282Z
 last_activity: 2026-09-24 -- Phase 40 execution started
 progress:
   total_phases: 16
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 20
-  completed_plans: 19
-  percent: 6
+  completed_plans: 20
+  percent: 13
 ---
 
 # Project State
@@ -22,17 +22,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 40 — prose-diet-restructure-for-opus-5
+**Current focus:** Phase 41 — wave 1 — scorer side noise interventions
 
 ## Current Position
 
-Phase: 40 (prose-diet-restructure-for-opus-5) — EXECUTING
-Plan: 6 of 14
-Current Plan: 6
+Phase: 41
+Plan: 14 of 14
+Current Plan: Not started
 Total Plans in Phase: 14
-Status: Executing Phase 40
-Progress: [██████████] 95%
-Last activity: 2026-09-24 -- Phase 40 execution started
+Status: Ready to plan
+Progress: [██████████] 100%
+Last activity: 2026-09-29
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Last activity: 2026-09-24 -- Phase 40 execution started
 | 36 | 3 | - | - |
 | 37 | 1 | - | - |
 | 38 | 6 | - | - |
+| 40 | 14 | - | - |
 
 **Recent Trend:**
 
@@ -88,6 +89,7 @@ Last activity: 2026-09-24 -- Phase 40 execution started
 | Phase 40 P13 | 20 min | 2 tasks | 5 files |
 | Phase 40 P08 | 16m | 3 tasks | 18 files |
 | Phase 40 P11 | 18m | 4 tasks | 27 files |
+| Phase 40 P14 | 45m | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -184,6 +186,8 @@ Earlier decisions (v2.8) still on record:
 - [Phase 40]: 40-08: HARD CONTRACT shared at phases/shared/00-contract.md on review.md's stricter wording (F9c); lazy reads are Read-tool instructions in batchsnap's parsed form; the phase-file Read is the evidence, announcements are not
 - [Phase 40]: 40-08: pass-entry key set stated once in 45-persist.md = future-schema.json (9 keys incl. filtered+codex; codex {status joined|skipped|off, reason slug|null, verdict, findings int}; /review writes status off; Z-second timestamps)
 - [Phase 40]: 40-11: /deep-review is a spine over the shared phase files (own seat + bootstrap Read before any phase, never reads review.md); codex=off short-circuit in the spine; codex_gate.py/codex_translate.py own Family 3; D-11 anchors corrected in both sites; DIET-03 dissolved (Phase-5 fixes_applied write removed, Phase 4.5 sole writer). Batch-3 snapshot batch3-d74452263961 built, not handed over.
+- [Phase ?]: 40-14: DIET-01 AFTER leg is proxy-only (footprint.py --measure is a no-op); plain path -41.67% on bytes and the 2.7 proxy vs the 40% soft target
+- [Phase ?]: 40-14: DIET-03 recorded as dissolved; W1 phases/review/45-persist.md is the single state.passes writer; nothing returns to 999.8
 
 ### Pending Todos
 
@@ -225,13 +229,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T00:13:05.313Z
+Last session: 2026-09-29T03:35:27.784Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 40 context gathered
+Stopped at: Completed 40-14-PLAN.md (Phase 40 closed)
 
 Load-bearing sequencing notes for whoever plans next:
 
