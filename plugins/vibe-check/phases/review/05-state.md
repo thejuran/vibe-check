@@ -1,6 +1,6 @@
 # Phase 0.5 — Multi-pass state check
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 0.5 is entered (every mode, after Phase 0).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 0.5 is entered (every mode, after Phase 0).
 > Announce on entry, after this Read: `✓ Phase 0.5 — Multi-pass state check`.
 
 State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`, so every downstream consumer (Phase 4.5 persist, Finalize read/archive) reads the SAME handle regardless of mode — Finalize must NOT re-derive a path:

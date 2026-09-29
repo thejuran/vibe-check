@@ -1,6 +1,6 @@
 # Phase 3 — Collect, verify, merge, score
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 3 is entered (every review, after every Phase-2 agent has returned).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 3 is entered (every review, after every Phase-2 agent has returned).
 > Announce on entry, after this Read: `✓ Phase 3 — Collect, verify, merge, score`.
 
 Scoring is performed by the deterministic-core script `scripts/score.py` (Phase 16, CORE-01/CORE-03), invoked ONCE per pass: the orchestrator collects raw facts and the agent-response set, builds one JSON envelope, pipes it to the script on stdin, and consumes the script's enriched JSON on stdout. The by-hand "apply the formula / carry-forward / dedup / threshold / silenced / in_diff override" prose has been REMOVED (D-09) — there is no longer a manual path that can produce a scored finding. **A finding has a `band`/`orchestrator_score` ONLY because the script wrote one; a finding that never went through the script has no band to render (the un-skippability that is CORE-03's point).** This wiring does NOT change scoring behavior — the script reproduces `templates/scoring.md` exactly (behavior-preserving extraction, pinned by `scripts/test_score.py`).

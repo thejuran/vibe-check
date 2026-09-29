@@ -1,6 +1,6 @@
 # Phase 0.6 — Resolve config
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 0.6 is entered (every mode, unconditional, after Phase 0.5 and before Phase 0.7).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 0.6 is entered (every mode, unconditional, after Phase 0.5 and before Phase 0.7).
 > Announce on entry, after this Read: `✓ Phase 0.6 — Resolve config`.
 
 **UNCONDITIONAL — runs on EVERY mode (GSD phase / plain diff / PR / range / `--all`) and is delegated to `/deep-review`.** This step reads the repo-root `.vibe-check.toml` **exactly ONCE per run** and carries the resolved values forward to the three consumers (the Phase-2 Selection table, the Phase-3 score.py envelope, and the Phase-4 config-health line). It is placed between Phase 0.5 and Phase 0.7 — both of which are unconditional and both delegated to `/deep-review` — SPECIFICALLY so the config read fires on all modes and both commands, BEFORE any dispatch decision that consumes it. It MUST NOT be moved inside Phase 1.5 (GSD-phase-only — `$PHASE_ID` unset on diff/PR/range/`--all`) or inside any `$ALL_MODE`/`$PHASE_ID`-gated block; doing so would make `.vibe-check.toml` silently inert on the common modes. Announce on entry:

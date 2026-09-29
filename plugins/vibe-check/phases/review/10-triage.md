@@ -1,6 +1,6 @@
 # Phase 1 — Triage
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 1 is entered (every review).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 1 is entered (every review).
 > Announce on entry, after this Read: `✓ Phase 1 — Triage`.
 
 Dispatch a single Task call to `triage` agent. Prompt:

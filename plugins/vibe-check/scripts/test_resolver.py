@@ -303,6 +303,32 @@ class TestSeatInvariant(unittest.TestCase):
                                  "%s carries %d seat lines, expected exactly 1"
                                  % (path, count))
 
+    def test_every_command_spine_is_seated_and_bootstrapped_before_any_phase(self):
+        """Universal form (F1, A1): each command spine runs its OWN seat and then
+        Reads the shared bootstrap, both before its first phase Read. Dropping
+        either half leaves $VC_ROOT/$GUARD_PY/$CONFIG_PY/$SCORE_PY unbound."""
+        bootstrap_read = "Read " + EXACT_TOKEN + "/phases/shared/01-bootstrap.md"
+        commands = _prose_files("commands")
+        self.assertEqual(
+            sorted(os.path.basename(p) for p in commands),
+            ["deep-review.md", "review.md"])
+        for path in commands:
+            with self.subTest(path=os.path.basename(path)):
+                text = _read(path)
+                self.assertEqual(text.count(SEAT_LINE), 1,
+                                 "%s must carry exactly one seat line" % path)
+                self.assertEqual(text.count(bootstrap_read), 1,
+                                 "%s must Read the shared bootstrap once" % path)
+                seat_at = text.index(SEAT_LINE)
+                boot_at = text.index(bootstrap_read)
+                first_phase = text.find("Read $VC_ROOT/phases/")
+                self.assertGreater(first_phase, 0,
+                                   "%s has no phase Read at all" % path)
+                self.assertLess(seat_at, boot_at,
+                                "%s: the seat must run before the bootstrap" % path)
+                self.assertLess(boot_at, first_phase,
+                                "%s: the bootstrap must be read before any phase" % path)
+
     def test_every_token_in_commands_is_a_seat_or_a_read_path(self):
         for path in _prose_files("commands"):
             for lineno, line in enumerate(_read(path).split("\n"), 1):

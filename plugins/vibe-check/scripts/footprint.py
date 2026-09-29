@@ -35,15 +35,15 @@ import sys
 # worktree — wave-1 plans edit commands/review.md concurrently (F11).
 PRE_PHASE_REV = "7a386ed"
 
-# One place. 40-08 rewrote review-plain; 40-10 rewrote review-all, finalize and
-# fix-loop; 40-11 owns deep-*.
-# deep-* still carry the monolith-era lists until 40-11 lands: they list BOTH
-# commands because deep-review.md makes the deep path read review.md, which is
-# now the spine.
+# One place: the file set each mode path reads, in the restructured layout.
 # review-plain is the UPPER BOUND of a non-`--all` review: it includes the
 # first-run file (Phase 0.7) and the GSD-mode intent file (Phase 1.5), each of
 # which a given plain run may skip. review-all is the same upper bound plus the
 # `--all`-only files (a `--all` run never reads the Phase-1.5 intent file).
+# deep-* read their own spine plus the SAME shared and review files, never
+# commands/review.md. These lists describe the layout AFTER the restructure;
+# the BEFORE figures are 40-05's recorded table at PRE_PHASE_REV, never these
+# lists applied to that revision (R12).
 _SPINE_HEAD = [
     "commands/review.md",
     "phases/shared/00-contract.md",
@@ -72,8 +72,14 @@ _REVIEW_ALL_ONLY = [
     "phases/review/40-render-all.md",
     "phases/review/45-persist-all.md",
 ]
-# The deep-only files. The Codex pair is read only when `codex` is not `off`,
-# so like review-plain these rows are an upper bound.
+# The deep-only files. The Codex pair is read only when `codex` is not `off`
+# (`auto`, the default, reads it), so like review-plain these rows are an upper
+# bound.
+_DEEP_SPINE_HEAD = [
+    "commands/deep-review.md",
+    "phases/shared/00-contract.md",
+    "phases/shared/01-bootstrap.md",
+]
 _DEEP_ONLY = [
     "phases/deep-review/01c-related-files.md",
     "phases/deep-review/01d-coverage.md",
@@ -85,8 +91,8 @@ _DEEP_ONLY = [
 MODE_PATHS = {
     "review-plain": _SPINE_HEAD + _REVIEW_ALWAYS_ON,
     "review-all": _SPINE_HEAD + _REVIEW_ALWAYS_ON + _REVIEW_ALL_ONLY,
-    "deep-plain": ["commands/deep-review.md", "commands/review.md"] + _DEEP_ONLY,
-    "deep-all": ["commands/deep-review.md", "commands/review.md"] + _DEEP_ONLY,
+    "deep-plain": _DEEP_SPINE_HEAD + _REVIEW_ALWAYS_ON + _DEEP_ONLY,
+    "deep-all": _DEEP_SPINE_HEAD + _REVIEW_ALWAYS_ON + _REVIEW_ALL_ONLY + _DEEP_ONLY,
     # Finalize runs Phase 0, 0.5 and the unconditional 0.6, then the shared
     # finalize file; it never reads the review phases after 0.6.
     "finalize": _SPINE_HEAD + [

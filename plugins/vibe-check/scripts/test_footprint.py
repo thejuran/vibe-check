@@ -78,12 +78,16 @@ class TestModulePins(unittest.TestCase):
         for _, divisor in footprint.PROXIES:
             self.assertIsInstance(divisor, float)
 
-    def test_deep_paths_list_both_files(self):
-        """deep-review.md:35 makes the deep path read review.md end-to-end."""
+    def test_deep_paths_read_their_own_spine_not_the_review_spine(self):
+        """The deep spine binds helpers through the shared bootstrap (F1) and
+        never reads commands/review.md, which the monolith read end-to-end."""
         for mode in ("deep-plain", "deep-all"):
             with self.subTest(mode=mode):
-                self.assertIn("commands/deep-review.md", footprint.MODE_PATHS[mode])
-                self.assertIn("commands/review.md", footprint.MODE_PATHS[mode])
+                paths = footprint.MODE_PATHS[mode]
+                self.assertIn("commands/deep-review.md", paths)
+                self.assertNotIn("commands/review.md", paths)
+                self.assertIn("phases/shared/01-bootstrap.md", paths)
+                self.assertIn("phases/deep-review/20-selection.md", paths)
 
 
 class TestImportSet(unittest.TestCase):
@@ -224,9 +228,9 @@ class TestPathStats(unittest.TestCase):
         self.assertEqual(combined["missing"], absent)
         self.assertEqual(combined["bytes"], sum(p["bytes"] for p in present))
         self.assertEqual(combined["words"], sum(p["words"] for p in present))
-        # No dedup: deep-plain legitimately lists two files today.
-        self.assertEqual(combined["bytes"],
-                         REVIEW_MD_BYTES_AT_PIN + DEEP_MD_BYTES_AT_PIN)
+        # At the pin only deep-review.md existed; the monolith-era BEFORE
+        # figure (both command files) is 40-05's recorded table, not this sum.
+        self.assertEqual(combined["bytes"], DEEP_MD_BYTES_AT_PIN)
 
     def test_every_row_carries_its_rev(self):
         """A transcribed number must always be attributable (T-40-16c)."""
@@ -301,8 +305,9 @@ class TestCli(unittest.TestCase):
         data = json.loads(proc.stdout)
         self.assertEqual(set(data), EXPECTED_MODES)
         self.assertEqual(data["review-plain"]["bytes"], REVIEW_MD_BYTES_AT_PIN)
-        self.assertEqual(data["deep-plain"]["bytes"],
-                         REVIEW_MD_BYTES_AT_PIN + DEEP_MD_BYTES_AT_PIN)
+        # Post-restructure MODE_PATHS applied to the pin: only deep-review.md
+        # existed there (R12 — not a BEFORE figure).
+        self.assertEqual(data["deep-plain"]["bytes"], DEEP_MD_BYTES_AT_PIN)
         for row in data.values():
             self.assertEqual(row["rev"], "7a386ed")
 

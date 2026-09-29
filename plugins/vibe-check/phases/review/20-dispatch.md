@@ -1,6 +1,6 @@
 # Phase 2 — Dispatch agents in parallel
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 2 is entered (every review, after Phase 1 / 1.5).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 2 is entered (every review, after Phase 1 / 1.5).
 > Announce after this Read, once the selection below is settled: `✓ Phase 2 — Dispatching N agents in parallel: [list]`.
 
 **MANDATORY DISPATCH SHAPE: ONE assistant turn that emits N parallel `Task` tool calls — and zero other tool calls in that turn (no Bash, Read, Grep, or preamble Task). N is the number of agents passing the selection table below. Brief text announcing the dispatch (the `✓ Phase 2 — Dispatching N agents` line) is fine because it's text, not a tool call. The whole point of Phase 2 is wall-clock parallelism and prompt-cache reuse on the `<diff>` block; both are lost if dispatches are split into multiple turns or interleaved with other tool calls.**
@@ -39,11 +39,11 @@ Before composing the dispatch block: announce `✓ Phase 2 — Dispatching N age
 
 ### Model tiering for `/review`
 
-All agents in `/review` use the model from their frontmatter (`model: sonnet`). No top-tier model. Cheap iteration — typical pass ~$0.50.
+All agents in `/review` use the model from their frontmatter (`model: sonnet`). No top-tier model. Cheap iteration — typical pass roughly ~$0.25–$0.60, a range, not a measurement: Sonnet 5 input is $2/MTok, a third lower than the price the old ~$0.50 anchor was set on, so a pass skews to the low end.
 
 For the top-tier model on `architecture`/`bugs` (default Opus, or Fable via `$VIBE_CHECK_TOP_MODEL`) and Opus on `impact`, use `/deep-review`.
 
-**`top_model` precedence (consistency note — live enforcement is in `/deep-review`).** `/review` uses no top-tier model today, so there is nothing to enforce here — but for coherence the resolution order for the top tier is `$VIBE_CHECK_TOP_MODEL` (env, wins) > config `top_model` (the carried-forward `$CONFIG_TOP_MODEL` from Phase 0.6) > `opus` (default), with the `opus`/`fable` allowlist. The LIVE resolution lives at `deep-review.md`'s top-tier model resolution (see Task 2 / that file). Do NOT introduce a top-tier dispatch in `/review`.
+**`top_model` precedence (consistency note — live enforcement is in `/deep-review`).** `/review` uses no top-tier model today, so there is nothing to enforce here — but for coherence the resolution order for the top tier is `$VIBE_CHECK_TOP_MODEL` (env, wins) > config `top_model` (the carried-forward `$CONFIG_TOP_MODEL` from Phase 0.6) > `opus` (default), with the `opus`/`fable` allowlist. The LIVE resolution lives in `/deep-review`'s top-tier model resolution (`$VC_ROOT/phases/deep-review/20-selection.md`). Do NOT introduce a top-tier dispatch in `/review`.
 
 Per-call override (e.g. large-diff Haiku downgrade in M5): pass `model: "haiku"` in the Task call. Otherwise omit — agent frontmatter wins.
 

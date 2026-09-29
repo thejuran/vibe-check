@@ -1,6 +1,6 @@
 # Phase 4.5 — Persist pass state
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 4.5 is entered (every review, immediately after Phase 4).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 4.5 is entered (every review, immediately after Phase 4).
 > Announce on entry, after this Read: `✓ Phase 4.5 — Persist pass state`.
 
 Use the stable_hash the script already computed — consume the `stable_hash` field `scripts/score.py` returned on each survivor finding in Phase 3, and do NOT recompute the sha256 by hand. `scripts/score.py` is the single writer of the scored fields (`orchestrator_score`/`band`/`status`/`stable_hash`/`attribution`), preserving single-writer (ROBUST-01); reintroducing a by-hand hash here would create a second writer and risk drift that silently breaks `medium_acknowledgments[stable_hash]` lookups. The pass-entry build below and the `findings: [...]` slot consume the script's enriched output unchanged — no field is renamed or dropped, so the finding shape stays byte-shape-identical (Finalize's band ∈ {critical,warning} reads and the `medium_acknowledgments[stable_hash]` lookup keep working).

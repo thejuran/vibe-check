@@ -1,6 +1,6 @@
 # Phase 0 — Resolve scope
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 0 is entered (every invocation, first, right after the spine head).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 0 is entered (every invocation, first, right after the spine head).
 > Announce on entry, after this Read: `✓ Phase 0 — Resolve scope`.
 
 **Neither the TRUST-01 resolver nor its seat lives here.** The seat line runs at the head of the command spine and the resolver body lives in `phases/shared/01-bootstrap.md`; both are reached before any phase, so `$VC_ROOT`, `$GUARD_PY`, `$CONFIG_PY` and `$SCORE_PY` are already bound when this file runs. Do not move either back into this file.

@@ -1,6 +1,6 @@
 # Phase 0.7 — First-run setup
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 0.7 is entered (first run only — Phase 0.5 routes here when no state file exists).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 0.7 is entered (first run only — Phase 0.5 routes here when no state file exists).
 > Announce on entry, after this Read: `✓ Phase 0.7 — First-run setup`.
 
 If `.turingmind/` does NOT exist in this repo, this is first use:

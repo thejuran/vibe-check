@@ -1,6 +1,6 @@
 # Phase 5 — Interactive fix loop
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 5 is entered — at least one finding was reported and none of Phase 5's skip conditions fired. Finalize mode also reads it when it routes findings into Step A.
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 5 is entered — at least one finding was reported and none of Phase 5's skip conditions fired. Finalize mode also reads it when it routes findings into Step A.
 > Announce on entry, after this Read: `✓ Phase 5 — Interactive fix loop`.
 
 **The split.** The skip conditions stay in the command spine because they decide whether this file is read at all; when one fires, the spine prints its one-liner and this file is never loaded. This file holds what runs once Phase 5 is entered: Steps A-C and the loop's termination guarantees.

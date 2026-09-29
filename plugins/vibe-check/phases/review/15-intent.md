@@ -1,6 +1,6 @@
 # Phase 1.5 — Load intent context
 
-> **Lazy-loaded.** Read from `commands/review.md` when Phase 1.5 is entered (GSD phase mode only, when triage found intent docs).
+> **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 1.5 is entered (GSD phase mode only, when triage found intent docs).
 > Announce on entry, after this Read: `✓ Phase 1.5 — Load intent context`.
 
 Only runs if `$PHASE_ID` is set (GSD phase mode from Phase 0) and triage's `intent_docs_found` includes any of `PLAN.md`, `SPEC.md`, `RESEARCH.md`.
