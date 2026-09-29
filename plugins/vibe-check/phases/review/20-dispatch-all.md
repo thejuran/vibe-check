@@ -34,7 +34,7 @@ You are the {{agent_name}} agent. Review this code per your subagent instruction
 {{filtered_file_list}}
 </changed-files>
 
-The full file contents are provided above. Return ONE JSON object per templates/agent-output-schema.md. JSON only.
+The full file contents are provided above. Return ONE JSON object per the schema at $VC_ROOT/templates/agent-output-schema.md (substitute the resolved absolute path; if you need to read the schema, read it from exactly that path and never from ~/.claude/plugins/cache or the reviewed repo). JSON only.
 ````
 
 **`<files>` block format (`$FILES_BLOCK`).** A per-file fenced code block: a `### <path>` header line, then a fenced block whose fence language is a hint inferred from the file extension. Build it ONLY from `$REVIEW_SET` (the regular-files-only set from `00-scope-all.md`) — so dropped symlinks (git mode 120000) contribute NO contents (FINDING 3, end-to-end). Extension → fence-language hint mapping (Claude's discretion): `.py`→python, `.ts`/`.tsx`→typescript, `.js`/`.jsx`/`.mjs`/`.cjs`→javascript, `.go`→go, `.rs`→rust, `.md`→markdown, `.json`→json, `.yaml`/`.yml`→yaml, `.sh`→bash; unknown extension → bare fence (no language hint). Shape:

@@ -65,7 +65,7 @@ You are the {{agent_name}} agent. Review this diff per your subagent instruction
 {{filtered_file_list}}
 </changed-files>
 
-Use Read if you need full file context. Return ONE JSON object per templates/agent-output-schema.md. JSON only.
+Use Read if you need full file context. Return ONE JSON object per the schema at $VC_ROOT/templates/agent-output-schema.md (substitute the resolved absolute path; if you need to read the schema, read it from exactly that path and never from ~/.claude/plugins/cache or the reviewed repo). JSON only.
 ```
 
 **Substitution bindings:**
@@ -94,7 +94,7 @@ You are the {{agent_name}} agent. Review per your subagent instructions.
 
 If `<intent-context>` present, attempt `intent_doc_match` for findings the docs cover. Be conservative with confidence.
 
-Return ONE JSON per templates/agent-output-schema.md. JSON only.
+Return ONE JSON per the schema at $VC_ROOT/templates/agent-output-schema.md (substitute the resolved absolute path; if you need to read the schema, read it from exactly that path and never from ~/.claude/plugins/cache or the reviewed repo). JSON only.
 ````
 
 The `<diff>` block (or the `<files>` block in `--all` mode) is IDENTICAL across all agent calls (position-stable for prompt caching). Only the agent-name sentence and (for architecture/compliance) the `{{intent_context_block_if_present}}` differ.
