@@ -247,7 +247,7 @@ which is why the `plugin.json` check below is a stopping gate, not a comment. Pr
 both values to `~/.b3/phase41-active.env`; every later block reads them from there and
 re-verifies the snapshot before using them.
 
-**Pinned snapshot for `final`:** `~/.vibe-check-snapshots/batch4-UNPINNED` (the `final-2`
+**Pinned snapshot for `final`:** `~/.vibe-check-snapshots/batch4-cd8f5b00de73` (the `final-2`
 snapshot is pinned by the assistant only after a D-11 miss and the one re-tune).
 
 Pre-flight also checks, in order: the Phase-40 final check is adjudicated (so Phase 41 never runs
@@ -289,7 +289,7 @@ ENV=~/.b3/phase41-active.env
 P41DIR=docs/design/b3-ground-truth/runs-v2.10-phase41
 BSNAP=$REPO/plugins/vibe-check/scripts/batchsnap.py
 # the pinned snapshots — final is the Wave-1 tree; final-2 stays empty until a D-12 re-tune
-FINAL_SNAP="$HOME/.vibe-check-snapshots/batch4-UNPINNED"
+FINAL_SNAP="$HOME/.vibe-check-snapshots/batch4-cd8f5b00de73"
 FINAL2_SNAP=''
 case "$FINAL_SNAP" in *UNPINNED*)
   echo 'THE final SNAPSHOT IS NOT PINNED YET (ask the assistant) — STOPPING'; exit 1 ;; esac
