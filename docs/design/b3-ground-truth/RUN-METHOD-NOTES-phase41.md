@@ -89,3 +89,12 @@ block asserts the introducing commit's time and the `clear.txt` time both preced
 recorded pass timestamp.
 
 ## Harness fingerprints — Phase 41
+
+## Harness fingerprint — 2026-09-29T19:07:17-0400
+claude-code: 2.1.281 (Claude Code)
+model: Fable 5.1
+codex: codex-cli 0.153.4
+batch: final
+batch-sha: cd8f5b00de730929bd3244aed7ccb98f56316d2a
+snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch4-cd8f5b00de73
+plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch4-cd8f5b00de73/plugins/vibe-check
