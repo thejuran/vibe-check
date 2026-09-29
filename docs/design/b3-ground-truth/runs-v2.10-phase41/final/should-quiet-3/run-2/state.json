@@ -1,0 +1,189 @@
+{
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-09-29T23:23:16Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "file": "src/roonseek/transfer.py",
+          "line": 260,
+          "title": "Cancelling a transfer that is already gone (404) is reported as a service-unavailable error",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 60,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "cancel_download only accepts {200, 202, 204}. When slskd has already removed the transfer, it answers DELETE /transfers/downloads/{user}/{id} with 404, and the code then raises TransferEnqueueError(..., \"unavailable\"). A cancel exists to make the transfer stop; if the transfer is already gone, that goal is met. Reporting it as 'unavailable' leads callers to think slskd is down. They may then retry, surface a false failure, or leave the job stuck in a cancelling state. It also cannot be told apart from a real outage because it uses the same reason code. This can easily happen in practice: a transfer that completed or was removed between the poll and the cancel returns 404. pending: confirm slskd returns 404 for missing transfer ids (typical for its TransfersController) and how the upcoming active-cancellation caller (commit 1027691 tests) handles this error.",
+          "current_code": "expected_statuses = success_statuses or {200, 201}\nif response.status_code not in expected_statuses:\n    raise TransferEnqueueError(\n        f\"slskd transfer request failed with HTTP {response.status_code}\",\n        \"unavailable\",",
+          "fix_hint": "treat 404 on cancel as idempotent success (or raise with a distinct reason like 'not_found') instead of 'unavailable'",
+          "why_it_matters": "A cancel race with transfer completion would be misreported as a slskd outage, causing wrong retry/failure handling.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "source_window": [
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError(",
+            "                f\"slskd transfer request failed with HTTP {response.status_code}\","
+          ],
+          "canonical_line_content": "        if response.status_code not in expected_statuses:",
+          "orchestrator_score": 70,
+          "band": "medium",
+          "attribution": [
+            "bugs",
+            "impact"
+          ],
+          "stable_hash": "0e7d3a536eb04129abe8fb2a8e2db1e874ca74d1ee23899e8dd7f9d49cafe2dc",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 260,
+              "title": "Cancelling a transfer that is already gone (404) is reported as a service-unavailable error",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 60,
+              "problem": "cancel_download only accepts {200, 202, 204}. When slskd has already removed the transfer, it answers DELETE /transfers/downloads/{user}/{id} with 404, and the code then raises TransferEnqueueError(..., \"unavailable\"). A cancel exists to make the transfer stop; if the transfer is already gone, that goal is met. Reporting it as 'unavailable' leads callers to think slskd is down. They may then retry, surface a false failure, or leave the job stuck in a cancelling state. It also cannot be told apart from a real outage because it uses the same reason code. This can easily happen in practice: a transfer that completed or was removed between the poll and the cancel returns 404. pending: confirm slskd returns 404 for missing transfer ids (typical for its TransfersController) and how the upcoming active-cancellation caller (commit 1027691 tests) handles this error.",
+              "source_window": [
+                "            )",
+                "        expected_statuses = success_statuses or {200, 201}",
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError(",
+                "                f\"slskd transfer request failed with HTTP {response.status_code}\","
+              ],
+              "cwe": null,
+              "why_it_matters": "A cancel race with transfer completion would be misreported as a slskd outage, causing wrong retry/failure handling.",
+              "fix_hint": "treat 404 on cancel as idempotent success (or raise with a distinct reason like 'not_found') instead of 'unavailable'",
+              "current_code": "expected_statuses = success_statuses or {200, 201}\nif response.status_code not in expected_statuses:\n    raise TransferEnqueueError(\n        f\"slskd transfer request failed with HTTP {response.status_code}\",\n        \"unavailable\",",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 259,
+              "title": "Empty success_statuses set silently falls back to the {200, 201} default",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 45,
+              "problem": "`success_statuses or {200, 201}` treats an explicitly passed empty set the same as None and replaces it with the default. No caller in this diff passes an empty set, so this is a latent footgun rather than an active bug.",
+              "source_window": [
+                "                reason,",
+                "            )",
+                "        expected_statuses = success_statuses or {200, 201}",
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError("
+              ],
+              "cwe": null,
+              "why_it_matters": "A caller that deliberately passes a set, such as one built from config, would get unexpected default acceptance semantics.",
+              "fix_hint": "use `success_statuses if success_statuses is not None else {200, 201}`",
+              "current_code": "expected_statuses = success_statuses or {200, 201}",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 259,
+              "title": "Passing an empty success_statuses set silently falls back to the defaults",
+              "category": "breaking-api",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 30,
+              "problem": "`success_statuses or {200, 201}` treats an explicit empty set the same as None. No caller passes an empty set today, so there is no current defect, only a future-proofing edge. pending: only matters if a future caller passes set().",
+              "source_window": [
+                "                reason,",
+                "            )",
+                "        expected_statuses = success_statuses or {200, 201}",
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError("
+              ],
+              "cwe": null,
+              "why_it_matters": "A small latent trap in a private helper. Very low impact.",
+              "fix_hint": "Use `success_statuses if success_statuses is not None else {200, 201}`",
+              "current_code": "expected_statuses = success_statuses or {200, 201}",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 262,
+              "title": "Failed cancellations are raised as TransferEnqueueError with reason 'unavailable', which misclassifies them",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 45,
+              "problem": "_request_json now serves DELETE as well, but every non-auth, non-5xx, unexpected-status failure (400, 404, 409) still raises TransferEnqueueError with reason 'unavailable'. A caller that catches TransferEnqueueError and assumes an enqueue failed, or that shows 'unavailable' to the operator, will misreport cancel failures.",
+              "source_window": [
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError(",
+                "                f\"slskd transfer request failed with HTTP {response.status_code}\",",
+                "                \"unavailable\",",
+                "            )"
+              ],
+              "cwe": null,
+              "why_it_matters": "Operators get the wrong diagnosis, and retry logic keyed on 'unavailable' may retry cancels that can never succeed.",
+              "fix_hint": "Map 4xx client errors to a distinct reason (e.g. 'rejected'/'not_found') instead of 'unavailable'",
+              "current_code": "expected_statuses = success_statuses or {200, 201}\n        if response.status_code not in expected_statuses:\n            raise TransferEnqueueError(\n                f\"slskd transfer request failed with HTTP {response.status_code}\",\n                \"unavailable\",",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Empty success_statuses set silently falls back to the {200, 201} default",
+          "reason": "absorbed-into: 0e7d3a536eb04129abe8fb2a8e2db1e874ca74d1ee23899e8dd7f9d49cafe2dc"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Passing an empty success_statuses set silently falls back to the defaults",
+          "reason": "absorbed-into: 0e7d3a536eb04129abe8fb2a8e2db1e874ca74d1ee23899e8dd7f9d49cafe2dc"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 262,
+          "title": "Failed cancellations are raised as TransferEnqueueError with reason 'unavailable', which misclassifies them",
+          "reason": "absorbed-into: 0e7d3a536eb04129abe8fb2a8e2db1e874ca74d1ee23899e8dd7f9d49cafe2dc"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 254,
+          "title": "5xx on cancel is classified with enqueue heuristics (user_offline/timeout)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 137,
+          "title": "SlskdTransferClient docstring still says the client only exposes POST enqueue and GET status",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancel treats HTTP 404 from slskd as a hard failure, so cancelling a transfer that is already gone is not idempotent",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "skipped",
+        "reason": "unavailable",
+        "verdict": null,
+        "findings": 0
+      }
+    }
+  ]
+}
