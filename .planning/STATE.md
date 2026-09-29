@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 6
+current_plan: 7
 status: executing
 stopped_at: Completed 41-03-PLAN.md
-last_updated: "2026-09-29T22:20:00.983Z"
+last_updated: "2026-09-29T22:40:47.067Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 28
-  completed_plans: 25
+  completed_plans: 26
   percent: 13
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 41 (Wave 1 — scorer-side noise interventions) — EXECUTING
-Plan: 6 of 8
-Current Plan: 6
+Plan: 7 of 8
+Current Plan: 7
 Total Plans in Phase: 8
 Status: Executing Phase 41
-Progress: [█████████░] 89%
+Progress: [█████████░] 93%
 Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
@@ -95,6 +95,7 @@ Last activity: 2026-09-29 -- Phase 41 execution started
 | Phase 41 P03 | 12 min | 3 tasks | 3 files |
 | Phase 41 P04 | 35 min | 3 tasks | 6 files |
 | Phase 41 P05 | 30min | 3 tasks | 5 files |
+| Phase 41 P06 | 18 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -198,6 +199,8 @@ Earlier decisions (v2.8) still on record:
 - [Phase 41]: 41-03: B-REWEIGHT offsets derived over committed manifest = impact -12, architecture -6, bugs -2 (pool 96/147, ALPHA=20, MIN_LABELED=5); smaller than research's -18/-11 because 41-01 labels every at-SITE finding; label rule not revisited (D-15)
 - [Phase 41]: 41-04 B-SEV: a no-second-opinion group is capped at critical floor - 1 before band_for; second opinion = envelope-verified Codex corroboration or persistence; finalize cutoff judges the uncapped score
 - [Phase 41]: 41-05 B-REWEIGHT: embedded offsets == calibrate derive {architecture:-6,bugs:-2,impact:-12}; lone-lane only; min_confidence/agent_confidence/stable_hash read raw; ALONE replay REGRESSED 0, FP 16/18 -> 14/18 (commit 0ee3818)
+- [Phase 41]: H-LANE (41-06): site grouping (same file ±2) across all lanes; +10 only Codex+Claude with codex joined (D-01); members carry each lane's own record; representative key (band, capped, uncapped, hash, agent)
+- [Phase 41]: D-16 spot-check picks from COMBINED replay: should-quiet-3 + should-quiet-1 (predicted FP 5/6); COMBINED FP 16/18 -> 14/18, REGRESSED 0
 
 ### Pending Todos
 
@@ -240,7 +243,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T22:19:56.667Z
+Last session: 2026-09-29T22:40:42.237Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
