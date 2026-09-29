@@ -1,0 +1,69 @@
+{
+  "batch": "final",
+  "snapshot_commit": "e79bff32c01feeaff1f02a2ab76375aaaa518786",
+  "verdict": "PASS",
+  "recorded_by": "owner",
+  "recorded_at": "2026-09-29T03:25:20Z",
+  "runs": [
+    {
+      "diff": "triggarr-secret-in-logs",
+      "run_index": 1,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "triggarr-secret-in-logs/run-1/report.md",
+      "transcript_path": "triggarr-secret-in-logs/run-1/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "triggarr-secret-in-logs",
+      "run_index": 2,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "triggarr-secret-in-logs/run-2/report.md",
+      "transcript_path": "triggarr-secret-in-logs/run-2/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "triggarr-secret-in-logs",
+      "run_index": 3,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "triggarr-secret-in-logs/run-3/report.md",
+      "transcript_path": "triggarr-secret-in-logs/run-3/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-5",
+      "run_index": 1,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "should-quiet-5/run-1/report.md",
+      "transcript_path": "should-quiet-5/run-1/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-5",
+      "run_index": 2,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "should-quiet-5/run-2/report.md",
+      "transcript_path": "should-quiet-5/run-2/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-5",
+      "run_index": 3,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "report_path": "should-quiet-5/run-3/report.md",
+      "transcript_path": "should-quiet-5/run-3/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    }
+  ]
+}
