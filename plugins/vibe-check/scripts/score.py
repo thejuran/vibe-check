@@ -104,6 +104,44 @@ _DEFAULT_BANDS = {"critical": 95, "warning": 80, "medium": 70}
 # as a reference for the expected shape; it intentionally gates nothing.
 _REQUIRED_KEYS = ("file", "title", "category")
 
+# The persisted-envelope key set (fixtures/future-schema.json `finding_required` /
+# `finding_optional`; test_score locks the equality). The scorer is the single
+# normalizer and Phase 4.5 persists its `findings` array unchanged, so what run()
+# emits must fit this closed set. Shaping happens at the OUTPUT boundary only:
+# bands, scores and stable_hash are computed first and are byte-identical with
+# or without it (2026-09-28: a language-python finding arrived with no `id`, no
+# `title` and a `suggested_fix` key; W1 kept it, the closed schema rejected it).
+FINDING_REQUIRED_KEYS = ("id", "file", "line", "title", "category", "severity", "agent",
+                         "agent_confidence", "problem", "source_window", "orchestrator_score",
+                         "band", "attribution", "status", "stable_hash")
+FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
+                         "silenced_marker_nearby", "intent_doc_match", "canonical_line_content")
+_FINDING_KEY_SYNONYMS = {"suggested_fix": "fix_hint"}
+_UNTITLED = "(untitled finding)"
+
+
+def _shape_finding(f):
+    """Fit one scored finding to the persisted-envelope key set (shape only)."""
+    out = dict(f)
+    for src, dst in _FINDING_KEY_SYNONYMS.items():
+        if src in out:
+            cur = out.get(dst)
+            if (not isinstance(cur, str) or not cur.strip()) and isinstance(out[src], str):
+                out[dst] = out[src]
+    allowed = set(FINDING_REQUIRED_KEYS) | set(FINDING_OPTIONAL_KEYS)
+    out = {k: v for k, v in out.items() if k in allowed}
+    if not isinstance(out.get("id"), str) or not out["id"].strip():
+        out["id"] = "%s-%s" % (out.get("agent") or "agent", str(out.get("stable_hash") or "")[:8])
+    if not isinstance(out.get("title"), str) or not out["title"].strip():
+        title = ""
+        prob = out.get("problem")
+        if isinstance(prob, str) and prob.strip():
+            first = prob.strip().splitlines()[0].strip()
+            m = re.match(r"(.{1,80}?[.!?])(\s|$)", first)
+            title = m.group(1) if m else first[:80]
+        out["title"] = title or _UNTITLED
+    return out
+
 
 # --------------------------------------------------------------------------- #
 # Pure helpers
@@ -1360,7 +1398,7 @@ def run(envelope):
     # envelope is ALWAYS strict JSON (see _sanitize_nonfinite).
     return _sanitize_nonfinite({
         "scored_by_script": True,
-        "findings": kept,
+        "findings": [_shape_finding(f) for f in kept],
         "fixed_since_last": fixed_since_last,
         "filtered": filtered,
     })

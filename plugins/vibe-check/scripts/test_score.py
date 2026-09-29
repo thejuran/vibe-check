@@ -3393,22 +3393,26 @@ class TestNonFiniteOutputSanitized(unittest.TestCase):
         self.assertNotIn("NaN", text)
         self.assertIsNone(result["findings"][0]["intent_doc_match"]["confidence"])
 
+    # The probe rides on `why_it_matters`, an allowed optional key the scorer never
+    # computes: since 2026-09-28 the output shape is closed to the persisted-envelope
+    # key set (TestOutputShape), so an arbitrary extra key would be stripped before
+    # the sanitizer could be observed.
     def test_infinity_sanitized(self):
         smuggled = make_finding(id="inf-1", agent_confidence=100, line=10,
-                                extra_metric=float("inf"))
+                                why_it_matters=float("inf"))
         result = score.run({
             "command": "review", "findings": [smuggled],
             "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
         json.dumps(result, allow_nan=False)
-        self.assertIsNone(result["findings"][0]["extra_metric"])
+        self.assertIsNone(result["findings"][0]["why_it_matters"])
 
     def test_finite_floats_pass_through_unchanged(self):
         f = make_finding(id="fin-1", agent_confidence=100, line=10,
-                         extra_metric=0.75)
+                         why_it_matters=0.75)
         result = score.run({
             "command": "review", "findings": [f],
             "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": []})
-        self.assertEqual(result["findings"][0]["extra_metric"], 0.75)
+        self.assertEqual(result["findings"][0]["why_it_matters"], 0.75)
 
 
 class TestAbsorbedMembersRecorded(unittest.TestCase):
@@ -3509,3 +3513,87 @@ class TestIntentDocDropReason(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# --------------------------------------------------------------------------- #
+# Output shape (2026-09-28, first live batch-3 trace): the scorer is the single
+# normalizer and its returned findings are persisted UNCHANGED (45-persist.md),
+# so what it emits must fit the closed persisted-envelope key set. A
+# language-python finding arrived with no `id`, no `title` and a `suggested_fix`
+# key; the frozen W1 behaviour kept it (correct: never crash, never drop) and the
+# closed schema then rejected the persisted state. Normalizing the SHAPE at the
+# output boundary keeps bands, scores and stable_hash byte-identical.
+# --------------------------------------------------------------------------- #
+class TestOutputShape(unittest.TestCase):
+    SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "fixtures", "future-schema.json")
+
+    def _run(self, f):
+        envelope = {"command": "review", "all_mode": False, "pass_number": 1,
+                    "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                    "carryforward": [], "findings": [f]}
+        return score.run(envelope)
+
+    def test_key_sets_match_the_persisted_envelope_schema(self):
+        with open(self.SCHEMA_PATH) as fh:
+            schema = json.load(fh)
+        self.assertEqual(set(score.FINDING_REQUIRED_KEYS), set(schema["finding_required"]))
+        self.assertEqual(set(score.FINDING_OPTIONAL_KEYS), set(schema["finding_optional"]))
+
+    def test_unknown_key_is_stripped(self):
+        f = make_finding(id="k-001", line=10, source_window=["a", "b", "c", "d", "e"])
+        f["suggested_fix"] = "use parameters"
+        f["totally_new"] = 1
+        out = self._run(f)["findings"][0]
+        self.assertNotIn("totally_new", out)
+        self.assertNotIn("suggested_fix", out)
+        self.assertTrue(set(out) <= set(score.FINDING_REQUIRED_KEYS) | set(score.FINDING_OPTIONAL_KEYS))
+
+    def test_suggested_fix_synonym_lands_in_fix_hint_when_empty(self):
+        f = make_finding(id="k-002", line=10, source_window=["a", "b", "c", "d", "e"])
+        f.pop("fix_hint", None); f["suggested_fix"] = "use parameters"
+        out = self._run(f)["findings"][0]
+        self.assertEqual(out["fix_hint"], "use parameters")
+        g = make_finding(id="k-003", line=10, source_window=["a", "b", "c", "d", "e"], fix_hint="keep me")
+        g["suggested_fix"] = "not me"
+        self.assertEqual(self._run(g)["findings"][0]["fix_hint"], "keep me")
+
+    def test_missing_id_is_synthesized_from_agent_and_hash(self):
+        f = make_finding(line=10, source_window=["a", "b", "c", "d", "e"])
+        del f["id"]
+        out = self._run(f)["findings"][0]
+        self.assertEqual(out["id"], "%s-%s" % (out["agent"], out["stable_hash"][:8]))
+
+    def test_null_title_is_filled_after_hashing(self):
+        f = make_finding(id="null-title", title=None, agent_confidence=85, severity="critical",
+                         line=10, source_window=["a", "b", "c", "d", "e"],
+                         problem="First sentence of the problem. Second sentence.")
+        out = self._run(f)["findings"][0]
+        self.assertIsInstance(out["title"], str)
+        self.assertTrue(out["title"])
+        # the hash is still the one computed with title="" (W1 lock): identical to the
+        # same finding submitted with an explicitly empty title.
+        g0 = make_finding(id="null-title", title="", agent_confidence=85, severity="critical",
+                          line=10, source_window=["a", "b", "c", "d", "e"],
+                          problem="First sentence of the problem. Second sentence.")
+        self.assertEqual(out["stable_hash"], self._run(g0)["findings"][0]["stable_hash"])
+        g = make_finding(id="null-title-2", title=None, line=10, source_window=["a", "b", "c", "d", "e"], problem=None)
+        self.assertEqual(self._run(g)["findings"][0]["title"], "(untitled finding)")
+
+    def test_filtered_entries_are_shaped_too(self):
+        f = make_finding(id="k-004", line=10, source_window=["a", "b", "c", "d", "e"], agent_confidence=1)
+        f["suggested_fix"] = "x"
+        res = self._run(f)
+        for entry in res["filtered"]:
+            for k in ("suggested_fix", "totally_new"):
+                self.assertNotIn(k, entry)
+
+    def test_golden_and_bands_unchanged_by_shaping(self):
+        f = make_finding(id="g-001", line=10, source_window=["a", "b", "c", "d", "e"])
+        before = score.run({"command": "review", "all_mode": False, "pass_number": 1,
+                            "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": [],
+                            "findings": [dict(f)]})["findings"][0]
+        f2 = dict(f); f2["suggested_fix"] = "extra"
+        after = self._run(f2)["findings"][0]
+        for k in ("band", "orchestrator_score", "stable_hash", "status", "attribution"):
+            self.assertEqual(before[k], after[k])
+
