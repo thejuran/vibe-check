@@ -253,6 +253,28 @@ class TestCli(unittest.TestCase):
                 del score.AGENT_CONFIDENCE_OFFSET
 
 
+class TestMethodRecord(unittest.TestCase):
+    """CALIBRATION-v2.10.md carries the verbatim `counts` and `derive` output."""
+
+    DOC = os.path.join(replay.REPO_ROOT, "docs", "design", "b3-ground-truth",
+                       "CALIBRATION-v2.10.md")
+
+    def _fenced_after(self, heading):
+        with open(self.DOC, encoding="utf-8") as fh:
+            text = fh.read()
+        start = text.index(heading)
+        body = text[text.index("```\n", start) + 4:]
+        return body[:body.index("```\n")]
+
+    def test_counts_block_is_verbatim(self):
+        _code, out, _err = _run_cli(["counts"])
+        self.assertEqual(self._fenced_after("## Labeled counts"), out)
+
+    def test_derive_block_is_verbatim(self):
+        _code, out, _err = _run_cli(["derive"])
+        self.assertEqual(self._fenced_after("## Derived offsets"), out)
+
+
 class TestImportSet(unittest.TestCase):
     ALLOWED = {"argparse", "fractions", "json", "os", "sys", "replay", "score"}
 
