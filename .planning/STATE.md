@@ -5,13 +5,13 @@ milestone_name: Opus 5 rebuild + quiet down
 current_plan: 2
 status: executing
 stopped_at: Phase 41 context gathered
-last_updated: "2026-09-29T21:37:46.797Z"
+last_updated: "2026-09-29T21:49:15.215Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 28
-  completed_plans: 21
+  completed_plans: 22
   percent: 13
 ---
 
@@ -208,6 +208,7 @@ None yet.
 - [Phase 37] The v2.8 evidence debt needs NO separate retroactive audit — it became v2.9 requirements (Phase 35), so the v2.9 milestone audit covers it.
 - [Phase 38] BASELINE MODEL IDENTITY (before run 1): the harness pin `fable 5` accepts both Fable 5 and Fable 5.1, but STEP 0.25 / the 38-05 gate require every session's typed `model:` value to be IDENTICAL — fix the session model explicitly for all 36 runs and type the same value every session (the lineup shifted to Fable 5.1 as newest; a mid-baseline label change would hard-stop the gate and force reruns). Do not update Claude Code mid-baseline: the pinned CLI version is what holds the subagent alias→model mapping constant. Zero runs recorded as of 2026-09-05, so the pin is still correctable.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
+- 41-02 BLOCKED: protected catch runs/triggarr-secret-in-logs/run-2 UNEVALUABLE (axis-false) under baseline replay; owner decision needed (ledger 008 amendment or extend ledger 007 to absorbed members). replay.py Tasks 2-3 + test_replay.py uncommitted in working tree.
 
 ## Deferred Items
 
@@ -231,7 +232,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T21:37:40.959Z
+Last session: 2026-09-29T21:49:11.918Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
