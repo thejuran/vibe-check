@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: 3
+current_plan: 4
 status: executing
 stopped_at: Completed 41-02-PLAN.md
-last_updated: "2026-09-29T21:55:16.895Z"
+last_updated: "2026-09-29T22:02:02.917Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
   completed_phases: 2
   total_plans: 28
-  completed_plans: 22
+  completed_plans: 23
   percent: 13
 ---
 
@@ -27,11 +27,11 @@ See: .planning/PROJECT.md (updated 2026-07-01)
 ## Current Position
 
 Phase: 41 (Wave 1 — scorer-side noise interventions) — EXECUTING
-Plan: 3 of 8
-Current Plan: 3
+Plan: 4 of 8
+Current Plan: 4
 Total Plans in Phase: 8
 Status: Executing Phase 41
-Progress: [████████░░] 79%
+Progress: [████████░░] 82%
 Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
@@ -92,6 +92,7 @@ Last activity: 2026-09-29 -- Phase 41 execution started
 | Phase 40 P14 | 45m | 4 tasks | 4 files |
 | Phase 41 P01 | 25 min | 2 tasks | 2 files |
 | Phase 41 P02 | 65min | 3 tasks | 5 files |
+| Phase 41 P03 | 12 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -192,6 +193,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase ?]: 40-14: DIET-03 recorded as dissolved; W1 phases/review/45-persist.md is the single state.passes writer; nothing returns to 999.8
 - [Phase 41]: 41-01: catch-manifest AXIS labels calibrated to the sealed v2.9 autoescape run-1 MISS (revert/convention/divergence framings axis=false; titleless findings axis=false)
 - [Phase 41]: 41-02 owner AMENDED runs/triggarr-secret-in-logs/run-2 (ledger 008; v2.9 archive cannot reproduce the catch); replay baseline = REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1; ledger 007 not extended to filtered[] — D-05 stop rule; owner decision 2026-09-29
+- [Phase 41]: 41-03: B-REWEIGHT offsets derived over committed manifest = impact -12, architecture -6, bugs -2 (pool 96/147, ALPHA=20, MIN_LABELED=5); smaller than research's -18/-11 because 41-01 labels every at-SITE finding; label rule not revisited (D-15)
 
 ### Pending Todos
 
@@ -234,13 +236,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T21:55:12.861Z
+Last session: 2026-09-29T22:01:58.311Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Completed 41-02-PLAN.md
+Stopped at: Completed 41-03-PLAN.md
 
 Load-bearing sequencing notes for whoever plans next:
 

@@ -295,7 +295,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 41-03-PLAN.md — calibrate.py (D-15 method: α=20, min n=5, lower-only, lone-lane) + test_calibrate.py + CALIBRATION-v2.10.md method record committed before any candidate replay (+ D-16 tie-break)
+- [x] 41-03-PLAN.md — calibrate.py (D-15 method: α=20, min n=5, lower-only, lone-lane) + test_calibrate.py + CALIBRATION-v2.10.md method record committed before any candidate replay (+ D-16 tie-break)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -406,7 +406,7 @@ Plans:
 | 38. Grow the B3 set + Claude-5 baseline | v2.10 | 6/6 | Complete    | 2026-09-08 |
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
-| 41. Wave 1 — scorer-side noise interventions | v2.10 | 2/8 | In Progress|  |
+| 41. Wave 1 — scorer-side noise interventions | v2.10 | 3/8 | In Progress|  |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
 | 44. Close — 2.10.0 release | v2.10 | 0/? | Not started | - |
