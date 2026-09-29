@@ -73,8 +73,10 @@ LEDGER_REL = "docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md"
 SCORE_REL = "plugins/vibe-check/scripts/score.py"
 SCRIPTS_DIR_REL = os.path.join("plugins", "vibe-check", "scripts")
 
-# The score.py blob the archived runs were scored by. A blob, not a commit:
-# it is stable under rebase and cherry-pick.
+# The pre-Wave-1 score.py (the last revision before the Phase-41 scorer
+# changes). A blob, not a commit: it is stable under rebase and cherry-pick.
+# The v2.9 archives were scored by earlier revisions; that is part of the
+# disclosed fidelity drift.
 BASELINE_SCORE_BLOB = "b21f7f3d556e1522e9853511ed8e126057c417c0"
 
 RUN_DIR_RE = re.compile(r"^run-[0-9]+$")
@@ -91,6 +93,9 @@ _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REV_RE = re.compile(r"^[A-Za-z0-9._/~^-]+$")
 _OVERRIDE_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 _HANDBACK_TOOL = "SubagentHandback"
+# Records that deliver a subagent's task notification: the queued copy and,
+# when the orchestrator was idle, the user-turn copy (dedupe collapses both).
+_NOTIFICATION_RECORDS = ("user", "queue-operation")
 
 
 class ReplayError(Exception):
@@ -230,6 +235,21 @@ def _decode_object(text):
     return obj if isinstance(obj, dict) else None
 
 
+def _line_objects(text):
+    """Every JSON object that starts at the beginning of a line of `text`."""
+    decoder = json.JSONDecoder()
+    offset = 0
+    for line in text.splitlines(True):
+        if line.startswith("{"):
+            try:
+                obj, _end = decoder.raw_decode(text, offset)
+            except ValueError:
+                obj = None
+            if isinstance(obj, dict):
+                yield obj
+        offset += len(line)
+
+
 def _tool_result_texts(content):
     for c in content:
         if not isinstance(c, dict) or c.get("type") != "tool_result":
@@ -263,11 +283,14 @@ def recover_transcript_findings(transcript_path, meta=None):
 
     Only three channels are read, because a looser scan also matches the
     example JSON inside templates the orchestrator Read and files it Wrote:
-      A. `<result>` bodies inside the strings of `user` records (subagent
-         task notifications);
+      A. `<result>` bodies inside the strings of `user` message content or a
+         `queue-operation` record's content (subagent task notifications);
       B. `assistant` tool_use named SubagentHandback -> input.message;
-      C. a `user` tool_result text that parses as an object whose top-level
-         agent is codex-adversarial (the codex translator's output).
+      C. a `user` tool_result text holding, at the start of a line, a JSON
+         object whose top-level agent is codex-adversarial (the codex
+         translator's output, usually after a label line). A codex object
+         that only ever appears inside an orchestrator Write payload is not
+         recovered: Write payloads are not a channel.
     Malformed lines are skipped and counted in meta["malformed"].
     """
     found, seen = [], set()
@@ -287,17 +310,15 @@ def recover_transcript_findings(transcript_path, meta=None):
             kind = rec.get("type")
             msg = rec.get("message")
             content = msg.get("content") if isinstance(msg, dict) else None
-            if kind == "user":
-                for s in _strings(msg):
+            if kind in _NOTIFICATION_RECORDS:
+                carrier = msg if kind == "user" else rec.get("content")
+                for s in _strings(carrier):
                     for body in _RESULT_RE.findall(s):
                         _accept_return(_decode_object(body), found, seen)
-                if isinstance(content, list):
-                    for text in _tool_result_texts(content):
-                        try:
-                            obj = json.loads(text)
-                        except ValueError:
-                            continue
-                        if isinstance(obj, dict) and obj.get("agent") == CODEX_AGENT:
+            if kind == "user" and isinstance(content, list):
+                for text in _tool_result_texts(content):
+                    for obj in _line_objects(text):
+                        if obj.get("agent") == CODEX_AGENT:
                             _accept_return(obj, found, seen)
             elif kind == "assistant" and isinstance(content, list):
                 for c in content:
@@ -327,9 +348,13 @@ def reconstruct_envelope(run):
     survivor_keys = {_finding_key(f.get("agent"), f) for f in survivors}
     recovered = []
     malformed = 0
+    unrecovered = None
     if run.get("transcript_path"):
         tmeta = {}
-        for item in recover_transcript_findings(run["transcript_path"], tmeta):
+        items = recover_transcript_findings(run["transcript_path"], tmeta)
+        unrecovered = sorted({f.get("agent") for f in survivors if f.get("agent")}
+                             - {i["agent"] for i in items})
+        for item in items:
             f = dict(item["finding"])
             if item["agent"] is not None:
                 f["agent"] = item["agent"]
@@ -353,7 +378,8 @@ def reconstruct_envelope(run):
     }
     meta = {"codex_joined": codex_joined, "survivors": len(survivors),
             "recovered": len(recovered), "malformed": malformed,
-            "has_transcript": bool(run.get("transcript_path"))}
+            "has_transcript": bool(run.get("transcript_path")),
+            "unrecovered_agents": unrecovered}
     return envelope, meta
 
 
@@ -472,35 +498,269 @@ def fidelity(archived_pass, result):
 
 
 # --------------------------------------------------------------------------- #
-# Manifest + guardrail (filled in below)
+# Manifest
 # --------------------------------------------------------------------------- #
 
+EXPECTED_CATCH_RUNS = 29
+EXPECTED_CALIBRATION = 21
+EXPECTED_QUIET = {"headline": 18, "phase40": 6, "v29_informational": 9}
+EXPECTED_EXCLUDED = {"should-quiet-7": 3}
+_LEDGER_ENTRY_RE = re.compile(r"^[0-9]{3}$")
+_LEDGER_HEADING_RE = re.compile(r"^## ([0-9]{3}) —", re.MULTILINE)
+
+
 def load_manifest(repo_root=REPO_ROOT, path=None):
-    raise NotImplementedError
+    """The committed catch manifest (or, for the mutation proofs, `path`)."""
+    manifest_path = path or _abs(MANIFEST_REL, repo_root)
+    with open(manifest_path, encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("catch_runs"), dict):
+        raise ReplayError("manifest has no catch_runs object")
+    return manifest
+
+
+def _protected_runs(manifest):
+    return sorted(k for k, e in manifest.get("catch_runs", {}).items()
+                  if isinstance(e, dict) and e.get("guardrail") is True)
+
+
+def _in_site(finding, site):
+    if not isinstance(site, dict) or finding.get("file") != site.get("file"):
+        return False
+    line = finding.get("line")
+    if not isinstance(line, int) or isinstance(line, bool):
+        return False
+    for pair in site.get("lines") or []:
+        if (isinstance(pair, (list, tuple)) and len(pair) == 2
+                and pair[0] <= line <= pair[1]):
+            return True
+    return False
+
+
+def _resolution_key(f):
+    return (f.get("agent"), f.get("line"), f.get("title"), f.get("stable_hash"))
+
+
+def _at(f):
+    return "%s@%s" % (f.get("agent"), f.get("line"))
 
 
 def check_manifest(manifest, runs, ledger_text=None):
-    raise NotImplementedError
+    """Problems as fixed strings (run path + kind; agent@line, never a title)."""
+    problems = []
+    idx = _run_index(runs)
+    catch = manifest.get("catch_runs") or {}
+    guard_n = len(_protected_runs(manifest))
+    calib_n = sum(1 for e in catch.values() if isinstance(e, dict) and e.get("calibration") is True)
+    if len(catch) != EXPECTED_CATCH_RUNS:
+        problems.append("manifest: catch_runs %d != %d" % (len(catch), EXPECTED_CATCH_RUNS))
+    if guard_n != EXPECTED_PROTECTED:
+        problems.append("manifest: guardrail runs %d != %d" % (guard_n, EXPECTED_PROTECTED))
+    if calib_n != EXPECTED_CALIBRATION:
+        problems.append("manifest: calibration runs %d != %d" % (calib_n, EXPECTED_CALIBRATION))
+    for group, want in EXPECTED_QUIET.items():
+        paths = (manifest.get("quiet_runs") or {}).get(group) or []
+        if len(paths) != want:
+            problems.append("manifest: quiet_runs.%s %d != %d" % (group, len(paths), want))
+        for p in paths:
+            if p not in idx:
+                problems.append("%s: quiet run not found" % p)
+    for group, want in EXPECTED_EXCLUDED.items():
+        paths = (manifest.get("excluded_runs") or {}).get(group) or []
+        if len(paths) != want:
+            problems.append("manifest: excluded_runs.%s %d != %d" % (group, len(paths), want))
+        for p in paths:
+            if p not in idx:
+                problems.append("%s: excluded run not found" % p)
+    for run_path in sorted(catch):
+        entry = catch[run_path]
+        if ".failed" in run_path:
+            problems.append("%s: non-scoreable run listed" % run_path)
+            continue
+        if run_path not in idx:
+            problems.append("%s: run not found" % run_path)
+            continue
+        if not isinstance(entry, dict):
+            problems.append("%s: entry is not an object" % run_path)
+            continue
+        archived = [f for f in (idx[run_path]["state"]["passes"][-1].get("findings") or [])
+                    if isinstance(f, dict)]
+        survivors = entry.get("survivors_at_site") or []
+        listed = set()
+        for s in survivors:
+            key = _resolution_key(s)
+            matches = [f for f in archived if _resolution_key(f) == key]
+            if len(matches) != 1:
+                problems.append("%s: unresolved survivor %s" % (run_path, _at(s)))
+            listed.add(key)
+        for f in archived:
+            if _in_site(f, entry.get("site")) and _resolution_key(f) not in listed:
+                problems.append("%s: survivor at SITE missing from manifest %s"
+                                % (run_path, _at(f)))
+        if not any(s.get("axis") is True for s in survivors):
+            problems.append("%s: no axis=true survivor at SITE" % run_path)
+    amendments = manifest.get("guardrail_amendments", {})
+    if not isinstance(amendments, dict):
+        problems.append("manifest: guardrail_amendments is not an object")
+        amendments = {}
+    if amendments:
+        if ledger_text is None:
+            ledger_text = _read_text(_abs(LEDGER_REL))
+        headings = set(_LEDGER_HEADING_RE.findall(ledger_text))
+        protected = set(_protected_runs(manifest))
+        for run_path in sorted(amendments):
+            amend = amendments[run_path]
+            if run_path not in protected:
+                problems.append("%s: amendment for a non-protected run" % run_path)
+            entry_no = amend.get("ledger_entry") if isinstance(amend, dict) else None
+            if not isinstance(entry_no, str) or not _LEDGER_ENTRY_RE.match(entry_no):
+                problems.append("%s: amendment ledger entry malformed" % run_path)
+            elif entry_no not in headings:
+                problems.append("%s: amendment ledger entry %s not found" % (run_path, entry_no))
+            if not isinstance(amend, dict) or not amend.get("reason"):
+                problems.append("%s: amendment has no reason" % run_path)
+    return problems
+
+
+# --------------------------------------------------------------------------- #
+# Guardrail
+# --------------------------------------------------------------------------- #
+
+_BAND_RANK = {"critical": 3, "warning": 2, "medium": 1, None: 0}
+
+
+def _rank(band):
+    return _BAND_RANK.get(band, 0)
+
+
+def _rows_at_site(result, site):
+    return [f for f in (result or {}).get("findings") or []
+            if isinstance(f, dict) and _in_site(f, site)]
 
 
 def catch_status(result, entry):
-    raise NotImplementedError
+    """(ok, basis): SITE + BAND >= floor on the surviving row, AXIS on its own
+    title or any members[].title (SUPERSESSIONS-v2.10.md entry 007)."""
+    site = entry.get("site")
+    rows = _rows_at_site(result, site)
+    if not rows:
+        return False, "no-row-at-site"
+    floor = _rank(entry.get("floor"))
+    qualifying = [f for f in rows if _rank(f.get("band")) >= floor]
+    if not qualifying:
+        return False, "below-floor"
+    axis_true = {(s.get("agent"), s.get("title"))
+                 for s in entry.get("survivors_at_site") or []
+                 if isinstance(s, dict) and s.get("axis") is True}
+    for row in qualifying:
+        if (row.get("agent"), row.get("title")) in axis_true:
+            return True, "survivor-title"
+        members = row.get("members")
+        for m in members if isinstance(members, list) else []:
+            if isinstance(m, dict) and (m.get("agent"), m.get("title")) in axis_true:
+                return True, "member-title"
+    return False, "axis-false"
 
 
 def protected_status(base_results, manifest):
-    raise NotImplementedError
+    """Baseline reproduction of EVERY protected catch (exactly EXPECTED_PROTECTED)."""
+    protected = _protected_runs(manifest)
+    if len(protected) != EXPECTED_PROTECTED:
+        raise ReplayError("manifest protects %d runs; D-05 requires %d"
+                          % (len(protected), EXPECTED_PROTECTED))
+    amendments = manifest.get("guardrail_amendments") or {}
+    out = {}
+    for run_path in protected:
+        entry = manifest["catch_runs"][run_path]
+        if run_path in base_results:
+            ok, basis = catch_status(base_results[run_path], entry)
+        else:
+            ok, basis = False, "not-replayed"
+        if ok:
+            out[run_path] = {"status": "REPRODUCED", "basis": basis, "ledger_entry": None}
+        elif run_path in amendments:
+            amend = amendments[run_path]
+            out[run_path] = {"status": "AMENDED", "basis": basis,
+                             "ledger_entry": amend.get("ledger_entry")
+                             if isinstance(amend, dict) else None}
+        else:
+            out[run_path] = {"status": "UNEVALUABLE", "basis": basis, "ledger_entry": None}
+    return out
 
 
 def guardrail(base_results, cand_results, manifest):
-    raise NotImplementedError
+    """Candidate vs BASELINE REPLAY for every protected run; fails closed."""
+    prot = protected_status(base_results, manifest)
+    out = {}
+    for run_path, ps in prot.items():
+        entry = manifest["catch_runs"][run_path]
+        if run_path in cand_results:
+            cand_ok, cand_basis = catch_status(cand_results[run_path], entry)
+        else:
+            cand_ok, cand_basis = False, "not-replayed"
+        if ps["status"] == "REPRODUCED":
+            status = "kept" if cand_ok else "REGRESSED"
+        else:
+            status = ps["status"]
+        out[run_path] = {"status": status, "base": ps["basis"], "cand": cand_basis,
+                         "ledger_entry": ps["ledger_entry"]}
+    return out
 
 
 def fp_prediction(results, paths):
-    raise NotImplementedError
+    """A run is a false positive iff it fires any critical/warning row."""
+    fired = []
+    for p in paths:
+        if p not in results:
+            raise ReplayError("%s: no replay result" % p)
+        if fires(results[p]):
+            fired.append(p)
+    return {"fired": fired, "count": len(fired), "denominator": len(paths)}
+
+
+# --------------------------------------------------------------------------- #
+# Report writer
+# --------------------------------------------------------------------------- #
+
+_ROW_COLUMNS = ("agent", "file", "line", "band", "score", "stable_hash")
+
+
+def _cell(value):
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _finding_row(f):
+    """The ONLY projection of a finding that reaches a report."""
+    h = f.get("stable_hash")
+    return "| %s |" % " | ".join(_cell(v) for v in (
+        f.get("agent"), f.get("file"), f.get("line"), f.get("band"),
+        f.get("orchestrator_score"), h[:12] if isinstance(h, str) else h))
 
 
 def write_report(path, header, sections):
-    raise NotImplementedError
+    """Markdown report. header: [(label, value)]; sections: [{"heading", "body":
+    [lines], "tables": [(caption, [finding dicts])]}]. Finding dicts are rendered
+    through `_finding_row` only, so titles and problem text never reach the file."""
+    lines = []
+    for label, value in header:
+        if label == "#":
+            lines += ["# " + str(value), ""]
+        else:
+            lines.append("- %s: %s" % (label, value))
+    lines += ["", "_no rounding — exact fractions_", ""]
+    for sec in sections:
+        lines += ["## " + sec["heading"], ""]
+        lines += list(sec.get("body") or [])
+        for caption, findings in sec.get("tables") or []:
+            lines += ["", caption, "", "| %s |" % " | ".join(_ROW_COLUMNS),
+                      "|" + "---|" * len(_ROW_COLUMNS)]
+            lines += [_finding_row(f) for f in findings if isinstance(f, dict)]
+        lines.append("")
+    text = "\n".join(lines)
+    if '"title"' in text or "<result>" in text:
+        raise ReplayError("report writer refused: forbidden token in report text")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
 
 
 # --------------------------------------------------------------------------- #
@@ -572,30 +832,197 @@ def _cmd_dump_envelope(rel_path):
     return 0
 
 
+def _manifest_header(manifest_path, manifest):
+    return [
+        ("manifest", os.path.relpath(manifest_path, REPO_ROOT)),
+        ("manifest sha256", _sha256_file(manifest_path)),
+        ("amendments in force", str(len(manifest.get("guardrail_amendments") or {}))),
+        ("HEAD", _head_sha()),
+        ("generated (UTC)", _utc_now()),
+    ]
+
+
+def _load_checked_manifest(runs, manifest_path):
+    """(manifest, path) or None after printing every problem on stderr."""
+    path = manifest_path or _abs(MANIFEST_REL)
+    manifest = load_manifest(path=path)
+    problems = check_manifest(manifest, runs)
+    for p in problems:
+        sys.stderr.write(p + "\n")
+    return (None, path) if problems else (manifest, path)
+
+
+def _protected_section(prot):
+    counts = {k: sum(1 for v in prot.values() if v["status"] == k)
+              for k in ("REPRODUCED", "UNEVALUABLE", "AMENDED")}
+    body = ["| run | status | basis | ledger entry |", "|---|---|---|---|"]
+    for run_path in sorted(prot):
+        v = prot[run_path]
+        body.append("| %s | %s | %s | %s |" % (run_path, v["status"], v["basis"],
+                                              v["ledger_entry"] or "—"))
+    body += ["", "REPRODUCED %d / %d · UNEVALUABLE %d · AMENDED %d"
+             % (counts["REPRODUCED"], EXPECTED_PROTECTED, counts["UNEVALUABLE"],
+                counts["AMENDED"])]
+    section = {"heading": "Protected catches — %d (D-05) — baseline reproduction"
+               % EXPECTED_PROTECTED, "body": body}
+    return section, counts
+
+
+def _report_unevaluable(prot):
+    for run_path in sorted(prot):
+        if prot[run_path]["status"] == "UNEVALUABLE":
+            sys.stderr.write("UNEVALUABLE: %s (%s) — repair reconstruction or obtain an "
+                             "owner amendment (SUPERSESSIONS-v2.10.md)\n"
+                             % (run_path, prot[run_path]["basis"]))
+
+
+def _fidelity_section(runs, replays, heading):
+    exact_n, table, drift = _fidelity_lines(runs, replays)
+    return exact_n, [
+        {"heading": "Fidelity summary",
+         "body": ["**%d/%d exact** (the replay's (band, score, stable_hash) multiset equals "
+                  "the archive's)" % (exact_n, len(runs))]},
+        {"heading": heading, "body": drift or ["- none"]},
+        {"heading": "Fidelity per run", "body": table},
+    ]
+
+
+def _coverage_section(runs, replays):
+    """Which runs had a transcript, and which surviving agents it did not carry."""
+    with_t = [r["rel_path"] for r in runs if replays[r["rel_path"]]["meta"]["has_transcript"]]
+    gaps = [(p, replays[p]["meta"]["unrecovered_agents"]) for p in with_t
+            if replays[p]["meta"]["unrecovered_agents"]]
+    body = ["%d / %d runs carry a session transcript (Phase-40 archives). The other %d runs are "
+            "replayed from their state.json survivors only: findings the original scorer dropped "
+            "were never archived for them." % (len(with_t), len(runs), len(runs) - len(with_t)),
+            "",
+            "%d / %d transcript runs recover a return for every surviving agent."
+            % (len(with_t) - len(gaps), len(with_t))]
+    if gaps:
+        body += ["", "Surviving agents with no return on any recovery channel. The survivor "
+                 "itself is exact from state.json, but none of that agent's non-surviving "
+                 "findings can be recovered. In the archived runs this happens when the agent's "
+                 "output reached the orchestrator only inside a file the orchestrator wrote, "
+                 "which is not a recovery channel:", ""]
+        body += ["- %s — %s" % (p, ", ".join(agents)) for p, agents in gaps]
+    return {"heading": "Transcript coverage (disclosed)", "body": body}
+
+
+def _cmd_check_manifest(manifest_path):
+    manifest, _path = _load_checked_manifest(iter_runs(), manifest_path)
+    return 0 if manifest is not None else 1
+
+
 def _cmd_baseline(out_path, manifest_path=None):
     runs = iter_runs()
+    manifest, mpath = _load_checked_manifest(runs, manifest_path)
+    if manifest is None:
+        return 1
     scorer = load_scorer("blob:" + BASELINE_SCORE_BLOB)
     replays = replay_all(scorer, runs)
-    exact_n, table, drift = _fidelity_lines(runs, replays)
-    manifest_file = manifest_path or _abs(MANIFEST_REL)
-    lines = [
-        "# Replay report — baseline fidelity",
-        "",
-        "- scorer: blob: %s" % BASELINE_SCORE_BLOB,
-        "- scorer sha256: %s" % scorer._replay_sha256,
-        "- manifest: %s" % os.path.relpath(manifest_file, REPO_ROOT),
-        "- manifest sha256: %s" % _sha256_file(manifest_file),
-        "- HEAD: %s" % _head_sha(),
-        "- generated (UTC): %s" % _utc_now(),
-        "",
-        "**%d/%d exact**" % (exact_n, len(runs)),
-        "",
-        "## Fidelity per run",
-        "",
-    ] + table + ["", "## Drift runs", ""] + (drift or ["- none"]) + [""]
-    with open(out_path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines))
-    return 0 if len(runs) == EXPECTED_SCOREABLE else 2
+    results = {k: v["result"] for k, v in replays.items()}
+    prot = protected_status(results, manifest)
+    prot_section, counts = _protected_section(prot)
+    _exact_n, fid_sections = _fidelity_section(runs, replays, "Drift runs")
+    header = [("#", "Replay report — baseline fidelity"),
+              ("baseline", "blob: " + BASELINE_SCORE_BLOB),
+              ("scorer sha256", scorer._replay_sha256)] + _manifest_header(mpath, manifest)
+    write_report(out_path, header, [prot_section] + fid_sections[:2]
+                 + [_coverage_section(runs, replays)] + fid_sections[2:])
+    _report_unevaluable(prot)
+    if len(runs) != EXPECTED_SCOREABLE:
+        return 2
+    return 1 if counts["UNEVALUABLE"] else 0
+
+
+def _top_row(result, site):
+    rows = _rows_at_site(result, site)
+    if not rows:
+        return None
+    return sorted(rows, key=lambda f: (-_rank(f.get("band")),
+                                       -(f.get("orchestrator_score") or 0)))[0]
+
+
+def _fp_section(heading, paths, base_results, cand_results):
+    b = fp_prediction(base_results, paths)
+    c = fp_prediction(cand_results, paths)
+    body = ["baseline **%d/%d** → candidate **%d/%d**"
+            % (b["count"], b["denominator"], c["count"], c["denominator"]), "",
+            "| run | baseline fires | candidate fires |", "|---|---|---|"]
+    for p in paths:
+        body.append("| %s | %s | %s |" % (p, "yes" if p in b["fired"] else "no",
+                                          "yes" if p in c["fired"] else "no"))
+    return {"heading": heading, "body": body}, c["fired"]
+
+
+def _cmd_candidate(name, spec, override_pairs, out_path, manifest_path=None):
+    overrides = _parse_overrides(override_pairs)
+    runs = iter_runs()
+    manifest, mpath = _load_checked_manifest(runs, manifest_path)
+    if manifest is None:
+        return 1
+    base = load_scorer("blob:" + BASELINE_SCORE_BLOB)
+    cand = load_scorer(spec, overrides)
+    base_replays = replay_all(base, runs)
+    cand_replays = replay_all(cand, runs)
+    base_results = {k: v["result"] for k, v in base_replays.items()}
+    cand_results = {k: v["result"] for k, v in cand_replays.items()}
+
+    prot = protected_status(base_results, manifest)
+    prot_section, _pcounts = _protected_section(prot)
+    guard = guardrail(base_results, cand_results, manifest)
+    gcounts = {k: sum(1 for v in guard.values() if v["status"] == k)
+               for k in ("kept", "REGRESSED", "UNEVALUABLE", "AMENDED")}
+    g_body = ["| run | baseline basis | candidate band/score/basis | status |",
+              "|---|---|---|---|"]
+    for run_path in sorted(guard):
+        g = guard[run_path]
+        top = _top_row(cand_results.get(run_path), manifest["catch_runs"][run_path]["site"])
+        band_score = ("%s/%s" % (top.get("band"), top.get("orchestrator_score"))
+                      if top else "—")
+        g_body.append("| %s | %s | %s/%s | %s |" % (run_path, g["base"], band_score,
+                                                     g["cand"], g["status"]))
+    g_body += ["", "kept %d / protected %d" % (gcounts["kept"], EXPECTED_PROTECTED),
+               "", "REGRESSED %d" % gcounts["REGRESSED"],
+               "", "UNEVALUABLE %d" % gcounts["UNEVALUABLE"],
+               "", "AMENDED %d" % gcounts["AMENDED"]]
+
+    quiet = manifest.get("quiet_runs") or {}
+    excluded = (manifest.get("excluded_runs") or {}).get("should-quiet-7") or []
+    fp_specs = [
+        ("FP prediction — headline quiet set (Phase-38 should-quiet-1..6 ×3)",
+         quiet.get("headline") or []),
+        ("Phase-40 should-quiet-5 (6 runs)", quiet.get("phase40") or []),
+        ("Informational — v2.9 quiet (9 runs)", quiet.get("v29_informational") or []),
+        ("Informational — should-quiet-7 (3 runs, UNLABELED per ledger 001; not gated, "
+         "not calibrated)", excluded),
+    ]
+    fp_sections, fired_tables = [], []
+    for heading, paths in fp_specs:
+        sec, fired = _fp_section(heading, paths, base_results, cand_results)
+        fp_sections.append(sec)
+        for p in fired:
+            rows = [f for f in cand_results[p].get("findings") or []
+                    if isinstance(f, dict) and f.get("band") in ("critical", "warning")]
+            fired_tables.append(("### " + p, rows))
+    rows_section = {"heading": "Rows that fire under the candidate",
+                    "body": [] if fired_tables else ["- none"], "tables": fired_tables}
+    _exact_n, fid_sections = _fidelity_section(
+        runs, base_replays,
+        "Baseline fidelity drift (disclosed — score/band drift is why comparison is "
+        "baseline-relative; it never removes a run from the protected 26)")
+
+    header = [("#", "Replay report — candidate " + name),
+              ("candidate scorer", cand._replay_spec),
+              ("candidate scorer sha256", cand._replay_sha256),
+              ("overrides", json.dumps(overrides, sort_keys=True)),
+              ("baseline", "blob: " + BASELINE_SCORE_BLOB)] + _manifest_header(mpath, manifest)
+    sections = ([prot_section, {"heading": "Guardrail — %d protected catch runs"
+                                % EXPECTED_PROTECTED, "body": g_body}]
+                + fp_sections + [rows_section] + fid_sections[:2])
+    write_report(out_path, header, sections)
+    _report_unevaluable(prot)
+    return 1 if (gcounts["REGRESSED"] or gcounts["UNEVALUABLE"]) else 0
 
 
 def _parse_overrides(pairs):
@@ -643,8 +1070,11 @@ def run(argv):
             return _cmd_dump_envelope(args.rel_path)
         if args.cmd == "baseline":
             return _cmd_baseline(args.out, args.manifest)
-        if args.cmd in ("check-manifest", "candidate"):
-            raise NotImplementedError(args.cmd)
+        if args.cmd == "check-manifest":
+            return _cmd_check_manifest(args.manifest)
+        if args.cmd == "candidate":
+            return _cmd_candidate(args.name, args.scorer, args.override, args.out,
+                                  args.manifest)
     except ReplayError as exc:
         sys.stderr.write(str(exc) + "\n")
         return 2
