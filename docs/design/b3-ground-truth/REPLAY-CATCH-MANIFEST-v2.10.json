@@ -1,0 +1,2393 @@
+{
+  "_purpose": "Ground truth for the offline replay guardrail (zero catch regression, D-05) and the per-agent calibration set (D-04): every archived should-catch run, its sealed SITE and BAND floor, and EVERY finding at SITE in state.passes[-1].findings[] adjudicated for the sealed AXIS clause (D-14). Committed before any harness or scorer candidate exists.",
+  "_rules": {
+    "axis_basis": "SUPERSESSIONS-v2.10.md entry 007 — the surviving row's own title OR any members[].title that is axis=true",
+    "band_order": [
+      "critical",
+      "warning",
+      "medium"
+    ],
+    "compare_against": "baseline replay, never recorded bands (41-RESEARCH: 9 drift runs)",
+    "scoreable_run_dir": "^run-[0-9]+$",
+    "site_match": "finding.file == site.file AND some [lo,hi] in site.lines has lo <= finding.line <= hi"
+  },
+  "_scope": "29 catch runs = 26 guardrail rows (runs/ 8: triggarr-secret-in-logs run-1..3, triggarr-autoescape run-2..3 [run-1 was the v2.9 MISS and is not protected], third-organic-should-catch run-1..3; runs-v2.10/ 15: five should-catch diffs x run-1..3; runs-v2.10-phase40/final/ 3: triggarr-secret-in-logs run-1..3) + 3 calibration-only Phase-40 batch spot-check runs (guardrail=false). calibration=true marks the 21 Claude-5-era runs (runs-v2.10/ and runs-v2.10-phase40/). SITE, AXIS and floor are copied from SCORING-b3.md section 3 and SCORING-v2.10.md section 3; triggarr-session-rotation SITE is in run-tree coordinates 1564-1588 per SUPERSESSIONS-v2.10.md entry 002. Titles, hashes, bands, agents and lines are copied byte-exact from the archives (title null = the archived finding carries no title). Sealed qualifiers are never relabelled; every other survivor is adjudicated on its title, and its why names the deciding phrase. Paths are relative to docs/design/b3-ground-truth/; only scoreable run-N directories are listed.",
+  "catch_runs": {
+    "runs-v2.10-phase40/batch1/triggarr-secret-in-logs/run-1": {
+      "archive": "runs-v2.10-phase40",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": false,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "aee5a933fe20a674de7cf0b1cf67cef5886945e7442c06d052df519fd735a472",
+          "title": "validate_connection logs raw httpx.HTTPStatusError, reverting the established status-code-only sanitization",
+          "why": "\"reverting the established status-code-only sanitization\" = convention framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": true,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "9d5485133a72362f9c4ccba6a8fc351628cbc9d0231a46e2149c6947ba52ec78",
+          "title": "validate_connection logs raw pydantic.ValidationError (includes response input_value), reverting the established error_count-only sanitization",
+          "why": "\"(includes response input_value)\" logged"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "1b7b0aee39af82282cd2e052452deaf16cf90dfd89d7a39f939d0cdf4dadd440",
+          "title": "Reverts security fix d47b4c2: raw HTTPStatusError string (full request URL) now logged and shown in the web UI log viewer",
+          "why": "\"(full request URL) now logged and shown in the web UI log viewer\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "f3700d19387122dbc77e449a1378964968c7b3e45edb4567e0ba978f74244e0b",
+          "title": "Reverts security fix d47b4c2: str(pydantic.ValidationError) embeds raw upstream response values in logs and the dashboard log buffer",
+          "why": "\"embeds raw upstream response values in logs\""
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 235,
+          "stable_hash": "5d97fe71f10b523e12111b8a62d9d5a5016d0630e04ff1c4587f377594509a27",
+          "title": "Reverts prior security fix: raw HTTPStatusError logged instead of status code (potential key/URL leakage)",
+          "why": "\"(potential key/URL leakage)\""
+        },
+        {
+          "agent": "security",
+          "axis": false,
+          "band": "critical",
+          "line": 254,
+          "stable_hash": "9df57cdcdad517467589eef8625b195504e00eb67638398a8e49fdde559bdad9",
+          "title": "Reverts prior CodeQL-flagged fix: raw pydantic ValidationError logged instead of error count",
+          "why": "\"raw pydantic ValidationError logged instead of error count\" names no leak"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "fed56f1f33a68f6fad4895a824841f32de52b9a773a7144533aa5a12e9c27bd3",
+          "title": "HTTP exception logging leaks reverse-proxy credentials",
+          "why": "\"logging leaks reverse-proxy credentials\""
+        }
+      ]
+    },
+    "runs-v2.10-phase40/batch2/triggarr-secret-in-logs/run-1": {
+      "archive": "runs-v2.10-phase40",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": false,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "087270666450f275acceffac8e766b41d8273165c67c92559527f1198548224c",
+          "title": "Regression: raw exception logged in validate_connection() reverts a prior key-leakage fix (HTTPStatusError branch)",
+          "why": "\"reverts a prior key-leakage fix\" names key leakage via raw exception log"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "66cb504a179b1be7d67c3b4903a89b3ed52157e59f628ecb0ea1d476c44a559b",
+          "title": "Regression: raw exception logged in validate_connection() reverts a prior key-leakage fix (pydantic ValidationError branch)",
+          "why": "\"reverts a prior key-leakage fix\" names key leakage via raw exception log"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 232,
+          "stable_hash": "0fc5ca3cebd4ae89540bc9743366c256713a5bb17f2c66cedd4a48a5540d9648",
+          "title": "validate_connection now logs raw exceptions, undoing security fix d47b4c2 and skipping the project's _sanitize_exc pattern",
+          "why": "\"skipping the project's _sanitize_exc pattern\" = convention framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "0d51c85e4bfb48891df46b4ff3a553d405f528283bb5c09cc67cb809503df9af",
+          "title": "Raw httpx.HTTPStatusError is now logged, bypassing the project's _sanitize_exc convention and leaking URL credentials into logs and the web UI log viewer",
+          "why": "\"leaking URL credentials into logs\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "081aaaa8f1c94a559170a0de7dd007667ec027d50b4a57ef7d37b7fc01ce28e1",
+          "title": "Raw pydantic.ValidationError logged: dumps untrusted response body fragments (input_value) into logs and the dashboard log viewer",
+          "why": "\"dumps untrusted response body fragments (input_value) into logs\""
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "medium",
+          "line": 233,
+          "stable_hash": "b480b34c686c71942834588cdbbf3400ebbf6663766a614a6ceae0862cd89a39",
+          "title": "New raw-exception logging pattern contradicts established in-file convention for the same exception type",
+          "why": "\"contradicts established in-file convention\" = convention framing"
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "medium",
+          "line": 252,
+          "stable_hash": "1240fd2074f61ed3564d24a64704998c2070d81def626a9d7fec366b14aa28be",
+          "title": "Same raw-exception logging pattern change applied to the ValidationError handler",
+          "why": "\"same raw-exception logging pattern change\" = pattern framing"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "5718c26731398f1ac2e39e62d2c26751958290e01320f0aefde3e47ccd143194",
+          "title": "Raw HTTP exceptions leak URL credentials",
+          "why": "\"leak URL credentials\""
+        }
+      ]
+    },
+    "runs-v2.10-phase40/batch3/triggarr-secret-in-logs/run-1": {
+      "archive": "runs-v2.10-phase40",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": false,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "security",
+          "axis": false,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "a3152fbf25efee7765fd6103d9f3253918a81e670cd5afc7260de47e0dae47ac",
+          "title": "Raw httpx exception logged, reverting the codebase's established exception-sanitization pattern",
+          "why": "\"reverting the codebase's established exception-sanitization pattern\" = convention framing"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "c9cb8e9eb0432e4020ca0f9ea13a7d67ec4f2ec28006460c310abdf03d625b86",
+          "title": "Full pydantic ValidationError (including raw response input data) logged instead of a count-only summary",
+          "why": "\"(including raw response input data) logged\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 235,
+          "stable_hash": "1c3fbec96c0537ed8bdc2de53a96e690f70c67d94699058f81066b2bb212c9fb",
+          "title": "validate_connection logs the raw HTTPStatusError instead of using the codebase's sanitized exception-summary pattern",
+          "why": "\"instead of using the codebase's sanitized exception-summary pattern\" = convention framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 254,
+          "stable_hash": "af7cf26022cf256e2126c539abd4f52f1a750582e84653fea5dd2e9c28ae20de",
+          "title": "validate_connection logs the raw pydantic ValidationError instead of the established error_count() summary",
+          "why": "\"instead of the established error_count() summary\" = convention framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "warning",
+          "line": 235,
+          "stable_hash": "6641710d5f464172120c124a1120e73b74047ebcca2c02a5bff681878aefd1d6",
+          "title": "validate_connection now logs raw str(HTTPStatusError), which puts request.url in the log and the web log viewer, bypassing the _sanitize_exc discipline",
+          "why": "\"puts request.url in the log and the web log viewer\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "medium",
+          "line": 252,
+          "stable_hash": "9f99b307bcc04a17ceabd944af41c47b8da2554189baf00f648f8b666e251242",
+          "title": "validate_connection now logs full pydantic ValidationError text, which includes raw response input_value, where before it logged only an error count",
+          "why": "\"includes raw response input_value\" in the log"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "ba087796fecb8dc6826b54111e0b65c0b9c134b98b60977a62ae8baaa41db2ce",
+          "title": "HTTP error logs expose reverse-proxy credentials",
+          "why": "\"logs expose reverse-proxy credentials\""
+        }
+      ]
+    },
+    "runs-v2.10-phase40/final/triggarr-secret-in-logs/run-1": {
+      "archive": "runs-v2.10-phase40",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "570ca7669aa8b74f2b090183d43024023ee4a89d855443ce3c355d86774aeb30",
+          "title": "Raw HTTPStatusError string logged, bypassing the project's _sanitize_exc convention",
+          "why": "\"bypassing the project's _sanitize_exc convention\" = convention framing"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "e5988aed7d0783a2a97c6b2dd76681a37998cc6572b8c5cbc567d4b9dd721d11",
+          "title": "Raw exception object logged, reverting a prior key-leakage fix",
+          "why": "sealed qualifier; PASS.json CWE-532; \"reverting a prior key-leakage fix\" names key leakage"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "dbfe6a24fbb5d14988210277358ff07d50c2868917691e915ecfa7326e6b7a03",
+          "title": "Raw pydantic ValidationError logged, reverting a prior key-leakage fix",
+          "why": "sealed qualifier; PASS.json CWE-532; \"reverting a prior key-leakage fix\" names key leakage"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 235,
+          "stable_hash": "5a47a49761224a3efffde4939482825f2384e17ca47579a6f876bac057dfe96d",
+          "title": "HTTPStatusError is logged raw, bypassing the codebase's exception-sanitization pattern",
+          "why": "\"bypassing the codebase's exception-sanitization pattern\" = convention framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 254,
+          "stable_hash": "a40b260433bcb49312d074eae15c89d5de1cc212d101d3965e58aa8f16611155",
+          "title": "pydantic.ValidationError is logged raw instead of as an error count, against the established pattern",
+          "why": "\"logged raw instead of as an error count\" = logging-form framing, no leak named"
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "ad538ff7760f31764e12c98afefcf4628fa592c910ebeb5a21545f209c130019",
+          "title": "Diff reverts security fix d47b4c2 and puts the full httpx exception text back into the logs and the web UI log viewer",
+          "why": "\"puts the full httpx exception text back into the logs\" names no secret/URL/payload"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 235,
+          "stable_hash": "94b34a9002e8807ed6b423bc17e776cde6eef5cfb39e65bbf7d5bed8f51830c7",
+          "title": "Reverts security fix, logs raw httpx exception (may carry apikey in URL) instead of sanitized status code",
+          "why": "\"may carry apikey in URL\" logged"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 254,
+          "stable_hash": "0fd15b2ec9c1f39ed86e1a4908a89595d214faa251af5dd43e0f607495729a82",
+          "title": "Reverts security fix, logs raw pydantic ValidationError (with untrusted input payloads) instead of sanitized error count",
+          "why": "\"with untrusted input payloads\" logged"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "8f4d653e71156e52e6d7d0050504c034a13abea362061423de930320824d88ef",
+          "title": "HTTP exception logging leaks URL credentials",
+          "why": "\"logging leaks URL credentials\""
+        }
+      ]
+    },
+    "runs-v2.10-phase40/final/triggarr-secret-in-logs/run-2": {
+      "archive": "runs-v2.10-phase40",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "38430437e49ded7d171c854a4acc2bb4ef206a6a935287d835d5cbddbb82647c",
+          "title": "Undoes security fix d47b4c2: the full HTTPStatusError, including the request URL, is logged again",
+          "why": "sealed qualifier; PASS.json CWE-532; \"including the request URL, is logged again\""
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "d3ba3b07bcf33922acbb688aa6811adcdf7dbe0eaca0f6b9fda64c351d0f14e3",
+          "title": "Undoes security fix d47b4c2: the full pydantic ValidationError, including response input values, is logged again",
+          "why": "sealed qualifier; PASS.json CWE-532; \"including response input values, is logged again\""
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "65ead5939d9d36456a8d661a9eda0b7fe0ac9dea1a47785dd19c3b173180fcb6",
+          "title": "Pydantic ValidationError logging now dumps full untrusted response body, bypassing secret redaction",
+          "why": "sealed qualifier; PASS.json CWE-532; \"dumps full untrusted response body, bypassing secret redaction\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "7e4c0e0953fdc12b10e99292189475c913879d91e9d64454cfea65f732d5f17f",
+          "title": "validate_connection now logs raw exceptions, dropping the codebase's pattern of logging only sanitized summaries",
+          "why": "\"dropping the codebase's pattern of logging only sanitized summaries\" = convention framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": true,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "c864b041a6c1ff8e4487daee34b8ec1f82a4ca572a91427294960e088eebdd01",
+          "title": "ValidationError log now includes the raw response data, unlike every other ValidationError handler",
+          "why": "\"log now includes the raw response data\""
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "acc565e24617ea4aa950032d2069b61e977237c4bae2eeaa7aadf613e48321a3",
+          "title": "Logging the raw HTTPStatusError undoes the project's rule of logging only the status code",
+          "why": "\"undoes the project's rule of logging only the status code\" = rule framing, no leak named"
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "0b2e8f96c286ebaaaabb9497cc01dd456e424c28d6b9ce933438c41ccd996f15",
+          "title": "Raw exception logged instead of sanitized summary, bypassing established _sanitize_exc convention",
+          "why": "\"bypassing established _sanitize_exc convention\" = convention framing"
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "6518d73e9ee012daccbbb77e15b4b5e6ebe5c7c5c1171d347a948d97d8275668",
+          "title": "Raw pydantic ValidationError logged instead of sanitized error count, bypassing _sanitize_exc convention",
+          "why": "\"bypassing _sanitize_exc convention\" = convention framing"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82",
+          "title": "Raw HTTP exceptions leak reverse-proxy credentials",
+          "why": "\"leak reverse-proxy credentials\""
+        }
+      ]
+    },
+    "runs-v2.10-phase40/final/triggarr-secret-in-logs/run-3": {
+      "archive": "runs-v2.10-phase40",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "6704809133535eaaa36d4474d7b3736fc55edee747f64f83ddcc32b2014b5b07",
+          "title": "Diff reverts security fix d47b4c2 and logs the raw HTTPStatusError, whose message includes the request URL",
+          "why": "\"logs the raw HTTPStatusError, whose message includes the request URL\""
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "628b361a8b5f25070c8a8af6a2be592780becd9d40240cdea3664660e944d0d9",
+          "title": "Raw pydantic ValidationError logged, dumping the unsanitized response payload",
+          "why": "\"dumping the unsanitized response payload\" into the log"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "fc5ce44edf2d22e54d2918f034b5dccf790eef71b6df933d494784f3effc2569",
+          "title": "Full HTTP exception (including request URL) now logged, risking apikey leak",
+          "why": "sealed qualifier; PASS.json CWE-532; \"including request URL) now logged, risking apikey leak\""
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "medium",
+          "line": 252,
+          "stable_hash": "2e6611534876bc0ef61f2ec285c59c337eaac2a4f125d84a2dae8fe2d82e4d8f",
+          "title": "Full pydantic ValidationError (with response input values) logged instead of error count",
+          "why": "\"(with response input values) logged\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "7734e8942379149cb301f0e66c9fe4e7cfc72641ba78b5053f3c6d3cbf27edbb",
+          "title": "validate_connection now logs raw str(exc), bypassing the codebase's exception-sanitizing pattern",
+          "why": "\"bypassing the codebase's exception-sanitizing pattern\" = convention framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "7ba95ce834fbe29a626cbb6e381c3573725c82a3f0a8149742be48b50ff575b6",
+          "title": "str(HTTPStatusError) now logs full request URL, including URL-embedded credentials, to log file and web UI log viewer",
+          "why": "\"full request URL, including URL-embedded credentials\" logged"
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "8edd9c100f260e543871da787560595b4bd6bfc602afd8d91ee1efaf9284a806",
+          "title": "Reverts prior security fix, logs raw httpx exception again",
+          "why": "\"logs raw httpx exception again\" names no secret/URL/payload"
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "critical",
+          "line": 251,
+          "stable_hash": "6d2c061ac11aae1919b19d240527ba4fa02d5185b1565fe03aafed5f010e438a",
+          "title": "Reverts prior security fix, logs raw pydantic ValidationError again",
+          "why": "\"logs raw pydantic ValidationError again\" names no secret/URL/payload"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "2f2682e656aec1e2b2574006cf7d52d0f6776b1f1aad169c939d35ed504ef39d",
+          "title": "Raw HTTP errors disclose redirect URLs and their tokens",
+          "why": "\"disclose redirect URLs and their tokens\""
+        }
+      ]
+    },
+    "runs-v2.10/third-organic-should-catch/run-1": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "third-organic-should-catch",
+      "floor": "medium",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "src/angular/src/app/services/files/view-file.service.ts",
+        "lines": [
+          [
+            304,
+            311
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "b6d0e5a1d62b4a72416b78d3e84445ad4e3672bb71d88754e221553770b3d284",
+          "title": "Removing Math.min(100, …) reintroduces >100% progress for extracted files",
+          "why": "sealed qualifier; \"removing Math.min(100, ...) reintroduces >100% progress\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "3bb2479f5637a4e15bca6ac335d97bd66f4091657410e500517c80c7ba57ec82",
+          "title": null,
+          "why": "archived finding has no title; a title-based AXIS gate cannot pass on it"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "4a343aa4f5bb327362df8ac9b06114863717f8637f9b28e0b835c9803d59adc7",
+          "title": "Removing Math.min(100, …) clamp reverts shipped fix 879266c; extracted files render >100% progress again",
+          "why": "sealed qualifier; \"extracted files render >100% progress again\""
+        },
+        {
+          "agent": "language-typescript",
+          "axis": false,
+          "band": "warning",
+          "line": 307,
+          "stable_hash": "3bb2479f5637a4e15bca6ac335d97bd66f4091657410e500517c80c7ba57ec82",
+          "title": null,
+          "why": "archived finding has no title; a title-based AXIS gate cannot pass on it"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "3d0000242c92586021e233adbd45842fab9c1428bf74bfc95812ff027f259961",
+          "title": "Restore the 100% cap for extracted files",
+          "why": "sealed qualifier; \"restore the 100% cap\""
+        }
+      ]
+    },
+    "runs-v2.10/third-organic-should-catch/run-2": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "third-organic-should-catch",
+      "floor": "medium",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "src/angular/src/app/services/files/view-file.service.ts",
+        "lines": [
+          [
+            304,
+            311
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 307,
+          "stable_hash": "30a3beb4c76e6fafa61706c09b6c14ff6437c5537e844fa3c1c4755878893ad0",
+          "title": "Removed clamp allows percentDownloaded to exceed 100",
+          "why": "\"removed clamp allows percentDownloaded to exceed 100\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "3b6ef5e0bdc5aeffa0aa23ea5a73eecd9bc3ca250b099ed67a5ca9e6448d5850",
+          "title": "This diff is a byte-exact revert of commit 879266c ('fix(ui): clamp transfer progress at 100% for extracted files'), a…",
+          "why": "\"byte-exact revert of commit 879266c\" = revert framing; clamp only inside the quoted commit subject"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "2c4ed71b4e944aa775f81976a153b455f59092185d072de3e4c27827acbaac9f",
+          "title": "Removing the Math.min(100, …) clamp reverts shipped fix 879266c — extracted files render >100% progress again",
+          "why": "sealed qualifier; \"extracted files render >100% progress again\""
+        },
+        {
+          "agent": "language-typescript",
+          "axis": true,
+          "band": "warning",
+          "line": 308,
+          "stable_hash": "56fa77aa7f6b41d2ade1864a94d353ce6dd4b1795e263355572e3d256de1b945",
+          "title": "The Math.min(100, ...) clamp and its explanatory comment were removed from percentDownloaded calculation",
+          "why": "\"the Math.min(100, ...) clamp ... were removed\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "25b18f8a435341ff50b1c453193970ad9a7e7b12bb022ebf21d90d6da1fd331c",
+          "title": "Removing the clamp breaks completed-file progress",
+          "why": "sealed qualifier; \"removing the clamp breaks completed-file progress\""
+        }
+      ]
+    },
+    "runs-v2.10/third-organic-should-catch/run-3": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "third-organic-should-catch",
+      "floor": "medium",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "src/angular/src/app/services/files/view-file.service.ts",
+        "lines": [
+          [
+            304,
+            311
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "51d523335ddc59d45975c88f31a74b8d6b2673ad7cf9df0cf280e20af4f68d00",
+          "title": "Removed 100% clamp lets extracted files report >100% progress",
+          "why": "sealed qualifier; \"removed 100% clamp lets extracted files report >100% progress\""
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "65704381831b613075b680cc2a1b00ec3a291bb99bc9380c27b6fe07d67edd5d",
+          "title": "Existing unit test vectors for the clamp will now fail",
+          "why": "\"existing unit test vectors ... will now fail\" = test-breakage framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "ce74800488867e99b404bdbf1f89d6220e448d517a378434db38af55bb54d628",
+          "title": "Diff reverts clamp fix 879266c and strands its companion test vectors",
+          "why": "\"reverts clamp fix 879266c\" names the clamp removal in its own words"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "4688c790c28e82c10b06ad5b2b8f018bac12e93cde93a96b589c0582f418be58",
+          "title": "Diff reverts shipped fix 879266c — reintroduces >100% progress display for extracted files",
+          "why": "\"reintroduces >100% progress display\""
+        },
+        {
+          "agent": "language-typescript",
+          "axis": true,
+          "band": "medium",
+          "line": 308,
+          "stable_hash": "bfb10e4f6da0fa621f21ca8b227426050fa094698e99a0e6304a84bef4e676c3",
+          "title": "Percent-downloaded clamp removed, allowing values above 100",
+          "why": "\"clamp removed, allowing values above 100\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "9120879d91dddde8ecaf2f465164acbfd702fd4f4d918a1008b1158eee41e8f3",
+          "title": "Preserve the 100% cap for extracted files",
+          "why": "sealed qualifier; \"preserve the 100% cap\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-autoescape/run-1": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-autoescape",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            42,
+            48
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "warning",
+          "line": 45,
+          "stable_hash": "0a6213d207c3141978b4aff3844ae67ecc5ea563ab9d29cb9c57973b4a9754d9",
+          "title": "Reverts autoescape fix onto Starlette's deprecated env_options path",
+          "why": "\"reverts autoescape fix onto deprecated env_options path\" = revert/deprecation, not escaping-off/XSS"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "11388ba95c519f16b3307e52db756d0dff4b4a138e262e103b56f731f7d98072",
+          "title": "Revert to deprecated Jinja2Templates env_options passthrough for autoescape, undoing prior XSS-autoescape fix",
+          "why": "sealed qualifier; \"undoing prior XSS-autoescape fix\" names XSS"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "730520d136061ce2a72a528fd4968db4f5d267b88ef95066b055b4d459a1ef5f",
+          "title": "Verbatim revert of HEAD fix e11187e swaps the supported env= overload for Starlette's deprecated env_options path",
+          "why": "\"swaps the supported env= overload for deprecated env_options path\" = deprecation (NOT-clause)"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "f190320f1c99a2d8b0b719634019b4da91a6b748bf3394039ab4bbfe64a36270",
+          "title": "Reverting to deprecated **env_options makes HTML autoescape silently dependent on an unpinned Starlette version",
+          "why": "\"makes HTML autoescape silently dependent on an unpinned Starlette version\" = escaping can silently drop"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "9863af338f9ef19c4ff65e5b54c5789d10748b50459cdae7294b7ddc0d2bee1b",
+          "title": "Reintroduces the Jinja2Templates autoescape kwarg pattern that fix e11187e removed under the CLAUDE.md never-disable-autoescaping rule",
+          "why": "invokes the \"never-disable-autoescaping rule\" (sealed accepts this framing in run-2)"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "884be4727c34959d0bfca11c67dd8723c184f46033d530e14758e211c52f95f6",
+          "title": "Unsupported autoescape argument prevents startup",
+          "why": "\"prevents startup\" = breaks-startup (NOT-clause)"
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-autoescape/run-2": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-autoescape",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            42,
+            48
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 45,
+          "stable_hash": "a539e29ce81025e22aeae3c34408136dde4eed73f79d3b35653dfc8b9ffc1420",
+          "title": "Reverts to deprecated env_options path; autoescape silently drops on Starlette upgrade",
+          "why": "sealed qualifier; \"autoescape silently drops on Starlette upgrade\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "3d7c5efce44a6e59e50e8331fd87d2f17c9954fa50d842547178ade7be01237e",
+          "title": "This diff is a straight revert of HEAD commit e11187e ('fix: use preconfigured jinja2.Environment…",
+          "why": "\"straight revert of HEAD commit e11187e\" = revert framing; autoescape only inside the quoted commit subject"
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "0eb3ae706fb08407ae452b8d042ee62ac80ac979b1951f04c812ebf883e6e9d0",
+          "title": "Diff reverts commit e11187e, reinstating the deprecated env_options passthrough it was written to fix",
+          "why": "\"reinstating the deprecated env_options passthrough\" = deprecation (NOT-clause)"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "28e6ea88f9dc87861b3ad5cd8d44169f25d2644adb1260a36f4aa11c8c979675",
+          "title": "CLAUDE.md: 'in Jinja2, never apply | safe to user content or disable autoescaping.' This diff…",
+          "why": "sealed qualifier; quotes the rule \"never ... disable autoescaping\""
+        },
+        {
+          "agent": "framework-fastapi",
+          "axis": false,
+          "band": "medium",
+          "line": 45,
+          "stable_hash": "d8d1094e3298805166a35b5c728afdf081dcc92b01eac24af49cf0d6b1544df2",
+          "title": "This diff reverts commit e11187e (\"fix: use preconfigured jinja2.Environment for autoescape\"),…",
+          "why": "\"reverts commit e11187e\" = revert framing; autoescape only inside the quoted commit subject"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "2da77ea6abf9d145c2223ae05e89ba74317eed8b4b94c8c1d3d9eb3f31dc37fa",
+          "title": "Preserve the supported Jinja2 environment initialization",
+          "why": "\"preserve the supported Jinja2 environment initialization\" = refactor framing"
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-autoescape/run-3": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-autoescape",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            42,
+            48
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "7c3d117e94ce95ed4d8fea241c46e930caeb9c1519ab901fb5757908f0bbd149",
+          "title": "Revert reintroduces deprecated env_options passthrough removed in newer Starlette",
+          "why": "\"reintroduces deprecated env_options passthrough\" = deprecation (NOT-clause)"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "141b2eb25fe00a07e1eb8464f8a4563e0b815b6549286bae559989a71eb3e2c9",
+          "title": "Diff reverts security-motivated commit e11187e back to deprecated Jinja2Templates env_options form",
+          "why": "\"reverts security-motivated commit ... to deprecated form\" = revert/deprecation"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "60ea48fb7f9dfe611a7caa4f0065d8e34c764964644e99c83f893a461d5321b3",
+          "title": "Revert to deprecated **env_options passthrough re-arms the autoescape break that commit e11187e fixed",
+          "why": "sealed qualifier; \"re-arms the autoescape break\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "2da77ea6abf9d145c2223ae05e89ba74317eed8b4b94c8c1d3d9eb3f31dc37fa",
+          "title": "Preserve the supported Jinja2 environment initialization",
+          "why": "\"preserve the supported Jinja2 environment initialization\" = refactor framing"
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-secret-in-logs/run-1": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "d4021a104c6c228a4329e413e7b8a4360943bf54bd20ff51840784f00aaa7819",
+          "title": "ValidationError interpolated into log leaks *arr API response payload values",
+          "why": "sealed qualifier; \"leaks *arr API response payload values\" into log"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 232,
+          "stable_hash": "8d21106b6432f54f06ed507366bbb1d784291d4529fac7531b89ee9dfff9c22b",
+          "title": "Raw exc interpolation bypasses the codebase's _sanitize_exc exception-sanitization pattern",
+          "why": "\"bypasses the _sanitize_exc exception-sanitization pattern\" = convention framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "medium",
+          "line": 250,
+          "stable_hash": "a438ce177298248751c9640ee3abb5bbfc764b9404a11a58683bd80c4654eea7",
+          "title": "_sanitize_exc lives in search/engine.py but is needed by the transport layer (clients/base.py)",
+          "why": "\"_sanitize_exc lives in search/engine.py\" = module-placement framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "7074d66fd2896cb41341ebe6f451b8376d9364ca9d9b28cfcbe227c5a8ad4fe2",
+          "title": "pydantic.ValidationError str() echoes raw *arr response payload into web-exposed log buffer",
+          "why": "sealed qualifier; \"echoes raw *arr response payload into web-exposed log buffer\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "medium",
+          "line": 233,
+          "stable_hash": "7bf9420c45235c91aa69df040183ee853224534957232f67fa232a0f5bdbdd6d",
+          "title": "HTTPStatusError str() puts the full instance URL (including any query credentials) in the log line",
+          "why": "\"full instance URL (including any query credentials) in the log line\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82",
+          "title": "Raw HTTP exceptions leak reverse-proxy credentials",
+          "why": "sealed qualifier; \"leak reverse-proxy credentials\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-secret-in-logs/run-2": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "aa7ada05f2994170906cd671a4bb5a403b0a8dab096174035dcf6b9a6023007e",
+          "title": "Raw HTTPStatusError logged; message embeds full request URL",
+          "why": "\"message embeds full request URL\" logged"
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "99e8f7d2323b00006a643d4e5488c6d6f58ea7d3b678c2196d809042091eb933",
+          "title": "Raw pydantic ValidationError logged; echoes server response body values",
+          "why": "\"echoes server response body values\" into the log"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 232,
+          "stable_hash": "6ee46901a1ee845e2f4eff8113b1847ac1a20e09ddd3b95864fc4e7e690fb901",
+          "title": "The diff replaces the type-based exception summary with raw `exc=exc` (full `str(exc)`) in `validate_connec...",
+          "why": "\"replaces the type-based exception summary with raw exc=exc\" = logging-form framing, no leak named"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 250,
+          "stable_hash": "2cf9af406bcff8cd67d7a0eef659f577f41ccd0b2369415ba707cd4414298075",
+          "title": "The `pydantic.ValidationError` branch replaces the bounded `count=exc.error_count()` summary with raw `exc=...",
+          "why": "\"replaces the bounded count summary with raw exc\" = logging-form framing, no leak named"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "608a85b529382519e4e3a0f318efb7eb91cf15b1bf2a49d1ff75ff93d098a33b",
+          "title": "ValidationError str() embeds raw *arr response body into the web-UI log buffer",
+          "why": "sealed qualifier; \"embeds raw *arr response body into the web-UI log buffer\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "warning",
+          "line": 233,
+          "stable_hash": "14e2c5d1a8220fb69ab20a668174d1a1db60fe4533287fc501800ea3e550cd12",
+          "title": "HTTPStatusError str() embeds the full request URL including query string in logs",
+          "why": "\"full request URL including query string in logs\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "4a0c1b354877a79345cddfd0ce9c6f69da317b6251a23c9330e23245a2b21349",
+          "title": "Full HTTP exceptions leak credentials embedded in configured URLs",
+          "why": "sealed qualifier; \"leak credentials embedded in configured URLs\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-secret-in-logs/run-3": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 252,
+          "stable_hash": "79ebb61a0e3aac188f123faf9a8e58a846401012a7d688b36fdfe5069f70dbc1",
+          "title": "ValidationError interpolation leaks the raw API response body into logs and the web UI log viewer",
+          "why": "\"leaks the raw API response body into logs\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "17fa6b00af6c303eb133c30819ebae712d889f2101ec6cda0f6c020c0912287c",
+          "title": "Diff is a byte-for-byte revert of security fix d47b4c2 — raw httpx exception logged instead of status code",
+          "why": "\"raw httpx exception logged instead of status code\" = revert/logging-form framing, no leak named"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "2bb550db636e3dbbb75d0b5dbdb7a5db7e5eeb7520acdb3452d4844383ea3e0c",
+          "title": "ValidationError logged raw instead of via the established _sanitize_exc / error_count form",
+          "why": "\"instead of via the established _sanitize_exc / error_count form\" = convention framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "221c5f6d32cb61a83c0f7e0c93e10e99902cd2bfd11fc7a5f7ddb65c3ccd41c9",
+          "title": "ValidationError interpolation leaks *arr API response body fragments into the web-exposed log buffer",
+          "why": "\"leaks *arr API response body fragments into the web-exposed log buffer\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 233,
+          "stable_hash": "56319a9f5806f94ecb097a56b0ff288b5a0ce59a81cc9d83ea32a3e3da02c4c1",
+          "title": "HTTPStatusError interpolation puts the full instance URL (including userinfo credentials) into the web log viewer",
+          "why": "sealed qualifier; \"full instance URL (including userinfo credentials)\" into the log viewer"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "9d064735938416cb331febe50c23b5d5f5aeb1278a4901d018d5c36a2855904a",
+          "title": "Validation error formatting can bypass secret redaction",
+          "why": "sealed qualifier; \"bypass secret redaction\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-session-rotation/run-1": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-session-rotation",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "5f687d9",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            1564,
+            1588
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 1564,
+          "stable_hash": "9e70bbe102a6e22ba9a4318f542549b7bf3c27030a7a65a7a6d696c72852c41b",
+          "title": "Password change no longer rotates session_secret — other sessions survive",
+          "why": "sealed qualifier; \"other sessions survive\""
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "warning",
+          "line": 1581,
+          "stable_hash": "c3a42dde79d69c410d44093a831b9253e4aa099cba6fcadea570687f62a333a1",
+          "title": "Acting user's session cookie is no longer re-issued after password change",
+          "why": "\"acting user's session cookie is no longer re-issued\" = cookie nit (NOT-clause)"
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "warning",
+          "line": 1584,
+          "stable_hash": "48531a82fa6ddecc78d7c87e6ca3c876403018051204b9530cdceed5ed7fe329",
+          "title": "Removed audit log line for password change",
+          "why": "\"removed audit log line\" = logging removed (NOT-clause)"
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 1564,
+          "stable_hash": "1978f7feb13ca825760478276ab67c500968c3b79cf2842cea6f769b02c403e8",
+          "title": "Four existing tests assert the removed rotation behavior",
+          "why": "\"four existing tests assert the removed rotation behavior\" = test-breakage framing"
+        },
+        {
+          "agent": "framework-fastapi",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "5d22b12185aa2df2e1d3e7950290c7302594cbdb2399760e6987eecf58dda6f4",
+          "title": "POST /settings/password no longer rotates session_secret so stale cookies stay valid",
+          "why": "\"stale cookies stay valid\""
+        },
+        {
+          "agent": "architecture",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "218a4c801a5a35175ac82a2e0a88871778bc55d64933b2f3c8da4486b4745836",
+          "title": "Session-secret rotation removed from change_password while reset_confirm_post still mirrors it",
+          "why": "\"session-secret rotation removed from change_password\" = eviction removed"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 1588,
+          "stable_hash": "f9e7437c16aa970df6b5b8d3bd284ad8b1b9160e45bf68e5af3c89b79e9f07bb",
+          "title": "Successful password change now emits no audit log line",
+          "why": "\"emits no audit log line\" = logging removed (NOT-clause)"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "warning",
+          "line": 1578,
+          "stable_hash": "29292908699096268364b3c1e5f973c080a9350bd2f2eade785ca9ff1379faa2",
+          "title": "Duplicated persist sequence in change_password and reset_confirm_post now silently diverges",
+          "why": "\"duplicated persist sequence ... diverges\" = divergence framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "460bb1d07054ca3177f8280ea49b7b96725a750e63eed044de5b1c0018725d9f",
+          "title": "Password change no longer rotates session_secret — other devices' sessions survive",
+          "why": "\"other devices' sessions survive\""
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "warning",
+          "line": 1584,
+          "stable_hash": "6a409dae0876f6d404b90e8fbd8787b05b7c00ab42a5e7ca7152d2b7adf25391",
+          "title": "Removed audit log line for password change leaves the event untraced",
+          "why": "\"removed audit log line\" = logging removed (NOT-clause)"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "b3f0f6132957b21857f31b8a1eed8c677efb2a0e40ed439cf4f612a12d3ff609",
+          "title": "Removes session_secret rotation that project security records mark as a revoked-then-mitigated control",
+          "why": "\"removes session_secret rotation\" = eviction removed"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "c442a7a3931aaeb140ebc61e4508f57fc0f80e3aa8d7319fd0694750c80eb4ae",
+          "title": "Restore session revocation on password change",
+          "why": "sealed qualifier; \"restore session revocation on password change\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-session-rotation/run-2": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-session-rotation",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "5f687d9",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            1564,
+            1588
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "61e54eb6659ed6a7de1ad05ddd4eb3e2d1030b9925241c054f8535bb0a57f8ac",
+          "title": "Password change no longer rotates session_secret; old sessions survive",
+          "why": "sealed qualifier; \"old sessions survive\""
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 1581,
+          "stable_hash": "902a1b10063b17a366459e106fa13d741241ae9365c30693724cfbfcbd45d566",
+          "title": "Acting user's cookie is no longer re-issued after password change",
+          "why": "\"acting user's cookie is no longer re-issued\" = cookie nit (NOT-clause)"
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "warning",
+          "line": 1588,
+          "stable_hash": "3c5ccbd3f4186be007d9cbb6a9e0e33f418073a40b9d46bb82144511a4f88571",
+          "title": "Password-change audit log line removed",
+          "why": "\"audit log line removed\" = logging removed (NOT-clause)"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "warning",
+          "line": 1571,
+          "stable_hash": "83f1ff2f116430934f210f2892634696836899bfd22152e5b4b7de50a0ccee4b",
+          "title": "Password change no longer invalidates existing sessions (stolen-cookie persistence)",
+          "why": "sealed qualifier; \"no longer invalidates existing sessions (stolen-cookie persistence)\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 1564,
+          "stable_hash": "342a32b61f98665c9d44afe88f5ea723f20176c04124ce34c240352a531b92a3",
+          "title": "Silent revert of the rotation-on-credential-change pattern; reset_confirm_post still rotates",
+          "why": "\"silent revert of the rotation-on-credential-change pattern\" = pattern/divergence framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "warning",
+          "line": 1578,
+          "stable_hash": "331376e6ffa6dba420c23dec3e4d169d5976fbc35ba1d52e43d5598f61f5f156",
+          "title": "Clean ruff run gives no signal for the dropped rotation (imports still used elsewhere)",
+          "why": "\"clean ruff run gives no signal\" = tooling framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "d9cf8cbba600dd19692911f16bc2ff4ce7611f48f7470e22e4fc1bd3bf654bf0",
+          "title": "Password change no longer rotates session_secret — all pre-change session cookies stay valid",
+          "why": "\"all pre-change session cookies stay valid\""
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "critical",
+          "line": 1580,
+          "stable_hash": "73c718ff86b932eff0ca29b9b10e212bcf0c977c41d2521a5c90a8e9cebf66f2",
+          "title": "change_password and reset_confirm_post now diverge on the session-rotation contract they were written to mirror",
+          "why": "\"now diverge on the session-rotation contract\" = divergence framing"
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "882306212dbc3b4f46a1b55d0d095a01991caf49da8434617038b014df16f3a3",
+          "title": "Diverges from in-file convention: reset_confirm_post still rotates session_secret (CLAUDE.md conventions rule)",
+          "why": "\"diverges from in-file convention\" = convention framing"
+        },
+        {
+          "agent": "framework-fastapi",
+          "axis": true,
+          "band": "critical",
+          "line": 1564,
+          "stable_hash": "7d0cb580b88a0b9a0099a28601252395e66a337b06c6a166d6840046d3cc919e",
+          "title": "POST /settings/password no longer rotates session_secret; stale cookies stay valid",
+          "why": "\"stale cookies stay valid\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "c442a7a3931aaeb140ebc61e4508f57fc0f80e3aa8d7319fd0694750c80eb4ae",
+          "title": "Restore session revocation on password change",
+          "why": "\"restore session revocation on password change\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-session-rotation/run-3": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-session-rotation",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "5f687d9",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            1564,
+            1588
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 1564,
+          "stable_hash": "4499051475cbaca88efea2dc724fdfdb4a7cf2500838cfc2fc0191f132e85254",
+          "title": "Password change no longer rotates session_secret, leaving all old sessions valid",
+          "why": "sealed qualifier; \"leaving all old sessions valid\""
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 1581,
+          "stable_hash": "2c4217fba5f71c3ed083c19592d16d932aac4b2fb9ce737699e6d2f425bf3d19",
+          "title": "Acting user's cookie re-issue removed; response carries no Set-Cookie",
+          "why": "\"acting user's cookie re-issue removed\" = cookie nit (NOT-clause)"
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "warning",
+          "line": 1581,
+          "stable_hash": "121ce90c109917caf445f1f83f840e99a681000743497a9cab56441b5c683e18",
+          "title": "Success-path audit log for password change removed",
+          "why": "\"success-path audit log ... removed\" = logging removed (NOT-clause)"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "cee9bd67ba15d605230dcf6c42fe0a287726729bf104b17b36681d400ff8b1f6",
+          "title": "Password change no longer invalidates existing sessions (session-fixation / stale-cookie persistence)",
+          "why": "sealed qualifier; \"no longer invalidates existing sessions (... stale-cookie persistence)\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "441958f44592a5a11d842542be59c9bdda649a05da6596a32aea1d5cfdee6767",
+          "title": "Diff reverts the documented v2.8.1 CWE-613 fix, re-opening a revoked accepted risk and contradicting SECURITY.md, README.md and CHANGELOG.md",
+          "why": "\"reverts the documented v2.8.1 CWE-613 fix\" = revert/documentation framing"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 1581,
+          "stable_hash": "c3557790b14dac28d7952b363441906612b391af081b037abe252abe8e964607",
+          "title": "reset_confirm_post's cross-references to change_password become stale, and its D-12 rotation loses its pattern anchor",
+          "why": "\"cross-references ... become stale\" = documentation framing"
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "425e7818a46bd5d581064024a0f9522d776a350d0113abbced65c15eed816109",
+          "title": "Diff breaks 4 existing tests that assert the rotation contract — the test suite is the failing gate, not a passing one",
+          "why": "\"breaks 4 existing tests\" = test-breakage framing"
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "warning",
+          "line": 1581,
+          "stable_hash": "ef400e4b61674d5dcba144f64c352e65faad83f37c99e4197c7616491eaf80ab",
+          "title": "generate_session_secret and sign_session imports survive, so no lint or type signal flags the dropped rotation",
+          "why": "\"imports survive, so no lint or type signal\" = dead-code/tooling framing"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "f7af58245a6ba9a8b8d1be2a5e484a72301538398dd34363df53cef6e901d946",
+          "title": "change_password no longer rotates session_secret, diverging from the repo's established, tested password-change security pattern",
+          "why": "\"change_password no longer rotates session_secret\" = eviction removed"
+        },
+        {
+          "agent": "framework-fastapi",
+          "axis": false,
+          "band": "medium",
+          "line": 1585,
+          "stable_hash": "3e091931dcd32475e09e15c3595e13ab8eca554bdfb901d54679a5b7e4c1e882",
+          "title": "Removed cookie re-issuance means the acting user is logged out by their own password change",
+          "why": "\"removed cookie re-issuance ... acting user is logged out\" = cookie nit (NOT-clause)"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 1567,
+          "stable_hash": "60f5b7b1f55d3b32a49fd7ada7bd7dfca0e5c2027fe720d000da837803c91e7d",
+          "title": "Restore session revocation on password change",
+          "why": "\"restore session revocation on password change\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-settings-form-split/run-1": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-settings-form-split",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "5f687d9",
+      "site": {
+        "file": "triggarr/templates/settings.html",
+        "lines": [
+          [
+            15,
+            28
+          ],
+          [
+            33,
+            81
+          ],
+          [
+            87,
+            93
+          ],
+          [
+            131,
+            137
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "b43cfcac06a98c7dd276ef3b8c9d8d7f9579e274fe9924ebd0420eb162515c41",
+          "title": "General settings form has no submit button — General fields are unsavable from the UI",
+          "why": "sealed qualifier; \"General fields are unsavable from the UI\""
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 78,
+          "stable_hash": "85f6c09bf6d4bffe68a0615bcfb6aba9ada06ec585e4764c00ec63c364003645",
+          "title": "skip_unreleased silently flips to False on every save",
+          "why": "\"skip_unreleased silently flips to False on every save\" = silent data loss"
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 36,
+          "stable_hash": "46c35bc6333a91a51f71f29a19762d8009ad96b23579887d58247d8f3d7fb304",
+          "title": "Numeric General settings reset to hardcoded defaults on every save",
+          "why": "\"reset to hardcoded defaults on every save\" = silent data loss"
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 134,
+          "stable_hash": "2cd7d4f0110a62c72c689022aeb4673bbbface040a9596fdd5de4a6afbfbebe6",
+          "title": "Existing regression test test_general_fields_submit_with_the_save_settings_form will fail",
+          "why": "\"existing regression test ... will fail\" = test-breakage framing"
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "warning",
+          "line": 18,
+          "stable_hash": "2184ebe7a60e1875ddaf09ea4050f057f00d04e89914db70c37c5f8c6ab4c971",
+          "title": "Empty General form makes Enter-in-a-numeric-field wipe all instance config",
+          "why": "\"wipe all instance config\" = data loss on save"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "2c50fb5a181212b41cec88c68975389fe383fa7078f277c9a86b2e3f5019f0da",
+          "title": "Regression: General settings form has no submit button, silently resetting settings to defaults on save (reverts fix from commit 542d5dd)",
+          "why": "sealed qualifier; \"silently resetting settings to defaults on save\""
+        },
+        {
+          "agent": "architecture",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "40746ddceb6434b7a34c2c9fa54ac657545e0fecccc035ee1397fe2e5e7a3dd2",
+          "title": "Diff reverts HEAD's walkthrough fix: General fields are again in a submit-button-less form, making the entire General section unsavable",
+          "why": "\"making the entire General section unsavable\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "aa36c9f35228438f0555dbb30c07703ac384c4ed5f4a83e93eabe4b5d85959b0",
+          "title": "General settings form has no submit button — reverts HEAD fix, all General settings become unsavable",
+          "why": "\"all General settings become unsavable\""
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "critical",
+          "line": 134,
+          "stable_hash": "932040fea936405174dd8d59022d9d2ae58f1923be7e4fb39261a123ccc08a58",
+          "title": "Removing id=\"settings-form\" breaks the HEAD regression test test_general_fields_submit_with_the_save_settings_form",
+          "why": "\"breaks the HEAD regression test\" = test-breakage framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 78,
+          "stable_hash": "e75e2f46d1aa01a928a86b4240749e05a5d0a3c9870b45e9b8232accc4c1d98d",
+          "title": "skip_unreleased checkbox silently flips to False on every instance save",
+          "why": "\"silently flips to False on every instance save\" = silent data loss"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "34e85dfbba9822f885d708f8e764191b3983d49c00de4d69745f2d59694e0f55",
+          "title": "Restore General controls’ association with Save Settings",
+          "why": "sealed qualifier; \"restore General controls' association with Save Settings\""
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-settings-form-split/run-2": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-settings-form-split",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "5f687d9",
+      "site": {
+        "file": "triggarr/templates/settings.html",
+        "lines": [
+          [
+            15,
+            28
+          ],
+          [
+            33,
+            81
+          ],
+          [
+            87,
+            93
+          ],
+          [
+            131,
+            137
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "architecture",
+          "axis": true,
+          "band": "critical",
+          "line": 90,
+          "stable_hash": "93511d26935e09c8be3f46d9ed95eb24557e1c12fe853b32977bb158b4f94754",
+          "title": "Diff reverts commit 542d5dd, restoring the exact submit-button-less General form the walkthrough fix removed",
+          "why": "\"submit-button-less General form\" = General fields no longer submitted"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "b37742e3f3434ff4867125b442d6523417792bc5662224ccfaadb346e7cc3273",
+          "title": "Two sibling <form> elements post to the same save_settings endpoint with disjoint halves of its expected payload",
+          "why": "\"two sibling <form> elements post to the same save_settings endpoint\" = duplicate form action (NOT-clause)"
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "medium",
+          "line": 133,
+          "stable_hash": "ed3e351968ccc35a54d20b7c92ce8e5f10c515d52d56ae37b1374643ec13e9fd",
+          "title": "Removed comments documented the nested-form constraint that makes the attribute association mandatory; the surviving sibling comment at line 248 now reads as an orphan",
+          "why": "\"removed comments documented the nested-form constraint\" = restructuring/comment framing"
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "c0a8e969ca4133e2dacc213324a5f18297a227105b9d7e7ca6a40c295dc26f8c",
+          "title": "General settings fields are in a form with no submit button, so they can never be saved",
+          "why": "sealed qualifier; \"can never be saved\""
+        },
+        {
+          "agent": "bugs",
+          "axis": false,
+          "band": "critical",
+          "line": 134,
+          "stable_hash": "395d43a686c0687804db5eb2941195fff02eea0e0fa2eec9d3bed9ed5bd3d44f",
+          "title": "Removing id=\"settings-form\" breaks the existing regression test that pins this association",
+          "why": "\"breaks the existing regression test\" = test-breakage framing"
+        },
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 90,
+          "stable_hash": "e525eee5f83b187496d65cf1e049ee0b7a5fc88fe1fe8319fab139ffb82b6792",
+          "title": "General-section form is unreachable dead markup with no way to submit",
+          "why": "\"no way to submit\" = General fields no longer submitted"
+        },
+        {
+          "agent": "compliance",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "8d023c0926bdf713644ee5c3277c69fd671930c129676923a8557833604eb191",
+          "title": "Diff reverts the just-shipped fix for General settings fields silently not saving",
+          "why": "\"General settings fields silently not saving\""
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "e805d441c07e75115ac4c4a1f30c3a52e660f2547ae0f11da0d64ac835a5d7bf",
+          "title": "General settings form has no submit button — every General field is unsavable and silently resets on each save",
+          "why": "sealed qualifier; \"unsavable and silently resets on each save\""
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "critical",
+          "line": 134,
+          "stable_hash": "bab13bc4705b08822cda6d932584ebf79065293947c52878252f3a05c1d0b2ea",
+          "title": "Removal of id=\"settings-form\" breaks the existing regression test test_general_fields_submit_with_the_save_settings_form",
+          "why": "\"breaks the existing regression test\" = test-breakage framing"
+        },
+        {
+          "agent": "impact",
+          "axis": false,
+          "band": "warning",
+          "line": 90,
+          "stable_hash": "6b5030d33e06cea95e2852acb4d4c903cbb91b32208d17a568f224c05eb60341",
+          "title": "Two sibling forms POST to the same save_settings endpoint, but only one carries instance data — the handler's else-branch is now unreachable from the UI",
+          "why": "\"two sibling forms POST to the same save_settings endpoint\" = duplicate form action (NOT-clause)"
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "12fa18048d1334b703e6ef5c5f28ac25fc7e6334721bbc51286ee16619f5d8e4",
+          "title": "Splitting General settings into a separate form causes 'Save Settings' to silently reset security-relevant config to hardcoded defaults",
+          "why": "\"silently reset security-relevant config to hardcoded defaults\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "def32d65eeafa5a4dd20a4e41ce059534a09ba1ca08d43c04276aff7f0f277bc",
+          "title": "Keep General controls associated with the Save Settings form",
+          "why": "\"keep General controls associated with the Save Settings form\" (sealed accepts this framing in runs 1/3)"
+        }
+      ]
+    },
+    "runs-v2.10/triggarr-settings-form-split/run-3": {
+      "archive": "runs-v2.10",
+      "calibration": true,
+      "diff": "triggarr-settings-form-split",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "5f687d9",
+      "site": {
+        "file": "triggarr/templates/settings.html",
+        "lines": [
+          [
+            15,
+            28
+          ],
+          [
+            33,
+            81
+          ],
+          [
+            87,
+            93
+          ],
+          [
+            131,
+            137
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "945e08ae9f83e0578a2fb7c03122a6689f107ba938f96e39bb3786a0cbef760a",
+          "title": "General settings form has no submit button — General fields can never be saved",
+          "why": "sealed qualifier; \"General fields can never be saved\""
+        },
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "20b72a2a50ccd3bbca3dfc8418f4cfdb4935661ddbcca5ce1c738a3e4c95e08d",
+          "title": "Splitting General settings into a separate form from the Save Settings form silently resets General config to hardcoded defaults on save",
+          "why": "sealed qualifier; \"silently resets General config to hardcoded defaults on save\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "68819caf6bc395cbb48f95d5e1e28abf44691292b799b561306dd2563ae54d89",
+          "title": "form= cross-association pattern removed from General but kept for add-instance forms; explanatory comments deleted",
+          "why": "\"form= cross-association pattern removed ...; comments deleted\" = restructuring framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "d5afbef8ce4c30a461742a3555cc6c74062ddf36ef3b339c23df25dfb0d201b6",
+          "title": "Reverts walkthrough fix: General settings form has no submit button, so every General setting silently resets to defaults on every Save",
+          "why": "\"every General setting silently resets to defaults on every Save\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 18,
+          "stable_hash": "103b2949a5ea0ee2ec6badf0b819d45ba586ec447292300b8c079398baccf8c8",
+          "title": "Restore General controls’ association with the Save Settings form",
+          "why": "sealed qualifier; \"restore General controls' association with the Save Settings form\""
+        }
+      ]
+    },
+    "runs/third-organic-should-catch/run-1": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "third-organic-should-catch",
+      "floor": "medium",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "src/angular/src/app/services/files/view-file.service.ts",
+        "lines": [
+          [
+            304,
+            311
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 308,
+          "stable_hash": "f86dbdbd3dfb645da34495786cb52003565ecafea556ad38bc8facd7ef009caf",
+          "title": "Removed clamp lets download-progress label exceed 100% for extracted files",
+          "why": "sealed qualifier; \"removed clamp lets ... label exceed 100%\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "dd98ccf61985a89399b70a5826169f1681aac7905f59ab24f67300618b1ed55d",
+          "title": "Progress can exceed 100% and break downstream completion logic",
+          "why": "\"progress can exceed 100%\""
+        },
+        {
+          "agent": "language-typescript",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "3119308fe09acccd3548bbd011add0b6ec06227539c6651a3b81537a263cc365",
+          "title": "Removed Math.min(100, ...) clamp reintroduces the >100% progress bug the removed comment explicitly documented",
+          "why": "sealed qualifier; \"removed Math.min(100, ...) clamp reintroduces the >100% progress bug\""
+        }
+      ]
+    },
+    "runs/third-organic-should-catch/run-2": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "third-organic-should-catch",
+      "floor": "medium",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "src/angular/src/app/services/files/view-file.service.ts",
+        "lines": [
+          [
+            304,
+            311
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 308,
+          "stable_hash": "2cb2358b0ad3574b0e2ad8e743813b28d8d8097723de53d1dced65af34d933e6",
+          "title": "Removed clamp lets percentDownloaded exceed 100% for extracted files",
+          "why": "sealed qualifier; \"removed clamp lets percentDownloaded exceed 100%\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "567c6c37029aebee0e973b16d4ec5024a3eef91009d4319e81ff46b0da76a16f",
+          "title": "Model-layer percentDownloaded bound invariant deleted; clamp now split across view bindings",
+          "why": "\"clamp now split across view bindings\" = layering framing, asserts the value stays clamped"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "b62e7eb6f0863a11541fcd02c9da2cb8cae48463d8f91934beaccddab55fa2b9",
+          "title": "Removing Math.min(100) clamp lets percentDownloaded exceed 100 for extracted files",
+          "why": "sealed qualifier; \"removing Math.min(100) clamp lets percentDownloaded exceed 100\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "2d81f598f7741ca8adb113d0bd7f6a44c38c960b3f46f8e629adbe2276a26d5c",
+          "title": "Unbounded download percentage breaks extracted-file progress state",
+          "why": "\"unbounded download percentage\""
+        }
+      ]
+    },
+    "runs/third-organic-should-catch/run-3": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "third-organic-should-catch",
+      "floor": "medium",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "src/angular/src/app/services/files/view-file.service.ts",
+        "lines": [
+          [
+            304,
+            311
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "bugs",
+          "axis": true,
+          "band": "critical",
+          "line": 308,
+          "stable_hash": "819b63a280f68a5947780aaf54737ae66f56a5686116a80056dd7c1d0891947e",
+          "title": "Progress percent can exceed 100% after clamp removal",
+          "why": "sealed qualifier; \"progress percent can exceed 100% after clamp removal\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "warning",
+          "line": 307,
+          "stable_hash": "c953ec32c405370a579db6f3f69a904cc433ce9a78e4e735dd26e9f59b59366d",
+          "title": "Model-layer 0..100 invariant dropped; clamp now split across view consumers",
+          "why": "\"clamp now split across view consumers\" = layering framing"
+        },
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 308,
+          "stable_hash": "01ed78b6a68493d35c324489c36ea094e0ef20d0b759169872ea820e76eb145e",
+          "title": "Removing the 100% clamp reintroduces >100% progress for extracted files",
+          "why": "\"reintroduces >100% progress\""
+        },
+        {
+          "agent": "language-typescript",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "b41cd884f33fa9c8f45c01f13e7ea75587eeddc43c5798e32bd331020909e8c2",
+          "title": "Clamp removal reverts prior fix commit 879266c (progress >100% regression)",
+          "why": "sealed qualifier; \"clamp removal ... (progress >100% regression)\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 307,
+          "stable_hash": "7c6faa94a2af6cc266b96b3be146a62ce55e4950c175387e5d82f7f80d4a7c8d",
+          "title": "Unclamped progress can regress completed extracted files to >100%",
+          "why": "\"unclamped progress ... >100%\""
+        }
+      ]
+    },
+    "runs/triggarr-autoescape/run-2": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "triggarr-autoescape",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            42,
+            48
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "7224fad66dc7ce8f89e315a7a7f9117d9440ae2f1afdbad776183090822a63cf",
+          "title": "Revert of committed fix reintroduces fragile autoescape config, risking silent XSS on future Starlette upgrade",
+          "why": "sealed qualifier; \"risking silent XSS\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "e7a1661061f0474006a75e829437061dc7c8901b3896f76bba2ad81691650230",
+          "title": "Revert adopts deprecated Starlette env_options API, emitting DeprecationWarning at every startup",
+          "why": "\"deprecated ... emitting DeprecationWarning\" = deprecation (NOT-clause)"
+        },
+        {
+          "agent": "framework-fastapi",
+          "axis": false,
+          "band": "medium",
+          "line": 45,
+          "stable_hash": "b52493704130e640d25617477a1f9464c660233dfc2201cfc41c1e9abb2f3365",
+          "title": "Reverts deliberate autoescape hardening back onto deprecated Jinja2Templates env_options path",
+          "why": "\"reverts deliberate autoescape hardening\" names the revert, not escaping-off/XSS (cf. sealed v2.9 run-1 MISS)"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "5a77473aeee06c007060da69f6274a771064e244f508a673bc8b6b2629c85ed9",
+          "title": "Deprecated template env options can break startup when warnings are fatal",
+          "why": "\"can break startup\" = breaks-startup (NOT-clause)"
+        }
+      ]
+    },
+    "runs/triggarr-autoescape/run-3": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "triggarr-autoescape",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [
+          [
+            42,
+            48
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "impact",
+          "axis": true,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "2a3f0c19e8913c0f20ca55eded5797f0baf79c4cb742e38feb2a5fd5cca7df15",
+          "title": "Reverts autoescape fix back onto deprecated Starlette **env_options path — forward-compat XSS regression",
+          "why": "sealed qualifier; \"forward-compat XSS regression\""
+        },
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "warning",
+          "line": 45,
+          "stable_hash": "849b06f44f694a03ae550ec01db6d09aa73dc66ff9ea0aab2aed2c913e0fae96",
+          "title": "Diff reverts commit e11187e, reintroducing Jinja2Templates(directory=..., autoescape=True) in place of the preconfigured jinja2.Environment pattern that commit introduced to keep autoescape reliably enabled",
+          "why": "\"pattern that commit introduced to keep autoescape reliably enabled\" describes the revert, not escaping-off/XSS"
+        },
+        {
+          "agent": "framework-fastapi",
+          "axis": true,
+          "band": "warning",
+          "line": 45,
+          "stable_hash": "650f80a1cf7464e61ed6d8e211a0121b16008a984702f1d4ab953f7a36e14d35",
+          "title": "Diff reverts commit e11187e, reintroducing the exact autoescape fragility that commit was written to fix, and reintroduces a now-deprecated Jinja2Templates call path",
+          "why": "sealed SCORING-b3 §3.2 run-3 names it: \"the exact autoescape fragility\""
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": false,
+          "band": "critical",
+          "line": 45,
+          "stable_hash": "7b7230e541991d420f29774402ab2f0c55ed98b3d5ea96dedd964c5d4a228b3b",
+          "title": "Template setup now relies on deprecated Starlette env_options",
+          "why": "\"relies on deprecated Starlette env_options\" = deprecation (NOT-clause)"
+        }
+      ]
+    },
+    "runs/triggarr-secret-in-logs/run-1": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "security",
+          "axis": true,
+          "band": "warning",
+          "line": 250,
+          "stable_hash": "37c199459c6dbcd83bb4abe329d4cca21b37ce79164a06f6e024ce0ff9a68e11",
+          "title": "pydantic.ValidationError logged raw, embedding untrusted API response content",
+          "why": "sealed qualifier; \"embedding untrusted API response content\" in the log"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "warning",
+          "line": 232,
+          "stable_hash": "abf725408afcdc5982b610efc65ebbab2c8f99e38d0ff94ed5c1cd2aa18d2807",
+          "title": "Raw exception strings can leak URLs and response data into logs",
+          "why": "sealed qualifier; \"leak URLs and response data into logs\""
+        }
+      ]
+    },
+    "runs/triggarr-secret-in-logs/run-2": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "compliance",
+          "axis": false,
+          "band": "warning",
+          "line": 232,
+          "stable_hash": "15d2045524bb3b93c07016bf384098dcc03cba471bab1a59772cb7cd790097fc",
+          "title": "Revert of prior security fix reintroduces raw exception logging in validate_connection",
+          "why": "\"reintroduces raw exception logging\" names no leaked secret (sealed: corroborates only)"
+        },
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 232,
+          "stable_hash": "a2cec7c06bd5416dc5cc0bd4e103891c1ac3e180bb60126be50952c5f1179c44",
+          "title": "Raw HTTPStatusError logging can leak URL credentials",
+          "why": "sealed qualifier; \"leak URL credentials\""
+        }
+      ]
+    },
+    "runs/triggarr-secret-in-logs/run-3": {
+      "archive": "runs",
+      "calibration": false,
+      "diff": "triggarr-secret-in-logs",
+      "floor": "warning",
+      "guardrail": true,
+      "key_blob": "ef0ab67",
+      "site": {
+        "file": "triggarr/clients/base.py",
+        "lines": [
+          [
+            230,
+            238
+          ],
+          [
+            249,
+            256
+          ]
+        ]
+      },
+      "survivors_at_site": [
+        {
+          "agent": "codex-adversarial",
+          "axis": true,
+          "band": "critical",
+          "line": 232,
+          "stable_hash": "386e5bfe080a099faed57ce532b1a2b3dd8dfbcb1537a2520a0a3b33eea9249d",
+          "title": "Raw exception logging can leak URL credentials and response contents",
+          "why": "sealed qualifier; \"leak URL credentials and response contents\""
+        },
+        {
+          "agent": "architecture",
+          "axis": false,
+          "band": "critical",
+          "line": 252,
+          "stable_hash": "42d32b3abf750b401094ba29ecf444f3e6e4fc734b30282d6da09b1b0d5f8ab5",
+          "title": "Raw ValidationError logging bypasses the established _sanitize_exc convention",
+          "why": "\"bypasses the established _sanitize_exc convention\" = convention framing, no leak named"
+        }
+      ]
+    }
+  },
+  "excluded_runs": {
+    "reason": "SUPERSESSIONS-v2.10.md entry 001 — excluded from the quiet set without a should-catch relabel; UNLABELED; informational replay row only (D-06)",
+    "should-quiet-7": [
+      "runs-v2.10/should-quiet-7/run-1",
+      "runs-v2.10/should-quiet-7/run-2",
+      "runs-v2.10/should-quiet-7/run-3"
+    ]
+  },
+  "quiet_runs": {
+    "headline": [
+      "runs-v2.10/should-quiet-1/run-1",
+      "runs-v2.10/should-quiet-1/run-2",
+      "runs-v2.10/should-quiet-1/run-3",
+      "runs-v2.10/should-quiet-2/run-1",
+      "runs-v2.10/should-quiet-2/run-2",
+      "runs-v2.10/should-quiet-2/run-3",
+      "runs-v2.10/should-quiet-3/run-1",
+      "runs-v2.10/should-quiet-3/run-2",
+      "runs-v2.10/should-quiet-3/run-3",
+      "runs-v2.10/should-quiet-4/run-1",
+      "runs-v2.10/should-quiet-4/run-2",
+      "runs-v2.10/should-quiet-4/run-3",
+      "runs-v2.10/should-quiet-5/run-1",
+      "runs-v2.10/should-quiet-5/run-2",
+      "runs-v2.10/should-quiet-5/run-3",
+      "runs-v2.10/should-quiet-6/run-1",
+      "runs-v2.10/should-quiet-6/run-2",
+      "runs-v2.10/should-quiet-6/run-3"
+    ],
+    "phase40": [
+      "runs-v2.10-phase40/batch1/should-quiet-5/run-1",
+      "runs-v2.10-phase40/batch2/should-quiet-5/run-1",
+      "runs-v2.10-phase40/batch3/should-quiet-5/run-1",
+      "runs-v2.10-phase40/final/should-quiet-5/run-1",
+      "runs-v2.10-phase40/final/should-quiet-5/run-2",
+      "runs-v2.10-phase40/final/should-quiet-5/run-3"
+    ],
+    "v29_informational": [
+      "runs/should-quiet-1/run-1",
+      "runs/should-quiet-1/run-2",
+      "runs/should-quiet-1/run-3",
+      "runs/should-quiet-2/run-1",
+      "runs/should-quiet-2/run-2",
+      "runs/should-quiet-2/run-3",
+      "runs/should-quiet-3/run-1",
+      "runs/should-quiet-3/run-2",
+      "runs/should-quiet-3/run-3"
+    ]
+  }
+}
