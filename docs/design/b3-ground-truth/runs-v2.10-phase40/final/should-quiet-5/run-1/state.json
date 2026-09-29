@@ -1,0 +1,41 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "70354771a331f7def6c8116556f58d865f644cd9",
+      "timestamp": "2026-09-29T01:31:54Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/python/model/model.py",
+          "line": 97,
+          "title": "Log sanitizer now raises on a non-str filename before the ModelError check runs",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/python/model/model.py",
+          "line": 112,
+          "title": "sanitize_log_value runs on every model add, remove and update even when debug logging is off",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "skipped",
+        "reason": "unavailable",
+        "verdict": null,
+        "findings": 0
+      }
+    }
+  ]
+}
