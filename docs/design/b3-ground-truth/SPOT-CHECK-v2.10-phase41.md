@@ -1527,15 +1527,17 @@ echo 'BLOCK OK'
 # END: sq1-revert
 ```
 
-After BOTH reverts, put your auto-memory back. Anything the check's sessions wrote to memory is
+After BOTH reverts, put your auto-memory back (`p41 restore-memory`, same label as
+`park-memory`; it is also the way back if pre-flight stopped after you parked). Anything the check's sessions wrote to memory is
 kept beside the parked copy as evidence and never merged back.
 
 ```bash
 # BLOCK: restore-memory
 set -euo pipefail
-ENV=~/.b3/phase41-active.env
-test -f "$ENV" || { echo 'NO ACTIVE CHECK — STOPPING'; exit 1; }
-. "$ENV"
+# no active-check file needed: this also undoes park-memory when pre-flight stopped
+printf 'Which check did you park memory for? Type exactly one of final or final-2: '
+IFS= read -r ARCHIVE_BATCH
+case "$ARCHIVE_BATCH" in final|final-2) ;; *) echo 'NOT ONE OF final, final-2 — STOPPING'; exit 1 ;; esac
 test ! -e ~/roonseek/.turingmind/state/.b3-inprogress \
   || { echo 'should-quiet-3 NOT REVERTED — p41 sq3-revert first — STOPPING'; exit 1; }
 test ! -e ~/triggarr/.turingmind/state/.b3-inprogress \
