@@ -59,6 +59,14 @@ NATIVE_ONLY_RUN = "runs/should-quiet-2/run-1"
 BASELINE_SPEC = "blob:" + replay.BASELINE_SCORE_BLOB
 KILL_ALL = 'THRESHOLDS={"review":101,"deep-review":101}'
 
+# The 12 Phase-40 session transcripts are gitignored: they carry the owner's private
+# instructions, so they exist only in the primary checkout. A linked worktree (a batchsnap
+# snapshot is one) never has them, by construction. Tests that read them expect ZERO
+# transcripts there and all 12 in the primary checkout, so a transcript missing from the
+# primary checkout still fails.
+IN_LINKED_WORKTREE = os.path.isfile(os.path.join(REPO_ROOT, ".git"))
+EXPECTED_TRANSCRIPTS = 0 if IN_LINKED_WORKTREE else 12
+
 
 def _git(*argv):
     return subprocess.run(["git", "-C", REPO_ROOT, *argv], stdout=subprocess.PIPE,
@@ -152,7 +160,7 @@ class TestCensus(unittest.TestCase):
             self.assertIsInstance(r["tree_diff"], str, r["rel_path"])
             self.assertEqual(r["problems"], [], r["rel_path"])
         with_t = [r["rel_path"] for r in _runs() if r["transcript_path"]]
-        self.assertEqual(len(with_t), 12)
+        self.assertEqual(len(with_t), EXPECTED_TRANSCRIPTS)
         self.assertTrue(all(p.startswith("runs-v2.10-phase40/") for p in with_t))
 
 
@@ -270,6 +278,8 @@ class TestReconstruction(unittest.TestCase):
         self.assertEqual(env["codex"], {"status": "skipped"})
         self.assertFalse(meta["codex_joined"])
 
+    @unittest.skipIf(IN_LINKED_WORKTREE, "Phase-40 transcripts are local-only (gitignored); "
+                     "a linked worktree has none to recover from")
     def test_transcript_recovery_covers_survivor_agents(self):
         checked = 0
         for r in _runs():
@@ -533,8 +543,11 @@ class TestGuardrail(_TmpDirCase):
                       text)
         cov = text.split("## Transcript coverage (disclosed)", 1)[1].split("\n## ", 1)[0]
         listed = re.findall(r"^- (\S+) — (.+)$", cov, re.MULTILINE)
-        self.assertEqual(listed, [(p, replay.CODEX_AGENT) for p in CODEX_WRITE_ONLY_RUNS])
-        self.assertIn("12 / %d runs carry a session transcript" % replay.EXPECTED_SCOREABLE, cov)
+        want = [] if IN_LINKED_WORKTREE else [(p, replay.CODEX_AGENT)
+                                              for p in CODEX_WRITE_ONLY_RUNS]
+        self.assertEqual(listed, want)
+        self.assertIn("%d / %d runs carry a session transcript"
+                      % (EXPECTED_TRANSCRIPTS, replay.EXPECTED_SCOREABLE), cov)
 
 
 # --------------------------------------------------------------------------
