@@ -253,6 +253,61 @@ class TestCli(unittest.TestCase):
                 del score.AGENT_CONFIDENCE_OFFSET
 
 
+class TestEmbeddedEqualsDerived(unittest.TestCase):
+    """score.AGENT_CONFIDENCE_OFFSET is the derivation, not a hand-edited constant (T3).
+
+    Fails — never skips — when the archives are missing: a lock that skips on a
+    fresh clone would let a hand-edited literal through unnoticed.
+    """
+
+    def _live(self):
+        manifest, runs = _archives()
+        if not runs:
+            self.fail("archives missing — this lock must never skip")
+        return manifest, runs
+
+    def test_embedded_offsets_equal_derivation(self):
+        import score
+        manifest, runs = self._live()
+        self.assertEqual(score.AGENT_CONFIDENCE_OFFSET,
+                         calibrate.derive(manifest, runs))
+
+    def test_perturbed_label_breaks_equality(self):
+        # Mutation proof: flip ONE axis:true -> false on a survivor of the keyed
+        # agent with the fewest TPs (impact when keyed), in a calibration run. The
+        # derivation must move off the embedded literal; the untouched manifest
+        # must still equal it (non-vacuous).
+        import score
+        manifest, runs = self._live()
+        embedded = score.AGENT_CONFIDENCE_OFFSET
+        self.assertTrue(embedded, "no keyed agent to perturb")
+        table = calibrate.counts(manifest, runs)
+        target = ("impact" if "impact" in embedded
+                  else min(embedded, key=lambda a: table[a]["tp"]))
+
+        mutated = copy.deepcopy(manifest)
+        flipped = False
+        for _path, entry in sorted(mutated["catch_runs"].items()):
+            if not isinstance(entry, dict) or entry.get("calibration") is not True:
+                continue
+            for s in entry.get("survivors_at_site") or []:
+                if (isinstance(s, dict) and s.get("agent") == target
+                        and s.get("axis") is True):
+                    s["axis"] = False
+                    flipped = True
+                    break
+            if flipped:
+                break
+        self.assertTrue(flipped, "no %s axis:true survivor to flip" % target)
+
+        self.assertNotEqual(calibrate.derive(mutated, runs), embedded)
+        self.assertEqual(calibrate.derive(copy.deepcopy(manifest), runs), embedded)
+
+    def test_check_cli_exit_zero(self):
+        self._live()
+        self.assertEqual(_run_cli(["--check"])[0], 0)
+
+
 class TestMethodRecord(unittest.TestCase):
     """CALIBRATION-v2.10.md carries the verbatim `counts` and `derive` output."""
 

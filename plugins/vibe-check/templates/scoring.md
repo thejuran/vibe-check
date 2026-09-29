@@ -80,3 +80,14 @@ A finding group has a **second opinion** when either holds:
 
 - A group with no second opinion has its score capped at `critical floor − 1` (94 by default; respects a config-tuned `thresholds.critical`) BEFORE banding — it may reach Warning (still finalize-blocking) but never Critical. A lone Codex finding (no Claude lane beside it) is capped too.
 - The cap lowers the band only: the per-command filter threshold still judges the uncapped score, so the ceiling never drops a finding.
+
+### Lone-lane confidence calibration (B-REWEIGHT, D-15)
+
+- For a group with no second opinion, each member's `agent_confidence` is adjusted by a per-agent offset ≤ 0 BEFORE the formula (the offset joins step 1, the starting value).
+- The offsets are DERIVED, not hand-picked: shrunk per-agent precision (prior strength 20, min labeled sample 5) over the labeled Claude-5-era B3 runs — method and inputs in `docs/design/b3-ground-truth/CALIBRATION-v2.10.md`; `scripts/calibrate.py --check` re-derives them and fails when the embedded constants drift.
+- Agents with thin data (labeled n < 5) or precision at/above the pooled rate are identity (offset 0, absent from the table).
+- The offset never raises confidence, never changes the emitted `agent_confidence`, never touches `stable_hash` inputs, and does NOT feed the `min_confidence` filter — that filter reads the raw value.
+- Current offsets:
+  - architecture: -6
+  - bugs: -2
+  - impact: -12

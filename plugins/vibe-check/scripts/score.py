@@ -5,8 +5,9 @@ Phase 16 (CORE-01) extracted the orchestrator's by-hand scoring prose
 formula stayed FROZEN through v2.9. The freeze lifted for v2.10 Wave 1, scoped to
 the replay-guardrailed changes documented in templates/scoring.md § "Wave 1
 (v2.10)": the lone-lane band ceiling (B-SEV — a group with no second opinion is
-capped below the critical floor). No other weight, bonus, band cutoff or threshold
-is retuned.
+capped below the critical floor) and the lone-lane confidence calibration
+(B-REWEIGHT — derived, lower-only per-agent offsets on a group with no second
+opinion). No other weight, bonus, band cutoff or threshold is retuned.
 
 Pure-function boundary (D-05): the script does NO filesystem, git, or shell-out
 I/O. Every raw fact (changed_line_ranges, source_window, canonical_line_content,
@@ -111,6 +112,12 @@ CODEX_AGENT = "codex-adversarial"
 # shipped value is "warning". `None` disables the ceiling and exists ONLY so
 # scripts/replay.py can replay the other Wave-1 candidates ALONE (D-09).
 LONE_LANE_BAND_CEILING = "warning"
+
+# B-REWEIGHT (v2.10 Wave 1, D-15). DERIVED, not hand-picked: method + inputs in
+# docs/design/b3-ground-truth/CALIBRATION-v2.10.md; re-derive with
+# `python3 plugins/vibe-check/scripts/calibrate.py --check` (test_calibrate binds this literal to
+# the derivation). Lower-only; lone-lane groups only; absent agent => 0 (identity).
+AGENT_CONFIDENCE_OFFSET = {"architecture": -6, "bugs": -2, "impact": -12}
 
 # HARDEN-01 — DOCUMENTATION ONLY (not a reject gate). The three fields a
 # well-formed finding normally carries. Per orchestrator correction (this phase),
@@ -279,6 +286,27 @@ def _second_opinion(members, codex_joined, persisted_ids):
     if _codex_corroborated(members, codex_joined):
         return True
     return any(id(m) in persisted_ids for m in members)
+
+
+def _agent_offset(member):
+    """The B-REWEIGHT confidence offset for one member (D-15). LOWER-ONLY.
+
+    Scoped to members of a group with NO second opinion — the caller
+    (_score_member) passes 0 whenever the group is Codex-corroborated or
+    persisted. Returns AGENT_CONFIDENCE_OFFSET[agent] (always <= 0); an unknown
+    agent, a non-str `agent`, or a non-int / positive table value is identity (0),
+    so the offset can never raise a score and a malformed finding never crashes.
+    It feeds ONLY compute_score's starting value — never the emitted
+    `agent_confidence`, never the stable_hash inputs, and never the
+    min_confidence filter (which reads the raw value).
+    """
+    agent = member.get("agent")
+    if not isinstance(agent, str):
+        return 0
+    off = AGENT_CONFIDENCE_OFFSET.get(agent, 0)
+    if not isinstance(off, int) or isinstance(off, bool) or off > 0:
+        return 0
+    return off
 
 
 def _lone_lane_cap(thresholds):
@@ -711,7 +739,8 @@ def _coerce_confidence(raw):
             else 0)
 
 
-def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
+def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted,
+                  confidence_offset=0):
     """Apply the score formula (scoring.md:11-29) in the LOCKED operation order.
 
     Returns the clamped [0,100] orchestrator_score, OR None as the DROP signal when
@@ -722,12 +751,16 @@ def compute_score(finding, *, in_diff, silenced, cross_confirmed, persisted):
     booleans the caller computes (recomputed from raw facts, overriding agent
     self-reports per agent-output-schema hard rule #4); compute_score does not
     re-derive them.
+
+    `confidence_offset` is the B-REWEIGHT lone-lane offset (_agent_offset), <= 0
+    by construction; the default 0 is identity.
     """
     # 1. Start from agent_confidence (defensive coercion: garbage => 0). The
     # coercion (int/float accepted, float truncated, bool/non-finite/garbage => 0)
     # lives in _coerce_confidence so it is the SINGLE source of truth shared with
     # the min_confidence pre-scoring filter (they can never drift).
-    s = _coerce_confidence(finding.get("agent_confidence", 0))
+    # scoring.md:86 — plus the lone-lane B-REWEIGHT offset (<= 0 by construction).
+    s = _coerce_confidence(finding.get("agent_confidence", 0)) + confidence_offset
 
     # 2. Additive/subtractive bonuses (intent-doc penalty is mutually exclusive).
     if in_diff:
@@ -1283,6 +1316,7 @@ def run(envelope):
     if isinstance(min_confidence, int) and not isinstance(min_confidence, bool):
         kept_working = []
         for m in working:
+            # reads RAW confidence — the B-REWEIGHT offset never feeds this filter (scoring.md § Wave 1)
             if _coerce_confidence(m.get("agent_confidence", 0)) < min_confidence:
                 filtered.append({
                     "file": m.get("file"),
@@ -1354,6 +1388,9 @@ def run(envelope):
     for g in groups:
         attribution = list(g["attribution"])
         cross_confirmed = len(attribution) >= 2
+        # D-01 second opinion, computed BEFORE scoring: it gates both the
+        # B-REWEIGHT offset (per member) and the B-SEV ceiling (per group).
+        second_opinion = _second_opinion(g["members"], codex_joined, persisted_ids)
         # Keep the highest-scored member as the surviving representative; score
         # every member first so "highest-scored" is well-defined.
         scored_members = []
@@ -1361,6 +1398,7 @@ def run(envelope):
             decision = _score_member(
                 member, changed_line_ranges, reviewed_union, file_line_totals,
                 all_mode, cross_confirmed, persisted_ids,
+                second_opinion=second_opinion,
             )
             if decision["drop"]:
                 filtered.append({
@@ -1396,8 +1434,7 @@ def run(envelope):
         # band writer — do not add a band branch. A group with no second opinion
         # (Codex-corroborated or persisted, D-01) tops out at critical floor - 1.
         lone_cap = _lone_lane_cap(thresholds)
-        if lone_cap is not None and not _second_opinion(
-                g["members"], codex_joined, persisted_ids):
+        if lone_cap is not None and not second_opinion:
             best_score = min(best_score, lone_cap)
         # Members that lost the dedup are absorbed into the survivor; each loser
         # is RECORDED in filtered[] below (Fable A2) once the survivor's
@@ -1607,7 +1644,7 @@ def _line_in_ranges(line, ranges):
 
 
 def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
-                  all_mode, cross_confirmed, persisted_ids):
+                  all_mode, cross_confirmed, persisted_ids, second_opinion=True):
     """Recompute the orchestrator-verified booleans for one finding and score it.
 
     Returns a dict: {"drop": bool, "reason": str|None, "score": int|None,
@@ -1621,6 +1658,8 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
       - --all mode: in_reviewed_set membership gates (reason "not-in-reviewed-set")
         — a TRANSIENT keep/drop boolean, NOT serialized onto the finding, and the
         +20 in_diff term never fires in --all (review.md:684).
+    `second_opinion` (D-01) gates the B-REWEIGHT offset: True (the default) =>
+    no offset (identity); False => the member's lower-only _agent_offset.
     """
     # lang-py-001 (crash guard): coerce `file` to a safe HASHABLE str BEFORE it is
     # used as a dict key / set membership below (`file_line_totals.get(file)`,
@@ -1672,6 +1711,7 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
     # redundant for real carryforward members and was the forgery surface for an
     # agent-supplied status on a new finding (+15 from an unverified input).
     persisted = id(member) in persisted_ids
+    confidence_offset = 0 if second_opinion else _agent_offset(member)
 
     score = compute_score(
         member,
@@ -1679,6 +1719,7 @@ def _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
         silenced=silenced,
         cross_confirmed=cross_confirmed,
         persisted=persisted,
+        confidence_offset=confidence_offset,
     )
     if score is None:
         # pre-clamp < 0 => DROP (D-14). Reason is the dominant drop cause.

@@ -71,6 +71,13 @@ def make_finding(**overrides):
     return f
 
 
+# v2.10 Wave 1 B-REWEIGHT (D-15): make_finding's default agent "bugs" carries a
+# DERIVED lone-lane confidence offset (<= 0; 0 if a re-derivation drops it). Lone-lane
+# run()-level expectations that are not about B-REWEIGHT compensate by this value so
+# they keep testing what they were written to test.
+BUGS_OFF = score.AGENT_CONFIDENCE_OFFSET.get("bugs", 0)
+
+
 def score_of(finding, *, in_diff=False, silenced=False, cross_confirmed=False,
              persisted=False):
     """Convenience wrapper around score.compute_score with keyword overrides."""
@@ -374,7 +381,9 @@ class TestDropRule(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 class TestThresholds(unittest.TestCase):
     def _envelope(self, command, agent_confidence):
-        f = make_finding(id="t-1", agent_confidence=agent_confidence,
+        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF — the raw input is
+        # compensated so the SCORE equals `agent_confidence` at each boundary.
+        f = make_finding(id="t-1", agent_confidence=agent_confidence - BUGS_OFF,
                          severity="critical", line=10,
                          source_window=["a", "b", "c", "d", "e"])
         return {
@@ -1908,7 +1917,8 @@ class TestRunEndToEnd(unittest.TestCase):
                          source_window=["a", "b", "c", "d", "e"])
         result = score.run(self._envelope(findings=[f]))
         # 85, no +20 -> 85 still passes /review (>=80). Score must be 85 not 105.
-        self.assertEqual(result["findings"][0]["orchestrator_score"], 85)
+        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF (a wrong +20 would read 94).
+        self.assertEqual(result["findings"][0]["orchestrator_score"], 85 + BUGS_OFF)
 
     def test_fixed_since_last_excluded_from_findings(self):
         # A carryforward finding whose file:line is gone -> fixed-since-last,
@@ -1957,7 +1967,9 @@ class TestRunThresholds(unittest.TestCase):
             "changed_line_ranges": {"src/a.py": [[8, 14]]},
             "carryforward": [],
             "findings": [
-                make_finding(id="thr-1", agent_confidence=60, severity="critical",
+                # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF, compensated
+                # so the score stays exactly 80.
+                make_finding(id="thr-1", agent_confidence=60 - BUGS_OFF, severity="critical",
                              line=10, source_window=["a", "b", "c", "d", "e"]),
             ],
         }
@@ -2089,7 +2101,8 @@ class TestRunMinConfidence(unittest.TestCase):
         surv_scores = {g["id"]: g for g in with_drop["findings"]}
         self.assertIn("mc-surv", surv_scores)
         self.assertNotIn("mc-twin", surv_scores)
-        self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"], 85)
+        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF.
+        self.assertEqual(surv_scores["mc-surv"]["orchestrator_score"], 85 + BUGS_OFF)
 
         # Baseline: the SAME run with the low twin simply absent (never in input).
         baseline = score.run(self._envelope(findings=[survivor]))
@@ -2105,7 +2118,10 @@ class TestRunMinConfidence(unittest.TestCase):
         # v2.10 Wave 1 B-SEV (D-02): lone lane, no second opinion -> capped at critical
         # floor - 1 (94). Two Claude lanes are ONE correlated voter, so 85+10=95 is
         # capped; 94 != the 85 above still proves the +10 fired.
-        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"], 94)
+        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF (no second opinion,
+        # so the offset applies) -> min(94, 95 + BUGS_OFF).
+        self.assertEqual(conf_scores["mc-surv"]["orchestrator_score"],
+                         min(94, 95 + BUGS_OFF))
 
     def test_exactly_n_survives(self):
         # Strict `<`: a finding at exactly min_confidence SURVIVES; one at N-1 drops.
@@ -2116,7 +2132,11 @@ class TestRunMinConfidence(unittest.TestCase):
                             file="src/d.py", line=40)
         below = make_finding(id="mc-69", agent_confidence=69, severity="critical",
                              file="src/e.py", line=50)
+        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF would put the
+        # raw-70 finding just under the 70 cutoff; an in-diff line (+20) keeps the
+        # post-scoring layer out of the way. The filter still reads the RAW 70.
         result = score.run(self._envelope(min_confidence=70, command="deep-review",
+                                          changed_line_ranges={"src/d.py": [[40, 40]]},
                                           findings=[at_n, below]))
         ids = [g["id"] for g in result["findings"]]
         self.assertIn("mc-at", ids)
@@ -3308,7 +3328,8 @@ class TestStatusScrubbedOnNewFindings(unittest.TestCase):
         })
         self.assertEqual(len(result["findings"]), 1)
         g = result["findings"][0]
-        self.assertEqual(g["orchestrator_score"], 85)
+        # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF.
+        self.assertEqual(g["orchestrator_score"], 85 + BUGS_OFF)
         self.assertEqual(g["band"], "warning")
         self.assertEqual(g["status"], "new")
 
@@ -3391,7 +3412,9 @@ class TestMalformedResidualCrashSurfaces(unittest.TestCase):
         # floor - 1 (94). Confidence 80 keeps the proof non-vacuous under the cap:
         # a spurious +20 would read 94, the correct no-in_diff score reads 80.
         result = self._run_with(
-            make_finding(agent_confidence=80, line=10),
+            # v2.10 Wave 1 B-REWEIGHT (D-15): lone bugs offset BUGS_OFF, compensated
+            # so the score stays 80 (clears the /review cutoff).
+            make_finding(agent_confidence=80 - BUGS_OFF, line=10),
             changed_line_ranges={"src/a.py": [["8", "14"]]})
         self.assertEqual(len(result["findings"]), 1)
         # 80 + 0 (no in_diff: unusable range) + 0 critical = 80.
@@ -3780,3 +3803,167 @@ class TestOutputShape(unittest.TestCase):
         for k in ("band", "orchestrator_score", "stable_hash", "status", "attribution"):
             self.assertEqual(before[k], after[k])
 
+
+
+class TestAgentConfidenceOffset(unittest.TestCase):
+    """B-REWEIGHT (D-15): derived lower-only per-agent offsets, lone-lane only.
+
+    The offset joins compute_score's starting value for a member of a group with
+    no second opinion. It never feeds the emitted `agent_confidence`, the
+    min_confidence filter, or the stable_hash inputs, and an unknown / non-str
+    agent is identity.
+    """
+
+    RANGES = {"src/a.py": [[8, 14]]}
+
+    def setUp(self):
+        off = score.AGENT_CONFIDENCE_OFFSET
+        self.assertTrue(off, "no keyed agent — the derivation emptied the table")
+        # The most-lowered keyed agent (impact at the time of writing).
+        self.agent = min(off, key=lambda a: (off[a], a))
+        self.off = off[self.agent]
+
+    def _native(self, **over):
+        defaults = dict(id="nat", file="src/a.py", line=10, category="null-access",
+                        agent=self.agent, agent_confidence=70, severity="critical",
+                        source_window=["a", "b", "c", "d", "e"])
+        defaults.update(over)
+        return make_finding(**defaults)
+
+    def _codex(self, **over):
+        defaults = dict(id="cdx", file="src/a.py", line=11, category="adversarial",
+                        agent="codex-adversarial", agent_confidence=40,
+                        severity="critical", source_window=["a", "b", "c", "d", "e"])
+        defaults.update(over)
+        return make_finding(**defaults)
+
+    def _run(self, findings, carryforward=None, **over):
+        envelope = {
+            "command": "deep-review",
+            "all_mode": False,
+            "pass_number": 1,
+            "changed_line_ranges": self.RANGES,
+            "carryforward": carryforward if carryforward is not None else [],
+            "findings": findings,
+        }
+        envelope.update(over)
+        return score.run(envelope)
+
+    def _by_id(self, result):
+        return {g["id"]: g for g in result["findings"]}
+
+    def _without_offsets(self, fn):
+        saved = score.AGENT_CONFIDENCE_OFFSET
+        try:
+            score.AGENT_CONFIDENCE_OFFSET = {}
+            return fn()
+        finally:
+            score.AGENT_CONFIDENCE_OFFSET = saved
+
+    def test_offsets_are_negative_ints_keyed_by_str(self):
+        for agent, value in score.AGENT_CONFIDENCE_OFFSET.items():
+            with self.subTest(agent=agent):
+                self.assertIsInstance(agent, str)
+                self.assertIs(type(value), int)
+                self.assertLess(value, 0)
+
+    def test_lone_lane_offset_applies_exactly(self):
+        # conf 70 + in_diff 20 = 90, below the 94 ceiling so the cap cannot mask it.
+        g = self._by_id(self._run([self._native()]))["nat"]
+        self.assertEqual(g["orchestrator_score"], 90 + self.off)
+
+    def test_override_to_empty_restores_the_raw_score(self):
+        # replay.py --override 'AGENT_CONFIDENCE_OFFSET={}' is a live switch.
+        g = self._without_offsets(lambda: self._by_id(self._run([self._native()]))["nat"])
+        self.assertEqual(g["orchestrator_score"], 90)
+
+    def test_codex_corroborated_group_gets_no_offset(self):
+        # 60 + in_diff 20 + cross-confirm 10 = 90; Codex joined => second opinion.
+        pair = lambda: self._run([self._native(agent_confidence=60), self._codex()],
+                                 codex={"status": "joined"})
+        g = self._by_id(pair())["nat"]
+        plain = self._by_id(self._without_offsets(pair))["nat"]
+        self.assertEqual(sorted(g["attribution"]), sorted([self.agent, "codex-adversarial"]))
+        self.assertEqual(g["orchestrator_score"], 90)
+        self.assertEqual(g["orchestrator_score"], plain["orchestrator_score"])
+
+    def test_unverified_codex_pair_is_lone_and_offset(self):
+        # Same pair with no `codex` block: no second opinion, the offset applies.
+        g = self._by_id(self._run([self._native(agent_confidence=60), self._codex()]))["nat"]
+        self.assertEqual(g["orchestrator_score"], 90 + self.off)
+
+    def test_persisted_group_gets_no_offset(self):
+        cf = self._native(id="cf-keep", agent_confidence=50, current_code="  return q",
+                          canonical_line_content="return q")
+        # 50 + in_diff 20 + persisted 15 = 85; persistence is a second opinion.
+        run = lambda: self._run([], carryforward=[dict(cf)])
+        g = self._by_id(run())["cf-keep"]
+        self.assertEqual(g["status"], "persisted")
+        self.assertEqual(g["orchestrator_score"], 85)
+        self.assertEqual(g["orchestrator_score"],
+                         self._by_id(self._without_offsets(run))["cf-keep"]["orchestrator_score"])
+
+    def test_unknown_or_non_str_agent_is_identity_and_never_raises(self):
+        keep = make_finding(id="keep", file="src/b.py", line=3, agent="security",
+                            agent_confidence=90, source_window=["a", "b", "c", "d", "e"])
+        for label, agent in (("unknown", "language-rust"), ("list", [self.agent]),
+                             ("None", None), ("int", 7), ("dict", {"a": 1})):
+            with self.subTest(agent=label):
+                self.assertEqual(score._agent_offset({"agent": agent}), 0)
+                res = self._run([self._native(agent=agent), dict(keep)])
+                self.assertEqual(self._by_id(res)["nat"]["orchestrator_score"], 90)
+                self.assertIn("keep", self._by_id(res))
+
+    def test_malformed_table_value_is_identity(self):
+        saved = score.AGENT_CONFIDENCE_OFFSET
+        try:
+            for label, value in (("positive", 5), ("str", "-9"), ("bool", True),
+                                 ("float", -3.5), ("None", None)):
+                with self.subTest(value=label):
+                    score.AGENT_CONFIDENCE_OFFSET = {self.agent: value}
+                    self.assertEqual(score._agent_offset({"agent": self.agent}), 0)
+        finally:
+            score.AGENT_CONFIDENCE_OFFSET = saved
+
+    def test_emitted_agent_confidence_is_raw(self):
+        g = self._by_id(self._run([self._native()]))["nat"]
+        self.assertEqual(g["agent_confidence"], 70)
+
+    def test_offset_never_changes_the_stable_hash(self):
+        with_off = self._by_id(self._run([self._native()]))["nat"]
+        without = self._without_offsets(lambda: self._by_id(self._run([self._native()]))["nat"])
+        self.assertNotEqual(with_off["orchestrator_score"], without["orchestrator_score"])
+        self.assertEqual(with_off["stable_hash"], without["stable_hash"])
+
+    def test_min_confidence_reads_raw_confidence(self):
+        # Raw conf == min_confidence with a negative offset is KEPT by the filter
+        # (strict `<` on the RAW value); in_diff keeps it above the 70 cutoff.
+        res = self._run([self._native()], min_confidence=70)
+        self.assertIn("nat", self._by_id(res))
+        self.assertNotIn("below-min-confidence",
+                         [f.get("reason") for f in res["filtered"]])
+        self.assertEqual(self._by_id(res)["nat"]["orchestrator_score"], 90 + self.off)
+
+    def test_compute_score_unit_offset(self):
+        f = make_finding(agent_confidence=50)
+        base = score_of(f)
+        self.assertEqual(base, 50)
+        lowered = score.compute_score(f, in_diff=False, silenced=False,
+                                      cross_confirmed=False, persisted=False,
+                                      confidence_offset=-18)
+        self.assertEqual(lowered, base - 18)
+
+    def test_score_member_default_is_identity(self):
+        f = make_finding(agent=self.agent, agent_confidence=50)
+        d = score._score_member(f, {}, set(), {}, False, False, set())
+        self.assertEqual(d["score"], 50)
+        d_lone = score._score_member(f, {}, set(), {}, False, False, set(),
+                                     second_opinion=False)
+        self.assertEqual(d_lone["score"], 50 + self.off)
+
+    def test_default_keyword_leaves_additive_modifiers_unchanged(self):
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestAdditiveModifiers)
+        result = unittest.TestResult()
+        suite.run(result)
+        self.assertTrue(result.testsRun > 0)
+        self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
