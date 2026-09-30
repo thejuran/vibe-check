@@ -952,5 +952,185 @@ class TestLocationCapMutation(unittest.TestCase):
                          ["the needed context is off-hunk"])
 
 
+# --------------------------------------------------------------------------- #
+# Codex kickoff focus literal
+# --------------------------------------------------------------------------- #
+KICKOFF = "phases/deep-review/2c-codex-kickoff.md"
+ARGS_LINE = 'ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")'
+OLD_ARGS_LINE = "ARGS=(adversarial-review --json <codex_args>)"
+
+
+def _kickoff():
+    return read(KICKOFF)
+
+
+def _literal():
+    return focus_literal(_kickoff())
+
+
+class TestKickoffCarriesFocus(unittest.TestCase):
+    def setUp(self):
+        self.c = scoring_constants(read("templates/scoring.md"))
+
+    def test_args_line_exact(self):
+        self.assertIs(args_line_ok(_kickoff()), True)
+
+    def test_literal_tokens(self):
+        lit = _literal()
+        self.assertIsNotNone(lit)
+        self.assertEqual(len(FOCUS_TOKENS), 14)
+        self.assertEqual(missing_focus_tokens(lit), [])
+        self.assertGreaterEqual(lit.count("0.45"), 2)
+        self.assertGreaterEqual(lit.count("severity low"), 2)
+
+    def test_literal_exempts_demonstrated_failure_of_the_new_control(self):
+        lit = _literal()
+        self.assertIn("a case the diff never addressed", lit)
+        self.assertIn("demonstrably fails to block", lit)
+        self.assertGreater(lit.index("demonstrably fails to block"),
+                           lit.index("pre-existing gap"))
+
+    def test_literal_has_no_shell_metacharacters(self):
+        lit = _literal()
+        for ch in ("$", "`", "'"):
+            with self.subTest(ch=ch):
+                self.assertNotIn(ch, lit)
+        self.assertEqual(_kickoff().count("CODEX_FOCUS='"), 1)
+
+    def test_literal_has_no_repository_occurrence_requirement(self):
+        lit = _literal()
+        self.assertEqual(focus_forbidden_hits(lit), [])
+        self.assertIn("Off-hunk is not the same as unverified", lit)
+
+    def test_literal_caps_are_nonblocking(self):
+        lit = _literal()
+        # Codex states its ceiling in its own unit (0.45); codex_translate.py x100.
+        caps = [int(d) for d in re.findall(r"\b0\.(\d\d)\b", lit)]
+        self.assertGreaterEqual(len(caps), 2)
+        self.assertTrue(caps_in(lit))
+        for cap in caps + caps_in(lit):
+            with self.subTest(cap=cap):
+                self.assertIs(cap_is_nonblocking(cap, self.c, 0), True)
+                self.assertIs(cap_never_warns(cap, self.c, "low"), True)
+
+
+class TestKickoffMutation(unittest.TestCase):
+    def test_planted_interpolation_trips(self):
+        lit = focus_literal("CODEX_FOCUS='rules $DIFF here'")
+        self.assertIn("$", lit)
+        self.assertIn("$", focus_forbidden_hits(lit))
+
+    def test_missing_args_arg_trips(self):
+        text = _kickoff().replace(ARGS_LINE, OLD_ARGS_LINE)
+        self.assertNotEqual(text, _kickoff())
+        self.assertIs(args_line_ok(text), False)
+        self.assertIs(args_line_ok(_kickoff() + "\n" + OLD_ARGS_LINE), False)
+
+    def test_planted_repo_occurrence_in_literal_trips(self):
+        lit = focus_literal("CODEX_FOCUS='unless you cite a concrete in-repo value'")
+        self.assertIn("in-repo", lit)
+        self.assertEqual(focus_forbidden_hits(lit), ["in-repo"])
+
+    def test_missing_exemption_or_severity_trips(self):
+        lit = _literal()
+        m = re.search(r"[^.]*demonstrably fails to block[^.]*\.", lit)
+        self.assertIsNotNone(m)
+        dropped = lit.replace(m.group(0), "")
+        self.assertEqual(missing_focus_tokens(dropped), ["demonstrably fails to block"])
+        medium = lit.replace("severity low", "severity medium")
+        self.assertEqual(medium.count("severity low"), 0)
+        self.assertLess(medium.count("severity low"), 2)
+
+
+# --------------------------------------------------------------------------- #
+# Contract documents the focus-text mechanism
+# --------------------------------------------------------------------------- #
+class TestContractDocumentsFocus(unittest.TestCase):
+    def test_section_and_mechanism(self):
+        text = read("agents/codex-adversarial.md")
+        sec = section(text,
+                      "Calibration reaches Codex through the kickoff focus text (Phase 42)")
+        self.assertIsNotNone(sec)
+        for token in ("CODEX_FOCUS", "2c-codex-kickoff.md", "codex_translate.py", "0.45",
+                      "severity low"):
+            with self.subTest(token=token):
+                self.assertIn(token, norm(sec))
+
+
+# --------------------------------------------------------------------------- #
+# Retired +10 prose stays retired (R6)
+# --------------------------------------------------------------------------- #
+def _stale_prose_corpus():
+    return {rel: text for rel, text in prose_corpus().items()
+            if rel.startswith(("agents/", "phases/deep-review/"))}
+
+
+def _paragraphs_with(text, *needles):
+    return [p for p in (norm(x) for x in re.split(r"\n\s*\n", text))
+            if all(n in p for n in needles)]
+
+
+class TestNoRetiredPlusTenProse(unittest.TestCase):
+    def test_agents_and_deep_review_clean(self):
+        corpus = _stale_prose_corpus()
+        self.assertGreaterEqual(len(corpus), 20)
+        self.assertIn("agents/framework-fastapi.md", corpus)
+        self.assertIn("phases/deep-review/30-codex-collect.md", corpus)
+        hits = {rel: forbidden_hits(text) for rel, text in sorted(corpus.items())}
+        hits = {rel: h for rel, h in hits.items() if h}
+        self.assertEqual(hits, {}, f"retired +10 prose: {hits}")
+
+    def test_stem_is_in_forbidden_set(self):
+        self.assertIn("independently confirm", FORBIDDEN_PHRASES)
+        for stem in ("cross-confirmed by", "2+ agents"):
+            with self.subTest(stem=stem):
+                self.assertIn(stem, FORBIDDEN_PHRASES)
+
+    def test_joined_named_beside_plus_ten(self):
+        for rel in ("agents/codex-adversarial.md", "phases/deep-review/30-codex-collect.md",
+                    "agents/index.md"):
+            with self.subTest(rel=rel):
+                self.assertTrue(_paragraphs_with(read(rel), "+10", "joined"), rel)
+
+
+class TestStaleProseMutation(unittest.TestCase):
+    def test_planted_phrase_in_agent_text_trips(self):
+        self.assertEqual(
+            forbidden_hits(read("agents/bugs.md") + "\nshares its domain in CATEGORY_DOMAIN"),
+            ["CATEGORY_DOMAIN", "shares its domain"])
+
+    def test_planted_retired_confirm_trips(self):
+        self.assertEqual(
+            forbidden_hits(read("agents/language-go.md")
+                           + "\nto a Filtered-summary count unless independently confirmed."),
+            ["independently confirm"])
+        self.assertEqual(
+            forbidden_hits(read("agents/impact.md")
+                           + "\nunless another agent independently confirms the site"),
+            ["independently confirm"])
+
+    def test_planted_multi_agent_bonus_trips(self):
+        # The retired wording removed from framework-fastapi.md and
+        # framework-skill.md; each must trip on its own against the real file.
+        fastapi = read("agents/framework-fastapi.md")
+        self.assertEqual(forbidden_hits(fastapi), [])
+        cases = (
+            ("plus +10 if cross-confirmed by 2+ agents, plus +15 if persisted",
+             ["cross-confirmed by", "if cross-confirmed", "2+ agents"]),
+            ("still reaches 75 (Medium band) when cross-confirmed (+10)",
+             ["when cross-confirmed"]),
+            ("+ severity weight + 10 (cross-confirmed) + 15 (persisted)",
+             ["(cross-confirmed)"]),
+            ("the +10 fires when 2+\nlanes flag it", ["2+ lanes"]),
+        )
+        for planted, expected in cases:
+            with self.subTest(planted=planted):
+                self.assertEqual(forbidden_hits(fastapi + "\n" + planted), expected)
+        # The live joined-rule wording and the collect-line count are not hits.
+        self.assertEqual(forbidden_hits("({M} cross-confirmed)"), [])
+        self.assertEqual(forbidden_hits("the +10 cross-confirm fires only when a "
+                                        "codex-adversarial member"), [])
+
+
 if __name__ == "__main__":
     unittest.main()
