@@ -56,7 +56,7 @@ error, a timer callback, or any other UNRETURNED async work.
 - `[high]` a 500 (or any error) handler sending `err.stack`, `err.message`, or other internal detail
   to the client (`res.status(500).send(err.stack)`, `res.json({error: err.message})`, etc.) → natural
   HIGH; the leak is in the hunk. Emit the stack-trace / internal-detail leak HERE under `error-disclosure`,
-  NEVER under `error-handling` (that string maps to `correctness` in score.py — the wrong twin bucket).
+  NEVER under `error-handling` (that is the generic error-flow category, not the disclosure one).
 
 ### security-headers
 
