@@ -503,15 +503,16 @@ scoring cannot touch, such as reviewers reaching outside the diff or complaining
 is unfinished. Then Phase 43 runs the full set three times and judges the result against the
 sealed target for the first time.
 
-# B3 v2.10 — Phase 42 Wave 2 (prompt-only) pre-registration
+# B3 v2.10 — Phase 42 Wave 2 (prompts and one launch gate) pre-registration
 
-**Headline: no measurement in this section.** Wave 2 changes only reviewer prompts and orchestrator
-prose. It is written down here, before any Phase 43 run, so that the Phase 43 comparison can be
+**Headline: no measurement in this section.** Wave 2 changes reviewer prompts and orchestrator
+prose, plus one launch-gate fact and slug in `scripts/codex_gate.py` (no scorer change). It is
+written down here, before any Phase 43 run, so that the Phase 43 comparison can be
 read honestly: what changed, which change can move the catch rate as well as the false-alarm rate,
 which false alarms are expected to remain, and what must be true before a measured run starts.
 The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
 
-## What changed (Wave 2, prompts only)
+## What changed (Wave 2, prompts plus one launch gate)
 
 - **A shared "Safe-change recognition" block in the bugs, security and impact prompts.** When a
   diff *tightens* a control (it reduces what can get through), the lane treats it as presumptively
@@ -534,11 +535,15 @@ The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
   control used to protect is left without it. It is reported at honest confidence; the ceiling does
   not apply. A control moved rather than lost — the same check now enforced by shared middleware, a
   decorator, a schema or an upstream layer that every path to the old site still passes through —
-  is not a removal only when the reviewer names that replacement at `file:line`, has read it, and
-  it covers every path the old check guarded. A claimed move is never a silent drop: when the
-  replacement is not named, not read, or its coverage of every path is uncertain, the finding is
-  reported under the sensitive-area cap with `pending: confirm no replacement covers <path>` (in
-  the Codex literal: at or below 0.45 confidence with severity low, saying what would confirm it).
+  is still reported, never dropped. Even when the reviewer names that replacement at `file:line`,
+  has read it, and believes it covers every path the old check guarded, the removal is reported as
+  a capped note (`agent_confidence ≤ 45`, `severity: low`) with
+  `pending: confirm <file:line> covers every path the old check guarded`. When the replacement is
+  not named, not read, or its coverage of every path is uncertain, the same capped note applies
+  with `pending: confirm no replacement covers <path>`. (In the Codex literal: at or below 0.45
+  confidence with severity low, saying what would confirm it, in both cases.) The cap keeps the
+  note below the report threshold, so it is filtered and counted rather than listed or blocking,
+  but a trace always exists.
 - **Security confidence anchors.** The security prompt gets the calibrated confidence scale the
   bugs and impact prompts already had, so the ceiling sits on a defined scale.
 - **A fixed Codex calibration literal.** `phases/deep-review/2c-codex-kickoff.md` reads
@@ -547,6 +552,11 @@ The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
   `adversarial-review` call. It carries the same safe-change rule and ceiling, in Codex's own
   confidence unit (`≤ 0.45`), phrased as calibration rules for every finding rather than a focus
   area.
+- **A Codex launch-gate fact for the focus file.** `scripts/codex_gate.py` gained a
+  `focus_readable` fact and a tenth sealed skip slug, `focus-unreadable`: the kickoff checks that
+  `templates/codex-focus.txt` can be read before the disclosure line, and when it cannot, Codex is
+  skipped with that slug rather than launched without its calibration text. This changes when
+  Codex runs, not how any finding is scored.
 - **The stale +10 prose sweep (D-06).** Prompt and orchestrator prose that still described the
   retired same-domain +10 rule now matches the Phase-41 scorer: grouping is by site only, and +10
   fires only for a Codex member plus a Claude-lane member while Codex is joined.
@@ -566,16 +576,21 @@ Phase 43's single allowed retune (D-03) is the safety net if the focus text turn
 Codex's attention. No offline replay can predict this effect, because replays re-score archived
 findings and cannot re-run Codex against a new prompt (D-08).
 
-**The removal rule gained a qualifier in Phase 42.** Removal or loosening is a defect only when a
-protected path is left without the control, and a control moved to a named, read replacement that
-covers every path is not a removal. This qualifier is in the bugs, security and impact prompts AND
-in the Codex focus text, so it reaches every Claude lane that carries the safe-change block and
-Codex on every diff. The catch diffs are, for the most part, literally removals or loosenings of a
-control, so this qualifier can move catch results directly: a lane that wrongly judges a control
-"moved" would cap a real removal at `≤ 45` / `severity: low` (never drop it, but keep it below the
-Warning band). Therefore **any catch regression in Phase 43 must also be examined against this
-qualifier**, alongside the Codex focus change, before it is attributed to anything else. Look for
-capped findings carrying `pending: confirm no replacement covers <path>` on a catch diff.
+**The removal rule gained a qualifier in Phase 42.** Removal or loosening is a defect at honest
+confidence when a protected path is left without the control. A control the reviewer claims was
+moved is never dropped: every claimed move, including one to a named, read replacement the
+reviewer believes covers every path, is reported as a capped note (`agent_confidence ≤ 45`,
+`severity: low`) with a `pending:` line — `pending: confirm <file:line> covers every path the old
+check guarded` when a replacement is named, `pending: confirm no replacement covers <path>` when it
+is not. This qualifier is in the bugs, security and impact prompts AND in the Codex focus text (at
+or below 0.45 confidence with severity low), so it reaches every Claude lane that carries the
+safe-change block and Codex on every diff. The catch diffs are, for the most part, literally
+removals or loosenings of a control, so this qualifier can move catch results directly: a lane
+that wrongly judges a control "moved" would cap a real removal at `≤ 45` / `severity: low`, below
+the report threshold (filtered and counted, not listed). Therefore **any catch regression in Phase
+43 must also be examined against this qualifier**, alongside the Codex focus change, before it is
+attributed to anything else. Look for capped rows carrying either `pending: confirm` form on a
+catch diff: every claimed move leaves one.
 
 ## Expected residuals (not claimed as fixed)
 
@@ -617,7 +632,7 @@ capped findings carrying `pending: confirm no replacement covers <path>` on a ca
   identifier leaked into a prompt, and that no stale +10 prose remains. They cannot show that a
   model obeys the wording. Only Phase 43 can.
 - **The Codex focus change is a confound** on both catch and quiet diffs (see above).
-- **The removal qualifier (moved-control exemption) is a confound** on catch diffs for every lane
+- **The removal qualifier (every claimed move capped, never dropped) is a confound** on catch diffs for every lane
   that carries it, Claude and Codex alike (see above).
 
 ## Plain-language summary (for the owner)
