@@ -198,12 +198,17 @@ def focus_text(file_text):
 
 
 _CAP = re.compile(
-    r"agent_confidence\s*(?:≤|<=)\s*(\d+)|confidence at or below 0\.(\d\d)")
+    r"agent_confidence\s*(?:≤|<=)\s*(\d+)|confidence at or below 0\.(\d\d)"
+    r"|at or below 0\.(\d\d) confidence")
 
 
 def caps_in(text):
-    """Every confidence ceiling stated in `text`, as integer percent, in document order."""
-    return [int(m.group(1) or m.group(2)) for m in _CAP.finditer(norm(text))]
+    """Every confidence ceiling stated in `text`, as integer percent, in document order.
+
+    Reads the Claude-lane form (`agent_confidence ≤ N`) and both Codex word
+    orders ("confidence at or below 0.NN", "at or below 0.NN confidence").
+    """
+    return [int(m.group(1) or m.group(2) or m.group(3)) for m in _CAP.finditer(norm(text))]
 
 
 def _int(token):
@@ -267,9 +272,13 @@ def cap_is_nonblocking(cap, consts, offset=0):
 # safe-change rule, the 0.45 / severity-low ceiling, the loosening-is-a-defect
 # rule, the pre-existing-gap cap and its exemption, and the two exceptions the
 # loud lanes also carry (no repository-occurrence requirement; off-hunk is not
-# unverified), and the moved-control rule keyed on what the reviewer FOUND (a
-# replacement found and read leaves a capped note; none found — even when a
-# comment asserts a move — leaves the removal rule uncapped).
+# unverified), and the three-branch moved-control rule keyed on what the
+# reviewer FOUND: [16] a same-purpose replacement guards the same property;
+# [17] none found — even when a comment asserts a move, or when the only code
+# found guards a different property — leaves the removal rule uncapped; [19] a
+# same-purpose replacement with a traced bypassing path is a demonstrated loss,
+# uncapped; [20] a same-purpose replacement with unverified coverage leaves the
+# capped note.
 FOCUS_TOKENS = (
     "not a focus area",
     "tightens a control",
@@ -287,12 +296,27 @@ FOCUS_TOKENS = (
     "severity low",
     "moved rather than lost",
     "judged by what you found, not by what the change claims",
-    "When you found and read a candidate replacement at file:line",
-    "When you found and read no replacement, including when only a comment, docstring or "
-    "commit message asserts a move, the removal rule applies at your honest confidence and "
-    "the cap does not apply",
+    "A same-purpose replacement is code at file:line (shared middleware, a decorator, a "
+    "schema or an upstream layer) that guards the same property as the removed check",
+    "When you found and read no same-purpose replacement, including when only a comment, "
+    "docstring or commit message asserts a move, or when the only code you found guards a "
+    "different property (logging or rate-limiting middleware for a removed auth check), the "
+    "removal rule applies at your honest confidence and the cap does not apply",
     "A move claim in the change text is never evidence of a replacement",
+    "When you found and read a same-purpose replacement and can trace a formerly protected "
+    "path that bypasses it, that is a demonstrated protection loss: report it at your honest "
+    "confidence with no cap, because demonstrated loss always takes precedence over the cap",
+    "When you found and read a same-purpose replacement whose coverage of every formerly "
+    "protected path remains unverified, report the removal at or below 0.45 confidence with "
+    "severity low and say to confirm that file:line covers every path the old check guarded",
 )
+
+# The exact ceilings the literal states, in order (pre-existing gap, moved-control
+# capped note, sensitive-area note), and the exact count of "0.45". Pinning both
+# means any added cap — however worded — trips, including a re-cap of the
+# not-found or demonstrated-loss branch.
+FOCUS_EXPECTED_CAPS = [45, 45, 45]
+FOCUS_045_COUNT = 3
 
 # The literal is single-quoted in bash: a quote would end it, `$` or a backtick
 # would invite interpolation if it were ever re-quoted. "in-repo" would bring
@@ -398,13 +422,17 @@ def cap_never_warns(cap, consts, severity):
 # --------------------------------------------------------------------------- #
 # Safe-change recognition block (bugs, security, impact)
 # --------------------------------------------------------------------------- #
-# The nineteen clauses of the shared block, verbatim after whitespace
+# The twenty-one clauses of the shared block, verbatim after whitespace
 # normalization (case-sensitive). Index order is relied on by the tests:
 # [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
-# sentence, [12] the no-repository-occurrence clause, [17] the found-replacement
-# clause (a replacement the reviewer found and read leaves a capped note),
-# [18] the not-found clause (no replacement found and read — even when a comment
-# asserts a move — leaves the removal rule at honest confidence, uncapped).
+# sentence, [12] the no-repository-occurrence clause, and the three-branch
+# moved-control rule: [17] defines a same-purpose replacement (guards the same
+# property as the removed check); [18] branch 1, none found and read — even when
+# a comment asserts a move, or when the only code found guards a different
+# property — leaves the removal rule at honest confidence, uncapped; [19]
+# branch 2, a traced path bypassing a same-purpose replacement is a demonstrated
+# loss, uncapped; [20] branch 3, a same-purpose replacement with unverified
+# coverage leaves the capped note.
 SAFE_CHANGE_CLAUSES = (
     "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
     "safe on the axis it tightens.",
@@ -436,15 +464,29 @@ SAFE_CHANGE_CLAUSES = (
     "report at most a non-blocking note (`agent_confidence ≤ 45`, `severity: low`, plus "
     "`pending: <what would demonstrate a bypass>`)",
     "A control moved rather than lost is judged by what you found, not by what the diff "
-    "claims. When you found and read a candidate replacement at `file:line` — shared "
-    "middleware, a decorator, a schema or an upstream layer — report the removal as a capped "
-    "note (`agent_confidence ≤ 45`, `severity: low`) with `pending: confirm <file:line> covers "
+    "claims. A same-purpose replacement is code at `file:line` — shared middleware, a "
+    "decorator, a schema or an upstream layer — that guards the same property as the removed "
+    "check.",
+    "When you found and read no same-purpose replacement — including when only a comment, "
+    "docstring or commit message asserts a move, or when the only code you found guards a "
+    "different property (logging or rate-limiting middleware for a removed auth check) — the "
+    "removal rule above applies at your honest confidence and the cap does not apply. A move "
+    "claim in the diff text is never evidence of a replacement.",
+    "When you found and read a same-purpose replacement and can trace a formerly protected "
+    "path that bypasses it, that is a demonstrated protection loss: report it at your honest "
+    "confidence; no cap applies, because demonstrated loss always takes precedence over the "
+    "cap.",
+    "When you found and read a same-purpose replacement whose coverage of every formerly "
+    "protected path remains unverified, report the removal as a capped note "
+    "(`agent_confidence ≤ 45`, `severity: low`) with `pending: confirm <file:line> covers "
     "every path the old check guarded`.",
-    "When you found and read no replacement — including when only a comment, docstring or "
-    "commit message asserts a move — the removal rule above applies at your honest confidence "
-    "and the cap does not apply. A move claim in the diff text is never evidence of a "
-    "replacement.",
 )
+
+# The exact ceilings the block states, in order: the tightened-axis note, the
+# moved-control capped note (branch 3 only), the sensitive-area cap and its
+# Warning-band sentence. Pinning the list means any added cap — however worded,
+# including a re-cap of branch 1 or branch 2 — trips.
+BLOCK_EXPECTED_CAPS = [45, 45, 45, 45]
 
 # Substrings the block must never carry: a repository-occurrence requirement
 # ("a concrete in-repo value") would let a traced break of contract-supported
@@ -760,8 +802,8 @@ class TestSectionSlicer(unittest.TestCase):
 class TestCapsIn(unittest.TestCase):
     def test_reads_unicode_and_ascii_and_codex_units(self):
         text = ("agent_confidence ≤ 45 … agent_confidence <= 40 … "
-                "confidence at or below 0.45")
-        self.assertEqual(caps_in(text), [45, 40, 45])
+                "confidence at or below 0.45 … report it at or below 0.35 confidence")
+        self.assertEqual(caps_in(text), [45, 40, 45, 35])
 
     def test_planted_55_is_read(self):
         self.assertEqual(caps_in("keep agent_confidence ≤ 55 here"), [55])
@@ -910,7 +952,7 @@ class TestLoudLaneBlock(unittest.TestCase):
                                 text.index("## Coverage, not filtering"))
 
     def test_all_clauses_present(self):
-        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 19)
+        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 21)
         for lane in LOUD:
             with self.subTest(lane=lane):
                 self.assertEqual(missing_clauses(_block(lane), SAFE_CHANGE_CLAUSES), [])
@@ -919,6 +961,33 @@ class TestLoudLaneBlock(unittest.TestCase):
         b, s, i = (norm(_block(lane)) for lane in LOUD)
         self.assertEqual(b, s, "bugs and security blocks drifted apart")
         self.assertEqual(b, i, "bugs and impact blocks drifted apart")
+
+    def test_exact_caps_pinned(self):
+        # Exactly the expected ceilings: an added cap anywhere in the block,
+        # however worded, changes this list.
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertEqual(caps_in(_block(lane)), BLOCK_EXPECTED_CAPS)
+
+    def test_three_moved_control_branches_present(self):
+        # Branch 1 (none found / different property, uncapped), branch 2
+        # (demonstrated loss, uncapped) and branch 3 (unverified coverage,
+        # capped), in that order after the same-purpose definition.
+        definition, b1, b2, b3 = SAFE_CHANGE_CLAUSES[17:21]
+        self.assertIn("guards the same property as the removed check", definition)
+        self.assertIn("only a comment, docstring or commit message asserts a move", b1)
+        self.assertIn("the only code you found guards a different property", b1)
+        self.assertIn("the cap does not apply", b1)
+        self.assertIn("demonstrated protection loss", b2)
+        self.assertIn("no cap applies, because demonstrated loss always takes precedence "
+                      "over the cap", b2)
+        self.assertIn("remains unverified", b3)
+        self.assertEqual(caps_in(b3), [45])
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                blk = norm(_block(lane))
+                at = [blk.index(norm(c)) for c in (definition, b1, b2, b3)]
+                self.assertEqual(at, sorted(at))
 
     def test_caps_never_exceed_ceiling(self):
         for lane in LOUD:
@@ -1013,7 +1082,7 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
 
     def test_unnamed_replacement_exemption_is_caught(self):
         # A found-and-read replacement leaves a capped note, never a full drop.
-        found, not_found = SAFE_CHANGE_CLAUSES[17], SAFE_CHANGE_CLAUSES[18]
+        found, not_found = SAFE_CHANGE_CLAUSES[20], SAFE_CHANGE_CLAUSES[18]
         planted = self.bugs.replace(
             "report the removal as a capped note",
             "the removal is not a removal and needs no note")
@@ -1060,13 +1129,49 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         # letting a comment count as a replacement, trips the clause lock.
         not_found = SAFE_CHANGE_CLAUSES[18]
         no_comment = self.bugs.replace(
-            " — including when only a comment, docstring or commit message asserts a move —", "")
+            "including when only a comment, docstring or commit message asserts a move, or ", "")
         self.assertNotEqual(no_comment, self.bugs)
         self.assertEqual(missing_clauses(no_comment, SAFE_CHANGE_CLAUSES), [not_found])
         trusted = self.bugs.replace("is never evidence of a replacement",
                                     "counts as a named replacement")
         self.assertNotEqual(trusted, self.bugs)
         self.assertEqual(missing_clauses(trusted, SAFE_CHANGE_CLAUSES), [not_found])
+
+    def test_dropped_same_property_condition_trips(self):
+        # Letting different-property code (logging, rate limiting) count as a
+        # replacement, from either the definition or branch 1, trips a clause.
+        definition, b1 = SAFE_CHANGE_CLAUSES[17], SAFE_CHANGE_CLAUSES[18]
+        no_cond = self.bugs.replace(
+            ", or when the only code you found guards a different property (logging or "
+            "rate-limiting middleware for a removed auth check)", "")
+        self.assertNotEqual(no_cond, self.bugs)
+        self.assertEqual(missing_clauses(no_cond, SAFE_CHANGE_CLAUSES), [b1])
+        no_def = self.bugs.replace(" that guards the same property as the removed check", "")
+        self.assertNotEqual(no_def, self.bugs)
+        self.assertEqual(missing_clauses(no_def, SAFE_CHANGE_CLAUSES), [definition])
+
+    def test_dropped_demonstrated_loss_branch_trips(self):
+        # Removing branch 2 lets the cap swallow a traced bypass; recapping it
+        # also changes the pinned cap list.
+        b2 = SAFE_CHANGE_CLAUSES[19]
+        dropped = self.bugs.replace(norm(b2), "")
+        self.assertNotEqual(dropped, self.bugs)
+        self.assertEqual(missing_clauses(dropped, SAFE_CHANGE_CLAUSES), [b2])
+        recapped = self.bugs.replace(
+            "no cap applies, because demonstrated loss always takes precedence over the cap",
+            "keep it under the same cap (`agent_confidence ≤ 45`, `severity: low`)")
+        self.assertNotEqual(recapped, self.bugs)
+        self.assertEqual(missing_clauses(recapped, SAFE_CHANGE_CLAUSES), [b2])
+        self.assertNotEqual(caps_in(recapped), BLOCK_EXPECTED_CAPS)
+
+    def test_added_cap_trips_pinned_list(self):
+        # Any extra cap appended beside intact clauses changes the pinned list.
+        self.assertEqual(caps_in(self.bugs), BLOCK_EXPECTED_CAPS)
+        planted = (self.bugs + " A move you could not fully trace is reported with "
+                   "agent_confidence <= 40.")
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [])
+        self.assertEqual(block_forbidden_hits(planted), [])
+        self.assertNotEqual(caps_in(planted), BLOCK_EXPECTED_CAPS)
 
     def test_drifted_copy_is_caught(self):
         drifted = norm(_block("security")) + " extra"
@@ -1270,9 +1375,28 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         # _literal() always returns a str (a missing file raises in read()), so
         # the live check is non-emptiness, not None-ness.
         self.assertTrue(lit.strip())
-        self.assertEqual(len(FOCUS_TOKENS), 19)
+        self.assertEqual(len(FOCUS_TOKENS), 21)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertEqual(focus_repeat_shortfalls(lit), [])
+
+    def test_literal_exact_caps_pinned(self):
+        # Every ceiling, in both Codex word orders, and the exact count of 0.45.
+        lit = _literal()
+        self.assertEqual(caps_in(lit), FOCUS_EXPECTED_CAPS)
+        self.assertEqual(lit.count("0.45"), FOCUS_045_COUNT)
+
+    def test_literal_three_moved_control_branches(self):
+        lit = _literal()
+        definition, b1, b2, b3 = (FOCUS_TOKENS[16], FOCUS_TOKENS[17], FOCUS_TOKENS[19],
+                                  FOCUS_TOKENS[20])
+        self.assertIn("guards the same property as the removed check", definition)
+        self.assertIn("the only code you found guards a different property", b1)
+        self.assertIn("the cap does not apply", b1)
+        self.assertIn("demonstrated protection loss", b2)
+        self.assertIn("with no cap, because demonstrated loss always takes precedence", b2)
+        self.assertEqual(caps_in(b3), [45])
+        at = [lit.index(t) for t in (definition, b1, b2, b3)]
+        self.assertEqual(at, sorted(at))
 
     def test_literal_exempts_demonstrated_failure_of_the_new_control(self):
         lit = _literal()
@@ -1338,11 +1462,10 @@ class TestKickoffMutation(unittest.TestCase):
     def test_unnamed_replacement_in_literal_trips(self):
         lit = _literal()
         planted = lit.replace(
-            "When you found and read a candidate replacement at file:line",
-            "A move is not a removal when you name a replacement at file:line")
+            "When you found and read a same-purpose replacement whose coverage",
+            "A move is not a removal when you name a replacement whose coverage")
         self.assertNotEqual(planted, lit)
-        self.assertEqual(missing_focus_tokens(planted),
-                         ["When you found and read a candidate replacement at file:line"])
+        self.assertEqual(missing_focus_tokens(planted), [FOCUS_TOKENS[20]])
         self.assertEqual(focus_forbidden_hits(planted), ["not a removal"])
         appended = lit + " A control moved to middleware is not a removal and needs no finding."
         self.assertEqual(missing_focus_tokens(appended), [])
@@ -1378,6 +1501,29 @@ class TestKickoffMutation(unittest.TestCase):
         trusted = lit.replace("is never evidence of a replacement", "counts as a replacement")
         self.assertNotEqual(trusted, lit)
         self.assertEqual(missing_focus_tokens(trusted), [claim])
+
+    def test_literal_dropped_branch_or_condition_trips(self):
+        lit = _literal()
+        definition, b1, b2 = FOCUS_TOKENS[16], FOCUS_TOKENS[17], FOCUS_TOKENS[19]
+        no_cond = lit.replace(
+            ", or when the only code you found guards a different property (logging or "
+            "rate-limiting middleware for a removed auth check)", "")
+        self.assertNotEqual(no_cond, lit)
+        self.assertEqual(missing_focus_tokens(no_cond), [b1])
+        no_def = lit.replace(" that guards the same property as the removed check", "")
+        self.assertNotEqual(no_def, lit)
+        self.assertEqual(missing_focus_tokens(no_def), [definition])
+        dropped = lit.replace(b2 + ". ", "")
+        self.assertNotEqual(dropped, lit)
+        self.assertEqual(missing_focus_tokens(dropped), [b2])
+
+    def test_literal_added_cap_trips_pinned_counts(self):
+        lit = _literal()
+        planted = lit + " A move you could not fully trace stays at or below 0.45 confidence."
+        self.assertEqual(missing_focus_tokens(planted), [])
+        self.assertEqual(focus_forbidden_hits(planted), [])
+        self.assertNotEqual(caps_in(planted), FOCUS_EXPECTED_CAPS)
+        self.assertNotEqual(planted.count("0.45"), FOCUS_045_COUNT)
 
     def test_focus_gate_regressions_trip(self):
         k = _kickoff()
@@ -1419,12 +1565,14 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertEqual(missing_focus_tokens(dropped), ["demonstrably fails to block"])
         medium = lit.replace("severity low", "severity medium")
         self.assertNotEqual(medium, lit)
-        self.assertEqual(missing_focus_tokens(medium), ["severity low"])
+        # The moved-control capped-note token (branch 3) carries its own severity.
+        self.assertEqual(missing_focus_tokens(medium), ["severity low", FOCUS_TOKENS[20]])
         self.assertEqual(focus_repeat_shortfalls(medium), ["severity low"])
-        # Raising all but one capped note leaves the token present but short.
+        # Raising all but one capped note leaves the token present but short
+        # (and the branch-3 token, raised along the way, missing).
         one_left = lit.replace("severity low", "severity medium",
                                lit.count("severity low") - 1)
-        self.assertEqual(missing_focus_tokens(one_left), [])
+        self.assertEqual(missing_focus_tokens(one_left), [FOCUS_TOKENS[20]])
         self.assertEqual(focus_repeat_shortfalls(one_left), ["severity low"])
 
 

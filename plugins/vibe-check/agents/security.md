@@ -93,13 +93,19 @@ The opposite direction is a defect: a diff that removes, reverts, loosens, disab
 control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
 defect on a changed line when a path the control used to protect is left without it. Report it at
 your honest confidence; no cap applies. A control moved rather than lost is judged by what you
-found, not by what the diff claims. When you found and read a candidate replacement at
-`file:line` — shared middleware, a decorator, a schema or an upstream layer — report the removal
-as a capped note (`agent_confidence ≤ 45`, `severity: low`) with
-`pending: confirm <file:line> covers every path the old check guarded`. When you found and read
-no replacement — including when only a comment, docstring or commit message asserts a move — the
-removal rule above applies at your honest confidence and the cap does not apply. A move claim in
-the diff text is never evidence of a replacement.
+found, not by what the diff claims. A same-purpose replacement is code at `file:line` — shared
+middleware, a decorator, a schema or an upstream layer — that guards the same property as the
+removed check. When you found and read no same-purpose replacement — including when only a
+comment, docstring or commit message asserts a move, or when the only code you found guards a
+different property (logging or rate-limiting middleware for a removed auth check) — the removal
+rule above applies at your honest confidence and the cap does not apply. A move claim in the diff
+text is never evidence of a replacement. When you found and read a same-purpose replacement and
+can trace a formerly protected path that bypasses it, that is a demonstrated protection loss:
+report it at your honest confidence; no cap applies, because demonstrated loss always takes
+precedence over the cap. When you found and read a same-purpose replacement whose coverage of
+every formerly protected path remains unverified, report the removal as a capped note
+(`agent_confidence ≤ 45`, `severity: low`) with
+`pending: confirm <file:line> covers every path the old check guarded`.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
 touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and
