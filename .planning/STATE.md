@@ -5,14 +5,14 @@ milestone_name: Opus 5 rebuild + quiet down
 current_plan: 8
 status: executing
 stopped_at: Completed 41-03-PLAN.md
-last_updated: "2026-09-29T22:57:11.270Z"
+last_updated: "2026-09-30T00:22:11.676Z"
 last_activity: 2026-09-29 -- Phase 41 execution started
 progress:
   total_phases: 16
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 28
-  completed_plans: 27
-  percent: 13
+  completed_plans: 28
+  percent: 19
 ---
 
 # Project State
@@ -31,7 +31,7 @@ Plan: 8 of 8
 Current Plan: 8
 Total Plans in Phase: 8
 Status: Executing Phase 41
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 Last activity: 2026-09-29 -- Phase 41 execution started
 
 ## Performance Metrics
@@ -97,6 +97,7 @@ Last activity: 2026-09-29 -- Phase 41 execution started
 | Phase 41 P05 | 30min | 3 tasks | 5 files |
 | Phase 41 P06 | 18 min | 3 tasks | 10 files |
 | Phase 41 P07 | 13 min | 3 tasks | 7 files |
+| Phase 41 P08 | 95min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -203,6 +204,7 @@ Earlier decisions (v2.8) still on record:
 - [Phase 41]: H-LANE (41-06): site grouping (same file ±2) across all lanes; +10 only Codex+Claude with codex joined (D-01); members carry each lane's own record; representative key (band, capped, uncapped, hash, agent)
 - [Phase 41]: D-16 spot-check picks from COMBINED replay: should-quiet-3 + should-quiet-1 (predicted FP 5/6); COMBINED FP 16/18 -> 14/18, REGRESSED 0
 - [Phase 41]: 41-07: spot-check pair should-quiet-3 (2/3) + should-quiet-1 (3/3, D-16 tie); predicted FP 5/6; snapshot batch4-cd8f5b00de73
+- [Phase 41]: Phase-41 spot-check PASS: observed 3/6 FP runs vs predicted 5 (D-11); five state_shape FAILs counted under SUPERSESSIONS-v2.10 entry 009; persist prose fixed to create root medium_acknowledgments {}
 
 ### Pending Todos
 
@@ -246,7 +248,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-29T22:56:59.355Z
+Last session: 2026-09-30T00:22:07.829Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be

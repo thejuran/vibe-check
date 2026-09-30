@@ -31,3 +31,29 @@
   Phase 40 (`.planning/phases/40-prose-diet-restructure-for-opus-5/deferred-items.md`). The launch
   gate requires a `BashOutput` tool that the current harness does not expose. Fix it before any
   Phase-43 measurement session.
+
+## From 41-08
+
+- **Runbook launch line: add the model pin.** The six `final` sessions were launched with
+  `--model claude-fable-5-1` added to the SPOT-CHECK runbook's launch line, because the pin is
+  Fable 5 and the owner's default model had changed. Put the `--model` flag into the Phase-43
+  runbook's launch line so the pin does not depend on the owner's default.
+- **Context pressure.** Every `final` session ran near 96–100% of the 200k context window. All six
+  finished, but Phase 43 runs the full set ×3; check headroom (or a larger-context launch) before
+  those sessions, and note it in the fingerprint block.
+- **Codex skipped in should-quiet-3 runs 2 and 3** (`codex.status: skipped`, reason
+  `unavailable`). Recorded, not voided (D-13). Same cause family as the open `BashOutput`
+  launch-gate item below.
+- **Voided attempt handling.** should-quiet-3 run 3's first attempt was voided before any review
+  ran (Fable usage credits exhausted). The runbook has no explicit "voided before review" step;
+  the empty auto-memory evidence folder was renamed by hand
+  (`roonseek-written-before-sq3-run-3-voided-attempt`). Add a voided-attempt step to the Phase-43
+  runbook.
+- **`state_shape` root key (fixed in 41-08, ledger 009).** `45-persist.md` never told the model to
+  create the root `medium_acknowledgments` key on a new state file. Fixed in this plan with a
+  prose-lock test. The immutable `batch4` snapshot still carries the old prose; Phase 43 must run
+  on a snapshot built after the fix, and its after-run `state_shape` check should then pass on
+  fresh-state runs.
+- **Standing carries (unchanged, restated):** Phase-42 agent prose for the retired +10 rule and
+  `30-codex-collect.md` (see From 41-06); Phase-43 raw-envelope archiving per run; the Codex
+  `BashOutput` launch-gate fix before any Phase-43 measurement session.
