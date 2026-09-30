@@ -267,7 +267,8 @@ def cap_is_nonblocking(cap, consts, offset=0):
 # safe-change rule, the 0.45 / severity-low ceiling, the loosening-is-a-defect
 # rule, the pre-existing-gap cap and its exemption, and the two exceptions the
 # loud lanes also carry (no repository-occurrence requirement; off-hunk is not
-# unverified), and the moved-not-lost qualifier on the removal rule.
+# unverified), and the moved-not-lost qualifier on the removal rule (a claimed
+# move is still reported as a capped note, never dropped).
 FOCUS_TOKENS = (
     "not a focus area",
     "tightens a control",
@@ -284,14 +285,16 @@ FOCUS_TOKENS = (
     "demonstrably fails to block",
     "severity low",
     "moved rather than lost",
-    "only when you name that replacement at file:line, have read it",
+    "is still reported, never dropped",
+    "even when you name that replacement at file:line, have read it",
     "A claimed move is never a silent drop",
 )
 
 # The literal is single-quoted in bash: a quote would end it, `$` or a backtick
 # would invite interpolation if it were ever re-quoted. "in-repo" would bring
-# back the repository-occurrence requirement.
-FOCUS_FORBIDDEN = ("$", "`", "'", "in-repo")
+# back the repository-occurrence requirement. "not a removal" would bring back
+# the moved-control exemption that drops a claimed move without a trace.
+FOCUS_FORBIDDEN = ("$", "`", "'", "in-repo", "not a removal")
 
 
 def missing_focus_tokens(literal):
@@ -392,9 +395,10 @@ def cap_never_warns(cap, consts, severity):
 # normalization (case-sensitive). Index order is relied on by the tests:
 # [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
 # sentence, [12] the no-repository-occurrence clause, [17] the moved-not-lost
-# clause (a relocated control is not a removal only when the reviewer names the
-# replacement at file:line and has read it), [18] the never-a-silent-drop
-# clause (an unconfirmed move is reported under the cap, never dropped).
+# clause (a claimed move is still reported as a capped note, even when the
+# reviewer names and has read a replacement it believes covers every path),
+# [18] the never-a-silent-drop clause (an unconfirmed move gets the same capped
+# note).
 SAFE_CHANGE_CLAUSES = (
     "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
     "safe on the axis it tightens.",
@@ -427,17 +431,20 @@ SAFE_CHANGE_CLAUSES = (
     "`pending: <what would demonstrate a bypass>`)",
     "A control moved rather than lost — the same check now enforced by shared middleware, a "
     "decorator, a schema or an upstream layer that every path to the old site still passes "
-    "through — is not a removal only when you name that replacement at `file:line`, have read "
-    "it, and it covers every path the old check guarded.",
+    "through — is still reported, never dropped: even when you name that replacement at "
+    "`file:line`, have read it, and believe it covers every path the old check guarded, report "
+    "the removal as a capped note (`agent_confidence ≤ 45`, `severity: low`) with "
+    "`pending: confirm <file:line> covers every path the old check guarded`.",
     "A claimed move is never a silent drop: when the replacement is not named, not read, or its "
-    "coverage of every path is uncertain, report under the sensitive-area cap below with "
-    "`pending: confirm no replacement covers <path>`.",
+    "coverage of every path is uncertain, the same capped note applies (`agent_confidence ≤ 45`, "
+    "`severity: low`) with `pending: confirm no replacement covers <path>`.",
 )
 
 # Substrings the block must never carry: a repository-occurrence requirement
 # ("a concrete in-repo value") would let a traced break of contract-supported
-# configuration be dismissed for lack of a fixture.
-BLOCK_FORBIDDEN = ("in-repo",)
+# configuration be dismissed for lack of a fixture. "not a removal" would
+# reopen the moved-control exemption that drops a claimed move without a trace.
+BLOCK_FORBIDDEN = ("in-repo", "not a removal")
 
 _CAP45 = re.compile(r"agent_confidence\s*(?:≤|<=)\s*45")
 
@@ -996,14 +1003,15 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertEqual(missing_clauses(dropped, SAFE_CHANGE_CLAUSES), [moved])
 
     def test_unnamed_replacement_exemption_is_caught(self):
-        # A move judged on belief alone (no named, read replacement) must not
-        # exempt the removal, and an unconfirmed move must stay reported.
+        # A claimed move is never a full drop: even a named, read replacement
+        # leaves a capped note, and an unconfirmed move must stay reported.
         moved, never_drop = SAFE_CHANGE_CLAUSES[17], SAFE_CHANGE_CLAUSES[18]
         planted = self.bugs.replace(
-            "only when you name that replacement at `file:line`, have read it, and it covers "
-            "every path the old check guarded.", ": look for the replacement before reporting.")
+            "is still reported, never dropped: even when you name",
+            "is not a removal when you name")
         self.assertNotEqual(planted, self.bugs)
         self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [moved])
+        self.assertEqual(block_forbidden_hits(planted), ["not a removal"])
         silenced = self.bugs.replace(norm(never_drop), "Such a move is not reported.")
         self.assertNotEqual(silenced, self.bugs)
         self.assertEqual(missing_clauses(silenced, SAFE_CHANGE_CLAUSES), [never_drop])
@@ -1015,6 +1023,14 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
     def test_planted_repo_occurrence_trips(self):
         planted = self.bugs + " unless you cite a concrete in-repo value"
         self.assertEqual(block_forbidden_hits(planted), ["in-repo"])
+
+    def test_planted_full_drop_exemption_trips(self):
+        # An exemption appended beside the intact clauses would pass the
+        # presence lock; the forbidden phrase is what catches it.
+        planted = (self.bugs + " A control moved to middleware you have read is not a "
+                   "removal and needs no finding.")
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [])
+        self.assertEqual(block_forbidden_hits(planted), ["not a removal"])
 
 
 # --------------------------------------------------------------------------- #
@@ -1174,7 +1190,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         # _literal() always returns a str (a missing file raises in read()), so
         # the live check is non-emptiness, not None-ness.
         self.assertTrue(lit.strip())
-        self.assertEqual(len(FOCUS_TOKENS), 17)
+        self.assertEqual(len(FOCUS_TOKENS), 18)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertEqual(focus_repeat_shortfalls(lit), [])
 
@@ -1242,11 +1258,16 @@ class TestKickoffMutation(unittest.TestCase):
     def test_unnamed_replacement_in_literal_trips(self):
         lit = _literal()
         planted = lit.replace(
-            "only when you name that replacement at file:line, have read it, and it covers "
-            "every path the old check guarded.", ": look for the replacement before reporting.")
+            "is still reported, never dropped: even when you name",
+            "is not a removal when you name")
         self.assertNotEqual(planted, lit)
         self.assertEqual(missing_focus_tokens(planted),
-                         ["only when you name that replacement at file:line, have read it"])
+                         ["is still reported, never dropped",
+                          "even when you name that replacement at file:line, have read it"])
+        self.assertEqual(focus_forbidden_hits(planted), ["not a removal"])
+        appended = lit + " A control moved to middleware is not a removal and needs no finding."
+        self.assertEqual(missing_focus_tokens(appended), [])
+        self.assertEqual(focus_forbidden_hits(appended), ["not a removal"])
         silenced = lit.replace("A claimed move is never a silent drop", "A claimed move is fine")
         self.assertNotEqual(silenced, lit)
         self.assertEqual(missing_focus_tokens(silenced), ["A claimed move is never a silent drop"])

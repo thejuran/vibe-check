@@ -127,10 +127,12 @@ control, or makes it depend on fragile or version-dependent configuration, IS a 
 defect on a changed line when a path the control used to protect is left without it. Report it at
 your honest confidence; no cap applies. A control moved rather than lost — the same check now
 enforced by shared middleware, a decorator, a schema or an upstream layer that every path to the
-old site still passes through — is not a removal only when you name that replacement at
-`file:line`, have read it, and it covers every path the old check guarded. A claimed move is never
-a silent drop: when the replacement is not named, not read, or its coverage of every path is
-uncertain, report under the sensitive-area cap below with
+old site still passes through — is still reported, never dropped: even when you name that
+replacement at `file:line`, have read it, and believe it covers every path the old check guarded,
+report the removal as a capped note (`agent_confidence ≤ 45`, `severity: low`) with
+`pending: confirm <file:line> covers every path the old check guarded`. A claimed move is never a
+silent drop: when the replacement is not named, not read, or its coverage of every path is
+uncertain, the same capped note applies (`agent_confidence ≤ 45`, `severity: low`) with
 `pending: confirm no replacement covers <path>`.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
