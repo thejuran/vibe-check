@@ -148,6 +148,15 @@ FORBIDDEN_PHRASES = (
     "actually cross-confirm today",
     "same-domain",
     "domain overlap",
+    # The retired "N agents agree -> +10" wording (framework-fastapi.md's
+    # severity calibration, framework-skill.md's score formula). Only a Codex
+    # member beside a Claude lane while joined earns the bonus now.
+    "cross-confirmed by",
+    "if cross-confirmed",
+    "when cross-confirmed",
+    "(cross-confirmed)",
+    "2+ agents",
+    "2+ lanes",
     "independently confirm",
 )
 
@@ -231,6 +240,54 @@ def cap_is_nonblocking(cap, consts, offset=0):
     LONE LANE only; `cap_never_warns` covers the carried-member path.
     """
     return lone_lane_max(cap, offset, consts["in_diff_bonus"], 0) < consts["medium_floor"]
+
+
+# --------------------------------------------------------------------------- #
+# Codex kickoff focus literal
+# --------------------------------------------------------------------------- #
+# Tokens the fixed CODEX_FOCUS literal must carry: the calibration framing, the
+# safe-change rule, the 0.45 / severity-low ceiling, the loosening-is-a-defect
+# rule, the pre-existing-gap cap and its exemption, and the two exceptions the
+# loud lanes also carry (no repository-occurrence requirement; off-hunk is not
+# unverified).
+FOCUS_TOKENS = (
+    "not a focus area",
+    "tightens a control",
+    "0.45",
+    "removes, reverts, loosens, disables or bypasses",
+    "pre-existing gap",
+    "Every other axis is reviewed normally",
+    "file:line",
+    "Still report it",
+    "input contract",
+    "whether or not that value occurs in the repository",
+    "Off-hunk is not the same as unverified",
+    "a case the diff never addressed",
+    "demonstrably fails to block",
+    "severity low",
+)
+
+# The literal is single-quoted in bash: a quote would end it, `$` or a backtick
+# would invite interpolation if it were ever re-quoted. "in-repo" would bring
+# back the repository-occurrence requirement.
+FOCUS_FORBIDDEN = ("$", "`", "'", "in-repo")
+
+
+def missing_focus_tokens(literal):
+    """FOCUS_TOKENS absent from `literal`, in token order."""
+    return [t for t in FOCUS_TOKENS if t not in (literal or "")]
+
+
+def focus_forbidden_hits(literal):
+    """FOCUS_FORBIDDEN substrings present in `literal`."""
+    return [t for t in FOCUS_FORBIDDEN if t in (literal or "")]
+
+
+def args_line_ok(kickoff_text):
+    """The launch passes "$CODEX_FOCUS" as its last argument and no bare launch remains."""
+    lines = [ln.strip() for ln in kickoff_text.splitlines()]
+    return ('ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")' in lines
+            and "ARGS=(adversarial-review --json <codex_args>)" not in kickoff_text)
 
 
 def max_path_score(cap, consts, severity):
