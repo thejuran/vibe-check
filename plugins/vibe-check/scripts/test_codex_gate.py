@@ -9,9 +9,9 @@ never reviewed. So every ambiguity resolves to skip.
 
 Two properties are load-bearing:
 
-* The nine reason slugs are SEALED. Each names a distinct outcome that the
-  Phase-3 status line renders verbatim (deep-review.md:355), and inventing a
-  tenth would render an unrecognized line. TestSlugsLocked pins the tuple and
+* The ten reason slugs are SEALED. Each names a distinct outcome that the
+  Phase-3 status line renders verbatim (deep-review.md:355), and inventing an
+  eleventh would render an unrecognized line. TestSlugsLocked pins the tuple and
   TestNoInventedSlugs asserts no other slug-shaped literal exists in the module.
 * Fail-closed is the DEFAULT, not an exception path. An unknown mode, a missing
   fact, or a non-bool fact must skip — never fall through to a run.
@@ -44,6 +44,7 @@ ALL_TRUE = {
     "authenticated": True,
     "available": True,
     "timeout_binary": True,
+    "focus_readable": True,
     "dirty": False,
     "phase_start_is_ancestor": True,
     "head_is_upper": True,
@@ -63,7 +64,7 @@ def facts(**overrides):
 
 
 class TestSlugsLocked(unittest.TestCase):
-    """The nine slugs are sealed — deep-review.md:355."""
+    """The ten slugs are sealed — deep-review.md:355."""
 
     EXPECTED = (
         "not-installed",
@@ -74,6 +75,7 @@ class TestSlugsLocked(unittest.TestCase):
         "range-not-identical",
         "head-not-at-target",
         "no-timeout-binary",
+        "focus-unreadable",
         "timeout",
     )
 
@@ -89,7 +91,8 @@ class TestSlugsLocked(unittest.TestCase):
                  "range", "bogus"]
         variants = [
             {}, {"installed": False}, {"authenticated": False},
-            {"available": False}, {"timeout_binary": False}, {"dirty": True},
+            {"available": False}, {"timeout_binary": False},
+            {"focus_readable": False}, {"dirty": True},
             {"phase_start_is_ancestor": False}, {"head_is_upper": False},
             {"a_is_ancestor_of_b": False}, {"head_is_pr_head": False},
             {"merge_base_matches_pr_base": False},
@@ -259,6 +262,36 @@ class TestNoTimeoutBinary(unittest.TestCase):
         self.assertEqual(decision["slug"], "phase-diff-has-uncommitted-tail")
 
 
+class TestFocusUnreadable(unittest.TestCase):
+    """Codex never launches without its calibration text (Phase 42). The
+    readability of templates/codex-focus.txt is a gate fact, so the skip is
+    labeled and decided before the disclosure line and the smoke check."""
+
+    def test_run_mode_without_focus_skips(self):
+        for mode in ("default", "gsd-empty-range", "gsd-range", "range", "pr"):
+            decision = codex_gate.decide(mode, facts(focus_readable=False))
+            self.assertEqual(decision["action"], "skip", mode)
+            self.assertEqual(decision["slug"], "focus-unreadable", mode)
+            self.assertIsNone(decision["codex_args"], mode)
+
+    def test_earlier_skips_are_reported_over_the_focus(self):
+        self.assertEqual(
+            codex_gate.decide("all", facts(focus_readable=False))["slug"],
+            "whole-repo-non-representable")
+        self.assertEqual(
+            codex_gate.decide("default", facts(focus_readable=False,
+                                               timeout_binary=False))["slug"],
+            "no-timeout-binary")
+
+    def test_missing_focus_fact_fails_closed(self):
+        f = facts()
+        del f["focus_readable"]
+        self.assertEqual(codex_gate.decide("default", f)["action"], "skip")
+        self.assertEqual(
+            codex_gate.decide("default", facts(focus_readable="true"))["action"],
+            "skip")
+
+
 class TestFailClosed(unittest.TestCase):
     def test_unknown_mode(self):
         decision = codex_gate.decide("bogus", facts())
@@ -354,8 +387,8 @@ class TestCLI(unittest.TestCase):
 class TestNoInventedSlugs(unittest.TestCase):
     """Every slug in the module must come from SLUGS, never a bare literal.
 
-    A hand-typed slug elsewhere in the file is exactly how the nine drift into
-    ten. The tuple is the single site; every other reference is an index into
+    A hand-typed slug elsewhere in the file is exactly how the ten drift into
+    eleven. The tuple is the single site; every other reference is an index into
     it.
     """
 

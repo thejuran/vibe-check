@@ -46,6 +46,7 @@ import unittest
 # Make sibling imports resolve when unittest discovery runs from the root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import codex_gate  # noqa: E402  (the focus-unreadable slug and fact)
 import replay  # noqa: E402  (REPO_ROOT convention)
 import score  # noqa: E402  (read-only: driven, never edited)
 
@@ -329,6 +330,33 @@ def kickoff_reads_focus_file(kickoff_text):
     args = [i for i, ln in enumerate(lines)
             if ln == 'ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")']
     return bool(args) and read_at < guard_at < args[0]
+
+
+FOCUS_FACT_LINE = ('FOCUS_OK=false; if [ -n "$(cat "$VC_ROOT/templates/codex-focus.txt" '
+                   '2>/dev/null)" ]; then FOCUS_OK=true; fi')
+FOCUS_FACT_ARG = 'focus_readable "$FOCUS_OK"'
+FOCUS_SLUG = "focus-unreadable"
+RUN_BRANCH_LINE = 'if [ "$CODEX_ACTION" = run ] && [ -n "$TIMEOUT_BIN" ]; then'
+MKTEMP_LINE = "CODEX_OUT=$(mktemp)"
+DISCLOSURE_HEAD = "2. **Disclosure line"
+
+
+def kickoff_gates_focus(kickoff_text):
+    """Readability of the focus file is a step-1 gate fact decided BEFORE the
+    disclosure line, the skip is labeled with the gate's slug, and CODEX_OUT is
+    created only inside the run branch (a skip leaves no temp file)."""
+    lines = [ln.strip() for ln in kickoff_text.splitlines()]
+    if FOCUS_FACT_LINE not in lines or FOCUS_FACT_ARG not in kickoff_text:
+        return False
+    if FOCUS_SLUG not in kickoff_text:
+        return False
+    disclosure = [i for i, ln in enumerate(lines) if ln.startswith(DISCLOSURE_HEAD)]
+    if not disclosure or lines.index(FOCUS_FACT_LINE) > disclosure[0]:
+        return False
+    mktemps = [i for i, ln in enumerate(lines) if ln == MKTEMP_LINE]
+    if len(mktemps) != 1 or RUN_BRANCH_LINE not in lines:
+        return False
+    return lines.index(RUN_BRANCH_LINE) < mktemps[0]
 
 
 def args_line_ok(kickoff_text):
@@ -1111,6 +1139,15 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         # Echoed by the guard line AND handled as a skip in the prose after the block.
         self.assertGreaterEqual(_kickoff().count("__CODEX_FOCUS_MISSING__"), 2)
 
+    def test_focus_readability_is_a_gate_fact(self):
+        self.assertIs(kickoff_gates_focus(_kickoff()), True)
+        self.assertIn(FOCUS_SLUG, codex_gate.SLUGS)
+        self.assertIn("focus_readable", codex_gate.REQUIRED_FACTS)
+        # Phase 3 handles the backstop sentinel and names the slug.
+        collect = read("phases/deep-review/30-codex-collect.md")
+        self.assertIn("__CODEX_FOCUS_MISSING__", collect)
+        self.assertIn(FOCUS_SLUG, collect)
+
     def test_literal_tokens(self):
         lit = _literal()
         self.assertIsNotNone(lit)
@@ -1178,6 +1215,27 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertIs(kickoff_reads_focus_file(unguarded), False)
         planted_literal = k + "\nCODEX_FOCUS='stale copy'\n"
         self.assertIs(kickoff_reads_focus_file(planted_literal), False)
+
+    def test_focus_gate_regressions_trip(self):
+        k = _kickoff()
+        no_fact = k.replace(FOCUS_FACT_LINE, "")
+        self.assertNotEqual(no_fact, k)
+        self.assertIs(kickoff_gates_focus(no_fact), False)
+        no_arg = k.replace(FOCUS_FACT_ARG + " ", "")
+        self.assertNotEqual(no_arg, k)
+        self.assertIs(kickoff_gates_focus(no_arg), False)
+        free_text = k.replace(FOCUS_SLUG, "calibration text unreadable")
+        self.assertNotEqual(free_text, k)
+        self.assertIs(kickoff_gates_focus(free_text), False)
+        # The readability check moved back after the disclosure line.
+        late = k.replace(FOCUS_FACT_LINE, "").replace(
+            RUN_BRANCH_LINE, FOCUS_FACT_LINE + "\n" + RUN_BRANCH_LINE)
+        self.assertIs(kickoff_gates_focus(late), False)
+        # The temp file created ahead of the run branch again (orphaned on a skip).
+        hoisted = k.replace(MKTEMP_LINE, "").replace(
+            RUN_BRANCH_LINE, MKTEMP_LINE + "\n" + RUN_BRANCH_LINE)
+        self.assertNotEqual(hoisted, k)
+        self.assertIs(kickoff_gates_focus(hoisted), False)
 
     def test_missing_args_arg_trips(self):
         text = _kickoff().replace(ARGS_LINE, OLD_ARGS_LINE)

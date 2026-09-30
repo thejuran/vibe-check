@@ -3,7 +3,7 @@
 > **Lazy-loaded.** Read from `commands/deep-review.md` when Phase 2c is entered: every deep review whose `$CONFIG_CODEX` is NOT `off`, after Phase 1d and before the Phase 2 fan-out turn. Under `off` the spine sets `CODEX_SKIPPED=1` and `CODEX_OFF=1`, announces the phase as skipped, and never reads this file — so `off` does no Codex plumbing at all: no probe, no gate, no smoke check, no launch, no collection.
 > Announce on entry, after this Read: `✓ Phase 2c — Codex kickoff`.
 
-**Who owns what.** `scripts/codex_gate.py` owns the decision — whether Codex runs, the reason slug when it does not, and the companion arguments when it does. Its nine reason slugs are its `SLUGS` constant; this file never re-types them. This file gathers the FACTS the gate needs with git and shell, launches Codex when the gate says run, and runs the launch-gated smoke check.
+**Who owns what.** `scripts/codex_gate.py` owns the decision — whether Codex runs, the reason slug when it does not, and the companion arguments when it does. Its ten reason slugs are its `SLUGS` constant; this file never re-types them. This file gathers the FACTS the gate needs with git and shell, launches Codex when the gate says run, and runs the launch-gated smoke check.
 
 **Run this as its OWN turn(s) BEFORE the Phase 2 native fan-out turn. It is text + Bash only — it never adds a tool call to the pure-Task Phase 2 turn.** Phase 2's **MANDATORY DISPATCH SHAPE** (`$VC_ROOT/phases/review/20-dispatch.md`: one assistant turn = exactly N parallel `Task` calls, zero other tool calls) forbids any non-Task tool call in that turn, so the probe/launch Bash MUST live in a prior turn. Codex is a separate orchestrator-run step launched here and **collected at Phase 3** — never one of the parallel `Task` calls.
 
@@ -55,6 +55,9 @@ In order:
    TIMEOUT_BIN=$(command -v timeout || command -v gtimeout)
    TIMEOUT_OK=false; if [ -n "$TIMEOUT_BIN" ]; then TIMEOUT_OK=true; fi
 
+   # Codex never launches without its calibration text; decided here, before the disclosure and smoke check.
+   FOCUS_OK=false; if [ -n "$(cat "$VC_ROOT/templates/codex-focus.txt" 2>/dev/null)" ]; then FOCUS_OK=true; fi
+
    # Range facts. Only the active mode's facts are consulted; the rest stay false.
    DIRTY=false; PHASE_START_OK=false; HEAD_IS_UPPER=false; A_ANC_B=false; HEAD_IS_PR=false; MB_OK=false
    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then DIRTY=true; fi   # staged or unstaged changes
@@ -80,7 +83,7 @@ In order:
    b = {"true": True, "false": False}
    print(json.dumps({"mode": a[0], "facts": {k: b.get(v, v) for k, v in zip(a[1::2], a[2::2])}}))' \
        "$CODEX_MODE" installed "$INSTALLED" authenticated "$AUTHENTICATED" available "$AVAILABLE" \
-       timeout_binary "$TIMEOUT_OK" dirty "$DIRTY" phase_start_is_ancestor "$PHASE_START_OK" \
+       timeout_binary "$TIMEOUT_OK" focus_readable "$FOCUS_OK" dirty "$DIRTY" phase_start_is_ancestor "$PHASE_START_OK" \
        head_is_upper "$HEAD_IS_UPPER" a_is_ancestor_of_b "$A_ANC_B" head_is_pr_head "$HEAD_IS_PR" \
        merge_base_matches_pr_base "$MB_OK" | python3 "$VC_ROOT/scripts/codex_gate.py"); then
      printf 'CODEX_DECISION=%s\n' "$CODEX_DECISION"      # {"action": "run"|"skip", "slug": ..., "codex_args": ...}
@@ -90,7 +93,7 @@ In order:
    fi
    ```
    Branch on the printed decision:
-   - **`action: "skip"`** → set `CODEX_SKIPPED=1` and remember the `slug`. Print ONE skip-and-note line naming it (`⊘ Codex skipped: <slug> — native review continues`) and do nothing else in this phase: no disclosure line, no smoke check, no launch. Phase 3's Codex collection is a no-op. When the skip came from the missing watchdog (`timeout_binary` was false), add one hint: GNU coreutils provides `timeout`; on macOS `brew install coreutils` provides `gtimeout`.
+   - **`action: "skip"`** → set `CODEX_SKIPPED=1` and remember the `slug`. Print ONE skip-and-note line naming it (`⊘ Codex skipped: <slug> — native review continues`) and do nothing else in this phase: no disclosure line, no smoke check, no launch. Phase 3's Codex collection is a no-op. When the skip came from the missing watchdog (`timeout_binary` was false), add one hint: GNU coreutils provides `timeout`; on macOS `brew install coreutils` provides `gtimeout`. When the slug is `focus-unreadable`, `templates/codex-focus.txt` could not be read (or was empty) — Codex never launches without its calibration text.
    - **`__CODEX_GATE_FAILED__`** (the gate exited non-zero) → the same as a skip. Its slug is the one the gate returns for malformed input: `echo '{}' | python3 "$VC_ROOT/scripts/codex_gate.py"` prints it. Never launch on a gate failure.
    - **`action: "run"`** → continue with steps 2-4. `codex_args` is the companion's range arguments. It may contain the placeholder `<base-ref>`: replace it with THIS run's own resolved ref (`$PHASE_START` in GSD-range mode, `A` in range mode, the PR base ref in PR mode). `--base` is never derived from Codex output (D-08), and a working-tree decision carries no `--base` at all — passing `--base ""` would force branch mode and review the wrong range.
 
@@ -122,13 +125,15 @@ In order:
    VC_ROOT="<printed by the bootstrap>"
    # Fixed text read byte-for-byte from the plugin's own file, never retyped here; never interpolate
    # diff-derived, user- or Codex-derived text into it; passed as ONE array element.
+   # Step 1's focus_readable fact already decided readability; this empty-read guard is only a backstop.
    CODEX_FOCUS=$(cat "$VC_ROOT/templates/codex-focus.txt" 2>/dev/null)
    if [ -z "$CODEX_FOCUS" ]; then echo __CODEX_FOCUS_MISSING__; CODEX_ACTION=skip; fi
    ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")
-   CODEX_OUT=$(mktemp)
-   echo "CODEX_OUT=$CODEX_OUT"
    # The shell enforces the decision too, not just the reader: launch only on "run" with a watchdog.
    if [ "$CODEX_ACTION" = run ] && [ -n "$TIMEOUT_BIN" ]; then
+     # The payload file exists only on a real launch — a skip leaves no temp file behind.
+     CODEX_OUT=$(mktemp)
+     echo "CODEX_OUT=$CODEX_OUT"
      # -k 10 sends SIGKILL 10s after the initial SIGTERM in case the tree ignores TERM.
      "$TIMEOUT_BIN" -k 10 300 node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" "${ARGS[@]}" > "$CODEX_OUT"
      rc=$?
@@ -137,7 +142,7 @@ In order:
      if [ "$rc" = 124 ]; then echo __CODEX_TIMEOUT__; fi
    fi
    ```
-   If the shell prints `__CODEX_FOCUS_MISSING__`, the calibration file could not be read: nothing launched. Treat it as a skip — print `⊘ Codex skipped: calibration text unreadable — native review continues`, set `CODEX_SKIPPED=1`, and Phase 3's Codex collection is a no-op. Never launch Codex without its calibration text.
+   Readability of the calibration file is decided in step 1 (the `focus_readable` fact → the gate's `focus-unreadable` slug), so a missing file is normally a labeled skip before the disclosure line and the smoke check. The `__CODEX_FOCUS_MISSING__` guard above is only a backstop for a file that vanished between step 1 and this launch: nothing launched and no `CODEX_OUT` was created. It is the same skip: Phase 3's collection step 2 reads the sentinel from the background shell and reports it with the `focus-unreadable` slug (`⊘ Codex skipped: focus-unreadable`), native-only. Never launch Codex without its calibration text.
 
    **The 300s ceiling is enforced by the background command's own watchdog, so a hung Codex self-terminates at `CODEX_TIMEOUT_SECONDS` even if the orchestrator does not poll for minutes** — the cap holds independent of poll timing; the orchestrator's later `BashOutput` read just observes the result-or-sentinel.
 

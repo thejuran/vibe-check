@@ -35,22 +35,29 @@ Evaluation order is transcribed from the prose, NOT summarized:
   step 4 (:238)  diff-targeting, `--all` FIRST  -> whole-repo-non-representable
                  then the per-mode arms         -> the range slugs, or RUN
   step 5 (:266)  launch guard                   -> no-timeout-binary
+                 then the calibration text      -> focus-unreadable
 
 Note the plan's interface summary placed the `--all` arm BEFORE the probe; the
 prose orders it after (step 4 follows step 2, and step 2 is guarded only by
 step 1's CODEX_SKIPPED). The prose wins.
 
-The nine reason slugs are SEALED (deep-review.md:355). Each names a distinct
+The ten reason slugs are SEALED (deep-review.md:355). Each names a distinct
 outcome that the Phase-3 status line renders verbatim, so `no-timeout-binary`
 ("the watchdog is inexpressible, nothing ran") must never be conflated with
 `timeout` ("Codex ran and hit the 300s cap"). They live in ONE tuple and every
 other reference is an index into it — a hand-typed slug elsewhere is exactly how
-nine drift into ten, and a test asserts no such literal exists.
+ten drift into eleven, and a test asserts no such literal exists.
+
+`focus-unreadable` (Phase 42) is the launch-time precondition that the Codex
+calibration text (`templates/codex-focus.txt`) could be read. Codex must never
+launch without it, and deciding it here — as a fact, before the disclosure line
+and the smoke check — makes it a labeled skip like every other one instead of a
+free-text reason printed from inside the background launch shell.
 
 `timeout` is a member of the sealed set but is never emitted by `decide`: it is
 a COLLECTION-time outcome (deep-review.md:314, the 124 exit at Phase 3), not a
 dispatch decision. It is carried here so the set stays whole and the Phase-3
-renderer has one source for all nine.
+renderer has one source for all ten.
 
 Purity (keep-list D-08): no git, filesystem or shell I/O. Every fact — installed,
 authenticated, dirty, ancestry — is gathered by the orchestrator's bash and
@@ -67,7 +74,7 @@ import json
 import sys
 
 # --------------------------------------------------------------------------- #
-# The nine sealed reason slugs — deep-review.md:355. NEVER invented, never
+# The ten sealed reason slugs — deep-review.md:355. NEVER invented, never
 # restated as a bare literal anywhere below.
 # --------------------------------------------------------------------------- #
 SLUGS = (
@@ -79,6 +86,7 @@ SLUGS = (
     "range-not-identical",
     "head-not-at-target",
     "no-timeout-binary",
+    "focus-unreadable",
     "timeout",
 )
 
@@ -91,6 +99,7 @@ SLUGS = (
     _RANGE_NOT_IDENTICAL,
     _HEAD_NOT_AT_TARGET,
     _NO_TIMEOUT_BINARY,
+    _FOCUS_UNREADABLE,
     _TIMEOUT,  # collection-time only; see the module docstring.
 ) = SLUGS
 
@@ -108,6 +117,7 @@ REQUIRED_FACTS = (
     "authenticated",
     "available",
     "timeout_binary",
+    "focus_readable",
     "dirty",
     "phase_start_is_ancestor",
     "head_is_upper",
@@ -208,6 +218,13 @@ def decide(mode, facts):
     # never the `timeout` slug, which means Codex ran and hit the 300s cap.
     if not facts["timeout_binary"]:
         return _skip(_NO_TIMEOUT_BINARY)
+
+    # The calibration text is a launch precondition too: Codex never runs
+    # without it. Decided here so the skip is labeled and precedes the
+    # disclosure line and the smoke check; the launch shell keeps an empty-read
+    # guard only as a backstop.
+    if not facts["focus_readable"]:
+        return _skip(_FOCUS_UNREADABLE)
 
     return _run_with(args)
 
