@@ -18,6 +18,7 @@ Every scanner is a pure function over text. Mutation tests plant text in
 memory and assert the scanner trips; no test writes a file.
 """
 
+import copy
 import glob
 import os
 import re
@@ -28,6 +29,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import replay  # noqa: E402  (REPO_ROOT convention)
+import score  # noqa: E402  (read-only: driven, never edited)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(HERE)
@@ -245,6 +247,89 @@ def max_path_score(cap, consts, severity):
 def cap_never_warns(cap, consts, severity):
     """The worst reachable path at `cap` / `severity` stays below the Warning floor."""
     return max_path_score(cap, consts, severity) < consts["warning_floor"]
+
+
+# --------------------------------------------------------------------------- #
+# Scorer fixtures (pure) for the two-pass proof
+# --------------------------------------------------------------------------- #
+_WINDOW = ["a", "b", "c", "d", "e"]
+
+
+def _finding(**over):
+    """A finding with the agent-output-schema key set and a source window."""
+    f = {
+        "id": "x-001",
+        "file": "src/a.py",
+        "line": 10,
+        "title": "some finding",
+        "category": "ssrf",
+        "cwe": None,
+        "severity": "critical",
+        "agent_confidence": 100,
+        "in_diff": False,
+        "intent_doc_match": None,
+        "problem": "p",
+        "current_code": "  x = 1",
+        "fix_hint": None,
+        "why_it_matters": "w",
+        "silenced_marker_nearby": False,
+        "agent": "security",
+        "source_window": list(_WINDOW),
+    }
+    f.update(over)
+    return f
+
+
+def _cdx_note(sev, **over):
+    """A capped Codex note (agent_confidence 45) one line below the real defect."""
+    base = dict(id="cdx", line=11, agent="codex-adversarial", category="adversarial",
+                agent_confidence=45, severity=sev, title="codex note",
+                current_code="return r")
+    base.update(over)
+    return _finding(**base)
+
+
+def _sec_note(sev, **over):
+    """A capped security-lane note (agent_confidence 45) two lines below."""
+    base = dict(id="sec", line=12, agent="security", agent_confidence=45,
+                severity=sev, title="security note", current_code="return s")
+    base.update(over)
+    return _finding(**base)
+
+
+def _envelope(findings, carryforward, codex_status, pass_number):
+    return {
+        "command": "deep-review",
+        "all_mode": False,
+        "pass_number": pass_number,
+        "changed_line_ranges": {"src/a.py": [[8, 14]]},
+        "carryforward": carryforward,
+        "findings": findings,
+        "codex": {"status": codex_status},
+    }
+
+
+def _carry(result, fixed_ids):
+    """Build the next pass's carryforward from a scored result.
+
+    Mirrors the orchestrator's HEAD read (30-collect-score.md step 0): each row
+    and each of its members gets `canonical_line_content` = its own
+    `current_code` (line unchanged) and the source window; a row whose id is in
+    `fixed_ids` had its line removed, so it and its own member record (same
+    agent, line and title) read as gone (None).
+    """
+    carried = []
+    for row in copy.deepcopy(result["findings"]):
+        fixed = row.get("id") in fixed_ids
+        row["canonical_line_content"] = None if fixed else row.get("current_code")
+        row["canonical_window"] = list(_WINDOW)
+        for m in row.get("members", []):
+            own = (m.get("agent"), m.get("line"), m.get("title")) == (
+                row.get("agent"), row.get("line"), row.get("title"))
+            m["canonical_line_content"] = None if (fixed and own) else m.get("current_code")
+            m["canonical_window"] = list(_WINDOW)
+        carried.append(row)
+    return carried
 
 
 # --------------------------------------------------------------------------- #
