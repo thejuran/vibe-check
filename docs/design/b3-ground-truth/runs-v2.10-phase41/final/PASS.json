@@ -1,7 +1,7 @@
 {
   "batch": "final",
   "snapshot_commit": "cd8f5b00de730929bd3244aed7ccb98f56316d2a",
-  "verdict": "FAIL",
+  "verdict": "PASS",
   "recorded_by": "owner",
   "recorded_at": "2026-09-30T00:10:30Z",
   "runs": [
@@ -14,7 +14,8 @@
       "report_path": "should-quiet-3/run-1/report.md",
       "transcript_path": "should-quiet-3/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean",
+      "notes": "firing rows: none; all surviving rows: impact medium 73; codex joined (pass-level codex.status=joined, verdict=approve; codex-adversarial in a surviving row attribution: no); members on every row: yes (Wave-1 tree confirmed); replay predicted quiet, run quiet -> agrees (informational, per-run matching is not the gate); state_shape FAIL (missing root key medium_acknowledgments) kept as recorded, waived for counting by SUPERSESSIONS-v2.10.md entry 009"
     },
     {
       "diff": "should-quiet-3",
@@ -25,7 +26,8 @@
       "report_path": "should-quiet-3/run-2/report.md",
       "transcript_path": "should-quiet-3/run-2/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean",
+      "notes": "firing rows: none; all surviving rows: bugs medium 70; codex skipped (pass-level codex.status=skipped, verdict=None; codex-adversarial in a surviving row attribution: no); members on every row: yes (Wave-1 tree confirmed); replay predicted firing, run quiet -> disagrees (informational, per-run matching is not the gate); state_shape FAIL (missing root key medium_acknowledgments) kept as recorded, waived for counting by SUPERSESSIONS-v2.10.md entry 009"
     },
     {
       "diff": "should-quiet-3",
@@ -36,7 +38,8 @@
       "report_path": "should-quiet-3/run-3/report.md",
       "transcript_path": "should-quiet-3/run-3/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "clean",
+      "notes": "firing rows: none; all surviving rows: language-python medium 77; codex skipped (pass-level codex.status=skipped, verdict=None; codex-adversarial in a surviving row attribution: no); members on every row: yes (Wave-1 tree confirmed); replay predicted firing, run quiet -> disagrees (informational, per-run matching is not the gate)"
     },
     {
       "diff": "should-quiet-1",
@@ -47,7 +50,8 @@
       "report_path": "should-quiet-1/run-1/report.md",
       "transcript_path": "should-quiet-1/run-1/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "fp",
+      "notes": "firing rows: bugs critical 100, security warning 88; all surviving rows: bugs critical 100, security warning 88; codex joined (pass-level codex.status=joined, verdict=needs-attention; codex-adversarial in a surviving row attribution: yes); members on every row: yes (Wave-1 tree confirmed); replay predicted firing, run fired -> agrees (informational, per-run matching is not the gate); state_shape FAIL (missing root key medium_acknowledgments) kept as recorded, waived for counting by SUPERSESSIONS-v2.10.md entry 009"
     },
     {
       "diff": "should-quiet-1",
@@ -58,7 +62,8 @@
       "report_path": "should-quiet-1/run-2/report.md",
       "transcript_path": "should-quiet-1/run-2/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "fp",
+      "notes": "firing rows: impact critical 100; all surviving rows: impact critical 100; codex joined (pass-level codex.status=joined, verdict=needs-attention; codex-adversarial in a surviving row attribution: yes); members on every row: yes (Wave-1 tree confirmed); replay predicted firing, run fired -> agrees (informational, per-run matching is not the gate); state_shape FAIL (missing root key medium_acknowledgments) kept as recorded, waived for counting by SUPERSESSIONS-v2.10.md entry 009"
     },
     {
       "diff": "should-quiet-1",
@@ -69,7 +74,13 @@
       "report_path": "should-quiet-1/run-3/report.md",
       "transcript_path": "should-quiet-1/run-3/transcript.jsonl",
       "trace_validation": "not-applicable",
-      "adjudication": "pending-assistant"
+      "adjudication": "fp",
+      "notes": "firing rows: bugs warning 94, security warning 89; all surviving rows: bugs warning 94, security warning 89; codex joined (pass-level codex.status=joined, verdict=approve; codex-adversarial in a surviving row attribution: no); members on every row: yes (Wave-1 tree confirmed); replay predicted firing, run fired -> agrees (informational, per-run matching is not the gate); state_shape FAIL (missing root key medium_acknowledgments) kept as recorded, waived for counting by SUPERSESSIONS-v2.10.md entry 009"
     }
-  ]
+  ],
+  "adjudicated_by": "assistant",
+  "adjudicated_at": "2026-09-29",
+  "observed_fp_runs": 3,
+  "predicted_fp_runs": 5,
+  "state_shape_waiver": "SUPERSESSIONS-v2.10.md entry 009 (owner decision 2026-09-29): five runs (should-quiet-3 run-1, run-2; should-quiet-1 run-1, run-2, run-3) record state_shape FAIL because the root key medium_acknowledgments is missing; the key is outside the sealed D-08 FP predicate (bands of passes[-1].findings), so the runs count. batchsnap.py check-pass exits non-zero on this artifact by design, and its only reasons are those five state_shape failures."
 }
