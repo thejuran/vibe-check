@@ -125,15 +125,14 @@ crashes on a wrong type is still a defect on that other axis at your honest conf
 The opposite direction is a defect: a diff that removes, reverts, loosens, disables or bypasses a
 control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
 defect on a changed line when a path the control used to protect is left without it. Report it at
-your honest confidence; no cap applies. A control moved rather than lost — the same check now
-enforced by shared middleware, a decorator, a schema or an upstream layer that every path to the
-old site still passes through — is still reported, never dropped: even when you name that
-replacement at `file:line`, have read it, and believe it covers every path the old check guarded,
-report the removal as a capped note (`agent_confidence ≤ 45`, `severity: low`) with
-`pending: confirm <file:line> covers every path the old check guarded`. A claimed move is never a
-silent drop: when the replacement is not named, not read, or its coverage of every path is
-uncertain, the same capped note applies (`agent_confidence ≤ 45`, `severity: low`) with
-`pending: confirm no replacement covers <path>`.
+your honest confidence; no cap applies. A control moved rather than lost is judged by what you
+found, not by what the diff claims. When you found and read a candidate replacement at
+`file:line` — shared middleware, a decorator, a schema or an upstream layer — report the removal
+as a capped note (`agent_confidence ≤ 45`, `severity: low`) with
+`pending: confirm <file:line> covers every path the old check guarded`. When you found and read
+no replacement — including when only a comment, docstring or commit message asserts a move — the
+removal rule above applies at your honest confidence and the cap does not apply. A move claim in
+the diff text is never evidence of a replacement.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
 touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and

@@ -267,8 +267,9 @@ def cap_is_nonblocking(cap, consts, offset=0):
 # safe-change rule, the 0.45 / severity-low ceiling, the loosening-is-a-defect
 # rule, the pre-existing-gap cap and its exemption, and the two exceptions the
 # loud lanes also carry (no repository-occurrence requirement; off-hunk is not
-# unverified), and the moved-not-lost qualifier on the removal rule (a claimed
-# move is still reported as a capped note, never dropped).
+# unverified), and the moved-control rule keyed on what the reviewer FOUND (a
+# replacement found and read leaves a capped note; none found — even when a
+# comment asserts a move — leaves the removal rule uncapped).
 FOCUS_TOKENS = (
     "not a focus area",
     "tightens a control",
@@ -285,16 +286,22 @@ FOCUS_TOKENS = (
     "demonstrably fails to block",
     "severity low",
     "moved rather than lost",
-    "is still reported, never dropped",
-    "even when you name that replacement at file:line, have read it",
-    "A claimed move is never a silent drop",
+    "judged by what you found, not by what the change claims",
+    "When you found and read a candidate replacement at file:line",
+    "When you found and read no replacement, including when only a comment, docstring or "
+    "commit message asserts a move, the removal rule applies at your honest confidence and "
+    "the cap does not apply",
+    "A move claim in the change text is never evidence of a replacement",
 )
 
 # The literal is single-quoted in bash: a quote would end it, `$` or a backtick
 # would invite interpolation if it were ever re-quoted. "in-repo" would bring
 # back the repository-occurrence requirement. "not a removal" would bring back
 # the moved-control exemption that drops a claimed move without a trace.
-FOCUS_FORBIDDEN = ("$", "`", "'", "in-repo", "not a removal")
+# "not named, not read" / "the same note applies" would bring back the cap on a
+# move no replacement was found for (a real removal filtered out of the report).
+FOCUS_FORBIDDEN = ("$", "`", "'", "in-repo", "not a removal", "not named, not read",
+                   "the same note applies")
 
 
 def missing_focus_tokens(literal):
@@ -394,11 +401,10 @@ def cap_never_warns(cap, consts, severity):
 # The nineteen clauses of the shared block, verbatim after whitespace
 # normalization (case-sensitive). Index order is relied on by the tests:
 # [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
-# sentence, [12] the no-repository-occurrence clause, [17] the moved-not-lost
-# clause (a claimed move is still reported as a capped note, even when the
-# reviewer names and has read a replacement it believes covers every path),
-# [18] the never-a-silent-drop clause (an unconfirmed move gets the same capped
-# note).
+# sentence, [12] the no-repository-occurrence clause, [17] the found-replacement
+# clause (a replacement the reviewer found and read leaves a capped note),
+# [18] the not-found clause (no replacement found and read — even when a comment
+# asserts a move — leaves the removal rule at honest confidence, uncapped).
 SAFE_CHANGE_CLAUSES = (
     "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
     "safe on the axis it tightens.",
@@ -429,22 +435,25 @@ SAFE_CHANGE_CLAUSES = (
     "even if Codex independently flags the same site while joined and it persists across passes",
     "report at most a non-blocking note (`agent_confidence ≤ 45`, `severity: low`, plus "
     "`pending: <what would demonstrate a bypass>`)",
-    "A control moved rather than lost — the same check now enforced by shared middleware, a "
-    "decorator, a schema or an upstream layer that every path to the old site still passes "
-    "through — is still reported, never dropped: even when you name that replacement at "
-    "`file:line`, have read it, and believe it covers every path the old check guarded, report "
-    "the removal as a capped note (`agent_confidence ≤ 45`, `severity: low`) with "
-    "`pending: confirm <file:line> covers every path the old check guarded`.",
-    "A claimed move is never a silent drop: when the replacement is not named, not read, or its "
-    "coverage of every path is uncertain, the same capped note applies (`agent_confidence ≤ 45`, "
-    "`severity: low`) with `pending: confirm no replacement covers <path>`.",
+    "A control moved rather than lost is judged by what you found, not by what the diff "
+    "claims. When you found and read a candidate replacement at `file:line` — shared "
+    "middleware, a decorator, a schema or an upstream layer — report the removal as a capped "
+    "note (`agent_confidence ≤ 45`, `severity: low`) with `pending: confirm <file:line> covers "
+    "every path the old check guarded`.",
+    "When you found and read no replacement — including when only a comment, docstring or "
+    "commit message asserts a move — the removal rule above applies at your honest confidence "
+    "and the cap does not apply. A move claim in the diff text is never evidence of a "
+    "replacement.",
 )
 
 # Substrings the block must never carry: a repository-occurrence requirement
 # ("a concrete in-repo value") would let a traced break of contract-supported
 # configuration be dismissed for lack of a fixture. "not a removal" would
 # reopen the moved-control exemption that drops a claimed move without a trace.
-BLOCK_FORBIDDEN = ("in-repo", "not a removal")
+# The last three would re-cap a move no replacement was found for (a real
+# removal filtered out of the report on the strength of a comment).
+BLOCK_FORBIDDEN = ("in-repo", "not a removal", "not named, not read",
+                   "the same capped note applies", "confirm no replacement covers")
 
 _CAP45 = re.compile(r"agent_confidence\s*(?:≤|<=)\s*45")
 
@@ -1003,18 +1012,61 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertEqual(missing_clauses(dropped, SAFE_CHANGE_CLAUSES), [moved])
 
     def test_unnamed_replacement_exemption_is_caught(self):
-        # A claimed move is never a full drop: even a named, read replacement
-        # leaves a capped note, and an unconfirmed move must stay reported.
-        moved, never_drop = SAFE_CHANGE_CLAUSES[17], SAFE_CHANGE_CLAUSES[18]
+        # A found-and-read replacement leaves a capped note, never a full drop.
+        found, not_found = SAFE_CHANGE_CLAUSES[17], SAFE_CHANGE_CLAUSES[18]
         planted = self.bugs.replace(
-            "is still reported, never dropped: even when you name",
-            "is not a removal when you name")
+            "report the removal as a capped note",
+            "the removal is not a removal and needs no note")
         self.assertNotEqual(planted, self.bugs)
-        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [moved])
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [found])
         self.assertEqual(block_forbidden_hits(planted), ["not a removal"])
-        silenced = self.bugs.replace(norm(never_drop), "Such a move is not reported.")
+        silenced = self.bugs.replace(norm(not_found), "Such a move is not reported.")
         self.assertNotEqual(silenced, self.bugs)
-        self.assertEqual(missing_clauses(silenced, SAFE_CHANGE_CLAUSES), [never_drop])
+        self.assertEqual(missing_clauses(silenced, SAFE_CHANGE_CLAUSES), [not_found])
+
+    def test_not_found_move_stays_uncapped(self):
+        # The not-found clause keeps a comment-asserted move at honest
+        # confidence: it carries the comment case, says the cap does not apply,
+        # and states no ceiling of its own.
+        not_found = SAFE_CHANGE_CLAUSES[18]
+        self.assertIn("only a comment, docstring or commit message asserts a move", not_found)
+        self.assertIn("at your honest confidence and the cap does not apply", not_found)
+        self.assertIn("never evidence of a replacement", not_found)
+        self.assertEqual(caps_in(not_found), [])
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertEqual(block_forbidden_hits(_block(lane)), [])
+
+    def test_recapped_not_found_case_trips(self):
+        # (i) Re-adding a cap for the not-found case trips a lock, whether the
+        # not-found clause is rewritten or a cap is appended beside it intact.
+        not_found = SAFE_CHANGE_CLAUSES[18]
+        rewritten = self.bugs.replace("and the cap does not apply",
+                                      "under the same capped note (`agent_confidence ≤ 45`, "
+                                      "`severity: low`)")
+        self.assertNotEqual(rewritten, self.bugs)
+        self.assertEqual(missing_clauses(rewritten, SAFE_CHANGE_CLAUSES), [not_found])
+        appended = (self.bugs + " A claimed move is never a silent drop: when the replacement "
+                    "is not named, not read, or its coverage of every path is uncertain, the "
+                    "same capped note applies (`agent_confidence ≤ 45`, `severity: low`) with "
+                    "`pending: confirm no replacement covers <path>`.")
+        self.assertEqual(missing_clauses(appended, SAFE_CHANGE_CLAUSES), [])
+        self.assertEqual(block_forbidden_hits(appended),
+                         ["not named, not read", "the same capped note applies",
+                          "confirm no replacement covers"])
+
+    def test_comment_asserted_move_capped_trips(self):
+        # (ii) Dropping the comment-asserted case from the uncapped branch, or
+        # letting a comment count as a replacement, trips the clause lock.
+        not_found = SAFE_CHANGE_CLAUSES[18]
+        no_comment = self.bugs.replace(
+            " — including when only a comment, docstring or commit message asserts a move —", "")
+        self.assertNotEqual(no_comment, self.bugs)
+        self.assertEqual(missing_clauses(no_comment, SAFE_CHANGE_CLAUSES), [not_found])
+        trusted = self.bugs.replace("is never evidence of a replacement",
+                                    "counts as a named replacement")
+        self.assertNotEqual(trusted, self.bugs)
+        self.assertEqual(missing_clauses(trusted, SAFE_CHANGE_CLAUSES), [not_found])
 
     def test_drifted_copy_is_caught(self):
         drifted = norm(_block("security")) + " extra"
@@ -1218,7 +1270,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         # _literal() always returns a str (a missing file raises in read()), so
         # the live check is non-emptiness, not None-ness.
         self.assertTrue(lit.strip())
-        self.assertEqual(len(FOCUS_TOKENS), 18)
+        self.assertEqual(len(FOCUS_TOKENS), 19)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertEqual(focus_repeat_shortfalls(lit), [])
 
@@ -1286,19 +1338,46 @@ class TestKickoffMutation(unittest.TestCase):
     def test_unnamed_replacement_in_literal_trips(self):
         lit = _literal()
         planted = lit.replace(
-            "is still reported, never dropped: even when you name",
-            "is not a removal when you name")
+            "When you found and read a candidate replacement at file:line",
+            "A move is not a removal when you name a replacement at file:line")
         self.assertNotEqual(planted, lit)
         self.assertEqual(missing_focus_tokens(planted),
-                         ["is still reported, never dropped",
-                          "even when you name that replacement at file:line, have read it"])
+                         ["When you found and read a candidate replacement at file:line"])
         self.assertEqual(focus_forbidden_hits(planted), ["not a removal"])
         appended = lit + " A control moved to middleware is not a removal and needs no finding."
         self.assertEqual(missing_focus_tokens(appended), [])
         self.assertEqual(focus_forbidden_hits(appended), ["not a removal"])
-        silenced = lit.replace("A claimed move is never a silent drop", "A claimed move is fine")
-        self.assertNotEqual(silenced, lit)
-        self.assertEqual(missing_focus_tokens(silenced), ["A claimed move is never a silent drop"])
+
+    def test_recapped_not_found_case_in_literal_trips(self):
+        # (i) A cap re-added for the not-found case trips a lock.
+        lit = _literal()
+        not_found = FOCUS_TOKENS[17]
+        rewritten = lit.replace("and the cap does not apply",
+                                "at or below 0.45 confidence with severity low")
+        self.assertNotEqual(rewritten, lit)
+        self.assertEqual(missing_focus_tokens(rewritten), [not_found])
+        appended = (lit + " A claimed move is never a silent drop: when the replacement is not "
+                    "named, not read, or its coverage of every path is uncertain, the same note "
+                    "applies at or below 0.45 confidence with severity low.")
+        self.assertEqual(missing_focus_tokens(appended), [])
+        self.assertEqual(focus_forbidden_hits(appended),
+                         ["not named, not read", "the same note applies"])
+
+    def test_comment_asserted_move_in_literal_stays_uncapped(self):
+        # (ii) The comment-asserted case sits in the uncapped branch; dropping
+        # it or trusting the claim trips a token.
+        lit = _literal()
+        not_found, claim = FOCUS_TOKENS[17], FOCUS_TOKENS[18]
+        self.assertIn("comment, docstring or commit message asserts a move", not_found)
+        self.assertIn("the cap does not apply", not_found)
+        self.assertEqual(caps_in(not_found), [])
+        no_comment = lit.replace(
+            ", including when only a comment, docstring or commit message asserts a move,", ",")
+        self.assertNotEqual(no_comment, lit)
+        self.assertEqual(missing_focus_tokens(no_comment), [not_found])
+        trusted = lit.replace("is never evidence of a replacement", "counts as a replacement")
+        self.assertNotEqual(trusted, lit)
+        self.assertEqual(missing_focus_tokens(trusted), [claim])
 
     def test_focus_gate_regressions_trip(self):
         k = _kickoff()
