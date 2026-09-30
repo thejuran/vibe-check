@@ -124,6 +124,129 @@ def leaks(text, ids):
     )
 
 
+def section(text, heading):
+    """Slice from `## <heading>` to the next `## ` heading (or EOF); None if absent."""
+    m = re.search(r"(?m)^## " + re.escape(heading) + r"[ \t]*$", text)
+    if m is None:
+        return None
+    end = text.find("\n## ", m.end())
+    return text[m.start():] if end == -1 else text[m.start():end]
+
+
+# Phrases the retired Claude<->Claude cross-confirm model used. The last entry
+# is a STEM: plain case-insensitive substring matching catches both
+# "independently confirmed" and "independently confirms", while the replacement
+# wording "Codex independently flags ..." never matches. Keep it last so the
+# ordered expectations stay stable.
+FORBIDDEN_PHRASES = (
+    "CATEGORY_DOMAIN",
+    "category-domain",
+    "shares its domain",
+    "actually cross-confirm today",
+    "same-domain",
+    "domain overlap",
+    "independently confirm",
+)
+
+
+def forbidden_hits(text, phrases=FORBIDDEN_PHRASES):
+    """Phrases present in `text` (case-insensitive, whitespace-normalized), in phrase order."""
+    hay = norm(text).lower()
+    return [p for p in phrases if norm(p).lower() in hay]
+
+
+def missing_clauses(section_text, clauses):
+    """Clauses absent from `section_text` after whitespace normalization (case-sensitive)."""
+    hay = norm(section_text or "")
+    return [c for c in clauses if norm(c) not in hay]
+
+
+def focus_literal(kickoff_text):
+    """Contents of the first CODEX_FOCUS='...' single-quoted literal, or None."""
+    m = re.search(r"CODEX_FOCUS='([^']*)'", kickoff_text, re.DOTALL)
+    return None if m is None else m.group(1)
+
+
+_CAP = re.compile(
+    r"agent_confidence\s*(?:≤|<=)\s*(\d+)|confidence at or below 0\.(\d\d)")
+
+
+def caps_in(text):
+    """Every confidence ceiling stated in `text`, as integer percent, in document order."""
+    return [int(m.group(1) or m.group(2)) for m in _CAP.finditer(norm(text))]
+
+
+def _int(token):
+    return int(token.replace("−", "-"))
+
+
+def scoring_constants(text):
+    """Parse the band floors, bonuses, severity weights and offsets from scoring.md.
+
+    Raises ValueError naming the first piece that cannot be parsed, so a
+    reshaped template trips the cap proof instead of silently passing it.
+    """
+    def one(name, pattern):
+        m = re.search(pattern, text, re.MULTILINE)
+        if m is None:
+            raise ValueError(f"scoring.md: cannot parse {name}")
+        return _int(m.group(1))
+
+    consts = {
+        "medium_floor": one("medium_floor", r"\|\s*Medium\s*\|\s*(\d+)\s*[–-]\s*\d+"),
+        "warning_floor": one("warning_floor", r"\|\s*Warning\s*\|\s*(\d+)"),
+        "in_diff_bonus": one("in_diff_bonus", r"\+\s*(\d+)\s+if in_diff"),
+        "corroborated_bonus": one("corroborated_bonus", r"\+\s*(\d+)\s+if corroborated"),
+        "persisted_bonus": one("persisted_bonus", r"\+\s*(\d+)\s+if persisted"),
+    }
+
+    weights = {sev: _int(w) for sev, w in re.findall(
+        r'severity == "(critical|high|medium|low)"\s*→\s*([+−-]?\d+)', text)}
+    for sev in ("critical", "high", "medium", "low"):
+        if sev not in weights:
+            raise ValueError(f"scoring.md: cannot parse severity_weights[{sev}]")
+    consts["severity_weights"] = weights
+
+    m = re.search(r"^\s*-\s*Current offsets:\s*\n((?:[ \t]+-\s*\w+:\s*-?\d+[ \t]*\n?)+)",
+                  text, re.MULTILINE)
+    if m is None:
+        raise ValueError("scoring.md: cannot parse offsets")
+    consts["offsets"] = {name: int(v) for name, v in
+                         re.findall(r"^\s*-\s*(\w+):\s*(-?\d+)", m.group(1), re.MULTILINE)}
+    return consts
+
+
+def lone_lane_max(cap, offset=0, in_diff_bonus=20, severity_weight=0):
+    """Highest score a lone-lane finding at `cap` can reach (no second opinion)."""
+    return cap + offset + in_diff_bonus + severity_weight
+
+
+def cap_is_nonblocking(cap, consts, offset=0):
+    """A lone lane at `cap`, in the diff, at critical severity stays below Medium.
+
+    Critical is the worst severity (weight 0), so this is the worst case FROM A
+    LONE LANE only; `cap_never_warns` covers the carried-member path.
+    """
+    return lone_lane_max(cap, offset, consts["in_diff_bonus"], 0) < consts["medium_floor"]
+
+
+def max_path_score(cap, consts, severity):
+    """Worst reachable score: in the diff, Codex-corroborated AND persisted.
+
+    A capped note carried as a member of a surviving row is re-scored next pass
+    with the persisted bonus, plus the corroborated bonus if Codex joins again
+    beside a Claude lane. No lone-lane offset: it is 0 on every second-opinion
+    path.
+    """
+    return (cap + consts["in_diff_bonus"] + consts["corroborated_bonus"]
+            + consts["persisted_bonus"] + consts["severity_weights"][severity])
+
+
+def cap_never_warns(cap, consts, severity):
+    """The worst reachable path at `cap` / `severity` stays below the Warning floor."""
+    return max_path_score(cap, consts, severity) < consts["warning_floor"]
+
+
 # --------------------------------------------------------------------------- #
 # Leakage guard tests
 # --------------------------------------------------------------------------- #
