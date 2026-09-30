@@ -185,5 +185,132 @@ class TestCorpusHasNoLeaks(unittest.TestCase):
                 self.assertEqual(leaks(text, ids), [])
 
 
+# --------------------------------------------------------------------------- #
+# Scoring constants and cap math
+# --------------------------------------------------------------------------- #
+class TestScoringConstants(unittest.TestCase):
+    def setUp(self):
+        self.text = read("templates/scoring.md")
+
+    def _without(self, needle):
+        lines = [ln for ln in self.text.splitlines() if needle not in ln]
+        self.assertLess(len(lines), len(self.text.splitlines()), needle)
+        return "\n".join(lines)
+
+    def test_parses_live_template(self):
+        self.assertEqual(scoring_constants(self.text), {
+            "medium_floor": 70,
+            "warning_floor": 80,
+            "in_diff_bonus": 20,
+            "corroborated_bonus": 10,
+            "persisted_bonus": 15,
+            "severity_weights": {"critical": 0, "high": -3, "medium": -8, "low": -20},
+            "offsets": {"architecture": -6, "bugs": -2, "impact": -12},
+        })
+
+    def test_missing_persisted_row_raises(self):
+        with self.assertRaisesRegex(ValueError, "persisted_bonus"):
+            scoring_constants(self._without("if persisted"))
+
+    def test_missing_medium_row_raises(self):
+        with self.assertRaises(ValueError):
+            scoring_constants(self._without("| Medium |"))
+
+    def test_offsets_never_positive(self):
+        offsets = scoring_constants(self.text)["offsets"]
+        self.assertTrue(offsets)
+        self.assertTrue(all(v <= 0 for v in offsets.values()), offsets)
+
+
+class TestCapMath(unittest.TestCase):
+    def setUp(self):
+        self.c = scoring_constants(read("templates/scoring.md"))
+
+    def test_45_is_nonblocking_for_every_loud_lane(self):
+        for offset in (0, self.c["offsets"]["bugs"], self.c["offsets"]["impact"]):
+            with self.subTest(offset=offset):
+                self.assertIs(cap_is_nonblocking(45, self.c, offset), True)
+        self.assertEqual(lone_lane_max(45, 0, 20, 0), 65)
+
+    def test_55_is_blocking(self):
+        self.assertIs(cap_is_nonblocking(55, self.c), False)
+
+    def test_49_is_the_arithmetic_maximum(self):
+        self.assertIs(cap_is_nonblocking(49, self.c), True)
+        self.assertIs(cap_is_nonblocking(50, self.c), False)
+
+    def test_low_is_the_only_severity_that_never_warns(self):
+        self.assertEqual(max_path_score(45, self.c, "low"), 70)
+        self.assertIs(cap_never_warns(45, self.c, "low"), True)
+        for sev, score in (("critical", 90), ("high", 87), ("medium", 82)):
+            with self.subTest(severity=sev):
+                self.assertEqual(max_path_score(45, self.c, sev), score)
+                self.assertIs(cap_never_warns(45, self.c, sev), False)
+
+    def test_all_paths_proof_can_fail(self):
+        self.assertIs(cap_never_warns(54, self.c, "low"), True)
+        self.assertIs(cap_never_warns(55, self.c, "low"), False)
+
+
+# --------------------------------------------------------------------------- #
+# Text scanners
+# --------------------------------------------------------------------------- #
+class TestSectionSlicer(unittest.TestCase):
+    def test_slices_between_headings(self):
+        text = "## A\nfoo\n## B\nbar"
+        self.assertEqual(norm(section(text, "A")), "## A foo")
+        self.assertEqual(norm(section(text, "B")), "## B bar")
+        self.assertIsNone(section(text, "Missing"))
+
+
+class TestCapsIn(unittest.TestCase):
+    def test_reads_unicode_and_ascii_and_codex_units(self):
+        text = ("agent_confidence ≤ 45 … agent_confidence <= 40 … "
+                "confidence at or below 0.45")
+        self.assertEqual(caps_in(text), [45, 40, 45])
+
+    def test_planted_55_is_read(self):
+        self.assertEqual(caps_in("keep agent_confidence ≤ 55 here"), [55])
+
+
+class TestForbiddenScanner(unittest.TestCase):
+    def test_planted_phrase_trips(self):
+        self.assertEqual(forbidden_hits("shares its domain in CATEGORY_DOMAIN"),
+                         ["CATEGORY_DOMAIN", "shares its domain"])
+        self.assertEqual(forbidden_hits("grouped by site only"), [])
+
+    def test_wrapped_phrase_trips(self):
+        self.assertEqual(forbidden_hits("actually cross-confirm\ntoday"),
+                         ["actually cross-confirm today"])
+
+    def test_retired_confirm_stem_trips(self):
+        self.assertEqual(FORBIDDEN_PHRASES[-1], "independently confirm")
+        self.assertEqual(
+            forbidden_hits("to a Filtered-summary count unless it is independently confirmed."),
+            ["independently confirm"])
+        self.assertEqual(
+            forbidden_hits("unless another agent independently\nconfirms the site"),
+            ["independently confirm"])
+        self.assertEqual(
+            forbidden_hits("unless Codex independently flags the same site while joined"), [])
+        self.assertEqual(forbidden_hits("independent confirmation"), [])
+
+
+class TestMissingClauses(unittest.TestCase):
+    def test_reports_absent_clause(self):
+        self.assertEqual(missing_clauses("## X\nalpha beta", ("alpha beta", "gamma")),
+                         ["gamma"])
+        self.assertEqual(missing_clauses("## X\nalpha\nbeta", ("alpha beta",)), [])
+
+
+class TestFocusLiteral(unittest.TestCase):
+    def test_extracts_single_quoted_literal(self):
+        self.assertEqual(focus_literal("x\nCODEX_FOCUS='hello world'\nARGS=(...)"),
+                         "hello world")
+        self.assertEqual(focus_literal("CODEX_FOCUS='wrapped\nliteral'"),
+                         "wrapped\nliteral")
+        self.assertIsNone(focus_literal("no literal here"))
+
+
 if __name__ == "__main__":
     unittest.main()
