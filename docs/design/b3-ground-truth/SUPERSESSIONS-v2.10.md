@@ -406,3 +406,67 @@ From the same file, §5: `**Headline catch-rate = 8/9** (should-catch runs)`.
 
 **Sign-off:** owner decision 2026-09-29 (Option 1, "amend"), taken after plan 41-02 stopped at the
 D-05 stop rule with this run UNEVALUABLE. Recorded by the assistant.
+
+## 009 — 2026-09-29 — Phase-41 final spot-check: five `state_shape` FAILs waived for counting (missing root `medium_acknowledgments`)
+
+This entry records that five of the six Phase-41 `final` spot-check runs count toward the D-11
+verdict even though their recorded `state_shape` is FAIL. It supersedes no sealed number and moves
+no denominator. The recorded `state_shape` values stay FAIL in `PASS.json`, exactly as the owner's
+after-run step wrote them.
+
+**Sealed statement (verbatim, unchanged):**
+
+From `plugins/vibe-check/scripts/fixtures/batch-manifest-schema.json`, quoted as raw bytes:
+
+```
+  "_comment_values": "FL-02.1/FL-02.4 -- the mechanical fields carry enums with a designated SUCCESS value. state_shape must be PASS, tree_diff_sha_match must be boolean true, trace_validation must not be fail. A run failing any of these cannot count toward a PASS verdict.",
+```
+
+From `docs/design/b3-ground-truth/SPOT-CHECK-v2.10-phase41.md` §12, quoted as raw bytes:
+
+```
+confirms the artifact with `batchsnap.py check-pass`. The owner reviews it.
+```
+
+**Evidence:**
+
+- The five runs are `runs-v2.10-phase41/final/should-quiet-3/run-1`, `should-quiet-3/run-2`,
+  `should-quiet-1/run-1`, `should-quiet-1/run-2` and `should-quiet-1/run-3`. For each,
+  `state_shape.py <state.json> --schema future --all` reports exactly one reason:
+  `missing required root key: medium_acknowledgments`. The sixth run, `should-quiet-3/run-3`, is
+  shape PASS. Every run has `tree_diff_sha_match: true` and `trace_validation: not-applicable`.
+- Cause: `plugins/vibe-check/phases/review/45-persist.md` only said "Append to `state.passes`, write
+  to state file". It never told the model to create the root `medium_acknowledgments` key when it
+  creates a NEW state file, while `scripts/fixtures/future-schema.json` `root_required` demands it.
+  So the key was present on a fresh-state run only when the model happened to add it. The Phase-40
+  runs happened to include it, and the batch-3 snapshot prose had the same gap, so this is a
+  pre-existing gap, not a Wave-1 regression.
+- The key does not touch the measured quantity. The sealed D-08 FP predicate reads only the bands
+  of `passes[-1].findings[]` (a run is FP iff any survivor has band `critical` or `warning`).
+  `medium_acknowledgments` is a root-level map of Finalize dismissals and is empty on a fresh state
+  either way. Every one of the five runs has a complete, schema-valid `passes[-1]`.
+- `batchsnap.py check-pass` on the adjudicated `final/PASS.json` exits 1, and its ONLY reasons
+  are the five `state_shape recorded a failure: FAIL (run N)` lines (runs 0, 1, 3, 4, 5 by array
+  index).
+- The gap is fixed going forward in the same plan (41-08): `45-persist.md` now states the full
+  new-state root (`{"medium_acknowledgments": {}, "passes": []}`) and tells existing state files to
+  keep their root keys. `test_state_shape.py` `TestPersistProseCreatesFutureRoot` parses that block
+  and checks it against `root_required`. The immutable snapshot the runs used is not touched.
+
+**Effect:**
+
+1. The five named runs count toward the Phase-41 D-11 verdict: observed 3/6 FP runs vs predicted
+   5 → PASS. Their adjudications (`clean` / `fp`) are derived from `passes[-1].findings[]` bands
+   exactly as for a shape-PASS run.
+2. `state_shape` stays `FAIL` for those five runs in `final/PASS.json`. It is never rewritten to
+   PASS. `PASS.json` carries a `state_shape_waiver` key citing this entry.
+3. `batchsnap.py check-pass` exits non-zero on this artifact by design, for this check only.
+   `check-pass` and `batch-manifest-schema.json` are NOT modified. The waiver is this ledger entry,
+   not a code change.
+4. The waiver covers only these five runs and only the missing `medium_acknowledgments` root key.
+   Any other `state_shape` reason, and any future run (including Phase 43), is judged by the
+   unchanged rule.
+
+**Sign-off:** owner decision 2026-09-29 (AskUserQuestion, option "Count them + fix the bug"), taken
+after the six runs were archived and the mechanical verdict read FAIL only on `state_shape`.
+Recorded by the assistant.
