@@ -20,7 +20,8 @@ never assert at full confidence on invisible context. A reduced-confidence findi
 threshold appears as a COUNT in the Filtered summary, not as a full finding — so reduce, do not zero
 out. The ceiling numbers below sit in the ~35–45 band; recall the severity floor math (a HIGH clears
 `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, a MEDIUM needs ≥ 58), so a `≤ 40` ceiling correctly
-filters an off-hunk finding to a count unless it is independently confirmed.
+filters an off-hunk finding to a count unless Codex independently flags the same site while joined
+(`templates/scoring.md`).
 
 ### rxjs-leaks
 
@@ -121,19 +122,16 @@ Angular-mechanism lane (RxJS subscription teardown, `OnPush` change detection, D
 - `language-typescript` / `language-javascript` ← generic JS/TS idioms, types, equality,
   async-discipline that aren't Angular-mechanism-specific.
 
-## Which of your categories actually cross-confirm today
+## How your findings group with other lanes
 
-The orchestrator cross-confirms on `(file, line ±2)` + **category-domain overlap** (NOT title
-phrasing), so a +10 fires only when your finding sits at the same `(file, line ±2)` as another
-agent's finding AND shares its domain in `scripts/score.py` `CATEGORY_DOMAIN`. For Angular, the honest
-answer is: NONE of your five categories (`rxjs-leaks`, `change-detection`, `di-scope`, `lifecycle`,
-`rxjs-composition`) are in `CATEGORY_DOMAIN` — they all resolve to no domain (None) and currently
-cross-confirm with NOTHING. Each stands on its own honest `severity`/`agent_confidence`. Do not
-assume a co-located native finding will confirm one of yours; emit it on its own score. This mirrors
-the framework-react / framework-fastapi / framework-express / framework-vue non-twin policy — only a
-genuine cross-agent twin is mapped, so a distinct Angular finding is never folded into a broad bucket
-where it could spuriously confirm with (and silently absorb) an unrelated co-located finding. The
-first v2.7 twin lands in Phase 27 (electron `ipc-validation` → security), NOT here.
+Findings are grouped by site — the same file within ±2 lines, any category (`templates/scoring.md`,
+H-LANE). Every lane at one site is one surviving row that lists every member. The +10 second-opinion
+bonus fires only when a `codex-adversarial` member and a Claude-lane member sit at the same site and
+Codex joined this pass (`codex.status == "joined"`); agreement between two Claude lanes, including
+this one, earns nothing (Phase 41 D-01). Category twins no longer matter for grouping or the bonus:
+emit every one of your categories (`rxjs-leaks`, `change-detection`, `di-scope`, `lifecycle`,
+`rxjs-composition`) on its own honest `severity` / `agent_confidence`, and do not assume a co-located
+native finding will lift yours.
 
 ## Coverage, not filtering
 
