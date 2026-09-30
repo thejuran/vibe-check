@@ -58,7 +58,8 @@ protection, leaving a path it used to guard without it, is in-hunk evidence by i
 autoescape switched off, a validator deleted with nothing taking its place, a check made
 conditional on fragile configuration — and belongs at 90+, not under the sensitive-area cap. A
 validator moved into shared middleware or an upstream layer that every path still passes through
-is not a removal; see Safe-change recognition below.
+is not a removal only when you name that replacement at `file:line` and have read it; see
+Safe-change recognition below.
 Do not default to 95 or 98: an uncalibrated 95 lands in the enforcement bands (`blocks finalize,
 no acknowledgment path`) on the strength of an assumption.
 
@@ -94,9 +95,11 @@ control, or makes it depend on fragile or version-dependent configuration, IS a 
 defect on a changed line when a path the control used to protect is left without it. Report it at
 your honest confidence; no cap applies. A control moved rather than lost — the same check now
 enforced by shared middleware, a decorator, a schema or an upstream layer that every path to the
-old site still passes through — is not a removal: look for the replacement before reporting, and
-when you cannot tell whether one covers every path the old check guarded, report under the
-sensitive-area cap below with `pending: confirm no replacement covers <path>`.
+old site still passes through — is not a removal only when you name that replacement at
+`file:line`, have read it, and it covers every path the old check guarded. A claimed move is never
+a silent drop: when the replacement is not named, not read, or its coverage of every path is
+uncertain, report under the sensitive-area cap below with
+`pending: confirm no replacement covers <path>`.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
 touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and

@@ -284,6 +284,8 @@ FOCUS_TOKENS = (
     "demonstrably fails to block",
     "severity low",
     "moved rather than lost",
+    "only when you name that replacement at file:line, have read it",
+    "A claimed move is never a silent drop",
 )
 
 # The literal is single-quoted in bash: a quote would end it, `$` or a backtick
@@ -386,11 +388,13 @@ def cap_never_warns(cap, consts, severity):
 # --------------------------------------------------------------------------- #
 # Safe-change recognition block (bugs, security, impact)
 # --------------------------------------------------------------------------- #
-# The eighteen clauses of the shared block, verbatim after whitespace
+# The nineteen clauses of the shared block, verbatim after whitespace
 # normalization (case-sensitive). Index order is relied on by the tests:
 # [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
 # sentence, [12] the no-repository-occurrence clause, [17] the moved-not-lost
-# clause (a control relocated to shared middleware is not a removal).
+# clause (a relocated control is not a removal only when the reviewer names the
+# replacement at file:line and has read it), [18] the never-a-silent-drop
+# clause (an unconfirmed move is reported under the cap, never dropped).
 SAFE_CHANGE_CLAUSES = (
     "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
     "safe on the axis it tightens.",
@@ -423,7 +427,11 @@ SAFE_CHANGE_CLAUSES = (
     "`pending: <what would demonstrate a bypass>`)",
     "A control moved rather than lost — the same check now enforced by shared middleware, a "
     "decorator, a schema or an upstream layer that every path to the old site still passes "
-    "through — is not a removal",
+    "through — is not a removal only when you name that replacement at `file:line`, have read "
+    "it, and it covers every path the old check guarded.",
+    "A claimed move is never a silent drop: when the replacement is not named, not read, or its "
+    "coverage of every path is uncertain, report under the sensitive-area cap below with "
+    "`pending: confirm no replacement covers <path>`.",
 )
 
 # Substrings the block must never carry: a repository-occurrence requirement
@@ -886,7 +894,7 @@ class TestLoudLaneBlock(unittest.TestCase):
                                 text.index("## Coverage, not filtering"))
 
     def test_all_clauses_present(self):
-        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 18)
+        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 19)
         for lane in LOUD:
             with self.subTest(lane=lane):
                 self.assertEqual(missing_clauses(_block(lane), SAFE_CHANGE_CLAUSES), [])
@@ -986,6 +994,19 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [c11])
         dropped = self.bugs.replace(norm(moved), "")
         self.assertEqual(missing_clauses(dropped, SAFE_CHANGE_CLAUSES), [moved])
+
+    def test_unnamed_replacement_exemption_is_caught(self):
+        # A move judged on belief alone (no named, read replacement) must not
+        # exempt the removal, and an unconfirmed move must stay reported.
+        moved, never_drop = SAFE_CHANGE_CLAUSES[17], SAFE_CHANGE_CLAUSES[18]
+        planted = self.bugs.replace(
+            "only when you name that replacement at `file:line`, have read it, and it covers "
+            "every path the old check guarded.", ": look for the replacement before reporting.")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [moved])
+        silenced = self.bugs.replace(norm(never_drop), "Such a move is not reported.")
+        self.assertNotEqual(silenced, self.bugs)
+        self.assertEqual(missing_clauses(silenced, SAFE_CHANGE_CLAUSES), [never_drop])
 
     def test_drifted_copy_is_caught(self):
         drifted = norm(_block("security")) + " extra"
@@ -1153,7 +1174,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         # _literal() always returns a str (a missing file raises in read()), so
         # the live check is non-emptiness, not None-ness.
         self.assertTrue(lit.strip())
-        self.assertEqual(len(FOCUS_TOKENS), 15)
+        self.assertEqual(len(FOCUS_TOKENS), 17)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertEqual(focus_repeat_shortfalls(lit), [])
 
@@ -1217,6 +1238,18 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertIs(kickoff_reads_focus_file(unguarded), False)
         planted_literal = k + "\nCODEX_FOCUS='stale copy'\n"
         self.assertIs(kickoff_reads_focus_file(planted_literal), False)
+
+    def test_unnamed_replacement_in_literal_trips(self):
+        lit = _literal()
+        planted = lit.replace(
+            "only when you name that replacement at file:line, have read it, and it covers "
+            "every path the old check guarded.", ": look for the replacement before reporting.")
+        self.assertNotEqual(planted, lit)
+        self.assertEqual(missing_focus_tokens(planted),
+                         ["only when you name that replacement at file:line, have read it"])
+        silenced = lit.replace("A claimed move is never a silent drop", "A claimed move is fine")
+        self.assertNotEqual(silenced, lit)
+        self.assertEqual(missing_focus_tokens(silenced), ["A claimed move is never a silent drop"])
 
     def test_focus_gate_regressions_trip(self):
         k = _kickoff()
