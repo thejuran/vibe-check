@@ -519,7 +519,8 @@ The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
   an input, wrapping output in an existing sanitizer or escaper, adding a bound or finite-only
   check to a numeric field, and routing an input through an existing clamping/parse helper.
 - **A sensitive-area ceiling.** A finding whose only basis is that the changed code touches a
-  sensitive area (auth, secrets, SSRF, injection, logging, validation), with no defect demonstrated
+  sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization), with no
+  defect demonstrated
   on a changed line, is still reported, but capped at `agent_confidence ≤ 45` with
   `severity: low` and a note saying what would demonstrate it.
 - **The lift condition.** The cap lifts only for a concrete bypass: a specific input AND the path
@@ -527,9 +528,17 @@ The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
   allowed, in a case the diff never addressed, is a pre-existing gap and stays capped. A
   demonstrated failure of the new control's intended protection is exempt from that rule and lifts
   the cap.
-- **Removal or loosening IS a defect.** A diff that removes, reverts, loosens, disables or bypasses
-  an existing control, or makes it depend on fragile or version-dependent configuration, is the
-  demonstrated defect and is reported at honest confidence. The ceiling does not apply.
+- **Removal or loosening IS a defect when a protected path is left without the control.** A diff
+  that removes, reverts, loosens, disables or bypasses a control, or makes it depend on fragile or
+  version-dependent configuration, IS a demonstrated defect on a changed line when a path the
+  control used to protect is left without it. It is reported at honest confidence; the ceiling does
+  not apply. A control moved rather than lost — the same check now enforced by shared middleware, a
+  decorator, a schema or an upstream layer that every path to the old site still passes through —
+  is not a removal only when the reviewer names that replacement at `file:line`, has read it, and
+  it covers every path the old check guarded. A claimed move is never a silent drop: when the
+  replacement is not named, not read, or its coverage of every path is uncertain, the finding is
+  reported under the sensitive-area cap with `pending: confirm no replacement covers <path>` (in
+  the Codex literal: at or below 0.45 confidence with severity low, saying what would confirm it).
 - **Security confidence anchors.** The security prompt gets the calibrated confidence scale the
   bugs and impact prompts already had, so the ceiling sits on a defined scale.
 - **A fixed Codex calibration literal.** `phases/deep-review/2c-codex-kickoff.md` reads
@@ -556,6 +565,17 @@ it is attributed to the Claude-lane prompt changes, the Phase-41 scorer, or run-
 Phase 43's single allowed retune (D-03) is the safety net if the focus text turns out to narrow
 Codex's attention. No offline replay can predict this effect, because replays re-score archived
 findings and cannot re-run Codex against a new prompt (D-08).
+
+**The removal rule gained a qualifier in Phase 42.** Removal or loosening is a defect only when a
+protected path is left without the control, and a control moved to a named, read replacement that
+covers every path is not a removal. This qualifier is in the bugs, security and impact prompts AND
+in the Codex focus text, so it reaches every Claude lane that carries the safe-change block and
+Codex on every diff. The catch diffs are, for the most part, literally removals or loosenings of a
+control, so this qualifier can move catch results directly: a lane that wrongly judges a control
+"moved" would cap a real removal at `≤ 45` / `severity: low` (never drop it, but keep it below the
+Warning band). Therefore **any catch regression in Phase 43 must also be examined against this
+qualifier**, alongside the Codex focus change, before it is attributed to anything else. Look for
+capped findings carrying `pending: confirm no replacement covers <path>` on a catch diff.
 
 ## Expected residuals (not claimed as fixed)
 
@@ -597,6 +617,8 @@ findings and cannot re-run Codex against a new prompt (D-08).
   identifier leaked into a prompt, and that no stale +10 prose remains. They cannot show that a
   model obeys the wording. Only Phase 43 can.
 - **The Codex focus change is a confound** on both catch and quiet diffs (see above).
+- **The removal qualifier (moved-control exemption) is a confound** on catch diffs for every lane
+  that carries it, Claude and Codex alike (see above).
 
 ## Plain-language summary (for the owner)
 
