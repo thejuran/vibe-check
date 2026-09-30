@@ -21,8 +21,9 @@ keeps existing) is a test that reads the prose. This module holds those locks:
 * Location-keyed ceilings. No loud lane caps confidence on WHERE evidence sits
   (off-hunk / in-hunk) instead of whether it was verified; the security, bugs
   and impact anchors key on unverified or unread evidence.
-* Codex focus literal. The kickoff passes "$CODEX_FOCUS" on the exact ARGS
-  line; the literal carries every calibration token, states the exemption
+* Codex focus literal. The text lives in templates/codex-focus.txt; the kickoff
+  reads it with cat (skipping the launch on an empty read, never retyping it)
+  and passes "$CODEX_FOCUS" on the exact ARGS line; the text carries every calibration token, states the exemption
   after the pre-existing-gap cap, has no shell metacharacters, and its 0.45
   ceilings are non-blocking at severity low. The contract documents it.
 * Retired +10 prose. No file in agents/ or phases/deep-review/ describes a
@@ -86,7 +87,8 @@ def read(relpath):
 
 def prose_corpus():
     """Every prompt/prose file the agents or orchestrator read: {relpath: text}."""
-    patterns = ("agents/*.md", "commands/*.md", "phases/**/*.md", "templates/*.md")
+    patterns = ("agents/*.md", "commands/*.md", "phases/**/*.md", "templates/*.md",
+                "templates/*.txt")
     corpus = {}
     for pat in patterns:
         for path in glob.glob(os.path.join(PLUGIN_ROOT, pat), recursive=True):
@@ -189,16 +191,9 @@ def missing_clauses(section_text, clauses):
     return [c for c in clauses if norm(c) not in hay]
 
 
-def focus_literal(kickoff_text):
-    """Contents of the first CODEX_FOCUS='...' literal, or None.
-
-    The literal runs to the first single quote that ends a line, not to the
-    first single quote: a stray apostrophe inside the text would end the bash
-    literal early, so it must land IN the extracted literal where the
-    forbidden-character lock can see it.
-    """
-    m = re.search(r"CODEX_FOCUS='(.*?)'[ \t]*$", kickoff_text, re.DOTALL | re.MULTILINE)
-    return None if m is None else m.group(1)
+def focus_text(file_text):
+    """What `CODEX_FOCUS=$(cat <file>)` holds: the file with trailing newlines stripped."""
+    return file_text.rstrip("\n")
 
 
 _CAP = re.compile(
@@ -314,6 +309,26 @@ def focus_repeat_shortfalls(literal):
 def focus_forbidden_hits(literal):
     """FOCUS_FORBIDDEN substrings present in `literal`."""
     return [t for t in FOCUS_FORBIDDEN if t in (literal or "")]
+
+
+FOCUS_FILE = "templates/codex-focus.txt"
+FOCUS_READ_LINE = 'CODEX_FOCUS=$(cat "$VC_ROOT/templates/codex-focus.txt" 2>/dev/null)'
+FOCUS_GUARD_LINE = ('if [ -z "$CODEX_FOCUS" ]; then echo __CODEX_FOCUS_MISSING__; '
+                    'CODEX_ACTION=skip; fi')
+
+
+def kickoff_reads_focus_file(kickoff_text):
+    """The launch reads the focus text from FOCUS_FILE, skips on an empty read,
+    and no inline CODEX_FOCUS='...' literal remains to be retyped."""
+    lines = [ln.strip() for ln in kickoff_text.splitlines()]
+    if FOCUS_READ_LINE not in lines or FOCUS_GUARD_LINE not in lines:
+        return False
+    if "CODEX_FOCUS='" in kickoff_text:
+        return False
+    read_at, guard_at = lines.index(FOCUS_READ_LINE), lines.index(FOCUS_GUARD_LINE)
+    args = [i for i, ln in enumerate(lines)
+            if ln == 'ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")']
+    return bool(args) and read_at < guard_at < args[0]
 
 
 def args_line_ok(kickoff_text):
@@ -730,16 +745,11 @@ class TestMissingClauses(unittest.TestCase):
         self.assertEqual(missing_clauses("## X\nalpha\nbeta", ("alpha beta",)), [])
 
 
-class TestFocusLiteral(unittest.TestCase):
-    def test_extracts_single_quoted_literal(self):
-        self.assertEqual(focus_literal("x\nCODEX_FOCUS='hello world'\nARGS=(...)"),
-                         "hello world")
-        self.assertEqual(focus_literal("CODEX_FOCUS='wrapped\nliteral'"),
-                         "wrapped\nliteral")
-        self.assertIsNone(focus_literal("no literal here"))
-
-    def test_apostrophe_is_kept_in_the_literal(self):
-        self.assertEqual(focus_literal("CODEX_FOCUS='do not skip what isn't shown'\nARGS=(...)"),
+class TestFocusText(unittest.TestCase):
+    def test_strips_trailing_newlines_like_command_substitution(self):
+        self.assertEqual(focus_text("hello world\n"), "hello world")
+        self.assertEqual(focus_text("wrapped\nliteral\n\n"), "wrapped\nliteral")
+        self.assertEqual(focus_text("do not skip what isn't shown\n"),
                          "do not skip what isn't shown")
 
 
@@ -1086,7 +1096,7 @@ def _kickoff():
 
 
 def _literal():
-    return focus_literal(_kickoff())
+    return focus_text(read(FOCUS_FILE))
 
 
 class TestKickoffCarriesFocus(unittest.TestCase):
@@ -1095,6 +1105,11 @@ class TestKickoffCarriesFocus(unittest.TestCase):
 
     def test_args_line_exact(self):
         self.assertIs(args_line_ok(_kickoff()), True)
+
+    def test_kickoff_reads_focus_from_file(self):
+        self.assertIs(kickoff_reads_focus_file(_kickoff()), True)
+        # Echoed by the guard line AND handled as a skip in the prose after the block.
+        self.assertGreaterEqual(_kickoff().count("__CODEX_FOCUS_MISSING__"), 2)
 
     def test_literal_tokens(self):
         lit = _literal()
@@ -1123,7 +1138,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         for ch in ("$", "`", "'"):
             with self.subTest(ch=ch):
                 self.assertNotIn(ch, lit)
-        self.assertEqual(_kickoff().count("CODEX_FOCUS='"), 1)
+        self.assertNotIn("CODEX_FOCUS='", _kickoff())
 
     def test_literal_has_no_repository_occurrence_requirement(self):
         lit = _literal()
@@ -1144,17 +1159,25 @@ class TestKickoffCarriesFocus(unittest.TestCase):
 
 class TestKickoffMutation(unittest.TestCase):
     def test_planted_interpolation_trips(self):
-        lit = focus_literal("CODEX_FOCUS='rules $DIFF here'")
-        self.assertIn("$", lit)
-        self.assertIn("$", focus_forbidden_hits(lit))
+        self.assertIn("$", focus_forbidden_hits(focus_text("rules $DIFF here\n")))
 
     def test_planted_apostrophe_in_real_literal_trips(self):
         real = _literal()
-        planted = _kickoff().replace(real, real[:-1] + " it isn't a defect.")
-        self.assertNotEqual(planted, _kickoff())
-        lit = focus_literal(planted)
-        self.assertIn("'", lit)
-        self.assertIn("'", focus_forbidden_hits(lit))
+        planted = focus_text(real[:-1] + " it isn't a defect.\n")
+        self.assertNotEqual(planted, real)
+        self.assertEqual(focus_forbidden_hits(real), [])
+        self.assertIn("'", focus_forbidden_hits(planted))
+
+    def test_reinlined_or_unguarded_focus_trips(self):
+        k = _kickoff()
+        inlined = k.replace(FOCUS_READ_LINE, "CODEX_FOCUS='" + _literal() + "'")
+        self.assertNotEqual(inlined, k)
+        self.assertIs(kickoff_reads_focus_file(inlined), False)
+        unguarded = k.replace(FOCUS_GUARD_LINE, "")
+        self.assertNotEqual(unguarded, k)
+        self.assertIs(kickoff_reads_focus_file(unguarded), False)
+        planted_literal = k + "\nCODEX_FOCUS='stale copy'\n"
+        self.assertIs(kickoff_reads_focus_file(planted_literal), False)
 
     def test_missing_args_arg_trips(self):
         text = _kickoff().replace(ARGS_LINE, OLD_ARGS_LINE)
@@ -1163,7 +1186,7 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertIs(args_line_ok(_kickoff() + "\n" + OLD_ARGS_LINE), False)
 
     def test_planted_repo_occurrence_in_literal_trips(self):
-        lit = focus_literal("CODEX_FOCUS='unless you cite a concrete in-repo value'")
+        lit = focus_text("unless you cite a concrete in-repo value\n")
         self.assertIn("in-repo", lit)
         self.assertEqual(focus_forbidden_hits(lit), ["in-repo"])
 

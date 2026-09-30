@@ -72,7 +72,7 @@ The remaining schema fields are **not** Codex's to supply — the orchestrator c
 
 ## Calibration reaches Codex through the kickoff focus text (Phase 42)
 
-Translation is deterministic Python (`scripts/codex_translate.py`), and this contract is not read at runtime. So the safe-change rule and the sensitive-area ceiling reach Codex ONLY through the fixed `CODEX_FOCUS` literal in `phases/deep-review/2c-codex-kickoff.md`, which the companion places in its prompt's `User focus` slot. The literal is worded as calibration rules for every finding, not as a topic, so Codex still reviews the whole change.
+Translation is deterministic Python (`scripts/codex_translate.py`), and this contract is not read at runtime. So the safe-change rule and the sensitive-area ceiling reach Codex ONLY through the fixed `CODEX_FOCUS` text, kept in `templates/codex-focus.txt` and read byte-for-byte by `phases/deep-review/2c-codex-kickoff.md` at launch (an unreadable file skips the launch), which the companion places in its prompt's `User focus` slot. The literal is worded as calibration rules for every finding, not as a topic, so Codex still reviews the whole change.
 
 - Codex's `confidence ≤ 0.45` maps verbatim to `agent_confidence ≤ 45`, and the literal's "severity low" maps verbatim to `severity: "low"` (−20). A lone Codex sensitive-area note therefore scores ≤ 45, below the Medium floor.
 - The "Verbatim; no floor, no penalty" row above stays true: no Codex-specific scoring adjustment exists. The ceiling is Codex's own calibration, carried by the literal.

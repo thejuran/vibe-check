@@ -532,8 +532,9 @@ The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
   demonstrated defect and is reported at honest confidence. The ceiling does not apply.
 - **Security confidence anchors.** The security prompt gets the calibrated confidence scale the
   bugs and impact prompts already had, so the ceiling sits on a defined scale.
-- **A fixed Codex calibration literal.** `phases/deep-review/2c-codex-kickoff.md` defines
-  `CODEX_FOCUS` as a fixed, single-quoted constant and passes it as the last argument to the Codex
+- **A fixed Codex calibration literal.** `phases/deep-review/2c-codex-kickoff.md` reads
+  `CODEX_FOCUS` byte-for-byte from the fixed file `templates/codex-focus.txt` (skipping the launch
+  if it cannot be read) and passes it as the last argument to the Codex
   `adversarial-review` call. It carries the same safe-change rule and ceiling, in Codex's own
   confidence unit (`≤ 0.45`), phrased as calibration rules for every finding rather than a focus
   area.
