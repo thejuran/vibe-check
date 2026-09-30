@@ -502,3 +502,110 @@ the roonseek improvement can be credited to this phase.
 scoring cannot touch, such as reviewers reaching outside the diff or complaining that a feature
 is unfinished. Then Phase 43 runs the full set three times and judges the result against the
 sealed target for the first time.
+
+# B3 v2.10 — Phase 42 Wave 2 (prompt-only) pre-registration
+
+**Headline: no measurement in this section.** Wave 2 changes only reviewer prompts and orchestrator
+prose. It is written down here, before any Phase 43 run, so that the Phase 43 comparison can be
+read honestly: what changed, which change can move the catch rate as well as the false-alarm rate,
+which false alarms are expected to remain, and what must be true before a measured run starts.
+The sealed pass bar is **not evaluated** here. It is judged once, in Phase 43.
+
+## What changed (Wave 2, prompts only)
+
+- **A shared "Safe-change recognition" block in the bugs, security and impact prompts.** When a
+  diff *tightens* a control (it reduces what can get through), the lane treats it as presumptively
+  safe **on that axis**. Four generic classes are named: adding an allowlist/denylist validator on
+  an input, wrapping output in an existing sanitizer or escaper, adding a bound or finite-only
+  check to a numeric field, and routing an input through an existing clamping/parse helper.
+- **A sensitive-area ceiling.** A finding whose only basis is that the changed code touches a
+  sensitive area (auth, secrets, SSRF, injection, logging, validation), with no defect demonstrated
+  on a changed line, is still reported, but capped at `agent_confidence ≤ 45` with
+  `severity: low` and a note saying what would demonstrate it.
+- **The lift condition.** The cap lifts only for a concrete bypass: a specific input AND the path
+  by which it defeats the new check, cited at `file:line`. A bypass the pre-change code equally
+  allowed, in a case the diff never addressed, is a pre-existing gap and stays capped. A
+  demonstrated failure of the new control's intended protection is exempt from that rule and lifts
+  the cap.
+- **Removal or loosening IS a defect.** A diff that removes, reverts, loosens, disables or bypasses
+  an existing control, or makes it depend on fragile or version-dependent configuration, is the
+  demonstrated defect and is reported at honest confidence. The ceiling does not apply.
+- **Security confidence anchors.** The security prompt gets the calibrated confidence scale the
+  bugs and impact prompts already had, so the ceiling sits on a defined scale.
+- **A fixed Codex calibration literal.** `phases/deep-review/2c-codex-kickoff.md` defines
+  `CODEX_FOCUS` as a fixed, single-quoted constant and passes it as the last argument to the Codex
+  `adversarial-review` call. It carries the same safe-change rule and ceiling, in Codex's own
+  confidence unit (`≤ 0.45`), phrased as calibration rules for every finding rather than a focus
+  area.
+- **The stale +10 prose sweep (D-06).** Prompt and orchestrator prose that still described the
+  retired same-domain +10 rule now matches the Phase-41 scorer: grouping is by site only, and +10
+  fires only for a Codex member plus a Claude-lane member while Codex is joined.
+- **Unchanged (R7):** `scripts/score.py`, `scripts/test_score.py`, `scripts/config.py` and
+  `scripts/codex_translate.py`. The Codex translation stays verbatim; no scorer constant moved.
+
+## Pre-registered confound (before any Phase 43 run)
+
+**The Codex focus text changed in Phase 42.** The companion injects `CODEX_FOCUS` into Codex's
+prompt on EVERY diff, not only on the quiet ones. So it can move catch-diff results as well as
+quiet-diff results. Codex matters on the catch side: 21 of the 26 protected catch runs carry a
+Codex member, and in 2 v2.9 runs Codex is the only lane that names the right axis.
+
+Therefore: **any catch regression in Phase 43 must be examined against this change first**, before
+it is attributed to the Claude-lane prompt changes, the Phase-41 scorer, or run-to-run variance.
+Phase 43's single allowed retune (D-03) is the safety net if the focus text turns out to narrow
+Codex's attention. No offline replay can predict this effect, because replays re-score archived
+findings and cannot re-run Codex against a new prompt (D-08).
+
+## Expected residuals (not claimed as fixed)
+
+- **should-quiet-6 (feature-incompleteness framing).** The dominant alarm is "declared but never
+  wired": a value added in one step of a staged change whose consumer is not in the diff. It is a
+  concrete claim, not a sensitive-area note, so the ceiling does not touch it. The owner scoped it
+  out of Phase 42; it is recorded as backlog 999.19. Expected: should-quiet-6 likely stays 3/3.
+- **should-quiet-1 (pre-existing bypass framing).** Its recurring alarms name concrete inputs the
+  pre-change code equally allowed. Those are now capped as pre-existing gaps, but no live run has
+  confirmed the lanes follow that rule.
+- **should-quiet-4 (the tightening's intended consequence flagged on another axis).** "The new
+  validator rejects a value the old code accepted" gets a consequence-of-tightening clause; our
+  confidence that this clears it is MEDIUM. The broader "stricter validator breaks a legacy
+  config" class is also in backlog 999.19.
+- **How loud a capped note can get.** Capped notes carry `severity: low`. A Claude note at ≤ 45
+  paired with a Codex note at ≤ 45 while Codex is joined scores 55, which is filtered (not the 75 /
+  Medium the research first computed at critical severity). The worst reachable path is a capped
+  note carried as a member of a surviving row, then persisted AND re-corroborated on the next pass:
+  it tops out at 70, the Medium floor, which is acknowledgeable and never Warning.
+  `scripts/test_agent_prompts.py` proves this by driving the real scorer over two passes.
+
+## Phase-43 pre-flight carries
+
+- **Resync the installed plugin cache and relaunch before any measured run.** Agents dispatch from
+  the installed cache, not the repo, so the Wave-2 prompts are inert until the cache is resynced
+  and the process relaunched. Verify the installed version matches the repo before the first
+  session.
+- **Standing carries from Phase 41** (`41-deferred-items`): fix the Codex `BashOutput` launch gate;
+  put the `--model` pin into the runbook's launch line; archive the raw agent envelope per run; add
+  a voided-attempt step to the runbook; check context headroom before the ×3 sessions and record
+  it in the fingerprint block.
+
+## Honest limitations
+
+- **No live spot-check in Phase 42 (D-08).** Prompt changes cannot be replayed offline, and the
+  owner-run budget is reserved for Phase 43's full ×3 measurement.
+- **Prompt-lock tests prove presence of wording, not model behavior.** The Phase-42 tests show that
+  each loud lane carries the rule, the ceiling, the lift condition and the classes, that no B3
+  identifier leaked into a prompt, and that no stale +10 prose remains. They cannot show that a
+  model obeys the wording. Only Phase 43 can.
+- **The Codex focus change is a confound** on both catch and quiet diffs (see above).
+
+## Plain-language summary (for the owner)
+
+This phase changed what the reviewers are told, not how their findings are scored. The main new
+rule: when a change makes a check stricter, reviewers should not raise a loud alarm just because the
+area is sensitive; they can leave a quiet note unless they can show exactly how the new check is
+beaten. Removing or weakening a check is still treated as a real problem.
+
+One change needs flagging before the big measurement: Codex now gets a short fixed instruction on
+every review, including the reviews where we expect it to catch a real bug. If Phase 43 shows a
+lost catch, that instruction is the first suspect. Two kinds of false alarm ("this setting isn't
+used yet" and "the stricter check rejects an old value") were deliberately left for later, so at
+least one clean diff is expected to keep raising an alarm.
