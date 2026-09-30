@@ -42,6 +42,19 @@ The `codex` record has exactly these four keys and no others. A `/review` pass t
 
 If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/45-persist-all.md** with the Read tool before continuing — it adds the capped-run facts to THIS pass entry. On a plain diff review, do not read it.
 
+**New state file.** If the state file does not exist yet, create it with this exact root, then append the pass entry to its `passes` array. Both root keys are REQUIRED by `scripts/fixtures/future-schema.json` (`root_required`), and no other root key is allowed:
+
+````json
+{
+  "medium_acknowledgments": {},
+  "passes": []
+}
+````
+
+`medium_acknowledgments` is a JSON object (never an array, never omitted), keyed by a finding's `stable_hash` — Finalize writes each dismissal into it (`phases/shared/90-finalize.md`). A fresh state starts it as the empty object `{}`.
+
+**Existing state file.** Keep every root key it already has, unchanged — never drop, rename, or reset `medium_acknowledgments`. If an older file lacks `medium_acknowledgments`, add it as `{}`.
+
 Append to `state.passes`, write to state file. Create parent dirs as needed (`.turingmind/state/`).
 
 Optional: snapshot this run for debugging:

@@ -477,6 +477,56 @@ class TestClosedRoot(unittest.TestCase):
         self.assertEqual(state_shape.check_state({"passes": []}, ARCHIVE), [])
 
 
+class TestPersistProseCreatesFutureRoot(unittest.TestCase):
+    """45-persist.md must tell the model to create EVERY future-schema root key.
+
+    Before this lock, the persist prose only said "append to state.passes", so a
+    fresh state file carried `medium_acknowledgments` only when the model happened
+    to add it, and `state_shape.py --schema future` failed on the rest. The test
+    parses the new-state-file JSON block out of the prose and checks it against
+    `root_required`, so the prose and the schema cannot drift apart silently.
+    """
+
+    PERSIST_MD = os.path.join(HERE, "..", "phases", "review", "45-persist.md")
+    MARKER = "**New state file.**"
+
+    def _prose(self):
+        with open(self.PERSIST_MD) as fh:
+            return fh.read()
+
+    def _new_state_root(self):
+        text = self._prose()
+        self.assertEqual(text.count(self.MARKER), 1,
+                         "45-persist.md must state the new-state-file root exactly once")
+        after = text.split(self.MARKER, 1)[1]
+        # the next fenced json block after the marker (fence of 3+ backticks)
+        match = re.search(r"(`{3,})json\n(.*?)\n\1", after, re.S)
+        self.assertIsNotNone(match, "no fenced json root block after the marker")
+        return json.loads(match.group(2))
+
+    def test_new_state_root_is_exactly_root_required(self):
+        root = self._new_state_root()
+        self.assertEqual(sorted(root), sorted(FUTURE["root_required"]))
+        self.assertTrue(FUTURE["root_closed"])
+
+    def test_medium_acknowledgments_starts_as_empty_object(self):
+        # Finalize writes medium_acknowledgments[<stable_hash>] = {...}: an object.
+        root = self._new_state_root()
+        self.assertEqual(root["medium_acknowledgments"], {})
+        self.assertEqual(root["passes"], [])
+
+    def test_fresh_root_plus_a_pass_satisfies_future_schema(self):
+        root = self._new_state_root()
+        root["passes"].append(make_pass())
+        self.assertEqual(state_shape.check_state(root, FUTURE), [])
+
+    def test_existing_state_keeps_its_root_keys(self):
+        text = self._prose()
+        self.assertIn("**Existing state file.**", text)
+        self.assertIn("never drop, rename, or reset `medium_acknowledgments`", text)
+        self.assertIn("If an older file lacks `medium_acknowledgments`, add it as `{}`", text)
+
+
 class TestCodexCanonicalShape(unittest.TestCase):
     """F14 -- key presence alone would accept the variability that killed byte equality.
 
