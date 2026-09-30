@@ -291,3 +291,214 @@ at least in half (to at most 9 of the 21 clean runs) without losing a single cat
 judging against that target in this phase; that judgement is deliberately held for later so nobody
 can be accused of picking a bar that the result happens to clear. This document is the anchor
 everything after it gets measured against.
+
+---
+
+# B3 v2.10 — Phase 41 Wave 1 (scorer) replay + spot-check
+
+**Headline: guardrail 25/26 protected catches kept under the combined Wave 1 (the 26th AMENDED per ledger 008, REGRESSED 0) · replay-predicted FP runs 16/18 → 14/18 · live spot-check 3/6 firing vs 5 predicted (PASS)** (no rounding — exact fractions).
+
+Wave 1 changes only the scorer (`scripts/score.py`), not any agent prompt. Each of the three
+changes was replayed offline against the archived B3 runs before it landed, then the combined
+scorer was checked live on a pair of clean diffs, six runs in total. Every number below is
+transcribed from the committed replay reports and from
+`docs/design/b3-ground-truth/runs-v2.10-phase41/final/PASS.json`, never re-derived here. The sealed
+pass bar (halve the false alarms, lose no catch) is **not evaluated** in this section. It is judged
+once, in Phase 43, after both waves.
+
+## What changed (Wave 1, scorer only)
+
+**B-SEV — no red critical from a single lane** (`c02d9b1`; alone: `docs/design/b3-ground-truth/REPLAY-REPORT-phase41-b-sev.md`).
+A finding group that has no second opinion is capped at the critical floor minus 1 (94 by default),
+so it bands Warning at most. A second opinion is Codex in the group while the envelope's
+`codex.status` is `joined`, or the finding persisting from an earlier pass. Warning still blocks
+finalize, so the cap lowers a label and never drops a finding.
+
+**B-REWEIGHT — derived, lower-only confidence offsets per agent** (`0ee3818`; alone:
+`docs/design/b3-ground-truth/REPLAY-REPORT-phase41-b-reweight.md`). Offsets come from each agent's
+labeled precision on the archived runs, shrunk toward the pool, and only ever lower confidence.
+Transcribed from `docs/design/b3-ground-truth/CALIBRATION-v2.10.md` § Derived offsets:
+
+| agent | offset | labeled n (TP / FP) |
+|---|---|---|
+| impact | −12 | 50 (24 / 26) |
+| architecture | −6 | 12 (6 / 6) |
+| bugs | −2 | 35 (22 / 13) |
+| codex-adversarial, compliance, security | 0 (above the pool; lower-only) | 22 / 7 / 17 |
+| framework-fastapi, language-typescript | 0 (n = 2 < 5, thin data) | 2 / 2 |
+
+**H-LANE — one row per site, every lane listed** (`ccf69fc`; alone:
+`docs/design/b3-ground-truth/REPLAY-REPORT-phase41-h-lane.md`). Findings at the same site (same
+file, ±2 lines, any category) collapse into one row that carries a `members` list of every lane
+that raised it. The +10 cross-confirm bonus now fires only for a Codex member plus a Claude-lane
+member while Codex joined (D-01). Two Claude lanes agreeing is not an independent second opinion.
+
+The formula freeze lifted for exactly these three changes (`templates/scoring.md` § Wave 1). No
+other constant moved; GOLDEN_DIGEST unchanged.
+
+## Replay method and fidelity (D-07)
+
+`scripts/replay.py` re-scores the archived runs through the baseline scorer blob (`b21f7f3d…`) and
+through each candidate. From `docs/design/b3-ground-truth/REPLAY-REPORT-phase41-baseline.md`:
+**56/66 exact** — 56 of the 66 scoreable archived runs are reproduced byte-exact by the baseline
+replay. The 10 drift runs, by path:
+
+- `runs-v2.10/should-quiet-1/run-2`, `runs/should-quiet-1/run-2`, `runs/should-quiet-1/run-3`,
+  `runs-v2.10/triggarr-settings-form-split/run-2`, `runs/triggarr-secret-in-logs/run-1`,
+  `runs/triggarr-secret-in-logs/run-2` — score/band moved
+- `runs-v2.10/should-quiet-7/run-1..3` — archived row not re-emitted
+- `runs/should-quiet-3/run-2` — stable_hash only (band and score multisets agree)
+
+Three causes sit behind the drift: the orchestrator set `in_diff` inconsistently in some archived
+runs; v2.9-era runs were grouped differently from today's scorer; and absorbed members were never
+archived. Every candidate is therefore compared against the **baseline replay**, never against the
+recorded bands. 12 of the 66 runs carry a session transcript (the Phase-40 archives); the other 54
+carry survivors only, so the findings the original scorer absorbed or dropped are unrecoverable for
+them. Deferred to the Phase-43 runbook: archive the raw agent envelopes per run so replays stop
+depending on transcripts.
+
+## Per-candidate replay (alone and combined)
+
+Transcribed from `REPLAY-REPORT-phase41-{b-sev,b-reweight,h-lane,combined}.md`. The headline FP
+set is Phase-38 should-quiet-1..6 ×3. Firing-row counts are over all replayed runs; the baseline
+firing set is 84 rows (44 critical / 40 warning, from the 41-04 record).
+
+| candidate | overrides | guardrail kept/26 | REGRESSED | UNEVALUABLE | headline FP baseline → candidate | critical/warning rows before → after |
+|---|---|---|---|---|---|---|
+| b-sev | `{}` (scorer at `c02d9b1`) | 25/26 (+1 AMENDED) | 0 | 0 | 16/18 → 16/18 | 44 / 40 → 3 / 81 |
+| b-reweight | `{"LONE_LANE_BAND_CEILING": null}` | 25/26 (+1 AMENDED) | 0 | 0 | 16/18 → 14/18 | 44 / 40 → 32 / 28 |
+| h-lane | `{"AGENT_CONFIDENCE_OFFSET": {}, "LONE_LANE_BAND_CEILING": null}` | 25/26 (+1 AMENDED) | 0 | 0 | 16/18 → 16/18 | 44 / 40 → 28 / 27 |
+| combined | `{}` | 25/26 (+1 AMENDED) | 0 | 0 | 16/18 → 14/18 | 44 / 40 → 8 / 27 |
+
+Only B-REWEIGHT moves the per-run FP rate. H-LANE collapses rows (84 → 55 alone, 84 → 35 combined)
+without quieting a run, and B-SEV recolors critical → warning without quieting a run. Phase-40
+should-quiet-5 stays **0/6 → 0/6** and the informational v2.9 quiet set **6/9 → 6/9** under every
+candidate.
+
+> Planned vs observed: the research predicted a combined headline of 12/18; the replay measured
+14/18, because the committed derivation gives smaller offsets (impact −12, not the indicative −18).
+Recorded as observed, not tuned (D-08).
+
+## Guardrail basis
+
+The guardrail runs on the strict-axis basis of `docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md`
+entry 007: a collapsed row counts as a catch when any member's title names the bug, not only the
+row's leading title. Under the combined candidate, 7 of the 25 kept catch runs are kept on the
+`member-title` basis (`REPLAY-REPORT-phase41-combined.md` § Guardrail). The baseline replay
+reproduces 25 of the 26 protected catches; the 26th, `runs/triggarr-secret-in-logs/run-2`, is
+AMENDED under ledger entry 008 (its archive is too thin to reconstruct) and passes through the
+guardrail unchanged. The sealed catch verdicts are untouched. Fidelity drift is disclosed in the
+method section above; it never removes a catch from the guardrail (D-05).
+
+## Live spot-check (SCORER-05)
+
+The pair was chosen by the D-16 rule from the combined replay
+(`docs/design/b3-ground-truth/SPOT-CHECK-v2.10-phase41.md` §3):
+
+| diff | baseline-replay fired /3 | combined fired /3 | movement | picked? |
+|---|---|---|---|---|
+| should-quiet-1 | 3/3 | 3/3 | 0 | **yes** (0-movement tie; lowest number) |
+| should-quiet-2 | 3/3 | 3/3 | 0 | no |
+| should-quiet-3 | 3/3 | 2/3 | **1** | **yes** (largest movement) |
+| should-quiet-4 | 3/3 | 3/3 | 0 | no |
+| should-quiet-5 | 1/3 | 0/3 | 1 | no (already 0/3 post-diet) |
+| should-quiet-6 | 3/3 | 3/3 | 0 | no |
+
+**Predicted FP count for the 6 runs = 5** (should-quiet-3 2/3 + should-quiet-1 3/3), fixed before
+run 1. The runs used the immutable snapshot `batch4-cd8f5b00de73` (commit `cd8f5b00`), Claude Code
+2.1.281, Fable 5.1, codex-cli 0.153.4. Per run, from `final/PASS.json` and each run's `state.json`:
+
+| diff | run | fired? | firing rows (agent band score) | codex | replay-agreement (info) |
+|---|---|---|---|---|---|
+| should-quiet-3 | 1 | no (clean) | none | joined (approve) | agrees (predicted quiet) |
+| should-quiet-3 | 2 | no (clean) | none | skipped (`unavailable`) | disagrees (predicted firing) |
+| should-quiet-3 | 3 | no (clean) | none | skipped (`unavailable`) | disagrees (predicted firing) |
+| should-quiet-1 | 1 | yes (fp) | bugs critical 100, security warning 88 | joined (needs-attention) | agrees |
+| should-quiet-1 | 2 | yes (fp) | impact critical 100 | joined (needs-attention) | agrees |
+| should-quiet-1 | 3 | yes (fp) | bugs warning 94, security warning 89 | joined (approve) | agrees |
+
+**Observed 3/6 firing vs predicted 5 → PASS (D-11).** D-12 was not needed. Every surviving row in
+all six runs carries `members`, confirming the Wave-1 scorer was live. Both criticals include a
+Codex member while Codex joined, the one path B-SEV allows. Per-run agreement with the replay is
+information, not the gate.
+
+- **Codex condition.** Codex joined in 4 runs and was skipped (`unavailable`) in should-quiet-3
+  runs 2 and 3. Under Claude Code 2.1.281 the `BashOutput` launch gate makes Codex joining depend
+  on the session's improvisation (a Phase-40 deferred item). The prediction assumed the archived
+  Codex condition. The two skipped runs are both quiet, but should-quiet-3 run 1 is quiet with
+  Codex joined, and should-quiet-3 is not a Codex-driven diff, so the skips do not explain the
+  result on their own.
+- **`state_shape` waiver (ledger entry 009).** Five runs record `state_shape: FAIL` for one reason
+  only: the state file is missing the root key `medium_acknowledgments`. The persist prose never
+  told the model to create that key on a new state file, so its presence was luck; this gap
+  predates Wave 1. The key is outside the measured quantity (the FP rule reads only the bands of
+  `passes[-1].findings`). By owner decision on 2026-09-29 the runs count, the recorded FAILs stay
+  in `PASS.json`, and `batchsnap.py check-pass` exits non-zero on this artifact by design (its only
+  reasons are those five failures). See `docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md` entry
+  009. The persist prose is fixed in the same plan (41-08), with a test that locks the new-state
+  root to the schema.
+- **Launch line.** The sessions were started with `--model claude-fable-5-1` added to the
+  runbook's launch line, because the pin is Fable 5 and the owner's default model had changed.
+  The fingerprint blocks record `model: Fable 5.1`, matching the pin.
+- **Context pressure.** Each run's session ran near 96–100% of the 200k context window. No run was
+  cut short, and each wrote a complete state and report, but the review ran close to its ceiling.
+- **Voided attempt.** should-quiet-3 run 3's first attempt was voided before any review ran (Fable
+  usage credits exhausted) and redone. Its empty auto-memory evidence folder was kept, renamed
+  `roonseek-written-before-sq3-run-3-voided-attempt`.
+
+## Honest limitations
+
+- **No Wave-1 FP target (D-08).** The sealed halving bar is **not evaluated** here. It is judged in
+  Phase 43, after both waves, on the full ×3 set. The replay's 14/18 and the live 3/6 are evidence
+  about direction, not a verdict against the bar.
+- **The prediction is pre-diet (Pitfall 5).** The replay re-scores Phase-38 runs, whose agents ran
+  the pre-diet prose. The live runs ran the post-diet (Phase 40) prose plus Wave 1. should-quiet-3
+  going 0/3 against a 2/3 prediction therefore cannot be credited to the scorer alone.
+- **should-quiet-6 is untouched by design.** Its byte-identical Codex critical in all three
+  baseline runs stays firing (now warning 94): D-01 keeps Codex as the independent voter. Whether
+  Codex's own contract should be ceilinged is Wave 2's question.
+- **Two agent-side FP shapes remain.** Out-of-diff reach and feature-incompleteness framing are
+  prompt problems for Phase 42; a scorer cannot fix them without guessing.
+- **Labels are a lower bound on precision.** Only axis-qualifying findings on catch runs count as
+  TP, so every agent's precision is undercounted (`CALIBRATION-v2.10.md` § Undercount).
+- **Small N.** Six live runs over two diffs.
+- **Harness confound.** Claude Code 2.1.281 vs the 2.1.261 baseline pin (ledger 006) remains a
+  named confound. Auto-memory was parked for these runs, while the Phase-38 baseline ran with
+  memory active.
+- **Codex was skipped in 2 of the 6 runs** (see above). Recorded, not voided (D-13).
+
+## Plain-language summary (for the owner)
+
+This phase changed only how the tool scores what its reviewers say, not what the reviewers look
+for. Three rules changed. A single reviewer can no longer raise a red "critical" on its own; it
+needs Codex agreeing, or the problem to still be there on a second pass. Reviewers that have been
+wrong a lot in the past (the "impact" and "architecture" reviewers especially) get their
+confidence trimmed by an amount worked out from their track record, not picked by hand. And when
+several reviewers flag the same line, you now get one row that lists all of them instead of three
+near-duplicate rows.
+
+**Nothing we already catch was lost.** We replayed every archived run that caught a real bug
+through the new scoring. All of them still catch it (one old run is too thinly archived to replay
+and is recorded as such).
+
+**On paper, false alarms went from 16 of 18 clean runs to 14 of 18.** Almost all of that comes
+from the confidence trimming. The other two rules make the report quieter and less alarming (far
+fewer red criticals, far fewer duplicate rows) but do not by themselves turn a noisy run into a
+silent one.
+
+**Then we checked it for real: 3 of 6 fresh runs raised an alarm, against a prediction of 5.** The
+roonseek diff went completely quiet in all three runs (predicted: quiet in one). The triggarr diff
+still fired all three times, as predicted; its alarms are driven by the "bugs" reviewer, which has
+a good track record, so the new scoring deliberately leaves it alone. That clears the check we set
+before the runs.
+
+Some caveats. Codex failed to join in two of the six runs. Five of the six saved results were
+missing a bookkeeping field unrelated to the alarm count; you decided to count them, the decision
+is on the record (ledger entry 009), and the underlying bug is fixed. The sessions ran very close
+to their memory limit. And the fresh runs also carry the earlier prompt slimming, so not all of
+the roonseek improvement can be credited to this phase.
+
+**What happens next:** Wave 2 changes the reviewer prompts themselves, to go after the alarms the
+scoring cannot touch, such as reviewers reaching outside the diff or complaining that a feature
+is unfinished. Then Phase 43 runs the full set three times and judges the result against the
+sealed target for the first time.
