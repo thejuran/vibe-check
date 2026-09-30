@@ -301,6 +301,16 @@ def missing_focus_tokens(literal):
     return [t for t in FOCUS_TOKENS if t not in (literal or "")]
 
 
+# Tokens the literal must state at least twice: the ceiling appears once for the
+# pre-existing gap and once for the sensitive-area note.
+FOCUS_REPEATED = ("0.45", "severity low")
+
+
+def focus_repeat_shortfalls(literal):
+    """FOCUS_REPEATED tokens that occur fewer than twice in `literal`."""
+    return [t for t in FOCUS_REPEATED if (literal or "").count(t) < 2]
+
+
 def focus_forbidden_hits(literal):
     """FOCUS_FORBIDDEN substrings present in `literal`."""
     return [t for t in FOCUS_FORBIDDEN if t in (literal or "")]
@@ -1091,8 +1101,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         self.assertIsNotNone(lit)
         self.assertEqual(len(FOCUS_TOKENS), 15)
         self.assertEqual(missing_focus_tokens(lit), [])
-        self.assertGreaterEqual(lit.count("0.45"), 2)
-        self.assertGreaterEqual(lit.count("severity low"), 2)
+        self.assertEqual(focus_repeat_shortfalls(lit), [])
 
     def test_literal_exempts_demonstrated_failure_of_the_new_control(self):
         lit = _literal()
@@ -1165,8 +1174,14 @@ class TestKickoffMutation(unittest.TestCase):
         dropped = lit.replace(m.group(0), "")
         self.assertEqual(missing_focus_tokens(dropped), ["demonstrably fails to block"])
         medium = lit.replace("severity low", "severity medium")
-        self.assertEqual(medium.count("severity low"), 0)
-        self.assertLess(medium.count("severity low"), 2)
+        self.assertNotEqual(medium, lit)
+        self.assertEqual(missing_focus_tokens(medium), ["severity low"])
+        self.assertEqual(focus_repeat_shortfalls(medium), ["severity low"])
+        # Raising all but one capped note leaves the token present but short.
+        one_left = lit.replace("severity low", "severity medium",
+                               lit.count("severity low") - 1)
+        self.assertEqual(missing_focus_tokens(one_left), [])
+        self.assertEqual(focus_repeat_shortfalls(one_left), ["severity low"])
 
 
 # --------------------------------------------------------------------------- #
