@@ -435,5 +435,82 @@ class TestFocusLiteral(unittest.TestCase):
         self.assertIsNone(focus_literal("no literal here"))
 
 
+# --------------------------------------------------------------------------- #
+# Two-pass ceiling proof against the real scorer
+# --------------------------------------------------------------------------- #
+class TestTwoPassCeiling(unittest.TestCase):
+    """A capped note rides along as a member of a real finding's row, the real
+    finding is fixed, and the note is re-scored next pass as persisted (and, in
+    arm B, Codex-corroborated again). Only severity low stays below Warning.
+
+    The arithmetic helpers supply the EXPECTED numbers; score.run() supplies the
+    ACTUAL ones.
+    """
+
+    def setUp(self):
+        self.c = scoring_constants(read("templates/scoring.md"))
+
+    def _pass1(self, sev):
+        return score.run(_envelope(
+            [_finding(id="real", line=10, agent_confidence=85, severity="critical",
+                      title="real defect", current_code="return q"),
+             _cdx_note(sev), _sec_note(sev)],
+            [], "joined", 1))
+
+    def _pass2(self, sev):
+        p1 = self._pass1(sev)
+        self.assertEqual(len(p1["findings"]), 1)
+        self.assertEqual(p1["findings"][0]["id"], "real")
+        self.assertEqual(len(p1["findings"][0]["members"]), 3)
+        carried = _carry(p1, {"real"})
+        arm_a = score.run(_envelope([], carried, "off", 2))
+        arm_b = score.run(_envelope(
+            [_cdx_note(sev, id="cdx2")], _carry(p1, {"real"}), "joined", 2))
+        return arm_a, arm_b
+
+    def test_capped_low_notes_never_reach_warning_after_carry_forward(self):
+        arm_a, arm_b = self._pass2("low")
+        for arm in (arm_a, arm_b):
+            for row in arm["findings"]:
+                self.assertLess(row["orchestrator_score"], self.c["warning_floor"])
+                self.assertNotIn(row["band"], ("warning", "critical"))
+        # Non-vacuity: arm B really carries the notes to the Medium floor.
+        self.assertEqual(len(arm_b["findings"]), 1)
+        row = arm_b["findings"][0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["orchestrator_score"], max_path_score(45, self.c, "low"))
+        self.assertEqual(row["orchestrator_score"], 70)
+        self.assertEqual(row["band"], "medium")
+        self.assertEqual(sorted(row["attribution"]), ["codex-adversarial", "security"])
+        # Arm A: persisted but uncorroborated -> 60, dropped as sub-threshold.
+        self.assertEqual(arm_a["findings"], [])
+        self.assertTrue(any("sub-threshold" in str(f.get("reason", ""))
+                            for f in arm_a["filtered"]), arm_a["filtered"])
+
+    def test_higher_severity_variants_do_reach_warning(self):
+        for sev in ("critical", "high", "medium"):
+            with self.subTest(severity=sev):
+                arm_a, arm_b = self._pass2(sev)
+                self.assertEqual(len(arm_b["findings"]), 1)
+                row = arm_b["findings"][0]
+                self.assertEqual(row["status"], "persisted")
+                self.assertEqual(row["band"], "warning")
+                self.assertEqual(row["orchestrator_score"],
+                                 max_path_score(45, self.c, sev))
+                if sev == "critical":
+                    self.assertEqual(len(arm_a["findings"]), 1)
+                    self.assertEqual(arm_a["findings"][0]["orchestrator_score"], 80)
+                    self.assertEqual(arm_a["findings"][0]["band"], "warning")
+
+    def test_pass_one_corroborated_low_pair_is_filtered(self):
+        result = score.run(_envelope([_cdx_note("low"), _sec_note("low")],
+                                     [], "joined", 1))
+        self.assertEqual(result["findings"], [])
+        self.assertTrue(result["filtered"])
+
+    def test_scorer_constants_match_the_template(self):
+        self.assertEqual(score.SEVERITY_WEIGHT, self.c["severity_weights"])
+
+
 if __name__ == "__main__":
     unittest.main()
