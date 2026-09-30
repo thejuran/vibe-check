@@ -79,7 +79,7 @@ This file is the routing reference: which agents load under which conditions. Th
 | One mega-prompt | Generalist | Low | Conflated |
 | Per-domain subagent (Task dispatch) | Specialist per domain | Higher | Per-agent attribution in output |
 
-Each subagent has its own checklist, examples, and scoring norms. Cross-agent dedup is handled by the orchestrator (see scoring.md +10 cross-confirmation bonus).
+Each subagent has its own checklist, examples, and scoring norms. Cross-agent dedup is handled by the orchestrator: findings are grouped by site (same file, ±2 lines, any category) into one row per site, and the +10 second-opinion bonus applies only to a `codex-adversarial` member plus a Claude-lane member at that site when Codex joined (`codex.status == "joined"`) — see `templates/scoring.md`.
 
 ## Adding New Agents
 

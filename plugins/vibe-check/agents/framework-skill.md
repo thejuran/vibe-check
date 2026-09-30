@@ -12,7 +12,7 @@ A Skill is reference knowledge loaded on demand; its quality is judged on **disc
 
 **Confidence ceiling (severity-scoped — rides the `low` tier only).** Taste-level / differentiator nitpicks are emitted at severity `low`; cue `agent_confidence ≤ 45` on every such low-tier bullet (the inline `[low — cue ≤ 45]` markers below).
 
-This mirrors how `framework-fastapi.md`'s differentiator tier rides the severity bullet, not the name of the bucket. A `low` cued at 45 lands at 45 (45 + 20 in-diff − 20 low-weight) → filtered-to-a-count by default, surfaced never silently dropped, and can still climb via persist (+15). (There is no cross-confirm rescue for this agent: none of its categories have a `CATEGORY_DOMAIN` twin, so the +10 never fires — see "Severity calibration" below.) The ceiling NEVER touches a finding emitted at `medium`/`high`: real safety, discoverability, wiring, and disclosure-hard-limit defects use natural confidence and are not capped (see "Severity calibration" below). The cue is purely the low-severity differentiator rule — do not bind it to a whole bucket of checks.
+This mirrors how `framework-fastapi.md`'s differentiator tier rides the severity bullet, not the name of the bucket. A `low` cued at 45 lands at 45 (45 + 20 in-diff − 20 low-weight) → filtered-to-a-count by default, surfaced never silently dropped, and can still climb via persist (+15). (Do not count on a +10 rescue: the second-opinion bonus fires only when a `codex-adversarial` finding sits at the same site while Codex joined the pass, and agreement with another Claude lane earns nothing — see "Severity calibration" below.) The ceiling NEVER touches a finding emitted at `medium`/`high`: real safety, discoverability, wiring, and disclosure-hard-limit defects use natural confidence and are not capped (see "Severity calibration" below). The cue is purely the low-severity differentiator rule — do not bind it to a whole bucket of checks.
 
 ### Frontmatter / discoverability
 - `description` not in third person ("I can help…", "You can use…" → should be "Processes…", "Reviews…"). The description is injected into the system prompt; mixed POV breaks discovery.
@@ -60,7 +60,7 @@ Treat a missing wire as a real defect (the addition silently does nothing), not 
 
 ## Severity calibration
 
-Pick `severity` and `agent_confidence` so the orchestrator's scorer (`templates/scoring.md`) bands findings correctly. The score is `agent_confidence + 20 (in-diff) + severity weight (high −3, medium −8, low −20) + 10 (cross-confirmed) + 15 (persisted)`; `/deep-review` reports ≥ 70, `/review` ≥ 80. A sub-threshold finding shows only as a count+reason in the Filtered summary, never silently dropped.
+Pick `severity` and `agent_confidence` so the orchestrator's scorer (`templates/scoring.md`) bands findings correctly. The score is `agent_confidence + 20 (in-diff) + severity weight (high −3, medium −8, low −20) + 10 (Codex second opinion at the same site while joined) + 15 (persisted)`; `/deep-review` reports ≥ 70, `/review` ≥ 80. A sub-threshold finding shows only as a count+reason in the Filtered summary, never silently dropped.
 
 The ceiling is severity-scoped, not category-scoped. It rides the `low` tier and nothing else:
 
@@ -70,7 +70,7 @@ The ceiling is severity-scoped, not category-scoped. It rides the `low` tier and
 | medium | −8 | critical op missing a validation/feedback loop | natural (aim ≥ 58) | ≥ 70 | yes |
 | high | −3 | destructive/fragile workflow given high freedom | natural (aim ≥ 53) | ≥ 70 | yes |
 
-Why severity-scoped, not a category-wide cap: the cue caps `agent_confidence`, while the severity weight is added separately — so a blanket cap could not be escaped by raising severity (a real high cued at 45 would score only 62, a medium only 57, both under 70), and with no `CATEGORY_DOMAIN` twin (see Output) there is no cross-confirm rescue. So a destructive-workflow or missing-validation-loop check uses natural confidence and is never capped.
+Why severity-scoped, not a category-wide cap: the cue caps `agent_confidence`, while the severity weight is added separately — so a blanket cap could not be escaped by raising severity (a real high cued at 45 would score only 62, a medium only 57, both under 70), and the only +10 rescue is a Codex finding at the same site while joined, which a Claude lane cannot count on. So a destructive-workflow or missing-validation-loop check uses natural confidence and is never capped.
 
 The high-value defect classes use natural confidence and are NOT capped, regardless of category — none of them are taste, so none are low-tier:
 - `wiring` — the half-wired-addition class ("the addition silently does nothing"). Uncapped.
