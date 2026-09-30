@@ -1342,7 +1342,11 @@ def run(envelope):
         # The per-command finalize cutoff below judges the UNCAPPED score: the
         # lone-lane ceiling lowers the band label, it never drops a finding (a
         # config-tuned critical floor may sit below the /review cutoff).
-        surface_score = best_raw
+        # It judges the SITE's best uncapped score, not the lead's: the lead is
+        # chosen band-first, and the per-member idiom cap can put a lower-scoring
+        # non-idiom member ahead of a higher-scoring idiom member — judging only
+        # the lead would drop an above-threshold row as sub-threshold.
+        surface_score = max(t[4] for t in scored_members)
         # Members that lost the dedup are absorbed into the survivor; each loser
         # is RECORDED in filtered[] below (Fable A2) once the survivor's
         # stable_hash exists to point at.

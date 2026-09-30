@@ -2062,6 +2062,37 @@ class TestIdiomFloor(unittest.TestCase):
         self.assertEqual(g["band"], "low")
         self.assertEqual(g["category"], "idiom")
 
+    # --- bugs-001: the cutoff judges the SITE's best score, not the lead's --- #
+    def test_capped_idiom_cannot_sink_above_threshold_site(self):
+        # The per-member idiom cap lowers the idiom member's BAND, so a
+        # lower-scoring co-located bugs member leads the row (band-first sort).
+        # The /review cutoff (80) must still judge the site's best uncapped
+        # score (the idiom's 85), not the lead's 76 — otherwise the whole row
+        # drops as sub-threshold and the above-threshold idiom vanishes.
+        def env(floor):
+            return self._envelope(
+                command="review",
+                idiom_floor=floor,
+                changed_line_ranges={"a.py": [[1, 50]]},
+                findings=[
+                    make_finding(id="b1", file="a.py", line=10,
+                                 agent_confidence=58, category="null-access",
+                                 agent="bugs", in_diff=True,
+                                 title="null deref"),
+                    make_finding(id="p1", file="a.py", line=11,
+                                 agent_confidence=65, category="idiom",
+                                 agent="language-python", in_diff=True,
+                                 title="idiom thing"),
+                ])
+        # Control: with the cap off the idiom leads and the row survives.
+        self.assertEqual(len(score.run(env("off"))["findings"]), 1)
+        result = score.run(env("low"))
+        self.assertNotEqual(result["findings"], [],
+                            "above-threshold site dropped because a lower-scored "
+                            "member led the row: %r" % (result["filtered"],))
+        self.assertFalse(any(f.get("reason") == "sub-threshold"
+                             for f in result["filtered"]))
+
     # --- byte-stable default path (non-idiom finding unchanged) -------------- #
     def test_byte_stable_default_non_idiom_unchanged(self):
         # A NON-idiom finding run with NO idiom_floor key has an unchanged band /
