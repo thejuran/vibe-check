@@ -1150,7 +1150,9 @@ class TestKickoffCarriesFocus(unittest.TestCase):
 
     def test_literal_tokens(self):
         lit = _literal()
-        self.assertIsNotNone(lit)
+        # _literal() always returns a str (a missing file raises in read()), so
+        # the live check is non-emptiness, not None-ness.
+        self.assertTrue(lit.strip())
         self.assertEqual(len(FOCUS_TOKENS), 15)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertEqual(focus_repeat_shortfalls(lit), [])
