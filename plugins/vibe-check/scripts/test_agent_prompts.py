@@ -190,8 +190,14 @@ def missing_clauses(section_text, clauses):
 
 
 def focus_literal(kickoff_text):
-    """Contents of the first CODEX_FOCUS='...' single-quoted literal, or None."""
-    m = re.search(r"CODEX_FOCUS='([^']*)'", kickoff_text, re.DOTALL)
+    """Contents of the first CODEX_FOCUS='...' literal, or None.
+
+    The literal runs to the first single quote that ends a line, not to the
+    first single quote: a stray apostrophe inside the text would end the bash
+    literal early, so it must land IN the extracted literal where the
+    forbidden-character lock can see it.
+    """
+    m = re.search(r"CODEX_FOCUS='(.*?)'[ \t]*$", kickoff_text, re.DOTALL | re.MULTILINE)
     return None if m is None else m.group(1)
 
 
@@ -722,6 +728,10 @@ class TestFocusLiteral(unittest.TestCase):
                          "wrapped\nliteral")
         self.assertIsNone(focus_literal("no literal here"))
 
+    def test_apostrophe_is_kept_in_the_literal(self):
+        self.assertEqual(focus_literal("CODEX_FOCUS='do not skip what isn't shown'\nARGS=(...)"),
+                         "do not skip what isn't shown")
+
 
 # --------------------------------------------------------------------------- #
 # Two-pass ceiling proof against the real scorer
@@ -1128,6 +1138,14 @@ class TestKickoffMutation(unittest.TestCase):
         lit = focus_literal("CODEX_FOCUS='rules $DIFF here'")
         self.assertIn("$", lit)
         self.assertIn("$", focus_forbidden_hits(lit))
+
+    def test_planted_apostrophe_in_real_literal_trips(self):
+        real = _literal()
+        planted = _kickoff().replace(real, real[:-1] + " it isn't a defect.")
+        self.assertNotEqual(planted, _kickoff())
+        lit = focus_literal(planted)
+        self.assertIn("'", lit)
+        self.assertIn("'", focus_forbidden_hits(lit))
 
     def test_missing_args_arg_trips(self):
         text = _kickoff().replace(ARGS_LINE, OLD_ARGS_LINE)
