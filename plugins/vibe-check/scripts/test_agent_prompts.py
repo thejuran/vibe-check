@@ -14,7 +14,7 @@ keeps existing) is a test that reads the prose. This module holds those locks:
   A two-pass run of the real scorer confirms that a capped note at severity
   low never reaches Warning, even when carried forward and corroborated.
 * Safe-change recognition block. bugs, security and impact each carry the same
-  block (identical after whitespace normalization) with all seventeen clauses;
+  block (identical after whitespace normalization) with all eighteen clauses;
   every cap it states is at most 45 and non-blocking for the lane's offset;
   every sentence stating the 45 cap also says `severity: low`; it never
   requires a repository occurrence ("in-repo").
@@ -265,7 +265,7 @@ def cap_is_nonblocking(cap, consts, offset=0):
 # safe-change rule, the 0.45 / severity-low ceiling, the loosening-is-a-defect
 # rule, the pre-existing-gap cap and its exemption, and the two exceptions the
 # loud lanes also carry (no repository-occurrence requirement; off-hunk is not
-# unverified).
+# unverified), and the moved-not-lost qualifier on the removal rule.
 FOCUS_TOKENS = (
     "not a focus area",
     "tightens a control",
@@ -281,6 +281,7 @@ FOCUS_TOKENS = (
     "a case the diff never addressed",
     "demonstrably fails to block",
     "severity low",
+    "moved rather than lost",
 )
 
 # The literal is single-quoted in bash: a quote would end it, `$` or a backtick
@@ -326,10 +327,11 @@ def cap_never_warns(cap, consts, severity):
 # --------------------------------------------------------------------------- #
 # Safe-change recognition block (bugs, security, impact)
 # --------------------------------------------------------------------------- #
-# The seventeen clauses of the shared block, verbatim after whitespace
+# The eighteen clauses of the shared block, verbatim after whitespace
 # normalization (case-sensitive). Index order is relied on by the tests:
 # [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
-# sentence, [12] the no-repository-occurrence clause.
+# sentence, [12] the no-repository-occurrence clause, [17] the moved-not-lost
+# clause (a control relocated to shared middleware is not a removal).
 SAFE_CHANGE_CLAUSES = (
     "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
     "safe on the axis it tightens.",
@@ -347,7 +349,8 @@ SAFE_CHANGE_CLAUSES = (
     "Review the same diff normally on every other axis",
     "a diff that removes, reverts, loosens, disables or bypasses a control, or makes it depend "
     "on fragile or version-dependent configuration, IS a demonstrated defect on a changed "
-    "line. Report it at your honest confidence; no cap applies.",
+    "line when a path the control used to protect is left without it. Report it at your "
+    "honest confidence; no cap applies.",
     "cap `agent_confidence ≤ 45`, set `severity: low` and add `pending: <what would "
     "demonstrate it>`. Still report it — the cap is a downgrade, never a drop.",
     "report that at your honest confidence whether or not that value occurs in this repository",
@@ -359,6 +362,9 @@ SAFE_CHANGE_CLAUSES = (
     "even if Codex independently flags the same site while joined and it persists across passes",
     "report at most a non-blocking note (`agent_confidence ≤ 45`, `severity: low`, plus "
     "`pending: <what would demonstrate a bypass>`)",
+    "A control moved rather than lost — the same check now enforced by shared middleware, a "
+    "decorator, a schema or an upstream layer that every path to the old site still passes "
+    "through — is not a removal",
 )
 
 # Substrings the block must never carry: a repository-occurrence requirement
@@ -822,7 +828,7 @@ class TestLoudLaneBlock(unittest.TestCase):
                                 text.index("## Coverage, not filtering"))
 
     def test_all_clauses_present(self):
-        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 17)
+        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 18)
         for lane in LOUD:
             with self.subTest(lane=lane):
                 self.assertEqual(missing_clauses(_block(lane), SAFE_CHANGE_CLAUSES), [])
@@ -870,6 +876,19 @@ class TestLoudLaneBlock(unittest.TestCase):
                 self.assertEqual(block_forbidden_hits(blk), [])
                 self.assertIn(norm(c13), blk)
 
+    def test_removal_requires_protection_loss(self):
+        # Moving a validator into shared middleware is a refactor, not a removal:
+        # the removal rule applies only when a protected path is left unprotected.
+        c11, moved = SAFE_CHANGE_CLAUSES[10], SAFE_CHANGE_CLAUSES[17]
+        self.assertIn("when a path the control used to protect is left without it", c11)
+        self.assertIn("shared middleware", moved)
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                blk = norm(_block(lane))
+                self.assertGreater(blk.index(norm(moved)), blk.index(norm(c11)))
+        self.assertIn("leaving a path it used to guard without it", _security_anchors())
+        self.assertIn("moved into shared middleware", _security_anchors())
+
 
 class TestLoudLaneBlockMutation(unittest.TestCase):
     """Planted changes to an in-memory copy of the real block must trip each lock."""
@@ -900,6 +919,15 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertEqual(
             caps_without_low_severity("cap `agent_confidence ≤ 45` and add pending. Other text."),
             ["cap `agent_confidence ≤ 45` and add pending"])
+
+    def test_unconditional_removal_rule_is_caught(self):
+        c11, moved = SAFE_CHANGE_CLAUSES[10], SAFE_CHANGE_CLAUSES[17]
+        planted = self.bugs.replace(
+            " when a path the control used to protect is left without it", "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [c11])
+        dropped = self.bugs.replace(norm(moved), "")
+        self.assertEqual(missing_clauses(dropped, SAFE_CHANGE_CLAUSES), [moved])
 
     def test_drifted_copy_is_caught(self):
         drifted = norm(_block("security")) + " extra"
@@ -1051,7 +1079,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
     def test_literal_tokens(self):
         lit = _literal()
         self.assertIsNotNone(lit)
-        self.assertEqual(len(FOCUS_TOKENS), 14)
+        self.assertEqual(len(FOCUS_TOKENS), 15)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertGreaterEqual(lit.count("0.45"), 2)
         self.assertGreaterEqual(lit.count("severity low"), 2)
@@ -1062,6 +1090,14 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         self.assertIn("demonstrably fails to block", lit)
         self.assertGreater(lit.index("demonstrably fails to block"),
                            lit.index("pre-existing gap"))
+
+    def test_literal_removal_requires_protection_loss(self):
+        lit = _literal()
+        self.assertIn("is a real defect on a changed line when a path the control used to "
+                      "protect is left without it", lit)
+        self.assertGreater(lit.index("moved rather than lost"),
+                           lit.index("removes, reverts, loosens, disables or bypasses"))
+        self.assertIn("shared middleware", lit)
 
     def test_literal_has_no_shell_metacharacters(self):
         lit = _literal()

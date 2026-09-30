@@ -54,8 +54,11 @@ with `pending: <what would demonstrate it>`.
 Off-hunk is not the same as unverified: an unchanged caller you have read that demonstrably passes
 attacker-controlled input into a changed sink puts the finding at 90+ (both legs in view) or 60–75
 (one leg assumed), never under the ≤ 45 anchor. A diff that weakens, removes or reverts a
-protection is in-hunk evidence by itself — an autoescape switched off, a validator deleted, a check
-made conditional on fragile configuration — and belongs at 90+, not under the sensitive-area cap.
+protection, leaving a path it used to guard without it, is in-hunk evidence by itself — an
+autoescape switched off, a validator deleted with nothing taking its place, a check made
+conditional on fragile configuration — and belongs at 90+, not under the sensitive-area cap. A
+validator moved into shared middleware or an upstream layer that every path still passes through
+is not a removal; see Safe-change recognition below.
 Do not default to 95 or 98: an uncalibrated 95 lands in the enforcement bands (`blocks finalize,
 no acknowledgment path`) on the strength of an assumption.
 
@@ -88,7 +91,12 @@ crashes on a wrong type is still a defect on that other axis at your honest conf
 
 The opposite direction is a defect: a diff that removes, reverts, loosens, disables or bypasses a
 control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
-defect on a changed line. Report it at your honest confidence; no cap applies.
+defect on a changed line when a path the control used to protect is left without it. Report it at
+your honest confidence; no cap applies. A control moved rather than lost — the same check now
+enforced by shared middleware, a decorator, a schema or an upstream layer that every path to the
+old site still passes through — is not a removal: look for the replacement before reporting, and
+when you cannot tell whether one covers every path the old check guarded, report under the
+sensitive-area cap below with `pending: confirm no replacement covers <path>`.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
 touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and

@@ -41,7 +41,12 @@ crashes on a wrong type is still a defect on that other axis at your honest conf
 
 The opposite direction is a defect: a diff that removes, reverts, loosens, disables or bypasses a
 control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
-defect on a changed line. Report it at your honest confidence; no cap applies.
+defect on a changed line when a path the control used to protect is left without it. Report it at
+your honest confidence; no cap applies. A control moved rather than lost — the same check now
+enforced by shared middleware, a decorator, a schema or an upstream layer that every path to the
+old site still passes through — is not a removal: look for the replacement before reporting, and
+when you cannot tell whether one covers every path the old check guarded, report under the
+sensitive-area cap below with `pending: confirm no replacement covers <path>`.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
 touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and
