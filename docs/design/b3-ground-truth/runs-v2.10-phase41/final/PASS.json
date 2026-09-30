@@ -1,0 +1,75 @@
+{
+  "batch": "final",
+  "snapshot_commit": "cd8f5b00de730929bd3244aed7ccb98f56316d2a",
+  "verdict": "FAIL",
+  "recorded_by": "owner",
+  "recorded_at": "2026-09-30T00:10:30Z",
+  "runs": [
+    {
+      "diff": "should-quiet-3",
+      "run_index": 1,
+      "state_shape": "FAIL",
+      "tree_diff_sha_match": true,
+      "codex_status": "joined",
+      "report_path": "should-quiet-3/run-1/report.md",
+      "transcript_path": "should-quiet-3/run-1/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-3",
+      "run_index": 2,
+      "state_shape": "FAIL",
+      "tree_diff_sha_match": true,
+      "codex_status": "skipped",
+      "report_path": "should-quiet-3/run-2/report.md",
+      "transcript_path": "should-quiet-3/run-2/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-3",
+      "run_index": 3,
+      "state_shape": "PASS",
+      "tree_diff_sha_match": true,
+      "codex_status": "skipped",
+      "report_path": "should-quiet-3/run-3/report.md",
+      "transcript_path": "should-quiet-3/run-3/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-1",
+      "run_index": 1,
+      "state_shape": "FAIL",
+      "tree_diff_sha_match": true,
+      "codex_status": "joined",
+      "report_path": "should-quiet-1/run-1/report.md",
+      "transcript_path": "should-quiet-1/run-1/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-1",
+      "run_index": 2,
+      "state_shape": "FAIL",
+      "tree_diff_sha_match": true,
+      "codex_status": "joined",
+      "report_path": "should-quiet-1/run-2/report.md",
+      "transcript_path": "should-quiet-1/run-2/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    },
+    {
+      "diff": "should-quiet-1",
+      "run_index": 3,
+      "state_shape": "FAIL",
+      "tree_diff_sha_match": true,
+      "codex_status": "joined",
+      "report_path": "should-quiet-1/run-3/report.md",
+      "transcript_path": "should-quiet-1/run-3/transcript.jsonl",
+      "trace_validation": "not-applicable",
+      "adjudication": "pending-assistant"
+    }
+  ]
+}
