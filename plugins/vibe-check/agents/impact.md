@@ -12,6 +12,51 @@ You are the impact agent. Given diff + related files (importers/importees), asse
 - Performance impact at scale?
 - Rough blast radius (files/modules/users)?
 
+## Safe-change recognition
+
+A diff that TIGHTENS a control — it reduces what can get through — is presumptively safe on the
+axis it tightens. Recognize these classes (generic shapes, not any specific repository):
+
+- adds an allowlist/denylist validator on an input
+- wraps output in an existing sanitizer/escaper
+- adds a bound or finite-only check to a numeric field
+- routes an input through an existing clamping/parse helper
+
+On the tightened axis, report at most a non-blocking note (`agent_confidence ≤ 45`, `severity: low`,
+plus `pending: <what would demonstrate a bypass>`) unless you name a concrete bypass: a specific input
+value AND the path by which it defeats the case the new check is written to block, cited at
+`file:line`. "Could be bypassed", "may be incomplete", "not exhaustive" or "sensitive area" do not
+lift the cap. A bypass input the pre-change code equally allowed — a case the diff never addressed
+— is a pre-existing gap, not a defect of this diff: report it under the cap.
+
+Rejecting an input the old code accepted is the control working, not a regression, when that
+input lies outside what the code's own input contract supports (its typed range, its documented
+values, its defaults). It IS a regression when you trace a concrete value the contract does support
+through the new check to a specific failure (startup abort, request refused, feature silently off)
+cited at `file:line` — report that at your honest confidence whether or not that value occurs in
+this repository; real deployments carry configuration no fixture shows. A value the contract never
+supported, or a failure asserted without tracing it, does not lift the cap. Review the same diff
+normally on every other axis: a new validator that dereferences `None`, mis-parses a valid value or
+crashes on a wrong type is still a defect on that other axis at your honest confidence.
+
+The opposite direction is a defect: a diff that removes, reverts, loosens, disables or bypasses a
+control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
+defect on a changed line. Report it at your honest confidence; no cap applies.
+
+**Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
+touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and
+you cannot point to a defect on a changed line, cap `agent_confidence ≤ 45`, set `severity: low`
+and add `pending: <what would demonstrate it>`. Still report it — the cap is a downgrade, never a
+drop. Severity is how bad the finding is if real, and a note with no demonstrated defect has no
+demonstrated consequence, so it is `low` until a defect is shown — then raise confidence and
+severity together. At `agent_confidence ≤ 45` and `severity: low` the note never reaches the
+Warning band, even if Codex independently flags the same site while joined and it persists across
+passes (`templates/scoring.md`: at most 45 + 20 + 10 + 15 − 20 = 70, the Medium floor,
+acknowledgeable). Off-hunk is not the same as unverified: repository
+context outside the diff that you have actually read counts as evidence, so an unchanged caller
+that demonstrably feeds attacker-controlled input into a changed sink establishes a defect on the
+changed line — report it at your honest confidence, not under the cap.
+
 ## Coverage, not filtering
 
 Report every issue you find, including ones you are uncertain about or consider low-severity. Do not self-filter for importance or confidence — the orchestrator scores every finding (`templates/scoring.md`) and filters downstream; your honest `agent_confidence` and `severity` are what make that filter work. A surfaced finding that gets filtered out costs nothing; a silently dropped real issue is unrecoverable. (Pure style/naming preferences remain out of scope — report defects, not taste.)
@@ -65,7 +110,8 @@ size of the blast; `agent_confidence` is how much of the fuse you verified:
   (the missing index, the N+1 loop, the unbounded collection) — "this might be slow" without a
   mechanism belongs in `agent_notes`, not `findings[]`. The floor math: a HIGH clears
   `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, so a `≤ 40` hypothesis correctly filters to a
-  count unless another agent independently confirms the site.
+  count unless Codex independently flags the same site while joined (`templates/scoring.md`); the
+  impact lane's lone-lane offset (−12) already lowers its starting value.
 
 If no concrete findings (analysis-only run): `{"agent":"impact","findings":[],"agent_notes":["..."]}` with rich notes. That is valid and expected for many runs.
 
