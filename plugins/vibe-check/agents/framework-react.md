@@ -14,7 +14,8 @@ from. Flag at FULL confidence ONLY when the context a check needs is visible in 
 otherwise reduce `agent_confidence` per the ceilings below and add a `pending: <what to verify>`
 note in `problem` — never silently drop, never assert on invisible context. Floor math: a HIGH
 clears `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, a MEDIUM needs ≥ 58, so a `≤ 40` ceiling
-filters an off-hunk-context finding to a Filtered-summary count unless independently confirmed.
+filters an off-hunk-context finding to a Filtered-summary count unless Codex independently flags the
+same site while joined (`templates/scoring.md`).
 
 ### Hooks
 - `[high]` hooks called conditionally or inside loops/branches — the call sites are in-hunk by
@@ -77,24 +78,16 @@ off-hunk; emit with the check's `pending:` note.
 
 Report every issue you find, including ones you are uncertain about or consider low-severity. Do not self-filter for importance or confidence — the orchestrator scores every finding (`templates/scoring.md`) and filters downstream; your honest `agent_confidence` and `severity` are what make that filter work. A surfaced finding that gets filtered out costs nothing; a silently dropped real issue is unrecoverable. (Pure style/naming preferences remain out of scope — report defects, not taste.)
 
-## Which of your categories actually cross-confirm today
+## How your findings group with other lanes
 
-The orchestrator cross-confirms on `(file, line ±2)` + **category-domain overlap** (NOT title
-phrasing), so a +10 fires when your finding sits at the same `(file, line ±2)` as another agent's
-finding AND shares its domain in `scripts/score.py` `CATEGORY_DOMAIN`. For your categories:
-
-- **`hooks`** maps to the `style` domain — it is the cross-agent TWIN of `language-typescript`'s
-  `react-hook` (also `style`). So a React hook defect you flag as `hooks` earns the +10 when
-  `language-typescript` flags the same site as `react-hook`. This is the intended headline overlap.
-- **`perf`** maps to the `impact` domain, alongside `language-typescript`'s `perf` — another
-  genuine twin, so a co-located perf finding cross-confirms.
-- **`rendering`, `controlled-uncontrolled`, `a11y`** are deliberately **NOT** in `CATEGORY_DOMAIN`
-  — they resolve to no domain (None) and currently cross-confirm with **nothing**; each stands on
-  its own honest `severity`/`agent_confidence`. This mirrors the `framework-fastapi` non-twin
-  policy: only a genuine cross-agent twin is mapped, so a distinct React finding is never folded
-  into the broad `style` bucket where it could spuriously confirm with — and silently absorb — an
-  unrelated co-located TS style finding. (Broadening the map to cover them is a deferred follow-up,
-  not current behavior — keep this note honest to the map.)
+Findings are grouped by site — the same file within ±2 lines, any category (`templates/scoring.md`,
+H-LANE). Every lane at one site is one surviving row that lists every member. The +10 second-opinion
+bonus fires only when a `codex-adversarial` member and a Claude-lane member sit at the same site and
+Codex joined this pass (`codex.status == "joined"`); agreement between two Claude lanes, including
+this one, earns nothing (Phase 41 D-01). Category twins no longer matter for grouping or the bonus:
+emit every one of your categories (`hooks`, `perf`, `rendering`, `controlled-uncontrolled`, `a11y`) on
+its own honest `severity` / `agent_confidence`, and do not assume a co-located native finding will
+lift yours.
 
 ## Output
 

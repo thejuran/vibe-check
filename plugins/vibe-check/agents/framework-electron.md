@@ -35,7 +35,8 @@ context to hedge on), while a merely OMITTED flag is version-gated and centraliz
 
 Recall the severity floor math (a HIGH clears `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, a MEDIUM
 needs ≥ 58), so a `≤ 40` ceiling correctly filters an omitted-flag / version-gated finding to a count
-unless it is independently confirmed; an explicit-unsafe-flag CRITICAL is asserted high and surfaces.
+unless Codex independently flags the same site while joined (`templates/scoring.md`); an
+explicit-unsafe-flag CRITICAL is asserted high and surfaces.
 
 ### webpreferences-hardening
 
@@ -68,8 +69,9 @@ unless it is independently confirmed; an explicit-unsafe-flag CRITICAL is assert
   between the arg and the sink. A renderer (or injected renderer script) controls the arg, so this is a
   path-traversal / command-injection / arbitrary-file primitive reachable from the renderer. Confident
   when the handler body and the sink are both in-hunk. Safe form: validate/allowlist the arg before the
-  sink AND check `event.senderFrame` so only the trusted frame can call it. **This is the cross-confirm
-  TWIN category** — see "Which of your categories actually cross-confirm today".
+  sink AND check `event.senderFrame` so only the trusted frame can call it. An IPC handler flowing a
+  renderer argument into a sink IS a security defect; security may flag the same site and the row then
+  lists both lanes (see "How your findings group with other lanes").
 - `[medium]` an IPC handler with NO `event.senderFrame` / sender check — a missing sender check is
   centralizable, so phrase it "no sender check visible here; confirm not applied centrally" at medium.
 
@@ -129,35 +131,24 @@ flags + remote module).
 - `security` ← generic XSS, SQL/command injection, SSRF, generic path traversal, hardcoded secrets,
   insecure deserialization as OWASP issues. framework-electron emits the Electron-MECHANISM framing of
   the IPC→sink flow (`ipc-validation`), not a generic injection/path-traversal variant — those are
-  security's lane (and they cross-confirm, see below).
+  security's lane (security may flag the same site; see below).
 - `bugs` ← generic null-access, off-by-one, swallowed exceptions, generic race conditions, generic
   resource leaks that are not an Electron-mechanism cue.
 - `language-typescript` / `language-javascript` ← generic JS/TS idioms, types, equality,
   async-discipline that aren't Electron-mechanism-specific.
 
-## Which of your categories actually cross-confirm today
+## How your findings group with other lanes
 
-The orchestrator cross-confirms on `(file, line ±2)` + **category-domain overlap** (NOT title
-phrasing), so a +10 fires only when your finding sits at the same `(file, line ±2)` as another agent's
-finding AND shares its domain in `scripts/score.py` `CATEGORY_DOMAIN`. For Electron the honest answer
-is: ONLY `ipc-validation` is mapped — it resolves to the `security` domain, so it is the genuine
-cross-agent TWIN of security's own `injection` / `path-traversal` findings. An Electron IPC handler
-flowing a renderer arg into a sink IS a security defect, so when you flag `ipc-validation` AND security
-flags `injection`/`path-traversal` (or any other `security`-domain category) at the same
-`(file, line ±2)`, they correctly cross-confirm and earn the +10 — it is genuinely the same defect seen
-by two reviewers. Because the overlap is computed on the COARSE domain, `ipc-validation` inherits the
-FULL `security`-domain reach: it cross-confirms with (and, when co-located within ±2 lines, can absorb)
-ANY `security` finding — `injection`, `path-traversal`, `auth`, `data-exposure`, `xss`, `secrets`,
-`ssrf`, etc. — exactly like every existing security category already behaves. This is intended.
-
-The OTHER FIVE categories — `webpreferences-hardening`, `preload-exposure`, `navigation-safety`,
-`content-loading`, `process-hardening` — are deliberately NOT in `CATEGORY_DOMAIN`. They resolve to no
-domain (None) and currently cross-confirm with NOTHING; each stands on its own honest
-`severity`/`agent_confidence`. Do not assume a co-located native finding will confirm one of yours;
-emit it on its own score. This mirrors the framework-react / framework-fastapi non-twin policy — only a
-genuine cross-agent twin is mapped, so a distinct Electron misconfiguration is never folded into the
-broad `security` bucket where it could spuriously confirm with (and silently absorb) an unrelated
-co-located security finding.
+Findings are grouped by site — the same file within ±2 lines, any category (`templates/scoring.md`,
+H-LANE). Every lane at one site is one surviving row that lists every member. The +10 second-opinion
+bonus fires only when a `codex-adversarial` member and a Claude-lane member sit at the same site and
+Codex joined this pass (`codex.status == "joined"`); agreement between two Claude lanes, including
+this one, earns nothing (Phase 41 D-01). Category twins no longer matter for grouping or the bonus:
+emit every one of your categories (`ipc-validation`, `webpreferences-hardening`, `preload-exposure`,
+`navigation-safety`, `content-loading`, `process-hardening`) on its own honest `severity` /
+`agent_confidence`, and do not assume a co-located native finding will lift yours. `ipc-validation`
+overlaps security's own categories on purpose; that overlap is expressed by both lanes appearing on
+one row, never by a bonus.
 
 ## Coverage, not filtering
 
