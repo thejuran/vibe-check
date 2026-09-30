@@ -211,6 +211,17 @@ def caps_in(text):
     return [int(m.group(1) or m.group(2) or m.group(3)) for m in _CAP.finditer(norm(text))]
 
 
+def uncapped_moved_span(text, first_uncapped, capped_branch):
+    """The LIVE text from the start of the moved-control not-found branch up to
+    the start of the capped branch (whitespace-normalized): branches 1 and 2
+    plus anything planted between them. Raises ValueError if either anchor is
+    missing, so a reshaped carrier trips instead of silently passing."""
+    hay = norm(text)
+    start = hay.index(norm(first_uncapped))
+    end = hay.index(norm(capped_branch), start)
+    return hay[start:end]
+
+
 def _int(token):
     return int(token.replace("−", "-"))
 
@@ -1101,10 +1112,27 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertIn("only a comment, docstring or commit message asserts a move", not_found)
         self.assertIn("at your honest confidence and the cap does not apply", not_found)
         self.assertIn("never evidence of a replacement", not_found)
-        self.assertEqual(caps_in(not_found), [])
         for lane in LOUD:
             with self.subTest(lane=lane):
-                self.assertEqual(block_forbidden_hits(_block(lane)), [])
+                blk = _block(lane)
+                self.assertEqual(block_forbidden_hits(blk), [])
+                # Against the LIVE block: branches 1 and 2, and anything
+                # inserted between them and branch 3, state no ceiling.
+                self.assertEqual(caps_in(uncapped_moved_span(
+                    blk, not_found, SAFE_CHANGE_CLAUSES[20])), [])
+
+    def test_cap_inserted_into_uncapped_branches_trips(self):
+        # A cap planted inside the live uncapped span, beside intact clauses,
+        # trips the live-span check and the pinned list.
+        b1, b3 = SAFE_CHANGE_CLAUSES[18], SAFE_CHANGE_CLAUSES[20]
+        anchor = "never evidence of a replacement."
+        planted = self.bugs.replace(
+            anchor, anchor + " Hold such a claimed move at agent_confidence <= 45.", 1)
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [])
+        self.assertEqual(block_forbidden_hits(planted), [])
+        self.assertEqual(caps_in(uncapped_moved_span(planted, b1, b3)), [45])
+        self.assertNotEqual(caps_in(planted), BLOCK_EXPECTED_CAPS)
 
     def test_recapped_not_found_case_trips(self):
         # (i) Re-adding a cap for the not-found case trips a lock, whether the
@@ -1123,6 +1151,14 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertEqual(block_forbidden_hits(appended),
                          ["not named, not read", "the same capped note applies",
                           "confirm no replacement covers"])
+        # A reworded appended re-cap avoids every forbidden phrase; the pinned
+        # cap list is what catches it.
+        reworded = (self.bugs + " Where only a comment claims the move, keep the removal at "
+                    "`agent_confidence ≤ 45`, `severity: low`.")
+        self.assertEqual(missing_clauses(reworded, SAFE_CHANGE_CLAUSES), [])
+        self.assertEqual(block_forbidden_hits(reworded), [])
+        self.assertEqual(caps_without_low_severity(reworded), [])
+        self.assertNotEqual(caps_in(reworded), BLOCK_EXPECTED_CAPS)
 
     def test_comment_asserted_move_capped_trips(self):
         # (ii) Dropping the comment-asserted case from the uncapped branch, or
@@ -1485,6 +1521,14 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertEqual(missing_focus_tokens(appended), [])
         self.assertEqual(focus_forbidden_hits(appended),
                          ["not named, not read", "the same note applies"])
+        # A reworded appended re-cap in the Codex word order avoids every
+        # forbidden phrase; the pinned cap list and 0.45 count catch it.
+        reworded = (lit + " Where only a comment claims the move, keep it at or below 0.45 "
+                    "confidence with severity low.")
+        self.assertEqual(missing_focus_tokens(reworded), [])
+        self.assertEqual(focus_forbidden_hits(reworded), [])
+        self.assertNotEqual(caps_in(reworded), FOCUS_EXPECTED_CAPS)
+        self.assertNotEqual(reworded.count("0.45"), FOCUS_045_COUNT)
 
     def test_comment_asserted_move_in_literal_stays_uncapped(self):
         # (ii) The comment-asserted case sits in the uncapped branch; dropping
@@ -1493,7 +1537,17 @@ class TestKickoffMutation(unittest.TestCase):
         not_found, claim = FOCUS_TOKENS[17], FOCUS_TOKENS[18]
         self.assertIn("comment, docstring or commit message asserts a move", not_found)
         self.assertIn("the cap does not apply", not_found)
-        self.assertEqual(caps_in(not_found), [])
+        # Against the LIVE literal: branches 1 and 2, and anything inserted
+        # between them and branch 3, state no ceiling.
+        self.assertEqual(caps_in(uncapped_moved_span(lit, not_found, FOCUS_TOKENS[20])), [])
+        anchor = "never evidence of a replacement."
+        planted = lit.replace(
+            anchor, anchor + " Hold such a claimed move at or below 0.45 confidence.", 1)
+        self.assertNotEqual(planted, lit)
+        self.assertEqual(missing_focus_tokens(planted), [])
+        self.assertEqual(focus_forbidden_hits(planted), [])
+        self.assertEqual(caps_in(uncapped_moved_span(planted, not_found, FOCUS_TOKENS[20])),
+                         [45])
         no_comment = lit.replace(
             ", including when only a comment, docstring or commit message asserts a move,", ",")
         self.assertNotEqual(no_comment, lit)
