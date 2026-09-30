@@ -39,6 +39,90 @@ LOUD = ("bugs", "security", "impact")
 SENTINELS = {"validate_url_ssrf", "sanitize_log_value", "safe_float",
              "shutdown_drain_timeout", "triggarr", "seedsyncarr"}
 
+# Tokens the B3 patches happen to contain that are library/stdlib names, not
+# B3-specific identifiers. Every entry needs a reason, and every entry must
+# still appear in the raw extraction (TestB3Identifiers.test_allowlist_is_live),
+# so the list cannot quietly grow to hide a leak.
+GENERIC_API = {
+    "TemplateResponse": "Starlette/FastAPI template API; framework-fastapi.md "
+                        "names it as the framework idiom",
+    "ValueError": "Python builtin exception; deep-review and framework prose "
+                  "use it generically",
+}
+
+
+# --------------------------------------------------------------------------- #
+# Pure helpers
+# --------------------------------------------------------------------------- #
+def norm(text):
+    """Collapse all whitespace runs to one space (prompts are hard-wrapped)."""
+    return " ".join(text.split())
+
+
+def read(relpath):
+    """Read a file under the plugin root as text."""
+    with open(os.path.join(PLUGIN_ROOT, relpath), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def prose_corpus():
+    """Every prompt/prose file the agents or orchestrator read: {relpath: text}."""
+    patterns = ("agents/*.md", "commands/*.md", "phases/**/*.md", "templates/*.md")
+    corpus = {}
+    for pat in patterns:
+        for path in glob.glob(os.path.join(PLUGIN_ROOT, pat), recursive=True):
+            rel = os.path.relpath(path, PLUGIN_ROOT)
+            with open(path, encoding="utf-8") as fh:
+                corpus[rel] = fh.read()
+    return corpus
+
+
+_IDENT = re.compile(r"\b[A-Za-z_]\w*\b")
+_SOURCE_REPO = re.compile(r"^source_repo:\s*~/(\S+)", re.MULTILINE)
+
+
+def _is_distinctive(token):
+    """Length >= 6 with an inner underscore or a lower->upper camelCase step."""
+    if len(token) < 6:
+        return False
+    return "_" in token.strip("_") or re.search(r"[a-z][A-Z]", token) is not None
+
+
+def _raw_b3_identifiers(diffs_dir):
+    """B3 identifiers BEFORE the GENERIC_API subtraction.
+
+    From each *.patch: the full repo-relative path of every `+++ b/` header
+    (never a basename — `config.py` alone is generic) plus every distinctive
+    token on a `+`/`-` body line. From each *.provenance: the source repo name.
+    """
+    ids = set()
+    for path in sorted(glob.glob(os.path.join(diffs_dir, "*.patch"))):
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("+++ b/"):
+                    ids.add(line[len("+++ b/"):].strip())
+                elif line.startswith(("+++", "---")):
+                    continue
+                elif line[:1] in ("+", "-"):
+                    ids.update(t for t in _IDENT.findall(line) if _is_distinctive(t))
+    for path in sorted(glob.glob(os.path.join(diffs_dir, "*.provenance"))):
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            ids.update(_SOURCE_REPO.findall(fh.read()))
+    return ids
+
+
+def b3_identifiers(diffs_dir):
+    """B3-specific identifiers, repo names and paths (raw minus GENERIC_API)."""
+    return _raw_b3_identifiers(diffs_dir) - set(GENERIC_API)
+
+
+def leaks(text, ids):
+    """Sorted B3 identifiers present in `text` as whole tokens."""
+    return sorted(
+        t for t in ids
+        if re.search(r"(?<![\w/])" + re.escape(t) + r"(?![\w])", text)
+    )
+
 
 # --------------------------------------------------------------------------- #
 # Leakage guard tests
