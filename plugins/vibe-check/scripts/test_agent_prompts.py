@@ -11,11 +11,27 @@ keeps existing) is a test that reads the prose. This module holds those locks:
   the scoring template, so the Medium floor, the Warning floor, the bonuses and
   the severity weights are parsed from `templates/scoring.md`; a band retune or
   a bonus change trips the proof rather than silently invalidating it.
-* Prompt content (block clauses, the Codex focus literal, retired wording) is
-  locked with the same pure scanners.
+  A two-pass run of the real scorer confirms that a capped note at severity
+  low never reaches Warning, even when carried forward and corroborated.
+* Safe-change recognition block. bugs, security and impact each carry the same
+  block (identical after whitespace normalization) with all seventeen clauses;
+  every cap it states is at most 45 and non-blocking for the lane's offset;
+  every sentence stating the 45 cap also says `severity: low`; it never
+  requires a repository occurrence ("in-repo").
+* Location-keyed ceilings. No loud lane caps confidence on WHERE evidence sits
+  (off-hunk / in-hunk) instead of whether it was verified; the security, bugs
+  and impact anchors key on unverified or unread evidence.
+* Codex focus literal. The kickoff passes "$CODEX_FOCUS" on the exact ARGS
+  line; the literal carries every calibration token, states the exemption
+  after the pre-existing-gap cap, has no shell metacharacters, and its 0.45
+  ceilings are non-blocking at severity low. The contract documents it.
+* Retired +10 prose. No file in agents/ or phases/deep-review/ describes a
+  Claude-to-Claude, category-domain or multi-agent bonus; the places that name
+  the +10 also name the joined condition.
 
-Every scanner is a pure function over text. Mutation tests plant text in
-memory and assert the scanner trips; no test writes a file.
+Every scanner is a pure function over text. Each lock has a mutation test that
+plants the regression in memory and asserts the scanner trips; no test writes a
+file. A lock with no tripping mutation is decorative and does not count.
 """
 
 import copy
