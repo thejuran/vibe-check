@@ -251,6 +251,129 @@ def cap_never_warns(cap, consts, severity):
 
 
 # --------------------------------------------------------------------------- #
+# Safe-change recognition block (bugs, security, impact)
+# --------------------------------------------------------------------------- #
+# The seventeen clauses of the shared block, verbatim after whitespace
+# normalization (case-sensitive). Index order is relied on by the tests:
+# [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
+# sentence, [12] the no-repository-occurrence clause.
+SAFE_CHANGE_CLAUSES = (
+    "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
+    "safe on the axis it tightens.",
+    "adds an allowlist/denylist validator on an input",
+    "wraps output in an existing sanitizer/escaper",
+    "adds a bound or finite-only check to a numeric field",
+    "routes an input through an existing clamping/parse helper",
+    "unless you name a concrete bypass: a specific input value AND the path by which it "
+    "defeats the case the new check is written to block, cited at `file:line`.",
+    "\"Could be bypassed\", \"may be incomplete\", \"not exhaustive\" or \"sensitive area\" "
+    "do not lift the cap.",
+    "A bypass input the pre-change code equally allowed — a case the diff never addressed — "
+    "is a pre-existing gap, not a defect of this diff: report it under the cap.",
+    "Rejecting an input the old code accepted is the control working, not a regression",
+    "Review the same diff normally on every other axis",
+    "a diff that removes, reverts, loosens, disables or bypasses a control, or makes it depend "
+    "on fragile or version-dependent configuration, IS a demonstrated defect on a changed "
+    "line. Report it at your honest confidence; no cap applies.",
+    "cap `agent_confidence ≤ 45`, set `severity: low` and add `pending: <what would "
+    "demonstrate it>`. Still report it — the cap is a downgrade, never a drop.",
+    "report that at your honest confidence whether or not that value occurs in this repository",
+    "Off-hunk is not the same as unverified: repository context outside the diff that you "
+    "have actually read counts as evidence",
+    "a note with no demonstrated defect has no demonstrated consequence, so it is `low` until "
+    "a defect is shown",
+    "At `agent_confidence ≤ 45` and `severity: low` the note never reaches the Warning band, "
+    "even if Codex independently flags the same site while joined and it persists across passes",
+    "report at most a non-blocking note (`agent_confidence ≤ 45`, `severity: low`, plus "
+    "`pending: <what would demonstrate a bypass>`)",
+)
+
+# Substrings the block must never carry: a repository-occurrence requirement
+# ("a concrete in-repo value") would let a traced break of contract-supported
+# configuration be dismissed for lack of a fixture.
+BLOCK_FORBIDDEN = ("in-repo",)
+
+_CAP45 = re.compile(r"agent_confidence\s*(?:≤|<=)\s*45")
+
+
+def block_forbidden_hits(text):
+    """BLOCK_FORBIDDEN substrings present in `text` (whitespace-normalized)."""
+    hay = norm(text)
+    return [p for p in BLOCK_FORBIDDEN if p in hay]
+
+
+def caps_without_low_severity(text):
+    """Sentences stating the 45 cap without `severity: low` (split on '. ')."""
+    return [s for s in norm(text).split(". ")
+            if _CAP45.search(s) and "severity: low" not in s]
+
+
+# --------------------------------------------------------------------------- #
+# Location-keyed ceilings
+# --------------------------------------------------------------------------- #
+# Fragments of ceilings keyed on WHERE evidence sits rather than whether it was
+# verified: the nine bugs.md fragments retired in favour of "remains
+# unverified", plus the security-anchor fragment. Case-insensitive.
+LOCATION_CAP_PHRASES = (
+    "visible in the diff/hunk",
+    "on invisible context",
+    "off-hunk-context finding",
+    "could live off-hunk",
+    "off-hunk callee",
+    "evidence required in-hunk",
+    "acquire-to-release scope is in-hunk",
+    "not visible in-hunk, reduce",
+    "the needed context is off-hunk",
+    "leg is off-hunk",
+)
+
+# A sentence that names a cap and a location is legal only when it also says the
+# cap is about unverified (or unread) evidence.
+EVIDENCE_QUALIFIERS = (
+    "unverified",
+    "actually read",
+    "you have read",
+    "you have not read",
+    "you read",
+    "not confirmed",
+    "not the same as unverified",
+    "read evidence",
+)
+
+_ANY_CAP = re.compile(r"(?:≤|<=)\s*\d+")
+
+
+def strip_fences(text):
+    """Remove every ``` fenced block (example JSON is not instruction prose)."""
+    return re.sub(r"```.*?```", "", text, flags=re.S)
+
+
+def location_cap_hits(text):
+    """Location-keyed ceilings in `text`, fences stripped.
+
+    Returns every LOCATION_CAP_PHRASES hit, then every '. '-delimited sentence
+    that names a cap (`≤ N` / `<= N`) and 'off-hunk' or 'in-hunk' but none of
+    EVIDENCE_QUALIFIERS. A sentence already reported through a phrase hit is not
+    reported twice.
+    """
+    hay = norm(strip_fences(text))
+    low = hay.lower()
+    hits = [p for p in LOCATION_CAP_PHRASES if p.lower() in low]
+    for sentence in hay.split(". "):
+        s = sentence.lower()
+        if not _ANY_CAP.search(sentence):
+            continue
+        if "off-hunk" not in s and "in-hunk" not in s:
+            continue
+        if any(q in s for q in EVIDENCE_QUALIFIERS):
+            continue
+        if any(p.lower() in s for p in LOCATION_CAP_PHRASES):
+            continue
+        hits.append(sentence)
+    return hits
+
+
+# --------------------------------------------------------------------------- #
 # Scorer fixtures (pure) for the two-pass proof
 # --------------------------------------------------------------------------- #
 _WINDOW = ["a", "b", "c", "d", "e"]
