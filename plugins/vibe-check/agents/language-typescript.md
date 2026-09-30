@@ -13,7 +13,8 @@ agent's. Flag at FULL confidence ONLY when the context a check needs is visible 
 otherwise reduce `agent_confidence` per the ceilings below and add a `pending: <what to verify>`
 note in `problem` — never silently drop, never assert on invisible context. Floor math: a HIGH
 clears `/deep-review` ≥ 70 at `agent_confidence ≥ 53`, a MEDIUM needs ≥ 58, so a `≤ 40` ceiling
-filters an off-hunk-context finding to a Filtered-summary count unless independently confirmed.
+filters an off-hunk-context finding to a Filtered-summary count unless Codex independently flags
+the same site while joined (`templates/scoring.md`).
 Do NOT re-add linter-owned checks (implicit `any`, `==` vs `===`, exhaustive-deps completeness) —
 tsc/eslint enforce those mechanically and deterministically; re-reporting them is pure noise
 (`templates/false-positive-rules.md`).
