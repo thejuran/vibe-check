@@ -159,7 +159,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 - [x] **Phase 38: Grow the B3 set + Claude-5 baseline** — Grow the committed organic test set 6 → 10–12 diffs (sealed keys, provenance sidecars), pre-register the pass bar + decision rule, and baseline every diff ×3 on the UNCHANGED v2.9.0 plugin running on the current Claude 5 harness (dual duty: the Opus 5 re-measure) (completed 2026-09-08)
 - [x] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify (verify-only) the Phase 4.5→5 single-writer property (999.8), move every executable helper to trusted-plugin-root resolution + pre-edit path validation in the fix agent (TRUST-01/02), correct the cost anchors to the current model lineup — each batch guardrailed by a CAPPED B3 spot-check, full ×3 once at phase end (completed 2026-09-29)
 - [x] **Phase 41: Wave 1 — scorer-side noise interventions** — Lift the scoring-formula freeze (Wave-1-scoped): B-SEV severity stability, B-REWEIGHT per-agent confidence calibration, H-LANE pile-on collapse — tuned offline via a zero-catch-regression replay harness on POST-DIET run data, then confirmed by a live spot-check (completed 2026-09-30)
-- [ ] **Phase 42: Wave 2 — agent-side noise interventions** — Prompt-only H-CORE: safe-change recognition + confidence ceilings on the loud lanes (bugs, security, impact, codex contract), with the real B3 false alarms baked in as never-flag classes
+- [x] **Phase 42: Wave 2 — agent-side noise interventions** — Prompt-only H-CORE: safe-change recognition + confidence ceilings on the loud lanes (bugs, security, impact, codex contract), with the real B3 false alarms baked in as never-flag classes (completed 2026-09-30)
 - [ ] **Phase 43: Prove — full post-change measurement** — Owner re-runs the full grown set ×3, scored from state against the sealed keys, evaluated honestly against the pre-registered bar in `RESULTS-v2.10.md`, with at most one retune
 - [ ] **Phase 44: Close — 2.10.0 release** — plugin.json → 2.10.0, README efficacy numbers replaced + README model/cost docs made current for Claude 5 (COMPAT-01, static corrected anchors — no measured-cost claim), annotated tag `v2.10`, atomic hash-verified publish
 
@@ -330,7 +330,28 @@ Plans:
   2. The same lanes carry confidence ceilings for "sensitive area, no demonstrated defect" findings, with the actual B3 false alarms baked in as never-flag exemplar classes
   3. The changes are prompt-only — no scoring surface (`score.py` / `test_score.py` / `config.py`) is touched in this phase
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+**Wave 1**
+
+- [x] 42-01-PLAN.md — test_agent_prompts.py scaffold: B3 leakage guard + scoring-constant parser + cap-math proof (mutation-tested)
+- [x] 42-06-PLAN.md — backlog 999.19 (H-LANE scorer question + out-of-scope FA classes) + RESULTS-v2.10.md Phase-43 confound pre-registration
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 42-02-PLAN.md — shared Safe-change recognition block + sensitive-area ceiling (≤45) in bugs/security/impact; security anchors; D-06 sentences
+- [x] 42-03-PLAN.md — Codex lever: fixed CODEX_FOCUS calibration literal in 2c-codex-kickoff.md; contract + 30-codex-collect.md D-06 rewrite
+- [x] 42-04-PLAN.md — D-06 stale +10 prose sweep: seven framework-*.md prompts
+- [x] 42-05-PLAN.md — D-06 sweep: architecture.md, index.md, framework-skill.md re-read, language-*.md one-liners
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 42-07-PLAN.md — content locks (block clauses, identical copies, cap ceiling, kickoff literal, stale-prose absence) + full-suite/R7 gate
+
+**Cross-cutting constraints:**
+
+- No B3 identifier is introduced (D-01)
 
 ### Phase 43: Prove — full post-change measurement
 
@@ -343,7 +364,16 @@ Plans:
   2. `RESULTS-v2.10.md` evaluates the pre-registered bar honestly (pass or miss) and carries the honest-limitations section, including the tune-vs-measure overlap caveat and the note that baseline and post-change runs are both on the Claude 5 harness so the comparison is clean across the model-generation shift
   3. At most one retune is used — failed diffs only, ×3 — and whether it was used or not is recorded
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 43-01-PLAN.md — Launch-gate fix: file-owned Codex collection replaces the BashOutput gate (measured-surface change) + mutation-tested locks + executable stub test
+- [ ] 43-02-PLAN.md — Tooling: lanearchive.py (per-run lane/Codex archive + privacy scan), score43.py (mechanical worksheet + retune gate), batchsnap batch 5/6
+- [ ] 43-03-PLAN.md — Kit: RUN-METHOD-NOTES-phase43 pins, parameterized RUN-PHASE43-v2.10.md runbook (freeze/resync/preflight/fresh/launch/fingerprint/pre/post/void/fail/revert), batch-5 snapshot built
+- [ ] 43-04-PLAN.md — Owner run window: 36 first-pass runs (checkpoint:human-action) + readiness check + post-window integrity audit
+- [ ] 43-05-PLAN.md — Scoring: gate ladder, per-run worksheets (mechanical FP arm, recorded AXIS), exact-fraction verdict, FAILED-DIFFS.json on a miss
+- [ ] 43-06-PLAN.md — Conditional retune (only on a MISS): prompts-only commit R, snapshot S2, failed diffs ×3, combined + untuned headlines; use/non-use recorded
+- [ ] 43-07-PLAN.md — RESULTS-v2.10.md Phase-43 section (D-12 verdict, confounds first, honest limitations), backlog 999.19 item (3), snapshot drop, closing record
 
 > **Owner-runtime**: the ~30–36 post-change runs (plus any retune re-runs) are owner-driven `/deep-review` invocations.
 
@@ -407,7 +437,7 @@ Plans:
 | 39. Claude-5 compatibility + measured cost | v2.10 | — | Dissolved 2026-09-05 — COMPAT-01 → Phase 44, COMPAT-02 → backlog 999.12 | - |
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 8/8 | Complete    | 2026-09-30 |
-| 42. Wave 2 — agent-side noise interventions | v2.10 | 0/? | Not started | - |
+| 42. Wave 2 — agent-side noise interventions | v2.10 | 7/7 | Complete    | 2026-09-30 |
 | 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
 | 44. Close — 2.10.0 release | v2.10 | 0/? | Not started | - |
 
@@ -834,6 +864,65 @@ BY CONSTRUCTION; that structural-gap finding was worth more than any score. Same
 **Source:** owner question 2026-09-07 ("is there a way to test this plugin against
 Anthropic's ultrareview?"); scoped to a gap analysis rather than a benchmark in the same
 exchange.
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.19: H-LANE site representation under per-member caps + staged-change false-alarm classes (BACKLOG)
+
+**Goal:** Decide, with a replay, how a collapsed H-LANE site row is represented when its members
+carry different caps, and decide whether "declared but not yet wired" and "stricter validator
+breaks a legacy config" become never-flag prompt classes.
+
+**Why:** Two questions were deliberately left open by Phase 42 and must not be lost.
+
+(1) **The scorer-side site-representation question (Phase 42 CONTEXT D-07).** Since Phase 41
+(D-03, D-14) a site collapses to ONE row that carries every member lane. Once members carry
+per-member caps (Phase 42's `agent_confidence ≤ 45` sensitive-area ceiling), four things about
+that row are under-specified: which member is the lead, and therefore which band, score and
+`stable_hash` the row shows; whether a "second opinion" is judged per-member or per-group (a ≤ 45
+Claude "sensitive area" note co-located with a Codex finding while Codex is `joined` makes the
+whole group Codex-corroborated, which removes the 94 lone-lane cap and adds +10 to the Codex
+member, so the ceiling can RAISE a Codex lone Warning to Critical; RESEARCH Pitfall 8); and the
+fact that absorbed members are absent from the fix-loop, the finalize gate and the medium
+acknowledgements (a capped note carried as an absorbed member can reach 70, the Medium floor, on
+the persisted-and-re-corroborated path; RESEARCH §Cap math). It was deferred because it only
+misbehaves under non-default config: with `idiom_floor=low` or custom thresholds. The default
+config is byte-identical across 805e6cc / 36b57e8 / cafdba2 per a 60k-case fuzz. Changing the
+scorer in Phase 42 would also have broken success criterion 3 (prompt-only) and re-opened the
+Phase-41 evidence the Phase-43 comparison depends on.
+
+(2) **Two staged-change false-alarm classes the owner scoped OUT of Phase 42 (owner decision after
+42-RESEARCH, Pitfalls 3-4).** "Declared but never wired" / feature-incompleteness (a config value
+or field added in one step of a staged change whose consumer is not in the diff) drives
+should-quiet-6 (a Codex critical, byte-identical in all 3 runs) and should-quiet-7. "A stricter
+validator breaks a legacy config" (the new check rejects a value the old code accepted) drives
+part of should-quiet-4; Phase 42 adds only a MEDIUM-confidence consequence-of-tightening clause
+for it. Expected Phase-43 residual: should-quiet-6 likely stays 3/3 and should-quiet-4 may keep
+firing. The product question is whether a value added in one step of a staged change, whose
+consumer is not in the diff, is a defect.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Design notes:**
+
+- **Scorer and prompt work ship together, in one phase, behind a replay guard.** Any change to
+  row lead / band / identity or to per-member second-opinion semantics is replayed offline
+  against the archived B3 runs with `scripts/replay.py` before it lands, with the same
+  every-member-axis guardrail Phase 41 used (no protected catch lost).
+- **MUST NOT land inside v2.10's measured window.** Either half changes what Phase 43 measures:
+  schedule it after Phase 44 ships.
+- **Same leakage discipline as Phase 42 (D-01).** Any new never-flag prompt class is worded as a
+  generic class only (no B3 identifiers, paths or diff ids), and `scripts/test_agent_prompts.py`
+  guards it: the identifier-leakage scanner plus mutation-tested prose locks.
+- Default config must stay byte-identical unless the owner explicitly accepts a default-config
+  behavior change on the record.
+
+**Source:** Phase 42 CONTEXT D-07 + owner decisions after 42-RESEARCH (2026-09-30, Open Questions
+1-2); Phase-41 memory detail (v2.10-phase41-owner-runs).
 
 Plans:
 
