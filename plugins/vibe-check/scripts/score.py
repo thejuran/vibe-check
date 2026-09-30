@@ -1328,8 +1328,7 @@ def run(envelope):
         # one line (equal hash), so the pick never depends on arrival order.
         # For a single-category group without the cap this is the old
         # score-then-hash order. The uncapped key keeps the highest raw score
-        # leading among members the ceiling equalizes, so the finalize cutoff
-        # below still judges the group's best uncapped score.
+        # first among members the ceiling equalizes.
         scored_members.sort(key=lambda t: (
             -_BAND_SEVERITY.get(t[3], 0),
             -t[0],
@@ -1338,15 +1337,22 @@ def run(envelope):
                         t[1].get("title", "")),
             t[1].get("agent") if isinstance(t[1].get("agent"), str) else "",
         ))
-        best_score, best_member, best_decision, best_band, best_raw = scored_members[0]
         # The per-command finalize cutoff below judges the UNCAPPED score: the
         # lone-lane ceiling lowers the band label, it never drops a finding (a
         # config-tuned critical floor may sit below the /review cutoff).
-        # It judges the SITE's best uncapped score, not the lead's: the lead is
-        # chosen band-first, and the per-member idiom cap can put a lower-scoring
-        # non-idiom member ahead of a higher-scoring idiom member — judging only
-        # the lead would drop an above-threshold row as sub-threshold.
-        surface_score = max(t[4] for t in scored_members)
+        # The row is LED by the first member (in the order above) whose uncapped
+        # score clears the cutoff, so the cutoff and the displayed row agree:
+        # the per-member idiom cap can sort a lower-scoring non-idiom member
+        # ahead of a higher-scoring idiom member, and letting that sub-threshold
+        # member lead would either drop the above-threshold site or surface a
+        # row whose own score is below the cutoff. When no member clears it the
+        # band-first lead is kept and the row drops as sub-threshold.
+        passing = [t for t in scored_members if t[4] >= threshold]
+        if passing and passing[0] is not scored_members[0]:
+            lead = passing[0]
+            scored_members = [lead] + [t for t in scored_members if t is not lead]
+        best_score, best_member, best_decision, best_band, best_raw = scored_members[0]
+        surface_score = best_raw
         # Members that lost the dedup are absorbed into the survivor; each loser
         # is RECORDED in filtered[] below (Fable A2) once the survivor's
         # stable_hash exists to point at.

@@ -2092,6 +2092,14 @@ class TestIdiomFloor(unittest.TestCase):
                             "member led the row: %r" % (result["filtered"],))
         self.assertFalse(any(f.get("reason") == "sub-threshold"
                              for f in result["filtered"]))
+        # impact-001: the cutoff and the displayed row agree — the member that
+        # cleared the /review cutoff LEADS the row (its own score and band),
+        # not the sub-threshold band-first bugs member.
+        row = self._only(result)
+        self.assertEqual(row["agent"], "language-python")
+        self.assertEqual(row["band"], "low")
+        self.assertEqual(row["orchestrator_score"], 85)
+        self.assertGreaterEqual(row["orchestrator_score"], 80)
 
     # --- byte-stable default path (non-idiom finding unchanged) -------------- #
     def test_byte_stable_default_non_idiom_unchanged(self):
