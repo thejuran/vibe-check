@@ -20,6 +20,7 @@ memory and assert the scanner trips; no test writes a file.
 
 import copy
 import glob
+import json
 import os
 import re
 import sys
@@ -595,6 +596,237 @@ class TestTwoPassCeiling(unittest.TestCase):
 
     def test_scorer_constants_match_the_template(self):
         self.assertEqual(score.SEVERITY_WEIGHT, self.c["severity_weights"])
+
+
+# --------------------------------------------------------------------------- #
+# Loud-lane Safe-change recognition block
+# --------------------------------------------------------------------------- #
+def _lane(lane):
+    return read(f"agents/{lane}.md")
+
+
+def _block(lane):
+    return section(_lane(lane), "Safe-change recognition")
+
+
+def _offset_for(lane, consts):
+    return consts["offsets"].get(lane, 0)
+
+
+class TestLoudLaneBlock(unittest.TestCase):
+    def setUp(self):
+        self.c = scoring_constants(read("templates/scoring.md"))
+
+    def test_block_present_before_coverage(self):
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                text = _lane(lane)
+                self.assertIsNotNone(section(text, "Safe-change recognition"))
+                self.assertLess(text.index("## Safe-change recognition"),
+                                text.index("## Coverage, not filtering"))
+
+    def test_all_clauses_present(self):
+        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 17)
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertEqual(missing_clauses(_block(lane), SAFE_CHANGE_CLAUSES), [])
+
+    def test_copies_identical(self):
+        b, s, i = (norm(_block(lane)) for lane in LOUD)
+        self.assertEqual(b, s, "bugs and security blocks drifted apart")
+        self.assertEqual(b, i, "bugs and impact blocks drifted apart")
+
+    def test_caps_never_exceed_ceiling(self):
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                caps = caps_in(_block(lane))
+                self.assertGreaterEqual(len(caps), 2)
+                self.assertLessEqual(max(caps), 45)
+                for cap in caps:
+                    self.assertIs(
+                        cap_is_nonblocking(cap, self.c, _offset_for(lane, self.c)), True)
+
+    def test_downgrade_never_drop(self):
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertIn("Still report it", norm(_block(lane)))
+                cov = section(_lane(lane), "Coverage, not filtering")
+                self.assertIsNotNone(cov)
+                self.assertIn("Report every issue you find", norm(cov))
+
+    def test_capped_notes_carry_low_severity(self):
+        # The prose requirement exists because of the template arithmetic:
+        # a capped note at low never warns on any path, at critical it does.
+        self.assertIs(cap_never_warns(45, self.c, "low"), True)
+        self.assertIs(cap_never_warns(45, self.c, "critical"), False)
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                blk = _block(lane)
+                self.assertEqual(caps_without_low_severity(blk), [])
+                self.assertGreaterEqual(norm(blk).count("severity: low"), 3)
+
+    def test_no_repository_occurrence_requirement(self):
+        c13 = SAFE_CHANGE_CLAUSES[12]
+        self.assertIn("whether or not that value occurs", c13)
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                blk = norm(_block(lane))
+                self.assertEqual(block_forbidden_hits(blk), [])
+                self.assertIn(norm(c13), blk)
+
+
+class TestLoudLaneBlockMutation(unittest.TestCase):
+    """Planted changes to an in-memory copy of the real block must trip each lock."""
+
+    def setUp(self):
+        self.c = scoring_constants(read("templates/scoring.md"))
+        self.bugs = norm(_block("bugs"))
+
+    def test_dropped_clause_is_reported(self):
+        c11 = SAFE_CHANGE_CLAUSES[10]
+        planted = self.bugs.replace(norm(c11), "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [c11])
+
+    def test_raised_cap_is_caught(self):
+        planted = self.bugs.replace("≤ 45", "≤ 55")
+        self.assertEqual(max(caps_in(planted)), 55)
+        self.assertIs(cap_is_nonblocking(55, self.c, -2), False)
+
+    def test_dropped_severity_is_caught(self):
+        planted = self.bugs.replace(", set `severity: low`", "")
+        self.assertNotEqual(planted, self.bugs)
+        hits = caps_without_low_severity(planted)
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("what would demonstrate it", hits[0])
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES),
+                         [SAFE_CHANGE_CLAUSES[11]])
+        self.assertEqual(
+            caps_without_low_severity("cap `agent_confidence ≤ 45` and add pending. Other text."),
+            ["cap `agent_confidence ≤ 45` and add pending"])
+
+    def test_drifted_copy_is_caught(self):
+        drifted = norm(_block("security")) + " extra"
+        self.assertNotEqual(self.bugs, drifted)
+
+    def test_planted_repo_occurrence_trips(self):
+        planted = self.bugs + " unless you cite a concrete in-repo value"
+        self.assertEqual(block_forbidden_hits(planted), ["in-repo"])
+
+
+# --------------------------------------------------------------------------- #
+# security.md confidence anchors and capped example
+# --------------------------------------------------------------------------- #
+def _security_anchors():
+    return norm(section(_lane("security"), "Confidence anchors") or "")
+
+
+class TestSecurityAnchors(unittest.TestCase):
+    def test_anchor_scale_present(self):
+        a = _security_anchors()
+        for token in ("90+", "60–75", "≤ 45", "severity: low", "pending:",
+                      "weakens, removes or reverts"):
+            with self.subTest(token=token):
+                self.assertIn(token, a)
+
+    def test_top_anchor_keys_on_view_not_location(self):
+        # The 90+ anchor says "in view", which includes context actually read;
+        # a bare "both in-hunk" would key the top anchor on location.
+        a = _security_anchors()
+        self.assertIn("source and sink are both in view (in-hunk, or in repository "
+                      "context you actually read)", a)
+        self.assertNotIn("both in-hunk", a)
+
+    def test_example_has_capped_finding(self):
+        m = re.search(r"```json\n(.*?)\n```", _lane("security"), re.S)
+        self.assertIsNotNone(m)
+        example = json.loads(m.group(1))
+        capped = [f for f in example["findings"]
+                  if f["agent_confidence"] <= 45 and f["severity"] == "low"
+                  and "pending:" in f["problem"]]
+        self.assertEqual(len(capped), 1, example["findings"])
+
+    def test_offhunk_verified_context_is_not_capped(self):
+        a = _security_anchors()
+        self.assertIn("Off-hunk is not the same as unverified", a)
+        self.assertIn("repository context", a)
+        self.assertNotIn("leg is off-hunk", a)
+
+
+class TestSecurityAnchorsMutation(unittest.TestCase):
+    def test_planted_offhunk_cap_trips(self):
+        a = _security_anchors()
+        planted = a.replace("remains unverified", "is off-hunk")
+        self.assertIn("a needed leg is off-hunk", planted)
+        self.assertIn("leg is off-hunk", planted)
+        m = re.search(r"Off-hunk is not the same as unverified[^.]*\.", a)
+        self.assertIsNotNone(m)
+        self.assertNotIn("Off-hunk is not the same as unverified", a.replace(m.group(0), ""))
+
+
+# --------------------------------------------------------------------------- #
+# No loud lane keys a ceiling on location
+# --------------------------------------------------------------------------- #
+class TestLocationCapReconciled(unittest.TestCase):
+    def test_no_location_keyed_cap(self):
+        found = {lane: location_cap_hits(_lane(lane)) for lane in LOUD}
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertEqual(found[lane], [], f"{lane}: {found[lane]}")
+
+    def test_bugs_anchors_and_checks_key_on_verification(self):
+        bugs = _lane("bugs")
+        a = norm(section(bugs, "Confidence anchors"))
+        self.assertIn("Off-hunk is not the same as unverified", a)
+        self.assertIn("the needed context remains unverified", a)
+        self.assertNotIn("in-hunk (guard", a)
+        c = norm(section(bugs, "Checks"))
+        for s in ("in view — in the diff/hunk, or in repository context you actually read",
+                  "when a release site remains unverified",
+                  "When the guard's absence is unverified"):
+            with self.subTest(sentence=s):
+                self.assertIn(s, c)
+
+    def test_impact_anchors_key_on_evidence(self):
+        o = norm(section(_lane("impact"), "Output"))
+        self.assertIn("you READ the importers/callers you are citing", o)
+        self.assertIn("no measured or read evidence", o)
+
+    def test_strip_fences_removes_example(self):
+        stripped = strip_fences(_lane("bugs"))
+        self.assertNotIn("\"agent_confidence\":", stripped)
+        self.assertIn("## Confidence anchors", stripped)
+        self.assertIn("\"agent_confidence\":", _lane("bugs"))  # non-vacuity
+
+
+class TestLocationCapMutation(unittest.TestCase):
+    def test_planted_retired_fragment_trips(self):
+        self.assertEqual(
+            location_cap_hits(_lane("bugs")
+                              + "\nflag only when the whole acquire-to-release scope is in-hunk."),
+            ["acquire-to-release scope is in-hunk"])
+        self.assertEqual(
+            location_cap_hits(_lane("impact")
+                              + "\n**≤ 40** — the needed context is off-hunk; emit with the pending note."),
+            ["the needed context is off-hunk"])
+
+    def test_planted_generic_location_cap_trips(self):
+        hits = location_cap_hits(
+            _lane("security") + "\nWhen the sink is off-hunk, cap at agent_confidence ≤ 40.")
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("When the sink is off-hunk, cap at agent_confidence ≤ 40", hits[0])
+        self.assertNotIn(hits[0], LOCATION_CAP_PHRASES)
+
+    def test_qualified_sentence_does_not_trip(self):
+        self.assertEqual(location_cap_hits(
+            "When a release site remains unverified, `agent_confidence ≤ 40` plus "
+            "`pending: confirm no cleanup off-hunk`."), [])
+
+    def test_fenced_text_is_ignored(self):
+        self.assertEqual(location_cap_hits(
+            "```json\n\"problem\": \"the needed context is off-hunk\"\n```"), [])
+        self.assertEqual(location_cap_hits("\"problem\": \"the needed context is off-hunk\""),
+                         ["the needed context is off-hunk"])
 
 
 if __name__ == "__main__":
