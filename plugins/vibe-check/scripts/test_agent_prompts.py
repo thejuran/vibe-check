@@ -1040,6 +1040,19 @@ def _security_anchors():
     return norm(section(_lane("security"), "Confidence anchors") or "")
 
 
+# The anchors only point at the moved-control rule; restating its conditions
+# there lets a weaker shorthand (e.g. "name + read" without the capped note)
+# drift from the Safe-change recognition block.
+ANCHOR_MOVED_RESTATEMENTS = ("not a removal", "only when", "name that replacement",
+                             "have read it", "covers every path", "never dropped")
+
+
+def anchor_moved_restatements(anchors_text):
+    """ANCHOR_MOVED_RESTATEMENTS substrings present in `anchors_text`."""
+    hay = norm(anchors_text)
+    return [p for p in ANCHOR_MOVED_RESTATEMENTS if p in hay]
+
+
 class TestSecurityAnchors(unittest.TestCase):
     def test_anchor_scale_present(self):
         a = _security_anchors()
@@ -1071,6 +1084,11 @@ class TestSecurityAnchors(unittest.TestCase):
         self.assertIn("repository context", a)
         self.assertNotIn("leg is off-hunk", a)
 
+    def test_anchors_point_to_moved_rule_without_restating_it(self):
+        a = _security_anchors()
+        self.assertIn("follows the moved-control rule in Safe-change recognition below", a)
+        self.assertEqual(anchor_moved_restatements(a), [])
+
 
 class TestSecurityAnchorsMutation(unittest.TestCase):
     def test_planted_offhunk_cap_trips(self):
@@ -1081,6 +1099,16 @@ class TestSecurityAnchorsMutation(unittest.TestCase):
         m = re.search(r"Off-hunk is not the same as unverified[^.]*\.", a)
         self.assertIsNotNone(m)
         self.assertNotIn("Off-hunk is not the same as unverified", a.replace(m.group(0), ""))
+
+    def test_planted_moved_shorthand_trips(self):
+        a = _security_anchors()
+        planted = a.replace(
+            "follows the moved-control rule in Safe-change recognition below.",
+            "is not a removal only when you name that replacement at `file:line` and have "
+            "read it; see Safe-change recognition below.")
+        self.assertNotEqual(planted, a)
+        self.assertEqual(anchor_moved_restatements(planted),
+                         ["not a removal", "only when", "name that replacement", "have read it"])
 
 
 # --------------------------------------------------------------------------- #

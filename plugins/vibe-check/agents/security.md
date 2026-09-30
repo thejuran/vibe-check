@@ -57,8 +57,7 @@ attacker-controlled input into a changed sink puts the finding at 90+ (both legs
 protection, leaving a path it used to guard without it, is in-hunk evidence by itself — an
 autoescape switched off, a validator deleted with nothing taking its place, a check made
 conditional on fragile configuration — and belongs at 90+, not under the sensitive-area cap. A
-validator moved into shared middleware or an upstream layer that every path still passes through
-is not a removal only when you name that replacement at `file:line` and have read it; see
+validator moved into shared middleware or an upstream layer follows the moved-control rule in
 Safe-change recognition below.
 Do not default to 95 or 98: an uncalibrated 95 lands in the enforcement bands (`blocks finalize,
 no acknowledgment path`) on the strength of an assumption.
