@@ -367,15 +367,32 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 43-01-PLAN.md — Launch-gate fix: file-owned Codex collection replaces the BashOutput gate (measured-surface change) + mutation-tested locks + executable stub test
 - [ ] 43-02-PLAN.md — Tooling: lanearchive.py (per-run lane/Codex archive + privacy scan), score43.py (mechanical worksheet + retune gate), batchsnap batch 5/6
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 43-03-PLAN.md — Kit: RUN-METHOD-NOTES-phase43 pins, parameterized RUN-PHASE43-v2.10.md runbook (freeze/resync/preflight/fresh/launch/fingerprint/pre/post/void/fail/revert), batch-5 snapshot built
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 43-04-PLAN.md — Owner run window: 36 first-pass runs (checkpoint:human-action) + readiness check + post-window integrity audit
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 43-05-PLAN.md — Scoring: gate ladder, per-run worksheets (mechanical FP arm, recorded AXIS), exact-fraction verdict, FAILED-DIFFS.json on a miss
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 43-06-PLAN.md — Conditional retune (only on a MISS): prompts-only commit R, snapshot S2, failed diffs ×3, combined + untuned headlines; use/non-use recorded
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 43-07-PLAN.md — RESULTS-v2.10.md Phase-43 section (D-12 verdict, confounds first, honest limitations), backlog 999.19 item (3), snapshot drop, closing record
 
-> **Owner-runtime**: the ~30–36 post-change runs (plus any retune re-runs) are owner-driven `/deep-review` invocations.
+> **Runtime**: the 36 post-change runs (plus any retune re-runs) are ASSISTANT-DRIVEN `/deep-review` invocations via tmux (owner decision 2026-09-30, 43-CONTEXT D-13 — separate `claude` process per measured session, fixed keystroke set, driver-contamination assert); the owner keeps the laptop lid open for the run window.
 
 ### Phase 44: Close — 2.10.0 release
 
@@ -913,11 +930,14 @@ consumer is not in the diff, is a defect.
   row lead / band / identity or to per-member second-opinion semantics is replayed offline
   against the archived B3 runs with `scripts/replay.py` before it lands, with the same
   every-member-axis guardrail Phase 41 used (no protected catch lost).
+
 - **MUST NOT land inside v2.10's measured window.** Either half changes what Phase 43 measures:
   schedule it after Phase 44 ships.
+
 - **Same leakage discipline as Phase 42 (D-01).** Any new never-flag prompt class is worded as a
   generic class only (no B3 identifiers, paths or diff ids), and `scripts/test_agent_prompts.py`
   guards it: the identifier-leakage scanner plus mutation-tested prose locks.
+
 - Default config must stay byte-identical unless the owner explicitly accepts a default-config
   behavior change on the record.
 
