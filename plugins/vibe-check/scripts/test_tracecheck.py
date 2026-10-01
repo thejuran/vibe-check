@@ -663,8 +663,16 @@ class TestSequenceEvidenceNone(TraceCase):
                 self.assertNotIn(label, e2["expected_phases"], (mode, label))
                 self.assertIn(label, e3["expected_phases"], (mode, label))
                 self.assertIn(label, e3["mandatory_reads"], (mode, label))
-            for agent in ("triage", "bugs", "security", "architecture", "impact", "test-sufficiency"):
+            for agent in ("triage", "bugs", "security", "architecture", "impact"):
                 self.assertIn(agent, e2["required_dispatches"], (mode, agent))
+        self.assertIn("test-sufficiency", EXPECT["batches"]["2"]["deep-all"]["required_dispatches"])
+
+    def test_diff_mode_deep_does_not_require_gated_test_sufficiency(self):
+        """GATE-01: in diff mode (deep-plain) test-sufficiency is removed when the repo has no
+        usable coverage, so no batch may require its dispatch there; deep-all is never gated."""
+        for batch, modes in EXPECT["batches"].items():
+            with self.subTest(batch=batch):
+                self.assertNotIn("test-sufficiency", modes["deep-plain"]["required_dispatches"])
 
     def test_only_batch1_opts_out_of_sequence_evidence(self):
         for mode, exp in EXPECT["batches"]["1"].items():
