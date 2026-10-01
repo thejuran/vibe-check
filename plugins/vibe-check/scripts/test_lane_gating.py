@@ -437,7 +437,7 @@ def selection_gate_problems(text_sel):
             problems.append("gating paragraph does not name %s" % slug)
         if norm(ANNOUNCE_SUFFIX[slug]) not in para:
             problems.append("gating paragraph lacks announce suffix for %s" % slug)
-    for token in _SLUG_SHAPED.findall(raw):
+    for token in sorted(set(_SLUG_SHAPED.findall(raw))):
         if token.endswith(("-artifact", "-usable")) and token not in CASES:
             problems.append("gating paragraph names an unknown slug %s" % token)
     if "$ALL_MODE" not in para:
