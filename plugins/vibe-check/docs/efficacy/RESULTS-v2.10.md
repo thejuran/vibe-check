@@ -688,3 +688,64 @@ every review, including the reviews where we expect it to catch a real bug. If P
 lost catch, that instruction is the first suspect. Two kinds of false alarm ("this setting isn't
 used yet" and "the stricter check rejects an old value") were deliberately left for later, so at
 least one clean diff is expected to keep raising an alarm.
+
+## Phase-43 retune pre-registration
+
+**Written before any retune run.** The Phase-43 first pass missed the sealed bar on the catch arm
+alone (quiet 6/18 against ≤ 8, so that arm passes; catches 13/15 against 15/15, a miss). The one
+allowed retune changes prompts only: the shared Safe-change recognition block in the bugs,
+security and impact prompts, and the Codex calibration literal `templates/codex-focus.txt`. The
+scorer and the five frozen scoring files do not change. Only the three failed diffs are re-run, ×3
+each: should-quiet-4, should-quiet-6 and triggarr-autoescape. Every other diff keeps its first-pass
+runs in the combined headline.
+
+**What changed: two rules, each worded as an abstract class (no B3 names, paths or code).**
+
+1. **A guarantee made conditional is a loss even if it holds today.** The new rule says that
+   replacing a protection that held unconditionally with one that holds only through a library
+   default, a deprecated path, or the currently installed dependency version is a loss of that
+   guarantee. This applies even when the reviewer verifies that the protection still works
+   today. Such a finding is reported at honest confidence, not under the sensitive-area cap. Its
+   title names the attack the control prevents once the protection lapses, for example
+   injection, script execution or data exposure. A revert, deprecation or startup symptom alone
+   is not enough.
+   - **Targets:** triggarr-autoescape runs 1 and 2. In those runs every lane verified that the
+     locked dependency still escapes output, rated the change "no demonstrated defect", and
+     titled it as a revert, a deprecation or a startup crash. Codex run 1 approved.
+   - **Wording:** the removal rule already listed "makes it depend on fragile or
+     version-dependent configuration". Its condition "a path … is left without it" read as false
+     once a lane had verified the current version. The new sentence closes that reading.
+2. **A bypass inside an existing helper that the change only calls is a pre-existing gap.** When
+   the new check calls an existing validator or helper, and the bypass lies in that helper's
+   unchanged logic, the bypass is a pre-existing gap. Every existing caller of the helper already
+   has it. It is reported under the cap with the bypass input named. The cap still lifts when
+   the diff's own changed lines let the input through, so the Phase-42 exemption ("an input the
+   new check is written to block and demonstrably fails to block") stays for logic the diff
+   writes itself.
+   - **Targets:** should-quiet-4. All three runs carried a Codex-led critical claiming that an
+     alternate numeric spelling of the metadata address passes the new block. Codex located the
+     failing logic in the unchanged helper, and the diff only calls that helper at a new point.
+     Under the Phase-42 wording that claim lifted the cap.
+
+**Expected effect per failed diff (pre-registered):**
+
+| diff | first pass | expected after retune | confidence | why |
+|---|---|---|---|---|
+| triggarr-autoescape | 1/3 catch | 3/3 catch | MEDIUM | Rule 1 targets the observed mechanism directly. The risk is that lanes still title the startup symptom first. |
+| should-quiet-4 | 3/3 fired | ≤ 1/3 fired | MEDIUM | Rule 2 caps the observed bypass claim. A lane may still rate the claim high if it judges the helper call as the diff's own logic. Separate members on other axes (startup traceback, medium severity) are expected to stay at or below the Medium band. |
+| should-quiet-6 | 3/3 fired | 3/3 fired (unchanged) | HIGH | Not targeted. "Declared but never wired" remains the pre-registered expected residual (backlog 999.19). |
+
+**What decides the combined verdict.** The quiet arm already passes, and the retune can only keep
+it at or below 6/18 on these diffs. So the combined verdict is PASS only if triggarr-autoescape goes
+3/3. A 2/3 result leaves the catch arm at 14/15, a MISS.
+
+**Disclosed limits:**
+
+- **Tune-vs-measure overlap.** The retune was designed after seeing these same diffs fail, so
+  the untuned first-pass numbers remain the cleaner estimate. Both are reported.
+- **Unmeasured side effects.** The other nine diffs are not re-run. If Rule 1 or Rule 2 would
+  move them, the combined headline cannot show it. Rule 1 could plausibly add loud findings on
+  diffs that rely on a library default. Rule 2 could quiet a real bypass of a helper on a future
+  diff. That bypass would still be reported, but as a capped note that is normally filtered.
+- **Confound order is unchanged.** Any surprise in the retune runs is examined first against
+  these two sentences, then against the Phase-42 focus text and moved-control qualifier.

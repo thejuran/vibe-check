@@ -28,6 +28,11 @@ value AND the path by which it defeats the case the new check is written to bloc
 `file:line`. "Could be bypassed", "may be incomplete", "not exhaustive" or "sensitive area" do not
 lift the cap. A bypass input the pre-change code equally allowed — a case the diff never addressed
 — is a pre-existing gap, not a defect of this diff: report it under the cap.
+When the new check calls an existing validator or helper and the bypass lies in that helper's
+unchanged logic, it is likewise a pre-existing gap: every existing caller of the helper already has
+it, and the diff only extends the helper to one more input. Report it under the cap and name the
+bypass input in the `pending:` note; it lifts the cap only when the diff's own changed lines let the
+input through.
 
 Rejecting an input the old code accepted is the control working, not a regression, when that
 input lies outside what the code's own input contract supports (its typed range, its documented
@@ -42,7 +47,13 @@ crashes on a wrong type is still a defect on that other axis at your honest conf
 The opposite direction is a defect: a diff that removes, reverts, loosens, disables or bypasses a
 control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
 defect on a changed line when a path the control used to protect is left without it. Report it at
-your honest confidence; no cap applies. A control moved rather than lost is judged by what you
+your honest confidence; no cap applies.
+Replacing a protection that held unconditionally with one that holds only through a library default,
+a deprecated path or the currently installed dependency version is a loss of that guarantee on the
+changed line even when you verify it still holds today: report it at your honest confidence, not
+under the sensitive-area cap, and name in the title the attack the control prevents once the
+protection lapses (for example injection, script execution or data exposure), not only the revert,
+deprecation or startup symptom. A control moved rather than lost is judged by what you
 found, not by what the diff claims. A same-purpose replacement is code at `file:line` — shared
 middleware, a decorator, a schema or an upstream layer — that guards the same property as the
 removed check. When you found and read no same-purpose replacement — including when only a

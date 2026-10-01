@@ -1938,5 +1938,166 @@ class TestStaleProseMutation(unittest.TestCase):
                                         "codex-adversarial member"), [])
 
 
+
+# --------------------------------------------------------------------------- #
+# Retune clauses (the single post-measurement prompt retune)
+# --------------------------------------------------------------------------- #
+# Two rules added after the full measurement, each an abstract class:
+# [0] a bypass that lives in the unchanged logic of an existing validator or
+#     helper the diff only calls is a pre-existing gap (capped), and the cap
+#     lifts only when the diff's own changed lines let the input through;
+# [1] replacing an unconditional protection with one that holds only through a
+#     default, a deprecated path or the installed version is a loss of the
+#     guarantee even when it still holds today: honest confidence, not the
+#     sensitive-area cap, and the title names the attack the control prevents.
+RETUNE_BLOCK_CLAUSES = (
+    "When the new check calls an existing validator or helper and the bypass lies in that "
+    "helper's unchanged logic, it is likewise a pre-existing gap: every existing caller of the "
+    "helper already has it, and the diff only extends the helper to one more input. Report it "
+    "under the cap and name the bypass input in the `pending:` note; it lifts the cap only when "
+    "the diff's own changed lines let the input through.",
+    "Replacing a protection that held unconditionally with one that holds only through a "
+    "library default, a deprecated path or the currently installed dependency version is a loss "
+    "of that guarantee on the changed line even when you verify it still holds today: report it "
+    "at your honest confidence, not under the sensitive-area cap, and name in the title the "
+    "attack the control prevents once the protection lapses (for example injection, script "
+    "execution or data exposure), not only the revert, deprecation or startup symptom.",
+)
+
+RETUNE_FOCUS_TOKENS = (
+    "When the failure lies in the unchanged logic of an existing validator or helper that the "
+    "change only calls, it is a pre-existing gap instead: every existing caller of that helper "
+    "already has it, so report it under the pre-existing-gap ceiling above and name the bypass "
+    "input; it is a defect of this change only when the lines the change itself adds or edits "
+    "let the input through.",
+    "Replacing a protection that held unconditionally with one that holds only through a library "
+    "default, a deprecated path or the currently installed dependency version is such a loss even "
+    "when you verify it still holds today: report it at your honest confidence, not under the "
+    "sensitive-area ceiling, and name in the title the attack the control prevents once the "
+    "protection lapses (for example injection, script execution or data exposure), not only the "
+    "revert, deprecation or startup symptom.",
+)
+
+
+def _ordered(hay, before, item, after):
+    """True when `item` sits strictly between `before` and `after` in `hay`."""
+    try:
+        return hay.index(before) < hay.index(item) < hay.index(after)
+    except ValueError:
+        return False
+
+
+def retune_block_problems(block_text):
+    """Problems with the retune clauses in a loud-lane block: missing clauses,
+    then each clause outside its slot (helper clause between the pre-existing
+    gap rule and the input-contract rule; guarantee clause between the
+    removal rule and the moved-control definition)."""
+    hay = norm(block_text or "")
+    problems = missing_clauses(block_text, RETUNE_BLOCK_CLAUSES)
+    if problems:
+        return problems
+    helper, guarantee = (norm(c) for c in RETUNE_BLOCK_CLAUSES)
+    if not _ordered(hay, norm(SAFE_CHANGE_CLAUSES[7]), helper, norm(SAFE_CHANGE_CLAUSES[8])):
+        problems.append("helper clause out of slot")
+    if not _ordered(hay, norm(SAFE_CHANGE_CLAUSES[10]), guarantee,
+                    norm(SAFE_CHANGE_CLAUSES[17])):
+        problems.append("guarantee clause out of slot")
+    return problems
+
+
+def retune_focus_problems(literal):
+    """Problems with the retune tokens in the Codex literal (same shape)."""
+    lit = literal or ""
+    problems = [t for t in RETUNE_FOCUS_TOKENS if t not in lit]
+    if problems:
+        return problems
+    helper, guarantee = RETUNE_FOCUS_TOKENS
+    if not _ordered(lit, "demonstrably fails to block", helper, "input contract"):
+        problems.append("helper clause out of slot")
+    if not _ordered(lit, "removes, reverts, loosens, disables or bypasses", guarantee,
+                    "moved rather than lost"):
+        problems.append("guarantee clause out of slot")
+    return problems
+
+
+class TestRetuneClauses(unittest.TestCase):
+    def test_block_clauses_present_and_slotted(self):
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertEqual(retune_block_problems(_block(lane)), [])
+
+    def test_focus_tokens_present_and_slotted(self):
+        self.assertEqual(retune_focus_problems(_literal()), [])
+
+    def test_no_new_ceiling(self):
+        # Neither clause states a number: the pinned cap lists stay the only caps.
+        for clause in RETUNE_BLOCK_CLAUSES + RETUNE_FOCUS_TOKENS:
+            self.assertEqual(caps_in(clause), [])
+            self.assertNotIn("0.45", clause)
+
+    def test_guarantee_clause_is_uncapped_and_names_the_attack(self):
+        for clause in (RETUNE_BLOCK_CLAUSES[1], RETUNE_FOCUS_TOKENS[1]):
+            self.assertIn("even when you verify it still holds today", clause)
+            self.assertIn("at your honest confidence, not under the sensitive-area", clause)
+            self.assertIn("name in the title the attack the control prevents", clause)
+
+    def test_helper_clause_keeps_the_changed_line_exemption(self):
+        self.assertIn("lifts the cap only when the diff's own changed lines let the input "
+                      "through", RETUNE_BLOCK_CLAUSES[0])
+        self.assertIn("only when the lines the change itself adds or edits let the input "
+                      "through", RETUNE_FOCUS_TOKENS[0])
+
+    def test_focus_tokens_obey_literal_quoting(self):
+        for tok in RETUNE_FOCUS_TOKENS:
+            self.assertEqual(focus_forbidden_hits(tok), [])
+
+
+class TestRetuneClausesMutation(unittest.TestCase):
+    """Planted changes to in-memory copies of the real carriers must trip."""
+
+    def _blk(self):
+        return norm(_block("security"))
+
+    def test_dropped_guarantee_clause_trips(self):
+        planted = self._blk().replace(norm(RETUNE_BLOCK_CLAUSES[1]), "")
+        self.assertEqual(retune_block_problems(planted), [RETUNE_BLOCK_CLAUSES[1]])
+
+    def test_recapped_guarantee_clause_trips(self):
+        planted = self._blk().replace("not under the sensitive-area cap",
+                                      "under the sensitive-area cap")
+        self.assertNotEqual(retune_block_problems(planted), [])
+
+    def test_dropped_verify_today_phrase_trips(self):
+        planted = self._blk().replace(" even when you verify it still holds today", "")
+        self.assertNotEqual(retune_block_problems(planted), [])
+
+    def test_dropped_helper_clause_trips(self):
+        planted = self._blk().replace(norm(RETUNE_BLOCK_CLAUSES[0]), "")
+        self.assertEqual(retune_block_problems(planted), [RETUNE_BLOCK_CLAUSES[0]])
+
+    def test_helper_clause_widened_to_never_lift_trips(self):
+        planted = self._blk().replace(
+            "it lifts the cap only when the diff's own changed lines let the input through",
+            "it never lifts the cap")
+        self.assertNotEqual(retune_block_problems(planted), [])
+
+    def test_misplaced_guarantee_clause_trips(self):
+        g = norm(RETUNE_BLOCK_CLAUSES[1])
+        planted = self._blk().replace(g, "")
+        planted = planted.replace(norm(SAFE_CHANGE_CLAUSES[7]), norm(SAFE_CHANGE_CLAUSES[7]) + " " + g)
+        self.assertEqual(retune_block_problems(planted), ["guarantee clause out of slot"])
+
+    def test_focus_dropped_or_misplaced_trips(self):
+        lit = _literal()
+        helper, guarantee = RETUNE_FOCUS_TOKENS
+        self.assertEqual(retune_focus_problems(lit.replace(guarantee, "")), [guarantee])
+        self.assertEqual(retune_focus_problems(lit.replace(helper, "")), [helper])
+        moved = lit.replace(" " + helper, "")
+        moved = moved.replace("pre-existing gap", helper + " pre-existing gap", 1)
+        self.assertEqual(retune_focus_problems(moved), ["helper clause out of slot"])
+        recapped = lit.replace("not under the sensitive-area ceiling", "under the sensitive-area ceiling")
+        self.assertNotEqual(retune_focus_problems(recapped), [])
+
+
 if __name__ == "__main__":
     unittest.main()
