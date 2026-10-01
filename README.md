@@ -27,9 +27,11 @@ It is GSD-aware: if your project uses [GSD](https://github.com/open-gsd/gsd-core
 
 ## 📊 Measured Efficacy
 
-v2.9 ships vibe-check's first measured quality numbers, scored from 18 owner-run `/deep-review` passes over an organic ground-truth set: **catch-rate 8/9, false-positive-rate 6/9** (exact fractions, no rounding).
+v2.10's numbers come from 36 owner-run `/deep-review` passes on the changed plugin (12 sealed organic diffs × 3 runs), scored against a pre-registered bar of **≤ 8/18** quiet runs firing **and 15/15** catches. **Untuned first pass: false alarms 6/18 (sealed literal 9/21), catches 13/15 — a MISS** on that bar (the false-alarm arm cleared it, the catch arm did not). Exact fractions, no rounding; the 18-run figure is the corrected cohort (one quiet diff excluded because it contains a real defect), the 21-run literal is printed beside it.
 
-These are small-N (N=3 per diff, 9 catch runs + 9 quiet runs, four repos, organic-only) — indicative, not statistically tight, and not a claim of generalized accuracy. Full method, per-diff scoring, and honest limitations: [`docs/efficacy/RESULTS-v2.9.md`](plugins/vibe-check/docs/efficacy/RESULTS-v2.9.md).
+After the one retune the pre-registration allowed (prompts only, re-run on the 3 failed diffs) the **combined result is 3/18 (6/21) · 15/15 — a PASS**, but a weaker one than it sounds: the retune was written after seeing those exact diffs fail and was scored on the same diffs, so it flatters. The untuned pass is the better guide to how the tool behaves on your next real change.
+
+Small-N (one run moves a diff by 1/3; the catch arm has zero headroom), three repos all the owner's, organic-only — indicative, not a general accuracy claim. Full method, per-diff scoring, and honest limitations: [`docs/efficacy/RESULTS-v2.10.md`](plugins/vibe-check/docs/efficacy/RESULTS-v2.10.md), section "B3 v2.10 — Phase 43 post-change measurement".
 
 ---
 
@@ -286,7 +288,8 @@ This is **AI-assisted** code review. It's powerful, but:
 
 - 🔧 **Complements, doesn't replace** SAST tools (Semgrep, CodeQL, Snyk)
 - 🔗 Can't trace every complex multi-file data flow
-- 🧪 Doesn't run tests or type checking
+- 🧪 Doesn't run your test suite or type checker as a gate (review agents can run shell commands while investigating — see the next item)
+- ⚠️ **Known issue (v2.10):** a review agent has been observed running `git stash pop` in the repo under review. The stash content was intact and was re-stashed under a new label, but a reviewer should never change your repo's state. Until this is fixed (tracked for a future release), commit or note any stashes before running a review.
 
 For security-critical code, layer this with dedicated security scanners.
 
