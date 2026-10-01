@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f515-3c37-7322-9aa6-6f49720374c5",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: HTTP error logging now exposes credentials embedded in supported instance URLs.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Full HTTP exceptions leak URL credentials into logs\",\"body\":\"InstanceConfig accepts https://proxyuser:proxysecret@radarr.example. On a 502 response, the newly logged HTTPStatusError includes that full URL, including proxysecret; this was reproduced with the installed httpx. startup.py:74–100 collects API keys and application auth secrets for redaction, but excludes URL credentials, so both stderr and the web log buffer retain the password. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":232,\"line_end\":235,\"confidence\":0.99,\"recommendation\":\"Keep logging the numeric HTTP status instead of the raw exception, or explicitly sanitize URL credentials before logging. Add a regression test using a credential-bearing base URL and a 502 response.\"}],\"next_steps\":[\"Restore safe HTTP error logging and verify neither log sink exposes URL credentials.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: HTTP error logging now exposes credentials embedded in supported instance URLs.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Full HTTP exceptions leak URL credentials into logs",
+        "body": "InstanceConfig accepts https://proxyuser:proxysecret@radarr.example. On a 502 response, the newly logged HTTPStatusError includes that full URL, including proxysecret; this was reproduced with the installed httpx. startup.py:74–100 collects API keys and application auth secrets for redaction, but excludes URL credentials, so both stderr and the web log buffer retain the password. Previously this branch logged only the status code.",
+        "file": "triggarr/clients/base.py",
+        "line_start": 232,
+        "line_end": 235,
+        "confidence": 0.99,
+        "recommendation": "Keep logging the numeric HTTP status instead of the raw exception, or explicitly sanitize URL credentials before logging. Add a regression test using a credential-bearing base URL and a 502 response."
+      }
+    ],
+    "next_steps": [
+      "Restore safe HTTP error logging and verify neither log sink exposes URL credentials."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: HTTP error logging now exposes credentials embedded in supported instance URLs.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Full HTTP exceptions leak URL credentials into logs\",\"body\":\"InstanceConfig accepts https://proxyuser:proxysecret@radarr.example. On a 502 response, the newly logged HTTPStatusError includes that full URL, including proxysecret; this was reproduced with the installed httpx. startup.py:74–100 collects API keys and application auth secrets for redaction, but excludes URL credentials, so both stderr and the web log buffer retain the password. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":232,\"line_end\":235,\"confidence\":0.99,\"recommendation\":\"Keep logging the numeric HTTP status instead of the raw exception, or explicitly sanitize URL credentials before logging. Add a regression test using a credential-bearing base URL and a 502 response.\"}],\"next_steps\":[\"Restore safe HTTP error logging and verify neither log sink exposes URL credentials.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
