@@ -606,6 +606,56 @@ moved-control qualifier, before it is attributed to anything else. The evidence 
 **Newly quiet diffs.** should-quiet-1, -2, -3 and -5 are 0/3 fired. should-quiet-2 run-3 dispatched
 no framework lane (§2), and its siblings with the lane were also quiet.
 
+
+### Retune rationale (43-06, written before the retune commit R)
+
+The confound audit came first (D-00c). The order was (a) the Codex focus text, then (b) the
+moved-control qualifier, for each failed diff. The evidence is the committed per-run
+`lanes.json` and `codex-payload.json` under `first/<diff>/run-<n>/`. Locations are cited by file and
+field only.
+
+- **triggarr-autoescape, runs 1 and 2 (MISS; run 3 CATCH).**
+  - **(b) Moved-control qualifier:** not implicated. Neither qualifier form appears (§6 above). The
+    `pending:` notes in `lanes.json` → `lanes[*].parsed.findings[*].problem` concern which release
+    removes the passthrough.
+  - **What fired and what missed:**
+    - Every Claude lane's `lanes[*].parsed.agent_notes` records an empirical check that the locked
+      dependency still escapes output. Lanes that rated the change at all titled it as a revert, a
+      deprecation or a startup crash.
+    - In run 2, security rated its finding 35/low, as did impact in runs 1 and 3, with "no
+      bypass demonstrated / forward-looking" text. That is the sensitive-area ceiling shape.
+    - Codex approved in run 1 (`codex-payload.json` → `result.verdict`). It led runs 2 and 3 with
+      startup-failure titles.
+  - **Implicated wording:** in the Claude block, the removal clause ("…or makes it depend on
+    fragile or version-dependent configuration, IS a demonstrated defect … when a path the control
+    used to protect is left without it"). In the Codex literal, the same condition in clause (2).
+    Once a lane verifies the current version, it treats "a path left without it" as false. The
+    sensitive-area clause then captures the finding, and nothing tells the lane to title the
+    protected consequence.
+  - **Retune:** Rule 1 (RESULTS-v2.10.md §"Phase-43 retune pre-registration").
+- **should-quiet-4, runs 1–3 (FP 3/3).**
+  - **(a) Codex focus text: implicated.** The row is Codex-led in all three runs
+    (`codex-payload.json` → `result.findings[0]`, confidence 0.99). The finding's body places the
+    failing logic in an unchanged helper in another file, which the planted hunk only calls.
+    Clause (1)'s exemption ("an input the new check is written to block and demonstrably fails to
+    block is a defect of this change … even though the old code allowed it too") lifted the cap.
+    Security in run 1 did the same at 90/high. Security in runs 2 and 3 already self-capped at
+    35/low as a pre-existing gap.
+  - **(b) Moved-control qualifier:** not implicated (0 hits).
+  - **Implicated wording:** the clause (1) exemption, which does not distinguish the diff's own
+    changed lines from the unchanged logic of a reused helper.
+  - **Retune:** Rule 2. The exemption is kept for logic the diff writes itself.
+- **should-quiet-6, runs 1–3 (FP 3/3).**
+  - Codex-led "declared but never wired" rows. This is the pre-registered expected residual
+    (backlog 999.19, owner-scoped out).
+  - **Not targeted.** Neither rule addresses it. It is expected to stay 3/3 and is re-run only
+    because D-06 re-runs every failed diff.
+
+**Change limits (D-05).** R touches only `agents/{bugs,security,impact}.md`,
+`templates/codex-focus.txt`, `scripts/test_agent_prompts.py` (new mutation-tested locks
+`TestRetuneClauses` / `TestRetuneClausesMutation`) and the RESULTS pre-registration. The five
+frozen files are blob-equal at S and S2.
+
 ---
 
 ## 7. Provenance recap
