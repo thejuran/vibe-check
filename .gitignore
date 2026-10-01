@@ -30,3 +30,6 @@ __pycache__/
 # run commit binds each one by its transcript.jsonl.sha256 instead.
 docs/design/b3-ground-truth/runs-v2.10-phase40/**/transcript.jsonl
 docs/design/b3-ground-truth/runs-v2.10-phase41/**/transcript.jsonl
+
+# Phase-43 measurement transcripts — same rule.
+docs/design/b3-ground-truth/runs-v2.10-phase43/**/transcript.jsonl
