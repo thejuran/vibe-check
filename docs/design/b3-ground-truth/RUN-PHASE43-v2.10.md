@@ -969,6 +969,7 @@ PARKDIR=$(sed -n 's/^PARKDIR=//p' "$MEMPARK_ENV")
 test -d "$PARKDIR" || { echo 'THE MEMORY PARK DIR IS MISSING — STOPPING'; exit 1; }
 if test -e "$MEM"; then
   EVID=$PARKDIR/$CN-written-before-$LABEL-$DIFF-run-$RUN_N-$(date +%s)
+  while test -e "$EVID"; do sleep 1; EVID=$PARKDIR/$CN-written-before-$LABEL-$DIFF-run-$RUN_N-$(date +%s); done
   mv "$MEM" "$EVID"
   echo "auto-memory written during this window moved aside to $EVID (evidence, never merged back)"
 fi
