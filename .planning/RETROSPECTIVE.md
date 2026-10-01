@@ -138,6 +138,42 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 - Sessions: 4 across the milestone (checkpoint-resumed cleanly at every /clear boundary)
 - Notable: codex adversarial passes ~5-8 min each; 10-pass gate ≈ half the phase-37 wall time
 
+## Milestone: v2.10 — Opus 5 rebuild + quiet down
+
+**Shipped:** 2026-10-01 (plugin 2.10.0, tag `v2.10`)
+**Phases:** 6 (38, 40-44; 39 dissolved) | **Plans:** 44
+
+### What Was Built
+- B3 set grown to 12 sealed organic diffs; pass bar pre-registered; Claude-5 baseline (catch 15/15 · FP 19/21)
+- Prose diet into phase files + tested scripts; trusted-plugin-root helper resolution; fix-agent path validation
+- Scorer Wave 1 (B-SEV / B-REWEIGHT / H-LANE) via offline replay; agent Wave 2 safe-change recognition
+- Honest measurement: untuned MISS 6/18 · 13/15 → one retune → combined PASS 3/18 · 15/15 (tuned on same set)
+- 2.10.0 release with Claude-5 README docs and disclosed known issues
+
+### What Worked
+- Pre-registration + sealed keys kept the result honest; the README leads with the untuned MISS
+- Gates-before-publish (owner chose to run test/security/deep-review before the push in Phase 44)
+- Shadow review (H3 sample 2) caught 5 README honesty defects the deep review and Codex missed — a disjoint catch
+- Codex re-reviews of the follow-up fixes caught misleading backup advice before it shipped
+
+### What Was Inefficient
+- Release plan publish logic needed two adversarial/checker rounds (SHA binding, tag-subject line, transcript-sidecar grep)
+- README honesty fixes took three follow-up commits (provenance → backup advice → working-tree-intact advice)
+- Orchestrator flow publishes inside EXECUTE while gates run after it — needed a manual reorder
+
+### Patterns Established
+- Publish bound to recorded, gate-passed SHAs with explicit refspecs; owner pre-push checkpoint shows exact SHAs + exposure
+- Assistant-driven measurement runs via tmux (disclosed as such)
+
+### Key Lessons
+- For release phases, run quality gates BEFORE the publish step (feed back to julian-orchestrator)
+- README claims about provenance/setup must be checked against RESULTS by a second reviewer — the primary review checked numbers, not framing
+- Start each milestone on its own branch
+
+### Cost Observations
+- Model mix: Opus 5.5 orchestrator; Fable planner; Opus executors/reviewers; Sonnet checkers; Codex gpt-6-astra adversarial
+- Notable: per-README-edit re-review cycles (5 agents + Codex each) were the largest Phase 44 cost
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Efficacy |

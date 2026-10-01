@@ -1,5 +1,22 @@
 # Milestones
 
+## v2.10 Opus 5 rebuild + quiet down (Shipped: 2026-10-01)
+
+**Phases completed:** 6 phases (38, 40-44; Phase 39 dissolved), 44 plans
+**Release:** plugin 2.10.0 · annotated tag `v2.10` (object 96564aa → edc450e) · main + tag + feat/v2.9 atomic push, exact-hash verified
+
+**Key accomplishments:**
+
+- B3 ground-truth set grown 6 → 12 sealed organic diffs; v2.10 pass bar pre-registered before any change; Claude-5 baseline on unchanged 2.9.0: catch 15/15 · FP 19/21
+- Prose diet: review/deep-review restructured into progressive-disclosure phase files, deterministic families extracted to tested scripts, all helpers resolved from the trusted plugin root, fix-agent path validation (TRUST-01/02)
+- Wave 1 scorer interventions (B-SEV, B-REWEIGHT, H-LANE) tuned offline via a zero-catch-regression replay harness; Wave 2 agent-side safe-change recognition + confidence ceilings
+- Honest post-change measurement: untuned first pass MISS (false alarms 6/18, catches 13/15); one prompts-only retune → combined PASS 3/18 · 15/15, explicitly flagged as tuned on the same set
+- README made current for Claude 5 (models, tiering, config, labeled cost estimates) with corrected provenance, measured-setup disclosure, and known-issue / known-tradeoff disclosures
+
+**Tech debt carried:** fix.md description vs pinned Opus; measurement scripts ship in install; 214c7df post-measurement Codex-wait change (disclosed in RESULTS); 999.20 stash-pop; Rule-2 quieting.
+
+---
+
 ## v2.9 Prove it (Shipped: 2026-07-08)
 
 **Phases completed:** 9 phases, 6 plans, 8 tasks

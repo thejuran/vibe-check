@@ -2,17 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.10
 milestone_name: Opus 5 rebuild + quiet down
-current_plan: Not started
-status: planning
-stopped_at: Phase 42 context gathered
-last_updated: "2026-09-30T15:06:50.545Z"
-last_activity: 2026-09-30
+status: Awaiting next milestone
+stopped_at: Phase 44 context gathered
+last_updated: "2026-10-01T20:16:24.028Z"
+last_activity: 2026-10-01 — Milestone v2.10 completed and archived
 progress:
-  total_phases: 16
-  completed_phases: 3
-  total_plans: 28
-  completed_plans: 28
-  percent: 19
+  total_phases: 18
+  completed_phases: 6
+  total_plans: 44
+  completed_plans: 44
+  percent: 33
 ---
 
 # Project State
@@ -22,17 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 42 — wave 2 — agent side noise interventions
+**Current focus:** Phase 44 — close — 2.10.0 release
 
 ## Current Position
 
-Phase: 42
-Plan: 8 of 8
-Current Plan: Not started
-Total Plans in Phase: 8
-Status: Ready to plan
-Progress: [██████████] 100%
-Last activity: 2026-09-30
+Phase: Milestone v2.10 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-01 — Milestone v2.10 completed and archived
 
 ## Performance Metrics
 
@@ -53,6 +49,8 @@ Last activity: 2026-09-30
 | 38 | 6 | - | - |
 | 40 | 14 | - | - |
 | 41 | 8 | - | - |
+| 42 | 7 | - | - |
+| 43 | 7 | - | - |
 
 **Recent Trend:**
 
@@ -99,6 +97,22 @@ Last activity: 2026-09-30
 | Phase 41 P06 | 18 min | 3 tasks | 10 files |
 | Phase 41 P07 | 13 min | 3 tasks | 7 files |
 | Phase 41 P08 | 95min | 3 tasks | 7 files |
+| Phase 42 P01 | 5min | 3 tasks | 1 files |
+| Phase 42 P06 | 10min | 2 tasks | 3 files |
+| Phase 42 P02 | 4min | 2 tasks | 3 files |
+| Phase 42 P03 | 10min | 2 tasks | 3 files |
+| Phase 42 P04 | 8min | 2 tasks | 7 files |
+| Phase 42 P05 | 6min | 3 tasks | 9 files |
+| Phase 42 P07 | 25min | 3 tasks | 1 files |
+| Phase 43 P01 | 35min | 3 tasks | 5 files |
+| Phase 43 P02 | 75min | 3 tasks | 6 files |
+| Phase 43 P03 | 95min | 3 tasks | 4 files |
+| Phase 43 P04 | 6h10m | 4 tasks | 398 files |
+| Phase 43 P05 | 45min | 3 tasks | 4 files |
+| Phase 43 P06 | 4h10m | 4 tasks | 15 files |
+| Phase 43 P07 | 35min | 2 tasks | 3 files |
+| Phase 44 P01 | 6 min | 3 tasks | 2 files |
+| Phase 44 P02 | 15min | 3 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -206,6 +220,26 @@ Earlier decisions (v2.8) still on record:
 - [Phase 41]: D-16 spot-check picks from COMBINED replay: should-quiet-3 + should-quiet-1 (predicted FP 5/6); COMBINED FP 16/18 -> 14/18, REGRESSED 0
 - [Phase 41]: 41-07: spot-check pair should-quiet-3 (2/3) + should-quiet-1 (3/3, D-16 tie); predicted FP 5/6; snapshot batch4-cd8f5b00de73
 - [Phase 41]: Phase-41 spot-check PASS: observed 3/6 FP runs vs predicted 5 (D-11); five state_shape FAILs counted under SUPERSESSIONS-v2.10 entry 009; persist prose fixed to create root medium_acknowledgments {}
+- [Phase 42]: 42-01: cap 45 proven non-blocking from a lone lane (max 65 < 70); real score.run() over two passes shows capped notes must carry severity low (70 Medium vs 82-90 Warning)
+- [Phase ?]: Phase 42-06: CODEX_FOCUS change pre-registered in RESULTS-v2.10 as a Phase-43 confound on catch AND quiet diffs; staged-change FP classes + H-LANE per-member-cap question parked as backlog 999.19
+- [Phase 42]: 42-02: loud-lane sensitive-area/tightened-axis notes capped at agent_confidence ≤ 45 AND severity low, still reported; cap keys on unverified evidence, not off-hunk location
+- [Phase ?]: 42-03: CODEX_FOCUS fixed calibration literal is the only runtime carrier of the safe-change rule for Codex; {M} defined via attribution (codex + non-Codex lane)
+- [Phase 42]: 42-04: all seven framework-* prompts share one canonical site-grouping paragraph; fastapi Severity-calibration +10 prose left stale for 42-07
+- [Phase ?]: 42-05: framework-skill.md CATEGORY_DOMAIN twin prose reworded; express l.59 twin-bucket clause corrected (score.py has no category-domain map)
+- [Phase 42]: 42-07: R6 forbidden-phrase lock extended with multi-agent-bonus stems (cross-confirmed by, if/when cross-confirmed, (cross-confirmed), 2+ agents/lanes); 42-01's list missed them
+- [Phase 43]: 43-01: Codex collection is file-owned (mktemp -d dir + payload.json + atomic rc via temp+mv; Phase 3 waits under TIMEOUT_BIN with Bash timeout 330000; strict case 0/124/focus-missing/*); dir failure maps to the existing unavailable slug; commit 8ae33da
+- [Phase 43]: 43-01: deep-review allowed-tools NOT widened (kickoff already runs mktemp/python3 outside it; widening would be a second measured-surface change)
+- [Phase ?]: 43-02: joined runs must archive codex payload + rc 0; codex-absent only for skipped/off; anything else is an extraction failure
+- [Phase ?]: 43-02: score43 verdict decides on the corrected 18-run quiet cohort; sealed x/21 carried beside it, never deciding; bars pinned 8/9/15 in the CLI
+- [Phase ?]: 43-03: close-window removes the phase43 open-window marker only on proven end states (RUNS-COMPLETE committed, memory/freeze/cache restored); preflight refuses another label's marker even with RESUME=1
+- [Phase ?]: 43-03: measured surface = batch-5 snapshot be6b0fc (descends from cede608, 180e0e3, 8ae33da); the window's snapshot is read from the committed notes snapshot: line
+- [Phase 43]: 43-04: 36/36 first-pass runs on batch-5 snapshot be6b0fcd9a4c (RUNS-COMPLETE aa14430); audit 10/10 PASS; codex 36/36 joined; no void/fail; ANOMALY compliance agent ran git stash pop in ~/triggarr (session-rotation r3, 825bd49) -> v2.11 backlog + 43-07 RESULTS
+- [Phase ?]: 43-05: first-pass verdict MISS — quiet 6/18 (pass), catch 13/15 (triggarr-autoescape 1/3); sealed literal 9/21; FAILED-DIFFS should-quiet-4, should-quiet-6, triggarr-autoescape (ff8ab4c)
+- [Phase ?]: 43-06: retune used (R=S2=8df25c7); combined verdict PASS (quiet 3/18, catch 15/15, sealed 6/21); untuned first pass 6/18, 9/21, 13/15 (MISS) stays the cleaner estimate
+- [Phase 43]: 43-07: RESULTS Phase-43 headline = combined PASS (3/18, 15/15; sealed 6/21) beside untuned first-pass MISS (6/18, 9/21, 13/15); untuned is the cleaner estimate (tune-vs-measure)
+- [Phase 43]: 43-07: backlog 999.20 filed — review agents must not run state-mutating git commands in the reviewed repo (stash pop observed in Phase 43, 825bd49)
+- [Phase ?]: Phase 44-01: README Opus wording is alias-first and dated (opus alias, Opus 5 as of 2026-09-08); no Opus 5.5 claim
+- [Phase ?]: Phase 44-02: v2.10 published as-is (D-01); tag v2.10 obj 96564aa peels to edc450e; complete-milestone must not re-create/move v2.10
 
 ### Pending Todos
 
@@ -226,6 +260,7 @@ None yet.
 - [Phase 40] TRUST-01 spike before planning: confirm `${CLAUDE_PLUGIN_ROOT}` is expanded/available inside a subagent's Bash (the fix agent resolves guard.py on its own). If it is not, the trusted root must reach the fix agent another way (e.g. the orchestrator passes the resolved absolute path into the prompt) — never via the reviewed repo.
 - RESOLVED 2026-09-29: 41-02 blocker (runs/triggarr-secret-in-logs/run-2 UNEVALUABLE) closed by owner amendment, SUPERSESSIONS-v2.10.md entry 008; baseline replay REPRODUCED 25 / 26 · AMENDED 1.
 - 41-07 STEP 0 pre-flight stops at the clone-clean gate: owner's ~/roonseek has uncommitted .planning/ROADMAP.md + untracked .codex-review/ — owner commits or moves it aside, then runs SPOT-CHECK-v2.10-phase41.md
+- RESOLVED 2026-09-30: D43-03-1 (lanearchive privacy scan refused URL-userinfo illustrations on reserved hosts) — fixed in 185a9fa: email-shaped tokens on reserved/non-routable domains are exempt; the 5 cited triggarr-secret-in-logs files now scan clean
 
 ## Deferred Items
 
@@ -249,13 +284,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-30T15:06:50.539Z
+Last session: 2026-10-01T20:05:30.818Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 42 context gathered
+Stopped at: Phase 44 context gathered
 
 Load-bearing sequencing notes for whoever plans next:
 
@@ -269,10 +304,12 @@ Load-bearing sequencing notes for whoever plans next:
 - **Phase 40 (diet) precedes Phase 41 (scorer) deliberately** — SCORER-01 replays POST-DIET run data so
   the tuning lands on the system that actually ships. Never tune-then-restructure.
 
-- **Measurement is OWNER-RUNTIME.** Phases 38 (36 runs), 40 (CAPPED per-batch spot-checks, 2 runs each, plus ONE
-  end-of-phase ×3), 41 (SCORER-05 spot-check, 6 runs), and 43 (~30–36 runs) all need owner-driven `/deep-review` invocations — the assistant CANNOT invoke
-  `/deep-review`. Each of those phases must deliver an exact-command run-checklist; runs are resumable
-  across days.
+- **Measurement runtime.** Phases 38 (36 runs), 40 (CAPPED per-batch spot-checks, 2 runs each, plus ONE
+  end-of-phase ×3) and 41 (SCORER-05 spot-check, 6 runs) were owner-driven `/deep-review` invocations (Phase-40/41
+  checks were assistant-driven via tmux at the owner's request). **Phase 43's 36 runs (+ any retune re-runs) are
+  ASSISTANT-DRIVEN via tmux per 43-CONTEXT D-13** (owner decision 2026-09-30; separate `claude` process per measured
+  session, fixed keystroke set, driver-contamination assert; the owner's only duty is keeping the lid open). Each
+  of those phases must deliver an exact-command run-checklist; runs are resumable across days.
 
 - **Recurring pre-flight**: the installed-plugin cache must equal repo `plugin.json` before ANY
   measurement run (a stale cache poisoned 4 of the last 5 milestones).
@@ -282,23 +319,4 @@ Load-bearing sequencing notes for whoever plans next:
 
 ## Operator Next Steps
 
-- **Phase 38 is COMPLETE (6/6 plans).** The Claude-5 baseline is measured, published, and its exit
-  integrity proven: `plugins/vibe-check/docs/efficacy/RESULTS-v2.10.md` (0ec7208) states full-set
-  catch 15/15 · FP 19/21 and the family-conditional "Claude 5 re-measure (Fable 5)" section
-  (carried-6: v2.9 8/9 · 6/9 → Claude-5 9/9 · 9/9). Nothing in Phases 40+ was blocked by it any longer.
-
-- Next: plan Phase 40 directly (`/gsd:plan-phase 40`) — Phase 39 was dissolved 2026-09-05. Phase 40
-  carries DIET-01..04 + TRUST-01/02; **run the `${CLAUDE_PLUGIN_ROOT}` spike first** (see
-  Blockers/Concerns).
-
-- The **sealed pass bar is NOT evaluated** — Phase 43 evaluates it against this baseline per the
-  sealed decision rule in PREREGISTRATION-v2.10.md. The **README repoint** (still publishing 8/9 · 6/9
-  → RESULTS-v2.9.md) is **Phase 44's**. Phases 41/43 **append** to RESULTS-v2.10.md — do not create a
-  RESULTS-v2.11 (D-07).
-
-- The harness freeze (Claude Code 2.1.261 + `DISABLE_AUTOUPDATER=1`, codex-cli 0.153.4, vibe-check
-  2.9.0 cache) is no longer load-bearing for correctness — scoring reads the committed archive — but
-  38-06 did not lift it.
-
-- Re-scope record: ROADMAP.md v2.10 header note (2026-09-05) + REQUIREMENTS.md (21 active, COMPAT-02
-  withdrawn) + PROJECT.md Key Decisions.
+- Start the next milestone with /gsd-new-milestone
