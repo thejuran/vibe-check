@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f5e9-236a-7782-9f0e-dfb8115d0a58",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: saving settings now silently resets General configuration.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Restore General fields’ association with the Save Settings form\",\"body\":\"The General controls now belong to a separate form with no submit button. Clicking Save Settings submits only the instance form, omitting every General value. In triggarr/web/routes.py:531–539, save_settings replaces missing values with defaults and persists them: for example, a configured hard_max_per_cycle=10 becomes 0 (unlimited), and checked skip_unreleased becomes false. General edits are discarded, and even saving an unrelated instance change overwrites existing General settings. The existing test_general_fields_submit_with_the_save_settings_form explicitly guards this regression.\",\"file\":\"triggarr/templates/settings.html\",\"line_start\":18,\"line_end\":25,\"confidence\":1.0,\"recommendation\":\"Restore id=\\\"settings-form\\\" on the instance form and form=\\\"settings-form\\\" on every General control, keeping Security separate. Run the existing form-association regression test.\"}],\"next_steps\":[\"Restore the shared form association before merging.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: saving settings now silently resets General configuration.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Restore General fields’ association with the Save Settings form",
+        "body": "The General controls now belong to a separate form with no submit button. Clicking Save Settings submits only the instance form, omitting every General value. In triggarr/web/routes.py:531–539, save_settings replaces missing values with defaults and persists them: for example, a configured hard_max_per_cycle=10 becomes 0 (unlimited), and checked skip_unreleased becomes false. General edits are discarded, and even saving an unrelated instance change overwrites existing General settings. The existing test_general_fields_submit_with_the_save_settings_form explicitly guards this regression.",
+        "file": "triggarr/templates/settings.html",
+        "line_start": 18,
+        "line_end": 25,
+        "confidence": 1,
+        "recommendation": "Restore id=\"settings-form\" on the instance form and form=\"settings-form\" on every General control, keeping Security separate. Run the existing form-association regression test."
+      }
+    ],
+    "next_steps": [
+      "Restore the shared form association before merging."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: saving settings now silently resets General configuration.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Restore General fields’ association with the Save Settings form\",\"body\":\"The General controls now belong to a separate form with no submit button. Clicking Save Settings submits only the instance form, omitting every General value. In triggarr/web/routes.py:531–539, save_settings replaces missing values with defaults and persists them: for example, a configured hard_max_per_cycle=10 becomes 0 (unlimited), and checked skip_unreleased becomes false. General edits are discarded, and even saving an unrelated instance change overwrites existing General settings. The existing test_general_fields_submit_with_the_save_settings_form explicitly guards this regression.\",\"file\":\"triggarr/templates/settings.html\",\"line_start\":18,\"line_end\":25,\"confidence\":1.0,\"recommendation\":\"Restore id=\\\"settings-form\\\" on the instance form and form=\\\"settings-form\\\" on every General control, keeping Security separate. Run the existing form-association regression test.\"}],\"next_steps\":[\"Restore the shared form association before merging.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
