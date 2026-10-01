@@ -73,8 +73,10 @@ Every block does the mechanical part: it prints `BLOCK OK` or stops with a line 
 
 **When `/deep-review` finds something it enters an interactive Phase 5 fix loop. On EVERY run,
 DECLINE all fixes and leave the loop without applying anything:** at Step A ("How do you want to
-handle the N finding(s) above?") pick **"Skip fixes this pass"** (option 4); at Step C ("Pass N
-loop — what's next?") pick **"Abandon for now"** (option 3). Never pick "Rerun review on the new
+handle the N finding(s) above?") pick **"Skip fixes this pass"**; at Step C ("Pass N
+loop — what's next?") pick **"Abandon for now"**. Both answers are selected BY LABEL, not by
+position: the menu order can change between runs, so find the numbered line carrying that exact
+label and send its number — never send a number whose label differs. Never pick "Rerun review on the new
 diff" (a second pass breaks `len(passes)==1`), never "Close out and document" / `--finalize`, and
 never let a fix agent commit into the clone (a commit moves HEAD off the pinned base). The runs
 MEASURE the tool; they do not fix the code.
@@ -112,8 +114,9 @@ measurement clean:
    session ready, has `/clear` completed, is Step A or Step C on screen, has the review finished.
 3. **The FIXED KEYSTROKE SET is all the driver ever sends** to a measured session
    (`tmux send-keys -t p43-<diff> '<text>' Enter`): the launch line, `/clear`,
-   `/vibe-check:deep-review`, `4` at Step A ("Skip fixes this pass"), `3` at Step C ("Abandon for
-   now"), `/exit`. Never findings, hints, file names, diff ids, or an answer to any other question.
+   `/vibe-check:deep-review`, at Step A the number of the line labelled "Skip fixes this pass", at
+   Step C the number of the line labelled "Abandon for now" (selected BY LABEL — the position can
+   change between runs; never send a number whose label differs), `/exit`. Never findings, hints, file names, diff ids, or an answer to any other question.
    **An unexpected question, prompt or permission request = STOP and report** — the driver does not
    improvise an answer.
 4. **Typed attestations go to the blocks, not to the session.** The `pre` block's `CLEARED` and the
@@ -177,7 +180,7 @@ report the whole output.
 | 7 | `p43 launch <diff>` | prints the launch line; `LAUNCH_VIA_TMUX=1` also opens tmux session `p43-<diff>` with it |
 | 8 | `p43 fingerprint <diff>` | stdin: model as shown, `1M`, `assistant-tmux` |
 | 9 | `/clear` in the session, wait for it, then `printf 'CLEARED\n' \| p43 pre <diff> <n>` | |
-| 10 | `/vibe-check:deep-review` in the session; Step A `4`, Step C `3` | MEASUREMENT-RUN RULE |
+| 10 | `/vibe-check:deep-review` in the session; Step A "Skip fixes this pass", Step C "Abandon for now" (by label) | MEASUREMENT-RUN RULE |
 | 11 | `p43 post <diff> <n>` | archives, checks and commits the run |
 | 12 | repeat 9–11 for `n` = 2, 3 | |
 | 13 | `/exit` in the session, `tmux kill-session -t p43-<diff>`, then `p43 revert <diff>` | |
@@ -932,7 +935,7 @@ echo 'BLOCK OK'
 ## 7. Per run
 
 Each run is: `/clear` in the session (wait until it completes) → `printf 'CLEARED\n' | p43 pre
-<diff> <n>` → `/vibe-check:deep-review` in the session, Step A `4`, Step C `3` → `p43 post <diff>
+<diff> <n>` → `/vibe-check:deep-review` in the session, Step A / Step C answered by label → `p43 post <diff>
 <n>`. A committed run holds exactly this file set:
 
 - `clear.txt`, `session.txt` (written by `pre`);
@@ -1020,7 +1023,7 @@ printf '%s\n' "$BLK" | grep -qxE 'driver: (assistant-tmux|owner)' \
   || { echo 'LATEST FINGERPRINT RECORDS NO DRIVER — STOPPING'; exit 1; }
 printf '%s\n%s\n' "$SID" "$FPC" > "$RUN_DIR/session.txt"
 echo "run $RUN_N of $DIFF ready — in the session: /vibe-check:deep-review"
-echo 'Decline every fix: Step A option 4 (Skip fixes this pass), Step C option 3 (Abandon for now).'
+echo 'Decline every fix BY LABEL: Step A "Skip fixes this pass", Step C "Abandon for now" (send the number on the line carrying that label).'
 echo "Then: p43 post $DIFF $RUN_N"
 echo 'BLOCK OK'
 # END: pre
