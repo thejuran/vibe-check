@@ -1,0 +1,171 @@
+{
+  "codex_lines": 1,
+  "dispatched": 8,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [
+          "angular"
+        ],
+        "intent_docs_found": [],
+        "languages": [
+          "typescript"
+        ],
+        "size_tier": "small",
+        "total_lines": 5
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"typescript\"],\n  \"frameworks\": [\"angular\"],\n  \"total_lines\": 5,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01HdBs7ACbLyFVhe4uP1dsYC"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "The change to RestService.post (src/angular/src/app/services/utils/rest.service.ts:59-60) is backward compatible. The existing callers in model-file.service.ts:61/74/87 and server-command.service.ts:26 pass no body, so `body ?? null` still sends null, which is the same as before. When a caller passes an object, Angular HttpClient serializes it as JSON and sets Content-Type: application/json. The auth interceptor (auth.interceptor.ts:27) only adds the Authorization header, so the body and Content-Type pass through unchanged.",
+          "No caller passes a body yet. The config-set POST migration (phase 111) will need a frontend caller that sends the expected JSON shape, and that caller is not part of this diff. Check that the backend's bottle.request.json handler accepts the payload the frontend will send.",
+          "The `object` type rules out primitive bodies like strings and numbers. That fits a JSON-object contract. If a future caller ever needs a primitive JSON body, the type would have to be widened."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"bugs\",\"findings\":[],\"agent_notes\":[\"The change to RestService.post (src/angular/src/app/services/utils/rest.service.ts:59-60) is backward compatible. The existing callers in model-file.service.ts:61/74/87 and server-command.service.ts:26 pass no body, so `body ?? null` still sends null, which is the same as before. When a caller passes an object, Angular HttpClient serializes it as JSON and sets Content-Type: application/json. The auth interceptor (auth.interceptor.ts:27) only adds the Authorization header, so the body and Content-Type pass through unchanged.\",\"No caller passes a body yet. The config-set POST migration (phase 111) will need a frontend caller that sends the expected JSON shape, and that caller is not part of this diff. Check that the backend's bottle.request.json handler accepts the payload the frontend will send.\",\"The `object` type rules out primitive bodies like strings and numbers. That fits a JSON-object contract. If a future caller ever needs a primitive JSON body, the type would have to be widened.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_01YU4iKA7knaxnsDrB57dzNX"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "Reviewed src/angular/src/app/services/utils/rest.service.ts: adds optional `body` param to RestService.post(), defaulting to null via `??` so existing callers are unaffected. Checked all current call sites (server-command.service.ts, model-file.service.ts) — none pass a body yet; this appears to be plumbing for a future config POST migration. handleSuccess/handleError do not log the new body param, and Angular's HttpErrorResponse reflects response data, not the outgoing request body, so no new logging/data-exposure path is created. No injection, XSS, secret, or auth-control changes present. No findings."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"security\",\"findings\":[],\"agent_notes\":[\"Reviewed src/angular/src/app/services/utils/rest.service.ts: adds optional `body` param to RestService.post(), defaulting to null via `??` so existing callers are unaffected. Checked all current call sites (server-command.service.ts, model-file.service.ts) — none pass a body yet; this appears to be plumbing for a future config POST migration. handleSuccess/handleError do not log the new body param, and Angular's HttpErrorResponse reflects response data, not the outgoing request body, so no new logging/data-exposure path is created. No injection, XSS, secret, or auth-control changes present. No findings.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_011FESrDmujVU3N4E8h2xbDu"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "The change follows the existing pattern. RestService (src/angular/src/app/services/utils/rest.service.ts) is the app's single HTTP wrapper. sendRequest, post and delete all share the same map(handleSuccess) / catchError(handleError) / shareReplay(1) pipeline. Adding an optional `body` to post() extends that wrapper and does not create a second path. No new dependency, no import cycle, and no reach into another module's internals.",
+          "The change is backward compatible. `body ?? null` keeps the exact wire behavior for the 4 existing no-body callers: model-file.service.ts:61, :74 and :87, and server-command.service.ts:26. They still send a null POST body. Angular HttpClient serializes a plain object as JSON and sets Content-Type: application/json automatically, which matches the backend's move to bottle.request.json in phase 111-01.",
+          "Existing deviation, not introduced by this diff: src/angular/src/app/services/server/bulk-command.service.ts:118 calls HttpClient.post directly with a JSON body and does its own error-message extraction, bypassing RestService. That made sense while RestService.post could not send a body. This change removes that reason. Moving BulkCommandService onto RestService is not a clean swap: it parses typed JSON responses and reads err.error.error, while RestService returns text. Treat it as a possible future consolidation, not a defect. Today there is only one bypass site, which is below the rule-of-three threshold.",
+          "Asymmetry for the next step (config.service.ts migration): src/angular/src/app/tests/mocks/mock-rest.service.ts only defines sendRequest(_url) (line 6). It has no post(). Once config.service.ts switches to post(url, body), any spec that injects MockRestService will need the mock extended. pending: whoever does the config.service.ts migration should confirm this. It is a test-sufficiency/impact concern for that later change, not a finding against this diff.",
+          "Minor API-shape note: the `body?: object` type is broad, so primitives can't be passed (good), but any object can. That matches how loosely typed the rest of RestService is (string URLs, text responses), so it is consistent and not a finding.",
+          "No intent-context block was provided, so intent_doc_match was not attempted. Git history (phase 111, config-set GET-&gt;POST migration) suggests this is the planned frontend groundwork for that change."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"architecture\",\"findings\":[],\"agent_notes\":[\n\"The change follows the existing pattern. RestService (src/angular/src/app/services/utils/rest.service.ts) is the app's single HTTP wrapper. sendRequest, post and delete all share the same map(handleSuccess) / catchError(handleError) / shareReplay(1) pipeline. Adding an optional `body` to post() extends that wrapper and does not create a second path. No new dependency, no import cycle, and no reach into another module's internals.\",\n\"The change is backward compatible. `body ?? null` keeps the exact wire behavior for the 4 existing no-body callers: model-file.service.ts:61, :74 and :87, and server-command.service.ts:26. They still send a null POST body. Angular HttpClient serializes a plain object as JSON and sets Content-Type: application/json automatically, which matches the backend's move to bottle.request.json in phase 111-01.\",\n\"Existing deviation, not introduced by this diff: src/angular/src/app/services/server/bulk-command.service.ts:118 calls HttpClient.post directly with a JSON body and does its own error-message extraction, bypassing RestService. That made sense while RestService.post could not send a body. This change removes that reason. Moving BulkCommandService onto RestService is not a clean swap: it parses typed JSON responses and reads err.error.error, while RestService returns text. Treat it as a possible future consolidation, not a defect. Today there is only one bypass site, which is below the rule-of-three threshold.\",\n\"Asymmetry for the next step (config.service.ts migration): src/angular/src/app/tests/mocks/mock-rest.service.ts only defines sendRequest(_url) (line 6). It has no post(). Once config.service.ts switches to post(url, body), any spec that injects MockRestService will need the mock extended. pending: whoever does the config.service.ts migration should confirm this. It is a test-sufficiency/impact concern for that later change, not a finding against this diff.\",\n\"Minor API-shape note: the `body?: object` type is broad, so primitives can't be passed (good), but any object can. That matches how loosely typed the rest of RestService is (string URLs, text responses), so it is consistent and not a finding.\",\n\"No intent-context block was provided, so intent_doc_match was not attempted. Git history (phase 111, config-set GET-&gt;POST migration) suggests this is the planned frontend groundwork for that change.\"\n]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01CNjPYMkCWqd5ShaRQEbZH7"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Signature change is additive. post(url) became post(url, body?: object), which still compiles for all 4 existing production callers: model-file.service.ts:61,74,87 and server-command.service.ts:26. I read these with grep.",
+          "Runtime behavior for existing callers is unchanged. `body ?? null` gives null when body is omitted, which is exactly what was sent before. Angular HttpClient sends no Content-Type for a null body, so the requests are byte-identical.",
+          "When a body is passed, Angular HttpClient serializes a plain object or array to JSON and sets Content-Type: application/json automatically. This matches the backend's switch to bottle.request.json (commit fffa81a). responseType stays 'text', so handleSuccess and handleError still apply.",
+          "Edge case: `??` forwards falsy-but-defined bodies such as {} unchanged, which is correct. Only undefined becomes null.",
+          "Blast radius: RestService is imported by 6 production services and 7 test files. Only the post path changed, and sendRequest is untouched. MockRestService already lacked post before this diff, so that gap is pre-existing.",
+          "No schema, migration or performance impact. The change only affects how the client builds the request.",
+          "Verdict: shippable as-is. The only gap is test coverage for the new body path, which should land with the config.service caller migration."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 40,
+            "category": "blast-radius",
+            "current_code": "public post(url: string, body?: object): Observable&lt;WebReaction&gt; {\n        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+            "cwe": null,
+            "file": "src/angular/src/app/services/utils/rest.service.ts",
+            "fix_hint": "Add rest.service.spec cases for post(url) (body null) and post(url, {..}) (body forwarded, JSON content-type); add post to MockRestService if config.service specs will need it.",
+            "id": "impact-1",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 59,
+            "problem": "The new `body` branch is not exercised anywhere. A grep of src/angular/src/app finds every `.post(` caller (model-file.service.ts:61,74,87 and server-command.service.ts:26) still calling post(url) with no body. rest.service.spec.ts has no post test at all, and MockRestService (tests/mocks/mock-rest.service.ts) only stubs sendRequest, not post. The planned config-set POST migration, which this diff is setting up for (backend 111-01 now reads bottle.request.json), will rely on Angular HttpClient serializing the object and adding a Content-Type: application/json header. Nothing in the frontend suite checks that today. pending: a HttpTestingController test asserting req.body equals the passed object and that the request carries a JSON content-type.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "New JSON-body path of RestService.post has no test coverage and no caller yet",
+            "why_it_matters": "The backend now expects a JSON body. If the body is serialized wrong or the content-type header is missing, config saves fail with a 400, and no frontend test would catch it."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"impact\",\n  \"findings\": [\n    {\n      \"id\": \"impact-1\",\n      \"file\": \"src/angular/src/app/services/utils/rest.service.ts\",\n      \"line\": 59,\n      \"title\": \"New JSON-body path of RestService.post has no test coverage and no caller yet\",\n      \"category\": \"blast-radius\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 40,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The new `body` branch is not exercised anywhere. A grep of src/angular/src/app finds every `.post(` caller (model-file.service.ts:61,74,87 and server-command.service.ts:26) still calling post(url) with no body. rest.service.spec.ts has no post test at all, and MockRestService (tests/mocks/mock-rest.service.ts) only stubs sendRequest, not post. The planned config-set POST migration, which this diff is setting up for (backend 111-01 now reads bottle.request.json), will rely on Angular HttpClient serializing the object and adding a Content-Type: application/json header. Nothing in the frontend suite checks that today. pending: a HttpTestingController test asserting req.body equals the passed object and that the request carries a JSON content-type.\",\n      \"current_code\": \"public post(url: string, body?: object): Observable&lt;WebReaction&gt; {\\n        return this._http.post(url, body ?? null, {responseType: \\\"text\\\"}).pipe(\",\n      \"fix_hint\": \"Add rest.service.spec cases for post(url) (body null) and post(url, {..}) (body forwarded, JSON content-type); add post to MockRestService if config.service specs will need it.\",\n      \"why_it_matters\": \"The backend now expects a JSON body. If the body is serialized wrong or the content-type header is missing, config saves fail with a 400, and no frontend test would catch it.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Signature change is additive. post(url) became post(url, body?: object), which still compiles for all 4 existing production callers: model-file.service.ts:61,74,87 and server-command.service.ts:26. I read these with grep.\",\n    \"Runtime behavior for existing callers is unchanged. `body ?? null` gives null when body is omitted, which is exactly what was sent before. Angular HttpClient sends no Content-Type for a null body, so the requests are byte-identical.\",\n    \"When a body is passed, Angular HttpClient serializes a plain object or array to JSON and sets Content-Type: application/json automatically. This matches the backend's switch to bottle.request.json (commit fffa81a). responseType stays 'text', so handleSuccess and handleError still apply.\",\n    \"Edge case: `??` forwards falsy-but-defined bodies such as {} unchanged, which is correct. Only undefined becomes null.\",\n    \"Blast radius: RestService is imported by 6 production services and 7 test files. Only the post path changed, and sendRequest is untouched. MockRestService already lacked post before this diff, so that gap is pre-existing.\",\n    \"No schema, migration or performance impact. The change only affects how the client builds the request.\",\n    \"Verdict: shippable as-is. The only gap is test coverage for the new body path, which should land with the config.service caller migration.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01NgRMu9aZqHbh9AnwTXHq6F"
+    },
+    {
+      "parsed": {
+        "agent": "test-sufficiency",
+        "agent_notes": [
+          "no coverage data available, skipped"
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"test-sufficiency\",\"findings\":[],\"agent_notes\":[\"no coverage data available, skipped\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:test-sufficiency",
+      "tool_use_id": "toolu_01X8g95hEN9yJhbrn92YTrUh"
+    },
+    {
+      "parsed": {
+        "agent": "language-typescript",
+        "agent_notes": [
+          "rest.service.ts post() signature change is backward-compatible; verified via grep that all current callers (server-command.service.ts, model-file.service.ts) call post(url) with no body, consistent with the prior null-body behavior."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "No issues found. This is a small, well-contained change: `post()` gains an optional `body?: object` parameter defaulting to `null` via `??`, preserving behavior for all five existing call sites (none of which currently pass a body, confirmed via grep across `src/angular/src/app`). No null-access, floating-promise, collection-mutation, hook-dependency, or unvalidated-external-cast issues apply here — the `object` param type is for an outgoing request body the caller constructs, not untrusted external data being cast.\n\n```json\n{\"agent\":\"language-typescript\",\"findings\":[],\"agent_notes\":[\"rest.service.ts post() signature change is backward-compatible; verified via grep that all current callers (server-command.service.ts, model-file.service.ts) call post(url) with no body, consistent with the prior null-body behavior.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-typescript",
+      "tool_use_id": "toolu_01AWHr7zxp8bCDYWosf5aD58"
+    },
+    {
+      "parsed": {
+        "agent": "framework-angular",
+        "agent_notes": [
+          "Change is a plain service-method signature update (RestService.post gains an optional `body?: object` param, defaulting to null via `??`) — no subscribe calls, components, DI registration, or lifecycle hooks are touched, so none of the Angular-mechanism categories (rxjs-leaks, change-detection, di-scope, lifecycle, rxjs-composition) apply. Existing callers (server-command.service.ts, model-file.service.ts) still call post(url) with no body, which is preserved by the `?? null` fallback. No new callers pass a body in this diff."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"framework-angular\",\"findings\":[],\"agent_notes\":[\"Change is a plain service-method signature update (RestService.post gains an optional `body?: object` param, defaulting to null via `??`) — no subscribe calls, components, DI registration, or lifecycle hooks are touched, so none of the Angular-mechanism categories (rxjs-leaks, change-detection, di-scope, lifecycle, rxjs-composition) apply. Existing callers (server-command.service.ts, model-file.service.ts) still call post(url) with no body, which is preserved by the `?? null` fallback. No new callers pass a body in this diff.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:framework-angular",
+      "tool_use_id": "toolu_016hV5DejdpM6j644xRDsPYL"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "No substantive blocking defect found. Existing POST callers still send null; the optional body leaves authentication and response handling unchanged. Review was static; tests were not run."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [], \"agent_notes\": [\"No substantive blocking defect found. Existing POST callers still send null; the optional body leaves authentication and response handling unchanged. Review was static; tests were not run.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01VyxkRzsjHGp69uFcahFfVJ"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 8,
+  "unrecovered": []
+}
