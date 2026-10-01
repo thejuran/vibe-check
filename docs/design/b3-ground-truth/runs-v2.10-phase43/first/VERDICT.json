@@ -1,0 +1,225 @@
+{
+  "catch_bar": 15,
+  "catch_denominator": 15,
+  "catch_fraction": "13/15",
+  "catch_hit": 13,
+  "dropouts": {
+    "should-quiet-1": 0,
+    "should-quiet-2": 0,
+    "should-quiet-3": 0,
+    "should-quiet-4": 0,
+    "should-quiet-5": 0,
+    "should-quiet-6": 0,
+    "should-quiet-7": 0,
+    "third-organic-should-catch": 0,
+    "triggarr-autoescape": 0,
+    "triggarr-secret-in-logs": 0,
+    "triggarr-session-rotation": 0,
+    "triggarr-settings-form-split": 0
+  },
+  "excluded_runs": {
+    "should-quiet-7": [
+      true,
+      true,
+      true
+    ]
+  },
+  "fp_bar": 8,
+  "label": "first",
+  "per_diff": {
+    "should-quiet-1": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        false,
+        false,
+        false
+      ],
+      "fired_count": "0/3",
+      "role": "quiet"
+    },
+    "should-quiet-2": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        false,
+        false,
+        false
+      ],
+      "fired_count": "0/3",
+      "role": "quiet"
+    },
+    "should-quiet-3": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        false,
+        false,
+        false
+      ],
+      "fired_count": "0/3",
+      "role": "quiet"
+    },
+    "should-quiet-4": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        true,
+        true,
+        true
+      ],
+      "fired_count": "3/3",
+      "role": "quiet"
+    },
+    "should-quiet-5": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        false,
+        false,
+        false
+      ],
+      "fired_count": "0/3",
+      "role": "quiet"
+    },
+    "should-quiet-6": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        true,
+        true,
+        true
+      ],
+      "fired_count": "3/3",
+      "role": "quiet"
+    },
+    "should-quiet-7": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        true,
+        true,
+        true
+      ],
+      "fired_count": "3/3",
+      "role": "quiet"
+    },
+    "third-organic-should-catch": {
+      "catch": [
+        "CATCH",
+        "CATCH",
+        "CATCH"
+      ],
+      "catch_count": "3/3",
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "role": "catch"
+    },
+    "triggarr-autoescape": {
+      "catch": [
+        "MISS",
+        "MISS",
+        "CATCH"
+      ],
+      "catch_count": "1/3",
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "role": "catch"
+    },
+    "triggarr-secret-in-logs": {
+      "catch": [
+        "CATCH",
+        "CATCH",
+        "CATCH"
+      ],
+      "catch_count": "3/3",
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "role": "catch"
+    },
+    "triggarr-session-rotation": {
+      "catch": [
+        "CATCH",
+        "CATCH",
+        "CATCH"
+      ],
+      "catch_count": "3/3",
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "role": "catch"
+    },
+    "triggarr-settings-form-split": {
+      "catch": [
+        "CATCH",
+        "CATCH",
+        "CATCH"
+      ],
+      "catch_count": "3/3",
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "role": "catch"
+    }
+  },
+  "quiet_denominator": 18,
+  "quiet_excluded": [
+    "should-quiet-7"
+  ],
+  "quiet_fired": 6,
+  "quiet_fraction": "6/18",
+  "sealed_literal": {
+    "fp_bar": 9,
+    "quiet_denominator": 21,
+    "quiet_fired": 9,
+    "would_be": "MISS"
+  },
+  "snapshot_commit_note": "snapshot commit is bound per run by the fingerprint batch-sha line and checked by the scoring ladder, not by this tool",
+  "verdict": "MISS"
+}

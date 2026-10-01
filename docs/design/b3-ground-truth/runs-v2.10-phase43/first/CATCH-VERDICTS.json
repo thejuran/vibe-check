@@ -1,0 +1,17 @@
+{
+  "triggarr-secret-in-logs/run-1": "CATCH",
+  "triggarr-secret-in-logs/run-2": "CATCH",
+  "triggarr-secret-in-logs/run-3": "CATCH",
+  "triggarr-autoescape/run-1": "MISS",
+  "triggarr-autoescape/run-2": "MISS",
+  "triggarr-autoescape/run-3": "CATCH",
+  "third-organic-should-catch/run-1": "CATCH",
+  "third-organic-should-catch/run-2": "CATCH",
+  "third-organic-should-catch/run-3": "CATCH",
+  "triggarr-session-rotation/run-1": "CATCH",
+  "triggarr-session-rotation/run-2": "CATCH",
+  "triggarr-session-rotation/run-3": "CATCH",
+  "triggarr-settings-form-split/run-1": "CATCH",
+  "triggarr-settings-form-split/run-2": "CATCH",
+  "triggarr-settings-form-split/run-3": "CATCH"
+}
