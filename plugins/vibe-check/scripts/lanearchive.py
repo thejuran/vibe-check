@@ -84,11 +84,15 @@ _USAGE_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _EMAIL_ALLOWED = ("noreply@anthropic.com",)
-# Reserved / non-routable names (RFC 2606, RFC 6761, RFC 6762, ICANN .internal). An
-# email-shaped token on one of these cannot address a real mailbox; review findings use
-# them to illustrate credentials-in-URL leaks (`https://user:pass@radarr.local/`).
-_EMAIL_RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
-_EMAIL_RESERVED_TLDS = ("example", "test", "invalid", "localhost", "local", "internal")
+# Reserved / non-routable names (RFC 2606, RFC 6761, RFC 6762, RFC 8375 home.arpa, ICANN
+# .internal) plus the private-use top-level names RFC 6762 Appendix G lists as commonly
+# used on home and corporate networks. An email-shaped token on one of these cannot
+# address a real mailbox; review findings use them to illustrate credentials-in-URL
+# leaks (`https://user:pass@radarr.local/`, `http://user:pass@radarr.lan`). Matching is
+# on the final label only, so `x@radarr.lan.evil.com` is still refused.
+_EMAIL_RESERVED_DOMAINS = ("example.com", "example.net", "example.org", "home.arpa")
+_EMAIL_RESERVED_TLDS = ("example", "test", "invalid", "localhost", "local", "internal",
+                        "lan", "home", "corp", "private", "intranet")
 PRIVACY_CLASSES = (
     ("nas-host", (re.compile(r"maguffynas"), re.compile(r"ssh nas"),
                   re.compile(r"sudoers"))),

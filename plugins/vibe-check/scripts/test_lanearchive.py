@@ -321,6 +321,19 @@ class TestReservedEmailDomains(unittest.TestCase):
             with self.subTest(tok=tok):
                 self.assertEqual(lanearchive.privacy_scan("see %s here" % tok), ["email"])
 
+    def test_private_use_names_pass(self):
+        for text in ("a config such as http://user:pass@radarr.lan is accepted",
+                     "mail a@nas.home", "mail b@x.home.arpa", "mail c@y.corp",
+                     "mail d@box.private", "mail e@wiki.intranet"):
+            with self.subTest(text=text):
+                self.assertEqual(lanearchive.privacy_scan(text), [])
+
+    def test_private_use_name_only_as_final_label(self):
+        for tok in ("x@radarr.lan.evil.com", "jane@gmail.com", "y@home.arpa.evil.com",
+                    "z@corp.example-mail.io"):
+            with self.subTest(tok=tok):
+                self.assertEqual(lanearchive.privacy_scan("see %s here" % tok), ["email"])
+
     def test_reserved_domain_does_not_exempt_other_classes(self):
         self.assertEqual(lanearchive.privacy_scan("pass@maguffynas.local"), ["nas-host"])
         self.assertEqual(lanearchive.privacy_scan("sk-ant-abc@radarr.test"), ["token"])
