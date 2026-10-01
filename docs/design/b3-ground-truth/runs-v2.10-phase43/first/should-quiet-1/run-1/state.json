@@ -1,0 +1,60 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-01T03:24:57Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (HEAD..working tree)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-in-IPv6 embedding coverage incomplete (NAT64 prefix and literal metadata IPs still bypass)",
+          "reason": "absorbed-into: 04f8b11b20caea14d72187c5d3f7261c91440a3b64bac2fe96a49a5811d39e06"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check misses other IPv6 forms that embed IPv4 (IPv4-compatible, NAT64, 6to4)",
+          "reason": "absorbed-into: 04f8b11b20caea14d72187c5d3f7261c91440a3b64bac2fe96a49a5811d39e06"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Shorthand and integer IPv4 hosts and loopback DNS names still skip the IP checks",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "The new IPv4-mapped check skips the BLOCKED_HOSTS metadata IP (100.100.100.200)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Other IPv6 forms that embed IPv4 and shorthand IPv4 literals are not unwrapped",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
