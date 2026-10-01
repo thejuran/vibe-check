@@ -1,4 +1,4 @@
-# B3 v2.10 Phase-43 scoring worksheet — first pass (36 runs, post-change system)
+# B3 v2.10 Phase-43 scoring worksheet — first pass (36 runs) + retune (9 runs), post-change system
 
 This is the scoring record for the v2.10 **post-change** measurement. It covers 12 sealed diffs × 3
 runs on the fully changed plugin, which is frozen in snapshot S = `be6b0fcd9a4c2794dd3351ea054a65f3ab91e536`.
@@ -656,9 +656,244 @@ field only.
 `TestRetuneClauses` / `TestRetuneClausesMutation`) and the RESULTS pre-registration. The five
 frozen files are blob-equal at S and S2.
 
+### Retune gate — full form (after the retune runs)
+
+Run 2026-10-01 against the committed retune runs; exit 0. It checks ancestry (FAILED-DIFFS first
+commit → R → every retune fingerprint and run commit), the D-05 allowlist, blob-equality of the five
+frozen files at S and S2, and the retune ledger against the committed FAILED-DIFFS expected set.
+
+```
+$ python3 plugins/vibe-check/scripts/score43.py retune-gate --repo . --s be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 --s2 8df25c7c792448792162072aa89fe46ad5875ae9 --failed-diffs docs/design/b3-ground-truth/runs-v2.10-phase43/first/FAILED-DIFFS.json --first-root docs/design/b3-ground-truth/runs-v2.10-phase43/first --retune-root docs/design/b3-ground-truth/runs-v2.10-phase43/retune --last-first-commit ff8ab4c350b0c955e13409f4a8f952de1c306fab
+retune-gate: pre-verdict tooling change (not part of R): plugins/vibe-check/scripts/lanearchive.py
+retune-gate: pre-verdict tooling change (not part of R): plugins/vibe-check/scripts/test_lanearchive.py
+retune-gate: PASS
+```
+
+The two tolerated paths are the same first-pass privacy-scan fixes recorded for the pre-run form
+(185a9fa, a3f240b). Their blobs are unchanged from the FAILED-DIFFS commit to S2.
+
 ---
 
-## 7. Provenance recap
+## 7. Retune scoring (43-06) and the combined headline
+
+The retune re-ran only the three failed diffs, ×3 each, on snapshot S2 =
+`8df25c7c792448792162072aa89fe46ad5875ae9` (= retune commit R). Scoring uses the same ladder, the
+same keys and the same rules as §1–§5. The quiet arm is mechanical. The autoescape AXIS calls are
+hand judgements recorded in `retune/CATCH-VERDICTS.json`.
+
+### §7.1 Gate ladder, retune runs (gates 2, 5, 6b, 8, 9; all PASS)
+
+Gates (1), (3), (4) and (6a) bind the seals, keys and sidecars. None of those changed since §1,
+and the keys were re-materialized from the same blobs.
+
+| Gate | Check | Result |
+|---|---|---|
+| (2) | `batch-sha:` of the 3 retune fingerprint blocks | 3/3 = S2 `8df25c7c…`. The 12 first-pass blocks still read S. PASS |
+| (2) | S2 ancestor of every retune fingerprint commit and run commit | 3/3 FPC and 9/9 run commits, exit 0. PASS |
+| (2) | FPC committer time < `passes[-1].timestamp` | 9/9. PASS |
+| (2) | transcript sha binding; BAD-regex (repo plugin path or released cache) hits; snapshot root `batch6-8df25c7c7924` named | 9/9 match; 0 hits; 9/9 name the root. PASS |
+| (2) | parity records | `parity: 8df25c7c… forward=106/106 reverse=0 extra at 2026-10-01T06:15:32-0400` and a second `parity: restored released 2.9.0 at 2026-10-01T07:59:42-0400`. PASS |
+| (5) | layout | 9 run dirs, 0 siblings, each with the same 11 tracked files (Codex variant: payload + rc); 9/9 `clear.txt` attestations; `state_shape --schema future` 9/9 rc 0. PASS |
+| (6b) | isolation | `len(passes)==1` 9/9; `head_sha == base_sha` 9/9 (`e11187e`, `14eecb5`, `9bfd4a6`); tree.diff triple 9/9. PASS |
+| (8) | privacy | `lanearchive.py scan` over the 18 retune `lanes.json` + `codex-payload.json`: "privacy scan clean: 18 file(s)", exit 0. The secret-shape grep (the §1 (8) pattern) found 0 files in each of `state.json`, `lanes.json`, `codex-payload.json`, `report.md`. PASS |
+| (9) | pins and binding | All 3 blocks: `claude-code: 2.1.281 (Claude Code)`, `model: Fable 5.1` (EXACT `fable 5.1`), `context-window: 1M`, `codex: codex-cli 0.153.4`, `codex-companion: 1.0.4`, `driver: assistant-tmux`, `session: retune <diff>`. Per-run binding 9/9: `session.txt` = SID + FPC; FPC touches only the notes file; SID absent at FPC^; FPC ≠ RC and FPC is an ancestor of RC; `clear.txt` time < pass time. PASS |
+
+| diff | SID | FPC | run commits (1 / 2 / 3) |
+|---|---|---|---|
+| triggarr-autoescape | 2026-10-01T06:16:30-0400 | `5e4c306` | `cc10395` / `6aa227a` / `eccab02` |
+| should-quiet-4 | 2026-10-01T06:59:09-0400 | `cb100e2` | `4bcec60` / `4c37310` / `a417d92` |
+| should-quiet-6 | 2026-10-01T07:31:34-0400 | `a20511a` | `295149e` / `f0a71bb` / `8505666` |
+
+**Ledger.** `score43.py ledger --runs-root …/retune --expected-diffs <git show HEAD:…/first/FAILED-DIFFS.json>`
+→ `ledger complete: 3 diffs x 3, no holes, no extras`, exit 0. `retune/RUNS-COMPLETE.json`
+(`8de5075`) has `expected_diffs` equal to FAILED-DIFFS.
+
+**Codex.** `score43.py codex-status`: `joined`, no dropout, on all 9 runs.
+
+**Driver note.** In should-quiet-6 runs 2 and 3, Step C showed a reordered menu with "Abandon for
+now" as option 1. The driver answered "Abandon for now" (key 1). `post` validates answers by label
+and recorded `driver contamination: none`. Step C comes after the review's findings are persisted,
+so the scored `passes[-1].findings` are unaffected. The runbook was fixed to select by label (`8f63681`).
+
+### §7.2 Quiet arm, retune runs (mechanical, D-08)
+
+| run | critical/warning findings (`score43.py fp`) | verdict | Codex | notes |
+|---|---|---|---|---|
+| should-quiet-4/run-1 | none (`fired: False`) | QUIET | joined (`approve`, 0 findings) | 1 medium noise-note |
+| should-quiet-4/run-2 | none | QUIET | joined (`approve`, 0 findings) | 1 medium noise-note |
+| should-quiet-4/run-3 | none | QUIET | joined (`approve`, 0 findings) | 1 medium noise-note |
+| should-quiet-6/run-1 | codex-adversarial `triggarr/models/config.py`:139 [critical, 100] `c93be6bfe251` | FP | joined | `stable_hash` byte-identical to first-pass run-1/run-3 |
+| should-quiet-6/run-2 | codex-adversarial `triggarr/models/config.py`:139 [critical, 100] `4ac803dd7f3d` | FP | joined | same "never wired" framing |
+| should-quiet-6/run-3 | codex-adversarial `triggarr/models/config.py`:139 [critical, 100] `c93be6bfe251` | FP | joined | as run-1 |
+
+**should-quiet-4: 0/3 fired** (first pass 3/3). **should-quiet-6: 3/3 fired** (first pass 3/3; the
+pre-registered expected residual).
+
+### §7.3 Catch arm, retune runs — triggarr-autoescape (hand AXIS)
+
+The SITE, AXIS text, BAND floor, title-only basis (entry 007) and recorded precedents are exactly
+those of §3.2.
+
+**Order of work (disclosure).** The first-pass rows of this diff (§3.2) were already in this file,
+and were read as part of the plan's mandated inputs before these calls. The calls below apply the
+§3.2 basis as written: a title must name the escaping/XSS consequence. Revert, deprecation or
+startup framing alone is axis=false.
+
+Each run has one surviving row at SITE (all lanes collapsed into it). `score43.py
+catch-candidates` output, condensed to the survivor plus the axis-relevant members:
+
+| run | lead | line | band | score | stable_hash | survivor title | axis-relevant member titles (agent · category) |
+|---|---|---|---|---|---|---|---|
+| 1 | framework-fastapi | 45 | critical | 100 | 19d8aa291137 | Diff reverts the just-committed Jinja2Templates autoescape fix (commit e11187e) | security·xss "Revert re-introduces fragile autoescape path, enabling future stored XSS"; impact·blast-radius "XSS autoescape protection now goes through Starlette's deprecated env_options path, and the unpinned Docker build will fail to start once Starlette removes it" |
+| 2 | codex-adversarial | 45 | critical | 100 | 09946da53edd | Avoid making XSS protection depend on deprecated environment options | bugs·logic-error "Revert puts HTML autoescaping (the XSS guard) back on Starlette's deprecated env_options path; unpinned FastAPI can break startup or drop the guarantee"; impact·breaking-api "…HTML escaping (the XSS guard) for every template now depends on a deprecated Starlette option" |
+| 3 | security | 45 | critical | 100 | 5ef4400858f2 | Reverts unconditional autoescape Environment, making stored-XSS protection dependent on a deprecated Starlette passthrough | codex-adversarial "Keep script-injection protection off deprecated environment options"; bugs·logic-error "…HTML autoescaping (XSS protection) now depends on Starlette's deprecated env_options passthrough"; impact·blast-radius "…makes the XSS autoescape guarantee depend on Starlette's deprecated env_options path…" |
+
+| run | isolation | tree.diff | winning finding at SITE | SITE | AXIS | BAND | verdict | Codex |
+|---|---|---|---|---|---|---|---|---|
+| run-1 | len=1,head=e11187e ✓ | ✓ | `framework-fastapi` L45 [critical, 100]; AXIS carried by member `security` (category `xss`) "Revert re-introduces fragile autoescape path, enabling future stored XSS" | ✓ | ✓ The member title names the XSS consequence once the fragile path lapses. Same class as the recorded axis=true "risking silent XSS on future Starlette upgrade"; category `xss` corroborates. The survivor's own title is revert framing and would not carry AXIS alone. | ✓ critical | CATCH | joined (`needs-attention`, startup-crash title) |
+| run-2 | len=1,head=e11187e ✓ | ✓ | `codex-adversarial` L45 [critical, 100] "Avoid making XSS protection depend on deprecated environment options" | ✓ | ✓ The survivor title names the XSS protection as what is made version-dependent, the same class as the first-pass run-3 CATCH basis ("reintroduces version-fragile XSS protection"). The bugs member names the lapse outright ("…can break startup or drop the guarantee" of the XSS guard), the same class as the recorded axis=true "autoescape silently drops on Starlette upgrade". | ✓ critical | CATCH | joined |
+| run-3 | len=1,head=e11187e ✓ | ✓ | `security` L45 [critical, 100] "Reverts unconditional autoescape Environment, making stored-XSS protection dependent on a deprecated Starlette passthrough" (category `xss`) | ✓ | ✓ The survivor title names stored-XSS protection made dependent on a deprecated path, the same class as the first-pass run-3 CATCH basis. Codex's member names "script-injection protection". | ✓ critical | CATCH | joined |
+
+**Per-diff: 3/3 catch** (first pass 1/3). Codex dropouts: 0.
+
+**Sensitivity (stated, not hidden).** All three calls use the §3.2 basis that credited first-pass
+run-3: a title naming the XSS protection as made fragile or version-dependent meets AXIS. A
+stricter basis would credit only a title that says escaping lapses or XSS results. Under it:
+
+- run-1 still CATCHes ("enabling future stored XSS");
+- run-2 still CATCHes through the bugs member ("…drop the guarantee");
+- run-3 would rest on "stored-XSS protection dependent on a deprecated … passthrough" with no
+  title saying the protection drops, so it would be contestable.
+
+Under that stricter basis the arm would be 14/15, a MISS. Applied retroactively, the same basis
+would also remove first-pass run-3's CATCH and leave the untuned arm at 12/15. The calls of record
+use the one basis already applied to the first pass. That basis is what makes the untuned and
+combined numbers comparable.
+
+### §7.4 Hand maps
+
+`retune/CATCH-VERDICTS.json` (3 entries, from §7.3):
+
+```json
+{"triggarr-autoescape/run-1": "CATCH", "triggarr-autoescape/run-2": "CATCH", "triggarr-autoescape/run-3": "CATCH"}
+```
+
+The merged 15-entry combined map is `first/CATCH-VERDICTS.json` with the three autoescape entries
+replaced by the retune entries. It was written to a scratch path and passed to `aggregate`:
+
+```json
+{"triggarr-secret-in-logs/run-1": "CATCH", "triggarr-secret-in-logs/run-2": "CATCH", "triggarr-secret-in-logs/run-3": "CATCH",
+ "triggarr-autoescape/run-1": "CATCH", "triggarr-autoescape/run-2": "CATCH", "triggarr-autoescape/run-3": "CATCH",
+ "third-organic-should-catch/run-1": "CATCH", "third-organic-should-catch/run-2": "CATCH", "third-organic-should-catch/run-3": "CATCH",
+ "triggarr-session-rotation/run-1": "CATCH", "triggarr-session-rotation/run-2": "CATCH", "triggarr-session-rotation/run-3": "CATCH",
+ "triggarr-settings-form-split/run-1": "CATCH", "triggarr-settings-form-split/run-2": "CATCH", "triggarr-settings-form-split/run-3": "CATCH"}
+```
+
+### §7.5 Aggregates (pinned surface)
+
+(a) Subset: `score43.py aggregate --runs-root …/retune --label retune --expected-diffs <FAILED-DIFFS> --fp-bar 8 --sealed-fp-bar 9 --catch-bar 15 --catch-verdicts …/retune/CATCH-VERDICTS.json --verdict-out …/retune/VERDICT.json`
+→ exit 0:
+
+```
+triggarr-autoescape (catch): 3/3, dropouts 0
+should-quiet-4 (quiet): 0/3, dropouts 0
+should-quiet-6 (quiet): 3/3, dropouts 0
+retune subset: 9 runs over 3 diffs (no headline; see combined)
+```
+
+(b) Combined: `score43.py aggregate --runs-root …/retune --label combined --first-root …/first --retune-root …/retune --failed-diffs <FAILED-DIFFS> --fp-bar 8 --sealed-fp-bar 9 --catch-bar 15 --catch-verdicts <merged map> --verdict-out …/retune/COMBINED-VERDICT.json`
+→ exit 0:
+
+```
+combined: PASS — quiet fired 3/18 (corrected cohort, bar <= 8; excluded: should-quiet-7); catch 15/15 (bar 15)
+sealed literal (never deciding): 6/21 vs <= 9/21 -> would be PASS
+should-quiet-7 (descriptive, excluded per #001): fired 3/3
+untuned first pass: 6/18, 9/21, 13/15
+```
+
+D-07 is applied: the three retuned diffs' new runs replace their first-pass runs, and all other diffs
+keep their first-pass runs. Fired runs in the combined set: should-quiet-6 ×3 (retune). The
+excluded should-quiet-7 ×3 are first-pass runs and count only in the sealed literal.
+
+### §7.6 Headline (transcribed from `retune/COMBINED-VERDICT.json`)
+
+**Combined verdict: PASS.** It is decided on the corrected cohort: false alarms 16→3 of 18 (bar ≤ 8); catches 15→15 of 15 (bar 15).
+
+sealed literal (never deciding): quiet fired 6 of 21 against the sealed bar ≤ 9 of 21 (`would_be: PASS`).
+
+untuned first pass: 6/18, 9/21, 13/15 (MISS, `first/VERDICT.json`).
+
+The retune was designed after seeing these same diffs fail — tune-vs-measure overlap; the untuned numbers are the cleaner estimate.
+
+| diff-id | role | combined fraction | source |
+|---|---|---|---|
+| triggarr-secret-in-logs | should-catch | 3/3 catch | first |
+| triggarr-autoescape | should-catch | 3/3 catch | retune (first 1/3) |
+| third-organic-should-catch | should-catch | 3/3 catch | first |
+| triggarr-session-rotation | should-catch | 3/3 catch | first |
+| triggarr-settings-form-split | should-catch | 3/3 catch | first |
+| should-quiet-1 | should-quiet | 0/3 fired | first |
+| should-quiet-2 | should-quiet | 0/3 fired | first |
+| should-quiet-3 | should-quiet | 0/3 fired | first |
+| should-quiet-4 | should-quiet | 0/3 fired | retune (first 3/3) |
+| should-quiet-5 | should-quiet | 0/3 fired | first |
+| should-quiet-6 | should-quiet | 3/3 fired | retune (first 3/3) |
+| should-quiet-7 (excluded) | should-quiet | 3/3 fired | first (descriptive) |
+
+### §7.7 Pre-registered expectations (RESULTS-v2.10.md §"Phase-43 retune pre-registration")
+
+| diff | expected | observed | held? |
+|---|---|---|---|
+| triggarr-autoescape | 3/3 catch (MEDIUM) | 3/3 catch | yes (under the §3.2 basis; see the §7.3 sensitivity note) |
+| should-quiet-4 | ≤ 1/3 fired (MEDIUM) | 0/3 fired | yes |
+| should-quiet-6 | 3/3 fired, unchanged (HIGH) | 3/3 fired | yes |
+
+### §7.8 Confounds first (D-00c), from the archived raw lanes of the retune runs
+
+The pre-registered order: first the two new retune sentences, then the Phase-42 Codex focus text
+and the moved-control qualifier.
+
+- **Moved-control qualifier: did not fire.** The form "covers every path" has 0 hits across the
+  18 retune `lanes.json` and `codex-payload.json` files.
+- **Rule 1 (conditional guarantee) visibly engaged on autoescape.**
+  - Every run's lane notes again record that the locked Starlette 0.52.1 still escapes output
+    today. That premise gap is the same one recorded in §3.2.
+  - The lanes now report the change as a loss anyway. The run-1 security lane's note says "the
+    regression is the loss of the unconditional guarantee". In run 2, both the security and the
+    impact lane say the change replaces a protection that "held unconditionally".
+  - The security lane rated high in all three runs. In the first pass it rated 35/low in run 2.
+  - The bugs and impact titles now name "the XSS guard" or "XSS protection".
+  - The catch movement is therefore attributable to Rule 1's wording, as designed. It is not a
+    confound.
+- **Codex focus change (the Rule 1 sentence is also in the Codex literal).**
+  - Codex titled runs 2 and 3 "XSS protection" and "script-injection protection" (`needs-attention`,
+    medium, 0.96/0.98). "Script execution" is the literal's own example wording.
+  - In run 1 Codex instead titled a startup crash, "Unsupported autoescape argument prevents
+    startup", at confidence 1. Its summary says the constructor "crashes application startup in
+    the installed environment". That contradicts the Claude lanes' verified 0.52.1 behavior. The run-2
+    language-python lane records an installed `.venv` Starlette 0.49.3 against 0.52.1 pinned in
+    `uv.lock`. That is an environment discrepancy in the clone, not resolved here.
+  - Run 1's AXIS is carried by Claude members, not by Codex.
+- **Rule 2 (reused-helper bypass) visibly engaged on should-quiet-4.**
+  - Codex returned `approve` with 0 findings in all three runs. In the first pass it led a 0.99
+    critical numeric-alias bypass claim in each run.
+  - The Claude lanes still found the same bypass class (trailing-dot, decimal or integer IP forms).
+    They titled it as a pre-existing helper gap at low severity: "pre-existing helper gap now
+    relied on at load", "inherits … bypass from shared helper", "per the pre-existing-helper rule".
+  - The fired → quiet movement is attributable to the Rule 2 sentence in both the Claude block
+    and the Codex literal. The Codex half is the direct cause of the first-pass alarm going away.
+  - Each run keeps one medium noise-note (startup traceback or layering), as pre-registered.
+- **should-quiet-6:** untouched by both rules, as pre-registered. Codex led the "wire the new
+  timeout setting" row at medium/0.99 in all three runs, and it rendered critical through
+  corroboration, as in the first pass.
+- **Unmeasured side effects (pre-registered limit).** The other nine diffs were not re-run, so the
+  combined headline cannot show whether Rule 1 adds alarms on diffs that rely on a library default,
+  or whether Rule 2 quiets a real helper bypass elsewhere.
+
+---
+
+
+## 8. Provenance recap
 
 - **Seals:** SEAL1 `4c67283b46540f997b8a5c6b530996da880b53ed` and SEAL2
   `633f1dd0daa24b823d8abab7cff00823a3c2b256`, derived with the ledger-004 full-history all-ref form.
@@ -676,3 +911,9 @@ frozen files are blob-equal at S and S2.
   mechanical.
 - **Outputs:** `first/VERDICT.json`, plus `first/FAILED-DIFFS.json` (MISS). Both are committed
   together with this worksheet.
+- **Retune (43-06):** R = S2 = `8df25c7c792448792162072aa89fe46ad5875ae9` (batch-6 snapshot
+  `batch6-8df25c7c7924`, 117 files verified). The five frozen files are blob-equal at S and S2.
+  9 retune runs (`retune/RUNS-COMPLETE.json`, `8de5075`). Hand input `retune/CATCH-VERDICTS.json`
+  (3 entries, §7.3). Outputs: `retune/VERDICT.json` (subset, `label: retune`) and
+  `retune/COMBINED-VERDICT.json` (`label: combined`, the headline source, carrying the `untuned`
+  triple from `first/VERDICT.json`).

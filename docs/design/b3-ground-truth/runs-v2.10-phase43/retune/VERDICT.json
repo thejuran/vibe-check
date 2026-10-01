@@ -1,0 +1,62 @@
+{
+  "dropouts": {
+    "should-quiet-4": 0,
+    "should-quiet-6": 0,
+    "triggarr-autoescape": 0
+  },
+  "expected_diffs": [
+    "triggarr-autoescape",
+    "should-quiet-4",
+    "should-quiet-6"
+  ],
+  "label": "retune",
+  "per_diff": {
+    "should-quiet-4": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        false,
+        false,
+        false
+      ],
+      "fired_count": "0/3",
+      "role": "quiet"
+    },
+    "should-quiet-6": {
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "fired": [
+        true,
+        true,
+        true
+      ],
+      "fired_count": "3/3",
+      "role": "quiet"
+    },
+    "triggarr-autoescape": {
+      "catch": [
+        "CATCH",
+        "CATCH",
+        "CATCH"
+      ],
+      "catch_count": "3/3",
+      "codex": [
+        "joined",
+        "joined",
+        "joined"
+      ],
+      "dropouts": 0,
+      "role": "catch"
+    }
+  },
+  "runs": 9,
+  "snapshot_commit_note": "snapshot commit is bound per run by the fingerprint batch-sha line and checked by the scoring ladder, not by this tool"
+}
