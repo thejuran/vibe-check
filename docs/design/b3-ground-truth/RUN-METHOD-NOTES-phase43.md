@@ -129,10 +129,30 @@ snapshot from its own `MANIFEST.json`; this line is the human-readable record of
 measured.
 
 snapshot: batch5 be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 /Users/julianamacbook/.vibe-check-snapshots/batch5-be6b0fcd9a4c
+snapshot: batch6 8df25c7c792448792162072aa89fe46ad5875ae9 /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924
 
 ## Retune
 
 43-06 appends exactly one line: `retune: not used …` or `retune: used …`.
+
+retune: used (R=8df25c7c792448792162072aa89fe46ad5875ae9, S2=8df25c7c792448792162072aa89fe46ad5875ae9, failed diffs: should-quiet-4, should-quiet-6, triggarr-autoescape)
+
+Pre-run gate. The command was run 2026-10-01 at HEAD 23c5b34 and exited 0. Batch-6 snapshot
+`verify` reported "snapshot verified: 117 files". The five frozen files are blob-equal at S and S2.
+
+```
+$ python3 plugins/vibe-check/scripts/score43.py retune-gate --repo . --s be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 --s2 8df25c7c792448792162072aa89fe46ad5875ae9 --failed-diffs docs/design/b3-ground-truth/runs-v2.10-phase43/first/FAILED-DIFFS.json --last-first-commit ff8ab4c350b0c955e13409f4a8f952de1c306fab
+retune-gate: pre-verdict tooling change (not part of R): plugins/vibe-check/scripts/lanearchive.py
+retune-gate: pre-verdict tooling change (not part of R): plugins/vibe-check/scripts/test_lanearchive.py
+retune-gate: pre-run form (ledger skipped)
+retune-gate: PASS
+```
+
+The two tolerated paths come from the first-pass privacy-scan fixes 185a9fa and a3f240b. Both
+landed after S and before the FAILED-DIFFS commit. The runbook runs that file from the repo, and
+no plugin surface loads it. The gate was fixed in 23c5b34 to tolerate exactly this case: runbook
+tooling whose blob is unchanged from FAILED-DIFFS to S2. On the commit before 23c5b34, the
+same command exited 1 naming those two paths.
 
 ## Harness fingerprints — Phase 43
 
