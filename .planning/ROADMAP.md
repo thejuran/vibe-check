@@ -405,7 +405,11 @@ Plans:
   2. The README efficacy section is replaced with the v2.10 measurements plus their caveats, and the README model table / tiering rationale / configuration section describe the Claude 5 generation as it actually runs (Sonnet 5 / Opus 5 / Haiku 4.5; Fable 5.1 opt-in; `opus`/`fable` allowlist kept) with the corrected static cost anchors — no "measured" cost is claimed (that stays backlog 999.12) (COMPAT-01)
   3. main + tag + branch are pushed in one atomic, exact-hash-verified publish
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 44-01-PLAN.md — bump plugin.json to 2.10.0; README v2.10 efficacy (untuned MISS leads), stash-pop disclosure, Claude 5 model/tiering/config docs + labeled cost estimate; pytest 1352/1306 gate before and after
+- [ ] 44-02-PLAN.md — classify/anchor, FF main, annotated tag v2.10, privacy re-scan, owner checkpoint (refs + email exposure), ONE atomic push, exact-hash verify, relaunch note
 
 ## Progress
 
