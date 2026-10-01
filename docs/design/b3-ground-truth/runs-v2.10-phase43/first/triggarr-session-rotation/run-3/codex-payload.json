@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f5d1-3e45-7ea1-a11d-1c8f008e283e",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\n  \"verdict\": \"needs-attention\",\n  \"summary\": \"Do not ship: password changes no longer revoke existing sessions, preserving compromised access.\",\n  \"findings\": [\n    {\n      \"severity\": \"high\",\n      \"title\": \"Restore session revocation on password change\",\n      \"body\": \"Updating only password_hash preserves the existing session_secret. An attacker holding a cookie issued before the password change can still access protected routes afterward: AuthMiddleware accepts it at triggarr/web/middleware.py:146–148, and validate_session checks only its signature and age, not the password hash. That access persists until the cookie's 30-day expiry. The reset endpoint's rotation does not protect this password-change path.\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line_start\": 1567,\n      \"line_end\": 1567,\n      \"confidence\": 1.0,\n      \"recommendation\": \"Restore session_secret rotation alongside the password hash update and reissue the acting user's cookie. Verify the existing password-change rotation and other-device eviction tests.\"\n    }\n  ],\n  \"next_steps\": [\n    \"Restore revocation and run the password-change tests in tests/test_auth_routes.py and tests/test_auth_integration.py.\"\n  ]\n}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: password changes no longer revoke existing sessions, preserving compromised access.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Restore session revocation on password change",
+        "body": "Updating only password_hash preserves the existing session_secret. An attacker holding a cookie issued before the password change can still access protected routes afterward: AuthMiddleware accepts it at triggarr/web/middleware.py:146–148, and validate_session checks only its signature and age, not the password hash. That access persists until the cookie's 30-day expiry. The reset endpoint's rotation does not protect this password-change path.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 1567,
+        "line_end": 1567,
+        "confidence": 1,
+        "recommendation": "Restore session_secret rotation alongside the password hash update and reissue the acting user's cookie. Verify the existing password-change rotation and other-device eviction tests."
+      }
+    ],
+    "next_steps": [
+      "Restore revocation and run the password-change tests in tests/test_auth_routes.py and tests/test_auth_integration.py."
+    ]
+  },
+  "rawOutput": "{\n  \"verdict\": \"needs-attention\",\n  \"summary\": \"Do not ship: password changes no longer revoke existing sessions, preserving compromised access.\",\n  \"findings\": [\n    {\n      \"severity\": \"high\",\n      \"title\": \"Restore session revocation on password change\",\n      \"body\": \"Updating only password_hash preserves the existing session_secret. An attacker holding a cookie issued before the password change can still access protected routes afterward: AuthMiddleware accepts it at triggarr/web/middleware.py:146–148, and validate_session checks only its signature and age, not the password hash. That access persists until the cookie's 30-day expiry. The reset endpoint's rotation does not protect this password-change path.\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line_start\": 1567,\n      \"line_end\": 1567,\n      \"confidence\": 1.0,\n      \"recommendation\": \"Restore session_secret rotation alongside the password hash update and reissue the acting user's cookie. Verify the existing password-change rotation and other-device eviction tests.\"\n    }\n  ],\n  \"next_steps\": [\n    \"Restore revocation and run the password-change tests in tests/test_auth_routes.py and tests/test_auth_integration.py.\"\n  ]\n}",
+  "parseError": null,
+  "reasoningSummary": []
+}
