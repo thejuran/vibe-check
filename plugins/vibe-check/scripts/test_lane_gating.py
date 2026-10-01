@@ -381,6 +381,20 @@ ANNOUNCE_SUFFIX = {
 }
 
 ALWAYS_ANNOUNCE = "Gating changes only the line's suffix, never whether the line prints"
+
+STATUS_ANCHOR = "**REQUIRED OUTPUT — the Phase 1d status line (diff mode only).**"
+STATUS_BASE = "✓ Phase 1d — Coverage artifacts"
+STATUS_NOTE = {
+    coverage_gate.CASES[1]: "no coverage artifact found; test-sufficiency will not run",
+    coverage_gate.CASES[2]: "coverage artifacts found but none usable for the changed files; "
+                            "test-sufficiency will not run",
+}
+STATUS_CLAUSES = (
+    "print exactly one Phase 1d status line as text, before any Phase 2 work starts",
+    "required on every diff-mode deep review",
+    "states the gate outcome exactly once",
+    "never carries a file path, an artifact name or content, the helper's JSON or a variable name",
+)
 RENDER_ANCHOR = "If `$TS_GATED` is set"
 NOTE_PREFIX = "no coverage data available, skipped"
 
@@ -445,6 +459,47 @@ def selection_gate_problems(text_sel):
         problems.append("gating paragraph lacks --all exclusion")
     if norm(ALWAYS_ANNOUNCE) not in para:
         problems.append("gating paragraph does not require the announce line on gated runs")
+    return problems
+
+
+def _status_paragraph(text_01d):
+    """The REQUIRED OUTPUT paragraph inside the 01d gate span; "" if absent."""
+    span = _between(text_01d, GATE_01D_ANCHOR, CHUNK_SCOPING_ANCHOR)
+    try:
+        start = span.index(STATUS_ANCHOR)
+    except ValueError:
+        return ""
+    end = span.find("\n\n", start)
+    return norm(span[start:] if end == -1 else span[start:end])
+
+
+def status_line_problems(text_01d):
+    """Problems with the required Phase 1d status line in the diff-mode gate.
+
+    Each gated slug must be paired ("for `<slug>`, `<line>`") with exactly one
+    fixed line that is STATUS_BASE plus that slug's note; `present` is paired
+    with the bare STATUS_BASE line (no gate note). The clauses that make the
+    line required, single, and free of paths/content must survive.
+    """
+    problems = []
+    para = _status_paragraph(text_01d)
+    if not para:
+        return ["status-line paragraph missing from the 01d gate"]
+    for slug in GATED_CASES:
+        line = "for `%s`, `%s — %s`" % (slug, STATUS_BASE, norm(STATUS_NOTE[slug]))
+        hits = para.count(line)
+        if hits == 0:
+            problems.append("status line missing for %s" % slug)
+        elif hits > 1:
+            problems.append("status line duplicated for %s" % slug)
+    if para.count("for `%s`, `%s`" % (CASES[0], STATUS_BASE)) != 1:
+        problems.append("status line for %s is not the bare line" % CASES[0])
+    for clause in STATUS_CLAUSES:
+        if norm(clause) not in para:
+            problems.append("status-line clause dropped: %s" % clause)
+    for token in sorted(set(_SLUG_SHAPED.findall(para))):
+        if token.endswith(("-artifact", "-usable")) and token not in CASES:
+            problems.append("status-line paragraph names an unknown slug %s" % token)
     return problems
 
 
@@ -526,6 +581,16 @@ class TestGateCall(unittest.TestCase):
 class TestSelectionGate(unittest.TestCase):
     def test_selection_gate(self):
         self.assertEqual(selection_gate_problems(read(DEEP_SELECTION)), [])
+
+
+class TestStatusLine(unittest.TestCase):
+    def test_status_line(self):
+        self.assertEqual(status_line_problems(read(DEEP_COVERAGE)), [])
+
+    def test_status_line_inside_gate_span(self):
+        text = read(DEEP_COVERAGE)
+        self.assertTrue(_ordered(text, GATE_01D_ANCHOR, STATUS_ANCHOR, CHUNK_SCOPING_ANCHOR))
+        self.assertEqual(text.count(STATUS_ANCHOR), 1)
 
 
 class TestRenderNote(unittest.TestCase):
@@ -689,6 +754,68 @@ class TestEmptyCaseMutation(unittest.TestCase):
         self.assertNotEqual(planted, self.sel)
         self.assertEqual(selection_gate_problems(planted),
                          ["gating paragraph does not require the announce line on gated runs"])
+
+
+class TestStatusLineMutation(unittest.TestCase):
+    def setUp(self):
+        self.d01 = read(DEEP_COVERAGE)
+
+    def test_each_gated_note_deleted(self):
+        for slug in GATED_CASES:
+            with self.subTest(slug=slug):
+                planted = self.d01.replace(" — " + STATUS_NOTE[slug], "")
+                self.assertNotEqual(planted, self.d01)
+                self.assertEqual(status_line_problems(planted),
+                                 ["status line missing for %s" % slug])
+
+    def test_each_gated_note_reworded(self):
+        for slug in GATED_CASES:
+            with self.subTest(slug=slug):
+                planted = self.d01.replace(STATUS_NOTE[slug],
+                                           STATUS_NOTE[slug].replace("will not run", "skipped"))
+                self.assertNotEqual(planted, self.d01)
+                self.assertEqual(status_line_problems(planted),
+                                 ["status line missing for %s" % slug])
+
+    def test_each_gated_pair_duplicated(self):
+        for slug in GATED_CASES:
+            with self.subTest(slug=slug):
+                pair = "for `%s`, `%s — %s`" % (slug, STATUS_BASE, STATUS_NOTE[slug])
+                self.assertIn(pair, self.d01)
+                planted = self.d01.replace(pair, pair + "; " + pair)
+                self.assertEqual(status_line_problems(planted),
+                                 ["status line duplicated for %s" % slug])
+
+    def test_present_given_a_note(self):
+        pair = "for `%s`, `%s`" % (CASES[0], STATUS_BASE)
+        self.assertIn(pair, self.d01)
+        planted = self.d01.replace(pair, "for `%s`, `%s — coverage found`" % (CASES[0], STATUS_BASE))
+        self.assertEqual(status_line_problems(planted),
+                         ["status line for %s is not the bare line" % CASES[0]])
+
+    def test_each_clause_dropped(self):
+        for clause in STATUS_CLAUSES:
+            with self.subTest(clause=clause):
+                planted = self.d01.replace(clause, "")
+                self.assertNotEqual(planted, self.d01)
+                self.assertEqual(status_line_problems(planted),
+                                 ["status-line clause dropped: %s" % clause])
+
+    def test_paragraph_moved_out_of_gate_span(self):
+        para_start = self.d01.index(STATUS_ANCHOR)
+        para_end = self.d01.index("\n\n", para_start) + 2
+        para = self.d01[para_start:para_end]
+        planted = self.d01.replace(para, "") + "\n" + para
+        self.assertNotEqual(planted, self.d01)
+        self.assertEqual(status_line_problems(planted),
+                         ["status-line paragraph missing from the 01d gate"])
+
+    def test_unknown_slug(self):
+        planted = self.d01.replace("for `%s`," % GATED_CASES[1], "for `part-usable`,")
+        self.assertNotEqual(planted, self.d01)
+        problems = status_line_problems(planted)
+        self.assertIn("status line missing for %s" % GATED_CASES[1], problems)
+        self.assertIn("status-line paragraph names an unknown slug part-usable", problems)
 
 
 class TestRenderNoteMutation(unittest.TestCase):
