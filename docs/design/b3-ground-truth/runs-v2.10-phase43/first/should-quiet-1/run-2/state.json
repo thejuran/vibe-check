@@ -1,0 +1,66 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-01T03:32:06Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "New IPv4-mapped IPv6 SSRF check doesn't cover deprecated IPv4-compatible IPv6 literals",
+          "reason": "absorbed-into: 02b68c8cf34e2e4e5e87209bd2b9671de7a9726d32c04dc476739beee293941e"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check skips the BLOCKED_HOSTS literal 100.100.100.200, so its mapped form still passes",
+          "reason": "absorbed-into: 02b68c8cf34e2e4e5e87209bd2b9671de7a9726d32c04dc476739beee293941e"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Other IPv6 forms that embed IPv4 (IPv4-compatible, NAT64) are not unwrapped",
+          "reason": "absorbed-into: 02b68c8cf34e2e4e5e87209bd2b9671de7a9726d32c04dc476739beee293941e"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Only literal IPs are classified, so DNS names, numeric IPv4 forms and NAT64/6to4 encodings of loopback still pass (not addressed by this diff)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check skips BLOCKED_HOSTS, so [::ffff:100.100.100.200] still passes",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 89,
+          "title": "Shorthand IPv4 literals (127.1, 2130706433) skip the IP checks via ValueError",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
