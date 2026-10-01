@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f5fd-d72a-7972-ae7f-e135af6da4c3",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The new SSRF check has a demonstrated cloud-metadata bypass. Targeted tests: 35 passed; two were blocked by read-only filesystem restrictions.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Numeric IPv4 notation bypasses the metadata block\",\"body\":\"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces.\",\"file\":\"triggarr/models/config.py\",\"line_start\":108,\"line_end\":111,\"confidence\":0.99,\"recommendation\":\"Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs.\"}],\"next_steps\":[\"Close the numeric-address bypass and rerun config and validation tests.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The new SSRF check has a demonstrated cloud-metadata bypass. Targeted tests: 35 passed; two were blocked by read-only filesystem restrictions.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Numeric IPv4 notation bypasses the metadata block",
+        "body": "InstanceConfig(url=\"http://2852039166\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces.",
+        "file": "triggarr/models/config.py",
+        "line_start": 108,
+        "line_end": 111,
+        "confidence": 0.99,
+        "recommendation": "Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs."
+      }
+    ],
+    "next_steps": [
+      "Close the numeric-address bypass and rerun config and validation tests."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The new SSRF check has a demonstrated cloud-metadata bypass. Targeted tests: 35 passed; two were blocked by read-only filesystem restrictions.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Numeric IPv4 notation bypasses the metadata block\",\"body\":\"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces.\",\"file\":\"triggarr/models/config.py\",\"line_start\":108,\"line_end\":111,\"confidence\":0.99,\"recommendation\":\"Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs.\"}],\"next_steps\":[\"Close the numeric-address bypass and rerun config and validation tests.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}

@@ -1,0 +1,205 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "14eecb580499ec2ab4e8d469c768479509a9695a",
+      "timestamp": "2026-10-01T05:49:25Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "codex-001",
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Numeric IPv4 notation bypasses the metadata block",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 99,
+          "intent_doc_match": null,
+          "problem": "InstanceConfig(url=\"http://2852039166\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address.",
+          "why_it_matters": "This defeats the metadata restriction this change explicitly introduces.",
+          "fix_hint": "Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs.",
+          "agent": "codex-adversarial",
+          "source_window": [
+            "        from triggarr.web.validation import validate_arr_url_config",
+            "",
+            "        ok, err = validate_arr_url_config(v)",
+            "        if not ok:",
+            "            raise ValueError(err)"
+          ],
+          "canonical_line_content": "        ok, err = validate_arr_url_config(v)",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs",
+            "security",
+            "impact",
+            "codex-adversarial"
+          ],
+          "stable_hash": "14f1895e72976b0181008b29c9068a88d64150792f516525378b9960365bc220",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "Numeric IPv4 notation bypasses the metadata block",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 99,
+              "problem": "InstanceConfig(url=\"http://2852039166\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": null,
+              "why_it_matters": "This defeats the metadata restriction this change explicitly introduces.",
+              "fix_hint": "Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "SSRF validator bypassed by alternate numeric IP notation (decimal/hex/octal)",
+              "category": "ssrf",
+              "severity": "high",
+              "agent": "security",
+              "agent_confidence": 90,
+              "problem": "validate_arr_url_config (triggarr/web/validation.py:153-171) decides whether a hostname is a blocked IP literal solely via ipaddress.ip_address(hostname). That raises ValueError (treated as an accepted DNS name) for hostnames in decimal, hex, or dotted-octal integer form, even though the OS resolver used by httpx (triggarr/clients/base.py:29-30) resolves those strings straight to the literal IP. Verified: ipaddress.ip_address('2852039166'), ('0xa9fea9fe') and ('0251.0376.0251.0376') all raise ValueError so validate_arr_url_config returns (True, ''), while socket.getaddrinfo on each resolves to 169.254.169.254, the cloud-metadata address the docstring says is blocked. The pre-existing validate_arr_url has the same flaw.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": "CWE-918",
+              "why_it_matters": "A URL such as http://2852039166/latest/meta-data/ passes validation and httpx resolves it to 169.254.169.254 at request time, enabling SSRF to the cloud metadata service, exactly the outcome the new validator claims to prevent.",
+              "fix_hint": "In validate_arr_url_config/validate_arr_url, do not rely on ipaddress.ip_address() to decide whether a hostname is an IP literal; pre-normalize with socket.inet_aton-equivalent parsing or reject purely numeric/hex/octal hostnames outright, then apply the blocked checks.",
+              "current_code": "        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "Config-load SSRF check bypassed by trailing-dot FQDN and integer-form IPv4 hosts",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 60,
+              "problem": "The new validator delegates to validate_arr_url_config. That function matches hosts against BLOCKED_HOSTS by exact string (validation.py:150) and parses IP literals only with ipaddress.ip_address (validation.py:154). 'http://metadata.google.internal./' returns (True, '') because the trailing-dot FQDN is not in the set. 'http://2852039166/' also returns (True, '') because ip_address raises ValueError on a decimal integer string and the except branch passes it as a hostname. httpx.URL keeps the host unchanged, and glibc getaddrinfo/inet_aton resolves those forms to 169.254.169.254. So the cloud-metadata targets this validator says it blocks still load from triggarr.toml.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": "CWE-918",
+              "why_it_matters": "Metadata-endpoint SSRF that the docstring promises to block at config load is still reachable with trivially encoded hosts.",
+              "fix_hint": "in validate_arr_url_config, rstrip('.') the hostname before the BLOCKED_HOSTS lookup, and reject all-numeric/hex single-label hosts (or normalize them with socket.inet_aton) before the ip_address check",
+              "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 110,
+              "title": "URL rejected at startup now crashes with an uncaught ValidationError traceback",
+              "category": "error-handling",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 55,
+              "problem": "The validator runs on every instance, including disabled ones, so an existing triggarr.toml that loaded before now fails Settings construction. Examples are a schemeless 'radarr:7878' or '192.168.1.5:7878', which return (False, 'URL scheme must be http or https'). ensure_config (triggarr/config.py:370-373) catches only TOMLDecodeError/UnicodeDecodeError and lets pydantic.ValidationError propagate as a 'schema bug'. A user-data validation failure therefore becomes a raw traceback out of asyncio.run, not the friendly loguru error and exit(1). The traceback goes to stderr outside the redacting loguru sink and includes pydantic's input_value, which is the full URL and may contain userinfo credentials.",
+              "source_window": [
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)",
+                "        return v",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "Upgrading turns a previously tolerated disabled-instance URL into a crash-loop with an unredacted traceback, and the cause is not obvious to the operator.",
+              "fix_hint": "catch pydantic.ValidationError in ensure_config, log a sanitized field-path + message via loguru (no input_value), and sys.exit(1)",
+              "current_code": "if not ok:\n    raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 107,
+              "title": "ValidationError text now includes rejected URLs (possibly with userinfo credentials) in logs and startup tracebacks for more inputs",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 30,
+              "problem": "Pydantic v2 ValidationError str() includes input_value. Before this diff only URLs with an apikey= query parameter raised from the url field. Now any non-http, link-local, metadata or unspecified URL raises too, so a URL like 'http://user:pass@169.254.1.1' would appear in routes.py:599 logger.warning('Invalid settings rejected: {exc}'), in routes.py:794, and in the uncaught startup traceback on stderr outside the loguru redacting sink. The redacting sink scrubs known API key values, not URL userinfo.",
+              "source_window": [
+                "        \"\"\"",
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:"
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "Credentials in reverse-proxy URLs could leak into container logs.",
+              "fix_hint": "Where ValidationError is logged or surfaced, log exc.errors(include_input=False) or a summary of field locations plus messages instead of str(exc).",
+              "current_code": "raise ValueError(err)",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "SSRF validator bypassed by alternate numeric IP notation (decimal/hex/octal)",
+          "reason": "absorbed-into: 14f1895e72976b0181008b29c9068a88d64150792f516525378b9960365bc220"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Config-load SSRF check bypassed by trailing-dot FQDN and integer-form IPv4 hosts",
+          "reason": "absorbed-into: 14f1895e72976b0181008b29c9068a88d64150792f516525378b9960365bc220"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 110,
+          "title": "URL rejected at startup now crashes with an uncaught ValidationError traceback",
+          "reason": "absorbed-into: 14f1895e72976b0181008b29c9068a88d64150792f516525378b9960365bc220"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 107,
+          "title": "ValidationError text now includes rejected URLs (possibly with userinfo credentials) in logs and startup tracebacks for more inputs",
+          "reason": "absorbed-into: 14f1895e72976b0181008b29c9068a88d64150792f516525378b9960365bc220"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "Config URLs that loaded before can now stop startup with a raw ValidationError traceback, even on disabled instances",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ]
+}

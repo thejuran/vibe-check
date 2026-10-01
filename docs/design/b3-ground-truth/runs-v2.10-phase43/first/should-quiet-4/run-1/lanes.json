@@ -1,0 +1,264 @@
+{
+  "codex_lines": 1,
+  "dispatched": 8,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [],
+        "intent_docs_found": [
+          "CLAUDE.md"
+        ],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 22
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [],\n  \"total_lines\": 22,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": [\"CLAUDE.md\"]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01QanBeUQPj5SRqU4n4azroM"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "Ran the full test suite with the change applied: 982 passed.",
+          "validate_arr_url_config (triggarr/web/validation.py:111-173) has no import of triggarr.models, so the lazy import in the validator cannot cause a circular import.",
+          "Settings POST (routes.py:561) still uses the strict validate_arr_url, which blocks loopback. Loopback URLs written by hand into the TOML now load, but the web form rejects them on re-save (silent 303 redirect). This mismatch predates the diff and the diff does not change it."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 60,
+            "category": "logic-error",
+            "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+            "cwe": "CWE-918",
+            "file": "triggarr/models/config.py",
+            "fix_hint": "in validate_arr_url_config, rstrip('.') the hostname before the BLOCKED_HOSTS lookup, and reject all-numeric/hex single-label hosts (or normalize them with socket.inet_aton) before the ip_address check",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 108,
+            "problem": "The new validator delegates to validate_arr_url_config. That function matches hosts against BLOCKED_HOSTS by exact string (validation.py:150) and parses IP literals only with ipaddress.ip_address (validation.py:154). I ran it locally: 'http://metadata.google.internal./' returns (True, '') because the trailing-dot FQDN is not in the set. 'http://2852039166/' also returns (True, '') because ip_address raises ValueError on a decimal integer string and the except branch passes it as a hostname. httpx.URL keeps the host unchanged ('2852039166', '0xa9fea9fe'), and glibc getaddrinfo/inet_aton resolves those forms to 169.254.169.254. So the cloud-metadata targets this validator says it blocks still load from triggarr.toml. The strict UI validator has the same gap, so it predates this diff in that sense, but it defeats the exact case this new check was added to block.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Config-load SSRF check bypassed by trailing-dot FQDN and integer-form IPv4 hosts",
+            "why_it_matters": "Metadata-endpoint SSRF that the docstring promises to block at config load is still reachable with trivially encoded hosts."
+          },
+          {
+            "agent_confidence": 55,
+            "category": "error-handling",
+            "current_code": "if not ok:\n    raise ValueError(err)",
+            "cwe": null,
+            "file": "triggarr/models/config.py",
+            "fix_hint": "catch pydantic.ValidationError in ensure_config, log a sanitized field-path + message via loguru (no input_value), and sys.exit(1)",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 110,
+            "problem": "The validator runs on every instance, including disabled ones, so an existing triggarr.toml that loaded before now fails Settings construction. Examples are a schemeless 'radarr:7878' or '192.168.1.5:7878', which I confirmed return (False, 'URL scheme must be http or https'). ensure_config (triggarr/config.py:370-373) catches only TOMLDecodeError/UnicodeDecodeError. Its docstring says pydantic.ValidationError is left to propagate because it is treated as a 'schema bug'. A user-data validation failure therefore becomes a raw traceback out of asyncio.run, not the friendly loguru error and exit(1) used for corrupt TOML. The traceback goes to stderr outside the redacting loguru sink and includes pydantic's input_value, which is the full URL and may contain userinfo credentials (http://user:pass@host). pending: confirm the caller of ensure_config (main/_run) has no ValidationError handler.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "URL rejected at startup now crashes with an uncaught ValidationError traceback",
+            "why_it_matters": "Upgrading turns a previously tolerated disabled-instance URL into a crash-loop with an unredacted traceback, and the cause is not obvious to the operator."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"bugs\",\"findings\":[{\"id\":\"bugs-001\",\"file\":\"triggarr/models/config.py\",\"line\":108,\"title\":\"Config-load SSRF check bypassed by trailing-dot FQDN and integer-form IPv4 hosts\",\"category\":\"logic-error\",\"cwe\":\"CWE-918\",\"severity\":\"medium\",\"agent_confidence\":60,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The new validator delegates to validate_arr_url_config. That function matches hosts against BLOCKED_HOSTS by exact string (validation.py:150) and parses IP literals only with ipaddress.ip_address (validation.py:154). I ran it locally: 'http://metadata.google.internal./' returns (True, '') because the trailing-dot FQDN is not in the set. 'http://2852039166/' also returns (True, '') because ip_address raises ValueError on a decimal integer string and the except branch passes it as a hostname. httpx.URL keeps the host unchanged ('2852039166', '0xa9fea9fe'), and glibc getaddrinfo/inet_aton resolves those forms to 169.254.169.254. So the cloud-metadata targets this validator says it blocks still load from triggarr.toml. The strict UI validator has the same gap, so it predates this diff in that sense, but it defeats the exact case this new check was added to block.\",\"current_code\":\"ok, err = validate_arr_url_config(v)\\nif not ok:\\n    raise ValueError(err)\",\"fix_hint\":\"in validate_arr_url_config, rstrip('.') the hostname before the BLOCKED_HOSTS lookup, and reject all-numeric/hex single-label hosts (or normalize them with socket.inet_aton) before the ip_address check\",\"why_it_matters\":\"Metadata-endpoint SSRF that the docstring promises to block at config load is still reachable with trivially encoded hosts.\",\"silenced_marker_nearby\":false},{\"id\":\"bugs-002\",\"file\":\"triggarr/models/config.py\",\"line\":110,\"title\":\"URL rejected at startup now crashes with an uncaught ValidationError traceback\",\"category\":\"error-handling\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":55,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The validator runs on every instance, including disabled ones, so an existing triggarr.toml that loaded before now fails Settings construction. Examples are a schemeless 'radarr:7878' or '192.168.1.5:7878', which I confirmed return (False, 'URL scheme must be http or https'). ensure_config (triggarr/config.py:370-373) catches only TOMLDecodeError/UnicodeDecodeError. Its docstring says pydantic.ValidationError is left to propagate because it is treated as a 'schema bug'. A user-data validation failure therefore becomes a raw traceback out of asyncio.run, not the friendly loguru error and exit(1) used for corrupt TOML. The traceback goes to stderr outside the redacting loguru sink and includes pydantic's input_value, which is the full URL and may contain userinfo credentials (http://user:pass@host). pending: confirm the caller of ensure_config (main/_run) has no ValidationError handler.\",\"current_code\":\"if not ok:\\n    raise ValueError(err)\",\"fix_hint\":\"catch pydantic.ValidationError in ensure_config, log a sanitized field-path + message via loguru (no input_value), and sys.exit(1)\",\"why_it_matters\":\"Upgrading turns a previously tolerated disabled-instance URL into a crash-loop with an unredacted traceback, and the cause is not obvious to the operator.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"Ran the full test suite with the change applied: 982 passed.\",\"validate_arr_url_config (triggarr/web/validation.py:111-173) has no import of triggarr.models, so the lazy import in the validator cannot cause a circular import.\",\"Settings POST (routes.py:561) still uses the strict validate_arr_url, which blocks loopback. Loopback URLs written by hand into the TOML now load, but the web form rejects them on re-save (silent 303 redirect). This mismatch predates the diff and the diff does not change it.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_01DZ7hESXa6Ped36EWuqQgfL"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "The diff itself is a net-positive tightening (config-load previously had no SSRF validation at all for TOML-sourced URLs); the finding above is about the underlying validate_arr_url_config/validate_arr_url logic the new code newly relies on as a security boundary, not a regression introduced by the diff's own lines.",
+          "reject_apikey_in_url (unchanged, lines 65-89) and the new validate_url_ssrf validator both look correct and free of injection/logging issues; no API keys or other secrets are logged or exposed in error messages here."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 90,
+            "category": "ssrf",
+            "current_code": "        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+            "cwe": "CWE-918",
+            "file": "triggarr/models/config.py",
+            "fix_hint": "In validate_arr_url_config/validate_arr_url, don't rely on ipaddress.ip_address() to decide whether a hostname is an IP literal; instead resolve the hostname (or pre-normalize with socket.inet_aton-equivalent parsing) and apply the link-local/unspecified/multicast/metadata checks against the resolved address(es) actually used for the connection, or reject hostnames that are purely numeric/hex/octal outright.",
+            "id": "sec-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 108,
+            "problem": "The new field_validator calls validate_arr_url_config(v) (triggarr/web/validation.py:153-171), which decides whether a hostname is a 'blocked IP literal' solely via `ipaddress.ip_address(hostname)`. That stdlib call raises ValueError (and so is silently treated as an unresolved, accepted-risk DNS name) for hostnames written in decimal, hexadecimal, or dotted-octal integer form, even though the OS resolver used by the actual outbound httpx client (triggarr/clients/base.py:29-30, `httpx.AsyncClient(base_url=base_url, ...)`) resolves those same strings straight to the literal IP. I verified this directly: `ipaddress.ip_address('2852039166')` and `ipaddress.ip_address('0xa9fea9fe')` and `ipaddress.ip_address('0251.0376.0251.0376')` all raise ValueError (so validate_arr_url_config returns (True, \"\") for a URL like `http://2852039166/`), while `socket.getaddrinfo('2852039166', 80)` / `socket.getaddrinfo('0xa9fea9fe', 80)` / `socket.getaddrinfo('0251.0376.0251.0376', 80)` all resolve to `169.254.169.254` — the exact cloud-metadata address the validator's own docstring says is blocked. The same flaw independently affects the pre-existing, unchanged `validate_arr_url` (web form path, triggarr/web/validation.py:56-108), since it uses an identical ip_address-based check.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "SSRF validator bypassed by alternate numeric IP notation (decimal/hex/octal)",
+            "why_it_matters": "This is wired up in config.py as 'intended hardening' (D-01/D-02) specifically to stop an *arr instance URL from reaching cloud-metadata or link-local addresses at config-load time, but a URL such as `http://2852039166/latest/meta-data/iam/security-credentials/` passes validation unchanged and then, at request time, httpx resolves it to 169.254.169.254 — enabling SSRF to the cloud metadata service (credential theft) or other explicitly-blocked internal targets, exactly the outcome the new validator claims to prevent."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"security\",\n  \"findings\": [\n    {\n      \"id\": \"sec-001\",\n      \"file\": \"triggarr/models/config.py\",\n      \"line\": 108,\n      \"title\": \"SSRF validator bypassed by alternate numeric IP notation (decimal/hex/octal)\",\n      \"category\": \"ssrf\",\n      \"cwe\": \"CWE-918\",\n      \"severity\": \"high\",\n      \"agent_confidence\": 90,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The new field_validator calls validate_arr_url_config(v) (triggarr/web/validation.py:153-171), which decides whether a hostname is a 'blocked IP literal' solely via `ipaddress.ip_address(hostname)`. That stdlib call raises ValueError (and so is silently treated as an unresolved, accepted-risk DNS name) for hostnames written in decimal, hexadecimal, or dotted-octal integer form, even though the OS resolver used by the actual outbound httpx client (triggarr/clients/base.py:29-30, `httpx.AsyncClient(base_url=base_url, ...)`) resolves those same strings straight to the literal IP. I verified this directly: `ipaddress.ip_address('2852039166')` and `ipaddress.ip_address('0xa9fea9fe')` and `ipaddress.ip_address('0251.0376.0251.0376')` all raise ValueError (so validate_arr_url_config returns (True, \\\"\\\") for a URL like `http://2852039166/`), while `socket.getaddrinfo('2852039166', 80)` / `socket.getaddrinfo('0xa9fea9fe', 80)` / `socket.getaddrinfo('0251.0376.0251.0376', 80)` all resolve to `169.254.169.254` — the exact cloud-metadata address the validator's own docstring says is blocked. The same flaw independently affects the pre-existing, unchanged `validate_arr_url` (web form path, triggarr/web/validation.py:56-108), since it uses an identical ip_address-based check.\",\n      \"current_code\": \"        ok, err = validate_arr_url_config(v)\\n        if not ok:\\n            raise ValueError(err)\\n        return v\",\n      \"fix_hint\": \"In validate_arr_url_config/validate_arr_url, don't rely on ipaddress.ip_address() to decide whether a hostname is an IP literal; instead resolve the hostname (or pre-normalize with socket.inet_aton-equivalent parsing) and apply the link-local/unspecified/multicast/metadata checks against the resolved address(es) actually used for the connection, or reject hostnames that are purely numeric/hex/octal outright.\",\n      \"why_it_matters\": \"This is wired up in config.py as 'intended hardening' (D-01/D-02) specifically to stop an *arr instance URL from reaching cloud-metadata or link-local addresses at config-load time, but a URL such as `http://2852039166/latest/meta-data/iam/security-credentials/` passes validation unchanged and then, at request time, httpx resolves it to 169.254.169.254 — enabling SSRF to the cloud metadata service (credential theft) or other explicitly-blocked internal targets, exactly the outcome the new validator claims to prevent.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"The diff itself is a net-positive tightening (config-load previously had no SSRF validation at all for TOML-sourced URLs); the finding above is about the underlying validate_arr_url_config/validate_arr_url logic the new code newly relies on as a security boundary, not a regression introduced by the diff's own lines.\",\n    \"reject_apikey_in_url (unchanged, lines 65-89) and the new validate_url_ssrf validator both look correct and free of injection/logging issues; no API keys or other secrets are logged or exposed in error messages here.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_015DL2ZHSa2ikjdpLy2ZSHYd"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "Dependency direction: the diff adds an edge from the model layer to the web package (triggarr/models/config.py -&gt; triggarr/web/validation.py). I checked whether this creates an import cycle and it does not. triggarr/web/validation.py imports only the standard library (ipaddress, re, urllib.parse). triggarr/web/__init__.py is empty, so importing triggarr.web.validation does not pull in routes.py or middleware.py, which both import models.config. Without a cycle there is no [high] dependency finding.",
+          "Layering: a model depending on a module under web/ runs against the expected direction, since web/ consumes models/. The intent doc explicitly authorizes this edge. .planning/phases/71-presentation-rewrite/71-02-PLAN.md key_links says: from \"triggarr/models/config.py InstanceConfig.url\" to \"triggarr.web.validation.validate_arr_url_config\" via \"field_validator local import + call, raising ValueError\". The SAFE rule applies, so this is not a finding. A possible later cleanup: move the URL/SSRF helpers (validate_arr_url, validate_arr_url_config, BLOCKED_HOSTS, _BLOCKED_NETWORKS) into a layer-neutral module such as triggarr/validation.py or triggarr/models/, and keep triggarr/web/validation.py as a re-export. Then the model would no longer depend on the web package. This is optional and the author's call.",
+          "The function-level (lazy) import is not needed to break a cycle, because none exists. A top-level import would work just as well. It does keep pydantic model import time free of the web package, and the plan calls for it as a 'local import', so this is a note and not a finding. triggarr/state.py already uses function-local imports from triggarr.models.config (around lines 24 and 32), so the codebase has precedent.",
+          "Pattern consistency: validate_url_ssrf follows the sibling field_validator reject_apikey_in_url on the same field: @field_validator(\"url\") with @classmethod, raises ValueError, and has a docstring with a decision tag. Pydantic runs the two in definition order, so the apikey rejection happens before the SSRF check. That order is harmless because the two validators are independent.",
+          "Duplication: validate_arr_url_config (added in the prior commit 14eecb5, not this diff) is per the plan a near-copy of validate_arr_url minus the two is_loopback checks. That makes 2 copies, which is under the rule of three, so it is not a finding. If a third variant appears, consider a shared implementation with an allow_loopback: bool parameter.",
+          "Contract alignment: the web form path (triggarr/web/routes.py:561) still calls the strict validate_arr_url, and the config-load path now calls the relaxed variant. The two policies differ on purpose (D-01/D-02, PLAN must_haves truths 17 and 21), so the model and the form disagree on loopback by design. A URL in TOML can be 127.0.0.1, but the same value submitted through the settings form is rejected. This matches the plan, but it is a user-visible asymmetry worth stating in docs or UI copy.",
+          "Blast radius (outside this agent's lane, noted for the impact agent): InstanceConfig is constructed by Settings (TOML load), by routes.py settings POST, and by test fixtures (tests/conftest.py and others). Any existing fixture or user config with a link-local, metadata, or non-http URL, including one on a disabled instance, will now fail at construction or startup. The docstring says this is intended hardening."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"architecture\",\"findings\":[],\"agent_notes\":[\n\"Dependency direction: the diff adds an edge from the model layer to the web package (triggarr/models/config.py -&gt; triggarr/web/validation.py). I checked whether this creates an import cycle and it does not. triggarr/web/validation.py imports only the standard library (ipaddress, re, urllib.parse). triggarr/web/__init__.py is empty, so importing triggarr.web.validation does not pull in routes.py or middleware.py, which both import models.config. Without a cycle there is no [high] dependency finding.\",\n\"Layering: a model depending on a module under web/ runs against the expected direction, since web/ consumes models/. The intent doc explicitly authorizes this edge. .planning/phases/71-presentation-rewrite/71-02-PLAN.md key_links says: from \\\"triggarr/models/config.py InstanceConfig.url\\\" to \\\"triggarr.web.validation.validate_arr_url_config\\\" via \\\"field_validator local import + call, raising ValueError\\\". The SAFE rule applies, so this is not a finding. A possible later cleanup: move the URL/SSRF helpers (validate_arr_url, validate_arr_url_config, BLOCKED_HOSTS, _BLOCKED_NETWORKS) into a layer-neutral module such as triggarr/validation.py or triggarr/models/, and keep triggarr/web/validation.py as a re-export. Then the model would no longer depend on the web package. This is optional and the author's call.\",\n\"The function-level (lazy) import is not needed to break a cycle, because none exists. A top-level import would work just as well. It does keep pydantic model import time free of the web package, and the plan calls for it as a 'local import', so this is a note and not a finding. triggarr/state.py already uses function-local imports from triggarr.models.config (around lines 24 and 32), so the codebase has precedent.\",\n\"Pattern consistency: validate_url_ssrf follows the sibling field_validator reject_apikey_in_url on the same field: @field_validator(\\\"url\\\") with @classmethod, raises ValueError, and has a docstring with a decision tag. Pydantic runs the two in definition order, so the apikey rejection happens before the SSRF check. That order is harmless because the two validators are independent.\",\n\"Duplication: validate_arr_url_config (added in the prior commit 14eecb5, not this diff) is per the plan a near-copy of validate_arr_url minus the two is_loopback checks. That makes 2 copies, which is under the rule of three, so it is not a finding. If a third variant appears, consider a shared implementation with an allow_loopback: bool parameter.\",\n\"Contract alignment: the web form path (triggarr/web/routes.py:561) still calls the strict validate_arr_url, and the config-load path now calls the relaxed variant. The two policies differ on purpose (D-01/D-02, PLAN must_haves truths 17 and 21), so the model and the form disagree on loopback by design. A URL in TOML can be 127.0.0.1, but the same value submitted through the settings form is rejected. This matches the plan, but it is a user-visible asymmetry worth stating in docs or UI copy.\",\n\"Blast radius (outside this agent's lane, noted for the impact agent): InstanceConfig is constructed by Settings (TOML load), by routes.py settings POST, and by test fixtures (tests/conftest.py and others). Any existing fixture or user config with a link-local, metadata, or non-http URL, including one on a disabled instance, will now fail at construction or startup. The docstring says this is intended hardening.\"\n]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01WxSbaE1PKZpy4RuvmuUSiu"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Blast radius: InstanceConfig is part of the Settings model loaded at startup (triggarr/config.py ensure_config -&gt; load_settings) and rebuilt on every settings POST (routes.py:599) and add_instance (routes.py:792). It is imported by more than 25 modules, mostly tests. No public signature changes. The only behavior change is that construction can now raise on URLs that are not http(s), have no hostname, are in BLOCKED_HOSTS, or are link-local, unspecified or multicast IP literals.",
+          "Runtime paths: (1) Startup. A newly rejected TOML url aborts startup with an uncaught ValidationError (see impact-1). (2) Settings POST. validate_arr_url (strict) already runs first at routes.py:561, so the new validator is redundant on that path and adds no new UI rejections. (3) add_instance. It uses url='' from InstanceConfig().model_dump(), and the new validator short-circuits on empty input, so it is safe. (4) The no-form-data branch re-validates existing URLs, which already passed at startup, so it is safe.",
+          "Asymmetry, pre-existing and not introduced here: the config-load validator allows loopback IP literals (127.0.0.1, ::1), but the UI save path still uses strict validate_arr_url, which rejects them. A user with url='http://127.0.0.1:7878' in TOML loads fine, but every later settings save that includes that instance's form fields is silently rejected (303 redirect plus a warning log only). If phase 71 means to support same-host installs, the UI path needs the relaxed validator too, or users can't edit settings at all.",
+          "Minor consistency note: _BLOCKED_NETWORKS (100.64.0.0/10) is checked only for IPv4-mapped IPv6 forms. A plain IPv4 Tailscale/CGNAT address like 100.101.x.x is allowed, while ::ffff:100.101.x.x is blocked. This matches the strict validator, so it is pre-existing and harmless for normal Tailscale users.",
+          "No schema or migration implications: the TOML format is unchanged, and no DB or state is touched.",
+          "Performance: negligible. There is one urlparse plus ipaddress parse per instance at construction (at most 5 instances per app type). The lazy import inside the validator resolves from sys.modules after the first call. validation.py imports nothing from triggarr, so there is no circular-import risk and the lazy import is unnecessary but harmless.",
+          "Verification: `uv run pytest tests/ -x -q` shows 982 passed with the change applied.",
+          "Verdict: shippable. This is a tightening change with no demonstrated regression for in-contract URLs. Recommended follow-up: a friendly ValidationError handler in ensure_config so upgrades with now-invalid TOML URLs fail with a clear message instead of a traceback and restart loop."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 40,
+            "category": "blast-radius",
+            "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+            "cwe": null,
+            "file": "triggarr/models/config.py",
+            "fix_hint": "In ensure_config, catch pydantic.ValidationError from load_settings and log a friendly per-field message (instance name plus reason, with the URL value omitted) before sys.exit(1), as _log_corrupt_config_and_exit already does for TOML errors; also mention the change in the release notes.",
+            "id": "impact-1",
+            "in_diff": true,
+            "intent_doc_match": "D-01/D-02 (docstring says rejecting disabled instances at startup is intended)",
+            "line": 93,
+            "problem": "The new field validator runs on every InstanceConfig built from triggarr.toml, including disabled instances. Before this diff, a TOML url such as 'http://0.0.0.0:7878', 'http://169.254.10.5', 'radarr:7878' (urlparse reads 'radarr' as the scheme) or 'ftp://...' loaded without complaint. Now it raises pydantic.ValidationError inside load_settings. ensure_config (triggarr/config.py, docstring near line 345) handles TOMLDecodeError and UnicodeDecodeError with a friendly message and exit(1), but it lets ValidationError propagate on purpose, on the stated assumption that a ValidationError means a schema bug. That assumption no longer holds: a ValidationError can now come from the operator's own data. grep found no ValidationError handler in triggarr/startup.py or triggarr/__main__.py. An operator upgrading with one of these URLs gets an uncaught traceback, and under Docker 'restart: unless-stopped' the container restart-loops. This is a tightening change and the rejected values are outside the documented contract (http/https *arr URLs; the UI already rejected them via validate_arr_url at routes.py:561), so it is capped. pending: name a contract-supported URL (for example one documented in README or the default TOML) that the new check rejects, or confirm that real deployments use 0.0.0.0 or schemeless hand-edited URLs.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Config URLs that loaded before can now stop startup with a raw ValidationError traceback, even on disabled instances",
+            "why_it_matters": "Upgrades become a hard failure for any user whose hand-edited TOML holds a now-blocked URL, even when that instance is turned off."
+          },
+          {
+            "agent_confidence": 30,
+            "category": "blast-radius",
+            "current_code": "raise ValueError(err)",
+            "cwe": "CWE-532",
+            "file": "triggarr/models/config.py",
+            "fix_hint": "Where ValidationError is logged or surfaced, log exc.errors(include_input=False) (or a summary of field locations plus messages) instead of str(exc).",
+            "id": "impact-2",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 107,
+            "problem": "Pydantic v2 ValidationError's str() includes input_value. Before this diff, only URLs with an apikey= query parameter raised from the url field. Now any non-http, link-local, metadata or unspecified URL raises too, so a URL like 'ftp://user:pass@host' or 'http://user:pass@169.254.1.1' would appear in routes.py:599/600 logger.warning('Invalid settings rejected: {exc}'), in routes.py:794/795, and in the uncaught startup traceback, which goes to stderr and not through the loguru redacting sink. The settings POST path pre-validates with validate_arr_url at routes.py:561, which narrows that path, but the startup traceback path is wide open. The redacting sink scrubs known API key values, not URL userinfo. This is the same pattern as the existing reject_apikey_in_url validator, so it is mostly a pre-existing gap. pending: confirm whether *arr URLs with embedded basic-auth credentials are a supported configuration, and whether loguru redaction covers URL userinfo.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "ValidationError text now includes rejected URLs (possibly with userinfo credentials) in logs and startup tracebacks for more inputs",
+            "why_it_matters": "Credentials in reverse-proxy URLs could leak into container logs."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"impact\",\"findings\":[{\"id\":\"impact-1\",\"file\":\"triggarr/models/config.py\",\"line\":93,\"title\":\"Config URLs that loaded before can now stop startup with a raw ValidationError traceback, even on disabled instances\",\"category\":\"blast-radius\",\"cwe\":null,\"severity\":\"low\",\"agent_confidence\":40,\"in_diff\":true,\"intent_doc_match\":\"D-01/D-02 (docstring says rejecting disabled instances at startup is intended)\",\"problem\":\"The new field validator runs on every InstanceConfig built from triggarr.toml, including disabled instances. Before this diff, a TOML url such as 'http://0.0.0.0:7878', 'http://169.254.10.5', 'radarr:7878' (urlparse reads 'radarr' as the scheme) or 'ftp://...' loaded without complaint. Now it raises pydantic.ValidationError inside load_settings. ensure_config (triggarr/config.py, docstring near line 345) handles TOMLDecodeError and UnicodeDecodeError with a friendly message and exit(1), but it lets ValidationError propagate on purpose, on the stated assumption that a ValidationError means a schema bug. That assumption no longer holds: a ValidationError can now come from the operator's own data. grep found no ValidationError handler in triggarr/startup.py or triggarr/__main__.py. An operator upgrading with one of these URLs gets an uncaught traceback, and under Docker 'restart: unless-stopped' the container restart-loops. This is a tightening change and the rejected values are outside the documented contract (http/https *arr URLs; the UI already rejected them via validate_arr_url at routes.py:561), so it is capped. pending: name a contract-supported URL (for example one documented in README or the default TOML) that the new check rejects, or confirm that real deployments use 0.0.0.0 or schemeless hand-edited URLs.\",\"current_code\":\"ok, err = validate_arr_url_config(v)\\nif not ok:\\n    raise ValueError(err)\",\"fix_hint\":\"In ensure_config, catch pydantic.ValidationError from load_settings and log a friendly per-field message (instance name plus reason, with the URL value omitted) before sys.exit(1), as _log_corrupt_config_and_exit already does for TOML errors; also mention the change in the release notes.\",\"why_it_matters\":\"Upgrades become a hard failure for any user whose hand-edited TOML holds a now-blocked URL, even when that instance is turned off.\",\"silenced_marker_nearby\":false},{\"id\":\"impact-2\",\"file\":\"triggarr/models/config.py\",\"line\":107,\"title\":\"ValidationError text now includes rejected URLs (possibly with userinfo credentials) in logs and startup tracebacks for more inputs\",\"category\":\"blast-radius\",\"cwe\":\"CWE-532\",\"severity\":\"low\",\"agent_confidence\":30,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Pydantic v2 ValidationError's str() includes input_value. Before this diff, only URLs with an apikey= query parameter raised from the url field. Now any non-http, link-local, metadata or unspecified URL raises too, so a URL like 'ftp://user:pass@host' or 'http://user:pass@169.254.1.1' would appear in routes.py:599/600 logger.warning('Invalid settings rejected: {exc}'), in routes.py:794/795, and in the uncaught startup traceback, which goes to stderr and not through the loguru redacting sink. The settings POST path pre-validates with validate_arr_url at routes.py:561, which narrows that path, but the startup traceback path is wide open. The redacting sink scrubs known API key values, not URL userinfo. This is the same pattern as the existing reject_apikey_in_url validator, so it is mostly a pre-existing gap. pending: confirm whether *arr URLs with embedded basic-auth credentials are a supported configuration, and whether loguru redaction covers URL userinfo.\",\"current_code\":\"raise ValueError(err)\",\"fix_hint\":\"Where ValidationError is logged or surfaced, log exc.errors(include_input=False) (or a summary of field locations plus messages) instead of str(exc).\",\"why_it_matters\":\"Credentials in reverse-proxy URLs could leak into container logs.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"Blast radius: InstanceConfig is part of the Settings model loaded at startup (triggarr/config.py ensure_config -&gt; load_settings) and rebuilt on every settings POST (routes.py:599) and add_instance (routes.py:792). It is imported by more than 25 modules, mostly tests. No public signature changes. The only behavior change is that construction can now raise on URLs that are not http(s), have no hostname, are in BLOCKED_HOSTS, or are link-local, unspecified or multicast IP literals.\",\"Runtime paths: (1) Startup. A newly rejected TOML url aborts startup with an uncaught ValidationError (see impact-1). (2) Settings POST. validate_arr_url (strict) already runs first at routes.py:561, so the new validator is redundant on that path and adds no new UI rejections. (3) add_instance. It uses url='' from InstanceConfig().model_dump(), and the new validator short-circuits on empty input, so it is safe. (4) The no-form-data branch re-validates existing URLs, which already passed at startup, so it is safe.\",\"Asymmetry, pre-existing and not introduced here: the config-load validator allows loopback IP literals (127.0.0.1, ::1), but the UI save path still uses strict validate_arr_url, which rejects them. A user with url='http://127.0.0.1:7878' in TOML loads fine, but every later settings save that includes that instance's form fields is silently rejected (303 redirect plus a warning log only). If phase 71 means to support same-host installs, the UI path needs the relaxed validator too, or users can't edit settings at all.\",\"Minor consistency note: _BLOCKED_NETWORKS (100.64.0.0/10) is checked only for IPv4-mapped IPv6 forms. A plain IPv4 Tailscale/CGNAT address like 100.101.x.x is allowed, while ::ffff:100.101.x.x is blocked. This matches the strict validator, so it is pre-existing and harmless for normal Tailscale users.\",\"No schema or migration implications: the TOML format is unchanged, and no DB or state is touched.\",\"Performance: negligible. There is one urlparse plus ipaddress parse per instance at construction (at most 5 instances per app type). The lazy import inside the validator resolves from sys.modules after the first call. validation.py imports nothing from triggarr, so there is no circular-import risk and the lazy import is unnecessary but harmless.\",\"Verification: `uv run pytest tests/ -x -q` shows 982 passed with the change applied.\",\"Verdict: shippable. This is a tightening change with no demonstrated regression for in-contract URLs. Recommended follow-up: a friendly ValidationError handler in ensure_config so upgrades with now-invalid TOML URLs fail with a clear message instead of a traceback and restart loop.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01YQn3EejSNMiz4jTT4sw4Yn"
+    },
+    {
+      "parsed": {
+        "agent": "test-sufficiency",
+        "agent_notes": [
+          "no coverage data available, skipped"
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"test-sufficiency\",\"findings\":[],\"agent_notes\":[\"no coverage data available, skipped\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:test-sufficiency",
+      "tool_use_id": "toolu_01TbK1nJjqEhSLbbvWbS4Fsb"
+    },
+    {
+      "parsed": {
+        "agent": "compliance",
+        "agent_notes": [
+          "Checked diff (triggarr/models/config.py) against root ~/.claude/CLAUDE.md (Security/Correctness absolute rules) and project triggarr/CLAUDE.md (ruff E/F/I/UP/B/SIM, SecretStr discipline, Loguru-only logging, atomic writes). No directory-level CLAUDE.md/AGENTS.md exist under triggarr/models or triggarr/web.",
+          "The function-local `from triggarr.web.validation import validate_arr_url_config` import (models importing from web) initially looked like a possible new architectural pattern, but triggarr/search/scheduler.py already does the same (local import from triggarr.web.routes), and triggarr/state.py, triggarr/__main__.py, triggarr/startup.py all use function-local triggarr.* imports to avoid circular imports — this is established convention per root CLAUDE.md precedence ('follow existing conventions'), not a violation.",
+          "Ran `uv run ruff check triggarr/models/config.py` directly — all checks passed (no E/F/I/UP/B/SIM violations), confirming the project's stated lint rule is satisfied rather than assumed.",
+          "No intent-context (PLAN.md/SPEC.md) was provided in this task, so intent_doc_match was not applicable."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"compliance\",\"findings\":[],\"agent_notes\":[\"Checked diff (triggarr/models/config.py) against root ~/.claude/CLAUDE.md (Security/Correctness absolute rules) and project triggarr/CLAUDE.md (ruff E/F/I/UP/B/SIM, SecretStr discipline, Loguru-only logging, atomic writes). No directory-level CLAUDE.md/AGENTS.md exist under triggarr/models or triggarr/web.\",\"The function-local `from triggarr.web.validation import validate_arr_url_config` import (models importing from web) initially looked like a possible new architectural pattern, but triggarr/search/scheduler.py already does the same (local import from triggarr.web.routes), and triggarr/state.py, triggarr/__main__.py, triggarr/startup.py all use function-local triggarr.* imports to avoid circular imports — this is established convention per root CLAUDE.md precedence ('follow existing conventions'), not a violation.\",\"Ran `uv run ruff check triggarr/models/config.py` directly — all checks passed (no E/F/I/UP/B/SIM violations), confirming the project's stated lint rule is satisfied rather than assumed.\",\"No intent-context (PLAN.md/SPEC.md) was provided in this task, so intent_doc_match was not applicable.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:compliance",
+      "tool_use_id": "toolu_014pHMHVLfehKMduzTm7dSgu"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "validate_url_ssrf's local `from triggarr.web.validation import validate_arr_url_config` inside the classmethod is unnecessary (triggarr/web/__init__.py is empty, so no circular-import risk) but not a defect — negligible repeated-import cost, flagged only as an observation, not scored.",
+          "Type hints on the new validator match the file's existing convention (reject_apikey_in_url above it); no type-safety issues found.",
+          "No mutable defaults, bare excepts, is-vs-eq misuse, unmanaged resources, or hot-loop performance issues in this diff."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "Reviewed the diff. The new `field_validator` on `InstanceConfig.url` has type hints consistent with the file's existing convention, raises `ValueError` (correct for Pydantic validator surfacing), doesn't use mutable defaults, bare excepts, `is`-comparisons, or unmanaged resources, and isn't in a hot loop. The deferred `from triggarr.web.validation import ...` inside the classmethod isn't functionally wrong (module caching makes repeated-import cost negligible) and isn't strictly necessary since `triggarr/web/__init__.py` is empty so there's no circular-import hazard — but that's a style/layering choice (models importing from the web layer), not a language-level defect in my checklist's categories, so I'm not flagging it.\n\n```json\n{\"agent\":\"language-python\",\"findings\":[],\"agent_notes\":[\"validate_url_ssrf's local `from triggarr.web.validation import validate_arr_url_config` inside the classmethod is unnecessary (triggarr/web/__init__.py is empty, so no circular-import risk) but not a defect — negligible repeated-import cost, flagged only as an observation, not scored.\",\"Type hints on the new validator match the file's existing convention (reject_apikey_in_url above it); no type-safety issues found.\",\"No mutable defaults, bare excepts, is-vs-eq misuse, unmanaged resources, or hot-loop performance issues in this diff.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01EJn8NfuLrLqPoq4qVTfkue"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "The new SSRF check has a demonstrated cloud-metadata bypass. Targeted tests: 35 passed; two were blocked by read-only filesystem restrictions."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 99,
+            "category": "adversarial",
+            "cwe": null,
+            "file": "triggarr/models/config.py",
+            "fix_hint": "Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs.",
+            "id": "codex-001",
+            "intent_doc_match": null,
+            "line": 108,
+            "problem": "InstanceConfig(url=\"http://2852039166\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces.",
+            "severity": "medium",
+            "title": "Numeric IPv4 notation bypasses the metadata block",
+            "why_it_matters": "InstanceConfig(url=\"http://2852039166\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [{\"id\": \"codex-001\", \"file\": \"triggarr/models/config.py\", \"line\": 108, \"title\": \"Numeric IPv4 notation bypasses the metadata block\", \"category\": \"adversarial\", \"cwe\": null, \"severity\": \"medium\", \"agent_confidence\": 99, \"problem\": \"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces.\", \"why_it_matters\": \"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) passes the new validator. In web/validation.py:150-171, this hostname misses BLOCKED_HOSTS and ipaddress.ip_address raises ValueError, so it is accepted as DNS. Verified locally that HTTPX preserves this host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. startup.py:155 passes the accepted URL to ArrClient, whose connection check sends a request to that metadata address. This defeats the metadata restriction this change explicitly introduces.\", \"fix_hint\": \"Normalize or reject alternate numeric IPv4 representations before the hostname fallback, then apply the blocked-address checks. Add a regression test rejecting http://2852039166 while preserving supported loopback URLs.\", \"intent_doc_match\": null}], \"agent_notes\": [\"The new SSRF check has a demonstrated cloud-metadata bypass. Targeted tests: 35 passed; two were blocked by read-only filesystem restrictions.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01SbQsGi6AHDc4PoZWgqubUi"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 8,
+  "unrecovered": []
+}
