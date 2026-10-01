@@ -51,7 +51,7 @@ ten drift into eleven, and a test asserts no such literal exists.
 `focus-unreadable` (Phase 42) is the launch-time precondition that the Codex
 calibration text (`templates/codex-focus.txt`) could be read. Codex must never
 launch without it, and deciding it here — as a fact, before the disclosure line
-and the smoke check — makes it a labeled skip like every other one instead of a
+and the launch — makes it a labeled skip like every other one instead of a
 free-text reason printed from inside the background launch shell.
 
 `timeout` is a member of the sealed set but is never emitted by `decide`: it is
@@ -221,7 +221,7 @@ def decide(mode, facts):
 
     # The calibration text is a launch precondition too: Codex never runs
     # without it. Decided here so the skip is labeled and precedes the
-    # disclosure line and the smoke check; the launch shell keeps an empty-read
+    # disclosure line and the launch; the launch shell keeps an empty-read
     # guard only as a backstop.
     if not facts["focus_readable"]:
         return _skip(_FOCUS_UNREADABLE)

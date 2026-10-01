@@ -26,6 +26,13 @@ keeps existing) is a test that reads the prose. This module holds those locks:
   and passes "$CODEX_FOCUS" on the exact ARGS line; the text carries every calibration token, states the exemption
   after the pre-existing-gap cap, has no shell metacharacters, and its 0.45
   ceilings are non-blocking at severity low. The contract documents it.
+* Codex collection is file-owned. No prose file names a harness read tool
+  (BashOutput, KillShell, shell_id); the private collection directory is
+  created exactly once on the run branch, before the launch; the launch writes
+  its exit status to rc LAST via temp file + rename (and the focus backstop
+  writes its marker the same way); Phase 3 waits for rc under $TIMEOUT_BIN with
+  the Bash tool timeout stated, maps rc through a strict case with no eval,
+  reads the payload from the directory, and nothing removes the directory.
 * Retired +10 prose. No file in agents/ or phases/deep-review/ describes a
   Claude-to-Claude, category-domain or multi-agent bonus; the places that name
   the +10 also name the joined condition.
@@ -384,14 +391,18 @@ FOCUS_FACT_LINE = ('FOCUS_OK=false; if [ -n "$(cat "$VC_ROOT/templates/codex-foc
 FOCUS_FACT_ARG = 'focus_readable "$FOCUS_OK"'
 FOCUS_SLUG = "focus-unreadable"
 RUN_BRANCH_LINE = 'if [ "$CODEX_ACTION" = run ] && [ -n "$TIMEOUT_BIN" ]; then'
-MKTEMP_LINE = "CODEX_OUT=$(mktemp)"
+MKTEMP_LINE = "CODEX_DIR=$(mktemp -d)"
+OLD_MKTEMP_LINE = "CODEX_OUT=$(mktemp)"
+RUN_DECISION_TOKEN = '`action: "run"`'
+ARGS_LINE_TEXT = 'ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")'
 DISCLOSURE_HEAD = "2. **Disclosure line"
 
 
 def kickoff_gates_focus(kickoff_text):
     """Readability of the focus file is a step-1 gate fact decided BEFORE the
-    disclosure line, the skip is labeled with the gate's slug, and CODEX_OUT is
-    created only inside the run branch (a skip leaves no temp file)."""
+    disclosure line, the skip is labeled with the gate's slug, and the private
+    collection directory is created exactly once, after the run-branch decision
+    text and before the launch's ARGS line (a skip leaves no temp directory)."""
     lines = [ln.strip() for ln in kickoff_text.splitlines()]
     if FOCUS_FACT_LINE not in lines or FOCUS_FACT_ARG not in kickoff_text:
         return False
@@ -401,9 +412,116 @@ def kickoff_gates_focus(kickoff_text):
     if not disclosure or lines.index(FOCUS_FACT_LINE) > disclosure[0]:
         return False
     mktemps = [i for i, ln in enumerate(lines) if ln == MKTEMP_LINE]
-    if len(mktemps) != 1 or RUN_BRANCH_LINE not in lines:
+    if len(mktemps) != 1 or RUN_BRANCH_LINE not in lines or ARGS_LINE_TEXT not in lines:
         return False
-    return lines.index(RUN_BRANCH_LINE) < mktemps[0]
+    if OLD_MKTEMP_LINE in lines:
+        return False
+    decision = [i for i, ln in enumerate(lines) if RUN_DECISION_TOKEN in ln]
+    if not decision:
+        return False
+    return decision[0] < mktemps[0] < lines.index(ARGS_LINE_TEXT)
+
+
+HARNESS_READ_TOOLS = ("BashOutput", "KillShell", "shell_id")
+
+
+def harness_read_tool_hits(corpus):
+    """(relpath, token) for every harness read-tool name in the prose corpus."""
+    return sorted((rel, tok) for rel, text in corpus.items()
+                  for tok in HARNESS_READ_TOOLS if tok in text)
+
+
+RC_ATOMIC_LINE = ('''printf '%s\\n' "$rc" > "$CODEX_DIR/rc.tmp" && '''
+                  '''mv "$CODEX_DIR/rc.tmp" "$CODEX_DIR/rc"''')
+FOCUS_MARKER_LINE = ('''if [ "$CODEX_ACTION" = skip ] && [ -n "$CODEX_DIR" ]; then '''
+                     '''printf 'focus-missing\\n' > "$CODEX_DIR/rc.tmp" && '''
+                     '''mv "$CODEX_DIR/rc.tmp" "$CODEX_DIR/rc"; fi''')
+
+
+def kickoff_rc_is_atomic(kickoff_text):
+    """Inside the run branch, rc is written by temp file + rename after rc=$?,
+    and the focus backstop marker is written the same way right after the guard.
+    No line writes rc directly."""
+    lines = [ln.strip() for ln in kickoff_text.splitlines()]
+    if RUN_BRANCH_LINE not in lines or FOCUS_GUARD_LINE not in lines:
+        return False
+    if any('> "$CODEX_DIR/rc"' in ln for ln in lines):
+        return False
+    start = lines.index(RUN_BRANCH_LINE)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i] == "fi"), None)
+    if end is None:
+        return False
+    branch = lines[start:end]
+    if branch.count("rc=$?") != 1 or branch.count(RC_ATOMIC_LINE) != 1:
+        return False
+    if branch.index("rc=$?") > branch.index(RC_ATOMIC_LINE):
+        return False
+    guard = lines.index(FOCUS_GUARD_LINE)
+    return guard + 1 < len(lines) and lines[guard + 1] == FOCUS_MARKER_LINE
+
+
+COLLECT = "phases/deep-review/30-codex-collect.md"
+REMAIN_LINE = "REMAIN=$(( STARTED_AT + 315 - $(date +%s) ))"
+WAIT_LINE = ('''if [ "$REMAIN" -gt 0 ]; then "$TIMEOUT_BIN" "$REMAIN" sh -c '''
+             '''\'until [ -e "$1" ]; do sleep 2; done\' _ "$CODEX_DIR/rc"; fi''')
+RC_READ_LINE = 'RC=$(cat "$CODEX_DIR/rc" 2>/dev/null || true)'
+BASH_TIMEOUT = "timeout: 330000"
+CASE_ARMS = ("0) CODEX_COLLECT=join ;;", "124) CODEX_COLLECT=timeout ;;",
+             "focus-missing) CODEX_COLLECT=focus-unreadable ;;", "*) CODEX_COLLECT=timeout ;;")
+PAYLOAD_LINE = 'CODEX_OUT="$CODEX_DIR/payload.json"'
+CLEANUP_TOKEN = 'rm -rf "$CODEX_DIR"'
+
+
+def fenced_block_with(text, needle):
+    """The body of the first ``` fenced block whose stripped lines include
+    `needle`, as stripped lines; None when no block holds it."""
+    block, inside = [], False
+    for ln in text.splitlines():
+        s = ln.strip()
+        if s.startswith("```"):
+            if inside:
+                if needle in block:
+                    return block
+                block = []
+            inside = not inside
+            continue
+        if inside:
+            block.append(s)
+    return None
+
+
+def collect_wait_is_bounded(collect_text):
+    """Phase 3 waits for rc under $TIMEOUT_BIN within STARTED_AT + 315, states
+    the Bash tool timeout, maps rc through a strict case with all four arms and
+    no eval anywhere in the wait block."""
+    if BASH_TIMEOUT not in collect_text:
+        return False
+    block = fenced_block_with(collect_text, REMAIN_LINE)
+    if block is None:
+        return False
+    if WAIT_LINE not in block or RC_READ_LINE not in block or 'case "$RC" in' not in block:
+        return False
+    if any(re.search(r"\beval\b", ln) for ln in block):
+        return False
+    order = [block.index(x) for x in (REMAIN_LINE, WAIT_LINE, RC_READ_LINE, 'case "$RC" in')]
+    if order != sorted(order):
+        return False
+    case_at = block.index('case "$RC" in')
+    esac = next((i for i in range(case_at, len(block)) if block[i] == "esac"), None)
+    if esac is None:
+        return False
+    return list(block[case_at + 1:esac]) == list(CASE_ARMS)
+
+
+def collect_out_is_payload_in_dir(kickoff_text, collect_text):
+    """Both the launch and the translate step name the payload inside CODEX_DIR."""
+    return all(PAYLOAD_LINE in [ln.strip() for ln in text.splitlines()]
+               for text in (kickoff_text, collect_text))
+
+
+def no_collection_cleanup(*texts):
+    """Nothing removes the collection directory (the runbook copies it later)."""
+    return all(CLEANUP_TOKEN not in text for text in texts)
 
 
 def args_line_ok(kickoff_text):
@@ -1473,6 +1591,29 @@ class TestKickoffCarriesFocus(unittest.TestCase):
                 self.assertIs(cap_never_warns(cap, self.c, "low"), True)
 
 
+class TestCodexCollectionFileOwned(unittest.TestCase):
+    def test_no_harness_read_tool_anywhere(self):
+        corpus = prose_corpus()
+        self.assertIn(KICKOFF, corpus)
+        self.assertIn(COLLECT, corpus)
+        self.assertEqual(harness_read_tool_hits(corpus), [])
+
+    def test_kickoff_gates_focus_with_collection_dir(self):
+        self.assertIs(kickoff_gates_focus(_kickoff()), True)
+
+    def test_launch_writes_rc_atomically(self):
+        self.assertIs(kickoff_rc_is_atomic(_kickoff()), True)
+
+    def test_collect_waits_under_timeout_bin(self):
+        self.assertIs(collect_wait_is_bounded(read(COLLECT)), True)
+
+    def test_collect_out_is_payload_in_dir(self):
+        self.assertIs(collect_out_is_payload_in_dir(_kickoff(), read(COLLECT)), True)
+
+    def test_no_cleanup_before_runbook_capture(self):
+        self.assertIs(no_collection_cleanup(_kickoff(), read(COLLECT)), True)
+
+
 class TestKickoffMutation(unittest.TestCase):
     def test_planted_interpolation_trips(self):
         self.assertIn("$", focus_forbidden_hits(focus_text("rules $DIFF here\n")))
@@ -1599,6 +1740,83 @@ class TestKickoffMutation(unittest.TestCase):
             RUN_BRANCH_LINE, MKTEMP_LINE + "\n" + RUN_BRANCH_LINE)
         self.assertNotEqual(hoisted, k)
         self.assertIs(kickoff_gates_focus(hoisted), False)
+
+    def test_harness_read_tool_planted_trips(self):
+        corpus = prose_corpus()
+        planted = dict(corpus)
+        planted[KICKOFF] = corpus[KICKOFF] + "\nRead the shell with BashOutput(id).\n"
+        self.assertNotEqual(planted[KICKOFF], corpus[KICKOFF])
+        self.assertEqual(harness_read_tool_hits(planted), [(KICKOFF, "BashOutput")])
+        planted[COLLECT] = corpus[COLLECT] + "\nCapture the shell_id.\n"
+        self.assertIn((COLLECT, "shell_id"), harness_read_tool_hits(planted))
+
+    def test_collection_dir_regressions_trip(self):
+        k = _kickoff()
+        lines = k.splitlines()
+        decision = next(i for i, ln in enumerate(lines) if RUN_DECISION_TOKEN in ln)
+        # Created above the run-branch decision text (a skip would leave it behind).
+        stripped = [ln for ln in lines if ln.strip() != MKTEMP_LINE]
+        early = "\n".join(stripped[:decision] + [MKTEMP_LINE] + stripped[decision:])
+        self.assertNotEqual(early, k)
+        self.assertIs(kickoff_gates_focus(early), False)
+        # Created twice.
+        duplicated = k + "\n" + MKTEMP_LINE + "\n"
+        self.assertIs(kickoff_gates_focus(duplicated), False)
+        # The old bare temp file restored in place of the directory.
+        old = k.replace(MKTEMP_LINE, OLD_MKTEMP_LINE)
+        self.assertNotEqual(old, k)
+        self.assertIs(kickoff_gates_focus(old), False)
+        # The old temp file alongside the directory.
+        both = k.replace(PAYLOAD_LINE, OLD_MKTEMP_LINE)
+        self.assertNotEqual(both, k)
+        self.assertIs(kickoff_gates_focus(both), False)
+
+    def test_rc_atomic_regressions_trip(self):
+        k = _kickoff()
+        no_mv = k.replace(RC_ATOMIC_LINE, '''printf '%s\\n' "$rc" > "$CODEX_DIR/rc.tmp"''')
+        self.assertNotEqual(no_mv, k)
+        self.assertIs(kickoff_rc_is_atomic(no_mv), False)
+        direct = k.replace(RC_ATOMIC_LINE, '''printf '%s\\n' "$rc" > "$CODEX_DIR/rc"''')
+        self.assertNotEqual(direct, k)
+        self.assertIs(kickoff_rc_is_atomic(direct), False)
+        no_marker = k.replace(FOCUS_MARKER_LINE, "")
+        self.assertNotEqual(no_marker, k)
+        self.assertIs(kickoff_rc_is_atomic(no_marker), False)
+        # rc written before the launch's exit status exists.
+        early = k.replace(RC_ATOMIC_LINE + "\n", "").replace(
+            "rc=$?", RC_ATOMIC_LINE + "\n     rc=$?")
+        self.assertNotEqual(early, k)
+        self.assertIs(kickoff_rc_is_atomic(early), False)
+
+    def test_collect_wait_regressions_trip(self):
+        c = read(COLLECT)
+        unwrapped = c.replace('"$TIMEOUT_BIN" "$REMAIN" sh -c', "sh -c")
+        self.assertNotEqual(unwrapped, c)
+        self.assertIs(collect_wait_is_bounded(unwrapped), False)
+        no_bash_timeout = c.replace(BASH_TIMEOUT, "timeout: 120000")
+        self.assertNotEqual(no_bash_timeout, c)
+        self.assertIs(collect_wait_is_bounded(no_bash_timeout), False)
+        case_at = c.index('case "$RC" in')
+        esac_end = c.index("esac", case_at) + len("esac")
+        evaled = c[:case_at] + 'eval "CODEX_COLLECT=$RC"' + c[esac_end:]
+        self.assertNotEqual(evaled, c)
+        self.assertIs(collect_wait_is_bounded(evaled), False)
+        # A lenient mapping: every non-zero rc treated as a join.
+        lenient = c.replace(CASE_ARMS[3], "*) CODEX_COLLECT=join ;;")
+        self.assertNotEqual(lenient, c)
+        self.assertIs(collect_wait_is_bounded(lenient), False)
+
+    def test_collect_payload_regression_trips(self):
+        c = read(COLLECT)
+        reverted = c.replace(PAYLOAD_LINE, 'CODEX_OUT="<printed at kickoff>"')
+        self.assertNotEqual(reverted, c)
+        self.assertIs(collect_out_is_payload_in_dir(_kickoff(), reverted), False)
+
+    def test_planted_cleanup_trips(self):
+        c = read(COLLECT)
+        planted = c + "\n" + CLEANUP_TOKEN + "\n"
+        self.assertIs(no_collection_cleanup(_kickoff(), planted), False)
+        self.assertIs(no_collection_cleanup(_kickoff() + CLEANUP_TOKEN, c), False)
 
     def test_missing_args_arg_trips(self):
         text = _kickoff().replace(ARGS_LINE, OLD_ARGS_LINE)
