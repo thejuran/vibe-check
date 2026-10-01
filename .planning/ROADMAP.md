@@ -160,7 +160,7 @@ Full details: `.planning/milestones/v2.9-ROADMAP.md`.
 - [x] **Phase 40: Prose diet — restructure for Opus 5** — Restructure `commands/review.md` (~80K) + `commands/deep-review.md` (~35K): cut anti-improvisation scar tissue, progressive disclosure, extract the ranked deterministic families to tested scripts, verify (verify-only) the Phase 4.5→5 single-writer property (999.8), move every executable helper to trusted-plugin-root resolution + pre-edit path validation in the fix agent (TRUST-01/02), correct the cost anchors to the current model lineup — each batch guardrailed by a CAPPED B3 spot-check, full ×3 once at phase end (completed 2026-09-29)
 - [x] **Phase 41: Wave 1 — scorer-side noise interventions** — Lift the scoring-formula freeze (Wave-1-scoped): B-SEV severity stability, B-REWEIGHT per-agent confidence calibration, H-LANE pile-on collapse — tuned offline via a zero-catch-regression replay harness on POST-DIET run data, then confirmed by a live spot-check (completed 2026-09-30)
 - [x] **Phase 42: Wave 2 — agent-side noise interventions** — Prompt-only H-CORE: safe-change recognition + confidence ceilings on the loud lanes (bugs, security, impact, codex contract), with the real B3 false alarms baked in as never-flag classes (completed 2026-09-30)
-- [ ] **Phase 43: Prove — full post-change measurement** — Owner re-runs the full grown set ×3, scored from state against the sealed keys, evaluated honestly against the pre-registered bar in `RESULTS-v2.10.md`, with at most one retune
+- [x] **Phase 43: Prove — full post-change measurement** — Owner re-runs the full grown set ×3, scored from state against the sealed keys, evaluated honestly against the pre-registered bar in `RESULTS-v2.10.md`, with at most one retune (completed 2026-10-01)
 - [ ] **Phase 44: Close — 2.10.0 release** — plugin.json → 2.10.0, README efficacy numbers replaced + README model/cost docs made current for Claude 5 (COMPAT-01, static corrected anchors — no measured-cost claim), annotated tag `v2.10`, atomic hash-verified publish
 
 > **Re-scoped 2026-09-05 (owner decision, after an external source review of the plugin + a live model-lineup check):**
@@ -369,28 +369,28 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 43-01-PLAN.md — Launch-gate fix: file-owned Codex collection replaces the BashOutput gate (measured-surface change) + mutation-tested locks + executable stub test
-- [ ] 43-02-PLAN.md — Tooling: lanearchive.py (per-run lane/Codex archive + privacy scan), score43.py (mechanical worksheet + retune gate), batchsnap batch 5/6
+- [x] 43-01-PLAN.md — Launch-gate fix: file-owned Codex collection replaces the BashOutput gate (measured-surface change) + mutation-tested locks + executable stub test
+- [x] 43-02-PLAN.md — Tooling: lanearchive.py (per-run lane/Codex archive + privacy scan), score43.py (mechanical worksheet + retune gate), batchsnap batch 5/6
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 43-03-PLAN.md — Kit: RUN-METHOD-NOTES-phase43 pins, parameterized RUN-PHASE43-v2.10.md runbook (freeze/resync/preflight/fresh/launch/fingerprint/pre/post/void/fail/revert), batch-5 snapshot built
+- [x] 43-03-PLAN.md — Kit: RUN-METHOD-NOTES-phase43 pins, parameterized RUN-PHASE43-v2.10.md runbook (freeze/resync/preflight/fresh/launch/fingerprint/pre/post/void/fail/revert), batch-5 snapshot built
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 43-04-PLAN.md — Owner run window: 36 first-pass runs (checkpoint:human-action) + readiness check + post-window integrity audit
+- [x] 43-04-PLAN.md — Owner run window: 36 first-pass runs (checkpoint:human-action) + readiness check + post-window integrity audit
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 43-05-PLAN.md — Scoring: gate ladder, per-run worksheets (mechanical FP arm, recorded AXIS), exact-fraction verdict, FAILED-DIFFS.json on a miss
+- [x] 43-05-PLAN.md — Scoring: gate ladder, per-run worksheets (mechanical FP arm, recorded AXIS), exact-fraction verdict, FAILED-DIFFS.json on a miss
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 43-06-PLAN.md — Conditional retune (only on a MISS): prompts-only commit R, snapshot S2, failed diffs ×3, combined + untuned headlines; use/non-use recorded
+- [x] 43-06-PLAN.md — Conditional retune (only on a MISS): prompts-only commit R, snapshot S2, failed diffs ×3, combined + untuned headlines; use/non-use recorded
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 43-07-PLAN.md — RESULTS-v2.10.md Phase-43 section (D-12 verdict, confounds first, honest limitations), backlog 999.19 item (3), snapshot drop, closing record
+- [x] 43-07-PLAN.md — RESULTS-v2.10.md Phase-43 section (D-12 verdict, confounds first, honest limitations), backlog 999.19 item (3), snapshot drop, closing record
 
 > **Runtime**: the 36 post-change runs (plus any retune re-runs) are ASSISTANT-DRIVEN `/deep-review` invocations via tmux (owner decision 2026-09-30, 43-CONTEXT D-13 — separate `claude` process per measured session, fixed keystroke set, driver-contamination assert); the owner keeps the laptop lid open for the run window.
 
@@ -455,7 +455,7 @@ Plans:
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 8/8 | Complete    | 2026-09-30 |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 7/7 | Complete    | 2026-09-30 |
-| 43. Prove — full post-change measurement | v2.10 | 0/? | Not started | - |
+| 43. Prove — full post-change measurement | v2.10 | 7/7 | Complete   | 2026-10-01 |
 | 44. Close — 2.10.0 release | v2.10 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
@@ -892,7 +892,7 @@ Plans:
 carry different caps, and decide whether "declared but not yet wired" and "stricter validator
 breaks a legacy config" become never-flag prompt classes.
 
-**Why:** Two questions were deliberately left open by Phase 42 and must not be lost.
+**Why:** Three questions were deliberately left open (two by Phase 42, one carried through Phase 43) and must not be lost.
 
 (1) **The scorer-side site-representation question (Phase 42 CONTEXT D-07).** Since Phase 41
 (D-03, D-14) a site collapses to ONE row that carries every member lane. Once members carry
@@ -920,6 +920,16 @@ for it. Expected Phase-43 residual: should-quiet-6 likely stays 3/3 and should-q
 firing. The product question is whether a value added in one step of a staged change, whose
 consumer is not in the diff, is a defect.
 
+(3) **A misjudged real replacement is nearly invisible (Phase 42 owner carry, Phase 43 R6).** A
+reviewer that finds and reads a real same-purpose replacement but misjudges its coverage (misses
+the path that bypasses it) leaves only a `agent_confidence ≤ 45` capped note, usually filtered —
+counted in the Filtered summary, not listed — whose text survives only in the raw per-lane outputs
+(now archived per run as `lanes.json` from Phase 43). Making that case visible in the report needs a
+scorer or report change; it must not land inside a measured window. Evidence pointer:
+RESULTS-v2.10.md Phase-42 limitations; Phase-43 `lanes.json` archives. Related Phase-43 fact: the
+retune's Rule 2 (a bypass inside an unchanged reused helper is a capped pre-existing gap) puts real
+reused-helper bypasses on the same filtered path (RESULTS-v2.10.md Phase-43 §Retune).
+
 **Requirements:** TBD
 
 **Plans:** 0 plans
@@ -942,7 +952,43 @@ consumer is not in the diff, is a defect.
   behavior change on the record.
 
 **Source:** Phase 42 CONTEXT D-07 + owner decisions after 42-RESEARCH (2026-09-30, Open Questions
-1-2); Phase-41 memory detail (v2.10-phase41-owner-runs).
+1-2); Phase-41 memory detail (v2.10-phase41-owner-runs); Phase 43 CONTEXT deferred ideas (R6).
+
+Plans:
+
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.20: Review agents must not run state-mutating git commands in the reviewed repo (BACKLOG)
+
+**Goal:** Guarantee that `/vibe-check:review` and `/vibe-check:deep-review` agents never change the
+git state of the repo under review: no `git stash` (push/pop/apply/drop), `checkout`, `switch`,
+`reset`, `restore`, `commit`, `merge`, `rebase`, `clean`, `branch -D` or similar.
+
+**Why:** A `git stash pop` was observed in Phase 43. During first-pass
+triggarr-session-rotation run 3 (run commit `825bd49`) the measured review's compliance agent ran
+`git stash pop` in the reviewed clone, popping the owner's pre-existing unrelated stash, then
+re-stashed identical content under a new label ("restore: undo accidental stash pop …"). Nothing
+was lost, but a review tool that mutates the reviewed repo is a safety defect: on a dirty tree a pop
+can conflict or mix the owner's WIP into the reviewed change. The B3 runbook's tree-diff checks
+could not see it (they do not cover the stash list). Recorded in RESULTS-v2.10.md Phase-43
+§"Anomaly" and 43-04 deferred item D43-04-1.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Design notes:**
+
+- Prompt rule in every review agent (read-only git only: `diff`, `show`, `log`, `blame`,
+  `rev-parse`, `ls-files`, `status`), locked by `scripts/test_agent_prompts.py` with a mutation test.
+- Consider an enforced guard rather than prose only: a PreToolUse hook or a restricted Bash
+  allowlist for review subagents, plus a stash-list / HEAD / index snapshot compared before and
+  after a review (fail loudly on any change).
+- Add a stash-list and HEAD check to the B3 runbook `post` block so a future measured run would
+  catch this mechanically.
+- Changes the measured surface: MUST NOT land inside a measured window.
+
+**Source:** Phase 43 run window (43-04 SUMMARY anomaly; orchestrator carry 2026-10-01).
 
 Plans:
 
