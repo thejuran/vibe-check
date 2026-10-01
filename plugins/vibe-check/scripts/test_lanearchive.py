@@ -303,6 +303,41 @@ class TestPrivacyScan(unittest.TestCase):
                 self.assertEqual(lanearchive.privacy_scan(tok), ["token"])
 
 
+class TestReservedEmailDomains(unittest.TestCase):
+
+    CITED = ("password@example.com", "Pr0xyPass@radarr.example", "pass@radarr.internal",
+             "pass@radarr.local", "pass@radarr.test")
+    REFUSED = ("jane.doe@gmail.com", "x@corp-mail.io", "user@radarr.local.evil.com",
+               "user@example.com.attacker.net")
+
+    def test_reserved_domain_tokens_pass(self):
+        for tok in self.CITED + ("u@Sub.EXAMPLE.org", "u@host.INVALID", "u@box.localhost"):
+            with self.subTest(tok=tok):
+                text = 'leaks "https://user:%s:7878/api" to the log' % tok
+                self.assertEqual(lanearchive.privacy_scan(text), [])
+
+    def test_routable_domain_tokens_refused_kind_only(self):
+        for tok in self.REFUSED:
+            with self.subTest(tok=tok):
+                self.assertEqual(lanearchive.privacy_scan("see %s here" % tok), ["email"])
+
+    def test_reserved_domain_does_not_exempt_other_classes(self):
+        self.assertEqual(lanearchive.privacy_scan("pass@maguffynas.local"), ["nas-host"])
+        self.assertEqual(lanearchive.privacy_scan("sk-ant-abc@radarr.test"), ["token"])
+
+    def test_scan_cli_refusal_prints_kind_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "report.md")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("ok pass@radarr.local\nbad jane.doe@gmail.com\n")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                rc = lanearchive.run(["scan", path])
+            self.assertEqual(rc, 1)
+            self.assertEqual(err.getvalue().strip(), "privacy scan refused: email")
+            self.assertNotIn("gmail", err.getvalue())
+
+
 class TestExtractCli(_TmpDirCase):
 
     def test_joined_run_writes_payload_and_rc(self):

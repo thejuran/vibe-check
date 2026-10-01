@@ -84,6 +84,11 @@ _USAGE_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _EMAIL_ALLOWED = ("noreply@anthropic.com",)
+# Reserved / non-routable names (RFC 2606, RFC 6761, RFC 6762, ICANN .internal). An
+# email-shaped token on one of these cannot address a real mailbox; review findings use
+# them to illustrate credentials-in-URL leaks (`https://user:pass@radarr.local/`).
+_EMAIL_RESERVED_DOMAINS = ("example.com", "example.net", "example.org")
+_EMAIL_RESERVED_TLDS = ("example", "test", "invalid", "localhost", "local", "internal")
 PRIVACY_CLASSES = (
     ("nas-host", (re.compile(r"maguffynas"), re.compile(r"ssh nas"),
                   re.compile(r"sudoers"))),
@@ -345,10 +350,23 @@ def peak_context(transcript_path):
     return peak
 
 
+def _reserved_email(token):
+    """True when an email-shaped token's domain is a reserved, non-routable name.
+
+    Only the email class is exempted; the other privacy classes still scan the
+    same text independently.
+    """
+    domain = token.rsplit("@", 1)[1].lower()
+    if any(domain == d or domain.endswith("." + d) for d in _EMAIL_RESERVED_DOMAINS):
+        return True
+    return domain.rsplit(".", 1)[-1] in _EMAIL_RESERVED_TLDS
+
+
 def privacy_scan(text):
     """Pattern-class names hit in `text` (fixed order), [] when clean."""
     hits = []
-    if any(m not in _EMAIL_ALLOWED for m in _EMAIL_RE.findall(text)):
+    if any(m not in _EMAIL_ALLOWED and not _reserved_email(m)
+           for m in _EMAIL_RE.findall(text)):
         hits.append("email")
     for name, patterns in PRIVACY_CLASSES:
         if any(p.search(text) for p in patterns):
