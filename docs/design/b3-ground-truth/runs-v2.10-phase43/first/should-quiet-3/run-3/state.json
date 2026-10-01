@@ -1,0 +1,175 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-10-01T04:28:28Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "py-001",
+          "agent": "language-python",
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Optional success_statuses handled with `or`, not an explicit None check",
+          "category": "type-hints",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 60,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`success_statuses: set[int] | None = None` is folded into a default via `success_statuses or {200, 201}`. Because `or` treats any falsy value as absent, a caller that explicitly passes an empty set (e.g. to express 'no status code should be treated as success') would silently get the default {200, 201} instead.",
+          "current_code": "expected_statuses = success_statuses or {200, 201}",
+          "fix_hint": "use `success_statuses if success_statuses is not None else {200, 201}` so only the None sentinel triggers the default",
+          "why_it_matters": "The two current call sites never hit this, so it's latent rather than active today, but it silently masks caller intent for any future caller that passes an empty set, and it's the kind of Optional-handling bug that's easy to miss in review since the code 'looks' like it already guards None.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "                reason,",
+            "            )",
+            "        expected_statuses = success_statuses or {200, 201}",
+            "        if response.status_code not in expected_statuses:",
+            "            raise TransferEnqueueError("
+          ],
+          "canonical_line_content": "        expected_statuses = success_statuses or {200, 201}",
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "bugs",
+            "impact",
+            "language-python"
+          ],
+          "stable_hash": "c0d55d33a6c7e8badacb5be80e0585eed869943874e2af852c69ff4b58f92ba8",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 259,
+              "title": "Optional success_statuses handled with `or`, not an explicit None check",
+              "category": "type-hints",
+              "severity": "medium",
+              "agent": "language-python",
+              "agent_confidence": 60,
+              "problem": "`success_statuses: set[int] | None = None` is folded into a default via `success_statuses or {200, 201}`. Because `or` treats any falsy value as absent, a caller that explicitly passes an empty set (e.g. to express 'no status code should be treated as success') would silently get the default {200, 201} instead.",
+              "source_window": [
+                "                reason,",
+                "            )",
+                "        expected_statuses = success_statuses or {200, 201}",
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError("
+              ],
+              "cwe": null,
+              "why_it_matters": "The two current call sites never hit this, so it's latent rather than active today, but it silently masks caller intent for any future caller that passes an empty set, and it's the kind of Optional-handling bug that's easy to miss in review since the code 'looks' like it already guards None.",
+              "fix_hint": "use `success_statuses if success_statuses is not None else {200, 201}` so only the None sentinel triggers the default",
+              "current_code": "expected_statuses = success_statuses or {200, 201}",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 261,
+              "title": "Cancel failures raise TransferEnqueueError, so handlers written for enqueue failures will catch them",
+              "category": "error-handling",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 35,
+              "problem": "_request_json is now shared by the DELETE cancel path, but every non-auth failure still raises TransferEnqueueError. pipeline.py:924 has an `except TransferEnqueueError` that rewraps errors as enqueue failures. If cancel_download is ever called inside a block like that, a failed cancel would be reported as a failed enqueue or poll. pending: confirm whether the planned cancel call site sits inside an enqueue/poll `except TransferEnqueueError` handler.",
+              "source_window": [
+                "        expected_statuses = success_statuses or {200, 201}",
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError(",
+                "                f\"slskd transfer request failed with HTTP {response.status_code}\",",
+                "                \"unavailable\","
+              ],
+              "cwe": null,
+              "why_it_matters": "Wrong error classification can send a cancellation failure into enqueue-retry logic.",
+              "fix_hint": null,
+              "current_code": "raise TransferEnqueueError(\n    f\"slskd transfer request failed with HTTP {response.status_code}\",\n    \"unavailable\",\n)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 259,
+              "title": "Empty success_statuses set silently falls back to default {200, 201}",
+              "category": "breaking-api",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 20,
+              "problem": "`success_statuses or {200, 201}` treats an explicitly passed empty set as 'use defaults' rather than 'accept nothing'. No caller passes an empty set today, so this is a latent semantic quirk, not a live defect. pending: only matters if a future caller passes set().",
+              "source_window": [
+                "                reason,",
+                "            )",
+                "        expected_statuses = success_statuses or {200, 201}",
+                "        if response.status_code not in expected_statuses:",
+                "            raise TransferEnqueueError("
+              ],
+              "cwe": null,
+              "why_it_matters": "Small foot-gun for future callers of a private helper. No current impact.",
+              "fix_hint": "use `{200, 201} if success_statuses is None else success_statuses`",
+              "current_code": "expected_statuses = success_statuses or {200, 201}",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancel treats slskd 404 (transfer already gone) as an 'unavailable' failure",
+          "reason": "absorbed-into: c69af97caa97c5aa4d9d1fc9b2611ee90ccacc9fcc8dce8135112827e0993e01"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 261,
+          "title": "Cancel failures raise TransferEnqueueError, so handlers written for enqueue failures will catch them",
+          "reason": "absorbed-into: c0d55d33a6c7e8badacb5be80e0585eed869943874e2af852c69ff4b58f92ba8"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Empty success_statuses set silently falls back to default {200, 201}",
+          "reason": "absorbed-into: c0d55d33a6c7e8badacb5be80e0585eed869943874e2af852c69ff4b58f92ba8"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancelling a transfer that is already gone (404) raises a retryable 'unavailable' error",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "New cancel_download has no ownership/authorization check on username or transfer_id",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 139,
+          "title": "SlskdTransferClient docstring still promises only POST enqueue and GET status, but the client can now DELETE",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 67,
+          "title": "Cancel failures are raised as TransferEnqueueError, an error class whose documented meaning is enqueue or status-fetch failures",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
