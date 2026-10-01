@@ -1,0 +1,53 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-10-01T04:02:37Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-typescript"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "ConfigService.set still sends GET to the old path-param route while the backend only accepts POST with a JSON body",
+          "reason": "absorbed-into: 5859e1a03d2b62cd871f6d8e044473d89053c25c100c5900ef23769c53270319"
+        },
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "Config save still sends GET to a route that now only accepts POST",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/angular/src/app/tests/mocks/mock-rest.service.ts",
+          "line": 6,
+          "title": "MockRestService has no post() method, so specs for migrated callers will break or need a spy",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/angular/src/app/services/utils/rest.service.ts",
+          "line": 59,
+          "title": "post() now forwards an arbitrary caller-supplied object as JSON body with no shape validation",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
