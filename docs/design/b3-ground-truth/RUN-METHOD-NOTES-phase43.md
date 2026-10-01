@@ -352,3 +352,11 @@ snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924
 plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924/plugins/vibe-check
 driver: assistant-tmux
 session: retune should-quiet-6
+
+## Closing
+
+- verdict: combined PASS — quiet fired 3/18 (corrected cohort, bar ≤ 8; should-quiet-7 excluded per #001); catch 15/15 (bar 15); sealed literal 6/21 (never deciding); untuned first pass 6/18, 9/21, 13/15 (MISS). Artifacts of record: `runs-v2.10-phase43/retune/COMBINED-VERDICT.json` and `runs-v2.10-phase43/first/VERDICT.json`.
+- retune (echo of §Retune): used — R = S2 = 8df25c7c792448792162072aa89fe46ad5875ae9; failed diffs: should-quiet-4, should-quiet-6, triggarr-autoescape.
+- results: RESULTS-v2.10.md Phase-43 section committed at 53bd4d7f72ef322959482d0ef2f98fd245d906e7; `score43.py headline-check` against `retune/COMBINED-VERDICT.json`: match.
+- snapshots dropped (2026-10-01, `batchsnap.py drop`): batch5 be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 and batch6 8df25c7c792448792162072aa89fe46ad5875ae9. The `snapshot:` lines in §Snapshot remain the record; no batch5/batch6 worktree is registered.
+- installed cache: released 2.9.0 restored after each window, per the two `parity: restored released 2.9.0` lines in §Cache parity (03:36:31 and 07:59:42, 2026-10-01); the pre-phase43 cache backup path is absent.
