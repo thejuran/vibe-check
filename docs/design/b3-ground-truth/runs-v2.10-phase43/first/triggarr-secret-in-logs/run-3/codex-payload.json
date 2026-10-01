@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f52d-e2ab-7092-ae0b-f003c316c16d",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: HTTP error logging exposes configured credentials in stderr and the web log buffer.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Raw HTTP exceptions leak URL credentials\",\"body\":\"A supported configuration such as http://alice:proxy-password@radarr:7878 exposes its password when connection validation receives a 502. Reproduced with MockTransport: formatting HTTPStatusError prints the complete URL into both stderr and the web log buffer. collect_secrets() in startup.py collects API keys and auth secrets, but excludes URL credentials, so the existing redaction sinks do not protect this path. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":233,\"line_end\":235,\"confidence\":1.0,\"recommendation\":\"Restore status-code-only logging, or explicitly remove URL userinfo and sensitive URL components before logging. Add a regression test verifying that a credential-bearing URL cannot expose its password in either sink.\"}],\"next_steps\":[\"Fix the credential disclosure and verify both log sinks before merging.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: HTTP error logging exposes configured credentials in stderr and the web log buffer.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Raw HTTP exceptions leak URL credentials",
+        "body": "A supported configuration such as http://alice:proxy-password@radarr:7878 exposes its password when connection validation receives a 502. Reproduced with MockTransport: formatting HTTPStatusError prints the complete URL into both stderr and the web log buffer. collect_secrets() in startup.py collects API keys and auth secrets, but excludes URL credentials, so the existing redaction sinks do not protect this path. Previously this branch logged only the status code.",
+        "file": "triggarr/clients/base.py",
+        "line_start": 233,
+        "line_end": 235,
+        "confidence": 1,
+        "recommendation": "Restore status-code-only logging, or explicitly remove URL userinfo and sensitive URL components before logging. Add a regression test verifying that a credential-bearing URL cannot expose its password in either sink."
+      }
+    ],
+    "next_steps": [
+      "Fix the credential disclosure and verify both log sinks before merging."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: HTTP error logging exposes configured credentials in stderr and the web log buffer.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Raw HTTP exceptions leak URL credentials\",\"body\":\"A supported configuration such as http://alice:proxy-password@radarr:7878 exposes its password when connection validation receives a 502. Reproduced with MockTransport: formatting HTTPStatusError prints the complete URL into both stderr and the web log buffer. collect_secrets() in startup.py collects API keys and auth secrets, but excludes URL credentials, so the existing redaction sinks do not protect this path. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":233,\"line_end\":235,\"confidence\":1.0,\"recommendation\":\"Restore status-code-only logging, or explicitly remove URL userinfo and sensitive URL components before logging. Add a regression test verifying that a credential-bearing URL cannot expose its password in either sink.\"}],\"next_steps\":[\"Fix the credential disclosure and verify both log sinks before merging.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
