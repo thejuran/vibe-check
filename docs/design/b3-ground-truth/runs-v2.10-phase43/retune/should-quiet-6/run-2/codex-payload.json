@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f746-1cae-7841-8a85-03d873e17af8",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The validator passes its focused test, but the new configuration setting has no effect on shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Connect the new timeout setting to the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but never consumed. triggarr/search/scheduler.py:70–81 still derives the timeout solely from the environment or a hardcoded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured longer drain, potentially interrupting an in-flight search cycle.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Read general.shutdown_drain_timeout when establishing the shutdown timeout, apply the environment override on top, and add an integration test proving a nondefault configuration value reaches the drain.\"}],\"next_steps\":[\"Wire the setting into shutdown and verify configuration/environment precedence.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The validator passes its focused test, but the new configuration setting has no effect on shutdown.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Connect the new timeout setting to the shutdown drain",
+        "body": "A supported value such as shutdown_drain_timeout=120.5 is accepted but never consumed. triggarr/search/scheduler.py:70–81 still derives the timeout solely from the environment or a hardcoded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured longer drain, potentially interrupting an in-flight search cycle.",
+        "file": "triggarr/models/config.py",
+        "line_start": 139,
+        "line_end": 139,
+        "confidence": 0.99,
+        "recommendation": "Read general.shutdown_drain_timeout when establishing the shutdown timeout, apply the environment override on top, and add an integration test proving a nondefault configuration value reaches the drain."
+      }
+    ],
+    "next_steps": [
+      "Wire the setting into shutdown and verify configuration/environment precedence."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The validator passes its focused test, but the new configuration setting has no effect on shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Connect the new timeout setting to the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but never consumed. triggarr/search/scheduler.py:70–81 still derives the timeout solely from the environment or a hardcoded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured longer drain, potentially interrupting an in-flight search cycle.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Read general.shutdown_drain_timeout when establishing the shutdown timeout, apply the environment override on top, and add an integration test proving a nondefault configuration value reaches the drain.\"}],\"next_steps\":[\"Wire the setting into shutdown and verify configuration/environment precedence.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
