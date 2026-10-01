@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f5bd-8957-7a90-8bd4-756a363b148a",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Restore session revocation on password change\",\"body\":\"Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie therefore retains authenticated access after the owner changes their password: middleware.py:145–148 validates that cookie using the unchanged secret, and auth.py:97–119 checks only its signature and 30-day expiry, not the password hash. No replacement revocation occurs in the settings reload or _sync_auth_state. This removes an existing recovery control and contradicts the session-invalidation regression tests.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1.0,\"recommendation\":\"Restore atomic session-secret rotation alongside the password hash and reissue the acting user's cookie under the new secret.\"}],\"next_steps\":[\"Restore revocation and run the existing password-change session tests in tests/test_auth_routes.py and tests/test_auth_integration.py. Tests were inspected but not run.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: password changes no longer revoke compromised sessions.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Restore session revocation on password change",
+        "body": "Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie therefore retains authenticated access after the owner changes their password: middleware.py:145–148 validates that cookie using the unchanged secret, and auth.py:97–119 checks only its signature and 30-day expiry, not the password hash. No replacement revocation occurs in the settings reload or _sync_auth_state. This removes an existing recovery control and contradicts the session-invalidation regression tests.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 1567,
+        "line_end": 1567,
+        "confidence": 1,
+        "recommendation": "Restore atomic session-secret rotation alongside the password hash and reissue the acting user's cookie under the new secret."
+      }
+    ],
+    "next_steps": [
+      "Restore revocation and run the existing password-change session tests in tests/test_auth_routes.py and tests/test_auth_integration.py. Tests were inspected but not run."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Restore session revocation on password change\",\"body\":\"Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie therefore retains authenticated access after the owner changes their password: middleware.py:145–148 validates that cookie using the unchanged secret, and auth.py:97–119 checks only its signature and 30-day expiry, not the password hash. No replacement revocation occurs in the settings reload or _sync_auth_state. This removes an existing recovery control and contradicts the session-invalidation regression tests.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1.0,\"recommendation\":\"Restore atomic session-secret rotation alongside the password hash and reissue the acting user's cookie under the new secret.\"}],\"next_steps\":[\"Restore revocation and run the existing password-change session tests in tests/test_auth_routes.py and tests/test_auth_integration.py. Tests were inspected but not run.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
