@@ -1,0 +1,230 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "9bfd4a63dcac983a544a651d53d76612d08a4933",
+      "timestamp": "2026-10-01T11:57:29Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "codex-001",
+          "agent": "codex-adversarial",
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "Wire the new timeout setting into the shutdown drain",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 99,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "With shutdown_drain_timeout=120.5 and no environment override, the model accepts 120.5 but the effective timeout remains 60.0 (verified). scheduler.py:58-81 reads only the environment at import time, and line 634 uses that constant. Consequently, shutdown forces resource closure after 60 seconds even when the operator configured a longer drain for an active search cycle. This is missing integration of the new setting; its validation bounds work independently.",
+          "current_code": "shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+          "fix_hint": "Resolve the drain timeout from settings.general.shutdown_drain_timeout at scheduler setup or shutdown, apply the environment override, and test that a nondefault configured value reaches the shutdown timeout.",
+          "why_it_matters": "With shutdown_drain_timeout=120.5 and no environment override, the effective timeout remains 60.0.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+            "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+            "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+            "    # v2.2: skip Radarr movies without past digital/physical release date",
+            "    skip_unreleased: bool = True"
+          ],
+          "canonical_line_content": "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs",
+            "impact",
+            "codex-adversarial"
+          ],
+          "stable_hash": "c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/models/config.py",
+              "line": 139,
+              "title": "Wire the new timeout setting into the shutdown drain",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 99,
+              "problem": "With shutdown_drain_timeout=120.5 and no environment override, the model accepts 120.5 but the effective timeout remains 60.0 (verified). scheduler.py:58-81 reads only the environment at import time, and line 634 uses that constant. Consequently, shutdown forces resource closure after 60 seconds even when the operator configured a longer drain for an active search cycle. This is missing integration of the new setting; its validation bounds work independently.",
+              "source_window": [
+                "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+                "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+                "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+                "    # v2.2: skip Radarr movies without past digital/physical release date",
+                "    skip_unreleased: bool = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "With shutdown_drain_timeout=120.5 and no environment override, the effective timeout remains 60.0.",
+              "fix_hint": "Resolve the drain timeout from settings.general.shutdown_drain_timeout at scheduler setup or shutdown, apply the environment override, and test that a nondefault configured value reaches the shutdown timeout.",
+              "current_code": "shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 139,
+              "title": "New shutdown_drain_timeout field is not carried through save_settings, so a hand-set TOML value resets to 60.0 on any UI save",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 40,
+              "problem": "save_settings (triggarr/web/routes.py:539-551) rebuilds the whole `general` dict from a fixed list of keys. It keeps unexposed fields only by copying them by hand, as `tracking_delay_seconds` does at routes.py:547. `shutdown_drain_timeout` is not in that list. Once this field is persisted, any settings-form save writes the config with the field missing, so it falls back to the default 60.0 and silently drops an operator's TOML value. No code reads the field yet, so nothing changes today. pending: confirm a later 75-xx plan adds `shutdown_drain_timeout` to the routes.py:539 dict before the scheduler consumes the field.",
+              "source_window": [
+                "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+                "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+                "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+                "    # v2.2: skip Radarr movies without past digital/physical release date",
+                "    skip_unreleased: bool = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "Without that wiring, a drain timeout the operator configured is silently reset by an unrelated settings save.",
+              "fix_hint": "When wiring the UI, add shutdown_drain_timeout to the routes.py new_config['general'] dict, either clamped from the form or preserved from current_settings.general.",
+              "current_code": "shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 139,
+              "title": "New shutdown_drain_timeout config field is never read; the drain still uses only the env-derived module constant",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 40,
+              "problem": "The comment says the config value is the default and the env var overrides it at shutdown. But the only consumer is triggarr/search/scheduler.py. At lines 58-81 it computes _SHUTDOWN_DRAIN_TIMEOUT once at import, from os.environ only, with a hardcoded 60.0 fallback. Lines 611-656 use that constant. Nothing in triggarr/ references GeneralConfig.shutdown_drain_timeout, so a value set in TOML or the UI is validated and saved but has no effect on the drain. pending: confirm a later plan in phase 75 wires the field into the scheduler. The recent commits are a TDD 'add failing test' step, so this may be intentional work in progress.",
+              "source_window": [
+                "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+                "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+                "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+                "    # v2.2: skip Radarr movies without past digital/physical release date",
+                "    skip_unreleased: bool = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "An operator who changes the drain timeout in config or the UI sees it accepted but silently ignored, so the shutdown drain runs at 60s or the env value.",
+              "fix_hint": "read config.general.shutdown_drain_timeout at shutdown time and let the env var override it, instead of using the import-time constant only",
+              "current_code": "shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 139,
+              "title": "Config field is defined but no code reads it; the comment describes a config-then-env precedence that does not exist yet",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 35,
+              "problem": "The comment says 'Config value is the default; TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown'. But the scheduler still computes the module-level `_SHUTDOWN_DRAIN_TIMEOUT` from the env var alone, at import time (scheduler.py:81). A TOML value has no effect until the refactor lands. This matches a TDD step: a failing test was committed at 9bfd4a6. pending: confirm the scheduler refactor ships in the same release.",
+              "source_window": [
+                "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+                "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+                "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+                "    # v2.2: skip Radarr movies without past digital/physical release date",
+                "    skip_unreleased: bool = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "If this field ships on its own, users have a config knob that does nothing.",
+              "fix_hint": null,
+              "current_code": "# TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 139,
+              "title": "The non-finite guard is bypassed through the env override path, which still accepts inf/nan",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 35,
+              "problem": "allow_inf_nan=False is meant to ensure 'a TOML inf cannot unbound the drain'. The comment also says TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT overrides the config value at shutdown. The env reader at scheduler.py:70-75 does float(raw) and then max(value, 1.0). With TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT=inf, the result is inf. With nan, max(nan, 1.0) returns nan. Either value then reaches asyncio.timeout(...) and wait_for(timeout=...) at scheduler.py:634-656. This gap existed before the diff, in unchanged code. pending: confirm whether the planned wiring keeps the env override as-is.",
+              "source_window": [
+                "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+                "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+                "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+                "    # v2.2: skip Radarr movies without past digital/physical release date",
+                "    skip_unreleased: bool = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "An unbounded or NaN drain timeout can make shutdown hang until the process manager SIGKILLs it, which is exactly what the new guard is meant to prevent.",
+              "fix_hint": "apply math.isfinite to the env value and fall back to the config/default when it is not finite",
+              "current_code": "raw = os.environ.get(\"TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT\", \"60.0\")\n    try:\n        value = float(raw)\n    except (ValueError, TypeError):\n        value = 60.0\n    return max(value, 1.0)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 139,
+              "title": "No upper bound on the config field; the 3600 ceiling exists only in the UI form",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 30,
+              "problem": "The model enforces ge=1.0 but has no le. The comment says the 3600.0 clamp is applied only by the form, so a value written straight to TOML, such as 1e9, passes validation. Once the field is wired in, such a value would be far larger than any docker stop_grace_period. pending: confirm whether an uncapped TOML value is an accepted contract, or whether le=3600.0 should live on the model to match the form.",
+              "source_window": [
+                "    # Defense in depth: a TOML inf cannot unbound the drain. Config value is the default;",
+                "    # TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env overrides at shutdown; form clamp (3600.0) is the UI ceiling.",
+                "    shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+                "    # v2.2: skip Radarr movies without past digital/physical release date",
+                "    skip_unreleased: bool = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "The model and UI disagree on valid values, and a direct TOML edit can set a drain longer than the container's stop timeout.",
+              "fix_hint": "consider le=3600.0 on the Field so the model and the form enforce the same ceiling",
+              "current_code": "shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "New shutdown_drain_timeout field is not carried through save_settings, so a hand-set TOML value resets to 60.0 on any UI save",
+          "reason": "absorbed-into: c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "New shutdown_drain_timeout config field is never read; the drain still uses only the env-derived module constant",
+          "reason": "absorbed-into: c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "Config field is defined but no code reads it; the comment describes a config-then-env precedence that does not exist yet",
+          "reason": "absorbed-into: c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "The non-finite guard is bypassed through the env override path, which still accepts inf/nan",
+          "reason": "absorbed-into: c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "No upper bound on the config field; the 3600 ceiling exists only in the UI form",
+          "reason": "absorbed-into: c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ]
+}
