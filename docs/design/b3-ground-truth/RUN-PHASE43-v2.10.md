@@ -352,6 +352,22 @@ sidecar() {
   git -C "$REPO" show "HEAD:$p.patch" > "$PATCH_FILE"
 }
 
+# N-02 — a clone auto-memory a measured session re-created after park-memory is moved into the
+# window's park dir as evidence (never merged back; restore-memory restores only $PARKDIR/<clone>).
+# With no park record (park-memory never ran) it is NOT a window artifact: refuse.
+mem_evidence() {
+  test -e "$MEM" || return 0
+  test -f "$MEMPARK_ENV" \
+    || { echo "AUTO-MEMORY FOR $CLONE IS NOT PARKED (no park record — run p43 park-memory) — STOPPING"; exit 1; }
+  local pd ev
+  pd=$(sed -n 's/^PARKDIR=//p' "$MEMPARK_ENV")
+  test -n "$pd" && test -d "$pd" || { echo 'THE MEMORY PARK DIR IS MISSING — STOPPING'; exit 1; }
+  ev=$pd/$CN-written-before-$LABEL-${DIFF:-window}-$1-$(date +%s)
+  while test -e "$ev"; do sleep 1; ev=$pd/$CN-written-before-$LABEL-${DIFF:-window}-$1-$(date +%s); done
+  mv "$MEM" "$ev"
+  echo "auto-memory re-created by a measured session moved aside to $ev (evidence, never merged back)"
+}
+
 # the full tracked diff of the clone, as one sha256
 clone_diff_sha() { git -C "$CLONE" diff | shasum -a 256 | awk '{print $1}'; }
 
@@ -649,7 +665,9 @@ test "$CX" = "$(pin pin-codex)" || { echo "HARNESS DRIFT — codex '$CX' — STO
 # (h) N-02 — every clone's auto-memory parked, and the park recorded
 test -f "$MEMPARK_ENV" || { echo 'MEMORY NOT PARKED FOR THIS WINDOW — run p43 park-memory — STOPPING'; exit 1; }
 for C in $CLONES; do
-  test ! -e "$(proj_dir "$HOME/$C")/memory" \
+  CN=$C; CLONE=$HOME/$C; MEM=$(proj_dir "$CLONE")/memory
+  mem_evidence preflight
+  test ! -e "$MEM" \
     || { echo "~/$C AUTO-MEMORY IS NOT PARKED — run p43 park-memory — STOPPING"; exit 1; }
 done
 # (i) the three clones: present, excluded state dir, on a branch and clean, or mid-diff for $DIFF
@@ -730,6 +748,7 @@ mkdir -p "$STATE_DIR"
 test ! -e "$STATE_DIR/.b3-inprogress" \
   || { echo 'A DIFF IS ALREADY IN PROGRESS HERE (.b3-inprogress) — STOPPING'; exit 1; }
 test ! -e "$PARK" || { echo 'STALE PARK DIR WITHOUT A SENTINEL — STOPPING'; exit 1; }
+mem_evidence fresh
 test ! -e "$MEM" || { echo 'AUTO-MEMORY FOR THIS CLONE IS NOT PARKED — STOPPING'; exit 1; }
 # pin to the sidecar's base; an unappliable patch puts the clone straight back
 git switch -q --detach "$BASE_SHA"
@@ -781,7 +800,9 @@ load_env
 sidecar "$DIFF"
 grep -qx "diff_id=$DIFF" "$STATE_DIR/.b3-inprogress" 2>/dev/null \
   || { echo "CLONE NOT PREPARED — run p43 fresh $DIFF first — STOPPING"; exit 1; }
-# N-02 — a session that STARTS with the clone's auto-memory present is VOID
+# N-02 — a session that STARTS with the clone's auto-memory present is VOID, so a copy a prior
+# session re-created is moved aside as evidence first
+mem_evidence launch
 test ! -e "$MEM" || { echo "AUTO-MEMORY FOR $CLONE IS NOT PARKED — STOPPING"; exit 1; }
 snap_verify
 if command -v tmux > /dev/null && tmux has-session -t "=p43-$DIFF" 2> /dev/null; then
