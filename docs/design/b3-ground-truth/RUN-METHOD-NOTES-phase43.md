@@ -119,6 +119,7 @@ to carry a `parity: <the active snapshot_commit>` line, and re-runs the same two
 hash check itself; it never compares version strings.
 
 parity: be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 forward=106/106 reverse=0 extra at 2026-09-30T21:26:45-0400
+parity: restored released 2.9.0 at 2026-10-01T03:36:31-0400
 
 ## Snapshot
 
