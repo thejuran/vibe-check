@@ -125,6 +125,8 @@ One line per measurement snapshot built with `batchsnap.py build`, in the form
 snapshot from its own `MANIFEST.json`; this line is the human-readable record of which commit was
 measured.
 
+snapshot: batch5 be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 /Users/julianamacbook/.vibe-check-snapshots/batch5-be6b0fcd9a4c
+
 ## Retune
 
 43-06 appends exactly one line: `retune: not used …` or `retune: used …`.
