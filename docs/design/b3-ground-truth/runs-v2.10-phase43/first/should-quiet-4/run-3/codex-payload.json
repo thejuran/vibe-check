@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f611-9df6-7ec3-b05e-cd889c646d74",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\n  \"verdict\": \"needs-attention\",\n  \"summary\": \"The new metadata protection has a reproducible bypass. Focused tests: 60 passed; two were blocked by read-only temporary-file restrictions.\",\n  \"findings\": [\n    {\n      \"severity\": \"medium\",\n      \"title\": \"Numeric IPv4 aliases bypass the metadata block\",\n      \"body\": \"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) succeeds. The helper at triggarr/web/validation.py:150–171 misses the literal denylist and treats ip_address() rejection as an allowed hostname. HTTPX preserves this host, and socket.getaddrinfo(..., flags=AI_NUMERICHOST) resolves it to 169.254.169.254 without DNS. startup.py:153–160 passes it directly to ArrClient, whose base.py:216 sends the startup request. Thus a configured URL can reach the metadata address this new check explicitly intends to block; this is not DNS rebinding.\",\n      \"file\": \"triggarr/models/config.py\",\n      \"line_start\": 107,\n      \"line_end\": 110,\n      \"confidence\": 0.99,\n      \"recommendation\": \"Normalize or reject alternative numeric IPv4 representations before accepting the hostname, then apply the address restrictions. Add regression tests for decimal, hexadecimal, and abbreviated numeric forms targeting blocked addresses.\"\n    }\n  ],\n  \"next_steps\": [\n    \"Close the numeric-address bypass and rerun validation and config tests.\"\n  ]\n}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The new metadata protection has a reproducible bypass. Focused tests: 60 passed; two were blocked by read-only temporary-file restrictions.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Numeric IPv4 aliases bypass the metadata block",
+        "body": "InstanceConfig(url=\"http://2852039166\", enabled=True) succeeds. The helper at triggarr/web/validation.py:150–171 misses the literal denylist and treats ip_address() rejection as an allowed hostname. HTTPX preserves this host, and socket.getaddrinfo(..., flags=AI_NUMERICHOST) resolves it to 169.254.169.254 without DNS. startup.py:153–160 passes it directly to ArrClient, whose base.py:216 sends the startup request. Thus a configured URL can reach the metadata address this new check explicitly intends to block; this is not DNS rebinding.",
+        "file": "triggarr/models/config.py",
+        "line_start": 107,
+        "line_end": 110,
+        "confidence": 0.99,
+        "recommendation": "Normalize or reject alternative numeric IPv4 representations before accepting the hostname, then apply the address restrictions. Add regression tests for decimal, hexadecimal, and abbreviated numeric forms targeting blocked addresses."
+      }
+    ],
+    "next_steps": [
+      "Close the numeric-address bypass and rerun validation and config tests."
+    ]
+  },
+  "rawOutput": "{\n  \"verdict\": \"needs-attention\",\n  \"summary\": \"The new metadata protection has a reproducible bypass. Focused tests: 60 passed; two were blocked by read-only temporary-file restrictions.\",\n  \"findings\": [\n    {\n      \"severity\": \"medium\",\n      \"title\": \"Numeric IPv4 aliases bypass the metadata block\",\n      \"body\": \"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) succeeds. The helper at triggarr/web/validation.py:150–171 misses the literal denylist and treats ip_address() rejection as an allowed hostname. HTTPX preserves this host, and socket.getaddrinfo(..., flags=AI_NUMERICHOST) resolves it to 169.254.169.254 without DNS. startup.py:153–160 passes it directly to ArrClient, whose base.py:216 sends the startup request. Thus a configured URL can reach the metadata address this new check explicitly intends to block; this is not DNS rebinding.\",\n      \"file\": \"triggarr/models/config.py\",\n      \"line_start\": 107,\n      \"line_end\": 110,\n      \"confidence\": 0.99,\n      \"recommendation\": \"Normalize or reject alternative numeric IPv4 representations before accepting the hostname, then apply the address restrictions. Add regression tests for decimal, hexadecimal, and abbreviated numeric forms targeting blocked addresses.\"\n    }\n  ],\n  \"next_steps\": [\n    \"Close the numeric-address bypass and rerun validation and config tests.\"\n  ]\n}",
+  "parseError": null,
+  "reasoningSummary": []
+}
