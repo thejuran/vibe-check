@@ -763,7 +763,8 @@ class TestCommitSet(SnapCase):
     def test_never_revert_membership(self):
         self.assertEqual(batchsnap.NEVER_REVERT,
                          ("40-01", "40-06", "40-09", "40-14",
-                          "41-01", "41-02", "41-03", "41-07", "41-08"))
+                          "41-01", "41-02", "41-03", "41-07", "41-08",
+                          "43-02", "43-03", "43-04", "43-05", "43-07"))
         # Structurally excluded: no NEVER_REVERT id appears in any batch allowlist.
         for batch, plans in batchsnap.BATCH_PLANS.items():
             for plan in plans:
@@ -785,7 +786,21 @@ class TestCommitSet(SnapCase):
         for plan in ("41-01", "41-02", "41-03", "41-07", "41-08"):
             self.assertIn(plan, batchsnap.NEVER_REVERT)
             self.assertNotIn(plan, batchsnap.BATCH_PLANS[4])
-        self.assertEqual(len(batchsnap.KNOWN_PLANS), 22)
+        self.assertEqual(len(batchsnap.KNOWN_PLANS), 29)
+
+    def test_batch_plans_phase43(self):
+        """Batch 5 is exactly the launch-gate fix and batch 6 exactly the
+        conditional retune; every Phase-43 tooling/evidence plan is outside
+        every batch by construction."""
+        self.assertEqual(batchsnap.BATCH_PLANS[5], ("43-01",))
+        self.assertEqual(batchsnap.BATCH_PLANS[6], ("43-06",))
+        never43 = ("43-02", "43-03", "43-04", "43-05", "43-07")
+        for plan in never43:
+            self.assertIn(plan, batchsnap.NEVER_REVERT)
+            for batch, plans in batchsnap.BATCH_PLANS.items():
+                self.assertNotIn(plan, plans, "%s is in BATCH_PLANS[%s]" % (plan, batch))
+        self.assertEqual(set(p for p in batchsnap.KNOWN_PLANS if p.startswith("43-")),
+                         set("43-%02d" % n for n in range(1, 8)))
 
     def test_commit_set_batch4_fails_on_planted_41_01(self):
         """Mutation proof for the Phase-41 unit: planting the ledger/manifest
@@ -808,6 +823,28 @@ class TestCommitSet(SnapCase):
             batchsnap.BATCH_PLANS = real
         emitted = batchsnap.commit_set(self.repo, 4, recorded)
         self.assertEqual(len(emitted), 3)
+
+    def test_commit_set_batch5_fails_on_planted_43_02(self):
+        """Mutation proof for the Phase-43 unit: planting the tooling plan 43-02
+        into BATCH_PLANS[5] must fail naming 43-02 and NEVER_REVERT; with the
+        real allowlist restored the same call emits exactly the 43-01 sha."""
+        recorded = self.record_all(self.repo, 5)
+        with open(recorded) as fh:
+            self.assertNotIn("43-02", json.load(fh))  # fixture: no recorded sha
+        real = batchsnap.BATCH_PLANS
+        try:
+            batchsnap.BATCH_PLANS = dict(real)
+            batchsnap.BATCH_PLANS[5] = real[5] + ("43-02",)
+            with self.assertRaises(batchsnap.BatchError) as ctx:
+                batchsnap.commit_set(self.repo, 5, recorded)
+            msg = str(ctx.exception)
+            self.assertIn("43-02", msg)
+            self.assertIn("NEVER_REVERT", msg)
+            self.assertNotIn("incomplete", msg.lower())
+        finally:
+            batchsnap.BATCH_PLANS = real
+        emitted = batchsnap.commit_set(self.repo, 5, recorded)
+        self.assertEqual(len(emitted), 1)
 
     def test_commit_set_excludes_40_01_by_identity_not_subject(self):
         """R3 regression: the exact commit a subject selector would have swept in.

@@ -60,7 +60,7 @@ sys}; every `subprocess.run` carries `timeout=120`. GATE semantics (D-13): exit 
 clean, 1 on any assertion failure, 2 on a usage error or an unreadable input.
 Callers branch on the EXIT CODE, never by parsing stdout.
 
-    python3 batchsnap.py build  --batch <1|2|3|4> --commit <sha> --recorded <path>
+    python3 batchsnap.py build  --batch <1|2|3|4|5|6> --commit <sha> --recorded <path>
     python3 batchsnap.py verify --snap <snapshot_root|plugin_root>
     python3 batchsnap.py commit-set   --batch <N> --recorded <path>
     python3 batchsnap.py record-commit --plan <id> --sha <sha> --recorded <path>
@@ -104,6 +104,11 @@ BATCH_PLANS = {
     # Phase 41 Wave-1 scorer commits (B-SEV, B-REWEIGHT, H-LANE) — the SCORER-05
     # rollback unit.
     4: ("41-04", "41-05", "41-06"),
+    # Phase 43 launch-gate fix (file-owned Codex collection) — the ONE
+    # measured-surface change before the post-change measurement.
+    5: ("43-01",),
+    # Phase 43 conditional prompts-only retune (D-05); built only on a MISS.
+    6: ("43-06",),
 }
 
 # Structurally excluded from every rollback unit, ASSERTED rather than described
@@ -122,13 +127,20 @@ BATCH_PLANS = {
 #   41-03  the B-REWEIGHT method record (calibrate.py + CALIBRATION-v2.10.md).
 #   41-07  the owner spot-check runbook and this module's batch-4 generalization.
 #   41-08  the closing record.
+#   43-02  the measurement tooling (lanearchive.py, score43.py, this extension).
+#   43-03  the owner runbook, run notes and the snapshot record.
+#   43-04  the first-pass run evidence.
+#   43-05  the scoring worksheet and the recorded verdict.
+#   43-07  the RESULTS section and the closing record.
 NEVER_REVERT = ("40-01", "40-06", "40-09", "40-14",
-                "41-01", "41-02", "41-03", "41-07", "41-08")
+                "41-01", "41-02", "41-03", "41-07", "41-08",
+                "43-02", "43-03", "43-04", "43-05", "43-07")
 
-# Every Phase-40 and Phase-41 plan id, so record-commit refuses a typo'd or
-# foreign id.
+# Every Phase-40, Phase-41 and Phase-43 plan id, so record-commit refuses a
+# typo'd or foreign id.
 KNOWN_PLANS = (tuple("40-%02d" % n for n in range(1, 15))
-               + tuple("41-%02d" % n for n in range(1, 9)))
+               + tuple("41-%02d" % n for n in range(1, 9))
+               + tuple("43-%02d" % n for n in range(1, 8)))
 
 # FL-01: generated files. pytest writes these INTO the snapshot during build's
 # suite check and again whenever anything runs in the snapshot, so they are
