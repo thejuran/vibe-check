@@ -381,6 +381,9 @@ ANNOUNCE_SUFFIX = {
 }
 
 ALWAYS_ANNOUNCE = "Gating changes only the line's suffix, never whether the line prints"
+# The Phase 1d status line owns the gate outcome; the Phase 2 suffix is only an echo.
+SUFFIX_OPTIONAL = ("The Phase 1d status line (`01d-coverage.md`) is the single required "
+                   "statement of the gate outcome; the suffix below is OPTIONAL")
 
 STATUS_ANCHOR = "**REQUIRED OUTPUT — the Phase 1d status line (diff mode only).**"
 STATUS_BASE = "✓ Phase 1d — Coverage artifacts"
@@ -393,6 +396,7 @@ STATUS_CLAUSES = (
     "print exactly one Phase 1d status line as text, before any Phase 2 work starts",
     "required on every diff-mode deep review",
     "states the gate outcome exactly once",
+    "the only line REQUIRED to state the gate outcome",
     "never carries a file path, an artifact name or content, the helper's JSON or a variable name",
 )
 RENDER_ANCHOR = "If `$TS_GATED` is set"
@@ -459,6 +463,8 @@ def selection_gate_problems(text_sel):
         problems.append("gating paragraph lacks --all exclusion")
     if norm(ALWAYS_ANNOUNCE) not in para:
         problems.append("gating paragraph does not require the announce line on gated runs")
+    if norm(SUFFIX_OPTIONAL) not in para:
+        problems.append("gating paragraph does not defer the gate outcome to the Phase 1d line")
     return problems
 
 
@@ -754,6 +760,12 @@ class TestEmptyCaseMutation(unittest.TestCase):
         self.assertNotEqual(planted, self.sel)
         self.assertEqual(selection_gate_problems(planted),
                          ["gating paragraph does not require the announce line on gated runs"])
+
+    def test_suffix_made_required_again(self):
+        planted = self._in_para(SUFFIX_OPTIONAL, "A fixed suffix is REQUIRED")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted),
+                         ["gating paragraph does not defer the gate outcome to the Phase 1d line"])
 
 
 class TestStatusLineMutation(unittest.TestCase):
