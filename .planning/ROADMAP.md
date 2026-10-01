@@ -455,7 +455,7 @@ Plans:
 | 40. Prose diet — restructure for Opus 5 | v2.10 | 14/14 | Complete    | 2026-09-29 |
 | 41. Wave 1 — scorer-side noise interventions | v2.10 | 8/8 | Complete    | 2026-09-30 |
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 7/7 | Complete    | 2026-09-30 |
-| 43. Prove — full post-change measurement | v2.10 | 7/7 | Complete   | 2026-10-01 |
+| 43. Prove — full post-change measurement | v2.10 | 7/7 | Complete    | 2026-10-01 |
 | 44. Close — 2.10.0 release | v2.10 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
