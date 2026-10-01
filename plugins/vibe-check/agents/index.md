@@ -28,7 +28,7 @@ Only load agents that are relevant to reduce context and improve accuracy.
 | Electron imports detected (triage.frameworks "electron") | `framework-electron` |
 | React Native imports detected (triage.frameworks "react-native") | `framework-react-native` |
 | Deep review mode | `@agents/architecture.md` |
-| Deep review mode | `@agents/test-sufficiency.md` |
+| Deep review mode + coverage data (diff mode; every chunk in `--all`) | `@agents/test-sufficiency.md` |
 | Deep review mode + Codex available | codex-adversarial (orchestrator-run) |
 
 ## Core Agents (Always Load)
