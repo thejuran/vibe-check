@@ -1,0 +1,71 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-10-01T04:20:35Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Cancelling a transfer slskd no longer knows about (404) raises 'unavailable' instead of counting as already cancelled",
+          "reason": "absorbed-into: 2d058a3c9ecaca1c419070204ef7d50fa69d8ef6271767dccf77e59eb1f1c764"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Empty success_statuses set silently falls back to {200, 201}",
+          "reason": "absorbed-into: 2d058a3c9ecaca1c419070204ef7d50fa69d8ef6271767dccf77e59eb1f1c764"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancel treats 404 (transfer already gone) as an 'unavailable' failure",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 253,
+          "title": "Cancel 5xx errors classified with enqueue-specific failure logic and error type",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Optional set param collapsed to default via `or`, not `is None`",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "New cancel_download client method has no caller-side authorization check",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 139,
+          "title": "SlskdTransferClient docstring still says the client only exposes POST and GET",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
