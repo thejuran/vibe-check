@@ -1,0 +1,54 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-01T03:42:12Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv6-embedded-IPv4 SSRF check misses NAT64 and deprecated IPv4-compatible forms",
+          "reason": "absorbed-into: 2888fa9f08b63ceadbcaaebd5faf5e05ecd4a20ccdccfdf981a4bed5b3eaa41d"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Tightened SSRF check still lets through other IPv6 forms that embed an IPv4 address (pre-existing gap, not caused by this diff)",
+          "reason": "absorbed-into: 2888fa9f08b63ceadbcaaebd5faf5e05ecd4a20ccdccfdf981a4bed5b3eaa41d"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check misses other IPv6 forms that embed an IPv4 address",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Shorthand IPv4 literals bypass the IP check because ip_address rejects them but socket resolution accepts them",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
