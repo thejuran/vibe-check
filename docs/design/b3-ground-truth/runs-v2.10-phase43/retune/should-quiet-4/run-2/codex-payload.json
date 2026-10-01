@@ -1,0 +1,29 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f72b-2287-73c3-9bcc-7d7d92cd735b",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"approve\",\"summary\":\"No substantive defect found in the working tree change. The added validator preserves supported defaults and loopback URLs while enforcing the existing SSRF helper. Targeted checks: 76 passed; two filesystem-dependent tests were blocked by the read-only sandbox.\",\"findings\":[],\"next_steps\":[]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "approve",
+    "summary": "No substantive defect found in the working tree change. The added validator preserves supported defaults and loopback URLs while enforcing the existing SSRF helper. Targeted checks: 76 passed; two filesystem-dependent tests were blocked by the read-only sandbox.",
+    "findings": [],
+    "next_steps": []
+  },
+  "rawOutput": "{\"verdict\":\"approve\",\"summary\":\"No substantive defect found in the working tree change. The added validator preserves supported defaults and loopback URLs while enforcing the existing SSRF helper. Targeted checks: 76 passed; two filesystem-dependent tests were blocked by the read-only sandbox.\",\"findings\":[],\"next_steps\":[]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
