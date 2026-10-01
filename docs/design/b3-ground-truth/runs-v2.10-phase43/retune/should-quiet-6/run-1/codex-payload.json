@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f73e-7d55-7271-8dbd-f82ca147d1ab",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The new timeout setting validates correctly but never controls shutdown. The targeted validation test passes.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but ignored. search/scheduler.py:70–81 derives _SHUTDOWN_DRAIN_TIMEOUT solely from the environment or a hardcoded 60.0, and line 634 uses that constant. With no environment override, shutdown therefore stops waiting after 60 seconds and closes clients and the database even when the operator configured a longer drain for an active search.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Use settings.general.shutdown_drain_timeout as the shutdown default, retaining the environment override, and add a lifecycle test proving a nondefault configuration reaches the drain timeout.\"}],\"next_steps\":[\"Connect the setting to the scheduler and verify configuration and environment precedence.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The new timeout setting validates correctly but never controls shutdown. The targeted validation test passes.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the new timeout setting into the shutdown drain",
+        "body": "A supported value such as shutdown_drain_timeout=120.5 is accepted but ignored. search/scheduler.py:70–81 derives _SHUTDOWN_DRAIN_TIMEOUT solely from the environment or a hardcoded 60.0, and line 634 uses that constant. With no environment override, shutdown therefore stops waiting after 60 seconds and closes clients and the database even when the operator configured a longer drain for an active search.",
+        "file": "triggarr/models/config.py",
+        "line_start": 139,
+        "line_end": 139,
+        "confidence": 0.99,
+        "recommendation": "Use settings.general.shutdown_drain_timeout as the shutdown default, retaining the environment override, and add a lifecycle test proving a nondefault configuration reaches the drain timeout."
+      }
+    ],
+    "next_steps": [
+      "Connect the setting to the scheduler and verify configuration and environment precedence."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The new timeout setting validates correctly but never controls shutdown. The targeted validation test passes.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but ignored. search/scheduler.py:70–81 derives _SHUTDOWN_DRAIN_TIMEOUT solely from the environment or a hardcoded 60.0, and line 634 uses that constant. With no environment override, shutdown therefore stops waiting after 60 seconds and closes clients and the database even when the operator configured a longer drain for an active search.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Use settings.general.shutdown_drain_timeout as the shutdown default, retaining the environment override, and add a lifecycle test proving a nondefault configuration reaches the drain timeout.\"}],\"next_steps\":[\"Connect the setting to the scheduler and verify configuration and environment precedence.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
