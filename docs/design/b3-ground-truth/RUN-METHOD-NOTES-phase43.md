@@ -338,3 +338,16 @@ snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924
 plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924/plugins/vibe-check
 driver: assistant-tmux
 session: retune should-quiet-4
+
+## Harness fingerprint — 2026-10-01T07:31:34-0400
+claude-code: 2.1.281 (Claude Code)
+model: Fable 5.1
+context-window: 1M
+codex: codex-cli 0.153.4
+codex-companion: 1.0.4
+autoupdate: Auto-updates: disabled (set by env: DISABLE_AUTOUPDATER)
+batch-sha: 8df25c7c792448792162072aa89fe46ad5875ae9
+snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924
+plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch6-8df25c7c7924/plugins/vibe-check
+driver: assistant-tmux
+session: retune should-quiet-6
