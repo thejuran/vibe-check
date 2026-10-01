@@ -1,0 +1,52 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f64a-be79-7901-9eba-12a37f575d22",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The timeout setting is incompletely wired: browser users cannot edit it, and saved values do not affect shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Apply the saved timeout to the shutdown drain\",\"body\":\"POSTing shutdown_drain_timeout=120.5 now persists successfully, but shutdown still calls asyncio.timeout(_SHUTDOWN_DRAIN_TIMEOUT) at triggarr/search/scheduler.py:634. That constant reads only the environment and otherwise defaults to 60 seconds (lines 58–81). With no environment override, the requested 120.5-second drain therefore still forces resource closure after 60 seconds.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from app.state.settings.general.shutdown_drain_timeout at shutdown, applying the intended environment override, and test that a saved value reaches asyncio.timeout.\"},{\"severity\":\"medium\",\"title\":\"Add the timeout input to the settings template\",\"body\":\"The added context variable is never consumed by triggarr/templates/settings.html: there is no shutdown_drain_timeout input. Browser users cannot view or submit this setting, and subsequent browser saves replace a value submitted directly to the endpoint with the 60-second fallback. The existing test_settings_page_renders_new_config_fields assertion also requires this missing input.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":446,\"line_end\":446,\"confidence\":0.99,\"recommendation\":\"Add a numeric input bound to shutdown_drain_timeout and form=\\\"settings-form\\\", with fractional values supported and bounds matching the parser. Verify a GET followed by a browser-equivalent POST preserves 120.5.\"}],\"next_steps\":[\"Complete the template and shutdown integration, then run the settings and shutdown tests.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The timeout setting is incompletely wired: browser users cannot edit it, and saved values do not affect shutdown.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Apply the saved timeout to the shutdown drain",
+        "body": "POSTing shutdown_drain_timeout=120.5 now persists successfully, but shutdown still calls asyncio.timeout(_SHUTDOWN_DRAIN_TIMEOUT) at triggarr/search/scheduler.py:634. That constant reads only the environment and otherwise defaults to 60 seconds (lines 58–81). With no environment override, the requested 120.5-second drain therefore still forces resource closure after 60 seconds.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 550,
+        "line_end": 550,
+        "confidence": 0.99,
+        "recommendation": "Resolve the drain timeout from app.state.settings.general.shutdown_drain_timeout at shutdown, applying the intended environment override, and test that a saved value reaches asyncio.timeout."
+      },
+      {
+        "severity": "medium",
+        "title": "Add the timeout input to the settings template",
+        "body": "The added context variable is never consumed by triggarr/templates/settings.html: there is no shutdown_drain_timeout input. Browser users cannot view or submit this setting, and subsequent browser saves replace a value submitted directly to the endpoint with the 60-second fallback. The existing test_settings_page_renders_new_config_fields assertion also requires this missing input.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 446,
+        "line_end": 446,
+        "confidence": 0.99,
+        "recommendation": "Add a numeric input bound to shutdown_drain_timeout and form=\"settings-form\", with fractional values supported and bounds matching the parser. Verify a GET followed by a browser-equivalent POST preserves 120.5."
+      }
+    ],
+    "next_steps": [
+      "Complete the template and shutdown integration, then run the settings and shutdown tests."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The timeout setting is incompletely wired: browser users cannot edit it, and saved values do not affect shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Apply the saved timeout to the shutdown drain\",\"body\":\"POSTing shutdown_drain_timeout=120.5 now persists successfully, but shutdown still calls asyncio.timeout(_SHUTDOWN_DRAIN_TIMEOUT) at triggarr/search/scheduler.py:634. That constant reads only the environment and otherwise defaults to 60 seconds (lines 58–81). With no environment override, the requested 120.5-second drain therefore still forces resource closure after 60 seconds.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from app.state.settings.general.shutdown_drain_timeout at shutdown, applying the intended environment override, and test that a saved value reaches asyncio.timeout.\"},{\"severity\":\"medium\",\"title\":\"Add the timeout input to the settings template\",\"body\":\"The added context variable is never consumed by triggarr/templates/settings.html: there is no shutdown_drain_timeout input. Browser users cannot view or submit this setting, and subsequent browser saves replace a value submitted directly to the endpoint with the 60-second fallback. The existing test_settings_page_renders_new_config_fields assertion also requires this missing input.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":446,\"line_end\":446,\"confidence\":0.99,\"recommendation\":\"Add a numeric input bound to shutdown_drain_timeout and form=\\\"settings-form\\\", with fractional values supported and bounds matching the parser. Verify a GET followed by a browser-equivalent POST preserves 120.5.\"}],\"next_steps\":[\"Complete the template and shutdown integration, then run the settings and shutdown tests.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
