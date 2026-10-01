@@ -1,0 +1,260 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "3db8b48bfd20e7ed873343ddc45b7e47d27e3b0e",
+      "timestamp": "2026-10-01T02:58:41Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 308,
+          "title": "Removed clamp brings back percent values above 100% for extracted files (e.g. \"199%\")",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 92,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The diff deletes the Math.min(100, ...) clamp, along with the comment explaining why it was there. Extracted files have local_size larger than remote_size because the unpacked contents are bigger than the archive. With local=20 and remote=10, percentDownloaded is now 200. In transfer-row.component.html, the bar width is clamped separately at line 35, but three other uses are not. (1) Line 28 shows the label text as \"200%\". (2) Line 33 checks `file.percentDownloaded === 100`, which is now false, so the success styling is lost. (3) Line 53 checks `percentDownloaded === 100`, which is now false, so the ETA cell shows \"-\" instead of \"Done\". The diff also breaks the existing unit test at view-file.service.spec.ts:245-247, which expects [20,10] -> 100 and [100,50] -> 100. Those vectors will now produce 200.",
+          "current_code": "const percentDownloaded: number = remoteSize > 0\n    ? Math.trunc(100.0 * localSize / remoteSize)\n    : 100;",
+          "fix_hint": "restore Math.min(100, Math.trunc(100.0 * localSize / remoteSize)) and the explanatory comment",
+          "why_it_matters": "Fully extracted files show progress above 100%, lose their completed styling and the \"Done\" label, and the CI unit test fails.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "source_window": [
+            "        }",
+            "        const percentDownloaded: number = remoteSize > 0",
+            "            ? Math.trunc(100.0 * localSize / remoteSize)",
+            "            : 100;",
+            ""
+          ],
+          "canonical_line_content": "            ? Math.trunc(100.0 * localSize / remoteSize)",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs",
+            "architecture",
+            "impact",
+            "language-typescript",
+            "codex-adversarial"
+          ],
+          "stable_hash": "2d7c24c100899ba7100b15ca193b76bdf5a45707b274483e094444f2a7134ff6",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/angular/src/app/services/files/view-file.service.ts",
+              "line": 308,
+              "title": "Removed clamp brings back percent values above 100% for extracted files (e.g. \"199%\")",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 92,
+              "problem": "The diff deletes the Math.min(100, ...) clamp, along with the comment explaining why it was there. Extracted files have local_size larger than remote_size because the unpacked contents are bigger than the archive. With local=20 and remote=10, percentDownloaded is now 200. In transfer-row.component.html, the bar width is clamped separately at line 35, but three other uses are not. (1) Line 28 shows the label text as \"200%\". (2) Line 33 checks `file.percentDownloaded === 100`, which is now false, so the success styling is lost. (3) Line 53 checks `percentDownloaded === 100`, which is now false, so the ETA cell shows \"-\" instead of \"Done\". The diff also breaks the existing unit test at view-file.service.spec.ts:245-247, which expects [20,10] -> 100 and [100,50] -> 100. Those vectors will now produce 200.",
+              "source_window": [
+                "        }",
+                "        const percentDownloaded: number = remoteSize > 0",
+                "            ? Math.trunc(100.0 * localSize / remoteSize)",
+                "            : 100;",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "Fully extracted files show progress above 100%, lose their completed styling and the \"Done\" label, and the CI unit test fails.",
+              "fix_hint": "restore Math.min(100, Math.trunc(100.0 * localSize / remoteSize)) and the explanatory comment",
+              "current_code": "const percentDownloaded: number = remoteSize > 0\n    ? Math.trunc(100.0 * localSize / remoteSize)\n    : 100;",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/angular/src/app/services/files/view-file.service.ts",
+              "line": 307,
+              "title": "Restore the 100% cap for files larger locally than remotely",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 100,
+              "problem": "For local_size=20 and remote_size=10, this now produces 200 instead of 100, contradicting existing regression vectors in view-file.service.spec.ts. transfer-row.component.html displays that value directly (line 28), loses the success styling (line 33), and replaces \u201cDone\u201d with \u201c-\u201d (line 53). Its width clamp at line 35 protects only bar width, leaving these formerly protected paths exposed.",
+              "source_window": [
+                "            remoteSize = 0;",
+                "        }",
+                "        const percentDownloaded: number = remoteSize > 0",
+                "            ? Math.trunc(100.0 * localSize / remoteSize)",
+                "            : 100;"
+              ],
+              "cwe": null,
+              "why_it_matters": "For local_size=20 and remote_size=10, this now produces 200 instead of 100, contradicting existing regression vectors in view-file.service.spec.ts. transfer-row.component.html displays that value directly (line 28), loses the success styling (line 33), and replaces \u201cDone\u201d with \u201c-\u201d (line 53). Its width clamp at line 35 protects only bar width, leaving these formerly protected paths exposed.",
+              "fix_hint": "Restore Math.min(100, ...) and retain the existing local-size-greater-than-remote-size regression cases.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/angular/src/app/services/files/view-file.service.ts",
+              "line": 308,
+              "title": "Removing the clamp moves the 0-100 rule for percentDownloaded out of the service and onto each consumer, and only one consumer handles it",
+              "category": "separation-of-concerns",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 82,
+              "problem": "ViewFileService is the only place that computes percentDownloaded (view-file.service.ts:307, assigned at :376). Before this diff it guaranteed the value stayed between 0 and 100. With the Math.min(100, ...) gone, extracted files (unpacked local size > compressed remote size) produce values like 199. The consumer in transfer-row.component.html handles this in only one of four places. Line 35 clamps the bar width inline. Line 28 now displays '199%'. Line 33 (`=== 100` for the success class) and line 53 (`=== 100` for the 'Done' ETA label) both fail, so a fully extracted file loses its green bar and its 'Done' label. The existing unit test at view-file.service.spec.ts:245 states the clamp is the service's documented contract.",
+              "source_window": [
+                "        }",
+                "        const percentDownloaded: number = remoteSize > 0",
+                "            ? Math.trunc(100.0 * localSize / remoteSize)",
+                "            : 100;",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "When the value-range rule lives in one producer, the ViewFile model stays a safe contract for every consumer. Removing it means each template has to re-clamp defensively, and the two that do not already show the wrong text and state for every extracted archive.",
+              "fix_hint": "Restore Math.min(100, ...) and its explanatory comment in the service, so the view model keeps one owner for the 0-100 rule. If uncapped progress is genuinely wanted, add a separate field rather than changing the meaning of percentDownloaded under consumers that compare it with === 100.",
+              "current_code": "const percentDownloaded: number = remoteSize > 0\n            ? Math.trunc(100.0 * localSize / remoteSize)\n            : 100;",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/angular/src/app/services/files/view-file.service.ts",
+              "line": 308,
+              "title": "Removing the Math.min(100, ...) clamp brings back progress values over 100% for extracted archives",
+              "category": "blast-radius",
+              "severity": "medium",
+              "agent": "impact",
+              "agent_confidence": 88,
+              "problem": "The diff removes the upper bound on percentDownloaded, and no other code replaces it. Extracted archives have local_size larger than remote_size, so localSize=20 with remoteSize=10 now gives 200. transfer-row.component.html:28 prints it straight through `number:'1.0-1'`, so the row shows '200%'. Line 33 sets `progress-fill--success` only when `=== 100`, so a finished extracted file loses its success styling. Line 53 shows 'Done' only when `=== 100`, so finished extracted files show '-' instead. Only the bar width (line 35) has its own clamp.",
+              "source_window": [
+                "        }",
+                "        const percentDownloaded: number = remoteSize > 0",
+                "            ? Math.trunc(100.0 * localSize / remoteSize)",
+                "            : 100;",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "Every user who downloads and auto-extracts archives sees wrong percentages and loses the 'Done' and success indicators on completed rows. This is a regression of a previously fixed, user-visible bug.",
+              "fix_hint": "Restore Math.min(100, ...), or clamp in one shared place that every template consumer reads, not only the bar width.",
+              "current_code": "? Math.trunc(100.0 * localSize / remoteSize)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/angular/src/app/services/files/view-file.service.ts",
+              "line": 307,
+              "title": "Removing the 100% clamp reintroduces the >100% progress bug it was added to fix",
+              "category": "equality",
+              "severity": "high",
+              "agent": "language-typescript",
+              "agent_confidence": 85,
+              "problem": "The diff deletes both the `Math.min(100, ...)` clamp and its explanatory comment, so `percentDownloaded` can again exceed 100 for extracted files (unpacked local size > compressed remote size), e.g. local=20/remote=10 now yields 200 instead of 100.",
+              "source_window": [
+                "            remoteSize = 0;",
+                "        }",
+                "        const percentDownloaded: number = remoteSize > 0",
+                "            ? Math.trunc(100.0 * localSize / remoteSize)",
+                "            : 100;"
+              ],
+              "cwe": null,
+              "why_it_matters": "transfer-row.component.html uses `file.percentDownloaded === 100` to toggle the success/'Done' state (lines 33 and 53), and the existing unit test asserts [20,10] -> 100 and [100,50] -> 100 as regression-guard vectors. Git history shows this clamp was added in commit 879266c fix(ui): clamp transfer progress at 100% for extracted files, so this diff is a direct regression of a previously fixed, intentionally-tested bug.",
+              "fix_hint": "Restore `Math.min(100, Math.trunc(100.0 * localSize / remoteSize))` (and the comment explaining why) instead of the unclamped truncation.",
+              "current_code": "const percentDownloaded: number = remoteSize > 0\n    ? Math.trunc(100.0 * localSize / remoteSize)\n    : 100;",
+              "intent_doc_match": null
+            }
+          ]
+        },
+        {
+          "id": "impact-2",
+          "file": "src/angular/src/app/tests/unittests/services/files/view-file.service.spec.ts",
+          "line": 246,
+          "title": "The existing unit test locks in the clamp and will fail on this diff",
+          "category": "blast-radius",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 92,
+          "in_diff": false,
+          "intent_doc_match": null,
+          "problem": "The 'should correctly set ViewFile percent downloaded' test has vectors [20, 10, 100] and [100, 50, 100], with the comment 'Extracted files: local (unpacked) > remote (archive) clamps at 100, not 199%'. Without the clamp, the code now returns 200 for both, so this spec fails and CI will be red. The diff does not touch the test, so either the change is unintended or it is incomplete.",
+          "current_code": "[20, 10, 100],\n            [100, 50, 100]",
+          "fix_hint": "Revert the clamp removal. If uncapped values are truly wanted, update the vectors and the template's === 100 checks in the same change.",
+          "why_it_matters": "It blocks CI and shows that the change contradicts a documented, tested behavior contract.",
+          "silenced_marker_nearby": false,
+          "agent": "impact",
+          "source_window": [
+            "            [10, null as unknown as number, 100],",
+            "            // Extracted files: local (unpacked) > remote (archive) clamps at 100, not 199%",
+            "            [20, 10, 100],",
+            "            [100, 50, 100]",
+            "        ];"
+          ],
+          "canonical_line_content": "            [20, 10, 100],",
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "impact"
+          ],
+          "stable_hash": "1a2a06ecc35d886467cf0ead6806ef849261d0bad3ed795cf8c980fce0ac0eae",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/angular/src/app/tests/unittests/services/files/view-file.service.spec.ts",
+              "line": 246,
+              "title": "The existing unit test locks in the clamp and will fail on this diff",
+              "category": "blast-radius",
+              "severity": "medium",
+              "agent": "impact",
+              "agent_confidence": 92,
+              "problem": "The 'should correctly set ViewFile percent downloaded' test has vectors [20, 10, 100] and [100, 50, 100], with the comment 'Extracted files: local (unpacked) > remote (archive) clamps at 100, not 199%'. Without the clamp, the code now returns 200 for both, so this spec fails and CI will be red. The diff does not touch the test, so either the change is unintended or it is incomplete.",
+              "source_window": [
+                "            [10, null as unknown as number, 100],",
+                "            // Extracted files: local (unpacked) > remote (archive) clamps at 100, not 199%",
+                "            [20, 10, 100],",
+                "            [100, 50, 100]",
+                "        ];"
+              ],
+              "cwe": null,
+              "why_it_matters": "It blocks CI and shows that the change contradicts a documented, tested behavior contract.",
+              "fix_hint": "Revert the clamp removal. If uncapped values are truly wanted, update the vectors and the template's === 100 checks in the same change.",
+              "current_code": "[20, 10, 100],\n            [100, 50, 100]",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 307,
+          "title": "Restore the 100% cap for files larger locally than remotely",
+          "reason": "absorbed-into: 2d7c24c100899ba7100b15ca193b76bdf5a45707b274483e094444f2a7134ff6"
+        },
+        {
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 308,
+          "title": "Removing the clamp moves the 0-100 rule for percentDownloaded out of the service and onto each consumer, and only one consumer handles it",
+          "reason": "absorbed-into: 2d7c24c100899ba7100b15ca193b76bdf5a45707b274483e094444f2a7134ff6"
+        },
+        {
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 308,
+          "title": "Removing the Math.min(100, ...) clamp brings back progress values over 100% for extracted archives",
+          "reason": "absorbed-into: 2d7c24c100899ba7100b15ca193b76bdf5a45707b274483e094444f2a7134ff6"
+        },
+        {
+          "file": "src/angular/src/app/services/files/view-file.service.ts",
+          "line": 307,
+          "title": "Removing the 100% clamp reintroduces the >100% progress bug it was added to fix",
+          "reason": "absorbed-into: 2d7c24c100899ba7100b15ca193b76bdf5a45707b274483e094444f2a7134ff6"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ]
+}
