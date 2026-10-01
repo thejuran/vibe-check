@@ -409,7 +409,7 @@ Plans:
 
 Plans:
 - [ ] 44-01-PLAN.md — bump plugin.json to 2.10.0; README v2.10 efficacy (untuned MISS leads), stash-pop disclosure, Claude 5 model/tiering/config docs + labeled cost estimate; pytest 1352/1306 gate before and after
-- [ ] 44-02-PLAN.md — classify/anchor, FF main, annotated tag v2.10, privacy re-scan, owner checkpoint (refs + email exposure), ONE atomic push, exact-hash verify, relaunch note
+- [ ] 44-02-PLAN.md — classify/anchor, FF main, annotated tag v2.10 (subject via for-each-ref), persist gated release-commit + tag-object SHAs, privacy re-scan, owner checkpoint (exact SHAs + email exposure), re-assert then ONE atomic explicit-SHA push (never ref names), exact-hash verify vs local + records, relaunch note
 
 ## Progress
 
