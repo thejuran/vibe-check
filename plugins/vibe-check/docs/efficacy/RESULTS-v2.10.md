@@ -829,6 +829,22 @@ None of these touched the measured surface (S or S2) or any committed run:
   is mutation-tested and prints the tolerated paths. The orchestrator reviewed it and kept it.
   The five frozen scoring files are blob-equal at S and S2.
 
+### Changes made after measurement (phase deep review, disclosed)
+
+The phase's own deep review ran after both windows closed and led to three commits. None of them
+changes any committed run or score. One of them changes the measured surface:
+
+- `214c7df` **changes measured Codex collection timing.** The Phase 3 wait is now timed from the
+  moment the Codex launch actually starts (a `launched_at` file the launch writes), not from the
+  kickoff step a few seconds earlier. Before this, a Codex review that finished in the last few
+  seconds of its 300 s cap could be dropped as a timeout. That never happened in the measured runs:
+  Codex joined all 45. The shipped plugin therefore differs from the measured snapshots S and S2 in
+  this one respect, which can only turn a would-be timeout into a join. Any later comparison of
+  Codex join rates must account for it.
+- `3d3a2e4`: the measurement scripts now call public helper names in `replay.py` instead of private
+  ones. Tooling only.
+- `af638b6`: the privacy-scan test fixtures now use a fictional email address. Tests only.
+
 ### Anomaly: a review agent ran a state-mutating git command in the reviewed repo (product defect)
 
 During first-pass triggarr-session-rotation run 3 (run commit `825bd49`), the measured review's
