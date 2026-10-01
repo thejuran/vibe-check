@@ -52,10 +52,10 @@ Open Claude Code and run:
 Then use the commands:
 
 ```bash
-# Quick review — fast, pre-commit check (Sonnet agents)
+# Quick review — fast, pre-commit check (Sonnet 5 agents, Haiku 4.5 triage)
 /vibe-check:review
 
-# Deep review — thorough pre-PR analysis (adds architecture + impact)
+# Deep review — thorough pre-PR analysis (adds architecture, impact, test-sufficiency, and a Codex adversarial pass when installed)
 /vibe-check:deep-review
 ```
 
@@ -68,20 +68,24 @@ Then use the commands:
 
 ## ⚙️ Configuration
 
-The plugin works out of the box with no configuration. One optional knob controls the **top model tier** used by the two judgment-gating agents (`bugs` and `architecture`) during `/deep-review`:
+The plugin works out of the box with no configuration. One optional knob controls the **top model tier** used by the two judgment-gating agents (`bugs` and `architecture`) during `/deep-review`. The default is Opus (the `opus` alias — Opus 5 as of the 2026-09-08 price check); Fable 5.1 is opt-in:
 
 | Env var | Default | Values | Effect |
 |---|---|---|---|
-| `VIBE_CHECK_TOP_MODEL` | `opus` | `opus`, `fable` | Model used for the `bugs` + `architecture` agents in `/deep-review`. |
+| `VIBE_CHECK_TOP_MODEL` | `opus` | `opus`, `fable` | Model used for the `bugs` + `architecture` agents in `/deep-review`. Only `opus` and `fable` are accepted; anything else falls back to `opus` with a one-line warning. |
 
-- **Default (`opus`)** — works on every paid Claude tier with no delay. Leave it unset and you're fine.
-- **`fable`** — opt up to the strongest tier *only if your subscription includes Fable*. Set it in your shell or Claude Code env:
+- **Default (`opus`)** — Opus 5 (as of 2026-09-08); works on every paid Claude tier with no delay. Leave it unset and you're fine.
+- **`fable`** — opt up to Fable 5.1 *only if your subscription includes Fable*. Set it in your shell or Claude Code env:
 
   ```bash
   export VIBE_CHECK_TOP_MODEL=fable
   ```
 
-`/review` always uses Sonnet (and downgrades language agents to Haiku on very large diffs) regardless of this setting — it's tuned for cheap iteration.
+`/review` never uses the top tier: every reviewer agent runs on Sonnet 5 with Haiku 4.5 triage, regardless of this setting — it's tuned for cheap iteration. On very large diffs (>2000 changed lines) the language and framework agents are downgraded to Haiku 4.5 in both commands; the core agents keep their model.
+
+**What runs where.** `/review`: Sonnet 5 for every reviewer agent, Haiku 4.5 for triage. `/deep-review`: the top tier (Opus 5 by default, Fable 5.1 opt-in) for `bugs` + `architecture`; `impact` and `test-sufficiency` always on Opus; Sonnet 5 for `security`, `compliance` and the language/framework agents; Haiku 4.5 triage; plus the Codex (GPT-5-codex) adversarial pass when Codex is installed. The interactive fix agent runs on Opus.
+
+**Rough cost (estimates, not measurements).** A typical `/deep-review` pass is ~$2–5 on the default Opus 5 top tier, toward the high end or above with `VIBE_CHECK_TOP_MODEL=fable` (Fable 5.1 costs 2× Opus 5 per token, partly offset by cheaper cache reads). `/review` runs on Sonnet 5 with Haiku 4.5 triage at roughly ~$0.25–$0.60 a pass. `--all` prints its own estimate and asks before dispatching. Actual cost depends on diff size and cache hits.
 
 ### `.vibe-check.toml` (repo-level config)
 
@@ -102,6 +106,8 @@ idiom_floor = "medium"   # cap the `idiom` category at this max band (default: "
                          #   band name (critical|warning|medium|low) to cap, or off|none to disable
 codex = "auto"           # gate the /deep-review Codex adversarial pass (default: "auto")
                          #   off | auto | on   (overridable per run with --codex)
+# min_confidence = 30    # optional: drop findings whose agent confidence is below this (int 0–49; unset = no filter)
+                         #   values ≥ 50 are refused (they would also hide real criticals); per run: --min-confidence N
 ```
 
 | Key | Default | Values | Effect |
@@ -111,6 +117,7 @@ codex = "auto"           # gate the /deep-review Codex adversarial pass (default
 | `[agents].top_model` | `opus` | `opus`, `fable` | Top-tier model for the two judgment-gating agents (`bugs` + `architecture`) in `/deep-review` — the toml equivalent of `VIBE_CHECK_TOP_MODEL`. |
 | `[noise].idiom_floor` | `"medium"` | a band name (`critical` / `warning` / `medium` / `low`) or `off` / `none` to disable | Caps the **`idiom`** category's band at this max, so idioms never block finalize — **active by default at `medium`** (this is the one knob whose default is an active cap). `off` / `none` disables the cap (idioms may then reach any band). `"low"` caps idioms at the `low` band — a **supported** value, NOT a disable: a low-capped idiom still renders, in the report's **Low / Informational** listing. Applies ONLY to `category == "idiom"` and only ever LOWERS a band (never raises one). |
 | `[noise].codex` | `"auto"` | `off`, `auto`, `on` (also settable per run via `--codex off\|auto\|on`) | Gates the **Codex (GPT-5-codex) adversarial pass** in `/deep-review`. `off` never attempts Codex (short-circuits all Codex plumbing). `auto` (default) runs it when Codex is installed, authenticated, and the diff is representable — behavior unchanged from prior versions. `on` uses the same dispatch decision as `auto` but surfaces any skip reason prominently. `/review` never runs Codex, so this knob only affects `/deep-review`, which prints one Codex outcome line per run (joined / skipped: reason / off via config). Orchestrator-only — never enters the score envelope. |
+| `[noise].min_confidence` | unset (no filter) | int `0`–`49` (also per run via `--min-confidence N`) | Drops findings whose agent confidence is below N **before** scoring; dropped findings stay visible in the Filtered section (reason "below min_confidence"). Values ≥ 50 are refused — they would silently hide real criticals — and fall back to no filter with a config-health note. |
 
 **Precedence (per knob):** `CLI flag` > `.vibe-check.toml` > built-in default. For `top_model` this reads concretely as **`VIBE_CHECK_TOP_MODEL` (env) > `top_model` (toml) > `opus`** — a shell override still wins over the repo config, coherent with the env-var table above.
 
@@ -133,7 +140,8 @@ To suppress a specific finding inline, add a **`// vibe-ignore: <reason>`** comm
 | **Command** | `/vibe-check:review` | `/vibe-check:deep-review` |
 | **Speed** | ⚡ Fast | 🔍 Thorough |
 | **Best for** | Pre-commit checks | Before PRs |
-| **Top-tier agents** | — | `bugs` + `architecture` (Opus/Fable), `impact` (Opus) |
+| **Top-tier agents** | — | `bugs` + `architecture` (Opus 5 default, Fable 5.1 opt-in); `impact` + `test-sufficiency` (Opus, always on) |
+| **Models** | Sonnet 5 agents, Haiku 4.5 triage | Top tier above; Sonnet 5 for the rest; Haiku 4.5 triage; Codex adversarial pass when installed |
 | **Architecture analysis** | — | ✅ |
 | **Impact / blast-radius analysis** | — | ✅ |
 | **Intent-doc alignment (GSD)** | — | ✅ |
@@ -181,11 +189,11 @@ To suppress a specific finding inline, add a **`// vibe-ignore: <reason>`** comm
 <tr>
 <td>
 
-**⚛️ Frameworks (React + FastAPI)**
-- React: hook rules, key prop, stale closures
-- FastAPI: DI misuse, async/blocking discipline
-- FastAPI: Pydantic/validation gaps
-- FastAPI: `response_model` data exposure, auth gaps
+**⚛️ Frameworks (8 agents)**
+- React / React Native: hook rules, key prop, stale closures, list virtualization
+- Vue, Angular, Express, Electron (security-weighted IPC/preload checks)
+- FastAPI: DI misuse, async/blocking discipline, Pydantic gaps, `response_model` exposure
+- Claude Agent Skills: SKILL.md quality and plugin wiring
 
 </td>
 <td width="50%"></td>
@@ -259,19 +267,23 @@ The deep review then runs an **interactive fix loop**: accept a finding and a de
 
 ```text
 plugins/vibe-check/
-├── commands/           # Review orchestration (/review, /deep-review)
+├── commands/               # Entry points (/review, /deep-review)
 │   ├── review.md
 │   └── deep-review.md
-├── agents/             # Specialized parallel reviewers
-│   ├── triage.md       # Haiku — fast diff classification
-│   ├── bugs.md
+├── phases/                 # Orchestration steps shared by both commands (review/, deep-review/, shared/)
+├── agents/                 # Specialized parallel reviewers
+│   ├── triage.md           # Haiku 4.5 — fast diff classification
+│   ├── bugs.md             # Sonnet 5; top tier in /deep-review
 │   ├── security.md
 │   ├── compliance.md
-│   ├── architecture.md # deep only
-│   ├── impact.md       # deep only
-│   ├── fix.md          # applies accepted fixes
+│   ├── architecture.md     # deep only — top tier
+│   ├── impact.md           # deep only — Opus
+│   ├── test-sufficiency.md # deep only — Opus
+│   ├── codex-adversarial.md # deep only — contract for the Codex (GPT-5-codex) pass
+│   ├── fix.md              # applies accepted fixes (Opus)
 │   └── language-*.md / framework-*.md
-└── templates/          # Output schema, scoring, false-positive rules
+├── scripts/                # stdlib-Python scoring, config, guard and state helpers (pytest-covered)
+└── templates/              # Output schema, scoring, false-positive rules
 ```
 
 The plugin reads from `.planning/` (GSD intent docs) and the repo, but **only writes to `.turingmind/`** — it never touches the `.planning/` namespace. `.turingmind/` is gitignored by default; copy `REVIEW.md` somewhere persistent if you want it tracked.
