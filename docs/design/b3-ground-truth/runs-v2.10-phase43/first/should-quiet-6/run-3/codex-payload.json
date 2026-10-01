@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a0f640-93ac-7622-95ba-bf010a1c32e8",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The validation test passes, but the new configuration field does not control shutdown behavior.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but never consumed. triggarr/search/scheduler.py:70–81 derives the timeout solely from the environment or a hardcoded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured 120.5-second grace period, potentially interrupting an active search. This is a missing runtime connection, not a bypass of the new validation.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from the current general settings, apply the environment override when present, and use that resolved value during shutdown. Add an integration test demonstrating that a nondefault configuration value controls the drain.\"}],\"next_steps\":[\"Connect the setting to shutdown and verify configuration/environment precedence.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The validation test passes, but the new configuration field does not control shutdown behavior.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the new timeout setting into the shutdown drain",
+        "body": "A supported value such as shutdown_drain_timeout=120.5 is accepted but never consumed. triggarr/search/scheduler.py:70–81 derives the timeout solely from the environment or a hardcoded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured 120.5-second grace period, potentially interrupting an active search. This is a missing runtime connection, not a bypass of the new validation.",
+        "file": "triggarr/models/config.py",
+        "line_start": 139,
+        "line_end": 139,
+        "confidence": 0.99,
+        "recommendation": "Resolve the drain timeout from the current general settings, apply the environment override when present, and use that resolved value during shutdown. Add an integration test demonstrating that a nondefault configuration value controls the drain."
+      }
+    ],
+    "next_steps": [
+      "Connect the setting to shutdown and verify configuration/environment precedence."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The validation test passes, but the new configuration field does not control shutdown behavior.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but never consumed. triggarr/search/scheduler.py:70–81 derives the timeout solely from the environment or a hardcoded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured 120.5-second grace period, potentially interrupting an active search. This is a missing runtime connection, not a bypass of the new validation.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from the current general settings, apply the environment override when present, and use that resolved value during shutdown. Add an integration test demonstrating that a nondefault configuration value controls the drain.\"}],\"next_steps\":[\"Connect the setting to shutdown and verify configuration/environment precedence.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
