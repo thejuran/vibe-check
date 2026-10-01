@@ -357,5 +357,382 @@ class TestTriageClauseMutation(unittest.TestCase):
         self.assertEqual(triage_skill_clause_problems(planted), ["a file named `SKILL.md`"])
 
 
+# --------------------------------------------------------------------------- #
+# GATE-01: diff-mode coverage gate prose
+# --------------------------------------------------------------------------- #
+CASES = coverage_gate.CASES
+GATED_CASES = coverage_gate.CASES[1:]
+
+INVOCATION = 'python3 "$VC_ROOT/scripts/coverage_gate.py"'
+EMPTY_CASE_ANCHOR = "**EMPTY CASE (D-02).**"
+GATE_01D_ANCHOR = "**DIFF-MODE COVERAGE GATE ("
+CHUNK_SCOPING_ANCHOR = "**`--all` CHUNK SCOPING"
+RESET_CLAUSE = ("`$TS_GATE_CASE` and `$TS_GATED` both start UNSET at the beginning of "
+                "every invocation and every pass")
+
+DISABLED_ANCHOR = "**Subtract `$CONFIG_DISABLED`"
+GATE_SEL_ANCHOR = "**DIFF-MODE COVERAGE GATE — remove"
+TOP_TIER_ANCHOR = "**Why the top tier"
+
+ANNOUNCE_SUFFIX = {
+    coverage_gate.CASES[1]: "test-sufficiency not dispatched: no coverage artifact found",
+    coverage_gate.CASES[2]: "test-sufficiency not dispatched: coverage artifacts found, "
+                            "none usable for the changed files",
+}
+
+RENDER_ANCHOR = "If `$TS_GATED` is set"
+NOTE_PREFIX = "no coverage data available, skipped"
+
+_SLUG_SHAPED = re.compile(r"`([a-z]+-[a-z]+)`")
+_BACKTICKED = re.compile(r"`([^`]*)`")
+
+
+def _between(text, start_anchor, end_anchor):
+    """Text from `start_anchor` up to (not including) `end_anchor`; "" if absent."""
+    try:
+        start = text.index(start_anchor)
+        end = text.index(end_anchor, start)
+    except ValueError:
+        return ""
+    return text[start:end]
+
+
+def gate_call_problems(text_01d, text_dispatch, text_dispatch_all):
+    """Problems with the single coverage_gate.py invocation and its paragraph."""
+    problems = []
+    if text_01d.count(INVOCATION) != 1:
+        problems.append("invocation count != 1")
+    if not _ordered(text_01d, EMPTY_CASE_ANCHOR, INVOCATION, CHUNK_SCOPING_ANCHOR):
+        problems.append("invocation not between EMPTY CASE and --all CHUNK SCOPING")
+    if "coverage_gate" in text_dispatch:
+        problems.append("coverage_gate mentioned in 20-dispatch.md")
+    if "coverage_gate" in text_dispatch_all:
+        problems.append("coverage_gate mentioned in 20-dispatch-all.md")
+    para = norm(_between(text_01d, GATE_01D_ANCHOR, CHUNK_SCOPING_ANCHOR))
+    if "$ALL_MODE" not in para:
+        problems.append("gate paragraph missing $ALL_MODE guard")
+    if "dispatches as before" not in para:
+        problems.append("gate paragraph lacks fail-toward-dispatch sentence")
+    if norm(RESET_CLAUSE) not in para:
+        problems.append("gate paragraph lacks UNSET reset clause")
+    return problems
+
+
+def selection_gate_problems(text_sel):
+    """Problems with the selection-time gating paragraph in 20-selection.md."""
+    problems = []
+    if not _ordered(text_sel, DISABLED_ANCHOR, GATE_SEL_ANCHOR, TOP_TIER_ANCHOR):
+        problems.append("gating paragraph not after $CONFIG_DISABLED paragraph")
+    for always, condition, agent, _model in selection_rows(text_sel):
+        if agent == "test-sufficiency" and (not always or condition != "—"):
+            problems.append("test-sufficiency row is not always-on")
+    raw = _between(text_sel, GATE_SEL_ANCHOR, TOP_TIER_ANCHOR)
+    para = norm(raw)
+    if "$TS_GATED=" not in para:
+        problems.append("gating paragraph does not bind $TS_GATED in the removal step")
+    if "$CONFIG_DISABLED" not in para or "stays unset" not in para:
+        problems.append("gating paragraph lacks disabled-wins clause")
+    for slug in GATED_CASES:
+        if "`%s`" % slug not in para:
+            problems.append("gating paragraph does not name %s" % slug)
+        if norm(ANNOUNCE_SUFFIX[slug]) not in para:
+            problems.append("gating paragraph lacks announce suffix for %s" % slug)
+    for token in _SLUG_SHAPED.findall(raw):
+        if token.endswith(("-artifact", "-usable")) and token not in CASES:
+            problems.append("gating paragraph names an unknown slug %s" % token)
+    if "$ALL_MODE" not in para:
+        problems.append("gating paragraph lacks --all exclusion")
+    return problems
+
+
+def _render_paragraph(text_cmd):
+    try:
+        start = text_cmd.index(RENDER_ANCHOR)
+    except ValueError:
+        return ""
+    end = text_cmd.find("\n\n", start)
+    return norm(text_cmd[start:] if end == -1 else text_cmd[start:end])
+
+
+def render_note_problems(text_cmd):
+    """Problems with the fixed Test Coverage notes in the Phase 4 render paragraph.
+
+    Each gated slug must be paired ("for `<slug>`, `<note>`") with exactly one
+    backticked note that starts with the agent's own skip note.
+    """
+    problems = []
+    para = _render_paragraph(text_cmd)
+    for slug in GATED_CASES:
+        pair = re.compile(r"for `%s`, `%s \([^`]*\)`" % (re.escape(slug), re.escape(NOTE_PREFIX)))
+        hits = len(pair.findall(para))
+        if hits == 0:
+            problems.append("render note missing for %s" % slug)
+        elif hits > 1:
+            problems.append("render note duplicated for %s" % slug)
+    for literal in _BACKTICKED.findall(para):
+        if "skipped (" in literal and not literal.startswith(NOTE_PREFIX):
+            problems.append("render note does not start with the agent's literal note")
+            break
+    if "inert display text" not in para:
+        problems.append("inert display text sentence dropped")
+    return problems
+
+
+def phase2_skip_lines(texts):
+    """`<relpath>: <line>` for every line tracecheck would read as a Phase 2 skip."""
+    hits = []
+    for relpath, text in texts.items():
+        for m in tracecheck.ANNOUNCE_RE.finditer(text):
+            if m.group(1) == tracecheck.SKIP_MARK and m.group(2) == "2":
+                # The regex's leading class can swallow newlines, so locate the
+                # line from the mark itself, not from the match start.
+                line_start = text.rfind("\n", 0, m.start(1)) + 1
+                line_end = text.find("\n", m.start(1))
+                line = text[line_start:] if line_end == -1 else text[line_start:line_end]
+                hits.append("%s: %s" % (relpath, line.strip()))
+    return hits
+
+
+SKIP_LINE_CORPUS = (DEEP_COVERAGE, DEEP_SELECTION, DEEP_COMMAND, REVIEW_DISPATCH)
+
+
+def _corpus():
+    return {rel: read(rel) for rel in SKIP_LINE_CORPUS}
+
+
+# --------------------------------------------------------------------------- #
+# GATE-01 live locks
+# --------------------------------------------------------------------------- #
+class TestSlugVocabulary(unittest.TestCase):
+    def test_cases_are_the_sealed_tuple(self):
+        self.assertEqual(coverage_gate.CASES[1:], ("no-artifact", "none-usable"))
+
+    def test_slug_literals_appear_only_in_the_pin(self):
+        with open(os.path.join(HERE, "test_lane_gating.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        for slug in GATED_CASES:
+            self.assertEqual(src.count('"' + slug + '"'), 1, slug)
+
+
+class TestGateCall(unittest.TestCase):
+    def test_gate_call(self):
+        self.assertEqual(gate_call_problems(read(DEEP_COVERAGE), read(REVIEW_DISPATCH),
+                                            read(REVIEW_DISPATCH_ALL)), [])
+
+
+class TestSelectionGate(unittest.TestCase):
+    def test_selection_gate(self):
+        self.assertEqual(selection_gate_problems(read(DEEP_SELECTION)), [])
+
+
+class TestRenderNote(unittest.TestCase):
+    def test_render_note(self):
+        self.assertEqual(render_note_problems(read(DEEP_COMMAND)), [])
+
+
+class TestPhase2SkipLine(unittest.TestCase):
+    def test_no_phase2_skip_line(self):
+        self.assertEqual(phase2_skip_lines(_corpus()), [])
+
+
+class TestEmptyCases(unittest.TestCase):
+    """Both empty cases carry all three outputs: removal, announce, note."""
+
+    def test_each_empty_case(self):
+        para = norm(_between(read(DEEP_SELECTION), GATE_SEL_ANCHOR, TOP_TIER_ANCHOR))
+        render = render_note_problems(read(DEEP_COMMAND))
+        self.assertIn("REMOVE `test-sufficiency`", para)
+        for slug in GATED_CASES:
+            with self.subTest(slug=slug):
+                self.assertIn("`%s`" % slug, para)
+                self.assertIn(norm(ANNOUNCE_SUFFIX[slug]), para)
+                self.assertFalse([p for p in render if p.endswith(" " + slug)])
+
+    def test_disabled_and_empty(self):
+        text = read(DEEP_SELECTION)
+        para = norm(_between(text, GATE_SEL_ANCHOR, TOP_TIER_ANCHOR))
+        self.assertIn("$CONFIG_DISABLED", para)
+        self.assertIn("stays unset", para)
+        self.assertEqual(text.count("$TS_GATED="), 1)
+        self.assertFalse([r for r in selection_rows(text) if "coverage" in r[1].lower()])
+
+
+# --------------------------------------------------------------------------- #
+# GATE-01 mutations
+# --------------------------------------------------------------------------- #
+class TestGateCallMutation(unittest.TestCase):
+    def setUp(self):
+        self.d01 = read(DEEP_COVERAGE)
+        self.dispatch = read(REVIEW_DISPATCH)
+        self.dispatch_all = read(REVIEW_DISPATCH_ALL)
+
+    def _check(self, d01=None, dispatch_all=None):
+        return gate_call_problems(d01 if d01 is not None else self.d01, self.dispatch,
+                                  dispatch_all if dispatch_all is not None else self.dispatch_all)
+
+    def _in_para(self, old, new):
+        para = _between(self.d01, GATE_01D_ANCHOR, CHUNK_SCOPING_ANCHOR)
+        return self.d01.replace(para, para.replace(old, new))
+
+    def test_invocation_deleted(self):
+        planted = self.d01.replace(INVOCATION, "true")
+        self.assertNotEqual(planted, self.d01)
+        self.assertIn("invocation count != 1", self._check(d01=planted))
+
+    def test_invocation_duplicated(self):
+        planted = self.d01.replace(INVOCATION, INVOCATION + " || " + INVOCATION)
+        self.assertNotEqual(planted, self.d01)
+        self.assertIn("invocation count != 1", self._check(d01=planted))
+
+    def test_invocation_moved_after_chunk_scoping(self):
+        planted = self.d01.replace(INVOCATION, "true")
+        planted = planted.replace(CHUNK_SCOPING_ANCHOR, CHUNK_SCOPING_ANCHOR + " " + INVOCATION)
+        self.assertNotEqual(planted, self.d01)
+        self.assertEqual(self._check(d01=planted),
+                         ["invocation not between EMPTY CASE and --all CHUNK SCOPING"])
+
+    def test_mentioned_in_dispatch_all(self):
+        planted = self.dispatch_all + "\nRun coverage_gate here.\n"
+        self.assertNotEqual(planted, self.dispatch_all)
+        self.assertEqual(self._check(dispatch_all=planted),
+                         ["coverage_gate mentioned in 20-dispatch-all.md"])
+
+    def test_all_mode_guard_removed(self):
+        planted = self._in_para("$ALL_MODE", "$MODE")
+        self.assertNotEqual(planted, self.d01)
+        self.assertEqual(self._check(d01=planted), ["gate paragraph missing $ALL_MODE guard"])
+
+    def test_fail_toward_dispatch_removed(self):
+        planted = self._in_para("dispatches as before", "is skipped")
+        self.assertNotEqual(planted, self.d01)
+        self.assertEqual(self._check(d01=planted),
+                         ["gate paragraph lacks fail-toward-dispatch sentence"])
+
+    def test_reset_clause_removed(self):
+        planted = self._in_para(RESET_CLAUSE, "`$TS_GATE_CASE` is carried")
+        self.assertNotEqual(planted, self.d01)
+        self.assertEqual(self._check(d01=planted), ["gate paragraph lacks UNSET reset clause"])
+
+
+class TestSelectionGateMutation(unittest.TestCase):
+    def setUp(self):
+        self.sel = read(DEEP_SELECTION)
+        self.para = _between(self.sel, GATE_SEL_ANCHOR, TOP_TIER_ANCHOR)
+
+    def _in_para(self, old, new):
+        return self.sel.replace(self.para, self.para.replace(old, new))
+
+    def test_paragraph_moved_before_disabled(self):
+        without = self.sel.replace(self.para, "")
+        planted = without.replace(DISABLED_ANCHOR, self.para + DISABLED_ANCHOR)
+        self.assertNotEqual(planted, self.sel)
+        self.assertIn("gating paragraph not after $CONFIG_DISABLED paragraph",
+                      selection_gate_problems(planted))
+
+    def test_slug_renamed(self):
+        planted = self._in_para("`%s`" % GATED_CASES[1], "`part-usable`")
+        self.assertNotEqual(planted, self.sel)
+        problems = selection_gate_problems(planted)
+        self.assertIn("gating paragraph does not name %s" % GATED_CASES[1], problems)
+        self.assertIn("gating paragraph names an unknown slug part-usable", problems)
+
+    def test_all_mode_exclusion_removed(self):
+        planted = self._in_para("$ALL_MODE", "$MODE")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted), ["gating paragraph lacks --all exclusion"])
+
+
+class TestEmptyCaseMutation(unittest.TestCase):
+    def setUp(self):
+        self.sel = read(DEEP_SELECTION)
+        self.para = _between(self.sel, GATE_SEL_ANCHOR, TOP_TIER_ANCHOR)
+
+    def _in_para(self, old, new):
+        return self.sel.replace(self.para, self.para.replace(old, new))
+
+    def test_row_made_conditional(self):
+        planted = _replace_in_row(self.sel, "test-sufficiency", "| ✓ |", "|  |")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted), ["test-sufficiency row is not always-on"])
+
+    def test_no_artifact_suffix_deleted(self):
+        slug = GATED_CASES[0]
+        planted = self._in_para(ANNOUNCE_SUFFIX[slug], "")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted),
+                         ["gating paragraph lacks announce suffix for %s" % slug])
+
+    def test_none_usable_suffix_deleted(self):
+        slug = GATED_CASES[1]
+        planted = self._in_para(ANNOUNCE_SUFFIX[slug], "")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted),
+                         ["gating paragraph lacks announce suffix for %s" % slug])
+
+    def test_binding_deleted(self):
+        planted = self._in_para("$TS_GATED=", "$TS_GATED ")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted),
+                         ["gating paragraph does not bind $TS_GATED in the removal step"])
+
+    def test_disabled_wins_clause_dropped(self):
+        planted = self._in_para("stays unset", "is set")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted),
+                         ["gating paragraph lacks disabled-wins clause"])
+
+
+class TestRenderNoteMutation(unittest.TestCase):
+    def setUp(self):
+        self.cmd = read(DEEP_COMMAND)
+        para = _render_paragraph(self.cmd)
+        slug = GATED_CASES[0]
+        m = re.search(r"for `%s`, (`[^`]*`)" % re.escape(slug), para)
+        self.slug = slug
+        self.note = m.group(1)
+        self.pair = "for `%s`, %s" % (slug, self.note)
+
+    def test_note_deleted(self):
+        planted = self.cmd.replace(self.note, "")
+        self.assertNotEqual(planted, self.cmd)
+        self.assertEqual(render_note_problems(planted), ["render note missing for %s" % self.slug])
+
+    def test_note_duplicated(self):
+        planted = self.cmd.replace(self.pair, self.pair + "; " + self.pair)
+        self.assertNotEqual(planted, self.cmd)
+        self.assertEqual(render_note_problems(planted),
+                         ["render note duplicated for %s" % self.slug])
+
+    def test_prefix_changed(self):
+        planted = self.cmd.replace(self.note, self.note.replace(NOTE_PREFIX, "coverage skipped"))
+        self.assertNotEqual(planted, self.cmd)
+        self.assertIn("render note does not start with the agent's literal note",
+                      render_note_problems(planted))
+
+    def test_inert_sentence_dropped(self):
+        planted = self.cmd.replace("inert display text", "display text")
+        self.assertNotEqual(planted, self.cmd)
+        self.assertEqual(render_note_problems(planted), ["inert display text sentence dropped"])
+
+
+class TestPhase2SkipLineMutation(unittest.TestCase):
+    def test_phase2_skip_line_planted(self):
+        corpus = _corpus()
+        original = corpus[DEEP_SELECTION]
+        planted = original + "\n⊘ Phase 2 — test-sufficiency skipped\n"
+        self.assertNotEqual(planted, original)
+        corpus[DEEP_SELECTION] = planted
+        self.assertEqual(phase2_skip_lines(corpus),
+                         [DEEP_SELECTION + ": ⊘ Phase 2 — test-sufficiency skipped"])
+
+    def test_phase2c_line_is_not_a_phase2_skip(self):
+        corpus = _corpus()
+        original = corpus[DEEP_SELECTION]
+        planted = original + "\n⊘ Phase 2c — Codex kickoff (skipped)\n"
+        self.assertNotEqual(planted, original)
+        corpus[DEEP_SELECTION] = planted
+        self.assertEqual(phase2_skip_lines(corpus), [])
+
+
 if __name__ == "__main__":
     unittest.main()
