@@ -1,0 +1,134 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-10-01T04:12:50Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "sec-001",
+          "agent": "security",
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "Dot-segment path traversal in cancel_download via unvalidated username/transfer_id",
+          "category": "path-traversal",
+          "cwe": "CWE-22",
+          "severity": "high",
+          "agent_confidence": 55,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "cancel_download() builds the DELETE path by percent-encoding username and transfer_id with quote(x, safe=\"\"), which encodes '/' but leaves the literal strings '.' and '..' untouched (they are in the RFC 3986 always-unreserved set). httpx normalizes dot segments in the final request path (confirmed by direct test: httpx.Request('DELETE','.../transfers/downloads/alice/..').url.raw_path == b'/api/v0/transfers/downloads', and with username='..' it collapses to b'/api/v0/transfers/<id>'). So if transfer_id is exactly '..', the DELETE actually lands on '/api/v0/transfers/downloads' instead of the intended per-user/per-transfer resource; if username is exactly '..', it lands on '/api/v0/transfers/<id>'. Neither call site nor existing tests (tests/test_transfer.py test_cancel_download_sends_delete_with_encoded_username_and_id) exercise this case -- they only check that '/' and ' ' get encoded, not that a lone '..' segment survives quoting unexploited. Per the 22-RESEARCH.md plan, username/remote_folder_path for this call come from the Soulseek-selected source captured earlier in the pipeline (an externally-chosen peer username), with no charset/allowlist validation found anywhere in the codebase, so an attacker-influenced username of '..' is architecturally plausible once this method is wired to the planned cancellation endpoint (not yet wired in this diff).",
+          "current_code": "def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:\n    encoded_username = quote(username, safe=\"\")\n    encoded_transfer_id = quote(transfer_id, safe=\"\")\n    path = f\"{_TRANSFERS_DOWNLOAD_ROOT}/{encoded_username}/{encoded_transfer_id}\"",
+          "fix_hint": "Reject username/transfer_id values that are empty, '.', or '..' (or more generally any segment that is only dots) before building the path, in addition to the existing quote() call; same hardening should be applied to enqueue_download/get_user_downloads which share the pattern.",
+          "why_it_matters": "This is the first caller that gives a crafted value control over which slskd endpoint a destructive DELETE actually hits -- collapsing past the username segment reaches the bare downloads collection, and collapsing past 'downloads' reaches a different resource under /api/v0/transfers entirely. Depending on what slskd does with those collapsed routes, this could cancel a different user's transfer or hit unintended API surface, defeating the per-user/per-transfer scoping the method is meant to enforce.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        return []",
+            "",
+            "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+            "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+            "        encoded_username = quote(username, safe=\"\")"
+          ],
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "d02bf9926d45e04546bc88a6c35eb8a5f0741d382d806b7efc97ccfee2b79c59",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/roonseek/transfer.py",
+              "line": 204,
+              "title": "Dot-segment path traversal in cancel_download via unvalidated username/transfer_id",
+              "category": "path-traversal",
+              "severity": "high",
+              "agent": "security",
+              "agent_confidence": 55,
+              "problem": "cancel_download() builds the DELETE path by percent-encoding username and transfer_id with quote(x, safe=\"\"), which encodes '/' but leaves the literal strings '.' and '..' untouched (they are in the RFC 3986 always-unreserved set). httpx normalizes dot segments in the final request path (confirmed by direct test: httpx.Request('DELETE','.../transfers/downloads/alice/..').url.raw_path == b'/api/v0/transfers/downloads', and with username='..' it collapses to b'/api/v0/transfers/<id>'). So if transfer_id is exactly '..', the DELETE actually lands on '/api/v0/transfers/downloads' instead of the intended per-user/per-transfer resource; if username is exactly '..', it lands on '/api/v0/transfers/<id>'. Neither call site nor existing tests (tests/test_transfer.py test_cancel_download_sends_delete_with_encoded_username_and_id) exercise this case -- they only check that '/' and ' ' get encoded, not that a lone '..' segment survives quoting unexploited. Per the 22-RESEARCH.md plan, username/remote_folder_path for this call come from the Soulseek-selected source captured earlier in the pipeline (an externally-chosen peer username), with no charset/allowlist validation found anywhere in the codebase, so an attacker-influenced username of '..' is architecturally plausible once this method is wired to the planned cancellation endpoint (not yet wired in this diff).",
+              "source_window": [
+                "        return []",
+                "",
+                "    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:",
+                "        \"\"\"DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer.\"\"\"",
+                "        encoded_username = quote(username, safe=\"\")"
+              ],
+              "cwe": "CWE-22",
+              "why_it_matters": "This is the first caller that gives a crafted value control over which slskd endpoint a destructive DELETE actually hits -- collapsing past the username segment reaches the bare downloads collection, and collapsing past 'downloads' reaches a different resource under /api/v0/transfers entirely. Depending on what slskd does with those collapsed routes, this could cancel a different user's transfer or hit unintended API surface, defeating the per-user/per-transfer scoping the method is meant to enforce.",
+              "fix_hint": "Reject username/transfer_id values that are empty, '.', or '..' (or more generally any segment that is only dots) before building the path, in addition to the existing quote() call; same hardening should be applied to enqueue_download/get_user_downloads which share the pattern.",
+              "current_code": "def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:\n    encoded_username = quote(username, safe=\"\")\n    encoded_transfer_id = quote(transfer_id, safe=\"\")\n    path = f\"{_TRANSFERS_DOWNLOAD_ROOT}/{encoded_username}/{encoded_transfer_id}\"",
+              "intent_doc_match": null
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "cancel_download treats 404 (transfer already gone) as a hard 'unavailable' failure",
+          "reason": "absorbed-into: 6dfbb2fe5826bb098a41fb84ff5dec3bc919e3936347d43c39935cbc1e29b875"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "An explicit empty success_statuses set quietly falls back to the defaults",
+          "reason": "absorbed-into: c52b840a09e2f63486a326c6c209a512b613e720b2c7ffc5adad1dc3774d2bc9"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 261,
+          "title": "Cancel failures raise TransferEnqueueError, which existing enqueue handlers catch",
+          "reason": "absorbed-into: c52b840a09e2f63486a326c6c209a512b613e720b2c7ffc5adad1dc3774d2bc9"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Empty success_statuses set silently falls back to the {200, 201} default",
+          "reason": "absorbed-into: c52b840a09e2f63486a326c6c209a512b613e720b2c7ffc5adad1dc3774d2bc9"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancelling an already finished or removed transfer is reported as 'service unavailable'",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "`success_statuses or {200, 201}` silently discards an explicit empty set",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 139,
+          "title": "SlskdTransferClient's documented POST/GET-only boundary is now false because it can also DELETE",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 67,
+          "title": "A failed cancel raises TransferEnqueueError, an error type documented for enqueue and status fetch only",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
