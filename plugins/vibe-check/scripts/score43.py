@@ -28,7 +28,7 @@ Evidence rules:
 * Archive content is parsed as JSON data only — never imported or executed.
 
 Output rule: `fp` and `aggregate` output carries agent / file / line / band /
-score / stable_hash only (rendered through `replay._finding_row`). Finding
+score / stable_hash only (rendered through `replay.finding_row`). Finding
 titles appear ONLY in `catch-candidates` output, which exists so the owner can
 make the AXIS call.
 
@@ -250,10 +250,10 @@ def catch_candidates(state, entry):
     """Rows at the catch SITE with BAND >= floor, with their own and their
     members' titles, for the owner's hand AXIS call. This is the ONLY function
     in this module that emits titles; the AXIS column is left blank."""
-    floor = replay._rank(entry.get("floor"))
+    floor = replay.rank(entry.get("floor"))
     out = []
-    for f in replay._rows_at_site({"findings": _findings(state)}, entry.get("site")):
-        if replay._rank(f.get("band")) < floor:
+    for f in replay.rows_at_site({"findings": _findings(state)}, entry.get("site")):
+        if replay.rank(f.get("band")) < floor:
             continue
         members = f.get("members") if isinstance(f.get("members"), list) else []
         out.append({"agent": f.get("agent"), "file": f.get("file"), "line": f.get("line"),
@@ -661,7 +661,7 @@ def headline_check(results_path, verdict_path):
 def _render_rows(rows):
     out = ["| agent | file | line | band | score | stable_hash |", "|---|---|---|---|---|---|"]
     for r in rows:
-        out.append(replay._finding_row({"agent": r["agent"], "file": r["file"],
+        out.append(replay.finding_row({"agent": r["agent"], "file": r["file"],
                                         "line": r["line"], "band": r["band"],
                                         "orchestrator_score": r["score"],
                                         "stable_hash": r["stable_hash"]}))

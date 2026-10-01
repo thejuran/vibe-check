@@ -153,7 +153,7 @@ def _tool_results(rec):
     content = _content(rec)
     for c in content if isinstance(content, list) else []:
         if isinstance(c, dict) and c.get("type") == "tool_result":
-            yield c.get("tool_use_id"), list(replay._tool_result_texts([c]))
+            yield c.get("tool_use_id"), list(replay.tool_result_texts([c]))
 
 
 def _notification_strings(rec):
@@ -217,7 +217,7 @@ def _walk(records):
                 aid = _NOTIF_TASK_ID_RE.search(body)
                 if aid:
                     agent_to_tool.setdefault(aid.group(1), tid.group(1))
-                for result in replay._RESULT_RE.findall(body):
+                for result in replay.RESULT_RE.findall(body):
                     returns.setdefault(tid.group(1), []).append(("task-result", result))
         if rec.get("type") != "user":
             continue
@@ -241,7 +241,7 @@ def _walk(records):
         if tool_id is None:
             continue
         for c in _tool_uses(rec):
-            if c.get("name") != replay._HANDBACK_TOOL:
+            if c.get("name") != replay.HANDBACK_TOOL:
                 continue
             inp = c.get("input") if isinstance(c.get("input"), dict) else {}
             message = inp.get("message")
@@ -274,7 +274,7 @@ def extract_lanes(transcript_path):
         channel, text = (handbacks or distinct)[-1]
         lanes.append({"tool_use_id": tool_id, "subagent_type": subagent_type,
                       "source_channel": channel, "raw_return_text": text,
-                      "parsed": replay._decode_object(text),
+                      "parsed": replay.decode_object(text),
                       "returns_seen": len(distinct)})
     seen = set()
     codex_lines = 0

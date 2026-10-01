@@ -737,6 +737,22 @@ def _finding_row(f):
         f.get("orchestrator_score"), h[:12] if isinstance(h, str) else h))
 
 
+# --------------------------------------------------------------------------- #
+# Public helper surface for sibling measurement scripts (lanearchive.py,
+# score43.py). Siblings use THESE names; the underscore originals stay as the
+# in-module spellings (and for test_replay.py), so renaming or reshaping one of
+# them must keep its public alias here in step.
+# --------------------------------------------------------------------------- #
+
+RESULT_RE = _RESULT_RE
+HANDBACK_TOOL = _HANDBACK_TOOL
+decode_object = _decode_object
+tool_result_texts = _tool_result_texts
+rank = _rank
+rows_at_site = _rows_at_site
+finding_row = _finding_row
+
+
 def write_report(path, header, sections):
     """Markdown report. header: [(label, value)]; sections: [{"heading", "body":
     [lines], "tables": [(caption, [finding dicts])]}]. Finding dicts are rendered
