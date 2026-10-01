@@ -1,0 +1,27 @@
+{
+  "label": "retune",
+  "snapshot_commit": "8df25c7c792448792162072aa89fe46ad5875ae9",
+  "expected_diffs": [
+    "triggarr-autoescape",
+    "should-quiet-4",
+    "should-quiet-6"
+  ],
+  "run_commits": {
+    "triggarr-autoescape": {
+      "1": "cc10395a2caa8180668055c2ac1ca069db3384d8",
+      "2": "6aa227ad8505835e35bb8678822f6d727380545a",
+      "3": "eccab0213a130cc2988d03452f135b9ad1019df2"
+    },
+    "should-quiet-4": {
+      "1": "4bcec609b697f954ba11e1c17373671b447c6f62",
+      "2": "4c373103de1a8958bbfb0f2514bcf0c9b4352bb0",
+      "3": "a417d92d5962ed4b23cbedf082d59b47b64bcf42"
+    },
+    "should-quiet-6": {
+      "1": "295149e9c52af3ac0055384aac21b100372a2ba9",
+      "2": "f0a71bb45f09fdc5d6e3ec5b56010ec3336a7ee6",
+      "3": "8505666068a5ce9a38fedd560c8790bab56b04fb"
+    }
+  },
+  "closed_at": "2026-10-01T11:59:42Z"
+}
