@@ -289,7 +289,7 @@ class TestPrivacyScan(unittest.TestCase):
 
     def test_each_class(self):
         cases = {
-            "email": "contact jules1651@gmail.com",
+            "email": "contact leak.fixture@corp-mail.io",
             "nas-host": "run on maguffynas",
             "token": "key sk-ant-abc123",
             "private-instructions": "a NOPASSWD rule",
@@ -445,7 +445,7 @@ class TestExtractCli(_TmpDirCase):
 
     def test_planted_private_tokens_refuse_and_leave_nothing(self):
         cases = {
-            "email": "jules1651@gmail.com",
+            "email": "leak.fixture@corp-mail.io",
             "token": "sk-ant-abcdefghijklmnop",
             "nas-host": "maguffynas",
         }
