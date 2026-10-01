@@ -1,0 +1,208 @@
+{
+  "codex_lines": 1,
+  "dispatched": 7,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [],
+        "intent_docs_found": [],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 8
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [],\n  \"total_lines\": 8,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01SzcBkG14X5pCZs4p2wB1sS"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "Checked that sanitize_log_value is exported from common/__init__.py, so the new import works.",
+          "The diff only wraps three debug-log arguments. Control flow and membership checks are unchanged."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 25,
+            "category": "error-handling",
+            "current_code": "self.logger.debug(\"LftpModel: Removing file '{}'\".format(sanitize_log_value(filename)))",
+            "cwe": null,
+            "file": "src/python/model/model.py",
+            "fix_hint": "optionally have sanitize_log_value coerce with str(value) so logging can never change which exception the method raises",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 97,
+            "problem": "sanitize_log_value (src/python/common/types.py:45) calls value.replace(...) without checking the type. If remove_file gets a non-str filename, such as None, the debug line now raises AttributeError. That happens before the `filename not in self.__files` check, so callers expecting ModelError get a different exception. The old '{}'.format(filename) accepted any type. The one production caller I found (controller.py:589) passes diff.old_file.name, and the parameter is annotated str, so this is unlikely in practice. The same applies to file.name in add_file and update_file. pending: confirm no caller or test passes a non-str name.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "sanitize_log_value raises AttributeError on non-str input before the ModelError guard runs",
+            "why_it_matters": "A log-hardening change should never change which exception a model method raises."
+          },
+          {
+            "agent_confidence": 20,
+            "category": "logic-error",
+            "current_code": "self.logger.debug(\"LftpModel: Adding file '{}'\".format(sanitize_log_value(file.name)))",
+            "cwe": null,
+            "file": "src/python/model/model.py",
+            "fix_hint": "use lazy %-style logger args or guard with logger.isEnabledFor(logging.DEBUG)",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 81,
+            "problem": "sanitize_log_value builds a new string character by character in Python. Because it is called inside .format(...), it runs on every add/remove/update even when DEBUG is disabled. The old code also formatted eagerly, but that was cheap. This is a performance note, not a correctness bug. pending: confirm the model update rate is high enough for this to matter.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Filename sanitization runs even when debug logging is off",
+            "why_it_matters": "Wasted work on every model update while holding the model lock."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"bugs\",\n  \"findings\": [\n    {\n      \"id\": \"bugs-001\",\n      \"file\": \"src/python/model/model.py\",\n      \"line\": 97,\n      \"title\": \"sanitize_log_value raises AttributeError on non-str input before the ModelError guard runs\",\n      \"category\": \"error-handling\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 25,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"sanitize_log_value (src/python/common/types.py:45) calls value.replace(...) without checking the type. If remove_file gets a non-str filename, such as None, the debug line now raises AttributeError. That happens before the `filename not in self.__files` check, so callers expecting ModelError get a different exception. The old '{}'.format(filename) accepted any type. The one production caller I found (controller.py:589) passes diff.old_file.name, and the parameter is annotated str, so this is unlikely in practice. The same applies to file.name in add_file and update_file. pending: confirm no caller or test passes a non-str name.\",\n      \"current_code\": \"self.logger.debug(\\\"LftpModel: Removing file '{}'\\\".format(sanitize_log_value(filename)))\",\n      \"fix_hint\": \"optionally have sanitize_log_value coerce with str(value) so logging can never change which exception the method raises\",\n      \"why_it_matters\": \"A log-hardening change should never change which exception a model method raises.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"bugs-002\",\n      \"file\": \"src/python/model/model.py\",\n      \"line\": 81,\n      \"title\": \"Filename sanitization runs even when debug logging is off\",\n      \"category\": \"logic-error\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 20,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"sanitize_log_value builds a new string character by character in Python. Because it is called inside .format(...), it runs on every add/remove/update even when DEBUG is disabled. The old code also formatted eagerly, but that was cheap. This is a performance note, not a correctness bug. pending: confirm the model update rate is high enough for this to matter.\",\n      \"current_code\": \"self.logger.debug(\\\"LftpModel: Adding file '{}'\\\".format(sanitize_log_value(file.name)))\",\n      \"fix_hint\": \"use lazy %-style logger args or guard with logger.isEnabledFor(logging.DEBUG)\",\n      \"why_it_matters\": \"Wasted work on every model update while holding the model lock.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Checked that sanitize_log_value is exported from common/__init__.py, so the new import works.\",\n    \"The diff only wraps three debug-log arguments. Control flow and membership checks are unchanged.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_01KVpRyxKwvpMDu4fyuaPVpA"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "This diff is a straightforward, well-scoped security hardening change: it replaces raw interpolation of file.name/filename in three logger.debug() calls with sanitize_log_value(), a documented, purpose-built CWE-117 mitigation (src/python/common/types.py). No injection, XSS, secrets, auth, or data-exposure regressions were found in the changed hunks. The one note above (Unicode line-separator coverage) is a pre-existing gap in the shared sanitizer that predates this diff and is not introduced or worsened by it — the diff is a net improvement over the prior raw-interpolation behavior."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 35,
+            "category": "injection",
+            "current_code": "self.logger.debug(\"LftpModel: Adding file '{}'\".format(sanitize_log_value(file.name)))",
+            "cwe": "CWE-117",
+            "file": "src/python/model/model.py",
+            "fix_hint": "consider also escaping U+0085, U+2028, U+2029 (and other splitlines()-recognized separators) in sanitize_log_value if downstream log consumers split on Unicode line boundaries",
+            "id": "sec-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 81,
+            "problem": "This diff correctly tightens log-injection defenses by routing file.name/filename through sanitize_log_value() (src/python/common/types.py:17-58) at all three debug-log call sites (model.py:81, 97, 112). However, that sanitizer only escapes CR/LF and C0 control chars/DEL (cp &lt; 0x20 or cp == 0x7F); it explicitly leaves C1 control characters (0x80-0x9F, including U+0085 NEL) unescaped by design, and does not address Unicode line-separator codepoints U+2028/U+2029 at all, since those are &gt; 0x9F. Python's own str.splitlines() (and some log viewers/terminals) treat \\x85, \\u2028 and \\u2029 as line boundaries, so a filename containing one of these could still visually/structurally forge an extra log line despite the new sanitization.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "sanitize_log_value leaves Unicode line-separator chars unescaped, incomplete CWE-117 coverage",
+            "why_it_matters": "If log output is ever parsed or displayed by a tool that treats Unicode line-separator characters as newlines, an attacker-controlled filename could still inject what looks like a separate log entry, partially defeating the CWE-117 mitigation this diff is adding."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"security\",\n  \"findings\": [\n    {\n      \"id\": \"sec-001\",\n      \"file\": \"src/python/model/model.py\",\n      \"line\": 81,\n      \"title\": \"sanitize_log_value leaves Unicode line-separator chars unescaped, incomplete CWE-117 coverage\",\n      \"category\": \"injection\",\n      \"cwe\": \"CWE-117\",\n      \"severity\": \"low\",\n      \"agent_confidence\": 35,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"This diff correctly tightens log-injection defenses by routing file.name/filename through sanitize_log_value() (src/python/common/types.py:17-58) at all three debug-log call sites (model.py:81, 97, 112). However, that sanitizer only escapes CR/LF and C0 control chars/DEL (cp &lt; 0x20 or cp == 0x7F); it explicitly leaves C1 control characters (0x80-0x9F, including U+0085 NEL) unescaped by design, and does not address Unicode line-separator codepoints U+2028/U+2029 at all, since those are &gt; 0x9F. Python's own str.splitlines() (and some log viewers/terminals) treat \\\\x85, \\\\u2028 and \\\\u2029 as line boundaries, so a filename containing one of these could still visually/structurally forge an extra log line despite the new sanitization.\",\n      \"current_code\": \"self.logger.debug(\\\"LftpModel: Adding file '{}'\\\".format(sanitize_log_value(file.name)))\",\n      \"fix_hint\": \"consider also escaping U+0085, U+2028, U+2029 (and other splitlines()-recognized separators) in sanitize_log_value if downstream log consumers split on Unicode line boundaries\",\n      \"why_it_matters\": \"If log output is ever parsed or displayed by a tool that treats Unicode line-separator characters as newlines, an attacker-controlled filename could still inject what looks like a separate log entry, partially defeating the CWE-117 mitigation this diff is adding.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"This diff is a straightforward, well-scoped security hardening change: it replaces raw interpolation of file.name/filename in three logger.debug() calls with sanitize_log_value(), a documented, purpose-built CWE-117 mitigation (src/python/common/types.py). No injection, XSS, secrets, auth, or data-exposure regressions were found in the changed hunks. The one note above (Unicode line-separator coverage) is a pre-existing gap in the shared sanitizer that predates this diff and is not introduced or worsened by it — the diff is a net improvement over the prior raw-interpolation behavior.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_01EMmTDErh1DGxdSej6rzyr2"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "This change follows the existing CWE-117 log-sanitization pattern. `sanitize_log_value` is defined in src/python/common/types.py and re-exported from src/python/common/__init__.py. It is already used in src/python/controller/controller.py (16 occurrences), src/python/lftp/lftp.py (9), src/python/lftp/job_status_parser.py (3), src/python/controller/webhook_manager.py (3) and src/python/controller/scan/remote_scanner.py (3). This diff applies the same established utility. It does not add a second approach.",
+          "The diff adds no new dependency edge. model/model.py already imported `AppError` from `common`, so adding `sanitize_log_value` to that same import only uses more of a module it already depends on. `common` is a leaf utility package, and nothing in this hunk points to a cycle with `model`. The full import graph of common/ was not read.",
+          "All three debug log sites in model.py that interpolate filenames are now sanitized: add_file at line 81, remove_file at line 97 and update_file at line 112. The other logger calls in the file (lines 61, 70 and 73) log only fixed strings, so the change covers every relevant site in this module.",
+          "Sanitization happens only at the logging call. The model's stored keys and the ModelError messages are unchanged, so the 10 importers of model.py (controller, auto_queue, model_builder, file_operation_manager, extract/*, diff.py, web handlers and serializers) see no change in their contract or behavior.",
+          "Something for impact/security lanes to check, not an architecture finding: the raised `ModelError` messages at lines 83, 99 and 114 are fixed strings with no filename in them. They do not create an unsanitized path into logs if callers log them."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"architecture\",\"findings\":[],\"agent_notes\":[\"This change follows the existing CWE-117 log-sanitization pattern. `sanitize_log_value` is defined in src/python/common/types.py and re-exported from src/python/common/__init__.py. It is already used in src/python/controller/controller.py (16 occurrences), src/python/lftp/lftp.py (9), src/python/lftp/job_status_parser.py (3), src/python/controller/webhook_manager.py (3) and src/python/controller/scan/remote_scanner.py (3). This diff applies the same established utility. It does not add a second approach.\",\"The diff adds no new dependency edge. model/model.py already imported `AppError` from `common`, so adding `sanitize_log_value` to that same import only uses more of a module it already depends on. `common` is a leaf utility package, and nothing in this hunk points to a cycle with `model`. The full import graph of common/ was not read.\",\"All three debug log sites in model.py that interpolate filenames are now sanitized: add_file at line 81, remove_file at line 97 and update_file at line 112. The other logger calls in the file (lines 61, 70 and 73) log only fixed strings, so the change covers every relevant site in this module.\",\"Sanitization happens only at the logging call. The model's stored keys and the ModelError messages are unchanged, so the 10 importers of model.py (controller, auto_queue, model_builder, file_operation_manager, extract/*, diff.py, web handlers and serializers) see no change in their contract or behavior.\",\"Something for impact/security lanes to check, not an architecture finding: the raised `ModelError` messages at lines 83, 99 and 114 are fixed strings with no filename in them. They do not create an unsanitized path into logs if callers log them.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01Jh3F621iqBeiNgygZYFoDV"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Change type: this tightens a control. Three debug log sites in Model.add_file, remove_file and update_file now pass their filename through the existing sanitize_log_value helper before logging it. Only the log text changes. The membership checks, dict keys, ModelError messages and listener notifications all still use the raw name.",
+          "No public API changes. Model's method signatures are unchanged, so none of the 10 importers need updates (controller.py, auto_queue.py, model_builder.py, file_operation_manager.py, extract/dispatch.py, extract/extract_process.py, model/diff.py, model/__init__.py, web/handler/stream_model.py, web/serialize/serialize_model.py).",
+          "Import check: common/__init__.py re-exports sanitize_log_value from .types, so `from common import AppError, sanitize_log_value` resolves. There is no new circular import, because model already imported from common.",
+          "Type safety: ModelFile.name is typed str (src/python/model/file.py:128) and is set in the constructor. remove_file's filename parameter is str. sanitize_log_value calls str.replace, so a non-str value would raise AttributeError. No caller passes one, because the dict is keyed by ModelFile.name.",
+          "Remaining gap (existed before this diff, not introduced by it): the ModelError messages here do not include the filename, so they are not an injection vector. Other log sites elsewhere in the codebase are covered by other plans in this phase.",
+          "Blast radius if the sanitizer had a bug: it would affect only the text of debug log lines. Model state, web serialization and the SSE stream do not use the sanitized value.",
+          "No database, schema or migration impact.",
+          "Performance: the per-character Python loop runs eagerly whether or not DEBUG is enabled. This is negligible for typical filename lengths (see the low-confidence finding).",
+          "Verdict: shippable as-is. No blocking issues."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 25,
+            "category": "perf-at-scale",
+            "current_code": "self.logger.debug(\"LftpModel: Updating file '{}'\".format(sanitize_log_value(file.name)))",
+            "cwe": null,
+            "file": "src/python/model/model.py",
+            "fix_hint": "Optional: guard with self.logger.isEnabledFor(logging.DEBUG), or use lazy %-style args with a wrapper whose __str__ sanitizes.",
+            "id": "impact-1",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 112,
+            "problem": "The log arguments are built with eager str.format, so sanitize_log_value runs on every call even when the DEBUG level is turned off. sanitize_log_value (src/python/common/types.py:45-58) makes two passes with str.replace and then walks the string one character at a time in Python. update_file runs for each changed file on each model-build cycle, so this adds a small O(len(name)) cost to a hot path. The old code also formatted eagerly, so only the sanitizer cost is new. Filenames are short, which should make this negligible. pending: profile a model-build cycle with thousands of changed files to confirm it does not matter.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Sanitizer now runs on every add/remove/update call, even when DEBUG logging is off",
+            "why_it_matters": "It is a constant-factor cost on a frequent path. No functional effect."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"impact\",\"findings\":[{\"id\":\"impact-1\",\"file\":\"src/python/model/model.py\",\"line\":112,\"title\":\"Sanitizer now runs on every add/remove/update call, even when DEBUG logging is off\",\"category\":\"perf-at-scale\",\"cwe\":null,\"severity\":\"low\",\"agent_confidence\":25,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The log arguments are built with eager str.format, so sanitize_log_value runs on every call even when the DEBUG level is turned off. sanitize_log_value (src/python/common/types.py:45-58) makes two passes with str.replace and then walks the string one character at a time in Python. update_file runs for each changed file on each model-build cycle, so this adds a small O(len(name)) cost to a hot path. The old code also formatted eagerly, so only the sanitizer cost is new. Filenames are short, which should make this negligible. pending: profile a model-build cycle with thousands of changed files to confirm it does not matter.\",\"current_code\":\"self.logger.debug(\\\"LftpModel: Updating file '{}'\\\".format(sanitize_log_value(file.name)))\",\"fix_hint\":\"Optional: guard with self.logger.isEnabledFor(logging.DEBUG), or use lazy %-style args with a wrapper whose __str__ sanitizes.\",\"why_it_matters\":\"It is a constant-factor cost on a frequent path. No functional effect.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"Change type: this tightens a control. Three debug log sites in Model.add_file, remove_file and update_file now pass their filename through the existing sanitize_log_value helper before logging it. Only the log text changes. The membership checks, dict keys, ModelError messages and listener notifications all still use the raw name.\",\"No public API changes. Model's method signatures are unchanged, so none of the 10 importers need updates (controller.py, auto_queue.py, model_builder.py, file_operation_manager.py, extract/dispatch.py, extract/extract_process.py, model/diff.py, model/__init__.py, web/handler/stream_model.py, web/serialize/serialize_model.py).\",\"Import check: common/__init__.py re-exports sanitize_log_value from .types, so `from common import AppError, sanitize_log_value` resolves. There is no new circular import, because model already imported from common.\",\"Type safety: ModelFile.name is typed str (src/python/model/file.py:128) and is set in the constructor. remove_file's filename parameter is str. sanitize_log_value calls str.replace, so a non-str value would raise AttributeError. No caller passes one, because the dict is keyed by ModelFile.name.\",\"Remaining gap (existed before this diff, not introduced by it): the ModelError messages here do not include the filename, so they are not an injection vector. Other log sites elsewhere in the codebase are covered by other plans in this phase.\",\"Blast radius if the sanitizer had a bug: it would affect only the text of debug log lines. Model state, web serialization and the SSE stream do not use the sanitized value.\",\"No database, schema or migration impact.\",\"Performance: the per-character Python loop runs eagerly whether or not DEBUG is enabled. This is negligible for typical filename lengths (see the low-confidence finding).\",\"Verdict: shippable as-is. No blocking issues.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01191JKaGQTggTH3D1vVXpwm"
+    },
+    {
+      "parsed": {
+        "agent": "test-sufficiency",
+        "agent_notes": [
+          "no coverage data available, skipped"
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"test-sufficiency\",\"findings\":[],\"agent_notes\":[\"no coverage data available, skipped\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:test-sufficiency",
+      "tool_use_id": "toolu_01QEe3UZPU5ZUKnUhEV5gaig"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "Diff only wraps file.name/filename in sanitize_log_value() for three debug-log sites in model.py; import and function signature (sanitize_log_value(value: str) -&gt; str in common/types.py) match the str arguments passed. No mutable-default, bare-except, is-vs-eq, context-manager, or type-hint issues introduced."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"language-python\",\"findings\":[],\"agent_notes\":[\"Diff only wraps file.name/filename in sanitize_log_value() for three debug-log sites in model.py; import and function signature (sanitize_log_value(value: str) -&gt; str in common/types.py) match the str arguments passed. No mutable-default, bare-except, is-vs-eq, context-manager, or type-hint issues introduced.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01PwM51Gj4UktuDmR6GdTiYp"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "No substantive defect found. The three logging changes use the existing sanitizer without altering model keys or state. Test execution was blocked by the missing cryptography dependency."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [], \"agent_notes\": [\"No substantive defect found. The three logging changes use the existing sanitizer without altering model keys or state. Test execution was blocked by the missing cryptography dependency.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01Aa5ECFg7SQuLRwNPCZTZVZ"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 7,
+  "unrecovered": []
+}
