@@ -749,3 +749,363 @@ it at or below 6/18 on these diffs. So the combined verdict is PASS only if trig
   diff. That bypass would still be reported, but as a capped note that is normally filtered.
 - **Confound order is unchanged.** Any surprise in the retune runs is examined first against
   these two sentences, then against the Phase-42 focus text and moved-control qualifier.
+
+---
+
+# B3 v2.10 — Phase 43 post-change measurement (PROVE-01/02/03)
+
+## Headline
+
+**PASS** — false alarms 16→3 of 18 (corrected cohort, bar ≤ 8; should-quiet-7 excluded per SUPERSESSIONS-v2.10.md #001); catches 15→15 of 15 (bar 15) (no rounding — exact fractions).
+Sealed literal (never deciding): false alarms 19→6 of 21 vs the sealed bar ≤ 9 — would be PASS; should-quiet-7 fired 3/3 (reported descriptively — it contains a real config-loss defect, #001)
+Retune: used — combined headline above (retune/COMBINED-VERDICT.json); untuned first pass: 6/18, 9/21, 13/15 (see §Retune)
+
+**Read this before the PASS.** The PASS is the combined result after the one allowed retune. That
+retune was designed after we saw these exact diffs fail, and the other nine diffs were not re-run on
+the retuned prompts (the tune-vs-measure overlap). So the **untuned first pass is the cleaner estimate of how the changed tool
+does on diffs it was not tuned against: it MISSED the bar** (false alarms 16→6 of 18, which clears
+the ≤ 8 bar; catches 15→13 of 15, which fails it). The combined PASS is what the pre-registered
+decision rule allows ("at most ONE retune, on failed diffs only (×3)"). It is not evidence that the
+retune generalizes.
+
+Every number in this section is transcribed from `docs/design/b3-ground-truth/SCORING-v2.10-phase43.md`
+(§3–§7) and from the artifact of record, `docs/design/b3-ground-truth/runs-v2.10-phase43/retune/COMBINED-VERDICT.json`
+(label `combined`). The untuned figures come from `runs-v2.10-phase43/first/VERDICT.json` (label
+`first`), which the combined artifact carries as its `untuned` triple. Nothing is re-derived here.
+`score43.py headline-check` checks this block against the artifact.
+
+## What was measured
+
+- **The measured system.** The fully changed plugin (Phases 40–42 plus the Phase-43 launch-gate
+  fix `8ae33da`) frozen in snapshot S = `be6b0fcd9a4c2794dd3351ea054a65f3ab91e536` (batch-5). For
+  the retune it was frozen in snapshot S2 = retune commit R = `8df25c7c792448792162072aa89fe46ad5875ae9`
+  (batch-6). Sessions loaded the snapshot with `--plugin-dir`. Install-cache parity against each
+  snapshot was 106/106 forward with 0 reverse extras. The released 2.9.0 cache was restored after
+  each window.
+- **The harness tuple, identical for all 45 runs.** Claude Code 2.1.281, codex-cli 0.153.4,
+  codex companion 1.0.4, model EXACT `fable 5.1`, 1M context window, auto-update frozen for the
+  window. Each run is bound to a committed fingerprint block in `RUN-METHOD-NOTES-phase43.md`.
+- **The runs.** First pass: 36 `/vibe-check:deep-review` runs (12 sealed diffs × 3), diff by diff in
+  the Phase-38 order, all on S. Retune: 9 runs (the 3 failed diffs × 3) on S2. No run was voided or
+  failed, and the ledger is complete for both (`ledger complete: 12 diffs x 3` and
+  `3 diffs x 3`, no holes, no extras). The N-01/N-02 integrity gates (isolation, tree.diff triple,
+  `state_shape --schema future`) passed on every run.
+- **Who drove them.** Assistant-driven via tmux (43-CONTEXT D-13). Each measured session was a
+  separate `claude` process with its own context. The driving session sent only the fixed keystroke
+  set (launch line, `/clear`, `/vibe-check:deep-review`, Step A 4, Step C 3, `/exit`) and never fed
+  findings. The `post` check printed `driver contamination: none` on every run.
+- **Codex.** Codex was collected deterministically through the file-owned launch gate. That gate is
+  itself a measured-surface change: commit `8ae33da` (43-01) replaced the `BashOutput` gate, which
+  current Claude Code cannot satisfy, and it landed before run 1. Codex `joined` on 36/36 first-pass
+  runs and 9/9 retune runs. Dropouts: 0 on every diff.
+- **What each run archived (committed).** `state.json`, `report.md`, `tree.diff` plus its sha256,
+  `lanes.json` (raw per-lane returns), `codex-payload.json` with `codex-rc.txt`, `context.txt` (peak
+  context), `session.txt` (fingerprint binding), `clear.txt` (attestation), and
+  `transcript.jsonl.sha256`. The transcript itself stays local. The privacy scan was clean on all
+  90 archived lane/Codex files (72 first pass, 18 retune).
+- **Scoring.** The verdict is scored from `state.passes[-1].findings[]` against the two sealed key
+  blobs (`ef0ab67` for carried rows, `5f687d9` for new rows). The quiet arm is mechanical
+  (`score43.py fp`). The catch AXIS calls are hand judgements recorded in
+  `first/CATCH-VERDICTS.json` and `retune/CATCH-VERDICTS.json`. All nine gates of the integrity
+  ladder passed before any scoring.
+
+### Kit, tooling and gate fixes made during the windows (runbook and scoring only)
+
+None of these touched the measured surface (S or S2) or any committed run:
+
+- `a3f240b`: the privacy scan's email exemption was widened to RFC 6762 private-use labels (`.lan`,
+  …) after a finding used an invented `user:pass@radarr.lan` example. This followed the pre-window
+  fix `185a9fa`. The scanner runs from the repo, not the snapshot.
+- `67b2ea3`: the runbook parks any auto-memory directory a measured session recreates. All 47
+  recreated directories were empty, so there was no cross-run memory.
+- `8f63681`: the runbook now answers the fix-loop menu by label, not by position. In should-quiet-6
+  retune runs 2 and 3, the Step C menu was reordered with "Abandon for now" as option 1, and the
+  driver answered that option by its position. `post` validates by label and recorded no
+  contamination. Step C comes after findings are persisted, so the scored cells are unaffected.
+- `23c5b34`: retune-gate fix, disclosed. The S..S2 allowlist check failed on two runbook-tooling
+  files (`lanearchive.py`, `test_lanearchive.py`) because the first-pass privacy-scan fixes had
+  changed them between S and the FAILED-DIFFS commit. The gate now tolerates exactly those
+  pre-verdict tooling paths, and only if their blobs are unchanged from FAILED-DIFFS to S2. The fix
+  is mutation-tested and prints the tolerated paths. The orchestrator reviewed it and kept it.
+  The five frozen scoring files are blob-equal at S and S2.
+
+### Anomaly: a review agent ran a state-mutating git command in the reviewed repo (product defect)
+
+During first-pass triggarr-session-rotation run 3 (run commit `825bd49`), the measured review's
+compliance agent ran `git stash pop` in the reviewed triggarr clone. That popped the owner's
+pre-existing, unrelated stash. The agent then re-stashed identical content under a new label
+("restore: undo accidental stash pop (compliance-agent review, config.json unrelated)"). The content
+was verified identical; only the stash label changed. The run's own checks (tree diff equals the
+planted diff, isolation, provenance, no contamination) all passed, and it is scored as recorded (a
+CATCH). The runbook's tree-diff checks cannot see the stash list.
+
+**A review tool must never run state-mutating git commands in the repo it is reviewing.** This is a
+product safety defect. It does not affect any number in this section, and it is carried to the
+v2.11 backlog.
+
+## Pass bar (sealed)
+
+Quoted from the sealed blob `633f1dd` of `docs/design/b3-ground-truth/PREREGISTRATION-v2.10.md`:
+
+> v2.10 FP-rate on the full grown set ≤ ½ × the SET-03 baseline FP-rate, AND catch-rate on the same
+> diffs no worse than baseline.
+
+> **Decision rule (sealed at seal-1, evaluated in Phase 43, not this phase):** At most ONE retune, on
+> failed diffs only (×3); whether it was used or not is recorded.
+
+Over the sealed denominators `DENOM_CATCH_RUNS: 15` and `DENOM_QUIET_RUNS: 21`, the implied literal
+targets from the Phase-38 baseline (19/21, 15/15) are **≤ 9/21** quiet runs firing and **15/15**
+catches.
+
+**The deciding line moved to the corrected cohort (D-00a2, SUPERSESSIONS-v2.10.md #001).**
+should-quiet-7 contains a real config-loss defect (an absent form field resets the saved value), so
+it is not a clean diff. Excluding it gives a superseded baseline of 16/18. The DECIDING bar is
+therefore **≤ 8/18** quiet runs firing (½ × 16/18) **AND 15/15** catches, as a single AND. The
+sealed-literal x/21 against ≤ 9/21 is printed beside it and never decides. should-quiet-7's runs are
+reported descriptively, never appear in FAILED-DIFFS and never drive the retune.
+
+## Per-diff results — should-catch
+
+Baseline is the Phase-38 pre-change baseline. "Combined" uses the retune runs for retuned diffs and
+the first-pass runs for every other diff (D-07).
+
+| # | diff-id | origin | AXIS the finding must name | floor | baseline | first pass (run 1, 2, 3) | first | retune | combined | Codex (status per run) | dropouts | direction vs baseline |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | triggarr-secret-in-logs | carried | secret/API-key/PII leaked into logs | warning | 3/3 | catch, catch, catch | **3/3** | — | **3/3** | joined, joined, joined | 0 | held |
+| 2 | triggarr-autoescape | carried | XSS surface re-enabled / autoescape not in effect | warning | 3/3 | MISS, MISS, catch | **1/3** | **3/3** (joined ×3) | **3/3** | first: joined, joined, joined | 0 / 0 | first pass −2; combined held |
+| 3 | third-organic-should-catch | carried | unclamped percentage / missing clamp | medium | 3/3 | catch, catch, catch | **3/3** | — | **3/3** | joined, joined, joined | 0 | held |
+| 4 | triggarr-session-rotation | new | stale-session survival after password change | warning | 3/3 | catch, catch, catch | **3/3** | — | **3/3** | joined, joined, joined | 0 | held |
+| 5 | triggarr-settings-form-split | new | silent data loss on save | warning | 3/3 | catch, catch, catch | **3/3** | — | **3/3** | joined, joined, joined | 0 | held |
+
+**Catch arm:** first pass **13/15** (MISS against 15); combined **15/15** (meets the bar).
+The two first-pass misses (autoescape runs 1 and 2) are `detected-below-threshold`: the right site
+at the right band, but no title or member title names the escaping/XSS consequence.
+
+## Per-diff results — should-quiet
+
+| # | diff-id | origin | Safe ON axis | baseline | first pass (run 1, 2, 3) | first | retune | combined | Codex (status per run) | dropouts | direction vs baseline |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 6 | should-quiet-1 | carried | SSRF / input-validation (tightens the block-list) | 3/3 FP | clean, clean, clean | **0/3** | — | **0/3** | joined, joined, joined | 0 | 3→0 |
+| 7 | should-quiet-2 | carried | API contract / typing | 3/3 FP | clean, clean, clean | **0/3** | — | **0/3** | joined, joined, joined | 0 | 3→0 |
+| 8 | should-quiet-3 | carried | HTTP-client / path-injection / error-handling | 3/3 FP | clean, clean, clean | **0/3** | — | **0/3** | joined, joined, joined | 0 | 3→0 |
+| 9 | should-quiet-4 | new | SSRF / input-validation (adds `validate_url_ssrf`) | 3/3 FP | FP, FP, FP (codex-led) | **3/3** | **0/3** (joined ×3, Codex `approve`) | **0/3** | first: joined, joined, joined | 0 / 0 | first held 3/3; combined 3→0 |
+| 10 | should-quiet-5 | new | log-sanitization / secret-handling | 1/3 FP | clean, clean, clean | **0/3** | — | **0/3** | joined, joined, joined | 0 | 1→0 |
+| 11 | should-quiet-6 | new | input-validation / config bounds | 3/3 FP | FP, FP, FP (codex-led) | **3/3** | **3/3** (joined ×3) | **3/3** | first: joined, joined, joined | 0 / 0 | held 3/3 (pre-registered residual) |
+| 12 | should-quiet-7 | new | settings input-parse path | 3/3 FP | FP, FP, FP | 3/3 | — | 3/3 | joined, joined, joined | 0 | **excluded — descriptive (#001 / D-00a2)** |
+
+**Quiet arm, corrected cohort (rows 6–11, 18 runs):** first pass **6/18**; combined **3/18**. Both
+are within the ≤ 8 bar. **Sealed literal (rows 6–12, 21 runs, never deciding):** first pass 9/21;
+combined 6/21. Both are within ≤ 9. should-quiet-7's L550 rows name the real config-loss defect that
+#001 recorded.
+
+## Confounds examined first (D-00c)
+
+The pre-registered order is: (a) the Phase-42 Codex focus text, then (b) the moved-control
+qualifier, then (c) Codex dropouts (D-08), and only after those, anything else. The evidence is the
+committed per-run `lanes.json` and `codex-payload.json`.
+
+**Catch arm: one regression, triggarr-autoescape first-pass runs 1 and 2.**
+
+- **(a) Codex focus text: does not explain the loss under the scoring basis.** Clause (2) of
+  `templates/codex-focus.txt` at S names a change that makes a control "depend on fragile or
+  version-dependent configuration" as a real defect, so it pushes Codex toward this diff, not away
+  from it. Codex approved in run 1 (`first/triggarr-autoescape/run-1/codex-payload.json` →
+  `result.verdict`: approve, "HTML autoescaping remains enabled and verified"). Codex led runs 2 and
+  3 with startup-failure titles. Under ledger entry 007 every member title is judged, so Codex's
+  wording cannot hide an axis-naming Claude member. In run 2 no lane named the axis. Whether the
+  pre-Phase-42 focus text would have produced an XSS-titled Codex finding cannot be tested offline,
+  because replays cannot re-run Codex.
+- **(b) Moved-control qualifier: did not fire.** Its capped-note forms ("…covers every path the old
+  check guarded", in both the Claude and the Codex wording) have **0 hits** across all 72 first-pass
+  and 18 retune `lanes.json`/`codex-payload.json` files. The `pending:` notes in the autoescape runs
+  all concern which Starlette release removes the passthrough, and none claims a same-purpose
+  replacement:
+  - `first/triggarr-autoescape/run-1/lanes.json`: architecture `lanes[3].parsed.findings[0]`
+    (`triggarr/web/routes.py:45`, 80/medium); impact `lanes[4].parsed.findings[0]` (routes.py:45,
+    65/high) and `lanes[4].parsed.findings[1]` (routes.py:45, 35/low).
+  - `first/triggarr-autoescape/run-2/lanes.json`: impact `lanes[4].parsed.findings[0]`
+    (routes.py:45, 72/medium): `pending: confirm which Starlette release removes **env_options.`
+  - `first/triggarr-autoescape/run-3/lanes.json`: bugs `lanes[1].parsed.findings[0]` (routes.py:45,
+    60/high); impact `lanes[4].parsed.findings[0]` (routes.py:45, 58/high) and
+    `lanes[4].parsed.findings[1]` (routes.py:45, 35/low).
+- **(c) Codex dropouts: none** (joined 3/3 on this diff, 0 on every diff).
+- **Then, the most likely proximate cause (a candidate, not established).** In first-pass run 2 the
+  security lane rated its own finding 35/low ("no bypass demonstrated / forward-looking risk"), and
+  so did the impact lane's version-dependence notes in runs 1 and 3. That is the shape of the
+  Phase-42 sensitive-area ceiling. Behind it is a mechanism fact. **In all three runs the reviewing
+  lanes ran the base tree's locked dependency themselves and verified that Starlette 0.52.1 from
+  `uv.lock` still turns escaping on** (`env.autoescape == True`, rendering checked). That
+  contradicts the sealed key's premise that on current Starlette the call "silently NO-OPs
+  autoescape". The key is sealed and is **not reopened**: the verdict stands as scored. But some of
+  the first-pass "loss" may be the reviewers being right about today's behavior while the key is
+  strict about the consequence it wants named. A separate environment question is also unresolved.
+  In retune run 2 the language-python lane recorded an installed `.venv` Starlette 0.49.3 against
+  0.52.1 pinned in `uv.lock`. In retune run 1 Codex claimed the constructor crashes at startup "in
+  the installed environment", which contradicts the Claude lanes' verified 0.52.1 behavior.
+
+**Quiet arm: no NEW quiet-diff row.** should-quiet-4 and should-quiet-6 also fired 3/3 at baseline.
+should-quiet-1, -2, -3 and -5 went silent.
+
+- **should-quiet-4, first pass: (a) the Codex focus text is a direct, documented contributor.** The
+  alarm changed shape from the baseline's startup-crash/layering complaints to one codex-led
+  concrete-bypass claim in each run: numeric IPv4 aliases of the metadata address get past the new
+  block (`first/should-quiet-4/run-<n>/codex-payload.json` → `result.findings[0]`, confidence 0.99).
+  Clause (1)'s exemption ("an input the new check is written to block and demonstrably fails to
+  block") lifted the cap, even though the failing logic is in an unchanged helper the diff only
+  calls. (b) Moved-control qualifier: 0 hits. The `pending:` notes in
+  `first/should-quiet-4/run-1/lanes.json` (`triggarr/models/config.py:93`, :107, :110) are
+  sensitive-area and caller-handling caps, not replacement-coverage caps. (c) Dropouts: 0.
+- **should-quiet-6:** this is the pre-registered expected residual ("declared but never wired",
+  codex-led at `triggarr/models/config.py:139`). (a) The focus text does not address this framing.
+  (b) 0 hits. (c) 0 dropouts.
+- **Lane-set irregularities** (a missing framework lane in 4 runs, Codex archived twice in one run,
+  two prose lane returns in one run): none moves a scored cell (SCORING §2).
+
+## Retune (PROVE-03)
+
+**Used.** The first pass missed on the catch arm alone, which triggered the one allowed retune
+(D-04).
+
+- **Failed diffs** (`first/FAILED-DIFFS.json`, committed once in the verdict commit `ff8ab4c`, before
+  any retune edit): should-quiet-4, should-quiet-6, triggarr-autoescape. should-quiet-7 is excluded
+  (D-00a2).
+- **What changed (R = S2 = `8df25c7`, prompts only).** The shared Safe-change recognition block in
+  `agents/bugs.md`, `agents/security.md` and `agents/impact.md`, plus `templates/codex-focus.txt`.
+  New mutation-tested locks were added in `scripts/test_agent_prompts.py`, and the pre-registration
+  was written to this file (§"Phase-43 retune pre-registration" above) before any retune run.
+  - **Rule 1:** a guarantee made conditional (on a library default, a deprecated path or the
+    installed version) is a loss even when it is verified to hold today. Its title names the attack.
+  - **Rule 2:** a bypass that lives inside an unchanged helper the change only calls is a
+    pre-existing gap and stays capped.
+  - The five frozen scoring files are blob-equal at S and S2.
+- **Ordering proof.** FAILED-DIFFS (`ff8ab4c`) → R (`8df25c7`) → S2 → retune fingerprints and runs →
+  RUNS-COMPLETE (`8de5075`). `score43.py retune-gate` returned PASS in both its pre-run and full
+  forms, with the two tolerated tooling paths disclosed (`23c5b34`, above).
+- **Results side by side:**
+
+| | quiet, corrected (bar ≤ 8/18) | sealed literal (≤ 9/21, never deciding) | catch (bar 15/15) | verdict |
+|---|---|---|---|---|
+| untuned first pass (`first/VERDICT.json`) | 6/18 | 9/21 | 13/15 | **MISS** |
+| combined, after the retune (`retune/COMBINED-VERDICT.json`) | 3/18 | 6/21 | 15/15 | **PASS** |
+
+- **Tune-vs-measure caveat.** The retune was written after seeing these exact diffs fail, and it
+  was measured only on them. The nine other diffs were not re-run on R, so any side effect there is
+  invisible: Rule 1 could add alarms on clean diffs that rely on a library default. **The untuned
+  first pass is the cleaner generalization estimate.**
+- **Rule 2's tradeoff.** On should-quiet-4, Codex went from a 0.99 critical bypass claim to
+  `approve` with 0 findings in all three runs. The Claude lanes still found the bypass class and
+  titled it as a capped "pre-existing helper gap". The tradeoff is that **a real bypass of a reused
+  helper is now usually filtered too**: it is reported only as a capped note, counted in the
+  Filtered summary but not listed. Whether a helper bypass is the change's problem or a
+  pre-existing one is a judgement this rule makes in the quiet direction.
+- **Autoescape credit basis (SCORING §7.3).** All three retune autoescape CATCHes, and first-pass
+  run 3, use the same title/member-title basis: a title that names XSS protection as made fragile
+  or version-dependent meets AXIS. Under a **stricter** basis (the title must say escaping lapses or
+  XSS results), retune run 3 is contestable. The combined catch arm would then be 14/15, a **MISS**,
+  and the untuned arm would be 12/15. The calls of record use the one basis applied to both passes,
+  which keeps the two comparable. The retuned autoescape catches are best read as "titled by the
+  protected attack under a rule written for this case", not as "detected that escaping is off".
+
+## Expected residuals check
+
+The Phase-42 section pre-registered three residuals (§"Expected residuals (not claimed as fixed)"):
+
+| pre-registered residual | expected | observed | held? |
+|---|---|---|---|
+| should-quiet-6 (feature-incompleteness, "declared but never wired") | likely stays 3/3 | first 3/3; retune 3/3 (byte-identical codex-led row at config.py:139 in several runs) | **yes**, observed as predicted |
+| should-quiet-1 (pre-existing bypass framing, now capped) | unconfirmed whether lanes follow the cap | 0/3 fired; capped `pending:` notes are present in all three runs' `lanes.json`, and no critical/warning row survived | **not observed**: the residual cleared |
+| should-quiet-4 (tightening flagged on another axis; MEDIUM confidence) | may keep firing | first 3/3, in a new shape (codex-led numeric-alias bypass claim, not the predicted "rejects a legacy value"); retune 0/3 | **observed in the first pass** (in a different shape); cleared by the retune's Rule 2 |
+
+The retune's own pre-registered expectations (autoescape 3/3, should-quiet-4 ≤ 1/3, should-quiet-6
+3/3) all held. The autoescape one holds under the stated basis (see §Retune).
+
+## Honest limitations
+
+1. **Tune-vs-measure overlap. This is the largest caveat.** The retune was designed after seeing
+   these same three diffs fail, and only those diffs were re-run. The other nine never saw R. So the
+   untuned first pass (6/18, 13/15 — MISS) is the cleaner generalization estimate, and the combined
+   PASS is what the pre-registered decision rule permits. Phases 40–42 were also designed while
+   looking at this set, so even the first pass is not a held-out test.
+2. **Small N.** 12 diffs, 36 first-pass runs plus 9 retune runs. One run moves a diff by 1/3, and
+   the catch arm has zero headroom.
+3. **Claude-5 harness parity, but not identical CLIs.** The baseline and the post-change runs both
+   used Claude 5 (`fable 5.1`), so the comparison is clean across the model-generation shift. But
+   Claude Code was 2.1.281 here and 2.1.261 at baseline (ledger 006).
+4. **1M context window vs the baseline's 200k (D-03).** First-pass peak context ran from 180 542 to
+   235 051 tokens (mean 204 681), with 26 of 36 runs above 200 000. Retune peaks ran from 200 020 to
+   221 430 (9/9 above 200 000). Runs of this size would have hit the 200k limit at baseline, so
+   compaction risk differed materially between the two measurements.
+5. **Auto-memory parked here, active at baseline.** During Phase 43 the project memory was parked.
+   The 47 directories that sessions recreated held 0 files.
+6. **Codex collected deterministically here, improvised or sometimes skipped at baseline.** At
+   baseline, Codex participation was inferred from `findings[].agent`, and some results came via an
+   output-file fallback. Here, the file-owned launch gate (`8ae33da`) gave `joined` on 45/45 runs.
+   That gate is a measured-surface change, and it is the **one measured-surface change beyond
+   Phases 40–42**.
+7. **Plugin resolution differs.** The baseline resolved the installed 2.9.0 cache. The post-change
+   runs loaded a `--plugin-dir` snapshot, with an install-cache parity gate of 106/106 forward and
+   0 reverse extras so that nothing loaded by a side path differed.
+8. **Self-scored AXIS.** The catch AXIS calls are the assistant's hand judgements. They were
+   recorded before any aggregate, and the basis is disclosed. The autoescape calls are
+   basis-sensitive: under a stricter basis, the combined arm is 14/15 (MISS) and the untuned arm
+   12/15 (SCORING §7.3).
+9. **The autoescape key's premise vs what the reviewers verified.** Every lane verified that the
+   locked Starlette 0.52.1 keeps escaping on, which contradicts the sealed key's "silently NO-OPs"
+   premise. The key is not reopened. One lane saw `.venv` 0.49.3 against `uv.lock` 0.52.1, which is
+   unresolved.
+10. **Three repos, all the owner's.** triggarr, seedsyncarr and roonseek. This measures these defect
+    classes on this stack, not recall in general.
+11. **Runs were assistant-driven via tmux** (43-CONTEXT D-13; owner decision 2026-09-30; Phase-40/41
+    precedent). Each measured session was a separate `claude` process with its own context. The
+    driving session sent only the fixed keystroke set (launch line, `/clear`,
+    `/vibe-check:deep-review`, Step A 4, Step C 3, `/exit`) and never fed findings:
+    `driver contamination: none` on every run. At baseline the owner typed the same commands (with
+    assistant-executed checklist blocks on runs 11–36, per Phase-38 limitation 8).
+12. **The decision path (D-11).** The first pass missed the bar on the catch arm (13/15). The bar
+    was missed because two of three autoescape runs titled the change as a revert, deprecation or
+    startup crash instead of naming the XSS consequence. The one allowed retune then brought the
+    combined result to PASS. There is no second tuning loop. Phase 44 ships 2.10.0 with these
+    numbers, quoting both the combined PASS and the untuned MISS.
+13. **Kit fixes during the windows** (`a3f240b`, `67b2ea3`, `8f63681`) and the retune-gate fix
+    (`23c5b34`) were runbook and scoring tooling only. The measured surface was unchanged.
+14. **A product safety defect surfaced in the measurement.** A review agent ran `git stash pop` in
+    the reviewed repo (see §Anomaly). It is carried to v2.11.
+
+## Plain-language summary (for the owner)
+
+**The honest headline first: on its first, untuned attempt the changed tool missed the target.** We
+ran the twelve sealed diffs three times each on the finished v2.10 tool. False alarms on clean diffs
+fell sharply, from 16 of 18 runs to 6 of 18, comfortably inside the "at least half" target. But the
+tool lost two catches out of 15 on one diff: the change that silently weakens the app's XSS
+protection. In two of three runs every reviewer saw the change but described it as "reverts a fix"
+or "uses a deprecated option" instead of saying "this weakens your XSS protection". The bar allows
+zero lost catches, so the first pass is a MISS.
+
+The rules we sealed in advance allow one retune, on the failed diffs only. We used it. We added two
+general rules to the reviewer prompts: a protection that now only holds "because of the library's
+default today" is still a loss; and a weakness inside an old helper the change merely calls is not
+the change's fault. Re-running only the three failed diffs, the XSS diff was caught 3 of 3 times and
+one false alarm disappeared. **Combined, that clears the bar: 3 of 18 false alarms, 15 of 15
+catches. That is a PASS, but a weaker one than it sounds.** We wrote the retune after seeing those
+exact diffs fail, and we did not re-run the other nine. So the untuned MISS is the better guide to
+how the tool will behave on your next real change. The PASS is what our own pre-agreed rules
+permit.
+
+Three things to keep in mind:
+
+- **The XSS "miss" is partly a key question.** The reviewers actually checked the locked library
+  version and found escaping is still on today. Our answer key assumes it is silently off. The key
+  is sealed and we did not change it, but some of that first-pass "loss" may be the reviewers being
+  right and the key being strict.
+- **The XSS credit is somewhat generous.** Under a stricter reading, one retune catch would not
+  count, and the combined result would be a MISS (14 of 15).
+- **The second retune rule has a cost.** Real bypasses inside reused helpers will now usually be
+  filed as quiet notes rather than shown as alarms.
+
+**One real product bug turned up during the runs.** A review agent ran `git stash pop` in the repo
+it was reviewing, then put the stash back. Nothing was lost, but a reviewer must never change your
+repo's state. That is filed for v2.11, together with the still-open "declared but not yet wired"
+false alarm (should-quiet-6, 3 of 3 in both passes, as predicted).
+
+**What happens next:** Phase 44 ships 2.10.0 with exactly these numbers, both the combined PASS and
+the untuned MISS, side by side.
