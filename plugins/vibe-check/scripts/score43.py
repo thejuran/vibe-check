@@ -53,6 +53,10 @@ exactly one entry per expected catch run. `--expected-diffs` / `--failed-diffs`
 are JSON lists of diff names. `retune-gate` without `--first-root` and
 `--retune-root` is the PRE-RUN form: ancestry, allowlist and frozen-file checks
 only, the ledger skipped.
+In both forms a non-allowlisted S..S2 path is tolerated only when it is
+runbook tooling (PRE_VERDICT_TOOLING) whose blob is unchanged from the
+FAILED-DIFFS first commit to S2; each one is printed as a pre-verdict tooling
+change.
 
 Exit 0 clean / 1 gate failure / 2 usage error or unreadable input.
 """
@@ -108,6 +112,17 @@ RETUNE_ALLOWLIST = (
     re.compile(r"^plugins/vibe-check/templates/codex-focus\.txt$"),
     re.compile(r"^plugins/vibe-check/scripts/test_agent_prompts\.py$"),
     re.compile(r"^plugins/vibe-check/docs/efficacy/RESULTS-v2\.10\.md$"),
+)
+
+# Runbook/scoring tooling the measured plugin never loads (no agent, command,
+# phase or template references it; the runbook runs it from the repo, not the
+# snapshot). A first-pass kit fix to one of these lands between S and the
+# FAILED-DIFFS commit, so it shows up in S..S2 without being part of the
+# retune. It is tolerated ONLY when its blob at S2 equals its blob at the
+# FAILED-DIFFS first commit: the change predates the verdict and the retune
+# did not touch it. Any other non-allowlisted path still fails.
+PRE_VERDICT_TOOLING = (
+    re.compile(r"^plugins/vibe-check/scripts/(?:test_)?(?:lanearchive|score43|batchsnap)\.py$"),
 )
 
 SNAPSHOT_NOTE = ("snapshot commit is bound per run by the fingerprint batch-sha line "
@@ -489,7 +504,7 @@ def _ancestor(repo, a, b):
 
 
 def retune_gate(repo, s, s2, failed_diffs_path, first_root, retune_root,
-                last_first_commit):
+                last_first_commit, notes=None):
     """Every D-05..D-07 ordering/scope check; returns the list of failures.
 
     `retune_root=None` is the PRE-RUN form: identical ancestry, allowlist and
@@ -532,8 +547,16 @@ def retune_gate(repo, s, s2, failed_diffs_path, first_root, retune_root,
     if not changed:
         failures.append("allowlist: S..S2 changes nothing under plugins/vibe-check")
     for p in changed:
-        if not any(rx.match(p) for rx in RETUNE_ALLOWLIST):
-            failures.append("allowlist: %s is outside the retune allowlist" % p)
+        if any(rx.match(p) for rx in RETUNE_ALLOWLIST):
+            continue
+        if any(rx.match(p) for rx in PRE_VERDICT_TOOLING):
+            a = _git(repo, "rev-parse", "--verify", "--quiet", "%s:%s" % (f_sha, p))
+            b = _git(repo, "rev-parse", "--verify", "--quiet", "%s:%s" % (s2_sha, p))
+            if a.returncode == 0 and b.returncode == 0 and a.stdout == b.stdout:
+                if notes is not None:
+                    notes.append("pre-verdict tooling change (not part of R): %s" % p)
+                continue
+        failures.append("allowlist: %s is outside the retune allowlist" % p)
     for p in FROZEN_FILES:
         a = _git(repo, "rev-parse", "--verify", "--quiet", "%s:%s" % (s_sha, p))
         b = _git(repo, "rev-parse", "--verify", "--quiet", "%s:%s" % (s2_sha, p))
@@ -813,8 +836,11 @@ def _cmd_failed_diffs(runs_root, out_path, catch_path):
 
 
 def _cmd_retune_gate(args):
+    notes = []
     failures = retune_gate(args.repo, args.s, args.s2, args.failed_diffs, args.first_root,
-                           args.retune_root, args.last_first_commit)
+                           args.retune_root, args.last_first_commit, notes=notes)
+    for n in notes:
+        print("retune-gate: " + n)
     for f in failures:
         print("retune-gate FAIL: " + f, file=sys.stderr)
     if failures:

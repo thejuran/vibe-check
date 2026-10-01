@@ -417,6 +417,7 @@ class _RepoCase(_TmpDirCase):
     then the retune commit S2."""
 
     FROZEN_TEXT = "frozen\n"
+    BETWEEN_S_AND_F = {}
 
     def write(self, rel, text):
         path = os.path.join(self.repo, rel)
@@ -440,6 +441,10 @@ class _RepoCase(_TmpDirCase):
             self.write(f, self.FROZEN_TEXT)
         self.write("plugins/vibe-check/agents/bugs.md", "# bugs\n")
         self.S = self.commit("S")
+        if self.BETWEEN_S_AND_F:
+            for rel, text in self.BETWEEN_S_AND_F.items():
+                self.write(rel, text)
+            self.commit("first-pass kit fix")
         self.write("docs/first/FAILED-DIFFS.json", json.dumps(["should-quiet-1"]))
         self.F = self.commit("first-pass verdict")
         self.fd = os.path.join(self.repo, "docs/first/FAILED-DIFFS.json")
@@ -567,6 +572,59 @@ class TestRetuneGate(_RepoCase):
                 "--failed-diffs", self.fd, "--last-first-commit", self.F]
         self.assertEqual(self.cli(*(base + ["--retune-root", self.p("retune")]))[0], 2)
         self.assertEqual(self.cli(*(base + ["--first-root", self.first]))[0], 2)
+
+
+class TestRetuneGatePreVerdictTooling(_RepoCase):
+    """A runbook-tooling fix committed between S and FAILED-DIFFS is tolerated
+    only while the retune leaves it untouched."""
+
+    BETWEEN_S_AND_F = {"plugins/vibe-check/scripts/lanearchive.py": "kit fix\n"}
+
+    def test_untouched_kit_fix_passes_and_is_named(self):
+        s2 = self.retune()
+        for pre in (True, False):
+            with self.subTest(pre_run=pre):
+                if not pre:
+                    write_runs(self.p("retune"), diffs=["should-quiet-1"])
+                code, out, err = self.gate(s2, pre_run=pre)
+                self.assertEqual(code, 0, err)
+                self.assertIn("pre-verdict tooling change (not part of R): plugins/vibe-check/scripts/lanearchive.py", out)
+
+    def test_kit_file_edited_by_the_retune_fails(self):
+        s2 = self.retune(extra=lambda: self.write("plugins/vibe-check/scripts/lanearchive.py", "retune edit\n"))
+        code, out, err = self.gate(s2, pre_run=True)
+        self.assertEqual(code, 1)
+        self.assertIn("allowlist: plugins/vibe-check/scripts/lanearchive.py is outside the retune allowlist", err)
+        self.assertNotIn("pre-verdict tooling change", out)
+
+    def test_tolerance_off_without_the_tooling_pattern(self):
+        # Mutation: with the tooling pattern removed the same repo fails, so
+        # the tolerance (not some other path) is what lets it pass.
+        s2 = self.retune()
+        saved = score43.PRE_VERDICT_TOOLING
+        score43.PRE_VERDICT_TOOLING = ()
+        try:
+            code, _o, err = self.gate(s2, pre_run=True)
+        finally:
+            score43.PRE_VERDICT_TOOLING = saved
+        self.assertEqual(code, 1)
+        self.assertIn("allowlist: plugins/vibe-check/scripts/lanearchive.py is outside the retune allowlist", err)
+
+
+class TestRetuneGatePreVerdictMeasuredSurface(_RepoCase):
+    """A pre-verdict change to measured surface is never tolerated."""
+
+    BETWEEN_S_AND_F = {"plugins/vibe-check/phases/x.md": "x\n",
+                       "plugins/vibe-check/scripts/score.py": "changed\n"}
+
+    def test_measured_and_frozen_changes_still_fail(self):
+        s2 = self.retune()
+        code, out, err = self.gate(s2, pre_run=True)
+        self.assertEqual(code, 1)
+        self.assertIn("allowlist: plugins/vibe-check/phases/x.md is outside", err)
+        self.assertIn("allowlist: plugins/vibe-check/scripts/score.py is outside", err)
+        self.assertIn("frozen: plugins/vibe-check/scripts/score.py differs", err)
+        self.assertNotIn("pre-verdict tooling change", out)
 
 
 class TestOneDiffRetuneThroughClosure(_RepoCase):
