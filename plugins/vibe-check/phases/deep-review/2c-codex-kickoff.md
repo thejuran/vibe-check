@@ -112,12 +112,12 @@ In order:
    fi
    ```
    Branch on the printed result:
-   - **`CODEX_DIR=…` and `STARTED_AT=…`** → remember both values and continue to step 4. `STARTED_AT` is the kickoff time Phase 3's bounded wait counts from.
+   - **`CODEX_DIR=…` and `STARTED_AT=…`** → remember both values and continue to step 4. `STARTED_AT` is the kickoff time; Phase 3's bounded wait counts from the launch time step 4 records in `$CODEX_DIR/launched_at`, and falls back to `STARTED_AT` only when that file is missing.
    - **`__CODEX_COLLECT_UNAVAILABLE__`** → collection unavailable: set `CODEX_SKIPPED=1` with the gate's existing `unavailable` slug, print `⊘ Codex skipped: unavailable — native review continues`, and do NOT launch. Phase 3's Codex collection is a no-op.
 
    A skip decided in step 1 never reaches this step, so a skip leaves no temp directory behind. The directory is not removed when the review ends (a measurement run copies the payload afterwards); `mktemp -d` creates it under `$TMPDIR` with a unique name and owner-only permissions.
 
-4. **Background launch with a SELF-CONTAINED 300s watchdog (RESEARCH CORRECTION 2).** Only reached on the `run` branch after step 3 printed `CODEX_DIR` and `STARTED_AT`. Make ONE `Bash(run_in_background: true)` call whose COMMAND wraps the codex invocation so the cap is enforced by the launched shell ITSELF, independent of when Phase 3 starts waiting. The single named constant is **`CODEX_TIMEOUT_SECONDS = 300`** (one named value, not scattered magic numbers). The cap is enforced with `timeout`/`gtimeout` (NOT a bare `sleep 300; kill <pid>`, which kills only the `node` wrapper and ORPHANS the spawned `codex`/GPT-5-codex child, so a hang INSIDE the child could outlive the cap). `timeout` propagates the kill to the spawned child tree and signals the cap with **exit code 124**, which the launch records as the rc value `124` — not a separately-echoed line, so there is no "payload printed then sentinel echoed" race. The payload goes to `$CODEX_DIR/payload.json` (`$CODEX_OUT`), Codex's stderr to `$CODEX_DIR/stderr` (never echoed into the session), and the exit status LAST, to `$CODEX_DIR/rc` by temp file + rename, so `rc` existing means the payload is complete. No background-task handle is captured and the orchestrator never reads the background shell's output: Phase 3 reads `rc`, then hands `payload.json` to `codex_translate.py`, so Codex's bytes are never re-typed.
+4. **Background launch with a SELF-CONTAINED 300s watchdog (RESEARCH CORRECTION 2).** Only reached on the `run` branch after step 3 printed `CODEX_DIR` and `STARTED_AT`. Make ONE `Bash(run_in_background: true)` call whose COMMAND wraps the codex invocation so the cap is enforced by the launched shell ITSELF, independent of when Phase 3 starts waiting. The single named constant is **`CODEX_TIMEOUT_SECONDS = 300`** (one named value, not scattered magic numbers). The cap is enforced with `timeout`/`gtimeout` (NOT a bare `sleep 300; kill <pid>`, which kills only the `node` wrapper and ORPHANS the spawned `codex`/GPT-5-codex child, so a hang INSIDE the child could outlive the cap). `timeout` propagates the kill to the spawned child tree and signals the cap with **exit code 124**, which the launch records as the rc value `124` — not a separately-echoed line, so there is no "payload printed then sentinel echoed" race. The payload goes to `$CODEX_DIR/payload.json` (`$CODEX_OUT`), Codex's stderr to `$CODEX_DIR/stderr` (never echoed into the session), the launch time (epoch seconds, temp file + rename) to `$CODEX_DIR/launched_at` just before the watchdog starts, and the exit status LAST, to `$CODEX_DIR/rc` by temp file + rename, so `rc` existing means the payload is complete. No background-task handle is captured and the orchestrator never reads the background shell's output: Phase 3 reads `rc`, then hands `payload.json` to `codex_translate.py`, so Codex's bytes are never re-typed.
    ```bash
    # ONE run_in_background:true call. CODEX_TIMEOUT_SECONDS=300 (single named value).
    # Substitute CODEX_PLUGIN_ROOT and TIMEOUT_BIN as step 1 printed them, and the gate's codex_args
@@ -139,6 +139,8 @@ In order:
      # The payload lives in the private collection directory step 3 created.
      CODEX_OUT="$CODEX_DIR/payload.json"
      echo "CODEX_OUT=$CODEX_OUT"
+     # The launch time, written just before the watchdog starts: Phase 3's wait counts from it.
+     date +%s > "$CODEX_DIR/launched_at.tmp" && mv "$CODEX_DIR/launched_at.tmp" "$CODEX_DIR/launched_at"
      # -k 10 sends SIGKILL 10s after the initial SIGTERM in case the tree ignores TERM.
      "$TIMEOUT_BIN" -k 10 300 node "$CODEX_PLUGIN_ROOT/scripts/codex-companion.mjs" "${ARGS[@]}" > "$CODEX_OUT" 2> "$CODEX_DIR/stderr"
      rc=$?

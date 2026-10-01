@@ -460,8 +460,32 @@ def kickoff_rc_is_atomic(kickoff_text):
     return guard + 1 < len(lines) and lines[guard + 1] == FOCUS_MARKER_LINE
 
 
+LAUNCHED_AT_LINE = ('date +%s > "$CODEX_DIR/launched_at.tmp" && '
+                    'mv "$CODEX_DIR/launched_at.tmp" "$CODEX_DIR/launched_at"')
+WATCHDOG_TOKEN = '"$TIMEOUT_BIN" -k 10 300 node'
+
+
+def kickoff_records_launch_time(kickoff_text):
+    """Inside the run branch, the launch time is written once (temp file +
+    rename) BEFORE the watchdog line, so Phase 3 times its wait from the launch."""
+    lines = [ln.strip() for ln in kickoff_text.splitlines()]
+    if RUN_BRANCH_LINE not in lines:
+        return False
+    start = lines.index(RUN_BRANCH_LINE)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i] == "fi"), None)
+    if end is None:
+        return False
+    branch = lines[start:end]
+    if branch.count(LAUNCHED_AT_LINE) != 1:
+        return False
+    watchdog = [i for i, ln in enumerate(branch) if ln.startswith(WATCHDOG_TOKEN)]
+    return len(watchdog) == 1 and branch.index(LAUNCHED_AT_LINE) < watchdog[0]
+
+
 COLLECT = "phases/deep-review/30-codex-collect.md"
-REMAIN_LINE = "REMAIN=$(( STARTED_AT + 315 - $(date +%s) ))"
+LAUNCHED_READ_LINE = 'LAUNCHED_AT=$(cat "$CODEX_DIR/launched_at" 2>/dev/null || true)'
+LAUNCHED_CHECK_LINE = '''case "$LAUNCHED_AT" in ''|*[!0-9]*) LAUNCHED_AT="$STARTED_AT" ;; esac'''
+REMAIN_LINE = "REMAIN=$(( LAUNCHED_AT + 315 - $(date +%s) ))"
 WAIT_LINE = ('''if [ "$REMAIN" -gt 0 ]; then "$TIMEOUT_BIN" "$REMAIN" sh -c '''
              '''\'until [ -e "$1" ]; do sleep 2; done\' _ "$CODEX_DIR/rc"; fi''')
 RC_READ_LINE = 'RC=$(cat "$CODEX_DIR/rc" 2>/dev/null || true)'
@@ -491,9 +515,10 @@ def fenced_block_with(text, needle):
 
 
 def collect_wait_is_bounded(collect_text):
-    """Phase 3 waits for rc under $TIMEOUT_BIN within STARTED_AT + 315, states
-    the Bash tool timeout, maps rc through a strict case with all four arms and
-    no eval anywhere in the wait block."""
+    """Phase 3 waits for rc under $TIMEOUT_BIN within LAUNCHED_AT + 315 (the
+    launch time read from $CODEX_DIR/launched_at, digits-only, else STARTED_AT),
+    states the Bash tool timeout, maps rc through a strict case with all four
+    arms and no eval anywhere in the wait block."""
     if BASH_TIMEOUT not in collect_text:
         return False
     block = fenced_block_with(collect_text, REMAIN_LINE)
@@ -501,9 +526,12 @@ def collect_wait_is_bounded(collect_text):
         return False
     if WAIT_LINE not in block or RC_READ_LINE not in block or 'case "$RC" in' not in block:
         return False
+    if LAUNCHED_READ_LINE not in block or LAUNCHED_CHECK_LINE not in block:
+        return False
     if any(re.search(r"\beval\b", ln) for ln in block):
         return False
-    order = [block.index(x) for x in (REMAIN_LINE, WAIT_LINE, RC_READ_LINE, 'case "$RC" in')]
+    order = [block.index(x) for x in (LAUNCHED_READ_LINE, LAUNCHED_CHECK_LINE, REMAIN_LINE,
+                                      WAIT_LINE, RC_READ_LINE, 'case "$RC" in')]
     if order != sorted(order):
         return False
     case_at = block.index('case "$RC" in')
@@ -1607,6 +1635,9 @@ class TestCodexCollectionFileOwned(unittest.TestCase):
     def test_collect_waits_under_timeout_bin(self):
         self.assertIs(collect_wait_is_bounded(read(COLLECT)), True)
 
+    def test_launch_records_launch_time(self):
+        self.assertIs(kickoff_records_launch_time(_kickoff()), True)
+
     def test_collect_out_is_payload_in_dir(self):
         self.assertIs(collect_out_is_payload_in_dir(_kickoff(), read(COLLECT)), True)
 
@@ -1805,6 +1836,35 @@ class TestKickoffMutation(unittest.TestCase):
         lenient = c.replace(CASE_ARMS[3], "*) CODEX_COLLECT=join ;;")
         self.assertNotEqual(lenient, c)
         self.assertIs(collect_wait_is_bounded(lenient), False)
+        # The wait timed from the kickoff again instead of the recorded launch.
+        from_kickoff = c.replace(REMAIN_LINE, "REMAIN=$(( STARTED_AT + 315 - $(date +%s) ))")
+        self.assertNotEqual(from_kickoff, c)
+        self.assertIs(collect_wait_is_bounded(from_kickoff), False)
+        # The launch time used unvalidated (arithmetic would evaluate file content).
+        unchecked = c.replace(LAUNCHED_CHECK_LINE, "")
+        self.assertNotEqual(unchecked, c)
+        self.assertIs(collect_wait_is_bounded(unchecked), False)
+        # The launch time read after REMAIN is computed.
+        late = c.replace(LAUNCHED_READ_LINE + "\n", "").replace(
+            REMAIN_LINE, REMAIN_LINE + "\n   " + LAUNCHED_READ_LINE)
+        self.assertNotEqual(late, c)
+        self.assertIs(collect_wait_is_bounded(late), False)
+
+    def test_launch_time_regressions_trip(self):
+        k = _kickoff()
+        dropped = k.replace(LAUNCHED_AT_LINE, "")
+        self.assertNotEqual(dropped, k)
+        self.assertIs(kickoff_records_launch_time(dropped), False)
+        # Recorded after the watchdog returns: that is the END time, not the launch.
+        after = k.replace(LAUNCHED_AT_LINE + "\n", "").replace(
+            "rc=$?", "rc=$?\n     " + LAUNCHED_AT_LINE)
+        self.assertNotEqual(after, k)
+        self.assertIs(kickoff_records_launch_time(after), False)
+        # Recorded outside the run branch (a skip would leave a launch time behind).
+        outside = k.replace(LAUNCHED_AT_LINE + "\n", "").replace(
+            RUN_BRANCH_LINE, LAUNCHED_AT_LINE + "\n   " + RUN_BRANCH_LINE)
+        self.assertNotEqual(outside, k)
+        self.assertIs(kickoff_records_launch_time(outside), False)
 
     def test_collect_payload_regression_trips(self):
         c = read(COLLECT)

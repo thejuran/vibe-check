@@ -12,7 +12,7 @@ scan text. This module runs the REAL fenced blocks instead:
 Both are extracted from the files, never retyped. Rendering only substitutes
 the `VAR="<placeholder>"` values, replaces `<codex_args>` with `--base main`,
 shortens the watchdog `-k 10 300` to `-k 1 2` and the wait bound
-`STARTED_AT + 315` to `STARTED_AT + 3`. Everything runs under a
+`LAUNCHED_AT + 315` to `LAUNCHED_AT + 3`. Everything runs under a
 TemporaryDirectory with a stub `codex-companion.mjs` whose behavior is chosen
 by the STUB_MODE env var, and with CLAUDE_PLUGIN_ROOT / VIBE_CHECK_PLUGIN_ROOT
 removed from the environment. The launch runs in the background (Popen) while
@@ -36,7 +36,8 @@ KICKOFF = os.path.join(PLUGIN_ROOT, "phases", "deep-review", "2c-codex-kickoff.m
 COLLECT = os.path.join(PLUGIN_ROOT, "phases", "deep-review", "30-codex-collect.md")
 
 ARGS_LINE = 'ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")'
-REMAIN_LINE = "REMAIN=$(( STARTED_AT + 315 - $(date +%s) ))"
+REMAIN_LINE = "REMAIN=$(( LAUNCHED_AT + 315 - $(date +%s) ))"
+KICKOFF_TIMED_REMAIN = "REMAIN=$(( STARTED_AT + 315 - $(date +%s) ))"
 RC_ATOMIC_LINE = ('''printf '%s\\n' "$rc" > "$CODEX_DIR/rc.tmp" && '''
                   '''mv "$CODEX_DIR/rc.tmp" "$CODEX_DIR/rc"''')
 
@@ -45,12 +46,19 @@ NODE_BIN = shutil.which("node")
 CAP = 2          # rendered watchdog cap (seconds), replaces 300
 WAIT_BOUND = 3   # rendered wait bound (seconds), replaces 315
 MARGIN = 10      # wall-clock slack on top of the wait bound
+LATE_LAUNCH = 5  # seconds the launch trails STARTED_AT in the late-launch case
 
 STUB = """\
 const mode = process.env.STUB_MODE || "ok";
 if (mode === "ok") {
   process.stdout.write(JSON.stringify({result: {findings: []}}) + "\\n");
   process.exit(0);
+} else if (mode === "slow") {
+  // Finishes inside the cap, but later than the kickoff-timed wait would allow.
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({result: {findings: []}}) + "\\n");
+    process.exit(0);
+  }, 1500);
 } else if (mode === "hang") {
   setTimeout(() => process.exit(0), 30000);
 } else {
@@ -165,18 +173,25 @@ class TestCodexCollectExecutable(unittest.TestCase):
             text = text.replace(RC_ATOMIC_LINE, '''printf '%s\\n' "$rc" > "$CODEX_DIR/rc.tmp"''')
         return text
 
-    def _collect(self, started_at):
-        return render(self.collect_block, {
+    def _collect(self, started_at, kickoff_timed=False):
+        block = self.collect_block
+        if kickoff_timed:  # the pre-fix wait, timed from STARTED_AT (control only)
+            assert block.count(REMAIN_LINE) == 1
+            block = block.replace(REMAIN_LINE, KICKOFF_TIMED_REMAIN)
+            bound = ("STARTED_AT + 315", "STARTED_AT + %d" % WAIT_BOUND)
+        else:
+            bound = ("LAUNCHED_AT + 315", "LAUNCHED_AT + %d" % WAIT_BOUND)
+        return render(block, {
             "CODEX_DIR": self.codex_dir,
             "STARTED_AT": started_at,
             "TIMEOUT_BIN": TIMEOUT_BIN,
-        }, [("STARTED_AT + 315", "STARTED_AT + %d" % WAIT_BOUND)])
+        }, [bound])
 
-    def _collect_run(self, started_at, mode):
+    def _collect_run(self, started_at, mode, kickoff_timed=False):
         """Run the rendered collect block in the foreground. If it outlives its
         30 s guard, create rc so an orphaned `until [ -e rc ]` loop exits too."""
         try:
-            return subprocess.run(["bash", "-c", self._collect(started_at)],
+            return subprocess.run(["bash", "-c", self._collect(started_at, kickoff_timed)],
                                   env=self._env(mode), capture_output=True, text=True,
                                   timeout=30)
         except subprocess.TimeoutExpired:
@@ -185,16 +200,24 @@ class TestCodexCollectExecutable(unittest.TestCase):
             time.sleep(3)
             raise
 
-    def _run(self, mode, drop_mv=False):
+    def _run(self, mode, drop_mv=False, launch_delay=0, kickoff_timed=False):
         """Launch in the background, collect in the foreground; return
-        (collect stdout, rc file content or None, elapsed seconds)."""
+        (collect stdout, rc file content or None, elapsed seconds).
+        `launch_delay` > 0 dates STARTED_AT that many seconds before the launch
+        and starts collecting only once the launch has recorded launched_at."""
         t0 = time.monotonic()
-        started_at = int(time.time())
+        started_at = int(time.time()) - launch_delay
         proc = subprocess.Popen(["bash", "-c", self._launch(started_at, drop_mv)],
                                 env=self._env(mode), stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
         try:
-            res = self._collect_run(started_at, mode)
+            if launch_delay:
+                marker = os.path.join(self.codex_dir, "launched_at")
+                deadline = time.monotonic() + 10
+                while not os.path.exists(marker) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(os.path.exists(marker), "launch never recorded launched_at")
+            res = self._collect_run(started_at, mode, kickoff_timed)
             elapsed = time.monotonic() - t0
         finally:
             try:
@@ -225,6 +248,19 @@ class TestCodexCollectExecutable(unittest.TestCase):
         self.assertEqual(rc, "0")
         with open(os.path.join(self.codex_dir, "payload.json"), encoding="utf-8") as fh:
             self.assertEqual(json.load(fh), {"result": {"findings": []}})
+
+    def test_late_launch_finishing_near_the_cap_joins(self):
+        # The launch trails STARTED_AT by LATE_LAUNCH s and the companion exits 0
+        # inside the cap: the wait is timed from launched_at, so it joins.
+        out, rc, _ = self._run("slow", launch_delay=LATE_LAUNCH)
+        self.assertEqual(rc, "0")
+        self.assertIn("CODEX_COLLECT=join", out)
+
+    def test_kickoff_timed_wait_would_drop_the_late_launch(self):
+        # Control: the same run with the wait timed from STARTED_AT gives up
+        # before rc exists, so the join above is not vacuous.
+        out, _rc, _ = self._run("slow", launch_delay=LATE_LAUNCH, kickoff_timed=True)
+        self.assertIn("CODEX_COLLECT=timeout", out)
 
     def test_hang_hits_the_cap_without_hanging_collect(self):
         out, rc, elapsed = self._run("hang")
