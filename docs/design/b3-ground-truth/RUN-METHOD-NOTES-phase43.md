@@ -118,6 +118,8 @@ pass timestamp.
 to carry a `parity: <the active snapshot_commit>` line, and re-runs the same two-direction content
 hash check itself; it never compares version strings.
 
+parity: be6b0fcd9a4c2794dd3351ea054a65f3ab91e536 forward=106/106 reverse=0 extra at 2026-09-30T21:26:45-0400
+
 ## Snapshot
 
 One line per measurement snapshot built with `batchsnap.py build`, in the form
