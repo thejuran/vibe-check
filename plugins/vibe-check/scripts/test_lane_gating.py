@@ -380,6 +380,7 @@ ANNOUNCE_SUFFIX = {
                             "none usable for the changed files",
 }
 
+ALWAYS_ANNOUNCE = "Gating changes only the line's suffix, never whether the line prints"
 RENDER_ANCHOR = "If `$TS_GATED` is set"
 NOTE_PREFIX = "no coverage data available, skipped"
 
@@ -442,6 +443,8 @@ def selection_gate_problems(text_sel):
             problems.append("gating paragraph names an unknown slug %s" % token)
     if "$ALL_MODE" not in para:
         problems.append("gating paragraph lacks --all exclusion")
+    if norm(ALWAYS_ANNOUNCE) not in para:
+        problems.append("gating paragraph does not require the announce line on gated runs")
     return problems
 
 
@@ -680,6 +683,12 @@ class TestEmptyCaseMutation(unittest.TestCase):
         self.assertNotEqual(planted, self.sel)
         self.assertEqual(selection_gate_problems(planted),
                          ["gating paragraph lacks disabled-wins clause"])
+
+    def test_always_announce_clause_dropped(self):
+        planted = self._in_para(ALWAYS_ANNOUNCE, "Gating may change the line")
+        self.assertNotEqual(planted, self.sel)
+        self.assertEqual(selection_gate_problems(planted),
+                         ["gating paragraph does not require the announce line on gated runs"])
 
 
 class TestRenderNoteMutation(unittest.TestCase):
