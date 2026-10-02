@@ -9,9 +9,23 @@
 
 If `$ARGUMENTS` contains `--finalize`:
 - Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents. Phase 0.5 binds `$STATE_FILE` to the mode-resolved state path (GSD `<$PHASE_ID>.json`, other-modes `<repo>-<branch>.json`, or `--all` `by-mode/all/<scope-hash>.json`) — Finalize consumes that one variable and never re-derives a path of its own.
-- Compute current state from the state object parsed out of `$STATE_FILE`:
-  - `outstanding_cw` = last pass's findings with band ∈ {critical, warning} AND status ≠ fixed-since-last
-  - `unacknowledged_medium` = last pass's findings with band == medium AND no entry in state's `medium_acknowledgments`
+- Read the two gate counts from `carry_state.py` — never by hand. When there is no state file both counts are `0` and the helper is not run. Otherwise:
+  1. **HEAD fingerprints.** For every entry of root `fix_verdicts` whose `at_pass == state.passes[-1].pass_number`, find its finding in `state.passes[-1].findings` by `stable_hash` and, for that finding's `<file>`, run `git rev-parse "HEAD:<file>"`, `git diff --quiet HEAD -- <file>` and `git diff --cached --quiet -- <file>`. Serialize `{"<file>": "<blob>"}` to `$BLOBFILE` with the Write tool, including a file ONLY when all three exit 0. A file whose rev-parse fails, or whose working tree or index differs from HEAD, is OMITTED: the fix agent judged working-tree content, so HEAD's blob is evidence only while HEAD, index and working tree are identical. Omission is how this file tells the helper "unbound" — the helper fails closed for an absent file and never runs git itself. With no last-pass fix verdicts `$BLOBFILE` holds `{}` and is still passed. The helper honours a fix-obsolete verdict ONLY while HEAD's blob equals the verdict's recorded `verified_blob`, so any edit after the verdict re-opens the finding.
+  2. **Counts.**
+     ```bash
+     if COUNTS_JSON=$(python3 "$VC_ROOT/scripts/carry_state.py" finalize-counts --head-blobs "$BLOBFILE" < "$STATE_FILE"); then
+       printf '%s\n' "$COUNTS_JSON"   # {"outstanding_cw", "unacknowledged_medium", "outstanding_cw_hashes", "unacknowledged_medium_hashes", "verified_obsolete_hashes"}
+     else
+       echo "I'm uncertain about Finalize mode — carry_state.py failed; nothing was written or archived." >&2
+       exit 1
+     fi
+     ```
+     `outstanding_cw` and `unacknowledged_medium` are read from `$COUNTS_JSON`; keep `$COUNTS_JSON` for the REVIEW.md fill below.
+  What the helper counts (so nobody re-derives it by hand):
+  - **Open** = the last pass's findings whose status is one of {new, persisted, needs-recheck}, PLUS every `members[].obligation` record those rows carry — a once-raised finding folded into a neighbour's row is its own obligation, deduplicated by its own `stable_hash`; a decision or fix-obsolete verdict on the LEAD row closes nothing for it.
+  - **Closed** = has an entry in root `decisions`, OR in legacy root `medium_acknowledgments`, OR a `fix_verdicts` entry from the last pass whose `verified_blob` equals HEAD's blob for that file (per record, never inherited from a lead).
+  - `outstanding_cw` = open, not closed, band critical or warning; `unacknowledged_medium` = the same for medium. Lows never block.
+  An unresolved finding is counted on EVERY later pass with no expiry — a row the scorer marked `kept_open` (dropped by this pass's confidence/threshold filters) is as open as any other. The only exits are a verified resolution (`resolved[]` from score.py, or a last-pass fix-obsolete verdict whose code is unchanged) or an owner decision.
 - Compute the gate's inputs, then let `finalize_gate.py` pick the branch. Its input is ONE JSON object whose only key is `flags`, and `flags` holds exactly the six keys below, built with a JSON encoder (booleans as JSON `true`/`false`, counts as JSON integers): `{"flags": {"state_file_present": true, "outstanding_cw": 0, "unacknowledged_medium": 0, "noninteractive": false, "pr_mode": false, "range_mode": false}}`. Passing the six keys bare, without the `flags` wrapper, is malformed input and the gate refuses it.
   - `state_file_present` — `[ -f "$STATE_FILE" ]`
   - `outstanding_cw`, `unacknowledged_medium` — the two counts above (`0` when there is no state file)
@@ -29,23 +43,52 @@ If `$ARGUMENTS` contains `--finalize`:
 - `error` — the state file is absent: error "No prior review passes. Run `/review` first."
 - `outstanding-to-phase-5` / `fallback` with `outstanding_cw` non-empty:
   - Print: "Cannot finalize — {{N}} Critical/Warning findings remain:"
-  - List each: `{{file}}:{{line}} — {{title}}`
-  - `outstanding-to-phase-5` → **Route into Phase 5 Step A** (**Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool first) with the outstanding findings as the candidate set, so the user can apply fixes (auto / selected / by hand) and then choose at Step C whether to rerun or abandon. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation finds `outstanding_cw` empty.
-  - `fallback` — Phase 5 is unavailable (e.g. `$TURINGMIND_NONINTERACTIVE` is set, or PR/range mode); fall back to the legacy behavior: tell user "Fix these, re-run with `--finalize`." and stop.
-- `fallback` with `outstanding_cw` empty — the Medium acknowledgement loop needs an interactive Phase 5 too (its "Will fix" answer defers to Phase 5): list each unacknowledged Medium as `{{file}}:{{line}} — {{title}}`, tell the user "Acknowledge these interactively, or fix them, then re-run with `--finalize`." and stop. Do NOT write REVIEW.md or archive state.
-- `medium-ack-loop` — `unacknowledged_medium` non-empty: enter acknowledgment loop. For each:
+  - List each obligation whose hash is in `outstanding_cw_hashes` as `{{file}}:{{line}} — {{title}}`. **Join rule** (also used by the Medium loop for `unacknowledged_medium_hashes`): match the hash to a row of `state.passes[-1].findings` by `stable_hash`; when no row matches, match it to the `members[]` entry whose `obligation.stable_hash` equals it and render that member's file/line/title/agent, with the band read from `obligation.band`, and the suffix `(absorbed into "{{lead title}}" — decided on its own)`.
+  - `outstanding-to-phase-5` → first ask, per listed obligation, one AskUserQuestion (4 options, neutral): "{{title}} at {{file}}:{{line}} ({{band}}) — action?"
+    - **Will fix** → collect it into the Step A candidate set. For an absorbed obligation this collects its LEAD row — the site is the lead's; after the fix the next pass re-scores it, so the member resolves, is re-absorbed, or re-emerges as its own kept-open row.
+    - **Dismiss** → follow-up AskUserQuestion for a reason.
+    - **Defer** → follow-up AskUserQuestion for a reason. A deferred finding does not block REVIEW.md and is listed there.
+    - **Look again** → display `problem` + `current_code` + `fix_hint` (if present), then re-ask.
+    A reason must be non-empty; an empty answer re-asks.
+  - After that loop:
+    - Any Dismiss/Defer → record them (see "Recording decisions" below), then RE-RUN the counts step and the gate above. The gate decides again — this file never jumps to `write` on its own.
+    - Any Will fix → **Route into Phase 5 Step A** (**Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool first) with that set as the candidate set, so the user can apply fixes (auto / selected / by hand) and then choose at Step C whether to rerun or abandon. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation's gate returns `write`.
+    - Everything decided and the re-run gate returns `write` → proceed to the write below.
+    (A later version collapses these per-finding asks into one card; this loop is the minimal shape.)
+  - `fallback` — Phase 5 is unavailable (e.g. `$TURINGMIND_NONINTERACTIVE` is set, or PR/range mode); fall back to the legacy behavior: tell user "Fix these, re-run with `--finalize`." and stop. No asks, no writes.
+- `fallback` with `outstanding_cw` empty — the Medium acknowledgement loop needs an interactive Phase 5 too (its "Will fix" answer defers to Phase 5): list each unacknowledged Medium as `{{file}}:{{line}} — {{title}}` (join rule above), tell the user "Acknowledge these interactively, or fix them, then re-run with `--finalize`." and stop. Do NOT write REVIEW.md or archive state.
+- `medium-ack-loop` — `unacknowledged_medium` non-empty: enter acknowledgment loop over the obligations whose hash is in `unacknowledged_medium_hashes` (join rule above). For each:
   - AskUserQuestion: "{{title}} at {{file}}:{{line}} — action?"
-    - "Will fix" → defer to Phase 5: collect all "Will fix" Medium findings, then route into Phase 5 Step A (**Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool first) with that set as the candidates. After Phase 5's Step C, the user picks rerun (loop continues) or abandon (state preserved, no REVIEW.md).
-    - "Dismiss" → follow-up AskUserQuestion for reason, write `medium_acknowledgments[stable_hash] = {decision: "dismiss", reason: "<text>", at_pass: N}` to state root.
+    - "Will fix" → defer to Phase 5: collect all "Will fix" Medium findings (an absorbed obligation collects its LEAD row), then route into Phase 5 Step A (**Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool first) with that set as the candidates. After Phase 5's Step C, the user picks rerun (loop continues) or abandon (state preserved, no REVIEW.md).
+    - "Dismiss" → follow-up AskUserQuestion for a reason (non-empty; an empty answer re-asks).
+    - "Defer" → follow-up AskUserQuestion for a reason (non-empty; an empty answer re-asks). A deferred finding does not block REVIEW.md and is listed there.
     - "Look again" → display `problem` + `current_code` + `fix_hint` (if present), then re-ask.
   - After loop:
+    - Any Dismiss/Defer → record them (see "Recording decisions" below).
     - Any "Will fix" → routed to Phase 5 above; finalize does NOT proceed this invocation.
-    - All dismissed/acknowledged → `medium_acknowledgments` written to the state ROOT (`state.medium_acknowledgments`, the single canonical location — the same field the Dismiss write above targets); proceed to the write below.
-- `write` (or the acknowledgement loop above ended with everything dismissed/acknowledged):
+    - Otherwise RE-RUN the counts step and the gate above; proceed to the write below only when the gate returns `write`.
+  - `medium_acknowledgments` is a legacy, READ-only family: the helper still counts its entries as decisions, so an old medium-only state finalizes exactly as before. Nothing writes, migrates or rewrites it.
+- `write` (only on the gate's `write`, including a re-run after decisions were recorded):
   - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
   - Archive state: `mv "$STATE_FILE" "$STATE_FILE.archived-$(date +%Y-%m-%d)"` — using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote. The `by-mode/all/<scope-hash>.json` form makes each `--all` archived name unique, so archived snapshots never collide.
   - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
 - `refuse` — print "I'm uncertain about Finalize mode — finalize_gate.py refused its input" and stop. Do NOT write REVIEW.md or archive state.
+
+### Recording decisions (the ONE write Finalize makes before REVIEW.md)
+
+Serialize `{"at_pass": <passes[-1].pass_number>, "decisions": [{"stable_hash": "<full hash>", "decision": "dismiss"|"defer", "reason": "<owner text verbatim>"}]}` to a temp file with the Write tool (`$DECFILE`). The owner's reason is free text and NEVER goes on a command line — the same rule as `fixcommit.py`'s `--finding-json`. Then run under bash:
+```bash
+if python3 "$VC_ROOT/scripts/carry_state.py" record-decisions --decisions-file "$DECFILE" < "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"; then
+  :
+else
+  rm -f "$STATE_FILE.tmp"
+  echo "carry_state.py refused the decisions — state left unchanged; finalize stays blocked" >&2
+  exit 1
+fi
+```
+On a refusal: stop. Do NOT write REVIEW.md and do NOT edit the state by hand.
+
+What the helper writes: root `decisions[<hash>] = {decision, reason, at_pass, band}` and nothing else, one record per finding — a later decision for the same hash replaces it. The band is read by the helper from the record: a row's own band, or an absorbed obligation's `obligation.band` (the helper accepts a member obligation's own hash). `fallback` (non-interactive / PR / range) never reaches this step: no asks, no writes.
 
 ### Writing REVIEW.md
 
