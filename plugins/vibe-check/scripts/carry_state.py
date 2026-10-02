@@ -333,6 +333,124 @@ def pending(state):
 
 
 # --------------------------------------------------------------------------- #
+# Writes. Each returns a NEW state object (the input is never mutated) and
+# writes exactly one root family; `passes` and `medium_acknowledgments` are
+# copied through untouched. The owner creates its family lazily.
+# --------------------------------------------------------------------------- #
+_DECISION_PAYLOAD_KEYS = ("at_pass", "decisions")
+_DECISION_ENTRY_KEYS = ("stable_hash", "decision", "reason")
+_VERDICT_PAYLOAD_REQUIRED = ("at_pass", "head_sha", "sent", "results")
+_VERDICT_PAYLOAD_OPTIONAL = ("blobs",)
+
+
+def _valid_decision_entries(payload, open_hashes):
+    if not (isinstance(payload, dict)
+            and set(payload) == set(_DECISION_PAYLOAD_KEYS)
+            and _is_count(payload["at_pass"])
+            and isinstance(payload["decisions"], list)):
+        return False
+    seen = set()
+    for entry in payload["decisions"]:
+        if not (isinstance(entry, dict)
+                and set(entry) == set(_DECISION_ENTRY_KEYS)):
+            return False
+        h = entry["stable_hash"]
+        reason = entry["reason"]
+        if not (isinstance(h, str) and h in open_hashes and h not in seen
+                and entry["decision"] in DECISIONS
+                and isinstance(reason, str) and reason.strip()):
+            return False
+        seen.add(h)
+    return True
+
+
+def record_decisions(state, payload):
+    """Record owner dismiss/defer decisions; the new state, or None on refusal.
+
+    `payload` = {"at_pass": int, "decisions": [{stable_hash, decision, reason}]}.
+    The hash must be an open record of the last pass (a member obligation's own
+    hash included); the stored band is that record's band, never the payload's.
+    A later decision for the same hash replaces the earlier one.
+    """
+    _, records, reason = _check_state(state)
+    if reason is not None:
+        return None
+    by_hash = {rec["stable_hash"]: rec for rec in records}
+    if not _valid_decision_entries(payload, by_hash):
+        return None
+    new = json.loads(json.dumps(state))
+    if not isinstance(new.get("decisions"), dict):
+        new["decisions"] = {}
+    for entry in payload["decisions"]:
+        h = entry["stable_hash"]
+        new["decisions"][h] = {
+            "decision": entry["decision"],
+            "reason": entry["reason"],
+            "at_pass": payload["at_pass"],
+            "band": by_hash[h]["band"],
+        }
+    return new
+
+
+def _valid_verdict_payload(payload):
+    if not isinstance(payload, dict):
+        return False
+    keys = set(payload)
+    if not (set(_VERDICT_PAYLOAD_REQUIRED) <= keys
+            <= set(_VERDICT_PAYLOAD_REQUIRED + _VERDICT_PAYLOAD_OPTIONAL)):
+        return False
+    head = payload["head_sha"]
+    return (_is_count(payload["at_pass"])
+            and (head is None or isinstance(head, str))
+            and isinstance(payload["sent"], list)
+            and all(isinstance(h, str) for h in payload["sent"])
+            and isinstance(payload["results"], list)
+            and all(isinstance(r, dict) for r in payload["results"]))
+
+
+def record_fix_verdicts(state, payload, skipped=None):
+    """Record fix-agent `obsolete` verdicts; the new state, or None on refusal.
+
+    `payload` = {"at_pass", "head_sha", "sent", "results", "blobs"}. A verdict
+    is written only for an `obsolete` result whose id is a FULL hash that was
+    sent to the fix agent AND is an open record of the last pass AND whose file
+    has a blob in `blobs` (the code the fix agent saw). Without that
+    fingerprint the verdict could never close anything, so it is not recorded;
+    its id is appended to `skipped` when a list is given.
+    """
+    _, records, reason = _check_state(state)
+    if reason is not None or not _valid_verdict_payload(payload):
+        return None
+    by_hash = {rec["stable_hash"]: rec for rec in records}
+    sent = set(payload["sent"])
+    blobs = payload.get("blobs")
+    new = json.loads(json.dumps(state))
+    for result in payload["results"]:
+        h = result.get("id")
+        if not (result.get("status") == "obsolete" and isinstance(h, str)
+                and h in sent and h in by_hash):
+            continue
+        blob = blobs.get(by_hash[h].get("file")) if isinstance(blobs,
+                                                               dict) else None
+        if not isinstance(blob, str):
+            if isinstance(skipped, list):
+                skipped.append(h)
+            continue
+        summary = result.get("summary")
+        if not isinstance(new.get("fix_verdicts"), dict):
+            new["fix_verdicts"] = {}
+        new["fix_verdicts"][h] = {
+            "verdict": "obsolete",
+            "agent": "fix",
+            "head_sha": payload["head_sha"],
+            "at_pass": payload["at_pass"],
+            "verified_blob": blob,
+            "reason": "" if summary is None else str(summary),
+        }
+    return new
+
+
+# --------------------------------------------------------------------------- #
 # CLI.
 # --------------------------------------------------------------------------- #
 def parse_argv(argv):
@@ -405,8 +523,23 @@ def run(argv, stdin_text):
         result = finalize_counts(state, head_blobs)
     elif sub == "pending":
         result = pending(state)
+    elif sub == "record-decisions":
+        payload = read_json_file(flags["--decisions-file"])
+        if not isinstance(payload, dict):
+            return _refuse(REASON_DECISIONS_FILE), ""
+        result = record_decisions(state, payload)
+        if result is None:
+            return _refuse(REASON_DECISIONS_PAYLOAD), ""
     else:
-        return _refuse(USAGE), ""
+        payload = read_json_file(flags["--verdicts-file"])
+        if not isinstance(payload, dict):
+            return _refuse(REASON_VERDICTS_FILE), ""
+        skipped = []
+        result = record_fix_verdicts(state, payload, skipped)
+        if result is None:
+            return _refuse(REASON_VERDICTS_PAYLOAD), ""
+        if skipped:
+            sys.stderr.write(REASON_NO_FINGERPRINT)
 
     if result is None:
         return _refuse(REASON_STATE), ""

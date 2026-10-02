@@ -810,6 +810,18 @@ class TestRecordDecisions(unittest.TestCase):
                          {"decision": "defer", "reason": "ships next milestone",
                           "at_pass": 2, "band": "warning"})
 
+    def test_record_decisions_band_follows_each_record(self):
+        # Non-vacuity: the two records differ in band, so a constant cannot pass.
+        out = carry_state.record_decisions(
+            load_fixture(), defer_payload(h=BUGS_HASH, decision="dismiss"))
+        self.assertEqual(out["decisions"][BUGS_HASH]["band"], "medium")
+        s = ba_state(row_band="critical", a_band="medium")
+        out = carry_state.record_decisions(s, {"at_pass": 2, "decisions": [
+            {"stable_hash": HA, "decision": "defer", "reason": "r"},
+            {"stable_hash": HB, "decision": "defer", "reason": "r"}]})
+        self.assertEqual(out["decisions"][HA]["band"], "medium")
+        self.assertEqual(out["decisions"][HB]["band"], "critical")
+
     def test_record_decisions_band_never_from_payload(self):
         s = load_fixture()
         p = defer_payload()
