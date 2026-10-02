@@ -55,7 +55,7 @@ If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/45-persist-all.md** with th
 }
 ````
 
-`medium_acknowledgments` is a JSON object (never an array, never omitted), keyed by a finding's `stable_hash` — Finalize writes each dismissal into it (`phases/shared/90-finalize.md`). A fresh state starts it as the empty object `{}`.
+`medium_acknowledgments` is a JSON object (never an array, never omitted), keyed by a finding's `stable_hash` — a legacy family that Finalize only reads (`phases/shared/90-finalize.md`; owner decisions now go to root `decisions`). A fresh state starts it as the empty object `{}`.
 
 The root may LATER gain `decisions` (written only by Finalize via `carry_state.py record-decisions`) and `fix_verdicts` (written only by Phase 5 via `carry_state.py record-fix-verdicts`). Phase 4.5 never creates, copies into, or edits either — a fresh root is exactly the two keys above (the schema's `root_required`).
 
