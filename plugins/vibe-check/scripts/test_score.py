@@ -4825,3 +4825,463 @@ class TestSnapshotByteSafety(unittest.TestCase):
         self.assertEqual(score.stable_hash("src/a.py", "  x = 1", "some bug"),
                          self.old.stable_hash("src/a.py", "  x = 1", "some bug"))
 
+
+# --------------------------------------------------------------------------- #
+# Verified resolution (CARRY-02): recheck and fix-obsolete verdicts pass a
+# deterministic guard and move a carried record into resolved[] with evidence.
+# --------------------------------------------------------------------------- #
+PHASE45_FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "fixtures", "phase45-loop-state.json")
+_ARCH_FILE = "plugins/vibe-check/phases/deep-review/01d-coverage.md"
+_BUGS_FILE = "plugins/vibe-check/phases/deep-review/20-selection.md"
+_ARCH_PASS1_HASH_PREFIX = "ddca00413f"
+_FUTURE_SCHEMA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "fixtures", "future-schema.json")
+
+
+def _phase45_pass2():
+    with open(PHASE45_FIXTURE) as fh:
+        state = json.load(fh)
+    return state
+
+
+def _p45_leads():
+    """The pass-2 carried leads by id (arch-001, bugs-001), deep copies."""
+    state = _phase45_pass2()
+    return {f["id"]: f for f in state["passes"][1]["findings"]
+            if f.get("status") in ("new", "persisted", "needs-recheck")}
+
+
+def _p45_carryforward(head_override=None):
+    """05-state.md step 2 + 30-collect-score step 0 for pass 3, HEAD unchanged
+    since pass 2: every carried record's HEAD read is its own stored canonical
+    (members sit at their lead's line, so they read the same HEAD line)."""
+    out = []
+    for f in _p45_leads().values():
+        e = json.loads(json.dumps(f))
+        if head_override and e["id"] in head_override:
+            e["canonical_line_content"] = head_override[e["id"]]
+        e["canonical_window"] = None
+        for m in e.get("members", []):
+            m["canonical_line_content"] = e["canonical_line_content"]
+        out.append(e)
+    return out
+
+
+def _p45_request(token, lead_id, agents=None, **over):
+    lead = _p45_leads()[lead_id]
+    req = {"token": token, "agents": agents or [lead["agent"]],
+           "stable_hash": lead["stable_hash"], "file": lead["file"],
+           "line": lead["line"], "agent": lead["agent"], "title": lead["title"]}
+    req.update(over)
+    return req
+
+
+def _p45_recheck(token, agent, verdict="resolved", reason="line rewritten by d2e6887"):
+    return {"source": "recheck", "token": token, "agent": agent,
+            "verdict": verdict, "reason": reason}
+
+
+def _pass3_envelope(head_override=None, **over):
+    cfs = _p45_carryforward(head_override)
+    # Pass 3's incremental diff still covers both sites (the pass-2 scores were
+    # in-diff); without the +20 both leads fall below the deep-review cutoff and
+    # the loop the fixture records would not reproduce.
+    ranges = {}
+    for c in cfs:
+        ranges.setdefault(c["file"], []).append([c["line"] - 2, c["line"] + 2])
+    env = {"command": "deep-review", "all_mode": False, "pass_number": 3,
+           "head_sha": "50f9932e", "changed_line_ranges": ranges,
+           "carryforward": cfs, "findings": [],
+           "recheck_requests": [_p45_request("R1", "arch-001"),
+                                _p45_request("R2", "bugs-001")],
+           "verdicts": [_p45_recheck("R1", "architecture"),
+                        _p45_recheck("R2", "bugs", reason="gate prose now matches")]}
+    env.update(over)
+    return env
+
+
+def _verdict_rejections(result):
+    return [x for x in result["filtered"]
+            if str(x.get("reason", "")).startswith("verdict: ")]
+
+
+def _open_rows(result, file, line):
+    return [f for f in result["findings"]
+            if f.get("file") == file and f.get("line") == line]
+
+
+class TestVerdictPhase45Fixture(unittest.TestCase):
+    """R1: the Phase-45 loop (both agents said RESOLVED, both rows re-surfaced
+    as needs-recheck) no longer reproduces at the scorer."""
+
+    def test_fixture_reproduces_the_loop_without_verdicts(self):
+        leads = _p45_leads()
+        self.assertEqual(sorted(leads), ["arch-001", "bugs-001"])
+        self.assertEqual(leads["arch-001"]["band"], "warning")
+        self.assertEqual(leads["bugs-001"]["band"], "medium")
+        r = score.run(_pass3_envelope(verdicts=[]))
+        self.assertNotIn("resolved", r)
+        for lid in ("arch-001", "bugs-001"):
+            lead = leads[lid]
+            rows = [f for f in r["findings"] if f["stable_hash"] == lead["stable_hash"]]
+            self.assertEqual(len(rows), 1, lid)
+            self.assertEqual(rows[0]["status"], "needs-recheck")
+            self.assertEqual(rows[0]["band"], lead["band"])
+
+    def test_token_matched_verdicts_resolve_both_leads(self):
+        leads = _p45_leads()
+        r = score.run(_pass3_envelope())
+        self.assertEqual(len(r["resolved"]), 2)
+        by_hash = {x["stable_hash"]: x for x in r["resolved"]}
+        self.assertEqual(set(by_hash), {leads["arch-001"]["stable_hash"],
+                                        leads["bugs-001"]["stable_hash"]})
+        arch = by_hash[leads["arch-001"]["stable_hash"]]
+        self.assertEqual(arch["resolution"], {
+            "source": "recheck", "agents": ["architecture"], "verdict": "resolved",
+            "head_sha": "50f9932e", "at_pass": 3, "reason": "line rewritten by d2e6887"})
+        self.assertEqual((arch["file"], arch["line"], arch["agent"], arch["band"]),
+                         (_ARCH_FILE, 74, "architecture", "warning"))
+        bugs = by_hash[leads["bugs-001"]["stable_hash"]]
+        self.assertEqual(bugs["resolution"]["agents"], ["bugs"])
+        self.assertEqual(bugs["resolution"]["reason"], "gate prose now matches")
+        self.assertEqual(_verdict_rejections(r), [])
+        for file, line in ((_ARCH_FILE, 74), (_BUGS_FILE, 38)):
+            for row in _open_rows(r, file, line):
+                self.assertFalse(row["band"] in ("critical", "warning", "medium")
+                                 and row["status"] == "needs-recheck", row)
+
+    def test_resolved_records_fit_the_persisted_schema(self):
+        with open(_FUTURE_SCHEMA) as fh:
+            schema = json.load(fh)
+        r = score.run(_pass3_envelope())
+        for rec in r["resolved"]:
+            self.assertEqual(state_shape.check_resolved_record(rec, schema), [])
+
+    def test_resolved_lead_does_not_take_its_members(self):
+        # arch-001 absorbed a second architecture finding and a bugs finding at
+        # the same line. Neither was asked about (R1 names the lead's identity,
+        # R2 a different file), so both are still scored on their own facts.
+        r = score.run(_pass3_envelope())
+        resolved_titles = {x["title"] for x in r["resolved"]}
+        members = [m for m in _p45_leads()["arch-001"]["members"]
+                   if m["title"] != _p45_leads()["arch-001"]["title"]]
+        self.assertEqual(len(members), 2)
+        for m in members:
+            self.assertNotIn(m["title"], resolved_titles)
+            seen = ([f for f in r["findings"] if f["title"] == m["title"]]
+                    + [x for x in r["filtered"] if x.get("title") == m["title"]]
+                    + [x for x in r["fixed_since_last"] if x.get("title") == m["title"]])
+            self.assertTrue(seen, m["title"])
+            self.assertFalse(any(str(x.get("reason", "")).startswith("absorbed-into")
+                                 for x in seen if "reason" in x))
+
+
+class TestVerdictGuard(unittest.TestCase):
+    """Every guard leg: a mutation of the fixture replay that must leave the
+    lead open as needs-recheck AND report exactly one fixed reason."""
+
+    def _arch_hash(self):
+        return _p45_leads()["arch-001"]["stable_hash"]
+
+    def _assert_rejected(self, env, reason, status="needs-recheck"):
+        r = score.run(env)
+        self.assertNotIn("resolved", r)
+        rows = [f for f in r["findings"] if f["stable_hash"] == self._arch_hash()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], status)
+        self.assertEqual([x["reason"] for x in _verdict_rejections(r)], [reason])
+        return r
+
+    def _arch_only(self, verdicts, requests=None, **over):
+        return _pass3_envelope(
+            recheck_requests=requests if requests is not None
+            else [_p45_request("R1", "arch-001")],
+            verdicts=verdicts, **over)
+
+    def test_unrequested_token(self):
+        r = self._assert_rejected(self._arch_only([_p45_recheck("R9", "architecture")]),
+                                  "verdict: unrequested token")
+        self.assertIsNone(_verdict_rejections(r)[0]["file"])
+
+    def test_agent_not_asked(self):
+        r = self._assert_rejected(self._arch_only([_p45_recheck("R1", "security")]),
+                                  "verdict: agent not asked")
+        rej = _verdict_rejections(r)[0]
+        self.assertEqual((rej["file"], rej["line"]), (_ARCH_FILE, 74))
+
+    def test_record_not_carried(self):
+        req = _p45_request("R1", "arch-001", file="src/elsewhere.py", line=3)
+        self._assert_rejected(self._arch_only([_p45_recheck("R1", "architecture")], [req]),
+                              "verdict: record not carried")
+
+    def test_stale_request_hash_is_not_the_carried_record(self):
+        # Pitfall 2: the pass-1 hash (ddca…) is not the CARRIED record's hash.
+        state = _phase45_pass2()
+        old = [f["stable_hash"] for f in state["passes"][0]["findings"]
+               if f["stable_hash"].startswith(_ARCH_PASS1_HASH_PREFIX)]
+        self.assertEqual(len(old), 1)
+        req = _p45_request("R1", "arch-001", stable_hash=old[0])
+        self._assert_rejected(self._arch_only([_p45_recheck("R1", "architecture")], [req]),
+                              "verdict: record not carried")
+
+    def test_persisted_record_cannot_be_recheck_resolved(self):
+        # canonical == current_code first line => persisted; A4: a persisted
+        # line needs an owner decision or a fix-obsolete, not a recheck.
+        lead = _p45_leads()["arch-001"]
+        head = {"arch-001": lead["current_code"].splitlines()[0]}
+        req = _p45_request("R1", "arch-001", stable_hash=None)
+        self._assert_rejected(
+            self._arch_only([_p45_recheck("R1", "architecture")], [req],
+                            head_override=head),
+            "verdict: record not needs-recheck", status="persisted")
+
+    def test_still_applies_changes_nothing(self):
+        r = score.run(self._arch_only([_p45_recheck("R1", "architecture",
+                                                    verdict="still-applies")]))
+        self.assertNotIn("resolved", r)
+        self.assertEqual(_verdict_rejections(r), [])
+        rows = [f for f in r["findings"] if f["stable_hash"] == self._arch_hash()]
+        self.assertEqual(rows[0]["status"], "needs-recheck")
+
+    def test_still_applies_from_one_asked_agent_blocks_resolution(self):
+        req = _p45_request("R1", "arch-001", agents=["architecture", "design"])
+        self._assert_rejected(
+            self._arch_only([_p45_recheck("R1", "architecture"),
+                             _p45_recheck("R1", "design", verdict="still-applies")], [req]),
+            "verdict: contradicted by still-applies")
+
+    def test_malformed_verdicts(self):
+        good = _p45_recheck("R1", "architecture")
+        for bad in ({k: v for k, v in good.items() if k != "source"},
+                    {k: v for k, v in good.items() if k != "token"},
+                    dict(good, source="owner"), dict(good, verdict="maybe"),
+                    dict(good, token=1), "resolved", None, ["R1"]):
+            with self.subTest(verdict=bad):
+                self._assert_rejected(self._arch_only([bad]), "verdict: malformed")
+
+    def test_malformed_fix_verdicts(self):
+        good = {"source": "fix-obsolete", "stable_hash": self._arch_hash(), "agent": "fix",
+                "verdict": "obsolete", "at_pass": 2, "head_sha": "4a5ee6c0",
+                "reason": "x", "verified_blob": "blob-a", "head_blob": "blob-a"}
+        for bad in ({k: v for k, v in good.items() if k != "stable_hash"},
+                    dict(good, at_pass=True), dict(good, at_pass="2"),
+                    dict(good, verdict="resolved")):
+            with self.subTest(verdict=bad):
+                self._assert_rejected(self._arch_only([bad], requests=[]),
+                                      "verdict: malformed")
+
+    def test_malformed_request(self):
+        req = _p45_request("R1", "arch-001")
+        del req["title"]
+        r = score.run(self._arch_only([_p45_recheck("R1", "architecture")], [req]))
+        self.assertNotIn("resolved", r)
+        self.assertEqual([x["reason"] for x in _verdict_rejections(r)],
+                         ["verdict: malformed", "verdict: unrequested token"])
+
+    def test_non_list_containers_fail_closed(self):
+        for key in ("recheck_requests", "verdicts"):
+            for bad in ({}, "R1", {"token": "R1"}, 3):
+                with self.subTest(key=key, value=bad):
+                    with self.assertRaises(TypeError):
+                        score.run(_pass3_envelope(**{key: bad}))
+            with self.subTest(key=key, value=None):
+                r = score.run(_pass3_envelope(**{key: None}))
+                self.assertNotIn("resolved", r)
+
+    def test_non_int_pass_number_resolves_nothing(self):
+        for pn in (None, "3", True):
+            with self.subTest(pass_number=pn):
+                r = score.run(_pass3_envelope(pass_number=pn))
+                self.assertNotIn("resolved", r)
+                self.assertEqual({x["reason"] for x in _verdict_rejections(r)},
+                                 {"verdict: malformed"})
+
+
+class TestVerdictFixObsolete(unittest.TestCase):
+    """The previous pass's fix-agent `obsolete` verdict resolves its carried lead
+    only while the file the fix agent verified is the file at HEAD."""
+
+    def _fix(self, **over):
+        v = {"source": "fix-obsolete", "stable_hash": _p45_leads()["arch-001"]["stable_hash"],
+             "agent": "fix", "verdict": "obsolete", "at_pass": 2, "head_sha": "4a5ee6c0",
+             "reason": "already rewritten", "verified_blob": "blob-a",
+             "head_blob": "blob-a"}
+        v.update(over)
+        return v
+
+    def _env(self, verdicts, **over):
+        return _pass3_envelope(recheck_requests=[], verdicts=verdicts, **over)
+
+    def _arch_rows(self, r):
+        return [f for f in r["findings"]
+                if f["stable_hash"] == _p45_leads()["arch-001"]["stable_hash"]]
+
+    def test_accepted_records_the_verified_revision(self):
+        r = score.run(self._env([self._fix()]))
+        self.assertEqual(len(r["resolved"]), 1)
+        self.assertEqual(r["resolved"][0]["resolution"], {
+            "source": "fix-obsolete", "agents": ["fix"], "verdict": "obsolete",
+            "head_sha": "4a5ee6c0", "at_pass": 3, "reason": "already rewritten",
+            "verified_blob": "blob-a"})
+        self.assertEqual(self._arch_rows(r), [])
+        self.assertEqual(_verdict_rejections(r), [])
+
+    def test_null_reason_becomes_empty_string(self):
+        r = score.run(self._env([self._fix(reason=None)]))
+        self.assertEqual(r["resolved"][0]["resolution"]["reason"], "")
+
+    def test_intervening_edit_rejects_the_verdict(self):
+        good = self._fix()
+        cases = [dict(good, head_blob="blob-b"), dict(good, head_blob=None),
+                 {k: v for k, v in good.items() if k != "verified_blob"},
+                 {k: v for k, v in good.items() if k != "head_blob"},
+                 dict(good, verified_blob=7, head_blob=7), dict(good, verified_blob="",
+                                                                head_blob="")]
+        for v in cases:
+            with self.subTest(verdict=v):
+                r = score.run(self._env([v]))
+                self.assertNotIn("resolved", r)
+                self.assertEqual(len(self._arch_rows(r)), 1)
+                self.assertEqual([x["reason"] for x in _verdict_rejections(r)],
+                                 ["verdict: evidence changed since verification"])
+
+    def test_stale_verdict_reported_as_stale_before_blob_check(self):
+        for v in (self._fix(at_pass=1), self._fix(at_pass=1, head_blob="blob-b"),
+                  self._fix(at_pass=3)):
+            with self.subTest(verdict=v):
+                r = score.run(self._env([v]))
+                self.assertNotIn("resolved", r)
+                self.assertEqual(len(self._arch_rows(r)), 1)
+                self.assertEqual([x["reason"] for x in _verdict_rejections(r)],
+                                 ["verdict: stale fix verdict"])
+
+    def test_persisted_lead_resolves_by_fix_obsolete(self):
+        lead = _p45_leads()["arch-001"]
+        head = {"arch-001": lead["current_code"].splitlines()[0]}
+        probe = score.run(self._env([], head_override=head))
+        self.assertEqual(self._arch_rows(probe)[0]["status"], "persisted")
+        r = score.run(self._env([self._fix()], head_override=head))
+        self.assertEqual(len(r["resolved"]), 1)
+        self.assertEqual(r["resolved"][0]["stable_hash"], lead["stable_hash"])
+
+    def test_unknown_hash_is_not_carried(self):
+        r = score.run(self._env([self._fix(stable_hash="f" * 64)]))
+        self.assertNotIn("resolved", r)
+        self.assertEqual([x["reason"] for x in _verdict_rejections(r)],
+                         ["verdict: record not carried"])
+
+    def test_fixed_since_last_lead_is_not_resolved(self):
+        r = score.run(self._env([self._fix()], head_override={"arch-001": None}))
+        self.assertNotIn("resolved", r)
+        self.assertEqual(_verdict_rejections(r), [])
+        self.assertTrue(any(x["title"] == _p45_leads()["arch-001"]["title"]
+                            for x in r["fixed_since_last"]))
+
+    def test_recheck_resolution_has_envelope_head_and_no_blob(self):
+        r = score.run(_pass3_envelope())
+        for rec in r["resolved"]:
+            self.assertEqual(rec["resolution"]["head_sha"], "50f9932e")
+            self.assertNotIn("verified_blob", rec["resolution"])
+
+
+class TestVerdictMembers(unittest.TestCase):
+    """Members resolve individually; fix-obsolete never reaches a member."""
+
+    def _R(self):
+        a = _hl("a", "security", "injection", 10, 80, "inj", code="a_line")
+        b = _hl("b", "bugs", "logic-error", 11, 70, "logic", code="b_frag")
+        r = score.run(_hl_env([a, b], {"src/a.py": [[8, 14]]}))
+        self.assertEqual(len(r["findings"]), 1)
+        R = r["findings"][0]
+        self.assertEqual(R["agent"], "security")
+        return R
+
+    def _member_req(self, token="R1", **over):
+        req = {"token": token, "agents": ["bugs"], "stable_hash": None,
+               "file": "src/a.py", "line": 11, "agent": "bugs", "title": "logic"}
+        req.update(over)
+        return req
+
+    def test_member_resolves_and_lead_stays(self):
+        R = self._R()
+        cf = _carried(R, {"security": "a_line", "bugs": "b_line_now"})
+        env = _hl_env([], {"src/a.py": [[8, 14]]}, carryforward=[cf], pass_number=2,
+                      head_sha="abc123", recheck_requests=[self._member_req()],
+                      verdicts=[_p45_recheck("R1", "bugs")])
+        r = score.run(env)
+        self.assertEqual(len(r["resolved"]), 1)
+        rec = r["resolved"][0]
+        self.assertEqual((rec["agent"], rec["title"], rec["line"], rec["stable_hash"]),
+                         ("bugs", "logic", 11, None))
+        self.assertEqual(rec["resolution"]["at_pass"], 2)
+        rows = [f for f in r["findings"] if f["agent"] == "security"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["stable_hash"], R["stable_hash"])
+        self.assertEqual(_pairs(rows[0]), [("security", "inj")])
+
+    def test_lead_hash_request_never_matches_a_member(self):
+        R = self._R()
+        cf = _carried(R, {"security": "a_line", "bugs": "b_line_now"})
+        req = self._member_req(stable_hash=R["stable_hash"])
+        env = _hl_env([], {"src/a.py": [[8, 14]]}, carryforward=[cf], pass_number=2,
+                      recheck_requests=[req], verdicts=[_p45_recheck("R1", "bugs")])
+        r = score.run(env)
+        self.assertNotIn("resolved", r)
+        self.assertEqual([x["reason"] for x in _verdict_rejections(r)],
+                         ["verdict: record not carried"])
+
+    def test_fix_obsolete_never_resolves_a_member(self):
+        R = self._R()
+        cf = _carried(R, {"security": "a_line", "bugs": "b_line_now"})
+        member_hash = score.stable_hash("src/a.py", "b_line_now", "logic")
+        v = {"source": "fix-obsolete", "stable_hash": member_hash, "agent": "fix",
+             "verdict": "obsolete", "at_pass": 1, "head_sha": None, "reason": None,
+             "verified_blob": "b", "head_blob": "b"}
+        env = _hl_env([], {"src/a.py": [[8, 14]]}, carryforward=[cf], pass_number=2,
+                      verdicts=[v])
+        r = score.run(env)
+        self.assertNotIn("resolved", r)
+        self.assertEqual([x["reason"] for x in _verdict_rejections(r)],
+                         ["verdict: record not carried"])
+
+
+class TestVerdictByteSafety(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.old = replay.load_scorer("blob:" + PRE_SNAPSHOT_SCORER_BLOB)
+
+    def _strip(self, result):
+        for f in result["findings"]:
+            f.pop("snapshot", None)
+        return json.dumps(result, sort_keys=True)
+
+    def test_no_verdict_keys_is_unchanged(self):
+        env = _pass3_envelope()
+        for k in ("recheck_requests", "verdicts", "head_sha"):
+            env.pop(k)
+        new = score.run(json.loads(json.dumps(env)))
+        self.assertNotIn("resolved", new)
+        self.assertEqual(self._strip(new),
+                         json.dumps(self.old.run(json.loads(json.dumps(env))),
+                                    sort_keys=True))
+
+    def test_empty_verdicts_are_unchanged(self):
+        env = _pass3_envelope(recheck_requests=[], verdicts=[])
+        new = score.run(json.loads(json.dumps(env)))
+        self.assertNotIn("resolved", new)
+        self.assertEqual(self._strip(new),
+                         json.dumps(self.old.run(json.loads(json.dumps(env))),
+                                    sort_keys=True))
+
+    def test_hl_env_pass1_unchanged(self):
+        env = _hl_env([_hl("a", "security", "injection", 10, 80, "inj"),
+                       _hl("b", "bugs", "logic-error", 11, 70, "logic")],
+                      {"src/a.py": [[8, 14]]})
+        new = score.run(json.loads(json.dumps(env)))
+        self.assertNotIn("resolved", new)
+        self.assertEqual(self._strip(new),
+                         json.dumps(self.old.run(json.loads(json.dumps(env))),
+                                    sort_keys=True))
+
