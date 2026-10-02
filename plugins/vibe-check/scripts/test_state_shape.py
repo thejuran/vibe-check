@@ -860,5 +860,101 @@ class TestMalformedInput(unittest.TestCase):
             state_shape.check_pass_entry(make_pass(findings=["x"]), FUTURE), [])
 
 
+# --------------------------------------------------------------------------
+# The live Phase-45 loop state, captured verbatim. It is the regression input
+# for carry-forward work: a real two-pass medium-only state whose open rows
+# were never closed. These assertions pin the facts later tests rely on, so a
+# fixture that silently stopped containing them cannot pass for one that does.
+# --------------------------------------------------------------------------
+
+PHASE45_FIXTURE = os.path.join(HERE, "fixtures", "phase45-loop-state.json")
+
+# The reasons the fixture produced under the future schema BEFORE the carry-
+# forward families were added: the two `audit` rows (one per pass) lack five
+# scored keys each. This gap predates the new families and is pinned, not
+# fixed, so any added reason on an old file shows up as a diff.
+PHASE45_FUTURE_REASONS = sorted(
+    ["missing required key in finding: %s" % key
+     for key in ("severity", "agent", "agent_confidence", "problem", "source_window")]
+    * 2)
+
+
+def load_phase45_fixture():
+    with open(PHASE45_FIXTURE) as fh:
+        return json.load(fh)
+
+
+def _by_id(entry, finding_id):
+    hits = [f for f in entry["findings"] if f.get("id") == finding_id]
+    if len(hits) != 1:
+        raise AssertionError("expected exactly one %s finding, got %d"
+                             % (finding_id, len(hits)))
+    return hits[0]
+
+
+class TestPhase45LoopFixture(unittest.TestCase):
+    """The fixture contains what every carry-forward regression test assumes."""
+
+    def setUp(self):
+        self.state = load_phase45_fixture()
+        self.p1, self.p2 = self.state["passes"]
+
+    def test_root_is_the_legacy_medium_only_shape(self):
+        self.assertEqual(set(self.state), {"medium_acknowledgments", "passes"})
+        self.assertEqual(self.state["medium_acknowledgments"], {})
+
+    def test_two_passes_in_order(self):
+        self.assertEqual(len(self.state["passes"]), 2)
+        self.assertEqual(self.p1["pass_number"], 1)
+        self.assertEqual(self.p2["pass_number"], 2)
+        self.assertTrue(self.p2["head_sha"].startswith("50f9932e"))
+
+    def test_pass2_warning_needs_recheck(self):
+        f = _by_id(self.p2, "arch-001")
+        self.assertEqual(f["agent"], "architecture")
+        self.assertEqual(f["band"], "warning")
+        self.assertEqual(f["status"], "needs-recheck")
+        self.assertTrue(f["stable_hash"].startswith("5e78e90a6b"))
+        self.assertEqual(f["file"], "plugins/vibe-check/phases/deep-review/01d-coverage.md")
+        self.assertEqual(f["line"], 74)
+        self.assertIsInstance(f["members"], list)
+        self.assertTrue(f["members"])
+
+    def test_pass2_medium_needs_recheck(self):
+        f = _by_id(self.p2, "bugs-001")
+        self.assertEqual(f["band"], "medium")
+        self.assertEqual(f["status"], "needs-recheck")
+        self.assertTrue(f["stable_hash"].startswith("7479a9b5fd"))
+
+    def test_warning_hash_moved_between_passes(self):
+        # The same issue carries a different stable_hash in each pass. This is
+        # real recorded behavior, not fixture damage: do not "fix" it.
+        self.assertTrue(_by_id(self.p1, "arch-001")["stable_hash"].startswith("ddca00413f"))
+        self.assertNotEqual(_by_id(self.p1, "arch-001")["stable_hash"],
+                            _by_id(self.p2, "arch-001")["stable_hash"])
+
+    def test_pass2_has_exactly_one_low_audit_row(self):
+        audits = [f for f in self.p2["findings"] if f.get("status") == "audit"]
+        self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0]["band"], "low")
+        for key in ("severity", "agent", "agent_confidence", "problem", "source_window"):
+            self.assertNotIn(key, audits[0])
+
+    def test_current_code_first_line_is_not_the_canonical_line(self):
+        # `current_code` is a fragment whose first line is NOT the flagged
+        # line, so a snapshot keyed on current_code would record the wrong code.
+        rechecks = [f for f in self.p2["findings"] if f.get("status") == "needs-recheck"]
+        self.assertEqual(len(rechecks), 2)
+        for f in rechecks:
+            with self.subTest(id=f["id"]):
+                self.assertNotEqual(f["current_code"].splitlines()[0].strip(),
+                                    f["canonical_line_content"].strip())
+
+    def test_fixture_future_schema_reasons_are_exactly_the_preexisting_audit_gap(self):
+        reasons = state_shape.check_state(self.state, FUTURE)
+        self.assertEqual(len(PHASE45_FUTURE_REASONS), 10)
+        self.assertEqual(sorted(reasons), PHASE45_FUTURE_REASONS)
+
+
 if __name__ == "__main__":
     unittest.main()
