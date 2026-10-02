@@ -4906,6 +4906,14 @@ def _verdict_rejections(result):
             if str(x.get("reason", "")).startswith("verdict: ")]
 
 
+def _arch_lead_rows(result):
+    """The re-scored arch-001 row, by identity (its hash moves with HEAD)."""
+    lead = _p45_leads()["arch-001"]
+    return [f for f in result["findings"]
+            if (f.get("file"), f.get("line"), f.get("agent"), f.get("title"))
+            == (lead["file"], lead["line"], lead["agent"], lead["title"])]
+
+
 def _open_rows(result, file, line):
     return [f for f in result["findings"]
             if f.get("file") == file and f.get("line") == line]
@@ -4973,8 +4981,11 @@ class TestVerdictPhase45Fixture(unittest.TestCase):
                     + [x for x in r["filtered"] if x.get("title") == m["title"]]
                     + [x for x in r["fixed_since_last"] if x.get("title") == m["title"]])
             self.assertTrue(seen, m["title"])
-            self.assertFalse(any(str(x.get("reason", "")).startswith("absorbed-into")
-                                 for x in seen if "reason" in x))
+            # Not folded into the resolved lead (the two members may still
+            # group with each other at their shared line).
+            lead_hash = _p45_leads()["arch-001"]["stable_hash"]
+            self.assertFalse(any(x.get("reason") == "absorbed-into: " + lead_hash
+                                 for x in seen))
 
 
 class TestVerdictGuard(unittest.TestCase):
@@ -4987,7 +4998,7 @@ class TestVerdictGuard(unittest.TestCase):
     def _assert_rejected(self, env, reason, status="needs-recheck"):
         r = score.run(env)
         self.assertNotIn("resolved", r)
-        rows = [f for f in r["findings"] if f["stable_hash"] == self._arch_hash()]
+        rows = _arch_lead_rows(r)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], status)
         self.assertEqual([x["reason"] for x in _verdict_rejections(r)], [reason])
@@ -5041,7 +5052,7 @@ class TestVerdictGuard(unittest.TestCase):
                                                     verdict="still-applies")]))
         self.assertNotIn("resolved", r)
         self.assertEqual(_verdict_rejections(r), [])
-        rows = [f for f in r["findings"] if f["stable_hash"] == self._arch_hash()]
+        rows = _arch_lead_rows(r)
         self.assertEqual(rows[0]["status"], "needs-recheck")
 
     def test_still_applies_from_one_asked_agent_blocks_resolution(self):
@@ -5114,8 +5125,7 @@ class TestVerdictFixObsolete(unittest.TestCase):
         return _pass3_envelope(recheck_requests=[], verdicts=verdicts, **over)
 
     def _arch_rows(self, r):
-        return [f for f in r["findings"]
-                if f["stable_hash"] == _p45_leads()["arch-001"]["stable_hash"]]
+        return _arch_lead_rows(r)
 
     def test_accepted_records_the_verified_revision(self):
         r = score.run(self._env([self._fix()]))

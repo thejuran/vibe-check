@@ -865,6 +865,101 @@ def _expand_members(cf):
     return expanded, fixed
 
 
+def _nonempty_str(x):
+    return isinstance(x, str) and bool(x)
+
+
+def _request_matches(req, record, stored_hash):
+    """Does recheck request `req` name this carried record?
+
+    The record identity is (file, line, agent, title); a request that also
+    names a stable_hash must name the CARRIED record's stored hash (a lead's —
+    members have none, so a hash-bearing request never reaches a member).
+    """
+    if (req["file"] != record.get("file")
+            or _as_line(req["line"]) != _as_line(record.get("line"))
+            or req["agent"] != record.get("agent")
+            or req["title"] != record.get("title")):
+        return False
+    return req["stable_hash"] is None or req["stable_hash"] == stored_hash
+
+
+def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verdicts,
+                    fix_verdicts, pass_number, head_sha):
+    """Judge every pending verdict that names one carried record.
+
+    -> (resolution | None, consumed, rejected). `consumed` lists every verdict
+    that matched this record (accepted, rejected or no-op); `rejected` is a list
+    of (verdict, fixed reason). Pure; never raises; inputs are pre-validated.
+
+    A recheck verdict resolves the record iff its token was issued for this
+    record, the answering agent was asked, the verdict is "resolved" and the
+    record's computed carry status is needs-recheck (a persisted line needs an
+    owner decision or a fix-obsolete verdict). A "still-applies" from any asked
+    agent keeps the record open and blocks the other agents' "resolved".
+
+    A fix-obsolete verdict resolves a LEAD (members have no stored hash) iff it
+    names the lead's stored stable_hash, was issued on the previous pass, and
+    the file blob the fix agent verified equals the blob at HEAD now — an
+    intervening edit means the verdict judged code that no longer exists. Its
+    evidence keeps the verdict's own head_sha: the revision actually verified.
+    Records that are fixed-since-last are consumed by the caller, never here.
+    """
+    consumed = []
+    rejected = []
+    resolution = None
+
+    matched = [v for v in recheck_verdicts
+               if _request_matches(requests_by_token[v["token"]], record, stored_hash)]
+    consumed.extend(matched)
+    resolving = [v for v in matched if v["verdict"] == "resolved"]
+    if resolving:
+        if status != "needs-recheck":
+            rejected.extend((v, "verdict: record not needs-recheck") for v in resolving)
+        elif any(v["verdict"] == "still-applies" for v in matched):
+            rejected.extend((v, "verdict: contradicted by still-applies") for v in resolving)
+        else:
+            first = resolving[0]
+            agents = []
+            for v in resolving:
+                if v["agent"] not in agents:
+                    agents.append(v["agent"])
+            resolution = {
+                "source": "recheck",
+                "agents": agents,
+                "verdict": "resolved",
+                "head_sha": head_sha,
+                "at_pass": pass_number,
+                "reason": first["reason"] if isinstance(first.get("reason"), str) else "",
+            }
+
+    if stored_hash is None:
+        return resolution, consumed, rejected
+    for v in fix_verdicts:
+        if v["stable_hash"] != stored_hash:
+            continue
+        consumed.append(v)
+        if v["at_pass"] != pass_number - 1:
+            rejected.append((v, "verdict: stale fix verdict"))
+            continue
+        verified = v.get("verified_blob")
+        if not (_nonempty_str(verified) and verified == v.get("head_blob")):
+            rejected.append((v, "verdict: evidence changed since verification"))
+            continue
+        if resolution is None:
+            verdict_head = v.get("head_sha")
+            resolution = {
+                "source": "fix-obsolete",
+                "agents": [v["agent"] if isinstance(v.get("agent"), str) else "fix"],
+                "verdict": "obsolete",
+                "head_sha": verdict_head if isinstance(verdict_head, str) else None,
+                "at_pass": pass_number,
+                "reason": v["reason"] if isinstance(v.get("reason"), str) else "",
+                "verified_blob": verified,
+            }
+    return resolution, consumed, rejected
+
+
 def _intent_doc_penalty(finding):
     """Mutually-exclusive intent-doc penalty (D-12, scoring.md:16-17).
 
@@ -1131,6 +1226,19 @@ def run(envelope):
                         + type(raw_carryforward).__name__)
     carryforward = raw_carryforward or []
     findings = list(raw_findings or [])
+    # Verified resolution inputs (all optional; absent => no resolution). The
+    # two lists are orchestrator-assembled, so a present non-list fails closed
+    # exactly like findings/carryforward; per-element garbage is reported below.
+    raw_requests = envelope.get("recheck_requests", [])
+    raw_verdicts = envelope.get("verdicts", [])
+    if raw_requests is not None and not isinstance(raw_requests, list):
+        raise TypeError("malformed envelope: 'recheck_requests' must be a list, got "
+                        + type(raw_requests).__name__)
+    if raw_verdicts is not None and not isinstance(raw_verdicts, list):
+        raise TypeError("malformed envelope: 'verdicts' must be a list, got "
+                        + type(raw_verdicts).__name__)
+    head_sha = envelope.get("head_sha")
+    head_sha = head_sha if isinstance(head_sha, str) else None
 
     threshold = THRESHOLDS.get(command, THRESHOLDS["review"])
 
@@ -1163,6 +1271,80 @@ def run(envelope):
         else:
             _route_malformed(cf, reason)
     carryforward = valid_carryforward
+
+    # --- Verdict partition (CARRY-02) ---------------------------------------- #
+    # A verdict can only ever resolve a carried record through _accept_verdict;
+    # everything that cannot reach it is reported here with a fixed reason and
+    # resolves nothing. Without an integer pass number no resolution can be
+    # stamped (or a fix verdict's age judged), so every verdict is malformed.
+    def _reject_verdict(reason, where=None):
+        filtered.append({
+            "file": where.get("file") if isinstance(where, dict) else None,
+            "line": where.get("line") if isinstance(where, dict) else None,
+            "title": where.get("title") if isinstance(where, dict) else None,
+            "reason": reason,
+        })
+
+    requests_by_token = {}
+    for req in raw_requests or []:
+        if (isinstance(req, dict) and isinstance(req.get("token"), str)
+                and req["token"] not in requests_by_token
+                and isinstance(req.get("agents"), list)
+                and all(isinstance(a, str) for a in req["agents"])
+                and all(k in req for k in ("file", "line", "agent", "title"))
+                and (req.get("stable_hash") is None
+                     or isinstance(req.get("stable_hash"), str))):
+            requests_by_token[req["token"]] = dict(req, stable_hash=req.get("stable_hash"))
+        else:
+            _reject_verdict("verdict: malformed", req)
+    pass_ok = _as_line(pass_number) is not None
+    recheck_verdicts = []
+    fix_verdicts = []
+    for v in raw_verdicts or []:
+        well_formed = isinstance(v, dict) and pass_ok and (
+            (v.get("source") == "recheck" and isinstance(v.get("token"), str)
+             and isinstance(v.get("agent"), str)
+             and v.get("verdict") in ("resolved", "still-applies"))
+            or (v.get("source") == "fix-obsolete" and isinstance(v.get("stable_hash"), str)
+                and _as_line(v.get("at_pass")) is not None
+                and v.get("verdict") == "obsolete"))
+        if not well_formed:
+            _reject_verdict("verdict: malformed")
+        elif v["source"] == "fix-obsolete":
+            fix_verdicts.append(v)
+        elif v["token"] not in requests_by_token:
+            _reject_verdict("verdict: unrequested token")
+        elif v["agent"] not in requests_by_token[v["token"]]["agents"]:
+            _reject_verdict("verdict: agent not asked", requests_by_token[v["token"]])
+        else:
+            recheck_verdicts.append(v)
+    consumed_ids = set()
+    resolved = []
+
+    def _judge(record, stored_hash, status):
+        """Run the guard for one carried record; True iff it resolved."""
+        pending_recheck = [v for v in recheck_verdicts if id(v) not in consumed_ids]
+        pending_fix = [v for v in fix_verdicts if id(v) not in consumed_ids]
+        if not pending_recheck and not pending_fix:
+            return False
+        resolution, consumed, rejected = _accept_verdict(
+            record, stored_hash, status, requests_by_token, pending_recheck,
+            pending_fix, pass_number, head_sha)
+        consumed_ids.update(id(v) for v in consumed)
+        for _, reason in rejected:
+            _reject_verdict(reason, record)
+        if status == "fixed-since-last" or resolution is None:
+            return False
+        resolved.append({
+            "file": record.get("file"),
+            "line": record.get("line"),
+            "title": record.get("title"),
+            "band": record.get("band"),
+            "stable_hash": stored_hash,
+            "agent": record.get("agent"),
+            "resolution": resolution,
+        })
+        return True
 
     valid_findings = []
     for f in findings:
@@ -1219,7 +1401,15 @@ def run(envelope):
         status = carry_forward_status(
             rep, cf.get("canonical_line_content"), cf.get("canonical_window")
         )
+        stored_hash = cf.get("stable_hash") if isinstance(cf.get("stable_hash"), str) else None
         if status == "fixed-since-last":
+            # The line is gone: the verdicts naming it are moot, not rejected.
+            consumed_ids.update(
+                id(v) for v in recheck_verdicts + fix_verdicts
+                if (v["source"] == "recheck"
+                    and _request_matches(requests_by_token[v["token"]], rep, stored_hash))
+                or (v["source"] == "fix-obsolete" and stored_hash is not None
+                    and v["stable_hash"] == stored_hash))
             fixed_since_last.append({
                 "file": cf.get("file"),
                 "line": cf.get("line"),
@@ -1227,7 +1417,7 @@ def run(envelope):
                 "band": cf.get("band"),
                 "first_pass_N": cf.get("first_pass_N"),
             })
-        else:
+        elif not _judge(rep, stored_hash, status):
             # persisted / needs-recheck both flow through scoring (review.md:678).
             rep["status"] = status
             if status == "persisted":
@@ -1236,10 +1426,19 @@ def run(envelope):
         expanded, fixed = _expand_members(cf)
         fixed_since_last.extend(fixed)
         for p in expanded:
+            # Members resolve individually; a resolved lead never takes an
+            # unresolved member with it. Members carry no stored hash, so a
+            # fix-obsolete verdict can never reach one.
+            if _judge(p, None, p["status"]):
+                continue
             if p["status"] == "persisted":
                 persisted_ids.add(id(p))
             working.append(p)
     working.extend(findings)
+    for v in recheck_verdicts + fix_verdicts:
+        if id(v) not in consumed_ids:
+            _reject_verdict("verdict: record not carried",
+                            requests_by_token.get(v.get("token")))
 
     # --- min_confidence pre-scoring filter (CONF-02, D-03) — BEFORE cross-confirm #
     # Drop any working finding (new OR carryforward — NO carve-out, D-03) whose
@@ -1501,12 +1700,16 @@ def run(envelope):
 
     # Fable A11: sanitize non-finite floats at the output boundary so the
     # envelope is ALWAYS strict JSON (see _sanitize_nonfinite).
-    return _sanitize_nonfinite({
+    out = {
         "scored_by_script": True,
         "findings": [_shape_finding(f) for f in kept],
         "fixed_since_last": fixed_since_last,
         "filtered": filtered,
-    })
+    }
+    # Absent when empty, so every pass-1 / replay envelope is byte-identical.
+    if resolved:
+        out["resolved"] = resolved
+    return _sanitize_nonfinite(out)
 
 
 def _as_line(x):
