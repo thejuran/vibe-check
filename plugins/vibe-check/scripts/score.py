@@ -220,6 +220,74 @@ def _snapshot_for(row, pass_number):
     return cur
 
 
+_OBLIGATION_ROW_KEYS = ("stable_hash", "orchestrator_score", "band", "attribution")
+
+
+def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of):
+    """Kept-open obligation rows for carried records this pass's filters dropped.
+
+    `dropped` lists (working record, reason) pairs collected by the
+    min_confidence filter and the sub-threshold drop, for registered records
+    only; `carried_obligations` maps id(working record) to {"obligation",
+    "record", "lead"}; `members_of` maps id(lead working record) to its
+    expanded members that entered scoring this pass.
+
+    A row is emitted only while its obligation hash is not already visible (a
+    kept row's stable_hash, a kept row's member sidecar, or an earlier emitted
+    obligation row). It is the last row the owner saw — stored stable_hash,
+    orchestrator_score, band and attribution copied verbatim, never re-scored —
+    with this pass's carry status, HEAD read, `kept_open` reason and snapshot.
+    A lead row's members are its own record plus this pass's members of that
+    lead that neither ride in a kept row nor become rows of their own, so a
+    resolved or fixed member is never re-listed. Pure; never raises.
+    """
+    visible = {s.get("stable_hash") for s in kept}
+    kept_idents = set()
+    for s in kept:
+        for mem in s.get("members") or []:
+            if not isinstance(mem, dict):
+                continue
+            kept_idents.add(_finding_identity(mem))
+            if isinstance(mem.get("obligation"), dict):
+                visible.add(mem["obligation"].get("stable_hash"))
+    own_row_ids = {id(m) for m, _ in dropped
+                   if carried_obligations[id(m)]["obligation"]["stable_hash"] not in visible}
+    rows = []
+    done = set()
+    for m, reason in dropped:
+        if id(m) in done:
+            continue
+        done.add(id(m))
+        entry = carried_obligations[id(m)]
+        obl = entry["obligation"]
+        if obl["stable_hash"] in visible:
+            continue
+        row = {k: v for k, v in entry["record"].items() if k not in ("members", "obligation")}
+        for k in _OBLIGATION_ROW_KEYS:
+            row[k] = obl.get(k)
+        row["status"] = m.get("status")
+        row["canonical_line_content"] = m.get("canonical_line_content")
+        row.pop("kept_open", None)
+        row["kept_open"] = reason
+        row["snapshot"] = obl.get("snapshot")
+        row["snapshot"] = _snapshot_for(row, pass_number)
+        own = _member_ref(m)
+        own["obligation"] = obl
+        members = [own]
+        if entry["lead"]:
+            for e in members_of.get(id(m), []):
+                if _finding_identity(e) in kept_idents or id(e) in own_row_ids:
+                    continue
+                ref = _member_ref(e)
+                if id(e) in carried_obligations:
+                    ref["obligation"] = carried_obligations[id(e)]["obligation"]
+                members.append(ref)
+        row["members"] = members
+        visible.add(obl["stable_hash"])
+        rows.append(row)
+    return rows
+
+
 # --------------------------------------------------------------------------- #
 # Pure helpers
 # --------------------------------------------------------------------------- #
@@ -833,6 +901,9 @@ def _expand_members(cf):
     as a stub, never carried on faith (T-41-37). Working findings carry no
     `members` and no `id`. Returns (expanded, fixed). Pure; never raises — a
     malformed entry (non-dict, non-str agent or title) is skipped, siblings kept.
+    A member that was once a row keeps its obligation identity across expansion:
+    a well-formed `obligation` sidecar (a dict with a str stable_hash) rides on
+    its working record; any other value is ignored.
     """
     raw_members = cf.get("members")
     if not isinstance(raw_members, list):
@@ -861,7 +932,11 @@ def _expand_members(cf):
                 "first_pass_N": None,
             })
             continue
-        expanded.append(dict(e, canonical_line_content=head, status=st))
+        rec = dict(e, canonical_line_content=head, status=st)
+        if (isinstance(raw.get("obligation"), dict)
+                and isinstance(raw["obligation"].get("stable_hash"), str)):
+            rec["obligation"] = raw["obligation"]
+        expanded.append(rec)
     return expanded, fixed
 
 
@@ -1321,8 +1396,12 @@ def run(envelope):
     consumed_ids = set()
     resolved = []
 
-    def _judge(record, stored_hash, status):
-        """Run the guard for one carried record; True iff it resolved."""
+    def _judge(record, stored_hash, status, report_hash=None):
+        """Run the guard for one carried record; True iff it resolved.
+
+        `report_hash` (a member's obligation hash) is the stable_hash recorded
+        in resolved[] when the guard itself runs without a stored hash.
+        """
         pending_recheck = [v for v in recheck_verdicts if id(v) not in consumed_ids]
         pending_fix = [v for v in fix_verdicts if id(v) not in consumed_ids]
         if not pending_recheck and not pending_fix:
@@ -1340,7 +1419,7 @@ def run(envelope):
             "line": record.get("line"),
             "title": record.get("title"),
             "band": record.get("band"),
-            "stable_hash": stored_hash,
+            "stable_hash": stored_hash if stored_hash is not None else report_hash,
             "agent": record.get("agent"),
             "resolution": resolution,
         })
@@ -1393,6 +1472,12 @@ def run(envelope):
     # survivors regroup by site below. A working finding never carries `members`
     # — the group loop rebuilds it from the scored members.
     persisted_ids = set()
+    # Carried obligations (D-02): every carried record that has been a row —
+    # a lead with a stored stable_hash, or a member carrying an `obligation`
+    # sidecar — keyed by id() of its working record, so the two drop paths
+    # below can keep it open instead of letting it vanish.
+    carried_obligations = {}
+    members_of = {}
     working = []
     for cf in carryforward:
         rep = {k: v for k, v in cf.items() if k != "members"}
@@ -1423,17 +1508,32 @@ def run(envelope):
             if status == "persisted":
                 persisted_ids.add(id(rep))
             working.append(rep)
+            if stored_hash is not None:
+                carried_obligations[id(rep)] = {
+                    "obligation": {k: cf.get(k) for k in _OBLIGATION_ROW_KEYS + ("snapshot",)},
+                    "record": cf,
+                    "lead": True,
+                }
+                members_of[id(rep)] = []
         expanded, fixed = _expand_members(cf)
         fixed_since_last.extend(fixed)
         for p in expanded:
             # Members resolve individually; a resolved lead never takes an
             # unresolved member with it. Members carry no stored hash, so a
-            # fix-obsolete verdict can never reach one.
-            if _judge(p, None, p["status"]):
+            # fix-obsolete verdict can never reach one; a resolved member that
+            # was once a row is reported under its own obligation hash.
+            obligation = p.get("obligation")
+            if _judge(p, None, p["status"],
+                      report_hash=obligation["stable_hash"] if obligation else None):
                 continue
             if p["status"] == "persisted":
                 persisted_ids.add(id(p))
             working.append(p)
+            if obligation:
+                carried_obligations[id(p)] = {"obligation": obligation, "record": p,
+                                              "lead": False}
+            if id(rep) in members_of:
+                members_of[id(rep)].append(p)
     working.extend(findings)
     for v in recheck_verdicts + fix_verdicts:
         if id(v) not in consumed_ids:
@@ -1449,6 +1549,7 @@ def run(envelope):
     # short-circuit: a malformed/absent/None value leaves `working` UNTOUCHED so the
     # zero-config default path is byte-stable (GOLDEN_DIGEST unmoved). Strict `<` so
     # a finding at exactly N SURVIVES (CONF-02 "below N", D-03).
+    dropped = []   # (working record, reason) for carried obligations removed from scoring
     if isinstance(min_confidence, int) and not isinstance(min_confidence, bool):
         kept_working = []
         for m in working:
@@ -1460,6 +1561,8 @@ def run(envelope):
                     "title": m.get("title"),
                     "reason": "below-min-confidence",
                 })
+                if id(m) in carried_obligations:
+                    dropped.append((m, "below-min-confidence"))
             else:
                 kept_working.append(m)
         working = kept_working
@@ -1522,6 +1625,7 @@ def run(envelope):
 
     lone_cap = _lone_lane_cap(thresholds)
     survivors = []
+    survivor_sources = []
     for g in groups:
         attribution = list(g["attribution"])
         # scoring.md:18 (D-01): the +10 needs a second opinion — a Codex member
@@ -1627,7 +1731,12 @@ def run(envelope):
             if ident in seen:
                 continue
             seen.add(ident)
-            members.append(_member_ref(m))
+            ref = _member_ref(m)
+            # An absorbed record that was once a row keeps its obligation
+            # identity (stored hash and scored fields) on its member record.
+            if m is not best_member and id(m) in carried_obligations:
+                ref["obligation"] = carried_obligations[id(m)]["obligation"]
+            members.append(ref)
         survivor["members"] = members
         # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
         # appended to NEITHER findings NOR filtered[] — so when two DISTINCT
@@ -1644,10 +1753,11 @@ def run(envelope):
                 "reason": "absorbed-into: " + survivor["stable_hash"],
             })
         survivors.append((survivor, surface_score))
+        survivor_sources.append([m for _, m, _, _, _ in scored_members])
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
     kept = []
-    for survivor, sc in survivors:
+    for (survivor, sc), sources in zip(survivors, survivor_sources):
         if sc < threshold:
             filtered.append({
                 "file": survivor.get("file"),
@@ -1655,9 +1765,20 @@ def run(envelope):
                 "title": survivor.get("title"),
                 "reason": "sub-threshold",
             })
+            dropped.extend((m, "sub-threshold") for m in sources
+                           if id(m) in carried_obligations)
             continue
         survivor["snapshot"] = _snapshot_for(survivor, pass_number)
         kept.append(survivor)
+
+    # --- Kept-open obligations (D-02, D-12) ----------------------------------- #
+    # A carried record dropped above has had no influence on any survivor (it
+    # left `working` before grouping, or its whole group dropped); it stays
+    # visible as a kept-open row with its stored fields until a verdict or an
+    # owner decision closes it. Appended after the threshold loop so the
+    # sub-threshold drop never sees it.
+    kept.extend(_kept_open_rows(dropped, kept, pass_number, carried_obligations,
+                                members_of))
 
     # --- Synthetic bare-marker "suppression" audit findings (NOISE-03, A2) ---- #
     # The ONE synthetic finding score.py emits and the ONE exemption from the

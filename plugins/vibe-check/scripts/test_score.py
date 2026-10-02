@@ -3833,6 +3833,13 @@ def _absorbed(result):
             if str(x.get("reason", "")).startswith("absorbed-into: ")]
 
 
+def _unkept(result):
+    """Scored rows only. A kept-open row (D-02) is a carried record's stored
+    obligation, re-listed because this pass's filters dropped it — not a
+    scoring outcome."""
+    return [f for f in result["findings"] if "kept_open" not in f]
+
+
 def _stub_expand(cf):
     return [], []
 
@@ -4261,7 +4268,8 @@ class TestMembersAcrossPasses(unittest.TestCase):
         alone = dict(entry)
         alone.pop("members")
         ra = self._pass2([alone], ranges=self.A_RANGES)
-        self.assertEqual(ra["findings"], [])
+        self.assertEqual(_unkept(ra), [])
+        self.assertEqual([f["kept_open"] for f in ra["findings"]], ["sub-threshold"])
         self.assertIn(("logic", "sub-threshold"),
                       [(x["title"], x["reason"]) for x in ra["filtered"]])
         # ... and survives without the marker (the marker is the cause) ...
@@ -4285,7 +4293,7 @@ class TestMembersAcrossPasses(unittest.TestCase):
                          [("logic", "absorbed-into: " + row["stable_hash"])])
         self.assertEqual(p2["fixed_since_last"], [])
         with mock.patch.object(score, "_expand_members", _stub_expand):
-            self.assertEqual(self._pass2([dict(entry)], ranges=self.A_RANGES)["findings"], [])
+            self.assertEqual(_unkept(self._pass2([dict(entry)], ranges=self.A_RANGES)), [])
         old = self._old_run(_hl_env([], self.A_RANGES, carryforward=[dict(entry)]))
         self.assertEqual(old["findings"], [])
 
@@ -4301,7 +4309,8 @@ class TestMembersAcrossPasses(unittest.TestCase):
         alone = dict(entry)
         alone.pop("members")
         ra = self._pass2([alone], ranges=moved)
-        self.assertEqual(ra["findings"], [])
+        self.assertEqual(_unkept(ra), [])
+        self.assertEqual([f["kept_open"] for f in ra["findings"]], ["sub-threshold"])
         self.assertIn(("logic", "sub-threshold"),
                       [(x["title"], x["reason"]) for x in ra["filtered"]])
         sa = self._pass2([self._alone(R["members"][1], "s_line")], ranges=moved)["findings"]
@@ -4317,7 +4326,7 @@ class TestMembersAcrossPasses(unittest.TestCase):
         self.assertEqual([x["title"] for x in _absorbed(p2)], ["logic"])
         self.assertEqual(p2["fixed_since_last"], [])
         with mock.patch.object(score, "_expand_members", _stub_expand):
-            self.assertEqual(self._pass2([dict(entry)], ranges=moved)["findings"], [])
+            self.assertEqual(_unkept(self._pass2([dict(entry)], ranges=moved)), [])
         old = self._old_run(_hl_env([], moved, carryforward=[dict(entry)]))
         self.assertEqual(old["findings"], [])
 
@@ -4512,11 +4521,11 @@ class TestMembersAcrossPasses(unittest.TestCase):
             Rm = score.run(_hl_env([dict(lb), dict(ls)], self.A_RANGES))["findings"][0]
             self.assertEqual(Rm["agent"], "bugs")
             self.assertEqual(len(Rm["members"]), 1)
-            self.assertEqual(self._pass2([_carried(Rm, heads)], ranges=self.A_RANGES,
-                                         min_confidence=90)["findings"], [])
+            self.assertEqual(_unkept(self._pass2([_carried(Rm, heads)], ranges=self.A_RANGES,
+                                                 min_confidence=90)), [])
         with mock.patch.object(score, "_expand_members", _stub_expand):
-            self.assertEqual(self._pass2([dict(entry)], ranges=self.A_RANGES,
-                                         min_confidence=90)["findings"], [])
+            self.assertEqual(_unkept(self._pass2([dict(entry)], ranges=self.A_RANGES,
+                                                 min_confidence=90)), [])
         self.assertEqual(score.stable_hash("", "", ""), score.stable_hash(None, None, None))
 
     def test_member_status_uses_own_canonical_window(self):
@@ -5503,7 +5512,9 @@ class TestKeptOpen(unittest.TestCase):
         self.assertEqual(row["members"][1], score._member_ref(recs["M4"]))
         self.assertEqual([x["title"] for x in r["resolved"]], ["M1"])
         self.assertIn("M2", [x["title"] for x in r["fixed_since_last"]])
-        self.assertEqual(_ko_all_titles(r).count("M3"), 1)
+        # M3 is its own row (its row's members[0] is its own record), never
+        # re-listed on L's row.
+        self.assertNotIn("M3", [m["title"] for m in row["members"]])
         self.assertEqual([f["title"] for f in r["findings"] if f["title"] == "M3"], ["M3"])
         for f in r["findings"]:
             for m in f.get("members", []):
