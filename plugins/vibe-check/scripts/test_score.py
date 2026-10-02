@@ -5762,3 +5762,148 @@ class TestKeptOpenMembers(unittest.TestCase):
             for m in f["members"]:
                 self.assertNotIn("obligation", m)
         self.assertNotIn("obligation", score.MEMBER_KEYS)
+
+
+def _p45_heads():
+    """HEAD unchanged since pass 2: (file, line) -> the stored canonical read."""
+    return {(c["file"], c["line"]): c["canonical_line_content"]
+            for c in _p45_carryforward()}
+
+
+def _p45_next_cf(result, heads=None):
+    """The next pass's carryforward from a fixture replay result: rows with an
+    allowlisted status, every lead and member given its own HEAD read again."""
+    heads = heads if heads is not None else _p45_heads()
+    out = []
+    for f in result["findings"]:
+        if f.get("status") not in _KO_STATUSES:
+            continue
+        e = json.loads(json.dumps(f))
+        e["canonical_line_content"] = heads.get((e["file"], e["line"]))
+        e["canonical_window"] = None
+        for m in e.get("members", []):
+            m["canonical_line_content"] = heads.get((m["file"], m["line"]))
+        out.append(e)
+    return out
+
+
+class TestKeptOpenMultiPass(unittest.TestCase):
+    """The scorer alone never expires an unresolved carried record under a
+    confidence or threshold change across passes, with no influence on scored
+    rows and no member resurrection (Phase-45 fixture, HEAD unchanged)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.future = state_shape.load_schema("future")
+        cls.leads = _p45_leads()
+
+    def _env(self, pass_number, carryforward=None, **over):
+        env = _pass3_envelope(recheck_requests=[], verdicts=[], pass_number=pass_number)
+        if carryforward is not None:
+            env["carryforward"] = carryforward
+        env.update(over)
+        return env
+
+    def _by_hash(self, result):
+        return {f["stable_hash"]: f for f in result["findings"] if f["status"] != "audit"}
+
+    def test_min_confidence_raise_never_expires(self):
+        want = {self.leads[i]["stable_hash"]: self.leads[i]["band"]
+                for i in ("arch-001", "bugs-001")}
+        self.assertEqual(set(want.values()), {"warning", "medium"})
+        r3 = score.run(self._env(3, min_confidence=100))
+        rows3 = self._by_hash(r3)
+        self.assertEqual(set(rows3), set(want))
+        for h, band in want.items():
+            self.assertEqual(rows3[h]["kept_open"], "below-min-confidence")
+            self.assertEqual(rows3[h]["band"], band)
+            self.assertEqual(rows3[h]["snapshot"]["at_pass"], 3)
+        r4 = score.run(self._env(4, _p45_next_cf(r3), min_confidence=100))
+        rows4 = self._by_hash(r4)
+        self.assertEqual(set(rows4), set(want))
+        for h, band in want.items():
+            self.assertEqual(rows4[h]["kept_open"], "below-min-confidence")
+            self.assertEqual(rows4[h]["band"], band)
+            self.assertEqual(rows4[h]["snapshot"], rows3[h]["snapshot"])
+        r5 = score.run(self._env(5, _p45_next_cf(r4)))
+        rows5 = self._by_hash(r5)
+        self.assertEqual(set(rows5), set(want))
+        for h, band in want.items():
+            self.assertNotIn("kept_open", rows5[h])
+            self.assertEqual(rows5[h]["band"], band)
+            self.assertEqual(rows5[h]["status"], "needs-recheck")
+
+    def test_threshold_change_never_expires(self):
+        arch, bugs = (self.leads[i]["stable_hash"] for i in ("arch-001", "bugs-001"))
+        r3 = score.run(self._env(3, command="review"))
+        rows3 = self._by_hash(r3)
+        self.assertNotIn("kept_open", rows3[arch])
+        self.assertEqual(rows3[bugs]["kept_open"], "sub-threshold")
+        self.assertEqual((rows3[bugs]["band"], rows3[bugs]["orchestrator_score"]),
+                         ("medium", self.leads["bugs-001"]["orchestrator_score"]))
+        r4 = score.run(self._env(4, _p45_next_cf(r3)))
+        rows4 = self._by_hash(r4)
+        self.assertEqual(set(rows4), {arch, bugs})
+        self.assertNotIn("kept_open", rows4[bugs])
+        self.assertNotIn("kept_open", rows4[arch])
+
+    def test_fixture_members_ride_kept_open_rows_without_resurrection(self):
+        lead = self.leads["arch-001"]
+        others = [m for m in lead["members"] if m["title"] != lead["title"]]
+        self.assertEqual(len(others), 2)
+        gone = others[0]
+        cfs = _p45_carryforward()
+        for c in cfs:
+            for m in c.get("members", []):
+                if m["title"] == gone["title"] and m["agent"] == gone["agent"]:
+                    m["canonical_line_content"] = None
+        r = score.run(self._env(3, cfs, min_confidence=100))
+        self.assertIn(gone["title"], [x["title"] for x in r["fixed_since_last"]])
+        resolved_titles = [x["title"] for x in r.get("resolved", [])]
+        fixed_titles = [x["title"] for x in r["fixed_since_last"]]
+        for row in _ko_rows(r):
+            src = self.leads["arch-001" if row["stable_hash"] == lead["stable_hash"]
+                             else "bugs-001"]
+            self.assertEqual((row["members"][0]["agent"], row["members"][0]["title"]),
+                             (src["agent"], src["title"]))
+            for m in row["members"]:
+                self.assertNotIn("kept_open", m)
+                self.assertNotIn(m["title"], resolved_titles)
+                if m["title"] != src["title"]:
+                    self.assertNotIn(m["title"], fixed_titles)
+        arch_row = self._by_hash(r)[lead["stable_hash"]]
+        self.assertEqual([(m["agent"], m["title"]) for m in arch_row["members"]],
+                         [(lead["agent"], lead["title"]),
+                          (others[1]["agent"], others[1]["title"])])
+        # And the fixed member never comes back on a later pass.
+        r4 = score.run(self._env(4, _p45_next_cf(r), min_confidence=100))
+        self.assertNotIn(gone["title"], _ko_all_titles(r4))
+
+    def test_no_influence_byte_check(self):
+        other = make_finding(id="x-1", file="src/x.py", line=5, title="other",
+                             agent_confidence=100, source_window=["a", "b", "c", "d", "e"])
+        with_cf = score.run(self._env(3, findings=[dict(other)], min_confidence=100))
+        without = score.run(self._env(3, [], findings=[dict(other)], min_confidence=100))
+        self.assertTrue(_ko_scored(with_cf))
+        self.assertEqual(_ko_scored(with_cf), _ko_scored(without))
+        extra = [x for x in with_cf["filtered"] if x not in without["filtered"]]
+        self.assertTrue(extra)
+        self.assertEqual({x["reason"] for x in extra}, {"below-min-confidence"})
+        self.assertEqual([x for x in with_cf["filtered"] if x in without["filtered"]],
+                         without["filtered"])
+
+    def test_kept_open_rows_pass_schema(self):
+        for over in ({"min_confidence": 100}, {"command": "review"}):
+            with self.subTest(**over):
+                r = score.run(self._env(3, **over))
+                rows = _ko_rows(r)
+                self.assertTrue(rows)
+                for row in [f for f in r["findings"] if f["status"] != "audit"]:
+                    self.assertEqual(state_shape.check_finding(row, self.future), [])
+                for row in rows:
+                    sidecars = [m for m in row["members"] if "obligation" in m]
+                    self.assertTrue(sidecars)
+                    stripped = dict(row, members=[
+                        {k: v for k, v in m.items() if k != "obligation"}
+                        for m in row["members"]])
+                    self.assertEqual(state_shape.check_finding(stripped, self.future), [])
