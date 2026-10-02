@@ -29,9 +29,19 @@ Written by `--finalize` to `.turingmind/REVIEW.md` (single file, fork schema onl
 ## Warning issues resolved
 [same format]
 
-## Medium findings — dismissed
+## Resolved by verification
 1. **{{file}}:{{line}}** — {{title}} ({{agent}})
+   - **Verified by:** {{resolution.source}} ({{resolution.agents}}) at pass {{resolution.at_pass}}, HEAD `{{head_sha_short}}`
+   - **Reason:** "{{resolution.reason}}"
+
+## Medium findings — dismissed
+1. **{{file}}:{{line}}** — {{title}} ({{agent}}, {{band}})
    - **Decision:** dismissed
+   - **Reason:** "{{user_reason}}"
+
+## Findings deferred
+1. **{{file}}:{{line}}** — {{title}} ({{agent}}, {{band}})
+   - **Decision:** deferred
    - **Reason:** "{{user_reason}}"
 
 ## Intent doc alignment
@@ -40,6 +50,13 @@ Written by `--finalize` to `.turingmind/REVIEW.md` (single file, fork schema onl
 ## Audit trail
 See `.turingmind/state/<phase-id>.json.archived-{{date}}` for full per-pass history.
 ````
+
+Section notes:
+
+- **Coverage → Outstanding** counts open findings not closed by an owner decision or a verified resolution, so it reads 0 on a written REVIEW.md.
+- **Resolved by verification** lists, for audit, every recheck- or fix-obsolete-resolved finding of ANY band: each `passes[].resolved[]` entry with its `resolution` evidence, AND each fix-obsolete verdict the owner finalized on without a rerun (its only record is root `fix_verdicts` — there is no `resolved[]` entry, so without this rule the resolution would vanish from REVIEW.md). Listed once per finding.
+- **Medium findings — dismissed** (heading kept for continuity) lists every dismissal of any band: root `decisions` entries with `decision == "dismiss"` (the band is shown after the agent) UNION legacy root `medium_acknowledgments` entries.
+- **Findings deferred** lists root `decisions` entries with `decision == "defer"`. Deferred findings did not block this REVIEW.md and remain the owner's to schedule.
 
 `{{scope_label}}` is `"Phase <PHASE_ID>"` in GSD mode (e.g. `"Phase 02-code-review"` for phase dir `02-code-review`), or `"<repo>/<branch>"` otherwise. The PHASE_ID is the raw directory name under `.planning/phases/` — not a human-formatted title — so the cross-phase archive logic in `commands/review.md` can round-trip it via regex.
 

@@ -100,8 +100,13 @@ Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
 - `{{commits}}`: `git rev-list --count $baseline..HEAD`
 - `{{loc}}`: sum of additions+deletions across all passes
 - Coverage table: aggregate `agents_run` and `findings` across passes
-- "Critical issues resolved": findings with band=critical, status=fixed-since-last across all passes. Best-effort fix-commit lookup: `git log -L <line>,<line>:<file> | head -20` to find a commit that touched that line.
-- "Medium findings — dismissed": from `state.medium_acknowledgments` (the state-ROOT field, the same location the Dismiss write targets and the `unacknowledged_medium` read consults, both above — NOT `state.passes[-1].medium_acknowledgments`, a per-pass path nothing writes; reading per-pass here would always find dismissals empty and silently drop them from REVIEW.md) with decision=dismiss
+- "Critical issues resolved": `fixed_since_last` entries with band critical across all passes — nothing else. Best-effort fix-commit lookup: `git log -L <line>,<line>:<file> | head -20` to find a commit that touched that line.
+- "Resolved by verification": the union of `passes[].resolved[]` across all passes, each rendered with its `resolution` object (source, agents, head_sha, at_pass, reason), PLUS the no-rerun fix-obsolete closures — every hash in `$COUNTS_JSON`'s `verified_obsolete_hashes` (the last-pass `fix_verdicts` entries whose fingerprint still matched HEAD; the helper already judged validity, this file never re-derives it), joined to its finding in `state.passes[-1].findings` by `stable_hash` and rendered with source `fix-obsolete`, agents `["fix"]`, HEAD = the verdict's `head_sha`, pass = the verdict's `at_pass`, reason = the verdict's `reason`. Deduplicate by `stable_hash` against the `resolved[]` entries (a verdict that also produced a `resolved[]` entry on a rerun is listed once). Use the `$COUNTS_JSON` from the gate step; the decisions step changes nothing about fix verdicts, so the helper is not re-run for this read.
+- "Medium findings — dismissed" (Findings dismissed, any band): root `decisions` entries with decision == dismiss ∪ legacy root `medium_acknowledgments` entries with decision == dismiss. Both are state-ROOT fields — NOT `state.passes[-1].medium_acknowledgments` or `state.passes[-1].decisions`, per-pass paths nothing writes; reading per-pass here would always find dismissals empty and silently drop them from REVIEW.md.
+- "Findings deferred": root `decisions` entries with decision == defer (ROOT-only, as above).
+- For both the dismissed and deferred entries, join each decision's hash to `state.passes[-1].findings` by `stable_hash`; when no row matches, join it to the `members[]` entry whose `obligation.stable_hash` equals it (file/line/title/agent from the member, band from the decision record). An absorbed obligation's decision is listed under its own identity.
+
+Filling REVIEW.md is READ-only over state: Finalize's only state write is the `record-decisions` step above; the archive `mv` follows the write as today.
 
 If a prior `.turingmind/REVIEW.md` exists for a DIFFERENT phase, archive it first:
 ````bash
