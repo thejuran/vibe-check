@@ -1225,5 +1225,508 @@ class TestOrchestratorCompat(unittest.TestCase):
             self.assertEqual(v["passes"][0][key], s["passes"][0][key])
 
 
+# --------------------------------------------------------------------------- #
+# Phase-45 end-to-end replay through the real modules: score.py ->
+# (Phase 4.5 pass append) -> carry_state.py -> finalize_gate.py.
+# --------------------------------------------------------------------------- #
+import score  # noqa: E402
+import state_shape  # noqa: E402
+import test_score as ts  # noqa: E402  (shared envelope builders; no classes imported)
+
+FUTURE = state_shape.load_schema("future")
+PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
+# An `audit` row (regenerated each pass by score.py) lacks these five scored
+# keys under the future schema. This gap predates Phase 46 and is pinned in
+# test_state_shape.py (PHASE45_FUTURE_REASONS = 2 rows x 5 keys).
+AUDIT_ROW_REASONS = ["missing required key in finding: %s" % k
+                     for k in ("severity", "agent", "agent_confidence",
+                               "problem", "source_window")]
+ROW_STATUSES = {"new", "persisted", "needs-recheck", "audit"}
+B_FILE = "src/a.py"
+
+
+def audit_reasons(state):
+    """The only schema reasons a produced state may have: 5 per audit row."""
+    n = sum(1 for p in state["passes"] for f in p["findings"]
+            if f.get("status") == "audit")
+    return sorted(AUDIT_ROW_REASONS * n)
+
+
+def append_pass(state, scored, pass_number, head_sha):
+    """Phase 4.5 (45-persist.md): a NEW state with one pass entry appended —
+    the nine required keys, `resolved` only when score.py returned some,
+    codex off. Never mutates `state`."""
+    new = copy.deepcopy(state)
+    prev = new["passes"][-1]["head_sha"] if new["passes"] else "base"
+    entry = {
+        "pass_number": pass_number,
+        "head_sha": head_sha,
+        "timestamp": "2026-10-02T00:00:%02dZ" % pass_number,
+        "mode": "deep",
+        "diff_range": "%s..%s" % (prev, head_sha),
+        "agents_run": ["bugs", "architecture", "security"],
+        "findings": copy.deepcopy(scored["findings"]),
+        "filtered": copy.deepcopy(scored["filtered"]),
+        "codex": {"status": "off", "reason": None, "verdict": None,
+                  "findings": 0},
+    }
+    if scored.get("resolved"):
+        entry["resolved"] = copy.deepcopy(scored["resolved"])
+    new["passes"].append(entry)
+    return new
+
+
+def e2e_gate(state, head_blobs=None):
+    counts = carry_state.finalize_counts(state, head_blobs)
+    return finalize_gate.decide({
+        "state_file_present": True, "noninteractive": False,
+        "pr_mode": False, "range_mode": False,
+        "outstanding_cw": counts["outstanding_cw"],
+        "unacknowledged_medium": counts["unacknowledged_medium"]})["action"]
+
+
+def carry_set(state):
+    """05-state.md step 2: the hashes the next pass carries forward."""
+    return {f["stable_hash"] for f in state["passes"][-1]["findings"]
+            if f.get("status") in carry_state.OPEN_STATUSES}
+
+
+def pass2_state():
+    """The fixture as the new scorer would have written pass 2: each carried
+    lead with a snapshot at pass 2 (the fixture predates `snapshot`)."""
+    s = load_fixture()
+    for f in s["passes"][-1]["findings"]:
+        if f["stable_hash"] in (ARCH_HASH, BUGS_HASH):
+            f["snapshot"] = {"at_pass": 2, "file": f["file"], "line": f["line"],
+                             "canonical_line_content": f["canonical_line_content"],
+                             "band": f["band"]}
+    return s
+
+
+def next_env(state, pass_number, **over):
+    """The next pass's score.py envelope from `state` (HEAD unchanged; no
+    recheck requests or verdicts unless given)."""
+    env = ts._pass3_envelope(recheck_requests=[], verdicts=[],
+                             pass_number=pass_number,
+                             carryforward=ts._p45_next_cf(state["passes"][-1]))
+    env.update(over)
+    return env
+
+
+def fix_verdict(head_blob, verified_blob="blob-a"):
+    """05-state.md's $FIX_VERDICTS_PREV entry for arch-001, forwarded."""
+    return {"source": "fix-obsolete", "stable_hash": ARCH_HASH, "agent": "fix",
+            "verdict": "obsolete", "at_pass": 2, "head_sha": "4a5ee6c0",
+            "reason": "already rewritten", "verified_blob": verified_blob,
+            "head_blob": head_blob}
+
+
+def bind_blobs(state, results, pre, post, pre_clean=None, post_clean=None):
+    """50-fix-loop.md Step B rule 2: the files whose obsolete verdict may be
+    recorded — named by an obsolete result, byte-identical across the batch,
+    clean against HEAD at both samples, not touched by an applied fix."""
+    files = {f["stable_hash"]: f["file"] for f in state["passes"][-1]["findings"]}
+    touched = {p for r in results if r.get("status") == "applied"
+               for p in r.get("files_touched", [])}
+    out = {}
+    for r in results:
+        f = files.get(r.get("id"))
+        if r.get("status") != "obsolete" or f is None or f not in pre:
+            continue
+        if post.get(f) != pre[f] or f in touched:
+            continue
+        if not (pre_clean or {}).get(f, True) or not (post_clean or {}).get(f, True):
+            continue
+        out[f] = pre[f]
+    return out
+
+
+def passes_json(state):
+    return json.dumps(state["passes"], sort_keys=True)
+
+
+def decide(state, at_pass, *entries):
+    """record_decisions with (hash, decision) pairs; asserts acceptance."""
+    payload = {"at_pass": at_pass, "decisions": [
+        {"stable_hash": h, "decision": d, "reason": "owner: " + d}
+        for h, d in entries]}
+    out = carry_state.record_decisions(state, payload)
+    assert out is not None, payload
+    return out
+
+
+def ab_pipeline(conf_a=60, min_confidence=70):
+    """Synthetic three passes at ONE site: A alone (pass 1); A carried + a new
+    B absorbs it (pass 2, A's obligation sidecar on B's row); B resolves on
+    recheck (pass 3) while A is below this pass's filters.
+    -> (states [s1, s2, s3], results [r1, r2, r3], HA, HB)."""
+    A = ts._ko_find("A", "security", 10, conf_a, "inj A", "a_line")
+    s0 = {"medium_acknowledgments": {}, "passes": []}
+    r1 = score.run(ts._hl_env([A], ts._KO_RANGES, pass_number=1, head_sha="h1"))
+    s1 = append_pass(s0, r1, 1, "h1")
+    HA = r1["findings"][0]["stable_hash"]
+    B = ts._ko_find("B", "bugs", 11, 90, "logic B", "b_line",
+                    category="logic-error")
+    r2 = score.run(ts._hl_env(
+        [B], ts._KO_RANGES, pass_number=2, head_sha="h2",
+        carryforward=ts._ko_next_cf(s1["passes"][-1], {"security": "a_line"})))
+    s2 = append_pass(s1, r2, 2, "h2")
+    rowB = r2["findings"][0]
+    HB = rowB["stable_hash"]
+    heads = {"security": "a_line", "bugs": "b_line_edited"}
+    env3 = ts._hl_env([], {}, pass_number=3, head_sha="h3",
+                      carryforward=ts._ko_next_cf(s2["passes"][-1], heads),
+                      recheck_requests=[ts._ko_req("TB", rowB, HB)],
+                      verdicts=[ts._p45_recheck("TB", "bugs")])
+    if min_confidence is not None:
+        env3["min_confidence"] = min_confidence
+    r3 = score.run(env3)
+    s3 = append_pass(s2, r3, 3, "h3")
+    return [s1, s2, s3], [r1, r2, r3], HA, HB
+
+
+class TestPhase45EndToEnd(unittest.TestCase):
+    def assert_schema(self, state):
+        self.assertEqual(sorted(state_shape.check_state(state, FUTURE)),
+                         audit_reasons(state))
+
+    def test_fixture_is_blocked_today(self):
+        s = load_fixture()
+        self.assertEqual(sorted(state_shape.check_state(s, FUTURE)),
+                         audit_reasons(s))
+        self.assertEqual(len(audit_reasons(s)), 10)
+        self.assertEqual(e2e_gate(s), "outstanding-to-phase-5")
+
+    def test_recheck_path_reaches_write(self):
+        s = load_fixture()
+        r = score.run(ts._pass3_envelope())
+        new = append_pass(s, r, 3, "50f9932e")
+        self.assert_schema(new)
+        self.assertEqual(e2e_gate(new), "write")
+        resolved = new["passes"][2]["resolved"]
+        self.assertEqual(len(resolved), 2)
+        self.assertEqual({x["stable_hash"] for x in resolved},
+                         {ARCH_HASH, BUGS_HASH})
+        for x in resolved:
+            self.assertEqual(x["resolution"]["source"], "recheck")
+        self.assertEqual(passes_json(dict(new, passes=new["passes"][:2])),
+                         passes_json(s))
+
+    def test_fix_obsolete_without_rerun_reaches_write(self):
+        s = load_fixture()
+        v = carry_state.record_fix_verdicts(s, {
+            "at_pass": 2, "head_sha": "4a5ee6c0", "sent": [ARCH_HASH],
+            "results": [{"id": ARCH_HASH, "status": "obsolete",
+                         "summary": "already rewritten"}],
+            "blobs": {ARCH_FILE: "blob-a"}})
+        blobs = {ARCH_FILE: "blob-a"}
+        c = carry_state.finalize_counts(v, blobs)
+        self.assertEqual((c["outstanding_cw"], c["unacknowledged_medium"]), (0, 1))
+        self.assertEqual(c["verified_obsolete_hashes"], [ARCH_HASH])
+        self.assertEqual(e2e_gate(v, blobs), "medium-ack-loop")
+        d = decide(v, 2, (BUGS_HASH, "defer"))
+        self.assertEqual(e2e_gate(d, blobs), "write")
+        self.assertEqual(passes_json(d), passes_json(s))
+
+    def test_fix_obsolete_then_intervening_edit_stays_blocked(self):
+        s = load_fixture()
+        v = carry_state.record_fix_verdicts(s, {
+            "at_pass": 2, "head_sha": "4a5ee6c0", "sent": [ARCH_HASH],
+            "results": [{"id": ARCH_HASH, "status": "obsolete",
+                         "summary": "already rewritten"}],
+            "blobs": {ARCH_FILE: "blob-a"}})
+        # (a) direct Finalize after an edit to that file (or with no blobs).
+        for head_blobs in ({ARCH_FILE: "blob-b"}, None):
+            with self.subTest(direct_finalize=head_blobs):
+                c = carry_state.finalize_counts(v, head_blobs)
+                self.assertEqual(c["outstanding_cw"], 1)
+                self.assertEqual(c["verified_obsolete_hashes"], [])
+                self.assertEqual(e2e_gate(v, head_blobs), "outstanding-to-phase-5")
+        # (b) rerun: Phase 0.5 forwards the verdict with HEAD's current blob.
+        with self.subTest("rerun after edit"):
+            r = score.run(next_env(v, 3, verdicts=[fix_verdict("blob-b")]))
+            self.assertIn(ARCH_HASH, [f["stable_hash"] for f in r["findings"]])
+            self.assertEqual([x["reason"] for x in ts._verdict_rejections(r)],
+                             ["verdict: evidence changed since verification"])
+            self.assertNotIn("resolved", r)
+            new = append_pass(v, r, 3, "50f9932e")
+            self.assert_schema(new)
+            self.assertNotEqual(e2e_gate(new), "write")
+            self.assertNotEqual(e2e_gate(new, {ARCH_FILE: "blob-a"}), "write")
+        # (c) the same rerun with the blob unchanged resolves arch-001.
+        with self.subTest("rerun, blob unchanged"):
+            r = score.run(next_env(v, 3, verdicts=[fix_verdict("blob-a")]))
+            self.assertNotIn(ARCH_HASH, [f["stable_hash"] for f in r["findings"]])
+            arch = [x for x in r["resolved"] if x["stable_hash"] == ARCH_HASH]
+            self.assertEqual(len(arch), 1)
+            self.assertEqual(arch[0]["resolution"]["source"], "fix-obsolete")
+            self.assertEqual(arch[0]["resolution"]["head_sha"], "4a5ee6c0")
+            self.assertEqual(arch[0]["resolution"]["verified_blob"], "blob-a")
+            new = append_pass(v, r, 3, "50f9932e")
+            self.assert_schema(new)
+            self.assertNotIn(ARCH_HASH,
+                             carry_state.finalize_counts(new)["outstanding_cw_hashes"])
+
+    def test_fix_obsolete_unbound_when_same_batch_rewrote_file(self):
+        s = load_fixture()
+        results = [{"id": ARCH_HASH, "status": "obsolete",
+                    "summary": "already rewritten"},
+                   {"id": BUGS_HASH, "status": "applied", "commit_sha": "c1",
+                    "files_touched": [ARCH_FILE,
+                                      "plugins/vibe-check/phases/review/20-selection.md"]}]
+        pre = {ARCH_FILE: "blob-a"}
+        post = {ARCH_FILE: "blob-b"}
+        blobs = bind_blobs(s, results, pre, post)
+        self.assertEqual(blobs, {})
+        payload = {"at_pass": 2, "head_sha": "c1", "sent": [ARCH_HASH, BUGS_HASH],
+                   "results": results, "blobs": blobs}
+        v = carry_state.record_fix_verdicts(s, payload)
+        self.assertFalse(v.get("fix_verdicts"))
+        self.assertEqual(passes_json(v), passes_json(s))
+        self.assertEqual(e2e_gate(v, {ARCH_FILE: "blob-b"}), "outstanding-to-phase-5")
+        # Each exclusion leg alone is load-bearing.
+        self.assertEqual(bind_blobs(s, results[:1], pre, post), {})
+        self.assertEqual(bind_blobs(s, results, pre, pre), {})
+        self.assertEqual(bind_blobs(s, results[:1], pre, pre), pre)
+        # Contrast: the post-batch blob wrongly bound WOULD close the hash.
+        with self.subTest("wrongly bound"):
+            bad = carry_state.record_fix_verdicts(
+                s, dict(payload, blobs={ARCH_FILE: "blob-b"}))
+            self.assertEqual(bad["fix_verdicts"][ARCH_HASH]["verified_blob"], "blob-b")
+            c = carry_state.finalize_counts(bad, {ARCH_FILE: "blob-b"})
+            self.assertNotIn(ARCH_HASH, c["outstanding_cw_hashes"])
+        prose = read_prose("phases/review/50-fix-loop.md")
+        for needle in ("PRE_BLOBS", "POST_BLOBS", "files_touched"):
+            self.assertIn(needle, prose)
+
+    def test_fix_obsolete_unbound_when_working_tree_dirty(self):
+        s = load_fixture()
+        pre = post = {ARCH_FILE: "blob-a"}
+        obsolete = {"id": ARCH_HASH, "status": "obsolete",
+                    "summary": "gone in working tree"}
+        cases = {
+            "dirty before the batch": ([obsolete], {ARCH_FILE: False}, None),
+            "dirty after an errored fix": (
+                [obsolete, {"id": BUGS_HASH, "status": "errored",
+                            "summary": "edit failed"}],
+                None, {ARCH_FILE: False}),
+        }
+        for name, (results, pre_clean, post_clean) in cases.items():
+            with self.subTest(name):
+                blobs = bind_blobs(s, results, pre, post, pre_clean, post_clean)
+                self.assertEqual(blobs, {})
+                v = carry_state.record_fix_verdicts(s, {
+                    "at_pass": 2, "head_sha": "50f9932e", "sent": [ARCH_HASH],
+                    "results": [obsolete], "blobs": blobs})
+                self.assertFalse(v.get("fix_verdicts"))
+                self.assertEqual(passes_json(v), passes_json(s))
+                # The defect is restored in the working tree; HEAD is still
+                # blob-a and clean: nothing closed it.
+                self.assertEqual(e2e_gate(v, {ARCH_FILE: "blob-a"}),
+                                 "outstanding-to-phase-5")
+        with self.subTest("contrast: clean rule skipped"):
+            v = carry_state.record_fix_verdicts(s, {
+                "at_pass": 2, "head_sha": "50f9932e", "sent": [ARCH_HASH],
+                "results": [obsolete], "blobs": {ARCH_FILE: "blob-a"}})
+            self.assertEqual(v["fix_verdicts"][ARCH_HASH]["verified_blob"], "blob-a")
+            self.assertEqual(carry_state.finalize_counts(
+                v, {ARCH_FILE: "blob-a"})["outstanding_cw"], 0)
+        with self.subTest("dirty at consumption"):
+            v = carry_state.record_fix_verdicts(s, {
+                "at_pass": 2, "head_sha": "50f9932e", "sent": [ARCH_HASH],
+                "results": [obsolete], "blobs": {ARCH_FILE: "blob-a"}})
+            # Finalize omits a dirty file from $BLOBFILE.
+            self.assertEqual(e2e_gate(v, {}), "outstanding-to-phase-5")
+            # The rerun reports head_blob null for a dirty file.
+            r = score.run(next_env(v, 3, verdicts=[fix_verdict(None)]))
+            self.assertEqual([x["reason"] for x in ts._verdict_rejections(r)],
+                             ["verdict: evidence changed since verification"])
+            self.assertIn(ARCH_HASH, [f["stable_hash"] for f in r["findings"]])
+        fix_loop = read_prose("phases/review/50-fix-loop.md")
+        for needle in ("PRE_CLEAN", "POST_CLEAN", "git diff --quiet HEAD --",
+                       "git diff --cached --quiet --"):
+            self.assertIn(needle, fix_loop)
+        for path in ("phases/review/05-state.md", "phases/shared/90-finalize.md"):
+            prose = read_prose(path)
+            self.assertIn("git diff --quiet HEAD --", prose, path)
+            self.assertIn("git diff --cached --quiet --", prose, path)
+
+    def test_absorbed_member_keeps_blocking_after_lead_resolved(self):
+        variants = {
+            # A stored warning (conf 60); pass 3 raises min_confidence.
+            "below-min-confidence": (60, 70, "warning",
+                                     "outstanding_cw_hashes",
+                                     "outstanding-to-phase-5"),
+            # A stored medium (conf 52); pass 3 drops it sub-threshold.
+            "sub-threshold": (52, None, "medium",
+                              "unacknowledged_medium_hashes",
+                              "medium-ack-loop"),
+        }
+        for reason, (conf, min_conf, band, key, action) in variants.items():
+            with self.subTest(reason):
+                (s1, s2, s3), (r1, r2, r3), HA, HB = ab_pipeline(conf, min_conf)
+                self.assertNotEqual(HA, HB)
+                rowB = r2["findings"][0]
+                self.assertEqual(len(r2["findings"]), 1)
+                self.assertEqual(rowB["members"][1]["obligation"]["stable_hash"], HA)
+                self.assertEqual(count_unfixed_cw(s2), 1)
+                self.assertNotEqual(e2e_gate(s2), "write")
+                self.assertEqual([x["stable_hash"] for x in r3["resolved"]], [HB])
+                rows = [f for f in r3["findings"] if f["stable_hash"] == HA]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["kept_open"], reason)
+                self.assertEqual(rows[0]["band"], band)
+                counts = carry_state.finalize_counts(s3)
+                self.assertEqual(counts[key], [HA])
+                self.assertEqual(e2e_gate(s3), action)
+                self.assertIn(HA, [p["stable_hash"] for p in carry_state.pending(s3)])
+                for st in (s1, s2, s3):
+                    self.assert_schema(st)
+                d = decide(s3, 3, (HA, "defer"))
+                self.assertEqual(e2e_gate(d), "write")
+
+    def test_absorbed_member_survives_lead_closure(self):
+        (_, s2, _), (_, r2, _), HA, HB = ab_pipeline(60, 70)
+        rowB = r2["findings"][0]
+        sidecar = rowB["members"][1]["obligation"]
+        self.assertEqual(sidecar["band"], "warning")
+        self.assertNotEqual(rowB["band"], "warning")
+        blobs = {B_FILE: "blob-b"}
+        closures = {
+            "dismiss": (decide(s2, 2, (HB, "dismiss")), None),
+            "defer": (decide(s2, 2, (HB, "defer")), None),
+            "fix-obsolete": (carry_state.record_fix_verdicts(s2, {
+                "at_pass": 2, "head_sha": "h2", "sent": [HB],
+                "results": [{"id": HB, "status": "obsolete", "summary": "gone"}],
+                "blobs": blobs}), blobs),
+        }
+        for name, (state, head_blobs) in closures.items():
+            with self.subTest(name):
+                self.assertEqual(passes_json(state), passes_json(s2))
+                c = carry_state.finalize_counts(state, head_blobs)
+                self.assertEqual(c["outstanding_cw_hashes"], [HA])
+                if name == "fix-obsolete":
+                    self.assertEqual(c["verified_obsolete_hashes"], [HB])
+                self.assertEqual(e2e_gate(state, head_blobs), "outstanding-to-phase-5")
+                self.assertEqual(carry_state.pending(state),
+                                 [{"stable_hash": HA,
+                                   "since_pass": sidecar["snapshot"]["at_pass"]}])
+                d = decide(state, 2, (HA, "defer"))
+                self.assertEqual(d["decisions"][HA]["band"], "warning")
+                self.assertEqual(e2e_gate(d, head_blobs), "write")
+                self.assertEqual(passes_json(d), passes_json(s2))
+                self.assertEqual(count_unfixed_cw(d), count_unfixed_cw(s2))
+
+    def test_no_verdict_no_decision_stays_blocked_three_passes(self):
+        s = pass2_state()
+        for n in (3, 4, 5):
+            with self.subTest(pass_number=n):
+                s = append_pass(s, score.run(next_env(s, n)), n, "50f9932e")
+                self.assert_schema(s)
+                self.assertNotEqual(e2e_gate(s), "write")
+                self.assertLessEqual({ARCH_HASH, BUGS_HASH}, carry_set(s))
+                for f in s["passes"][-1]["findings"]:
+                    if f["stable_hash"] in (ARCH_HASH, BUGS_HASH):
+                        self.assertEqual(f["snapshot"]["at_pass"], 2)
+                self.assertEqual(carry_state.pending(s), [
+                    {"stable_hash": h, "since_pass": 2}
+                    for h in sorted((ARCH_HASH, BUGS_HASH))])
+
+    def test_config_change_never_closes_obligation(self):
+        s3 = append_pass(pass2_state(), score.run(next_env(
+            pass2_state(), 3, min_confidence=100)), 3, "50f9932e")
+        rows = {f["stable_hash"]: f for f in s3["passes"][-1]["findings"]
+                if f["status"] != "audit"}
+        self.assertEqual(set(rows), {ARCH_HASH, BUGS_HASH})
+        for h, band in ((ARCH_HASH, "warning"), (BUGS_HASH, "medium")):
+            self.assertEqual(rows[h]["kept_open"], "below-min-confidence")
+            self.assertEqual(rows[h]["band"], band)
+        self.assertEqual(e2e_gate(s3), "outstanding-to-phase-5")
+        self.assertEqual(carry_state.pending(s3), [
+            {"stable_hash": h, "since_pass": 2}
+            for h in sorted((ARCH_HASH, BUGS_HASH))])
+        self.assertLessEqual({ARCH_HASH, BUGS_HASH}, carry_set(s3))
+        s4 = append_pass(s3, score.run(next_env(s3, 4, command="review")),
+                         4, "50f9932e")
+        rows4 = {f["stable_hash"]: f for f in s4["passes"][-1]["findings"]
+                 if f["status"] != "audit"}
+        self.assertEqual(rows4[BUGS_HASH]["kept_open"], "sub-threshold")
+        self.assertNotIn("kept_open", rows4[ARCH_HASH])
+        self.assertNotEqual(e2e_gate(s4), "write")
+        for st in (s3, s4):
+            self.assertEqual(count_unfixed_cw(st), 1)
+            self.assert_schema(st)
+
+    def test_defer_closes_without_blocking_and_is_listed(self):
+        s3 = append_pass(pass2_state(), score.run(next_env(pass2_state(), 3)),
+                         3, "50f9932e")
+        self.assertEqual(e2e_gate(s3), "outstanding-to-phase-5")
+        d = decide(s3, 3, (ARCH_HASH, "defer"), (BUGS_HASH, "defer"))
+        self.assertEqual(e2e_gate(d), "write")
+        self.assertEqual({h: (v["decision"], v["band"])
+                          for h, v in d["decisions"].items()},
+                         {ARCH_HASH: ("defer", "warning"),
+                          BUGS_HASH: ("defer", "medium")})
+        self.assertEqual(passes_json(d), passes_json(s3))
+
+    def test_legacy_medium_only_state_unchanged(self):
+        row = mk_finding("medium", "new", HA)
+        acked = mk_state([mk_pass(1, [row])],
+                         medium_acknowledgments={HA: {"decision": "dismiss"}})
+        unacked = mk_state([mk_pass(1, [row])])
+        for state, action in ((acked, "write"), (unacked, "medium-ack-loop")):
+            with self.subTest(action=action):
+                before = json.dumps(state, sort_keys=True)
+                self.assertEqual(e2e_gate(state), action)
+                self.assertEqual(json.dumps(state, sort_keys=True), before)
+
+    def test_still_applies_keeps_blocked(self):
+        s = pass2_state()
+        env = next_env(s, 3,
+                       recheck_requests=[ts._p45_request("R1", "arch-001"),
+                                         ts._p45_request("R2", "bugs-001")],
+                       verdicts=[ts._p45_recheck("R1", "architecture", "still-applies"),
+                                 ts._p45_recheck("R2", "bugs", "still-applies")])
+        r = score.run(env)
+        self.assertNotIn("resolved", r)
+        s3 = append_pass(s, r, 3, "50f9932e")
+        self.assertEqual(e2e_gate(s3), "outstanding-to-phase-5")
+        before = {f["stable_hash"]: f["snapshot"] for f in s["passes"][-1]["findings"]
+                  if f["stable_hash"] in (ARCH_HASH, BUGS_HASH)}
+        after = {f["stable_hash"]: f["snapshot"] for f in s3["passes"][-1]["findings"]
+                 if f["stable_hash"] in (ARCH_HASH, BUGS_HASH)}
+        self.assertEqual(after, before)
+
+    def test_orchestrator_reads_compatible_across_pipeline(self):
+        fx = load_fixture()
+        recheck = append_pass(fx, score.run(ts._pass3_envelope()), 3, "50f9932e")
+        obsolete = carry_state.record_fix_verdicts(fx, {
+            "at_pass": 2, "head_sha": "4a5ee6c0", "sent": [ARCH_HASH],
+            "results": [{"id": ARCH_HASH, "status": "obsolete", "summary": "x"}],
+            "blobs": {ARCH_FILE: "blob-a"}})
+        self.assertEqual(count_unfixed_cw(recheck), 0)
+        # Documented over-count: the mirror ignores fix_verdicts (D-11 Noted).
+        self.assertEqual(count_unfixed_cw(obsolete), 1)
+        s = pass2_state()
+        produced = [recheck, obsolete]
+        for n, over in ((3, {"min_confidence": 100}), (4, {"command": "review"}),
+                        (5, {})):
+            s = append_pass(s, score.run(next_env(s, n, **over)), n, "50f9932e")
+            produced.append(s)
+        produced.append(decide(s, 5, (ARCH_HASH, "defer")))
+        for i, st in enumerate(produced):
+            with self.subTest(state=i):
+                for key in ("head_sha", "diff_range"):
+                    self.assertEqual(st["passes"][0][key], fx["passes"][0][key])
+                for p in st["passes"]:
+                    for f in p["findings"]:
+                        self.assertIn(f["status"], ROW_STATUSES)
+
+
+def read_prose(relpath):
+    with open(os.path.join(PLUGIN_DIR, relpath), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
 if __name__ == "__main__":
     unittest.main()
