@@ -417,9 +417,16 @@ def record_fix_verdicts(state, payload, skipped=None):
     has a blob in `blobs` (the code the fix agent saw). Without that
     fingerprint the verdict could never close anything, so it is not recorded;
     its id is appended to `skipped` when a list is given.
+
+    `at_pass` must equal the last pass's `pass_number`: a verdict stamped with
+    any other pass (e.g. Finalize's next-pass `$PASS_NUMBER`, for which no pass
+    was persisted) could never be honoured by `_fix_closes` nor forwarded by
+    Phase 0.5, so the whole payload is refused rather than silently inert.
     """
-    _, records, reason = _check_state(state)
+    last, records, reason = _check_state(state)
     if reason is not None or not _valid_verdict_payload(payload):
+        return None
+    if payload["at_pass"] != last["pass_number"]:
         return None
     by_hash = {rec["stable_hash"]: rec for rec in records}
     sent = set(payload["sent"])

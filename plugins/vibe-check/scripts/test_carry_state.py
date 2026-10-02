@@ -979,6 +979,10 @@ class TestRecordFixVerdicts(unittest.TestCase):
             "at_pass bool": verdict_payload(at_pass=True),
             "at_pass missing": {k: v for k, v in verdict_payload().items()
                                 if k != "at_pass"},
+            # Finalize-routed Phase 5: $PASS_NUMBER is last + 1 with no pass
+            # persisted, so the verdict could never close (bugs-001).
+            "at_pass next pass": verdict_payload(at_pass=3),
+            "at_pass older pass": verdict_payload(at_pass=1),
             "head_sha non-str": verdict_payload(head_sha=5),
             "sent not list": verdict_payload(sent=ARCH_HASH),
             "results not list": verdict_payload(results={}),
