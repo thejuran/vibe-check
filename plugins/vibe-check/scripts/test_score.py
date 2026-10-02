@@ -47,6 +47,11 @@ GOLDEN_DIGEST = "7a516d0120c0ff3110198c731f49a775d55dd06071e1831e4a554c7bff79312
 # pre-H-LANE code through replay.load_scorer("blob:" + ...), never a stub.
 PRE_HLANE_SCORER_BLOB = "0f6852ad24a199ee1a556d5595d7f69ce64663cc"
 
+# The score.py blob before the decision snapshot and verdict guard were added (the
+# last scorer whose output carries no `snapshot` / `resolved`). Byte-safety proofs
+# run the same envelope through both and compare with `snapshot` popped.
+PRE_SNAPSHOT_SCORER_BLOB = "79593bcb4282d095f9948200e80db215c3897ead"
+
 
 # --------------------------------------------------------------------------- #
 # Test fixtures / helpers
@@ -3074,6 +3079,30 @@ class TestStatusScrubbedOnNewFindings(unittest.TestCase):
         self.assertTrue(any(x.get("reason") == "sub-threshold"
                             for x in result["filtered"]))
 
+    def test_forged_snapshot_and_resolution_are_scrubbed(self):
+        # snapshot.at_pass feeds "unchanged since pass N" (a forged older pass
+        # would suppress a re-ask); resolution and kept_open are scorer outputs.
+        forged = make_finding(id="forge3", agent_confidence=65, line=10,
+                              snapshot={"at_pass": 1, "file": "src/a.py", "line": 10,
+                                        "canonical_line_content": "  x = 1",
+                                        "band": "warning"},
+                              resolution={"source": "recheck", "agents": ["bugs"],
+                                          "verdict": "resolved"},
+                              kept_open="sub-threshold")
+        result = score.run({
+            "command": "review",
+            "pass_number": 3,
+            "findings": [forged],
+            "changed_line_ranges": {"src/a.py": [[8, 14]]},
+            "carryforward": [],
+        })
+        self.assertEqual(len(result["findings"]), 1)
+        g = result["findings"][0]
+        self.assertEqual(g["snapshot"]["at_pass"], 3)
+        self.assertNotIn("resolution", g)
+        self.assertNotIn("kept_open", g)
+        self.assertNotIn("resolved", result)
+
     def test_real_carryforward_persisted_still_gets_bonus(self):
         # The legitimate path is untouched: a carryforward whose current_code
         # matches HEAD is persisted and takes the +15.
@@ -4604,3 +4633,195 @@ class TestRetiredDomainCode(unittest.TestCase):
                 self.assertEqual(len(score.cross_confirm_group([a, b])), 1)
                 far = dict(b, line=20)
                 self.assertEqual(len(score.cross_confirm_group([a, far])), 2)
+
+
+# --------------------------------------------------------------------------- #
+# Decision snapshot (CARRY-03): score.py writes {at_pass, file, line,
+# canonical_line_content, band} on every emitted finding; a carried finding keeps
+# its older snapshot while all four site/evidence/status parts are unchanged.
+# --------------------------------------------------------------------------- #
+_SNAP_RANGES = {"src/a.py": [[8, 14]]}
+
+
+def _snap_cf(canonical="  x = 1", **over):
+    """A carried entry at src/a.py:10 whose HEAD read is `canonical`."""
+    cf = make_finding(id="snap-1", line=10, agent_confidence=65, current_code="  x = 1",
+                      source_window=["a", "b", "c", "d", "e"],
+                      canonical_line_content=canonical, canonical_window=None,
+                      band="warning", stable_hash="0" * 64, status="new")
+    cf.update(over)
+    return cf
+
+
+def _snap_run(carryforward=(), findings=(), pass_number=2, **over):
+    env = {"command": "review", "all_mode": False, "pass_number": pass_number,
+           "changed_line_ranges": _SNAP_RANGES,
+           "carryforward": list(carryforward), "findings": list(findings)}
+    env.update(over)
+    return score.run(env)
+
+
+class TestSnapshot(unittest.TestCase):
+
+    def _row(self, result):
+        self.assertEqual(len(result["findings"]), 1, result)
+        return result["findings"][0]
+
+    def _carried_with_snapshot(self, at_pass=1, canonical="  x = 1", **cf_over):
+        # Re-score once without a snapshot to learn this pass's band, then hand
+        # the carried entry a pass-1 snapshot that equals this pass's values.
+        probe = self._row(_snap_run([_snap_cf(canonical=canonical, **cf_over)]))
+        snap = {"at_pass": at_pass, "file": probe["file"], "line": probe["line"],
+                "canonical_line_content": probe["canonical_line_content"],
+                "band": probe["band"]}
+        return probe, snap
+
+    def test_new_finding_gets_this_pass_snapshot(self):
+        f = make_finding(id="n1", line=10, agent_confidence=65,
+                         canonical_line_content="  x = 1",
+                         source_window=["a", "b", "c", "d", "e"])
+        row = self._row(_snap_run(findings=[f], pass_number=3))
+        self.assertEqual(row["snapshot"], {
+            "at_pass": 3, "file": row["file"], "line": row["line"],
+            "canonical_line_content": row["canonical_line_content"],
+            "band": row["band"]})
+        self.assertEqual(row["snapshot"]["canonical_line_content"], "  x = 1")
+
+    def test_new_finding_without_canonical_records_none(self):
+        f = make_finding(id="n2", line=10, agent_confidence=65,
+                         source_window=["a", "b", "c", "d", "e"])
+        row = self._row(_snap_run(findings=[f], pass_number=1))
+        self.assertIsNone(row["snapshot"]["canonical_line_content"])
+        self.assertEqual(row["snapshot"]["at_pass"], 1)
+
+    def test_unchanged_carried_keeps_older_snapshot(self):
+        probe, snap = self._carried_with_snapshot()
+        self.assertEqual(probe["status"], "persisted")
+        row = self._row(_snap_run([_snap_cf(snapshot=snap)]))
+        # The carried status is persisted (input said "new"): status is NOT a
+        # snapshot component, band is.
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["snapshot"], snap)
+        self.assertEqual(row["snapshot"]["at_pass"], 1)
+
+    def test_edited_line_refreshes_snapshot(self):
+        _, snap = self._carried_with_snapshot()
+        row = self._row(_snap_run([_snap_cf(canonical="  x = 2", snapshot=snap)]))
+        self.assertEqual(row["snapshot"]["at_pass"], 2)
+        self.assertEqual(row["snapshot"]["canonical_line_content"], "  x = 2")
+
+    def test_band_move_refreshes_snapshot(self):
+        probe, snap = self._carried_with_snapshot()
+        moved = dict(snap, band="critical" if probe["band"] != "critical" else "warning")
+        row = self._row(_snap_run([_snap_cf(snapshot=moved)]))
+        self.assertEqual(row["snapshot"]["at_pass"], 2)
+        self.assertEqual(row["snapshot"]["band"], row["band"])
+
+    def test_moved_line_refreshes_snapshot(self):
+        _, snap = self._carried_with_snapshot()
+        row = self._row(_snap_run([_snap_cf(snapshot=dict(snap, line=11))]))
+        self.assertEqual(row["snapshot"]["at_pass"], 2)
+        self.assertEqual(row["snapshot"]["line"], 10)
+
+    def test_malformed_prior_snapshot_refreshes(self):
+        _, snap = self._carried_with_snapshot()
+        bad = [["not", "a", "dict"], {k: v for k, v in snap.items() if k != "at_pass"},
+               dict(snap, at_pass=True), dict(snap, at_pass="1"), None]
+        for prior in bad:
+            with self.subTest(prior=prior):
+                row = self._row(_snap_run([_snap_cf(snapshot=prior)]))
+                self.assertEqual(row["snapshot"]["at_pass"], 2)
+                self.assertIsInstance(row["snapshot"], dict)
+
+    def test_fragment_current_code_keeps_snapshot(self):
+        # Pitfall 1: current_code quotes a fragment, so its first line never
+        # equals HEAD and the carry status reads needs-recheck on an untouched
+        # line. The snapshot keys on HEAD canonical, so it is kept.
+        frag = dict(current_code="fragment of the line")
+        probe, snap = self._carried_with_snapshot(**frag)
+        self.assertEqual(probe["status"], "needs-recheck")
+        row = self._row(_snap_run([_snap_cf(snapshot=snap, **frag)]))
+        self.assertEqual(row["status"], "needs-recheck")
+        self.assertEqual(row["snapshot"]["at_pass"], 1)
+
+    def test_members_never_carry_snapshot(self):
+        a = _hl("a", "security", "injection", 10, 80, "inj")
+        b = _hl("b", "bugs", "logic-error", 11, 80, "logic")
+        r = score.run(_hl_env([a, b], {"src/a.py": [[8, 14]]}, pass_number=1))
+        row = r["findings"][0]
+        self.assertIn("snapshot", row)
+        self.assertEqual(len(row["members"]), 2)
+        for m in row["members"]:
+            self.assertNotIn("snapshot", m)
+        self.assertNotIn("snapshot", score.MEMBER_KEYS)
+        self.assertNotIn("kept_open", score.MEMBER_KEYS)
+
+    def test_audit_rows_carry_snapshot(self):
+        f = make_finding(id="aud", line=10, agent_confidence=90,
+                         source_window=["a", "# vibe-ignore", "c", "d", "e"])
+        r = _snap_run(findings=[f], pass_number=4)
+        audits = [x for x in r["findings"] if x["status"] == "audit"]
+        self.assertEqual(len(audits), 1)
+        snap = audits[0]["snapshot"]
+        self.assertEqual(snap["at_pass"], 4)
+        self.assertIsNone(snap["canonical_line_content"])
+        self.assertEqual(snap["band"], "low")
+        self.assertEqual((snap["file"], snap["line"]), (audits[0]["file"], audits[0]["line"]))
+
+    def test_bad_pass_number_gives_none_at_pass(self):
+        f = make_finding(id="pn", line=10, agent_confidence=65,
+                         source_window=["a", "b", "c", "d", "e"])
+        for pn in (None, True, "3", 3.0):
+            with self.subTest(pass_number=pn):
+                row = self._row(_snap_run(findings=[dict(f)], pass_number=pn))
+                self.assertIsNone(row["snapshot"]["at_pass"])
+        env = {"command": "review", "changed_line_ranges": _SNAP_RANGES,
+               "findings": [dict(f)]}
+        self.assertIsNone(self._row(score.run(env))["snapshot"]["at_pass"])
+
+    def test_carried_kept_open_marker_is_dropped(self):
+        row = self._row(_snap_run([_snap_cf(kept_open="sub-threshold")]))
+        self.assertNotIn("kept_open", row)
+
+
+class TestSnapshotByteSafety(unittest.TestCase):
+    """Apart from the added `snapshot`, output is byte-identical to the scorer
+    before the snapshot/verdict change, and no `resolved` key appears."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.old = replay.load_scorer("blob:" + PRE_SNAPSHOT_SCORER_BLOB)
+
+    def _envelopes(self):
+        out_shape = {"command": "review", "all_mode": False, "pass_number": 1,
+                     "changed_line_ranges": {"src/a.py": [[8, 14]]}, "carryforward": [],
+                     "findings": [make_finding(id="g-001", line=10,
+                                               source_window=["a", "b", "c", "d", "e"])]}
+        hl = _hl_env([_hl("a", "bugs", "logic-error", 77, 93, "logic"),
+                      _hl("b", "security", "ssrf", 78, 82, "ssrf"),
+                      _hl("c", "impact", "blast-radius", 80, 92, "blast")],
+                     {"src/a.py": [[77, 85]]})
+        golden = {"command": "review", "pass_number": 2,
+                  "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                  "carryforward": [_snap_cf(), _snap_cf(id="gone", line=40, canonical=None)],
+                  "findings": [make_finding(id="aud", line=12, agent_confidence=90,
+                                            source_window=["a", "vibe-ignore", "c", "d", "e"])]}
+        return {"output_shape": out_shape, "hl_env": hl, "carryforward": golden}
+
+    def test_outputs_identical_except_snapshot(self):
+        for name, env in self._envelopes().items():
+            with self.subTest(envelope=name):
+                new = score.run(json.loads(json.dumps(env)))
+                old = self.old.run(json.loads(json.dumps(env)))
+                self.assertNotIn("resolved", new)
+                self.assertTrue(new["findings"])
+                for f in new["findings"]:
+                    self.assertIn("snapshot", f)
+                    f.pop("snapshot")
+                self.assertEqual(json.dumps(new, sort_keys=True),
+                                 json.dumps(old, sort_keys=True))
+
+    def test_golden_digest_unmoved(self):
+        self.assertEqual(score.stable_hash("src/a.py", "  x = 1", "some bug"),
+                         self.old.stable_hash("src/a.py", "  x = 1", "some bug"))
+
