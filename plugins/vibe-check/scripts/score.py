@@ -223,6 +223,23 @@ def _snapshot_for(row, pass_number):
 _OBLIGATION_ROW_KEYS = ("stable_hash", "orchestrator_score", "band", "attribution")
 
 
+def _refreshed_obligation(obl, m, pass_number):
+    """A copy of obligation sidecar `obl` whose snapshot reflects this pass.
+
+    The sidecar's stored identity and scored fields (stable_hash,
+    orchestrator_score, band, attribution) stay verbatim; only `snapshot` is
+    re-derived via _snapshot_for from working record `m`'s file, line and HEAD
+    canonical text plus the STORED band, with the prior snapshot as its base —
+    so an unchanged member keeps its older `at_pass` while one whose evidence
+    moved gets a fresh snapshot at this pass (never a frozen copy that makes
+    changed code look unchanged to `carry_state.py pending`). Pure; never raises.
+    """
+    basis = {"file": m.get("file"), "line": m.get("line"),
+             "canonical_line_content": m.get("canonical_line_content"),
+             "band": obl.get("band"), "snapshot": obl.get("snapshot")}
+    return dict(obl, snapshot=_snapshot_for(basis, pass_number))
+
+
 def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of):
     """Kept-open obligation rows for carried records this pass's filters dropped.
 
@@ -272,7 +289,7 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of)
         row["snapshot"] = obl.get("snapshot")
         row["snapshot"] = _snapshot_for(row, pass_number)
         own = _member_ref(m)
-        own["obligation"] = obl
+        own["obligation"] = _refreshed_obligation(obl, m, pass_number)
         members = [own]
         if entry["lead"]:
             for e in members_of.get(id(m), []):
@@ -280,7 +297,8 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of)
                     continue
                 ref = _member_ref(e)
                 if id(e) in carried_obligations:
-                    ref["obligation"] = carried_obligations[id(e)]["obligation"]
+                    ref["obligation"] = _refreshed_obligation(
+                        carried_obligations[id(e)]["obligation"], e, pass_number)
                 members.append(ref)
         row["members"] = members
         visible.add(obl["stable_hash"])
@@ -1735,7 +1753,8 @@ def run(envelope):
             # An absorbed record that was once a row keeps its obligation
             # identity (stored hash and scored fields) on its member record.
             if m is not best_member and id(m) in carried_obligations:
-                ref["obligation"] = carried_obligations[id(m)]["obligation"]
+                ref["obligation"] = _refreshed_obligation(
+                    carried_obligations[id(m)]["obligation"], m, pass_number)
             members.append(ref)
         survivor["members"] = members
         # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —

@@ -5661,6 +5661,27 @@ class TestKeptOpenMembers(unittest.TestCase):
                          r2["findings"][0]["members"][1]["obligation"])
         self.assertEqual(json.dumps(r3).count(R1["stable_hash"]), 1)
 
+    def test_sidecar_snapshot_refreshed_when_member_evidence_changes(self):
+        # bugs-002: a re-absorbed member whose HEAD line changed must not keep
+        # its pass-1 snapshot (carry_state.pending would call it unchanged).
+        R1, cfA, B, r2 = self._ab()
+        heads = {"security": "a_line_edited", "bugs": "b_line"}
+        r3 = score.run(_hl_env([], _KO_RANGES, carryforward=_ko_next_cf(r2, heads),
+                               pass_number=3))
+        self.assertEqual(_ko_rows(r3), [])
+        self.assertEqual(len(r3["findings"]), 1)
+        row = r3["findings"][0]
+        self.assertEqual(row["agent"], "bugs")
+        obl = row["members"][1]["obligation"]
+        # Stored identity and scored fields stay verbatim.
+        for k in _KO_STORED:
+            self.assertEqual(obl[k], R1[k], k)
+        self.assertEqual(obl["snapshot"],
+                         {"at_pass": 3, "file": R1["file"], "line": R1["line"],
+                          "canonical_line_content": "a_line_edited",
+                          "band": R1["band"]})
+        self.assertNotEqual(obl["snapshot"], R1["snapshot"])
+
     def _pass3(self, r2, a_head, **over):
         rowB = r2["findings"][0]
         heads = {"security": a_head, "bugs": "b_line_edited"}
