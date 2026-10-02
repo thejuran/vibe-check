@@ -778,5 +778,440 @@ class TestNoWritePath(unittest.TestCase):
         self.assertGreater(writes, 0, "lock is vacuous: no write seen")
 
 
+
+# --------------------------------------------------------------------------- #
+# Writers.
+# --------------------------------------------------------------------------- #
+def frozen_families(state, keys=("passes", "medium_acknowledgments")):
+    return {k: json.dumps(state.get(k), sort_keys=True) for k in keys}
+
+
+def defer_payload(h=ARCH_HASH, decision="defer", reason="ships next milestone",
+                  at_pass=2):
+    return {"at_pass": at_pass,
+            "decisions": [{"stable_hash": h, "decision": decision,
+                           "reason": reason}]}
+
+
+def verdict_payload(**over):
+    p = {"at_pass": 2, "head_sha": "50f9932e", "sent": [ARCH_HASH],
+         "results": [{"id": ARCH_HASH, "status": "obsolete",
+                      "summary": "line rewritten"}],
+         "blobs": {ARCH_FILE: "b1"}}
+    p.update(over)
+    return p
+
+
+class TestRecordDecisions(unittest.TestCase):
+    def test_record_decisions_writes_record_with_finding_band(self):
+        s = load_fixture()
+        out = carry_state.record_decisions(s, defer_payload())
+        self.assertEqual(out["decisions"][ARCH_HASH],
+                         {"decision": "defer", "reason": "ships next milestone",
+                          "at_pass": 2, "band": "warning"})
+
+    def test_record_decisions_band_never_from_payload(self):
+        s = load_fixture()
+        p = defer_payload()
+        p["decisions"][0]["band"] = "low"
+        self.assertIsNone(carry_state.record_decisions(s, p))
+
+    def test_record_decisions_leaves_other_families_identical(self):
+        s = load_fixture()
+        s["medium_acknowledgments"] = {BUGS_HASH: {"decision": "dismiss",
+                                                   "reason": "r", "at_pass": 1}}
+        s["fix_verdicts"] = {ARCH_HASH: obsolete_verdict()}
+        before = json.dumps(s, sort_keys=True)
+        out = carry_state.record_decisions(s, defer_payload())
+        self.assertEqual(json.dumps(s, sort_keys=True), before, "input mutated")
+        self.assertEqual(frozen_families(out),
+                         frozen_families(s))
+        self.assertEqual(out["passes"], s["passes"])
+        self.assertEqual(out["fix_verdicts"], s["fix_verdicts"])
+        self.assertIsNot(out, s)
+
+    def test_record_decisions_closes_in_counts(self):
+        out = carry_state.record_decisions(load_fixture(), defer_payload())
+        self.assertEqual(carry_state.finalize_counts(out)["outstanding_cw"], 0)
+
+    def test_record_decisions_refusals(self):
+        dup = defer_payload()
+        dup["decisions"].append(dict(dup["decisions"][0]))
+        cases = {
+            "decision unknown": defer_payload(decision="ignore"),
+            "reason empty": defer_payload(reason=""),
+            "reason whitespace": defer_payload(reason="  \n\t"),
+            "reason non-str": defer_payload(reason=5),
+            "hash not open": defer_payload(h="d96ad4eb1ab44609f6005698d3e77a5b"
+                                             "43f7851914a4df08b6e1e986a5249856"),
+            "hash unknown": defer_payload(h="f" * 64),
+            "hash prefix": defer_payload(h=ARCH_HASH[:10]),
+            "hash non-str": defer_payload(h=5),
+            "at_pass bool": defer_payload(at_pass=True),
+            "at_pass str": defer_payload(at_pass="2"),
+            "duplicate hash": dup,
+            "payload not object": [],
+            "decisions not list": {"at_pass": 2, "decisions": {}},
+            "entry not object": {"at_pass": 2, "decisions": ["x"]},
+            "unknown payload key": dict(defer_payload(), passes=[]),
+        }
+        for name, payload in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(
+                    carry_state.record_decisions(load_fixture(), payload))
+
+    def test_record_decisions_refuses_malformed_state(self):
+        self.assertIsNone(carry_state.record_decisions({"passes": []},
+                                                       defer_payload()))
+
+    def test_record_decisions_latest_wins(self):
+        s = carry_state.record_decisions(load_fixture(), defer_payload())
+        s = carry_state.record_decisions(
+            s, defer_payload(decision="dismiss", reason="false positive",
+                             at_pass=3))
+        self.assertEqual(s["decisions"][ARCH_HASH],
+                         {"decision": "dismiss", "reason": "false positive",
+                          "at_pass": 3, "band": "warning"})
+        self.assertEqual(list(s["decisions"]), [ARCH_HASH])
+
+    def test_record_decisions_member_obligation_own_hash(self):
+        s = ba_state(row_band="critical", a_band="warning")
+        before = json.dumps(s["passes"], sort_keys=True)
+        out = carry_state.record_decisions(
+            s, {"at_pass": 2, "decisions": [{"stable_hash": HA,
+                                             "decision": "defer",
+                                             "reason": "later"}]})
+        self.assertEqual(out["decisions"][HA],
+                         {"decision": "defer", "reason": "later", "at_pass": 2,
+                          "band": "warning"})
+        self.assertEqual(json.dumps(out["passes"], sort_keys=True), before)
+        self.assertIsNone(carry_state.record_decisions(
+            s, {"at_pass": 2, "decisions": [{"stable_hash": "e" * 64,
+                                             "decision": "defer",
+                                             "reason": "later"}]}))
+
+
+class TestRecordFixVerdicts(unittest.TestCase):
+    def test_record_fix_verdicts_writes_obsolete(self):
+        out = carry_state.record_fix_verdicts(load_fixture(), verdict_payload())
+        self.assertEqual(out["fix_verdicts"][ARCH_HASH],
+                         {"verdict": "obsolete", "agent": "fix",
+                          "head_sha": "50f9932e", "at_pass": 2,
+                          "verified_blob": "b1", "reason": "line rewritten"})
+        c = carry_state.finalize_counts(out, {ARCH_FILE: "b1"})
+        self.assertEqual(c["outstanding_cw"], 0)
+
+    def test_record_fix_verdicts_null_summary_and_head(self):
+        p = verdict_payload(head_sha=None)
+        p["results"][0]["summary"] = None
+        out = carry_state.record_fix_verdicts(load_fixture(), p)
+        self.assertEqual(out["fix_verdicts"][ARCH_HASH]["reason"], "")
+        self.assertIsNone(out["fix_verdicts"][ARCH_HASH]["head_sha"])
+
+    def test_record_fix_verdicts_missing_fingerprint_writes_nothing(self):
+        cases = {
+            "blobs missing": {k: v for k, v in verdict_payload().items()
+                              if k != "blobs"},
+            "blobs not dict": verdict_payload(blobs=["b1"]),
+            "file absent": verdict_payload(blobs={"other.py": "b1"}),
+            "value non-str": verdict_payload(blobs={ARCH_FILE: 1}),
+        }
+        for name, payload in cases.items():
+            with self.subTest(name):
+                s = load_fixture()
+                skipped = []
+                out = carry_state.record_fix_verdicts(s, payload, skipped)
+                self.assertNotIn(ARCH_HASH, out.get("fix_verdicts", {}))
+                self.assertEqual(skipped, [ARCH_HASH])
+                self.assertEqual(frozen_families(out), frozen_families(s))
+
+    def test_record_fix_verdicts_writes_nothing_for_non_obsolete(self):
+        for status in ("applied", "needs-human", "errored", "OBSOLETE"):
+            with self.subTest(status):
+                p = verdict_payload()
+                p["results"][0]["status"] = status
+                out = carry_state.record_fix_verdicts(load_fixture(), p)
+                self.assertEqual(out.get("fix_verdicts", {}), {})
+
+    def test_record_fix_verdicts_guards(self):
+        cases = {
+            "id not sent": verdict_payload(sent=[BUGS_HASH]),
+            "prefix id": verdict_payload(
+                sent=["ddca00413f"],
+                results=[{"id": "ddca00413f", "status": "obsolete",
+                          "summary": "s"}]),
+            "id not in last pass": verdict_payload(
+                sent=["f" * 64],
+                results=[{"id": "f" * 64, "status": "obsolete",
+                          "summary": "s"}]),
+            "id non-str": verdict_payload(
+                results=[{"id": 5, "status": "obsolete", "summary": "s"}]),
+        }
+        for name, payload in cases.items():
+            with self.subTest(name):
+                out = carry_state.record_fix_verdicts(load_fixture(), payload)
+                self.assertEqual(out.get("fix_verdicts", {}), {})
+
+    def test_record_fix_verdicts_leaves_other_families_identical(self):
+        s = load_fixture()
+        s["decisions"] = {BUGS_HASH: {"decision": "defer", "reason": "r",
+                                      "at_pass": 2, "band": "medium"}}
+        before = json.dumps(s, sort_keys=True)
+        out = carry_state.record_fix_verdicts(s, verdict_payload())
+        self.assertEqual(json.dumps(s, sort_keys=True), before, "input mutated")
+        keys = ("passes", "medium_acknowledgments", "decisions")
+        self.assertEqual(frozen_families(out, keys), frozen_families(s, keys))
+
+    def test_record_fix_verdicts_refusals(self):
+        cases = {
+            "at_pass bool": verdict_payload(at_pass=True),
+            "at_pass missing": {k: v for k, v in verdict_payload().items()
+                                if k != "at_pass"},
+            "head_sha non-str": verdict_payload(head_sha=5),
+            "sent not list": verdict_payload(sent=ARCH_HASH),
+            "results not list": verdict_payload(results={}),
+            "result not object": verdict_payload(results=["x"]),
+            "payload not object": [],
+            "unknown key": dict(verdict_payload(), passes=[]),
+        }
+        for name, payload in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(
+                    carry_state.record_fix_verdicts(load_fixture(), payload))
+
+
+class TestCLIWriters(TempDirCase):
+    def test_cli_record_decisions_round_trips_shell_metacharacters(self):
+        reason = "it's `id` and $(id) \"quoted\"\nnew line; rm -rf /"
+        path = self.write("d.json", json.dumps(defer_payload(reason=reason)))
+        proc = run_cli(["record-decisions", "--decisions-file", path],
+                       json.dumps(load_fixture()).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        out = json.loads(proc.stdout.decode())
+        self.assertEqual(out["decisions"][ARCH_HASH]["reason"], reason)
+        self.assertEqual(out["passes"], load_fixture()["passes"])
+
+    def test_cli_record_decisions_bad_file(self):
+        cases = {
+            "missing": os.path.join(self.tmp, "nope.json"),
+            "non-json": self.write("bad.json", "{"),
+            "non-object": self.write("list.json", "[]"),
+            "refused payload": self.write(
+                "r.json", json.dumps(defer_payload(reason=""))),
+        }
+        for name, path in cases.items():
+            with self.subTest(name):
+                proc = run_cli(["record-decisions", "--decisions-file", path],
+                               json.dumps(load_fixture()).encode())
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+                self.assertIn(proc.stderr.decode(), carry_state.REASONS)
+
+    def test_cli_record_fix_verdicts(self):
+        path = self.write("v.json", json.dumps(verdict_payload()))
+        proc = run_cli(["record-fix-verdicts", "--verdicts-file", path],
+                       json.dumps(load_fixture()).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(proc.stderr, b"")
+        out = json.loads(proc.stdout.decode())
+        self.assertEqual(out["fix_verdicts"][ARCH_HASH]["verified_blob"], "b1")
+
+    def test_cli_record_fix_verdicts_missing_fingerprint(self):
+        path = self.write("v.json", json.dumps(verdict_payload(blobs={})))
+        proc = run_cli(["record-fix-verdicts", "--verdicts-file", path],
+                       json.dumps(load_fixture()).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(proc.stderr.decode(), carry_state.REASON_NO_FINGERPRINT)
+        out = json.loads(proc.stdout.decode())
+        self.assertEqual(out.get("fix_verdicts", {}), {})
+        self.assertEqual(out["passes"], load_fixture()["passes"])
+
+    def test_cli_record_fix_verdicts_bad_file(self):
+        for name, path in (("missing", os.path.join(self.tmp, "x.json")),
+                           ("non-json", self.write("b.json", "nope")),
+                           ("refused", self.write("r.json", json.dumps(
+                               verdict_payload(at_pass=True))))):
+            with self.subTest(name):
+                proc = run_cli(["record-fix-verdicts", "--verdicts-file",
+                                path], json.dumps(load_fixture()).encode())
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+                self.assertIn(proc.stderr.decode(), carry_state.REASONS)
+
+    def test_cli_flags_closed(self):
+        self.assertEqual(carry_state.KNOWN_FLAGS,
+                         ("--decisions-file", "--verdicts-file", "--head-blobs"))
+        d = self.write("d.json", json.dumps(defer_payload()))
+        state = json.dumps(load_fixture()).encode()
+        for argv in (["record-decisions"],
+                     ["record-decisions", "--decisions-file", d,
+                      "--head-blobs", d],
+                     ["record-decisions", "--verdicts-file", d],
+                     ["record-decisions", "--reason", "x"],
+                     ["record-fix-verdicts", "--head-blobs", d],
+                     ["record-decisions", "--decisions-file", d,
+                      "--decisions-file", d]):
+            with self.subTest(argv=argv):
+                proc = run_cli(argv, state)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+
+
+# --------------------------------------------------------------------------- #
+# Writer lock (helper half of the single-writer property).
+# --------------------------------------------------------------------------- #
+ALLOWED_KEY_WRITES = {"record_decisions": {"decisions"},
+                      "record_fix_verdicts": {"fix_verdicts"}}
+FROZEN_KEYS = {"passes", "medium_acknowledgments"}
+MUTATORS = {"setdefault", "pop", "popitem", "update", "clear", "append",
+            "extend", "insert", "remove", "__setitem__", "__delitem__"}
+
+
+def _chain_keys(node):
+    """String keys along a subscript/attribute chain: x["a"][h]["b"] -> a, b."""
+    keys = []
+    while isinstance(node, (ast.Subscript, ast.Attribute)):
+        if isinstance(node, ast.Subscript):
+            sl = node.slice
+            if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
+                keys.append(sl.value)
+        node = node.value
+    return keys
+
+
+def string_key_writes(source):
+    """[(enclosing function or '<module>', key)] for every string-keyed write."""
+    tree = ast.parse(source)
+    found = []
+
+    def visit(node, fn):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fn = node.name
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        elif isinstance(node, ast.Delete):
+            targets = node.targets
+        for t in targets:
+            for sub in ast.walk(t):
+                if isinstance(sub, ast.Subscript):
+                    for k in _chain_keys(sub):
+                        found.append((fn, k))
+                    break
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in MUTATORS):
+            for k in _chain_keys(node.func.value):
+                found.append((fn, k))
+            if (node.func.attr in ("setdefault", "pop", "__setitem__",
+                                   "__delitem__") and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and node.args[0].value in FROZEN_KEYS
+                    | {"decisions", "fix_verdicts"}):
+                found.append((fn, node.args[0].value))
+        for child in ast.iter_child_nodes(node):
+            visit(child, fn)
+
+    visit(tree, "<module>")
+    return found
+
+
+def writer_lock_violations(source):
+    bad = []
+    for fn, key in string_key_writes(source):
+        if key in FROZEN_KEYS or key not in ALLOWED_KEY_WRITES.get(fn, set()):
+            bad.append((fn, key))
+    return bad
+
+
+class TestWriterLock(unittest.TestCase):
+    def _source(self):
+        with open(CARRY_STATE_PY, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_writer_lock_real_module(self):
+        src = self._source()
+        self.assertEqual(writer_lock_violations(src), [])
+        writes = set(string_key_writes(src))
+        # Non-vacuity: both owners are actually seen writing their family.
+        self.assertIn(("record_decisions", "decisions"), writes)
+        self.assertIn(("record_fix_verdicts", "fix_verdicts"), writes)
+
+    def test_writer_lock_trips_under_mutation(self):
+        src = self._source()
+        anchor = "def record_fix_verdicts("
+        self.assertEqual(src.count(anchor), 1)
+        head, tail = src.split(anchor, 1)
+        sig, body = tail.split("\n", 1)
+        self.assertTrue(sig.rstrip().endswith(":"),
+                        "record_fix_verdicts signature must fit one line")
+        injections = {
+            "passes in a writer": '    state["passes"] = []\n',
+            "acks in a writer": '    state["medium_acknowledgments"][h] = 1\n',
+            "wrong family": '    state["decisions"] = {}\n',
+            "nested passes": '    state["passes"][0]["findings"] = []\n',
+            "setdefault passes": '    state.setdefault("passes", [])\n',
+            "del passes": '    del state["passes"]\n',
+            "aug-assign": '    state["fix_verdicts"]["n"] += 1\n'
+                          '    state["passes"] += []\n',
+        }
+        for name, line in injections.items():
+            with self.subTest(name):
+                mutated = head + anchor + sig + "\n" + line + body
+                self.assertNotEqual(writer_lock_violations(mutated), [])
+        with self.subTest("module-level write"):
+            mutated = src + '\n_S = {}\n_S["decisions"] = {}\n'
+            self.assertNotEqual(writer_lock_violations(mutated), [])
+        with self.subTest("passes in a reader"):
+            mutated = src.replace("def pending(state):\n",
+                                  'def pending(state):\n'
+                                  '    state["passes"] = []\n', 1)
+            self.assertNotEqual(mutated, src)
+            self.assertNotEqual(writer_lock_violations(mutated), [])
+
+
+# --------------------------------------------------------------------------- #
+# Orchestrator compatibility (R6).
+# --------------------------------------------------------------------------- #
+def count_unfixed_cw(state):
+    """Verbatim body of `count_unfixed_cw` from
+    ~/.claude/plugins/cache/julian-orchestrator/julian-orchestrator/0.10.0/
+    scripts/orchestrator-cmd.sh L1558-1575 (the python3 heredoc), with the file
+    read replaced by the parsed state.
+
+    It ignores `decisions` and `fix_verdicts`, so an owner-decided C/W finding
+    still counts there. That over-count fails toward blocking; fixing it is an
+    orchestrator-repo follow-up, not this module's job.
+    """
+    try:
+        s = state
+        p = s["passes"][-1]["findings"]      # raises if passes absent/empty -> blocking
+        return len([f for f in p
+                    if f.get("band") in ("critical", "warning")
+                    and f.get("status") != "fixed-since-last"])
+    except Exception:
+        return 1                             # cannot confirm clean -> treat as >0
+
+
+class TestOrchestratorCompat(unittest.TestCase):
+    def test_orchestrator_compat_count_unchanged_by_writes(self):
+        s = load_fixture()
+        before = count_unfixed_cw(s)
+        self.assertEqual(before, 1)
+        d = carry_state.record_decisions(s, defer_payload())
+        v = carry_state.record_fix_verdicts(d, verdict_payload())
+        self.assertEqual(count_unfixed_cw(d), before)
+        self.assertEqual(count_unfixed_cw(v), before)
+
+    def test_orchestrator_compat_pass1_scope_untouched(self):
+        s = load_fixture()
+        d = carry_state.record_decisions(s, defer_payload())
+        v = carry_state.record_fix_verdicts(d, verdict_payload())
+        for key in ("head_sha", "diff_range"):
+            self.assertEqual(v["passes"][0][key], s["passes"][0][key])
+
+
 if __name__ == "__main__":
     unittest.main()
