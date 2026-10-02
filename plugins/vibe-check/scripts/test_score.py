@@ -1917,16 +1917,26 @@ class TestRunMinConfidence(unittest.TestCase):
 
     def test_low_confidence_carryforward_dropped(self):
         # A persisted/needs-recheck carryforward at conf 50 + min_confidence 70 is
-        # dropped like any other finding (D-03: no carryforward carve-out).
+        # dropped from SCORING like any other finding and recorded in filtered[].
+        # CONF-02 D-03 (no carve-out) is preserved for INFLUENCE — the row never
+        # cross-confirms or groups; Phase 46 D-02 (no expiry) and D-12 (config
+        # changes never retire findings) keep the obligation visible as a
+        # kept-open row instead of erasing it. All three decisions hold.
+        stored_hash = score.stable_hash("src/a.py", "return q", "still here")
         cf = make_finding(id="mc-cf", file="src/a.py", line=10,
                           title="still here", agent_confidence=50,
                           severity="critical", current_code="  return q",
                           canonical_line_content="return q",
-                          source_window=["a", "b", "c", "d", "e"])
+                          source_window=["a", "b", "c", "d", "e"],
+                          orchestrator_score=85, band="warning",
+                          attribution=["bugs"], stable_hash=stored_hash)
         result = score.run(self._envelope(min_confidence=70,
                                           carryforward=[cf], findings=[]))
-        ids = [g["id"] for g in result["findings"]]
-        self.assertNotIn("mc-cf", ids)
+        rows = [g for g in result["findings"] if g["id"] == "mc-cf"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["kept_open"], "below-min-confidence")
+        self.assertEqual((rows[0]["band"], rows[0]["orchestrator_score"],
+                          rows[0]["stable_hash"]), ("warning", 85, stored_hash))
         self.assertTrue(any(
             x.get("reason") == "below-min-confidence" and x.get("file") == "src/a.py"
             for x in result["filtered"]))
@@ -5295,3 +5305,449 @@ class TestVerdictByteSafety(unittest.TestCase):
                          json.dumps(self.old.run(json.loads(json.dumps(env))),
                                     sort_keys=True))
 
+
+
+# --------------------------------------------------------------------------- #
+# Kept-open obligations (CARRY-02, D-02 / D-12): a carried record that this
+# pass's min_confidence filter or sub-threshold drop removes from scoring stays
+# in findings[] as a kept-open row with its STORED scored fields. A record that
+# was once a row and is absorbed into a neighbour keeps its obligation identity
+# through an `obligation` sidecar on its member record.
+# --------------------------------------------------------------------------- #
+_KO_RANGES = {"src/a.py": [[8, 14]]}
+_KO_STATUSES = ("new", "persisted", "needs-recheck")
+_KO_STORED = ("stable_hash", "orchestrator_score", "band", "attribution")
+
+
+def _ko_find(id_, agent, line, conf, title, code, category="injection", **over):
+    """A fresh finding whose HEAD canonical the orchestrator already resolved."""
+    f = _hl(id_, agent, category, line, conf, title, code=code)
+    f["canonical_line_content"] = code
+    f.update(over)
+    return f
+
+
+def _ko_pass1(conf=60, command="deep-review"):
+    """Pass 1: A (security, src/a.py:10, "a_line") alone, in-diff."""
+    A = _ko_find("A", "security", 10, conf, "inj A", "a_line")
+    r = score.run(_hl_env([A], _KO_RANGES, pass_number=1, command=command))
+    assert len(r["findings"]) == 1, r
+    return r["findings"][0]
+
+
+def _ko_rows(result):
+    return [f for f in result["findings"] if "kept_open" in f]
+
+
+def _ko_next_cf(result, heads, windows=None):
+    """05-state.md step 2 + 30-collect-score step 0: the next pass's carryforward
+    from this result, every lead and member given its own HEAD read again."""
+    return [_carried(f, heads, windows) for f in result["findings"]
+            if f.get("status") in _KO_STATUSES]
+
+
+def _ko_req(token, rec, stable_hash=None):
+    return {"token": token, "agents": [rec["agent"]], "stable_hash": stable_hash,
+            "file": rec["file"], "line": rec["line"], "agent": rec["agent"],
+            "title": rec["title"]}
+
+
+def _ko_reasons(result, title):
+    return [x.get("reason") for x in result["filtered"] if x.get("title") == title]
+
+
+def _ko_scored(result):
+    return sorted((f["stable_hash"], f["orchestrator_score"], f["band"])
+                  for f in result["findings"] if "kept_open" not in f)
+
+
+def _ko_all_titles(result):
+    titles = []
+    for f in result["findings"]:
+        titles.append(f.get("title"))
+        titles.extend(m.get("title") for m in f.get("members", []))
+    return titles
+
+
+class TestKeptOpen(unittest.TestCase):
+    """Dropped carried LEADS stay open with their stored fields; they influence
+    nothing and are never emitted for resolved, fixed or absorbed records."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.future = state_shape.load_schema("future")
+
+    def _one(self, result):
+        rows = _ko_rows(result)
+        self.assertEqual(len(rows), 1, result)
+        return rows[0]
+
+    def test_min_confidence_raise_keeps_the_lead_open(self):
+        R1 = _ko_pass1(conf=60)
+        self.assertEqual((R1["band"], R1["orchestrator_score"]), ("warning", 80))
+        cf = _carried(R1, {"security": "a_line"})
+        other = _ko_find("N", "bugs", 40, 95, "other", "n_line", file="src/b.py")
+        r = score.run(_hl_env([json.loads(json.dumps(other))], _KO_RANGES,
+                              carryforward=[cf], pass_number=2, min_confidence=70))
+        row = self._one(r)
+        self.assertEqual(row["kept_open"], "below-min-confidence")
+        for k in _KO_STORED:
+            self.assertEqual(row[k], R1[k], k)
+        self.assertEqual(row["status"], "persisted")
+        self.assertIsInstance(row["snapshot"], dict)
+        self.assertIn("below-min-confidence", _ko_reasons(r, "inj A"))
+        # No influence: every scored row is what it is without the carried record.
+        base = score.run(_hl_env([json.loads(json.dumps(other))], _KO_RANGES,
+                                 carryforward=[], pass_number=2, min_confidence=70))
+        self.assertEqual(_ko_scored(r), _ko_scored(base))
+        self.assertEqual([x for x in r["filtered"] if x.get("title") != "inj A"],
+                         base["filtered"])
+
+    def test_threshold_change_keeps_the_lead_open(self):
+        R1 = _ko_pass1(conf=56)
+        self.assertEqual((R1["band"], R1["orchestrator_score"]), ("medium", 76))
+        deep = score.run(_hl_env([], {}, carryforward=[_carried(R1, {"security": "a_line"})],
+                                 pass_number=2))
+        self.assertEqual(_ko_rows(deep), [])
+        self.assertEqual(len(deep["findings"]), 1)
+        rev = score.run(_hl_env([], {}, carryforward=[_carried(R1, {"security": "a_line"})],
+                                pass_number=2, command="review"))
+        row = self._one(rev)
+        self.assertEqual(row["kept_open"], "sub-threshold")
+        self.assertEqual((row["band"], row["orchestrator_score"], row["stable_hash"]),
+                         ("medium", 76, R1["stable_hash"]))
+        self.assertIn("sub-threshold", _ko_reasons(rev, "inj A"))
+
+    def test_lost_cross_confirmation_keeps_the_stored_row(self):
+        h = score.stable_hash("src/a.py", "  x = 1", "xc")
+        cf = make_finding(id="xc-1", agent="security", category="injection", line=10,
+                          title="xc", agent_confidence=53, current_code="  x = 1",
+                          canonical_line_content="  x = 1", canonical_window=None,
+                          source_window=["a", "b", "c", "d", "e"],
+                          orchestrator_score=82, band="warning",
+                          attribution=["security", "codex-adversarial"],
+                          stable_hash=h, status="persisted")
+        r = score.run(_hl_env([], {}, carryforward=[cf], pass_number=2))
+        row = self._one(r)
+        self.assertEqual(row["kept_open"], "sub-threshold")
+        self.assertEqual((row["orchestrator_score"], row["band"], row["stable_hash"],
+                          row["attribution"]),
+                         (82, "warning", h, ["security", "codex-adversarial"]))
+        self.assertEqual(_ko_reasons(r, "xc"), ["sub-threshold"])
+
+    def test_clearing_lead_has_no_marker(self):
+        R1 = _ko_pass1(conf=60)
+        for cf in (_carried(R1, {"security": "a_line"}),
+                   _carried(R1, {"security": "a_line"}, kept_open="below-min-confidence")):
+            with self.subTest(stale_marker="kept_open" in cf):
+                r = score.run(_hl_env([], _KO_RANGES, carryforward=[cf], pass_number=2))
+                self.assertEqual(len(r["findings"]), 1)
+                self.assertNotIn("kept_open", r["findings"][0])
+
+    def test_fragment_needs_recheck_lead_is_kept_open(self):
+        R1 = _ko_pass1(conf=60)
+        cf = _carried(R1, {"security": "a_line"}, current_code="fragment of a_line")
+        r = score.run(_hl_env([], _KO_RANGES, carryforward=[cf], pass_number=2,
+                              min_confidence=70))
+        row = self._one(r)
+        self.assertEqual(row["status"], "needs-recheck")
+        self.assertEqual(row["kept_open"], "below-min-confidence")
+        self.assertEqual(row["stable_hash"], R1["stable_hash"])
+
+    def test_absorbed_lead_is_not_kept_open(self):
+        R1 = _ko_pass1(conf=60)
+        B = _ko_find("B", "bugs", 11, 90, "logic B", "b_line", category="logic-error")
+        r = score.run(_hl_env([B], _KO_RANGES,
+                              carryforward=[_carried(R1, {"security": "a_line"})],
+                              pass_number=2))
+        self.assertEqual(_ko_rows(r), [])
+        self.assertEqual(len(r["findings"]), 1)
+        self.assertEqual(_ko_reasons(r, "inj A"),
+                         ["absorbed-into: " + r["findings"][0]["stable_hash"]])
+
+    def _rebuild_cf(self):
+        """Lead L with members [L_own, M1 (resolved), M2 (fixed), M3 (own row),
+        M4 (dropped with L)]."""
+        L = _ko_find("L", "security", 10, 50, "L", "l_line")
+        recs = {
+            "M1": _ko_find("M1", "bugs", 11, 80, "M1", "m1_line", category="logic-error"),
+            "M2": _ko_find("M2", "impact", 12, 80, "M2", "m2_line", category="blast-radius"),
+            "M3": _ko_find("M3", "architecture", 30, 95, "M3", "m3_line", category="coupling"),
+            "M4": _ko_find("M4", "performance", 12, 40, "M4", "m4_line", category="perf"),
+        }
+        heads = {"security": "l_line", "bugs": "m1_line_now", "impact": None,
+                 "architecture": "m3_line", "performance": "m4_line"}
+        hl = score.stable_hash("src/a.py", "l_line", "L")
+        cf = dict(L, orchestrator_score=80, band="warning", attribution=["security"],
+                  stable_hash=hl, status="persisted", canonical_window=None)
+        members = []
+        for rec in [L] + list(recs.values()):
+            m = score._member_ref(rec)
+            m["canonical_line_content"] = heads[rec["agent"]]
+            members.append(m)
+        cf["members"] = members
+        return cf, recs, heads, hl
+
+    def test_lead_members_rebuilt_from_this_pass_only(self):
+        cf, recs, heads, hl = self._rebuild_cf()
+        env = _hl_env([], {}, carryforward=[cf], pass_number=2, head_sha="abc",
+                      recheck_requests=[_ko_req("T1", recs["M1"])],
+                      verdicts=[_p45_recheck("T1", "bugs")])
+        r = score.run(env)
+        row = self._one(r)
+        self.assertEqual(row["stable_hash"], hl)
+        self.assertEqual(row["kept_open"], "sub-threshold")
+        self.assertEqual(_pairs(row), [("security", "L"), ("performance", "M4")])
+        self.assertEqual(row["members"][0]["obligation"]["stable_hash"], hl)
+        self.assertNotIn("obligation", row["members"][1])
+        self.assertEqual(row["members"][1], score._member_ref(recs["M4"]))
+        self.assertEqual([x["title"] for x in r["resolved"]], ["M1"])
+        self.assertIn("M2", [x["title"] for x in r["fixed_since_last"]])
+        self.assertEqual(_ko_all_titles(r).count("M3"), 1)
+        self.assertEqual([f["title"] for f in r["findings"] if f["title"] == "M3"], ["M3"])
+        for f in r["findings"]:
+            for m in f.get("members", []):
+                self.assertNotIn("kept_open", m)
+        # A further pass never brings the resolved or fixed member back.
+        r2 = score.run(_hl_env([], {}, carryforward=_ko_next_cf(r, heads), pass_number=3))
+        titles = _ko_all_titles(r2)
+        self.assertNotIn("M1", titles)
+        self.assertNotIn("M2", titles)
+        self.assertIn("L", titles)
+
+    def test_verdict_wins_over_min_confidence(self):
+        R1 = _ko_pass1(conf=60)
+        cf = _carried(R1, {"security": "a_line_edited"})
+        r = score.run(_hl_env([], _KO_RANGES, carryforward=[cf], pass_number=2,
+                              min_confidence=90, head_sha="abc",
+                              recheck_requests=[_ko_req("T1", R1, R1["stable_hash"])],
+                              verdicts=[_p45_recheck("T1", "security")]))
+        self.assertEqual([x["stable_hash"] for x in r["resolved"]], [R1["stable_hash"]])
+        self.assertEqual(r["findings"], [])
+
+    def test_fixed_since_last_is_not_kept_open(self):
+        R1 = _ko_pass1(conf=60)
+        r = score.run(_hl_env([], _KO_RANGES, carryforward=[_carried(R1, {"security": None})],
+                              pass_number=2, min_confidence=100))
+        self.assertEqual(r["findings"], [])
+        self.assertEqual([x["title"] for x in r["fixed_since_last"]], ["inj A"])
+
+    def test_visible_hash_is_not_duplicated(self):
+        # Two carried entries naming one stored hash: the clearing one is a row,
+        # so the dropped one's obligation is already visible.
+        R1 = _ko_pass1(conf=60)
+        hi = _carried(R1, {"security": "a_line"}, agent_confidence=95)
+        lo = _carried(R1, {"security": "a_line"}, agent_confidence=50, line=11)
+        r = score.run(_hl_env([], _KO_RANGES, carryforward=[hi, lo], pass_number=2,
+                              min_confidence=70))
+        self.assertEqual(_ko_rows(r), [])
+        self.assertEqual(json.dumps(r).count(R1["stable_hash"]), 1)
+
+    def test_pass1_envelopes_carry_no_markers(self):
+        audit = make_finding(id="aud", line=12, agent_confidence=90,
+                             source_window=["a", "vibe-ignore", "c", "d", "e"])
+        envs = {
+            "hl_env": _hl_env([_hl("a", "security", "injection", 10, 80, "inj"),
+                               _hl("b", "bugs", "logic-error", 11, 70, "logic")],
+                              {"src/a.py": [[8, 14]]}),
+            "golden": {"command": "review", "pass_number": 1,
+                       "changed_line_ranges": {"src/a.py": [[8, 14]]},
+                       "carryforward": [],
+                       "findings": [make_finding(id="g-001", line=10,
+                                                 source_window=["a", "b", "c", "d", "e"]),
+                                    audit]},
+        }
+        for name, env in envs.items():
+            for mc in (None, 101):
+                with self.subTest(envelope=name, min_confidence=mc):
+                    e = json.loads(json.dumps(env))
+                    if mc is not None:
+                        e["min_confidence"] = mc
+                    r = score.run(e)
+                    s = json.dumps(r)
+                    self.assertEqual(s.count("kept_open"), 0)
+                    self.assertNotIn('"obligation"', s)
+                    if mc is not None:
+                        self.assertTrue(all(f["status"] == "audit" for f in r["findings"]))
+
+    def test_kept_open_row_shape(self):
+        R1 = _ko_pass1(conf=60)
+        r = score.run(_hl_env([], _KO_RANGES,
+                              carryforward=[_carried(R1, {"security": "a_line"})],
+                              pass_number=2, min_confidence=70))
+        row = self._one(r)
+        self.assertEqual(score._shape_finding(row), row)
+        self.assertEqual(state_shape.check_finding(row, self.future), [])
+        allowed = set(score.MEMBER_KEYS) | {"obligation"}
+        for m in row["members"]:
+            self.assertNotIn("kept_open", m)
+            self.assertLessEqual(set(m), allowed)
+        self.assertNotIn("obligation", score.MEMBER_KEYS)
+        self.assertNotIn("kept_open", score.MEMBER_KEYS)
+
+    def test_kept_open_row_carries_and_clears_next_pass(self):
+        R1 = _ko_pass1(conf=60)
+        r2 = score.run(_hl_env([], _KO_RANGES,
+                               carryforward=[_carried(R1, {"security": "a_line"})],
+                               pass_number=2, min_confidence=70))
+        self.assertEqual(len(_ko_rows(r2)), 1)
+        r3 = score.run(_hl_env([], _KO_RANGES,
+                               carryforward=_ko_next_cf(r2, {"security": "a_line"}),
+                               pass_number=3))
+        self.assertEqual(len(r3["findings"]), 1)
+        row = r3["findings"][0]
+        self.assertNotIn("kept_open", row)
+        self.assertEqual(row["stable_hash"], R1["stable_hash"])
+        self.assertEqual(row["status"], "persisted")
+
+
+class TestKeptOpenMembers(unittest.TestCase):
+    """A once-a-row finding absorbed into a neighbour keeps its obligation
+    identity (the `obligation` sidecar) and re-emerges under its own hash."""
+
+    def _ab(self, confA=52):
+        """Pass 1: A alone. Pass 2: A carried + a NEW B (bugs, 90) at one site."""
+        R1 = _ko_pass1(conf=confA)
+        cfA = _carried(R1, {"security": "a_line"})
+        B = _ko_find("B", "bugs", 11, 90, "logic B", "b_line", category="logic-error")
+        r2 = score.run(_hl_env([B], _KO_RANGES, carryforward=[cfA], pass_number=2))
+        self.assertEqual(len(r2["findings"]), 1, r2)
+        self.assertEqual(r2["findings"][0]["agent"], "bugs")
+        return R1, cfA, B, r2
+
+    def _sidecar(self, R1):
+        return {"stable_hash": R1["stable_hash"],
+                "orchestrator_score": R1["orchestrator_score"], "band": R1["band"],
+                "attribution": R1["attribution"], "snapshot": R1["snapshot"]}
+
+    def test_sidecar_attached_to_absorbed_once_a_row_member(self):
+        R1, cfA, B, r2 = self._ab(confA=60)
+        row = r2["findings"][0]
+        self.assertEqual(_pairs(row), [("bugs", "logic B"), ("security", "inj A")])
+        self.assertNotIn("obligation", row["members"][0])
+        self.assertEqual(row["members"][1]["obligation"], self._sidecar(R1))
+        rest = {k: v for k, v in row["members"][1].items() if k != "obligation"}
+        self.assertEqual(rest, score._member_ref(cfA))
+        # The sidecar never feeds the row: same envelope without A's stored fields.
+        bare = {k: v for k, v in cfA.items()
+                if k not in _KO_STORED + ("snapshot",)}
+        r_bare = score.run(_hl_env([B], _KO_RANGES, carryforward=[bare], pass_number=2))
+        rb = r_bare["findings"][0]
+        self.assertNotIn('"obligation"', json.dumps(r_bare))
+        for k in ("stable_hash", "orchestrator_score", "band"):
+            self.assertEqual(row[k], rb[k], k)
+
+    def test_sidecar_passes_through_re_absorption(self):
+        R1, cfA, B, r2 = self._ab()
+        heads = {"security": "a_line", "bugs": "b_line"}
+        r3 = score.run(_hl_env([], _KO_RANGES, carryforward=_ko_next_cf(r2, heads),
+                               pass_number=3))
+        self.assertEqual(_ko_rows(r3), [])
+        self.assertEqual(len(r3["findings"]), 1)
+        row = r3["findings"][0]
+        self.assertEqual(row["agent"], "bugs")
+        self.assertEqual(row["members"][1]["obligation"],
+                         r2["findings"][0]["members"][1]["obligation"])
+        self.assertEqual(json.dumps(r3).count(R1["stable_hash"]), 1)
+
+    def _pass3(self, r2, a_head, **over):
+        rowB = r2["findings"][0]
+        heads = {"security": a_head, "bugs": "b_line_edited"}
+        env = _hl_env([], {}, carryforward=_ko_next_cf(r2, heads), pass_number=3,
+                      head_sha="abc",
+                      recheck_requests=[_ko_req("TB", rowB, rowB["stable_hash"])],
+                      verdicts=[_p45_recheck("TB", "bugs")])
+        env.update(over)
+        return score.run(env), heads
+
+    def _assert_a_open(self, R1, r3, reason):
+        rowB_title = "logic B"
+        self.assertEqual([x["title"] for x in r3["resolved"]], [rowB_title])
+        self.assertNotIn(R1["stable_hash"], [x["stable_hash"] for x in r3["resolved"]])
+        rows = _ko_rows(r3)
+        self.assertEqual(len(rows), 1, r3)
+        a = rows[0]
+        self.assertEqual(a["kept_open"], reason)
+        for k in _KO_STORED:
+            self.assertEqual(a[k], R1[k], k)
+        self.assertIn(a["status"], ("persisted", "needs-recheck"))
+        self.assertIn(reason, _ko_reasons(r3, "inj A"))
+        self.assertEqual(_pairs(a), [("security", "inj A")])
+        self.assertEqual(a["members"][0]["obligation"]["stable_hash"], R1["stable_hash"])
+        return a
+
+    def _pass4(self, R1, r3, heads):
+        r4 = score.run(_hl_env([], _KO_RANGES, carryforward=_ko_next_cf(r3, heads),
+                               pass_number=4))
+        rows = [f for f in r4["findings"] if f["title"] == "inj A"]
+        self.assertEqual(len(rows), 1, r4)
+        self.assertNotIn("kept_open", rows[0])
+        self.assertEqual(rows[0]["stable_hash"], R1["stable_hash"])
+
+    def test_three_pass_lead_resolved_member_below_min_confidence(self):
+        R1, cfA, B, r2 = self._ab()
+        r3, heads = self._pass3(r2, "a_line", min_confidence=70)
+        a = self._assert_a_open(R1, r3, "below-min-confidence")
+        self.assertEqual(a["status"], "persisted")
+        self.assertEqual(a["snapshot"]["at_pass"], R1["snapshot"]["at_pass"])
+        self._pass4(R1, r3, heads)
+
+    def test_three_pass_lead_resolved_member_sub_threshold(self):
+        R1, cfA, B, r2 = self._ab()
+        r3, heads = self._pass3(r2, "a_line")
+        self._assert_a_open(R1, r3, "sub-threshold")
+        self._pass4(R1, r3, heads)
+
+    def test_member_resolved_by_own_token_reports_its_hash(self):
+        R1, cfA, B, r2 = self._ab()
+        heads = {"security": "a_line_edited", "bugs": "b_line"}
+        req = _ko_req("TA", R1)
+        r3 = score.run(_hl_env([], _KO_RANGES, carryforward=_ko_next_cf(r2, heads),
+                               pass_number=3, head_sha="abc", recheck_requests=[req],
+                               verdicts=[_p45_recheck("TA", "security")]))
+        self.assertEqual([(x["title"], x["stable_hash"]) for x in r3["resolved"]],
+                         [("inj A", R1["stable_hash"])])
+        self.assertEqual(_ko_rows(r3), [])
+        self.assertNotIn("inj A", [f["title"] for f in r3["findings"]])
+
+    def test_never_a_row_member_is_not_an_obligation(self):
+        # Scope boundary: a member absorbed on the pass it first appeared was
+        # never listed to the owner and has no stored row fields to keep open.
+        A = _ko_find("A", "security", 10, 52, "inj A", "a_line")
+        B = _ko_find("B", "bugs", 11, 90, "logic B", "b_line", category="logic-error")
+        r1 = score.run(_hl_env([A, B], _KO_RANGES, pass_number=1))
+        self.assertEqual(len(r1["findings"]), 1)
+        rowB = r1["findings"][0]
+        self.assertNotIn('"obligation"', json.dumps(r1))
+        heads = {"security": "a_line", "bugs": "b_line_edited"}
+        r2 = score.run(_hl_env([], _KO_RANGES, carryforward=_ko_next_cf(r1, heads),
+                               pass_number=2, min_confidence=70, head_sha="abc",
+                               recheck_requests=[_ko_req("TB", rowB, rowB["stable_hash"])],
+                               verdicts=[_p45_recheck("TB", "bugs")]))
+        self.assertEqual([x["title"] for x in r2["resolved"]], ["logic B"])
+        self.assertEqual(r2["findings"], [])
+        self.assertEqual(_ko_reasons(r2, "inj A"), ["below-min-confidence"])
+        self.assertNotIn('"obligation"', json.dumps(r2))
+
+    def test_malformed_sidecar_expands_as_plain_member(self):
+        R1, cfA, B, r2 = self._ab()
+        heads = {"security": "a_line", "bugs": "b_line"}
+        plain = _ko_next_cf(r2, heads)
+        del plain[0]["members"][1]["obligation"]
+        want = json.dumps(score.run(_hl_env([], _KO_RANGES, carryforward=plain,
+                                            pass_number=3)), sort_keys=True)
+        for bad in ("x", ["a"], None, {"stable_hash": 5}, {"band": "warning"}):
+            with self.subTest(sidecar=bad):
+                cfs = json.loads(json.dumps(plain))
+                cfs[0]["members"][1]["obligation"] = bad
+                got = score.run(_hl_env([], _KO_RANGES, carryforward=cfs, pass_number=3))
+                self.assertEqual(json.dumps(got, sort_keys=True), want)
+
+    def test_pass1_members_never_carry_a_sidecar(self):
+        A = _ko_find("A", "security", 10, 60, "inj A", "a_line")
+        B = _ko_find("B", "bugs", 11, 90, "logic B", "b_line", category="logic-error")
+        r = score.run(_hl_env([A, B], _KO_RANGES, pass_number=1))
+        for f in r["findings"]:
+            for m in f["members"]:
+                self.assertNotIn("obligation", m)
+        self.assertNotIn("obligation", score.MEMBER_KEYS)
