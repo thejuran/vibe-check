@@ -3,7 +3,7 @@
 > **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 4 is entered (every review, after Phase 3).
 > Announce on entry, after this Read: `✓ Phase 4 — Render results`.
 
-**Render gate (scoring-ran sentinel — HARD HALT, ROBUST-04 D-08; D-10, CORE-03).** BEFORE reading any finding's `band` to render the band tables below, assert BOTH: (i) the pass carries the script's pass-level `scored_by_script: true` sentinel (the top-level field `scripts/score.py` stamped in Phase 3 / `score.py:run()`), AND (ii) EVERY finding about to be rendered carries both `band` and `orchestrator_score`. **This is a HARD render gate, not a soft check.** If EITHER assertion fails — no `scored_by_script: true` on the pass, OR any to-be-rendered finding lacks `band`/`orchestrator_score` — the orchestrator HALTS, emits the explicit error **`scoring did not run — review halted; no report produced`**, and renders NOTHING: NO findings, NO summary table, NO band sections, NO partial output. A review either ran the deterministic core or it produces no report — there is no hand-scored fallback (CORE-03 / D-09 forbids one). This is the render-time twin of the Phase-3 fail-closed check (step 5 above, "FAIL-CLOSED check"): rendered findings exist ONLY because the script ran and stamped them — a finding that never went through the script has no `band`, so it cannot be rendered. The posture matches `score.py`'s own `__main__`, which already exits non-zero on unparseable stdin; the gate extends that fail-closed contract to "scored output is structurally required at render."
+**Render gate (scoring-ran sentinel — HARD HALT, ROBUST-04 D-08; D-10, CORE-03).** BEFORE reading any finding's `band` to render the band tables below, assert BOTH: (i) the pass carries the script's pass-level `scored_by_script: true` sentinel (the top-level field `scripts/score.py` stamped in Phase 3 / `score.py:run()`), AND (ii) EVERY finding about to be rendered carries both `band` and `orchestrator_score`. **This is a HARD render gate, not a soft check.** If EITHER assertion fails — no `scored_by_script: true` on the pass, OR any to-be-rendered finding lacks `band`/`orchestrator_score` — the orchestrator HALTS, emits the explicit error **`scoring did not run — review halted; no report produced`**, and renders NOTHING: NO findings, NO summary table, NO band sections, NO partial output. A review either ran the deterministic core or it produces no report — there is no hand-scored fallback (CORE-03 / D-09 forbids one). This is the render-time twin of the Phase-3 fail-closed check (step 5 above, "FAIL-CLOSED check"): rendered findings exist ONLY because the script ran and stamped them — a finding that never went through the script has no `band`, so it cannot be rendered. The posture matches `score.py`'s own `__main__`, which already exits non-zero on unparseable stdin; the gate extends that fail-closed contract to "scored output is structurally required at render." The pass-level `resolved[]` entries are NOT findings and are outside this gate — they render only in the multi-pass `Resolved on recheck` list below.
 
 **Parallel-dispatch detect-and-WARN (ROBUST-04 D-09 — codex-aware; a NOTE, NEVER a halt).** AFTER the gate passes (the pass IS scored), reconcile the agents that were dispatched/joined against the agents that actually contributed, as a legibility check. This NEVER halts and NEVER drops a finding — it only emits `⚠` notes alongside the report.
   - **EXPECTED set** = the dispatched native agents `agents_run` (the union written to the pass entry — Phase 4.5:`agents_run`; in `--all` mode this is the cross-chunk union of every chunk's dispatched agents, Phase 2 Site C / loop-exit) **PLUS `codex-adversarial` IFF Codex actually JOINED this pass** (NOT `CODEX_SKIPPED`). Codex joined ⟺ a `codex-adversarial` agent-response object was appended to the agent-response set at Phase 3 entry (per `deep-review.md` Phase 3 — a `verdict: "approve"` run appends a ZERO-finding `codex-adversarial` object and so COUNTS as joined-and-expected; a `CODEX_SKIPPED` run appends NOTHING and so `codex-adversarial` is NOT in EXPECTED). **`codex-adversarial` is NOT a native `Task` agent — it is never in `agents_run`; it is added to EXPECTED only when it joined.** This codex-awareness is load-bearing: without it, EVERY normal Codex `/deep-review` would misfire here as a foreign-agent mismatch (a finding attributed to `codex-adversarial`, an agent "not dispatched"). A normal Codex deep-review must produce ZERO dispatch warnings.
@@ -23,17 +23,26 @@ Count carry-forward results:
 - `fixed_count` = findings with status `fixed-since-last` in this pass's carry-forward
 - `persisted_count` = findings with status `persisted`
 - `new_count` = brand-new findings this pass
+- `resolved_count` = entries in this pass's `resolved[]` (0 when the key is absent)
+- `kept_open_count` = findings in this pass carrying `kept_open`
 
 Render before the per-band sections:
 
 ````
-**Pass {{$PASS_NUMBER}}** — {{fixed_count}} fixed since last, {{persisted_count}} still present, {{new_count}} new
+**Pass {{$PASS_NUMBER}}** — {{fixed_count}} fixed since last, {{resolved_count}} resolved on recheck, {{persisted_count}} still present, {{new_count}} new, {{kept_open_count}} kept open below this pass's filters
 
 ✅ Fixed since last pass:
 - `{{file}}:{{line}}` — {{title}} (was {{band}} pass {{N}})
+
+✅ Resolved on recheck:
+- `{{file}}:{{line}}` — {{title}} (was {{band}}; {{resolution.source}} by {{resolution.agents}} at {{resolution.head_sha}})
 ````
 
-Findings marked `persisted` go into the regular per-band tables with `Status: PERSISTED (pass N)` where N is when they first appeared.
+Omit the `✅ Resolved on recheck:` list when `resolved_count` is 0, and omit the `kept open below this pass's filters` clause of the headline when `kept_open_count` is 0. `resolved[]` entries are NOT findings — they are not subject to the render gate's band/orchestrator_score check and are rendered only in the list above.
+
+Findings marked `persisted` go into the regular per-band tables with `Status: PERSISTED (pass N)` where N is the finding's `snapshot.at_pass`.
+
+A finding carrying `kept_open` renders in the band table of its (carried) `band` with `Status: PERSISTED|NEEDS-RECHECK (pass N) — kept open: {{kept_open}} this pass (D-02: an unresolved finding never expires because a confidence or threshold filter moved; resolve it or decide it at Finalize)`; it is never hidden.
 
 Per `templates/output-format.md`:
 
