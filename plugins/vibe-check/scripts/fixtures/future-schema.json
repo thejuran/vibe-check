@@ -1,12 +1,12 @@
 {
-  "_purpose": "The strict envelope contract for states produced after Phase 40. RESEARCH Q6 section 3 plus D-16. Changing this file is an envelope change and needs a recorded decision. v2.10 Wave 1 (41-06) added the optional `members` finding key (D-14) — a recorded decision, see SUPERSESSIONS-v2.10.md entry 007. Rollback: a scorer without this key drops `members` at `_shape_finding` and carries the representative unchanged; absorbed-member evidence is lost on rollback (accepted downgrade, test_score.py TestRollbackStateCompat).",
+  "_purpose": "The strict envelope contract for states produced after Phase 40. RESEARCH Q6 section 3 plus D-16. Changing this file is an envelope change and needs a recorded decision. v2.10 Wave 1 (41-06) added the optional `members` finding key (D-14) — a recorded decision, see SUPERSESSIONS-v2.10.md entry 007. Rollback: a scorer without this key drops `members` at `_shape_finding` and carries the representative unchanged; absorbed-member evidence is lost on rollback (accepted downgrade, test_score.py TestRollbackStateCompat). v2.11 Phase 46 (CARRY-01/02/03, CONTEXT D-01/D-02/D-04/D-06/D-08) added finding `snapshot` and `kept_open`, pass `resolved`, root `decisions` and root `fix_verdicts`; `medium_acknowledgments` stays root_required and is legacy read-only after Phase 46.",
   "_scope": "This schema proves the ENVELOPE shape is stable. It does NOT prove orchestration or rendered reports are unchanged: those are the scorer leg (test_score.py goldens), the script leg (per-script goldens), and the trace leg (plan 40-13). One of four legs.",
   "root_required": ["medium_acknowledgments", "passes"],
-  "root_optional": [],
+  "root_optional": ["decisions", "fix_verdicts"],
   "root_closed": true,
   "pass_required": ["pass_number", "head_sha", "timestamp", "mode", "diff_range", "agents_run",
                     "findings", "filtered", "codex"],
-  "pass_optional": [],
+  "pass_optional": ["resolved"],
   "pass_all_only": ["cap_applied", "chunk_total", "capped_chunks"],
   "pass_forbidden": ["fixes_applied"],
   "codex_shape": {
@@ -24,6 +24,16 @@
                        "band", "attribution", "status", "stable_hash"],
   "finding_optional": ["cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
                        "silenced_marker_nearby", "intent_doc_match", "canonical_line_content",
-                       "members"],
-  "finding_closed": true
+                       "members", "snapshot", "kept_open"],
+  "finding_closed": true,
+  "resolved_required": ["file", "line", "title", "band", "stable_hash", "agent", "resolution"],
+  "resolved_optional": [],
+  "resolved_closed": true,
+  "resolution_required": ["source", "agents", "verdict", "head_sha", "at_pass", "reason"],
+  "resolution_optional": ["verified_blob"],
+  "resolution_source_enum": ["recheck", "fix-obsolete"],
+  "_rollback": {
+    "procedure": "To run a plugin older than Phase 46 against a Phase-46-produced state, first copy the state file to `<state>.pre-downgrade.bak`, then remove exactly the keys listed in `phase46_added`: the root keys from the root object, the pass keys from every `passes[]` entry, and the finding keys from every finding in every pass. Nothing else changes: every scored field and every pass is preserved, and the `.pre-downgrade.bak` copy keeps the Phase-46 evidence (decisions, resolutions, snapshots), so re-upgrading is a copy back. The older plugin's Finalize reads only `medium_acknowledgments`, so it will re-ask about findings whose owner decision lived in `decisions`; that is the only behavioral loss and it is non-destructive.",
+    "phase46_added": {"root": ["decisions", "fix_verdicts"], "pass": ["resolved"], "finding": ["snapshot", "kept_open"]}
+  }
 }

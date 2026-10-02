@@ -76,6 +76,17 @@ REASONS = (
     "finding is not an object",
     "missing required key in finding: %s",
     "unknown key in finding: %s",
+    "resolved is not a list",
+    "resolved record is not an object",
+    "missing required key in resolved record: %s",
+    "unknown key in resolved record: %s",
+    "resolution is not an object",
+    "missing required key in resolution: %s",
+    "unknown key in resolution: %s",
+    "resolution source is not in the pinned enum",
+    "resolution at_pass is not an integer",
+    "decisions is not an object",
+    "fix_verdicts is not an object",
 )
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -124,6 +135,48 @@ def check_finding(finding, schema):
         "missing required key in finding: %s",
         "unknown key in finding: %s",
     )
+
+
+def check_resolved_record(record, schema):
+    """Validate one `passes[].resolved[]` record. -> list of fixed reason strings.
+
+    A resolved record is a finding that left the open set, carrying the
+    verifier's `resolution`. The resolution is always closed: an unrecognized
+    key there is drift, whatever the schema says about the outer record.
+    """
+    if not isinstance(record, dict):
+        return ["resolved record is not an object"]
+    reasons = _key_reasons(
+        record,
+        schema.get("resolved_required", []),
+        schema.get("resolved_optional", []),
+        schema.get("resolved_closed", False),
+        "missing required key in resolved record: %s",
+        "unknown key in resolved record: %s",
+    )
+    if "resolution" in record:
+        resolution = record["resolution"]
+        if not isinstance(resolution, dict):
+            reasons.append("resolution is not an object")
+            return reasons
+        reasons.extend(_key_reasons(
+            resolution,
+            schema.get("resolution_required", []),
+            schema.get("resolution_optional", []),
+            True,
+            "missing required key in resolution: %s",
+            "unknown key in resolution: %s",
+        ))
+        enum = schema.get("resolution_source_enum")
+        if "source" in resolution and enum is not None:
+            if resolution["source"] not in enum:
+                reasons.append("resolution source is not in the pinned enum")
+        if "at_pass" in resolution:
+            value = resolution["at_pass"]
+            # bool is a subclass of int; a flag is not a pass number.
+            if not isinstance(value, int) or isinstance(value, bool):
+                reasons.append("resolution at_pass is not an integer")
+    return reasons
 
 
 def check_codex(codex, shape):
@@ -217,6 +270,14 @@ def check_pass_entry(entry, schema, all_mode=False):
             for finding in findings:
                 reasons.extend(check_finding(finding, schema))
 
+    if "resolved" in entry:
+        resolved = entry["resolved"]
+        if not isinstance(resolved, list):
+            reasons.append("resolved is not a list")
+        else:
+            for record in resolved:
+                reasons.extend(check_resolved_record(record, schema))
+
     return reasons
 
 
@@ -233,6 +294,12 @@ def check_state(state, schema, all_mode=False):
         "missing required root key: %s",
         "unknown root key: %s",
     )
+
+    # Only the container type is checked here; the entry shapes of these two
+    # maps are owned by the module that writes them.
+    for key in ("decisions", "fix_verdicts"):
+        if key in state and not isinstance(state[key], dict):
+            reasons.append("%s is not an object" % key)
 
     if "passes" in state:
         passes = state["passes"]

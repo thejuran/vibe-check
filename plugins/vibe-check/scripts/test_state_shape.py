@@ -45,6 +45,7 @@ not prove orchestration or rendered reports are unchanged.
 """
 
 import ast
+import copy
 import glob
 import json
 import os
@@ -509,6 +510,13 @@ class TestPersistProseCreatesFutureRoot(unittest.TestCase):
         self.assertEqual(sorted(root), sorted(FUTURE["root_required"]))
         self.assertTrue(FUTURE["root_closed"])
 
+    def test_persist_prose_never_names_the_new_roots(self):
+        # Persist creates only the required roots; the optional carry-forward
+        # roots are written by the code that owns them.
+        root = self._new_state_root()
+        self.assertNotIn("decisions", root)
+        self.assertNotIn("fix_verdicts", root)
+
     def test_medium_acknowledgments_starts_as_empty_object(self):
         # Finalize writes medium_acknowledgments[<stable_hash>] = {...}: an object.
         root = self._new_state_root()
@@ -954,6 +962,228 @@ class TestPhase45LoopFixture(unittest.TestCase):
         reasons = state_shape.check_state(self.state, FUTURE)
         self.assertEqual(len(PHASE45_FUTURE_REASONS), 10)
         self.assertEqual(sorted(reasons), PHASE45_FUTURE_REASONS)
+
+
+# --------------------------------------------------------------------------
+# Carry-forward field families: finding `snapshot` / `kept_open`, pass
+# `resolved[]`, root `decisions` / `fix_verdicts`. Each is accepted only where
+# the schema places it and rejected anywhere else.
+# --------------------------------------------------------------------------
+
+
+def make_resolution(**overrides):
+    base = {
+        "source": "recheck",
+        "agents": ["architecture"],
+        "verdict": "resolved",
+        "head_sha": "deadbeef",
+        "at_pass": 2,
+        "reason": "line rewritten",
+    }
+    return _apply(base, overrides)
+
+
+def make_resolved(**overrides):
+    base = {
+        "file": "src/app.py",
+        "line": 12,
+        "title": "a title",
+        "band": "warning",
+        "stable_hash": "abc123",
+        "agent": "architecture",
+        "resolution": make_resolution(),
+    }
+    return _apply(base, overrides)
+
+
+def _assert_reasons_are_templated(test, reasons):
+    """T-46-01: every emitted reason is a REASONS template filled with a key."""
+    for reason in reasons:
+        ok = any(reason == t or (t.endswith("%s") and reason.startswith(t[:-2]))
+                 for t in state_shape.REASONS)
+        test.assertTrue(ok, "reason %r is not drawn from REASONS" % reason)
+
+
+class TestPhase46Families(unittest.TestCase):
+
+    def test_new_roots_accepted_as_objects(self):
+        state = make_state(decisions={}, fix_verdicts={})
+        self.assertEqual(state_shape.check_state(state, FUTURE), [])
+
+    def test_new_roots_rejected_when_not_objects(self):
+        reasons = state_shape.check_state(make_state(decisions=[], fix_verdicts=[]), FUTURE)
+        self.assertIn("decisions is not an object", reasons)
+        self.assertIn("fix_verdicts is not an object", reasons)
+        _assert_reasons_are_templated(self, reasons)
+
+    def test_unknown_root_key_still_rejected(self):
+        state = make_state(decisions={}, fix_verdicts={}, latency_ms=12)
+        self.assertEqual(state_shape.check_state(state, FUTURE),
+                         ["unknown root key: latency_ms"])
+
+    def test_resolved_in_pass_accepted(self):
+        entry = make_pass(resolved=[make_resolved()])
+        self.assertEqual(state_shape.check_pass_entry(entry, FUTURE), [])
+
+    def test_resolved_misplaced_is_rejected(self):
+        self.assertIn("unknown root key: resolved",
+                      state_shape.check_state(make_state(resolved=[]), FUTURE))
+        entry = make_pass(findings=[make_finding(resolved=[])])
+        self.assertIn("unknown key in finding: resolved",
+                      state_shape.check_pass_entry(entry, FUTURE))
+
+    def test_snapshot_and_decisions_misplaced_are_rejected(self):
+        self.assertIn("unknown key in pass entry: snapshot",
+                      state_shape.check_pass_entry(make_pass(snapshot={}), FUTURE))
+        self.assertIn("unknown key in pass entry: decisions",
+                      state_shape.check_pass_entry(make_pass(decisions={}), FUTURE))
+        self.assertIn("unknown key in finding: fix_verdicts",
+                      state_shape.check_finding(make_finding(fix_verdicts={}), FUTURE))
+
+    def test_resolved_not_a_list(self):
+        self.assertIn("resolved is not a list",
+                      state_shape.check_pass_entry(make_pass(resolved={}), FUTURE))
+
+    def test_resolved_record_not_an_object(self):
+        self.assertIn("resolved record is not an object",
+                      state_shape.check_pass_entry(make_pass(resolved=["x"]), FUTURE))
+
+    def test_each_resolved_required_key_dropped(self):
+        self.assertEqual(len(FUTURE["resolved_required"]), 7)
+        for key in FUTURE["resolved_required"]:
+            with self.subTest(key=key):
+                reasons = state_shape.check_resolved_record(make_resolved(**{key: DROP}), FUTURE)
+                self.assertEqual(reasons, ["missing required key in resolved record: %s" % key])
+
+    def test_unknown_key_in_resolved_record(self):
+        self.assertEqual(
+            state_shape.check_resolved_record(make_resolved(severity="high"), FUTURE),
+            ["unknown key in resolved record: severity"])
+
+    def test_each_resolution_required_key_dropped(self):
+        for key in FUTURE["resolution_required"]:
+            with self.subTest(key=key):
+                rec = make_resolved(resolution=make_resolution(**{key: DROP}))
+                self.assertEqual(state_shape.check_resolved_record(rec, FUTURE),
+                                 ["missing required key in resolution: %s" % key])
+
+    def test_resolution_not_an_object(self):
+        self.assertEqual(
+            state_shape.check_resolved_record(make_resolved(resolution="ok"), FUTURE),
+            ["resolution is not an object"])
+
+    def test_resolution_source_enum(self):
+        for source in FUTURE["resolution_source_enum"]:
+            with self.subTest(source=source):
+                rec = make_resolved(resolution=make_resolution(source=source))
+                self.assertEqual(state_shape.check_resolved_record(rec, FUTURE), [])
+        rec = make_resolved(resolution=make_resolution(source="guess"))
+        self.assertEqual(state_shape.check_resolved_record(rec, FUTURE),
+                         ["resolution source is not in the pinned enum"])
+
+    def test_resolution_at_pass_is_a_real_integer(self):
+        for bad in (True, "2", 2.0, None):
+            with self.subTest(at_pass=bad):
+                rec = make_resolved(resolution=make_resolution(at_pass=bad))
+                self.assertEqual(state_shape.check_resolved_record(rec, FUTURE),
+                                 ["resolution at_pass is not an integer"])
+
+    def test_resolution_extra_key_rejected_but_verified_blob_accepted(self):
+        ok = make_resolved(resolution=make_resolution(source="fix-obsolete",
+                                                      verified_blob="abc"))
+        self.assertEqual(state_shape.check_resolved_record(ok, FUTURE), [])
+        bad = make_resolved(resolution=make_resolution(verified_sha="abc"))
+        self.assertEqual(state_shape.check_resolved_record(bad, FUTURE),
+                         ["unknown key in resolution: verified_sha"])
+
+    def test_snapshot_and_kept_open_accepted_on_a_finding(self):
+        snapshot = {"at_pass": 2, "file": "src/app.py", "line": 12,
+                    "canonical_line_content": "x = 1", "band": "warning"}
+        finding = make_finding(snapshot=snapshot, kept_open="sub-threshold")
+        self.assertEqual(state_shape.check_finding(finding, FUTURE), [])
+
+    def test_fixes_applied_still_forbidden(self):
+        self.assertIn("forbidden key in pass entry: fixes_applied",
+                      state_shape.check_pass_entry(make_pass(fixes_applied=[]), FUTURE))
+
+    def test_every_new_reason_is_templated(self):
+        reasons = []
+        reasons += state_shape.check_state(make_state(decisions=1, fix_verdicts=1), FUTURE)
+        reasons += state_shape.check_pass_entry(make_pass(resolved=1), FUTURE)
+        reasons += state_shape.check_pass_entry(
+            make_pass(resolved=[1, {"resolution": 1},
+                                {"x": 1, "resolution": {"source": "z", "at_pass": "a",
+                                                        "y": 1}}]), FUTURE)
+        self.assertTrue(reasons)
+        _assert_reasons_are_templated(self, reasons)
+
+    def test_old_fixture_reasons_unchanged_by_new_families(self):
+        reasons = state_shape.check_state(load_phase45_fixture(), FUTURE)
+        self.assertEqual(sorted(reasons), PHASE45_FUTURE_REASONS)
+
+
+def strip_phase46(state, schema):
+    """The documented downgrade: remove exactly the keys `_rollback` lists."""
+    added = schema["_rollback"]["phase46_added"]
+    for key in added["root"]:
+        state.pop(key, None)
+    for entry in state.get("passes", []):
+        for key in added["pass"]:
+            entry.pop(key, None)
+        for finding in entry.get("findings", []):
+            for key in added["finding"]:
+                finding.pop(key, None)
+    return state
+
+
+class TestPhase46Rollback(unittest.TestCase):
+    """Downgrading a carry-forward state for an older plugin is pure key removal."""
+
+    def _shaped(self):
+        state = copy.deepcopy(load_phase45_fixture())
+        p2 = state["passes"][1]
+        arch = _by_id(p2, "arch-001")
+        arch["snapshot"] = {"at_pass": 2, "file": arch["file"], "line": arch["line"],
+                            "canonical_line_content": arch["canonical_line_content"],
+                            "band": arch["band"]}
+        arch["kept_open"] = "sub-threshold"
+        p2["resolved"] = [make_resolved()]
+        state["decisions"] = {_by_id(p2, "bugs-001")["stable_hash"]: {
+            "decision": "defer", "reason": "r", "at_pass": 2, "band": "medium"}}
+        state["fix_verdicts"] = {arch["stable_hash"]: {
+            "verdict": "obsolete", "agent": "fix", "head_sha": "50f9932e",
+            "at_pass": 2, "verified_blob": "b1", "reason": "x"}}
+        return state
+
+    def test_phase46_added_lists_exactly_the_new_families(self):
+        self.assertEqual(FUTURE["_rollback"]["phase46_added"],
+                         {"root": ["decisions", "fix_verdicts"], "pass": ["resolved"],
+                          "finding": ["snapshot", "kept_open"]})
+
+    def test_shaped_state_adds_no_reasons(self):
+        self.assertEqual(sorted(state_shape.check_state(self._shaped(), FUTURE)),
+                         PHASE45_FUTURE_REASONS)
+
+    def test_strip_returns_the_original_fixture(self):
+        stripped = strip_phase46(self._shaped(), FUTURE)
+        self.assertEqual(json.dumps(stripped, sort_keys=True),
+                         json.dumps(load_phase45_fixture(), sort_keys=True))
+
+    def test_procedure_names_the_backup(self):
+        procedure = FUTURE["_rollback"]["procedure"]
+        self.assertIsInstance(procedure, str)
+        self.assertTrue(procedure.strip())
+        self.assertIn("pre-downgrade.bak", procedure)
+
+    def test_strip_is_not_a_wildcard(self):
+        shaped = self._shaped()
+        shaped["obligations"] = {}
+        self.assertIn("unknown root key: obligations",
+                      state_shape.check_state(shaped, FUTURE))
+        stripped = strip_phase46(shaped, FUTURE)
+        self.assertIn("obligations", stripped)
+        self.assertNotEqual(json.dumps(stripped, sort_keys=True),
+                            json.dumps(load_phase45_fixture(), sort_keys=True))
 
 
 if __name__ == "__main__":
