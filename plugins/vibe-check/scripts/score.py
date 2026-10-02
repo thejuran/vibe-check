@@ -143,7 +143,7 @@ FINDING_REQUIRED_KEYS = ("id", "file", "line", "title", "category", "severity", 
                          "band", "attribution", "status", "stable_hash")
 FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
                          "silenced_marker_nearby", "intent_doc_match", "canonical_line_content",
-                         "members")
+                         "members", "snapshot", "kept_open")
 # H-LANE (v2.10 Wave 1, D-14): a surviving row's `members` is a list of member
 # RECORDS — each the finding INPUT key set below, i.e. exactly what a finding
 # arrives with (its ORIGINAL multi-line current_code and its own source_window,
@@ -154,9 +154,12 @@ FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "i
 # orchestrator HEAD read (30-collect-score.md step 0) that a stored copy must never
 # stand in for (T-41-37). state_shape validates finding keys only; the member-record
 # shape is this module's own contract (test_score TestSiteGroupingHLane).
+# `snapshot` (the decision snapshot) is a per-row scorer OUTPUT recomputed every
+# pass, never member evidence; `kept_open` (the sub-threshold obligation marker)
+# is likewise a per-row scorer output.
 _MEMBER_EXCLUDED_KEYS = ("id", "orchestrator_score", "band", "attribution", "status",
                          "stable_hash", "members", "in_diff", "silenced_marker_nearby",
-                         "canonical_line_content")
+                         "canonical_line_content", "snapshot", "kept_open")
 MEMBER_KEYS = tuple(k for k in FINDING_REQUIRED_KEYS + FINDING_OPTIONAL_KEYS
                     if k not in _MEMBER_EXCLUDED_KEYS)
 _FINDING_KEY_SYNONYMS = {"suggested_fix": "fix_hint"}
@@ -184,6 +187,37 @@ def _shape_finding(f):
             title = m.group(1) if m else first[:80]
         out["title"] = title or _UNTITLED
     return out
+
+
+def _snapshot_for(row, pass_number):
+    """The decision snapshot for one emitted row: {at_pass, file, line,
+    canonical_line_content, band}.
+
+    A row arriving with a well-formed prior snapshot (a carried lead: the carry
+    loop copies every carryforward key except `members`) keeps it — older
+    `at_pass` included — while its file, line, HEAD canonical text and band all
+    equal this pass's values; anything else gets a fresh snapshot at this pass.
+    Evidence is the HEAD canonical line, never `current_code` (a quoted fragment
+    never equals HEAD, so keying on it would make every such row "changed"); the
+    status component is the band, not the carry status (which flips new ->
+    persisted between passes with no change at all). Pure; never raises.
+    """
+    canonical = row.get("canonical_line_content")
+    cur = {
+        "at_pass": _as_line(pass_number),
+        "file": row.get("file"),
+        "line": _as_line(row.get("line")),
+        "canonical_line_content": canonical if isinstance(canonical, str) else None,
+        "band": row.get("band"),
+    }
+    prior = row.get("snapshot")
+    if (isinstance(prior, dict) and _as_line(prior.get("at_pass")) is not None
+            and all(k in prior and prior[k] == cur[k]
+                    for k in ("file", "line", "canonical_line_content", "band"))):
+        return {"at_pass": prior["at_pass"], "file": cur["file"], "line": cur["line"],
+                "canonical_line_content": cur["canonical_line_content"],
+                "band": cur["band"]}
+    return cur
 
 
 # --------------------------------------------------------------------------- #
@@ -1071,6 +1105,9 @@ def run(envelope):
     # v2.10 Wave 1 (D-01): orchestrator-verified Codex provenance for the B-SEV
     # second-opinion test. Absent block => not joined (no finding is Codex's).
     codex_joined = _codex_joined(envelope)
+    # The pass this envelope scores: the decision snapshot's at_pass. A non-int
+    # (absent, bool, str) records None rather than raising.
+    pass_number = envelope.get("pass_number")
 
     # --- Envelope fail-closed list-guard (D-02, HARDEN-01) ------------------- #
     # `findings`/`carryforward` MUST be lists. A present-but-non-list value is a
@@ -1154,7 +1191,13 @@ def run(envelope):
     # (05-state.md forwards the persisted findings[] whole) may carry a prior-pass
     # `members`, and it is consumed ONLY by _expand_members (shape-validated,
     # never raises).
-    findings = [{k: v for k, v in f.items() if k not in ("status", "members")}
+    # `snapshot` is the "unchanged since pass N" input to the decision prompt, so
+    # a forged older `at_pass` would suppress a re-ask (T-46-10); `resolution` is
+    # evidence only the verdict guard may produce; `kept_open` is an obligation
+    # marker only the scorer may set. Carryforward entries keep theirs: a carried
+    # snapshot is the prior-pass value the keep/refresh rule reads.
+    findings = [{k: v for k, v in f.items()
+                 if k not in ("status", "members", "snapshot", "resolution", "kept_open")}
                 for f in findings]
 
     # --- Carry-forward (review.md:672-678) ----------------------------------- #
@@ -1171,6 +1214,8 @@ def run(envelope):
     working = []
     for cf in carryforward:
         rep = {k: v for k, v in cf.items() if k != "members"}
+        # A prior pass's obligation marker never rides on a row re-scored normally.
+        rep.pop("kept_open", None)
         status = carry_forward_status(
             rep, cf.get("canonical_line_content"), cf.get("canonical_window")
         )
@@ -1412,6 +1457,7 @@ def run(envelope):
                 "reason": "sub-threshold",
             })
             continue
+        survivor["snapshot"] = _snapshot_for(survivor, pass_number)
         kept.append(survivor)
 
     # --- Synthetic bare-marker "suppression" audit findings (NOISE-03, A2) ---- #
@@ -1433,7 +1479,7 @@ def run(envelope):
     # site row, never earns the +10 and is never capped by idiom_floor.
     for file, marker_line in bare_marker_keys:
         file_str = file if isinstance(file, str) else ""
-        kept.append({
+        audit_row = {
             "file": file,
             "line": marker_line,   # may be None (NEW-1) — passes the gates.
             "title": _SUPPRESSION_TITLE,
@@ -1449,7 +1495,9 @@ def run(envelope):
             # double-counted / mis-statused. Gate- and render-inert (see the
             # _SUPPRESSION_STATUS definition).
             "status": _SUPPRESSION_STATUS,
-        })
+        }
+        audit_row["snapshot"] = _snapshot_for(audit_row, pass_number)
+        kept.append(audit_row)
 
     # Fable A11: sanitize non-finite floats at the output boundary so the
     # envelope is ALWAYS strict JSON (see _sanitize_nonfinite).
