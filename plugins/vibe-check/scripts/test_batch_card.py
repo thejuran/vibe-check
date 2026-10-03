@@ -411,5 +411,574 @@ class TestCli(TempDirCase):
                          batch_card.decisions_report(s))
 
 
+# --------------------------------------------------------------------------- #
+# Answer side: select-questions, select, parse, payload, fix routing.
+# --------------------------------------------------------------------------- #
+LABEL_RE = r"^#\d+ \S+:(\d+|\?)$"
+LEAD_TITLE = "LEADTITLE lead defect"
+LEAD_PROBLEM = "LEADPROBLEM the lead's own defect"
+LEAD_CODE = "lead_code_LEADCODE()"
+
+
+def synth_rows(count, at_pass=2):
+    bands = ("critical", "warning", "medium")
+    return {"at_pass": at_pass, "mode": "fix-loop", "rows": [
+        {"n": i + 1, "stable_hash": "%064x" % (i + 1),
+         "band": bands[i % 3], "file": "app/f%d.py" % i, "line": i + 1,
+         "title": "title %d" % i, "problem": "problem %d " % i + "x" * 100}
+        for i in range(count)]}
+
+
+def dispatch_state():
+    """ba_state with real defect text on the lead HB and its member HA."""
+    s = ba_state(row_band="warning", a_band="medium")
+    lead = s["passes"][-1]["findings"][0]
+    lead.update(title=LEAD_TITLE, problem=LEAD_PROBLEM,
+                current_code=LEAD_CODE, fix_hint="LEADHINT",
+                why_it_matters="LEADWHY")
+    member = lead["members"][1]
+    member.update(problem="MEMBERPROBLEM", current_code="member_code()",
+                  fix_hint="MEMBERHINT", why_it_matters="MEMBERWHY")
+    return s
+
+
+def member_unit():
+    return {"id": HA, "file": F, "line": 11, "title": "A",
+            "problem": "MEMBERPROBLEM", "current_code": "member_code()",
+            "fix_hint": "MEMBERHINT", "why_it_matters": "MEMBERWHY"}
+
+
+class TestSelectQuestions(unittest.TestCase):
+    def sizes(self, count):
+        out = batch_card.select_questions(synth_rows(count)["rows"])
+        return out["mode"], [len(q["options"]) for q in out["questions"]]
+
+    def test_balanced_split(self):
+        self.assertEqual(self.sizes(1), ("none", []))
+        self.assertEqual(self.sizes(0), ("none", []))
+        self.assertEqual(self.sizes(2), ("multiselect", [2]))
+        self.assertEqual(self.sizes(4), ("multiselect", [4]))
+        self.assertEqual(self.sizes(5), ("multiselect", [3, 2]))
+        self.assertEqual(self.sizes(6), ("multiselect", [3, 3]))
+        self.assertEqual(self.sizes(7), ("multiselect", [4, 3]))
+        self.assertEqual(self.sizes(9), ("multiselect", [3, 3, 3]))
+        self.assertEqual(self.sizes(13), ("multiselect", [4, 3, 3, 3]))
+        self.assertEqual(self.sizes(16), ("multiselect", [4, 4, 4, 4]))
+
+    def test_every_shape_legal(self):
+        for count in range(2, 17):
+            with self.subTest(count=count):
+                out = batch_card.select_questions(synth_rows(count)["rows"])
+                self.assertLessEqual(len(out["questions"]), 4)
+                labels = []
+                for q in out["questions"]:
+                    self.assertTrue(q["multiSelect"])
+                    self.assertLessEqual(len(q["header"]), 12)
+                    self.assertTrue(2 <= len(q["options"]) <= 4)
+                    for opt in q["options"]:
+                        self.assertRegex(opt["label"], LABEL_RE)
+                        self.assertNotIn(",", opt["label"])
+                        labels.append(opt["label"])
+                self.assertEqual([int(lb.split()[0][1:]) for lb in labels],
+                                 list(range(1, count + 1)))
+
+    def test_typed_over_sixteen(self):
+        out = batch_card.select_questions(synth_rows(17)["rows"])
+        self.assertEqual(out["mode"], "typed")
+        self.assertEqual(len(out["questions"]), 1)
+        q = out["questions"][0]
+        self.assertEqual([o["label"] for o in q["options"]],
+                         ["All listed", "None — skip & rerun"])
+        self.assertIn("Other", q["question"])
+        self.assertLessEqual(len(q["header"]), 12)
+
+    def test_label_sanitized_description_carries_title(self):
+        rows = synth_rows(2)["rows"]
+        rows[0]["file"] = "dir with space/a,b.py"
+        rows[0]["line"] = None
+        rows[0]["title"] = "Title, with comma"
+        out = batch_card.select_questions(rows)
+        opt = out["questions"][0]["options"][0]
+        self.assertRegex(opt["label"], LABEL_RE)
+        self.assertNotIn(",", opt["label"])
+        self.assertTrue(opt["label"].startswith("#1 "))
+        self.assertTrue(opt["label"].endswith(":?"))
+        self.assertTrue(opt["description"].startswith("Title, with comma — "))
+        self.assertLessEqual(len(opt["description"]),
+                             len("Title, with comma — ") + 80)
+
+
+class TestSelect(TempDirCase):
+    def setUp(self):
+        super().setUp()
+        self.rows = batch_card.build_rows(ordering_state(), "fix-loop")[0]
+        self.rows_path = self.write("rows.json", self.rows)
+
+    def sel(self, answer):
+        return run_cli(["select", "--rows", self.rows_path, "--answer",
+                        self.write("ans.json", answer)])
+
+    def test_select_shapes(self):
+        h = [r["stable_hash"] for r in self.rows["rows"]]
+        cases = [({"labels": ["#2 app/a.py:20", "#3 app/a.py:9"]}, [2, 3]),
+                 ({"labels": "#2 app/a.py:20, #3 app/a.py:9"}, [2, 3]),
+                 ({"text": "1,3"}, [1, 3]),
+                 ({"all": True}, [1, 2, 3]),
+                 ({"none": True}, [])]
+        for answer, want in cases:
+            with self.subTest(answer=answer):
+                proc = self.sel(answer)
+                self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+                self.assertEqual(json.loads(proc.stdout),
+                                 {"rows": want,
+                                  "hashes": [h[n - 1] for n in want]})
+
+    def test_select_bad_label(self):
+        proc = self.sel({"labels": ["Fix it ZZMARKER"]})
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode(), batch_parse.REASON_LABEL)
+
+    def test_select_malformed_answer(self):
+        for answer in ([1], {"bogus": 1}, {"all": False}, {"none": "yes"},
+                       {"labels": ["#1 a"], "text": "1"}, {"text": 3}, {},
+                       "not json"):
+            with self.subTest(answer=answer):
+                proc = self.sel(answer)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+                self.assertEqual(proc.stderr.decode(), batch_card.REASON_ANSWER)
+        proc = run_cli(["select", "--rows", self.rows_path, "--answer",
+                        os.path.join(self.tmp, "missing.json")])
+        self.assertEqual(proc.stderr.decode(), batch_card.REASON_ANSWER)
+
+    def test_malformed_rows_file(self):
+        ans = self.write("ans.json", {"all": True})
+        bad_rows = copy.deepcopy(self.rows)
+        bad_rows["rows"][1]["n"] = 7
+        for name, content in (("gap", bad_rows), ("text", "nope"),
+                              ("list", [1]), ("norows", {"at_pass": 2}),
+                              ("noat", {"rows": []})):
+            with self.subTest(name):
+                path = self.write(name + ".json", content)
+                for sub in ("select", "parse", "select-questions"):
+                    argv = [sub, "--rows", path]
+                    if sub != "select-questions":
+                        argv += ["--answer", ans]
+                    proc = run_cli(argv)
+                    self.assertEqual(proc.returncode, 2)
+                    self.assertEqual(proc.stdout, b"")
+                    self.assertEqual(proc.stderr.decode(),
+                                     batch_card.REASON_ROWS)
+
+
+class TestParse(TempDirCase):
+    def setUp(self):
+        super().setUp()
+        self.state = ordering_state()
+        self.rows = batch_card.build_rows(self.state, "fix-loop")[0]
+        self.rows_path = self.write("rows.json", self.rows)
+        # n1 critical HB, n2 warning HD, n3 medium HA
+
+    def parse(self, answer, rows_path=None):
+        return run_cli(["parse", "--rows", rows_path or self.rows_path,
+                        "--answer", self.write("ans.json", answer)])
+
+    def ok(self, answer, rows_path=None):
+        proc = self.parse(answer, rows_path)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        return json.loads(proc.stdout)
+
+    def test_parse_mixed(self):
+        out = self.ok({"q1": "fix 2; dismiss rest", "q2": "False positive"})
+        self.assertEqual(out["fix"], [HD])
+        self.assertEqual(out["dismiss"], [HA])
+        self.assertEqual(out["undecided"], [HB])
+        self.assertEqual(out["payload"], {"at_pass": 2, "decisions": [
+            {"stable_hash": HA, "decision": "dismiss",
+             "reason": "False positive"}]})
+        self.assertEqual(out["fix_targets"], [HD])
+
+    def test_parse_dismiss_then_defer_row_order(self):
+        out = self.ok({"q1": "defer 1; dismiss 3,2", "q2": "Accepted risk"})
+        self.assertEqual([(d["stable_hash"], d["decision"])
+                          for d in out["payload"]["decisions"]],
+                         [(HD, "dismiss"), (HA, "dismiss"), (HB, "defer")])
+
+    def test_parse_round_trip_record_decisions(self):
+        out = self.ok({"q1": "fix 2; dismiss rest", "q2": "False positive"})
+        new = carry_state.record_decisions(self.state, out["payload"])
+        self.assertIsNotNone(new)
+        rec = [r for r in carry_state.open_findings(self.state)
+               if r["stable_hash"] == HA][0]
+        self.assertEqual(new["decisions"][HA]["evidence"],
+                         carry_state._evidence_of(rec))
+
+    def test_parse_round_trip_snapshotless_fixture(self):
+        state = load_fixture()
+        rows = batch_card.build_rows(state, "fix-loop")[0]
+        out = self.ok({"q1": "dismiss 1,2", "q2": "Out of scope"},
+                      self.write("fx.json", rows))
+        new = carry_state.record_decisions(state, out["payload"])
+        self.assertIsNotNone(new)
+        for h in (ARCH_HASH, BUGS_HASH):
+            row = [f for f in state["passes"][-1]["findings"]
+                   if f["stable_hash"] == h][0]
+            ev = new["decisions"][h]["evidence"]
+            self.assertIsNotNone(ev)
+            self.assertEqual(ev, {k: row[k] for k in carry_state.EVIDENCE_KEYS})
+
+    def test_parse_fix_all_and_look(self):
+        out = self.ok({"q1": "Fix all", "q2": None})
+        self.assertIsNone(out["payload"])
+        self.assertEqual(out["fix_targets"], [HB, HD, HA])
+        out = self.ok({"q1": "look 2"})
+        self.assertEqual(out["look"], 2)
+        self.assertIsNone(out["payload"])
+        self.assertEqual(out["fix_targets"], [])
+        out = self.ok({"q1": "Mixed…", "q2": None})
+        self.assertTrue(out["need_text"])
+        self.assertIsNone(out["payload"])
+
+    def test_parse_grammar_refusal(self):
+        proc = self.parse({"q1": "zap 1", "q2": None})
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode(), batch_parse.REASON_TOKEN)
+
+    def test_no_refusal_echoes_owner_text(self):
+        for answer in ({"q1": "zap ZZMARKER", "q2": "ZZMARKER"},
+                       {"q1": "dismiss 1", "q2": "  "},
+                       {"q1": "ZZMARKER"}, {"q1": 5, "q2": "ZZMARKER"},
+                       {"q1": "fix 9 ZZMARKER"}):
+            with self.subTest(answer=answer):
+                proc = self.parse(answer)
+                self.assertEqual(proc.returncode, 2)
+                self.assertNotIn("ZZMARKER", proc.stderr.decode())
+                self.assertIn(proc.stderr.decode(), ALL_REASONS)
+
+    def test_parse_malformed_answer(self):
+        for answer in ([1], {"q2": "x"}, {"q1": "fix 1", "extra": 1},
+                       {"q1": 3}, {"q1": "fix 1", "q2": 4}):
+            with self.subTest(answer=answer):
+                proc = self.parse(answer)
+                self.assertEqual(proc.stderr.decode(), batch_card.REASON_ANSWER)
+                self.assertEqual(proc.stdout, b"")
+
+    def test_fix_targets_owner_chosen_only(self):
+        hl, hm1, hm2, h1 = HB, HA, HC, HD
+        rows = {"at_pass": 2, "mode": "finalize", "rows": [
+            {"n": 1, "stable_hash": h1, "band": "warning", "file": "a.py",
+             "line": 1, "absorbed_into": None},
+            {"n": 2, "stable_hash": hm1, "band": "medium", "file": "a.py",
+             "line": 2, "absorbed_into": hl},
+            {"n": 3, "stable_hash": hm2, "band": "medium", "file": "a.py",
+             "line": 3, "absorbed_into": hl}]}
+        path = self.write("mrows.json", rows)
+        self.assertEqual(self.ok({"q1": "fix 1,2"}, path)["fix_targets"],
+                         [h1, hm1])
+        self.assertEqual(self.ok({"q1": "fix 2,3"}, path)["fix_targets"],
+                         [hm1, hm2])
+        self.assertEqual(self.ok({"q1": "dismiss 1", "q2": "r"},
+                                 path)["fix_targets"], [])
+
+
+class TestFixRouting(TempDirCase):
+    def test_lead_and_member_selected(self):
+        s = dismiss(dispatch_state(), HB)
+        rows = rows_of(s, "fix-loop", subset=[HB, HA])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["stable_hash"], HB)
+        self.assertEqual(rows[0]["n"], 1)
+        self.assertTrue(rows[0]["lead_closed"])
+        self.assertTrue(rows[0]["lead_selected"])
+        self.assertEqual(rows[0]["routed_members"],
+                         [{"stable_hash": HA, "title": "A"}])
+
+    def test_member_alone_folds_into_lead(self):
+        s = dismiss(dispatch_state(), HB)
+        rows = rows_of(s, "fix-loop", subset=[HA])
+        self.assertEqual([r["stable_hash"] for r in rows], [HB])
+        self.assertFalse(rows[0]["lead_selected"])
+        self.assertTrue(rows[0]["lead_closed"])
+        self.assertEqual(rows[0]["routed_members"][0]["stable_hash"], HA)
+
+    def test_member_before_lead_then_lead(self):
+        rows = rows_of(dispatch_state(), "fix-loop", subset=[HA, HB, HA])
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["lead_selected"])
+        self.assertFalse(rows[0]["lead_closed"])
+        self.assertEqual(len(rows[0]["routed_members"]), 1)
+
+    def test_unknown_hash_dropped_and_all_unknown_refused(self):
+        rows = rows_of(ordering_state(), "fix-loop", subset=["deadbeef", HD])
+        self.assertEqual([r["stable_hash"] for r in rows], [HD])
+        path = self.write("sub.json", ["deadbeef"])
+        proc = run_cli(["rows", "--mode", "fix-loop", "--subset", path],
+                       json.dumps(ordering_state()).encode())
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode(), batch_card.REASON_SUBSET_EMPTY)
+
+    def test_subset_keeps_verified_obsolete_target(self):
+        s = ordering_state()
+        s["fix_verdicts"] = {HD: {"verdict": "obsolete", "agent": "fix",
+                                  "head_sha": "x", "at_pass": 2,
+                                  "verified_blob": "b1", "reason": ""}}
+        self.assertTrue(carry_state.is_closed(
+            [r for r in carry_state.open_findings(s)
+             if r["stable_hash"] == HD][0], s, {"app/a.py": "b1"}))
+        rows = rows_of(s, "fix-loop", subset=[HD])
+        self.assertEqual([r["stable_hash"] for r in rows], [HD])
+
+
+# --- the dismiss-lead / fix-member case, end to end ------------------------ #
+def check_subset_rows(test, rows):
+    test.assertEqual(len(rows), 1)
+    row = rows[0]
+    test.assertEqual(row["stable_hash"], HB)
+    test.assertTrue(row["lead_closed"])
+    test.assertFalse(row["lead_selected"])
+    test.assertEqual(row["routed_members"][0]["stable_hash"], HA)
+
+
+def check_member_only(test, out):
+    test.assertEqual(out["sent"], [HA])
+    test.assertEqual(out["findings"], [member_unit()])
+    test.assertNotIn(HB, [f["id"] for f in out["findings"]])
+    blob = json.dumps(out["findings"])
+    for lead_text in (LEAD_TITLE, LEAD_PROBLEM, LEAD_CODE):
+        test.assertNotIn(lead_text, blob)
+
+
+class TestDismissLeadFixMember(TempDirCase):
+    def decided(self):
+        return dismiss(dispatch_state(), HB, reason="False positive")
+
+    def test_dismiss_lead_fix_member_integration(self):
+        # (1) the owner dismissed the lead by number.
+        state = self.decided()
+        before = json.dumps(state["decisions"][HB], sort_keys=True)
+        state_bytes = json.dumps(state).encode()
+        # (2) finalize rows: the member is the one undecided row.
+        blobs = self.write("blobs.json", {})
+        proc = run_cli(["rows", "--mode", "finalize", "--head-blobs", blobs],
+                       state_bytes)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        frows = json.loads(proc.stdout)
+        self.assertEqual([(r["stable_hash"], r["absorbed_into"])
+                          for r in frows["rows"]], [(HA, HB)])
+        frows_path = self.write("frows.json", frows)
+        # (3) the owner chooses fix on the member.
+        proc = run_cli(["parse", "--rows", frows_path, "--answer",
+                        self.write("ans.json", {"q1": "fix 1", "q2": None})])
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        parsed = json.loads(proc.stdout)
+        self.assertEqual(parsed["fix"], [HA])
+        self.assertIsNone(parsed["payload"])
+        self.assertEqual(parsed["fix_targets"], [HA])
+        # (4) fix-loop rows for the subset route through the closed lead.
+        subset = self.write("subset.json", parsed["fix_targets"])
+        proc = run_cli(["rows", "--mode", "fix-loop", "--subset", subset],
+                       state_bytes)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        srows = json.loads(proc.stdout)
+        check_subset_rows(self, srows["rows"])
+        # (5) the dispatch carries the member's own defect only.
+        proc = run_cli(["payload", "--rows", self.write("srows.json", srows),
+                        "--answer", self.write("all.json", {"all": True})],
+                       state_bytes)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        out = json.loads(proc.stdout)
+        check_member_only(self, out)
+        # (6) the lead's decision was never reopened or rewritten.
+        self.assertEqual(json.dumps(state["decisions"][HB], sort_keys=True),
+                         before)
+        # (7) the member id is a valid verdict target; nothing for the lead.
+        new = carry_state.record_fix_verdicts(state, {
+            "at_pass": 2, "head_sha": "h2", "sent": out["sent"],
+            "results": [{"id": HA, "status": "obsolete", "summary": "gone"},
+                        {"id": HB, "status": "obsolete", "summary": "x"}],
+            "blobs": {F: "blob1"}})
+        self.assertIsNotNone(new)
+        self.assertIn(HA, new["fix_verdicts"])
+        self.assertNotIn(HB, new["fix_verdicts"])
+        self.assertEqual(new["decisions"][HB], state["decisions"][HB])
+
+    def test_dismiss_lead_fix_member_mutation(self):
+        state = self.decided()
+        real = batch_card.resolve_fix_targets
+
+        def filtering(st, subset):
+            recs = {r["stable_hash"]: r for r in carry_state.open_findings(st)}
+            return [r for r in real(st, subset)
+                    if not carry_state.is_closed(recs[r["stable_hash"]], st,
+                                                 None)]
+
+        with self.subTest("real"):
+            check_subset_rows(self, rows_of(state, "fix-loop", subset=[HA]))
+        with self.subTest("mutant"):
+            with mock.patch.object(batch_card, "resolve_fix_targets",
+                                   filtering):
+                doc, _reason = batch_card.build_rows(state, "fix-loop", None,
+                                                     [HA])
+            rows = doc["rows"] if doc else []
+            self.assertEqual(rows, [])
+            with self.assertRaises(AssertionError):
+                check_subset_rows(self, rows)
+
+    def _payload_in_process(self, state):
+        srows = batch_card.build_rows(state, "fix-loop", None, [HA])[0]
+        code, out = batch_card.run(
+            ["payload", "--rows", self.write("srows.json", srows),
+             "--answer", self.write("all.json", {"all": True})],
+            json.dumps(state))
+        self.assertEqual(code, 0)
+        return json.loads(out)
+
+    def test_dismiss_lead_payload_mutation(self):
+        state = self.decided()
+        real = batch_card.build_payload
+
+        def lead_always(st, rows_doc, answer):
+            doc = copy.deepcopy(rows_doc)
+            for row in doc["rows"]:
+                if "lead_selected" in row:
+                    row["lead_selected"] = True
+            return real(st, doc, answer)
+
+        with self.subTest("real"):
+            check_member_only(self, self._payload_in_process(state))
+        with self.subTest("mutant"):
+            with mock.patch.object(batch_card, "build_payload", lead_always):
+                out = self._payload_in_process(state)
+            self.assertIn(HB, out["sent"])
+            with self.assertRaises(AssertionError):
+                check_member_only(self, out)
+
+
+class TestPayload(TempDirCase):
+    def payload(self, state, rows_doc, answer):
+        return run_cli(["payload", "--rows", self.write("r.json", rows_doc),
+                        "--answer", self.write("a.json", answer)],
+                       json.dumps(state).encode())
+
+    def test_payload_lead_selected_emits_both(self):
+        s = dispatch_state()
+        srows = batch_card.build_rows(s, "fix-loop", None, [HB, HA])[0]
+        proc = self.payload(s, srows, {"all": True})
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["sent"], [HB, HA])
+        self.assertEqual([f["id"] for f in out["findings"]], [HB, HA])
+        self.assertEqual(out["findings"][0], {
+            "id": HB, "file": F, "line": 10, "title": LEAD_TITLE,
+            "problem": LEAD_PROBLEM, "current_code": LEAD_CODE,
+            "fix_hint": "LEADHINT", "why_it_matters": "LEADWHY"})
+        self.assertEqual(out["findings"][1], member_unit())
+
+    def test_payload_member_sidecar_row_plain_loop(self):
+        s = dispatch_state()
+        rows = batch_card.build_rows(s, "fix-loop")[0]
+        self.assertEqual([(r["n"], r["stable_hash"]) for r in rows["rows"]],
+                         [(1, HB), (2, HA)])
+        proc = self.payload(s, rows, {"text": "2"})
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["sent"], [HA])
+        self.assertEqual(out["findings"], [member_unit()])
+        self.assertEqual(out["findings"][0]["current_code"], "member_code()")
+        self.assertEqual(out["findings"][0]["fix_hint"], "MEMBERHINT")
+
+    def test_payload_fields_from_state_not_rows_file(self):
+        s = dispatch_state()
+        rows = batch_card.build_rows(s, "fix-loop")[0]
+        rows["rows"][0]["title"] = "FORGED"
+        rows["rows"][0]["problem"] = "FORGED"
+        out = json.loads(self.payload(s, rows, {"text": "1"}).stdout)
+        self.assertEqual(out["findings"][0]["title"], LEAD_TITLE)
+        self.assertNotIn("FORGED", json.dumps(out))
+
+    def test_payload_non_str_fields_normalized(self):
+        s = dispatch_state()
+        lead = s["passes"][-1]["findings"][0]
+        lead.update(problem=None, current_code=3, why_it_matters=[],
+                    fix_hint=5)
+        rows = batch_card.build_rows(s, "fix-loop")[0]
+        out = json.loads(self.payload(s, rows, {"text": "1"}).stdout)
+        unit = out["findings"][0]
+        self.assertEqual((unit["problem"], unit["current_code"],
+                          unit["why_it_matters"], unit["fix_hint"]),
+                         ("", "", "", None))
+
+    def test_payload_none_selected(self):
+        s = dispatch_state()
+        rows = batch_card.build_rows(s, "fix-loop")[0]
+        out = json.loads(self.payload(s, rows, {"none": True}).stdout)
+        self.assertEqual(out, {"sent": [], "findings": []})
+
+    def test_payload_refuses_mismatched_rows(self):
+        s = dispatch_state()
+        rows = batch_card.build_rows(s, "fix-loop")[0]
+        stale_pass = dict(rows, at_pass=1)
+        forged = copy.deepcopy(rows)
+        forged["rows"][0]["stable_hash"] = "f" * 64
+        routed = batch_card.build_rows(s, "fix-loop", None, [HA])[0]
+        routed["rows"][0]["routed_members"] = [{"stable_hash": HC,
+                                                "title": "x"}]
+        for name, doc in (("at_pass", stale_pass), ("hash", forged),
+                          ("routed member", routed)):
+            with self.subTest(name):
+                proc = self.payload(s, doc, {"all": True})
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+                self.assertEqual(proc.stderr.decode(),
+                                 batch_card.REASON_ROWS_STATE)
+
+    def test_payload_refuses_bad_answer_and_state(self):
+        s = dispatch_state()
+        rows = batch_card.build_rows(s, "fix-loop")[0]
+        proc = self.payload(s, rows, {"q1": "fix 1"})
+        self.assertEqual(proc.stderr.decode(), batch_card.REASON_ANSWER)
+        proc = run_cli(["payload", "--rows", self.write("r.json", rows),
+                        "--answer", self.write("a.json", {"all": True})],
+                       b"not json")
+        self.assertEqual(proc.stderr.decode(), batch_card.REASON_STATE_JSON)
+        self.assertEqual(proc.stdout, b"")
+
+
+class TestCliContract(TempDirCase):
+    def test_sealed_tuples(self):
+        self.assertEqual(batch_card.KNOWN_FLAGS,
+                         ("--mode", "--head-blobs", "--subset", "--rows",
+                          "--answer"))
+        self.assertEqual(batch_card.SUBCOMMANDS,
+                         ("rows", "select-questions", "select", "payload",
+                          "parse", "decisions-report"))
+
+    def test_select_questions_cli(self):
+        path = self.write("rows.json", synth_rows(5))
+        proc = run_cli(["select-questions", "--rows", path])
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout),
+                         batch_card.select_questions(synth_rows(5)["rows"]))
+
+    def test_answer_side_usage_errors(self):
+        rows = self.write("rows.json", synth_rows(3))
+        ans = self.write("ans.json", {"all": True})
+        for argv in (["select"], ["select", "--rows", rows],
+                     ["select-questions", "--rows", rows, "--answer", ans],
+                     ["parse", "--answer", ans],
+                     ["payload", "--rows", rows],
+                     ["select", "--rows", rows, "--answer", ans,
+                      "--reason", "x"],
+                     ["decisions-report", "--rows", rows]):
+            with self.subTest(argv=argv):
+                proc = run_cli(argv)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+                self.assertEqual(proc.stderr.decode(), batch_card.USAGE)
+
+
 if __name__ == "__main__":
     unittest.main()
