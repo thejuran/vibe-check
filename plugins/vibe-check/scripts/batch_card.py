@@ -23,11 +23,36 @@ FAIL CLOSED. Any refusal prints exactly one fixed line from REASONS (or a
 carry_state reason passed through) on stderr, prints NOTHING on stdout and
 exits 2. Reasons never contain a hash, a title, a path or owner text.
 
-CLI (stdin = the state JSON for `rows` and `decisions-report`):
+  select-questions  The AskUserQuestion shape for "Apply selected…": at most
+                    four multi-select questions of 2-4 options, labels
+                    `#n file:line` (never a title, never a comma).
+  select            A multi-select / typed-list answer -> row numbers + hashes.
+  payload           THE fix-agent dispatch for the selected rows: each unit is
+                    the selected record's own defect, copied from the state.
+  parse             The finalize card answer -> fix / dismiss / defer lists,
+                    the record-decisions payload and the fix targets.
+
+FIX ROUTING. A fix target is not an undecided row. When the owner dismissed
+an absorbed obligation's lead and then chose to fix the still-open member,
+`rows --subset` returns the lead's row (the member is routed through it,
+`lead_selected` false) even though a current decision closes the lead, and
+`payload` dispatches only the member's own defect. The lead's decision is
+never reopened: this module writes nothing.
+
+CLI (stdin = the state JSON for `rows`, `payload` and `decisions-report`;
+owner text only ever arrives in the --answer file):
 
     python3 batch_card.py rows --mode fix-loop [--subset PATH] < state.json
     python3 batch_card.py rows --mode finalize --head-blobs PATH < state.json
+    python3 batch_card.py select-questions --rows ROWS.json
+    python3 batch_card.py select --rows ROWS.json --answer ANS.json
+    python3 batch_card.py payload --rows ROWS.json --answer ANS.json < state.json
+    python3 batch_card.py parse --rows ROWS.json --answer ANS.json
     python3 batch_card.py decisions-report < state.json
+
+Selection answers (select, payload): {"labels": [...] | "a, b"}, {"text":
+"1,3-5"}, {"all": true} or {"none": true} — the typed-mode buttons map to
+all / none. Finalize answers (parse): {"q1": str, "q2": str | null}.
 
 stdlib only; imports {json, os, sys} plus the sibling modules carry_state and
 batch_parse.
@@ -45,26 +70,37 @@ import batch_parse  # noqa: E402  (sibling module: the answer grammar)
 MODES = ("fix-loop", "finalize")
 _BAND_RANK = {"critical": 0, "warning": 1, "medium": 2}
 
-SUBCOMMANDS = ("rows", "decisions-report")
+SUBCOMMANDS = ("rows", "select-questions", "select", "payload", "parse",
+               "decisions-report")
 # The ONLY flags this CLI accepts. No flag ever carries owner text, a title or
 # a reason: such text arrives in a file whose path is passed here.
 KNOWN_FLAGS = ("--mode", "--head-blobs", "--subset", "--rows", "--answer")
 # subcommand -> (required flags, optional flags)
 _FLAGS_BY_SUBCOMMAND = {
     "rows": (("--mode",), ("--head-blobs", "--subset")),
+    "select-questions": (("--rows",), ()),
+    "select": (("--rows", "--answer"), ()),
+    "payload": (("--rows", "--answer"), ()),
+    "parse": (("--rows", "--answer"), ()),
     "decisions-report": ((), ()),
 }
 # Subcommands that read the state JSON on stdin.
-_STATE_SUBCOMMANDS = ("rows", "decisions-report")
+_STATE_SUBCOMMANDS = ("rows", "payload", "decisions-report")
 
 USAGE = ("usage: batch_card.py rows --mode fix-loop [--subset PATH]"
          " | rows --mode finalize --head-blobs PATH"
-         " | decisions-report  (state on stdin)\n")
+         " | select-questions --rows PATH | select --rows PATH --answer PATH"
+         " | payload --rows PATH --answer PATH | parse --rows PATH"
+         " --answer PATH | decisions-report  (state on stdin for rows,"
+         " payload, decisions-report)\n")
 
 REASON_STATE_JSON = carry_state.REASON_STATE_JSON
 REASON_HEAD_BLOBS = carry_state.REASON_HEAD_BLOBS
 REASON_SUBSET = "refused: subset file is missing or not a list of hashes\n"
 REASON_SUBSET_EMPTY = "refused: subset names no last-pass finding\n"
+REASON_ROWS = "refused: rows file is missing or malformed\n"
+REASON_ANSWER = "refused: answer file is missing or malformed\n"
+REASON_ROWS_STATE = "refused: rows file does not match this state\n"
 
 REASONS = (
     USAGE,
@@ -72,7 +108,18 @@ REASONS = (
     REASON_HEAD_BLOBS,
     REASON_SUBSET,
     REASON_SUBSET_EMPTY,
+    REASON_ROWS,
+    REASON_ANSWER,
+    REASON_ROWS_STATE,
 )
+
+# AskUserQuestion limits: 1-4 questions, 2-4 options each, header <= 12.
+_MAX_OPTIONS = 4
+_MAX_QUESTIONS = 4
+_MAX_MULTISELECT = _MAX_OPTIONS * _MAX_QUESTIONS
+_DESCRIPTION_PROBLEM_CHARS = 80
+TYPED_ALL = "All listed"
+TYPED_NONE = "None — skip & rerun"
 
 
 def _is_str_map(value):
@@ -159,34 +206,341 @@ def build_rows(state, mode, head_blobs=None, subset=None):
     record. finalize: exactly finalize_counts' outstanding critical/warning
     and unacknowledged medium hashes (head blobs honoured). Rows are ordered
     band -> file -> line (None last) -> hash and numbered from 1.
+    With `subset` (fix-loop only): the dispatch targets from
+    `resolve_fix_targets`, in subset order.
     """
     reason = carry_state.state_reason(state)
     if reason is not None:
         return None, reason
     last, records, lead_titles, pending_since = _context(state)
-    if mode == "finalize":
-        counts = carry_state.finalize_counts(state, head_blobs)
-        wanted = set(counts["outstanding_cw_hashes"]
-                     + counts["unacknowledged_medium_hashes"])
-        chosen = [r for r in records if r["stable_hash"] in wanted]
-    else:
-        chosen = [r for r in records
-                  if r["band"] in carry_state.BLOCKING_BANDS
-                  and not carry_state.is_closed(r, state, None)]
-        if subset is not None:
-            subset_set = set(subset)
-            chosen = [r for r in chosen if r["stable_hash"] in subset_set]
-    rows = [_row(r, state, lead_titles, pending_since) for r in chosen]
-    rows.sort(key=_sort_key)
     if subset is not None:
+        # Dispatch targets, NOT undecided rows: the closed-record filter
+        # below must never touch them (an owner may fix through a lead
+        # whose own decision closes it).
+        rows = resolve_fix_targets(state, subset)
         if not rows:
             return None, REASON_SUBSET_EMPTY
-        for row in rows:
-            row["lead_closed"] = False
-            row["routed_members"] = []
+    else:
+        if mode == "finalize":
+            counts = carry_state.finalize_counts(state, head_blobs)
+            wanted = set(counts["outstanding_cw_hashes"]
+                         + counts["unacknowledged_medium_hashes"])
+            chosen = [r for r in records if r["stable_hash"] in wanted]
+        else:
+            chosen = [r for r in records
+                      if r["band"] in carry_state.BLOCKING_BANDS
+                      and not carry_state.is_closed(r, state, None)]
+        rows = [_row(r, state, lead_titles, pending_since) for r in chosen]
+        rows.sort(key=_sort_key)
     for i, row in enumerate(rows):
         row["n"] = i + 1
     return {"at_pass": last["pass_number"], "mode": mode, "rows": rows}, None
+
+
+def resolve_fix_targets(state, subset):
+    """The fix-loop rows for an owner-chosen subset of hashes (a valid state).
+
+    A subset hash naming a lead or plain row yields that row with
+    `lead_selected` true; a member obligation's hash folds into its lead's
+    row as a `routed_members` entry (creating the lead row with
+    `lead_selected` false). The row is kept even when a current decision
+    closes it (`lead_closed` says so). Hashes naming nothing are dropped.
+    Rows are in subset order, unnumbered. Never touches `decisions`.
+    """
+    _, records, lead_titles, pending_since = _context(state)
+    leads = {}
+    members = {}
+    for rec in records:
+        if isinstance(rec.get("absorbed_into"), str):
+            members[rec["stable_hash"]] = rec
+        else:
+            leads[rec["stable_hash"]] = rec
+    rows = []
+    by_lead = {}
+
+    def lead_row(h):
+        if h not in by_lead:
+            row = _row(leads[h], state, lead_titles, pending_since)
+            row["lead_closed"] = carry_state.is_closed(leads[h], state, None)
+            row["lead_selected"] = False
+            row["routed_members"] = []
+            by_lead[h] = row
+            rows.append(row)
+        return by_lead[h]
+
+    for h in subset:
+        if h in leads:
+            lead_row(h)["lead_selected"] = True
+        elif h in members and members[h]["absorbed_into"] in leads:
+            row = lead_row(members[h]["absorbed_into"])
+            routed = [m["stable_hash"] for m in row["routed_members"]]
+            if h not in routed:
+                row["routed_members"].append(
+                    {"stable_hash": h, "title": members[h].get("title")})
+    return rows
+
+
+# --------------------------------------------------------------------------- #
+# Answer side: select-questions, select, parse, payload.
+# --------------------------------------------------------------------------- #
+def _is_count(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _valid_rows_doc(doc):
+    """True for a rows document shaped like `rows` output."""
+    if not (isinstance(doc, dict) and _is_count(doc.get("at_pass"))
+            and isinstance(doc.get("rows"), list)):
+        return False
+    for i, row in enumerate(doc["rows"]):
+        if not isinstance(row, dict):
+            return False
+        n = row.get("n")
+        if isinstance(n, bool) or n != i + 1:
+            return False
+        h = row.get("stable_hash")
+        if not (isinstance(h, str) and h and isinstance(row.get("band"), str)):
+            return False
+        if "lead_selected" in row and not isinstance(row["lead_selected"],
+                                                     bool):
+            return False
+        routed = row.get("routed_members", [])
+        if not (isinstance(routed, list) and all(
+                isinstance(m, dict) and isinstance(m.get("stable_hash"), str)
+                for m in routed)):
+            return False
+    return True
+
+
+def _label_file(file):
+    """The file as it appears in an option label: no whitespace and no comma
+    (multi-select answers come back comma-joined)."""
+    if not isinstance(file, str) or not file:
+        return "?"
+    return "".join("_" if (c.isspace() or c == ",") else c for c in file)
+
+
+def _label(row):
+    line = row.get("line")
+    has_line = isinstance(line, int) and not isinstance(line, bool)
+    return "#%d %s:%s" % (row["n"], _label_file(row.get("file")),
+                          str(line) if has_line else "?")
+
+
+def _description(row):
+    title = _str_or(row.get("title"), "")
+    problem = _str_or(row.get("problem"), "")[:_DESCRIPTION_PROBLEM_CHARS]
+    return "%s — %s" % (title, problem) if problem else title
+
+
+def select_questions(rows):
+    """The "Apply selected…" sub-card shape for `rows`.
+
+    N <= 1: mode none (the one row applies directly). 2 <= N <= 16: ceil(N/4)
+    multi-select questions, balanced so every question has >= 2 options.
+    N > 16: mode typed — one single-choice question whose two buttons map to
+    all / none and whose Other box takes a typed list such as 1,3-5.
+    """
+    count = len(rows)
+    if count <= 1:
+        return {"mode": "none", "questions": []}
+    if count > _MAX_MULTISELECT:
+        return {"mode": "typed", "questions": [{
+            "question": ("%d findings are more than one card can list. Type "
+                         "the row numbers to apply in Other (e.g. 1,3-5), or "
+                         "pick a button." % count),
+            "header": "Fix rows",
+            "multiSelect": False,
+            "options": [
+                {"label": TYPED_ALL,
+                 "description": "Apply every listed finding, then rerun"},
+                {"label": TYPED_NONE,
+                 "description": "Apply nothing this pass, then rerun"},
+            ]}]}
+    groups = -(-count // _MAX_OPTIONS)
+    base, extra = divmod(count, groups)
+    sizes = [base + 1 if i < extra else base for i in range(groups)]
+    assert all(2 <= size <= _MAX_OPTIONS for size in sizes)
+    questions = []
+    start = 0
+    for size in sizes:
+        chunk = rows[start:start + size]
+        start += size
+        first, last = chunk[0]["n"], chunk[-1]["n"]
+        questions.append({
+            "question": ("Which of findings #%d-#%d should the fix agent "
+                         "apply? Select any." % (first, last)),
+            "header": "Fix %d-%d" % (first, last),
+            "multiSelect": True,
+            "options": [{"label": _label(r), "description": _description(r)}
+                        for r in chunk],
+        })
+    return {"mode": "multiselect", "questions": questions}
+
+
+def _valid_select_answer(answer):
+    if not (isinstance(answer, dict) and len(answer) == 1):
+        return False
+    key, value = next(iter(answer.items()))
+    if key in ("all", "none"):
+        return value is True
+    if key == "text":
+        return isinstance(value, str)
+    if key == "labels":
+        return isinstance(value, str) or (
+            isinstance(value, list) and all(isinstance(v, str)
+                                            for v in value))
+    return False
+
+
+def select(rows, answer):
+    """({"hashes", "rows"}, None) or (None, reason) for a selection answer."""
+    if not _valid_select_answer(answer):
+        return None, REASON_ANSWER
+    if "all" in answer:
+        numbers = [r["n"] for r in rows]
+    elif "none" in answer:
+        numbers = []
+    else:
+        # Selection maps by the leading #n only; the band is irrelevant to
+        # it, so a non-blocking band (a routing lead) is normalized here.
+        plain = [{"n": r["n"], "stable_hash": r["stable_hash"],
+                  "band": r["band"] if r["band"] in carry_state.BLOCKING_BANDS
+                  else "medium"} for r in rows]
+        result = batch_parse.parse_selection(plain,
+                                             labels=answer.get("labels"),
+                                             text=answer.get("text"))
+        if isinstance(result, tuple):
+            return None, result[1]
+        numbers = result["rows"]
+    return {"hashes": [rows[n - 1]["stable_hash"] for n in numbers],
+            "rows": numbers}, None
+
+
+def _dedup(hashes):
+    seen = set()
+    out = []
+    for h in hashes:
+        if h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out
+
+
+def _valid_parse_answer(answer):
+    return (isinstance(answer, dict) and "q1" in answer
+            and set(answer) <= {"q1", "q2"}
+            and isinstance(answer["q1"], str)
+            and (answer.get("q2") is None or isinstance(answer["q2"], str)))
+
+
+def parse(rows_doc, answer):
+    """(batch_parse result + payload + fix_targets, None) or (None, reason).
+
+    payload is the record-decisions input (dismiss entries then defer
+    entries, each in row order, one shared reason) or None when nothing was
+    dismissed or deferred. fix_targets are the owner-chosen fix hashes in
+    row order — never a lead the owner did not pick.
+    """
+    if not _valid_parse_answer(answer):
+        return None, REASON_ANSWER
+    try:
+        result = batch_parse.parse_answer(rows_doc["rows"], answer["q1"],
+                                          answer.get("q2"))
+    except ValueError:
+        return None, REASON_ROWS
+    if isinstance(result, tuple):
+        return None, result[1]
+    decisions = (
+        [{"stable_hash": h, "decision": "dismiss", "reason": result["reason"]}
+         for h in result["dismiss"]]
+        + [{"stable_hash": h, "decision": "defer", "reason": result["reason"]}
+           for h in result["defer"]])
+    payload = ({"at_pass": rows_doc["at_pass"], "decisions": decisions}
+               if decisions else None)
+    return dict(result, payload=payload,
+                fix_targets=_dedup(result["fix"])), None
+
+
+def _unit_source(record, last):
+    """The dict a dispatch unit is copied from: the row itself, or for an
+    absorbed obligation the member dict that carries it (never the lead)."""
+    lead_hash = record.get("absorbed_into")
+    if not isinstance(lead_hash, str):
+        return record
+    for finding in last["findings"]:
+        if finding["stable_hash"] != lead_hash:
+            continue
+        for member in finding.get("members", []):
+            obligation = member.get("obligation")
+            if (isinstance(obligation, dict)
+                    and obligation.get("stable_hash") == record["stable_hash"]):
+                return member
+    return None
+
+
+def _unit(record, last):
+    source = _unit_source(record, last)
+    if source is None:
+        return None
+    fix_hint = source.get("fix_hint")
+    return {
+        "id": record["stable_hash"],
+        "file": source.get("file"),
+        "line": source.get("line"),
+        "title": source.get("title"),
+        "problem": _str_or(source.get("problem"), ""),
+        "current_code": _str_or(source.get("current_code"), ""),
+        "fix_hint": fix_hint if isinstance(fix_hint, str) else None,
+        "why_it_matters": _str_or(source.get("why_it_matters"), ""),
+    }
+
+
+def build_payload(state, rows_doc, answer):
+    """({"sent", "findings"}, None) or (None, reason): the fix-agent dispatch.
+
+    Every field is copied from the state's last pass, never from the rows
+    file. A subset row contributes its lead only when `lead_selected`, then
+    each routed member's own defect; a member sidecar row contributes the
+    member dict. The rows file must describe this state's last pass.
+    """
+    selection, reason = select(rows_doc["rows"], answer)
+    if reason is not None:
+        return None, reason
+    last = state["passes"][-1]
+    if rows_doc["at_pass"] != last["pass_number"]:
+        return None, REASON_ROWS_STATE
+    by_hash = {r["stable_hash"]: r for r in carry_state.open_findings(state)}
+    units = []
+    for n in selection["rows"]:
+        row = rows_doc["rows"][n - 1]
+        record = by_hash.get(row["stable_hash"])
+        if record is None:
+            return None, REASON_ROWS_STATE
+        targets = []
+        if "lead_selected" in row:
+            if row["lead_selected"]:
+                targets.append(record)
+            for member in row.get("routed_members", []):
+                member_record = by_hash.get(member["stable_hash"])
+                if (member_record is None or member_record.get(
+                        "absorbed_into") != row["stable_hash"]):
+                    return None, REASON_ROWS_STATE
+                targets.append(member_record)
+        else:
+            targets.append(record)
+        for target in targets:
+            unit = _unit(target, last)
+            if unit is None:
+                return None, REASON_ROWS_STATE
+            units.append(unit)
+    findings = []
+    seen = set()
+    for unit in units:
+        if unit["id"] not in seen:
+            seen.add(unit["id"])
+            findings.append(unit)
+    return {"sent": [u["id"] for u in findings], "findings": findings}, None
 
 
 # --------------------------------------------------------------------------- #
@@ -320,18 +674,43 @@ def _load_state(stdin_text):
     return state, None
 
 
+def _run_answer_side(sub, flags, state):
+    rows_doc = carry_state.read_json_file(flags["--rows"])
+    if not _valid_rows_doc(rows_doc):
+        return _refuse(REASON_ROWS), ""
+    if sub == "select-questions":
+        return 0, json.dumps(select_questions(rows_doc["rows"]),
+                             allow_nan=False)
+    answer = carry_state.read_json_file(flags["--answer"])
+    if answer is None:
+        return _refuse(REASON_ANSWER), ""
+    if sub == "select":
+        result, reason = select(rows_doc["rows"], answer)
+    elif sub == "parse":
+        result, reason = parse(rows_doc, answer)
+    else:
+        result, reason = build_payload(state, rows_doc, answer)
+    if reason is not None:
+        return _refuse(reason), ""
+    return 0, json.dumps(result, allow_nan=False)
+
+
 def run(argv, stdin_text):
     """CLI body. Returns (exit code, stdout text)."""
     parsed = parse_argv(argv)
     if parsed is None:
         return _refuse(USAGE), ""
     sub, flags = parsed
-    state, reason = _load_state(stdin_text)
-    if reason is not None:
-        return _refuse(reason), ""
+    state = None
+    if sub in _STATE_SUBCOMMANDS:
+        state, reason = _load_state(stdin_text)
+        if reason is not None:
+            return _refuse(reason), ""
     if sub == "rows":
         return _run_rows(flags, state)
-    return 0, json.dumps(decisions_report(state), allow_nan=False)
+    if sub == "decisions-report":
+        return 0, json.dumps(decisions_report(state), allow_nan=False)
+    return _run_answer_side(sub, flags, state)
 
 
 # --------------------------------------------------------------------------- #
