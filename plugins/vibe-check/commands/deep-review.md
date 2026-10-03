@@ -67,7 +67,7 @@ review the nested Read never fires.
 | 4 (`--all` coverage) | `phases/review/40-render-all.md` | `--all` only — nested read inside `40-render.md` |
 | 4.5 | `phases/review/45-persist.md` | always |
 | 4.5 (`--all` fields) | `phases/review/45-persist-all.md` | `--all` only — nested read inside `45-persist.md` |
-| 5 | `phases/review/50-fix-loop.md` | findings only — and none of Phase 5's skip conditions fires; or when finalize routes findings into Step A |
+| 5 | `phases/review/50-fix-loop.md` | findings only — and none of Phase 5's skip conditions fires; or when the finalize card routes a fix set into the fix-loop card |
 | finalize | `phases/shared/90-finalize.md` | finalize only (`--finalize`) |
 </progressive_disclosure>
 
@@ -105,7 +105,7 @@ Runs on EVERY mode, unconditionally, after Phase 0.5 and before Phase 0.7 — in
 
 ## Finalize mode (`--finalize`)
 
-Runs iff `$ARGUMENTS` contains `--finalize`, and REPLACES everything after Phase 0.6 — the same finalize `/review` runs. Run Phase 0, then Phase 0.5 — which binds `$STATE_FILE` and reads the state; its routing into Phase 0.7, Phase 1 or the carry-forward steps does not apply here — then the unconditional Phase 0.6. **Then Read $VC_ROOT/phases/shared/90-finalize.md** — do not execute finalize from memory. Do NOT run Phases 0.2, 0.3, 0.7, 1, 1.5, 1c, 1d, 2c, 2, 2.5, 3, 4 or 4.5, and do NOT dispatch agents. Phase 5 runs only if the finalize file routes findings into its Step A. Without `--finalize`, never read the file.
+Runs iff `$ARGUMENTS` contains `--finalize`, and REPLACES everything after Phase 0.6 — the same finalize `/review` runs. Run Phase 0, then Phase 0.5 — which binds `$STATE_FILE` and reads the state; its routing into Phase 0.7, Phase 1 or the carry-forward steps does not apply here — then the unconditional Phase 0.6. **Then Read $VC_ROOT/phases/shared/90-finalize.md** — do not execute finalize from memory. Do NOT run Phases 0.2, 0.3, 0.7, 1, 1.5, 1c, 1d, 2c, 2, 2.5, 3, 4 or 4.5, and do NOT dispatch agents. Phase 5 runs only if the finalize card routes a fix set into the fix-loop card. Without `--finalize`, never read the file.
 
 ## Phase 0.7 — First-run setup
 

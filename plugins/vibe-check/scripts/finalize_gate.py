@@ -9,8 +9,10 @@ THE BRANCH ORDER, transcribed in the prose's own sequence:
                 -> error: "No prior review passes. Run `/review` first."
   review.md:35  `outstanding_cw` non-empty (band ∈ {critical, warning} AND
                 status ≠ fixed-since-last, per :33)
-                -> :38 route into Phase 5 Step A with the outstanding findings
-                   as the candidate set. ":38 — Do NOT write REVIEW.md or
+                -> :38 enter the finalize card (90-finalize.md "### The
+                   finalize card") with the outstanding critical/warning rows
+                   listed first; rows the owner marks fix route into the
+                   fix-loop card. ":38 — Do NOT write REVIEW.md or
                    archive state — finalize stays blocked until a future
                    invocation finds `outstanding_cw` empty."
   review.md:39    ...unless Phase 5 is unavailable ("$TURINGMIND_NONINTERACTIVE
@@ -18,11 +20,11 @@ THE BRANCH ORDER, transcribed in the prose's own sequence:
                   behavior: "Fix these, re-run with `--finalize`." and stop.
   review.md:40  `unacknowledged_medium` non-empty (band == medium AND no entry
                 in `medium_acknowledgments`, per :34)
-                -> enter the acknowledgement loop (:41-47). Its exits — :46 any
-                   "Will fix" routes to Phase 5 and finalize does NOT proceed
-                   this invocation; :47 all dismissed/acknowledged proceeds —
+                -> enter the same finalize card. Its exits — any row marked
+                   fix routes to the fix-loop card and finalize does NOT
+                   proceed this invocation; everything decided proceeds —
                    depend on ANSWERS THE USER HAS NOT GIVEN YET, so they are
-                   outside a pure precondition gate. Entering the loop is the
+                   outside a pure precondition gate. Entering the card is the
                    decision this module owns.
   review.md:48  otherwise -> write `.turingmind/REVIEW.md`.
 
@@ -36,11 +38,14 @@ matters — a run that should have offered fixes would instead stop.
 
 Neither added outcome is a sub-state of an existing one: `outstanding-to-phase-5`
 and `medium-ack-loop` differ from each other in candidate set (Critical/Warning
-vs Medium) and from `fallback` in interactivity.
+vs Medium) and from `fallback` in interactivity. The action names
+`outstanding-to-phase-5` and `medium-ack-loop` are historical — both now enter
+the ONE finalize card; they stay distinct because their candidate sets differ
+and renaming them would break every caller.
 
 PHASE-5 AVAILABILITY GATES THE FIX ROUTES, NOT FINALIZATION. `:39` scopes the
-fallback to the outstanding-findings branch, and `:42`'s "Will fix" defers to
-Phase 5, so the Medium loop is interactive by construction too. But a CLEAN
+fallback to the outstanding-findings branch, and the card's fix choice defers
+to Phase 5, so the medium branch is interactive by construction too. But a CLEAN
 state has nothing to fix, so a non-interactive, PR or range run with no
 outstanding findings reaches `:48` and writes — the fallback never fires.
 
@@ -146,7 +151,7 @@ def decide(flags):
                             or flags["pr_mode"]
                             or flags["range_mode"])
 
-    # :35 — outstanding Critical/Warning is evaluated BEFORE :40's Medium loop.
+    # :35 — outstanding Critical/Warning is evaluated BEFORE :40's Medium branch.
     # Swapping these would adjudicate Mediums while Criticals sit unfixed, and
     # could reach :48 and write REVIEW.md for a review :38 says stays blocked.
     if flags["outstanding_cw"] > 0:
@@ -154,8 +159,8 @@ def decide(flags):
             return _decision(ACTIONS[3], REASON_PHASE5_UNAVAILABLE)
         return _decision(ACTIONS[1], REASON_OUTSTANDING_CW)
 
-    # :40 — the acknowledgement loop. :42's "Will fix" defers to Phase 5, so the
-    # loop needs the same interactivity the fallback at :39 tests for.
+    # The medium branch. The finalize card's fix choice defers to Phase 5, so the
+    # branch needs the same interactivity the fallback at :39 tests for.
     if flags["unacknowledged_medium"] > 0:
         if not phase5_available:
             return _decision(ACTIONS[3], REASON_PHASE5_UNAVAILABLE)

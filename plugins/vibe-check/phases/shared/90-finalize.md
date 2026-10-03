@@ -3,7 +3,7 @@
 > **Lazy-loaded.** Read from the command spine when `$ARGUMENTS` contains `--finalize`, after Phase 0 and Phase 0.5 (and the unconditional Phase 0.6) have run. Never read on a review pass.
 > Shared: `/review` and `/deep-review` finalize through this one file.
 
-**Who owns what.** `scripts/finalize_gate.py` decides which way finalize goes: write, route to the fix loop, enter the Medium acknowledgement loop, fall back, error, or refuse. This file computes the gate's inputs, renders every message, and writes REVIEW.md. The gate never produces REVIEW.md content and never prints a finding.
+**Who owns what.** `scripts/finalize_gate.py` decides which way finalize goes: write, open the finalize card (`outstanding-to-phase-5` for undecided critical/warning, `medium-ack-loop` for undecided medium — both enter the same ONE card), fall back, error, or refuse. This file computes the gate's inputs, renders every message, and writes REVIEW.md. The gate never produces REVIEW.md content and never prints a finding.
 
 ## Finalize mode
 

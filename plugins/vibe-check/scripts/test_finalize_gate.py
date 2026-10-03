@@ -3,27 +3,27 @@
 Transcribed from `review.md:29-48` (Finalize mode), whose branch order is:
 
   :31  no state file                      -> error, "Run `/review` first."
-  :35  outstanding_cw non-empty           -> route into Phase 5 Step A
+  :35  outstanding_cw non-empty           -> the finalize card (fix rows -> fix-loop card)
   :39    ...unless Phase 5 is unavailable -> the legacy fallback
-  :40  unacknowledged_medium non-empty    -> the acknowledgement loop
-  :46    ...any "Will fix"                -> Phase 5; finalize does not proceed
+  :40  unacknowledged_medium non-empty    -> the same finalize card (medium rows)
+  :46    ...any row marked fix            -> Phase 5; finalize does not proceed
   :47    ...all dismissed                 -> proceed
   :48  otherwise                          -> write .turingmind/REVIEW.md
 
 Fix-list FL-07 (finding R11) is why the vocabulary is six values and not three.
 The plan proposed `write` / `fallback` / `refuse`, which cannot represent either
-interactive route: `:38` routes outstanding Critical/Warning findings INTO Phase
-5 Step A (explicitly "Do NOT write REVIEW.md ... finalize stays blocked"), and
-`:40-47` is a Medium acknowledgement loop that ends in either a Phase-5 route or
-a proceed. Collapsing those into `fallback` would misclassify live behavior: the
-fallback at `:39` is the NON-interactive path, and it tells the user to re-run,
+interactive route: `:38` routes outstanding Critical/Warning findings into the
+finalize card (explicitly "Do NOT write REVIEW.md ... finalize stays blocked"),
+and `:40-47` is the medium branch of the finalize card that ends in either a
+Phase-5 route or a proceed. Collapsing those into `fallback` would misclassify
+live behavior: the fallback at `:39` is the NON-interactive path, and it tells the user to re-run,
 whereas the Phase-5 route keeps going in the same invocation.
 
 The precedence between `:35` and `:40` is the regression lock. `outstanding_cw`
 is evaluated BEFORE `unacknowledged_medium`, so a state carrying both must route
 on the Critical/Warning branch. Under a swapped order the same input would enter
-the Medium acknowledgement loop — asking the user to adjudicate Mediums while
-Criticals sit unfixed, and (worse) reaching `:48` and writing REVIEW.md for a
+the medium branch of the finalize card — asking the user to adjudicate Mediums
+while Criticals sit unfixed, and (worse) reaching `:48` and writing REVIEW.md for a
 review that `:38` says must stay blocked. That is the elevation-of-privilege
 shape T-40-44 names.
 """
@@ -149,8 +149,9 @@ class TestPhase5Availability(unittest.TestCase):
         self.assertEqual(got["action"], "outstanding-to-phase-5")
 
     def test_medium_loop_also_needs_phase_5(self):
-        """:42's "Will fix" defers to Phase 5, so the loop is interactive by
-        construction — a non-interactive run cannot ask the question."""
+        """The finalize card's fix choice defers to Phase 5, so the medium branch
+        is interactive by construction — a non-interactive run cannot ask the
+        question."""
         got = finalize_gate.decide(
             flags(unacknowledged_medium=1, noninteractive=True))
         self.assertEqual(got["action"], "fallback")
