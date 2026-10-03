@@ -170,7 +170,18 @@ What the helper writes: root `decisions[<hash>] = {decision, reason, at_pass, ba
 
 ### Writing REVIEW.md
 
-Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`. Fill from state:
+Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`. First read the owner-decision entries once, under bash — this runs before the Write, so a failure writes nothing and archives nothing:
+
+```bash
+if DECISIONS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" decisions-report < "$STATE_FILE"); then
+  printf '%s\n' "$DECISIONS_JSON"   # {"entries": [{"stable_hash", "decision", "reason", "at_pass", "band", "status", "file", "line", "title", "agent"}]}
+else
+  echo "I'm uncertain about Finalize mode — batch_card.py decisions-report failed; nothing was written or archived." >&2
+  exit 1
+fi
+```
+
+Fill from state:
 
 - `{{scope_label}}`: if GSD phase mode, "Phase {{$PHASE_ID}}"; else "<repo>/<branch>"
 - `{{passes}}`: length of `state.passes`
@@ -180,9 +191,9 @@ Use Write to create `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
 - Coverage table: aggregate `agents_run` and `findings` across passes
 - "Critical issues resolved": `fixed_since_last` entries with band critical across all passes — nothing else. Best-effort fix-commit lookup, validated BEFORE any git call: the entry's `<file>` comes from the reviewed diff and may be attacker-authored, so it must pass the SAME two checks as the HEAD-fingerprint step above — match `^[A-Za-z0-9._/-]+$` (PATH_RE) AND `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"` exits 0 (branch on the EXIT CODE; an unresolved/empty `$GUARD_PY` refuses) — and `<line>` must be a positive integer (`^[1-9][0-9]*$`). Only then run `git log -L "<line>,<line>:<file>" | head -20` (the `-L` argument quoted as ONE word) to find a commit that touched that line. A file or line failing any check is never passed to git: skip the lookup and omit the fix-commit attribution for that entry (the entry itself is still listed).
 - "Resolved by verification": the union of `passes[].resolved[]` across all passes, each rendered with its `resolution` object (source, agents, head_sha, at_pass, reason), PLUS the no-rerun fix-obsolete closures — every hash in `$COUNTS_JSON`'s `verified_obsolete_hashes` (the last-pass `fix_verdicts` entries whose fingerprint still matched HEAD; the helper already judged validity, this file never re-derives it), joined to its finding in `state.passes[-1].findings` by `stable_hash` and rendered with source `fix-obsolete`, agents `["fix"]`, HEAD = the verdict's `head_sha`, pass = the verdict's `at_pass`, reason = the verdict's `reason`. Deduplicate by `stable_hash` against the `resolved[]` entries (a verdict that also produced a `resolved[]` entry on a rerun is listed once). Use the `$COUNTS_JSON` from the gate step; the decisions step changes nothing about fix verdicts, so the helper is not re-run for this read.
-- "Medium findings — dismissed" (Findings dismissed, any band): root `decisions` entries with decision == dismiss ∪ legacy root `medium_acknowledgments` entries with decision == dismiss. Both are state-ROOT fields — NOT `state.passes[-1].medium_acknowledgments` or `state.passes[-1].decisions`, per-pass paths nothing writes; reading per-pass here would always find dismissals empty and silently drop them from REVIEW.md.
-- "Findings deferred": root `decisions` entries with decision == defer (ROOT-only, as above).
-- For both the dismissed and deferred entries, join each decision's hash to `state.passes[-1].findings` by `stable_hash`; when no row matches, join it to the `members[]` entry whose `obligation.stable_hash` equals it (file/line/title/agent from the member, band from the decision record). An absorbed obligation's decision is listed under its own identity.
+- **Findings dismissed** (any band): every `$DECISIONS_JSON` entry with decision == dismiss, rendered with file/line/title/agent from the entry (the helper already applied the join rule; when `file` is null render `**{{first 8 chars of stable_hash}}**` and the title as `(finding no longer in the last pass)`); status `current` → no suffix; status `superseded` or `orphan` → suffix ` (superseded)` and `- **Decision:** dismissed at pass {{at_pass}}`. The helper reads only root `decisions`, so also list legacy root `medium_acknowledgments` entries with decision == dismiss, rendered as today with no suffix. Both are state-ROOT fields — NOT `state.passes[-1].medium_acknowledgments` or `state.passes[-1].decisions`, per-pass paths nothing writes; reading per-pass here would always find dismissals empty and silently drop them from REVIEW.md.
+- **Findings deferred**: every `$DECISIONS_JSON` entry with decision == defer, rendered the same way (status `current` → no suffix; `superseded` or `orphan` → suffix ` (superseded)` and `- **Decision:** deferred at pass {{at_pass}}`).
+- The helper joins each entry to `state.passes[-1].findings`, else to the matching `members[].obligation`, so an absorbed obligation's decision is listed under its own identity — this file does not re-join.
 
 Filling REVIEW.md is READ-only over state: Finalize's only state write is the `record-decisions` step above; the archive `mv` follows the write as today.
 
