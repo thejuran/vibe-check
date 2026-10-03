@@ -33,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 # Make `import carry_state` resolve when unittest discovery runs from root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -793,6 +794,24 @@ def defer_payload(h=ARCH_HASH, decision="defer", reason="ships next milestone",
                            "reason": reason}]}
 
 
+ARCH_CANONICAL_PREFIX = ("**REQUIRED OUTPUT \u2014 the Phase 1d status line "
+                         "(diff mode only).**")
+
+
+def arch_row_evidence():
+    """The ARCH lead row's own four evidence fields as literals (the fixture
+    row has no snapshot, so a decision's evidence is derived from the row).
+    file/line/band are written out; the long canonical line is read from the
+    raw fixture JSON (never from carry_state) and pinned by its prefix."""
+    row = [f for f in load_fixture()["passes"][-1]["findings"]
+           if f["stable_hash"] == ARCH_HASH][0]
+    canonical = row["canonical_line_content"]
+    assert canonical.startswith(ARCH_CANONICAL_PREFIX), canonical[:80]
+    assert "snapshot" not in row
+    return {"file": ARCH_FILE, "line": 74,
+            "canonical_line_content": canonical, "band": "warning"}
+
+
 def verdict_payload(**over):
     p = {"at_pass": 2, "head_sha": "50f9932e", "sent": [ARCH_HASH],
          "results": [{"id": ARCH_HASH, "status": "obsolete",
@@ -808,7 +827,8 @@ class TestRecordDecisions(unittest.TestCase):
         out = carry_state.record_decisions(s, defer_payload())
         self.assertEqual(out["decisions"][ARCH_HASH],
                          {"decision": "defer", "reason": "ships next milestone",
-                          "at_pass": 2, "band": "warning"})
+                          "at_pass": 2, "band": "warning",
+                          "evidence": arch_row_evidence()})
 
     def test_record_decisions_band_follows_each_record(self):
         # Non-vacuity: the two records differ in band, so a constant cannot pass.
@@ -883,7 +903,12 @@ class TestRecordDecisions(unittest.TestCase):
                              at_pass=3))
         self.assertEqual(s["decisions"][ARCH_HASH],
                          {"decision": "dismiss", "reason": "false positive",
-                          "at_pass": 3, "band": "warning"})
+                          "at_pass": 3, "band": "warning",
+                          "evidence": arch_row_evidence(),
+                          "history": [{"decision": "defer",
+                                       "reason": "ships next milestone",
+                                       "at_pass": 2, "band": "warning",
+                                       "evidence": arch_row_evidence()}]})
         self.assertEqual(list(s["decisions"]), [ARCH_HASH])
 
     def test_record_decisions_member_obligation_own_hash(self):
@@ -895,7 +920,10 @@ class TestRecordDecisions(unittest.TestCase):
                                              "reason": "later"}]})
         self.assertEqual(out["decisions"][HA],
                          {"decision": "defer", "reason": "later", "at_pass": 2,
-                          "band": "warning"})
+                          "band": "warning",
+                          "evidence": {"file": F, "line": 11,
+                                       "canonical_line_content": "x = 1",
+                                       "band": "warning"}})
         self.assertEqual(json.dumps(out["passes"], sort_keys=True), before)
         self.assertIsNone(carry_state.record_decisions(
             s, {"at_pass": 2, "decisions": [{"stable_hash": "e" * 64,
@@ -1076,6 +1104,417 @@ class TestCLIWriters(TempDirCase):
 # --------------------------------------------------------------------------- #
 # Writer lock (helper half of the single-writer property).
 # --------------------------------------------------------------------------- #
+class TestRecordDecisionsInputUnmutated(unittest.TestCase):
+    def test_record_decisions_history_path_leaves_input_unmutated(self):
+        s = carry_state.record_decisions(load_fixture(), defer_payload())
+        before = json.dumps(s, sort_keys=True)
+        out = carry_state.record_decisions(
+            s, defer_payload(decision="dismiss", reason="fp", at_pass=3))
+        self.assertEqual(json.dumps(s, sort_keys=True), before, "input mutated")
+        self.assertIn("history", out["decisions"][ARCH_HASH])
+        self.assertNotIn("history", s["decisions"][ARCH_HASH])
+
+
+# --------------------------------------------------------------------------- #
+# Evidence-bound decisions (D-13). Builders shared with TestRollbackQuarantine.
+# --------------------------------------------------------------------------- #
+HC = "c" * 64
+
+
+def dismiss(state, h, at_pass=2, reason="not a bug"):
+    out = carry_state.record_decisions(state, {"at_pass": at_pass, "decisions": [
+        {"stable_hash": h, "decision": "dismiss", "reason": reason}]})
+    assert out is not None
+    return out
+
+
+def with_passes(decided, fresh):
+    """The decided state's roots on top of a fresh state's passes: the same
+    hash re-scored on a later pass."""
+    out = copy.deepcopy(decided)
+    out["passes"] = copy.deepcopy(fresh["passes"])
+    return out
+
+
+def record_of(state, h):
+    return [r for r in carry_state.open_findings(state)
+            if r["stable_hash"] == h][0]
+
+
+def fixture_row(state, h):
+    return [f for f in state["passes"][-1]["findings"]
+            if f["stable_hash"] == h][0]
+
+
+def band_change_state():
+    decided = dismiss(ba_state(a_band="medium"), HA)
+    return with_passes(decided, ba_state(a_band="warning"))
+
+
+def line_move_state():
+    decided = dismiss(ba_state(a_snapshot=snap(1, line=11)), HA)
+    return with_passes(decided, ba_state(a_snapshot=snap(1, line=14)))
+
+
+def unchanged_state():
+    decided = dismiss(ba_state(), HA)
+    return with_passes(decided, ba_state())
+
+
+def history_state():
+    s = dismiss(ba_state(), HA, reason="first")
+    return dismiss(s, HA, at_pass=3, reason="second")
+
+
+def rehash_state():
+    s1 = mk_state([mk_pass(1, [mk_finding("warning", "persisted", HA,
+                                          canonical_line_content="x = 1",
+                                          snapshot=snap(1))])])
+    decided = dismiss(s1, HA, at_pass=1)
+    fresh = mk_state([mk_pass(1, []), mk_pass(2, [mk_finding(
+        "warning", "persisted", HC, canonical_line_content="x = 2",
+        snapshot=dict(snap(2), canonical_line_content="x = 2"))])])
+    return with_passes(decided, fresh)
+
+
+def snapshotless_decided_state():
+    return dismiss(load_fixture(), ARCH_HASH)
+
+
+def snapshotless_severity_state():
+    s = snapshotless_decided_state()
+    fixture_row(s, ARCH_HASH)["band"] = "critical"
+    return s
+
+
+def pre47_record(band="warning"):
+    return {"decision": "dismiss", "reason": "r", "at_pass": 2, "band": band}
+
+
+def pre47_state():
+    s = ba_state(a_band="warning")
+    s["decisions"] = {HA: pre47_record("medium")}
+    return s
+
+
+def null_evidence_state():
+    s = ba_state()
+    s["decisions"] = {HA: dict(pre47_record(), evidence=None)}
+    return s
+
+
+def real_decision_state():
+    return carry_state.decision_state
+
+
+class TestDecisionEvidence(unittest.TestCase):
+    """D-13: a dismiss/defer closes only while the evidence it judged holds.
+
+    Pitfall-1 rule: stable_hash covers canonical_line_content, so every
+    SAME-HASH staleness fixture below varies `band` or `line` ONLY — never the
+    canonical text. A canonical-text edit is the re-hash case
+    (test_rehash_new_hash_open_orphan_kept), where the new hash simply has no
+    decision.
+    """
+
+    # Scenario bodies are methods so the contrast subtests can re-run them
+    # under a mutant and require them to fail.
+    def _band_change_scenario(self):
+        s = band_change_state()
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def _null_evidence_scenario(self):
+        s = null_evidence_state()
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "code")
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def _snapshotless_scenario(self):
+        s = snapshotless_decided_state()
+        ev = s["decisions"][ARCH_HASH]["evidence"]
+        self.assertIsInstance(ev, dict)
+        self.assertEqual(ev, arch_row_evidence())
+        rec = record_of(s, ARCH_HASH)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertNotIn(ARCH_HASH,
+                         carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+        sev = snapshotless_severity_state()
+        rec = record_of(sev, ARCH_HASH)
+        self.assertNotIn("snapshot", fixture_row(sev, ARCH_HASH))
+        self.assertEqual(carry_state.decision_state(rec, sev), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, sev), "severity")
+        self.assertIn(ARCH_HASH,
+                      carry_state.finalize_counts(sev)["outstanding_cw_hashes"])
+        moved = snapshotless_decided_state()
+        fixture_row(moved, ARCH_HASH)["line"] = 75
+        rec = record_of(moved, ARCH_HASH)
+        self.assertEqual(carry_state.decision_state(rec, moved), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, moved), "code")
+        self.assertIn(ARCH_HASH,
+                      carry_state.finalize_counts(moved)["outstanding_cw_hashes"])
+
+    def test_band_change_reopens(self):
+        self._band_change_scenario()
+
+    def test_line_move_reopens(self):
+        s = line_move_state()
+        rec = record_of(s, HA)
+        self.assertEqual(rec["snapshot"]["canonical_line_content"],
+                         s["decisions"][HA]["evidence"]["canonical_line_content"])
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "code")
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_unchanged_decided_never_reopens(self):
+        s = unchanged_state()
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        c = carry_state.finalize_counts(s)
+        self.assertNotIn(HA, c["outstanding_cw_hashes"])
+        self.assertNotIn(HA, c["unacknowledged_medium_hashes"])
+        self.assertNotIn(HA, [p["stable_hash"] for p in carry_state.pending(s)])
+
+    def test_pre47_record_closes_as_before(self):
+        s = pre47_state()   # decided as medium; snapshot band is now warning
+        rec = record_of(s, HA)
+        self.assertNotEqual(rec["snapshot"]["band"],
+                            s["decisions"][HA]["band"])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertTrue(carry_state.is_closed(rec, s, None))
+        self.assertNotIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_non_dict_decision_closes_as_before(self):
+        s = ba_state()
+        s["decisions"] = {HA: "dismiss"}
+        self.assertEqual(carry_state.decision_state(record_of(s, HA), s),
+                         "current")
+
+    def test_legacy_ack_closes_as_before(self):
+        s = load_fixture()
+        self.assertEqual(s["medium_acknowledgments"], {})
+        c = carry_state.finalize_counts(s)
+        self.assertEqual((c["outstanding_cw"], c["unacknowledged_medium"]), (1, 1))
+        s["medium_acknowledgments"] = {BUGS_HASH: {"decision": "dismiss",
+                                                   "reason": "r", "at_pass": 1}}
+        # A legacy ack is unconditional even after a band/line change.
+        fixture_row(s, BUGS_HASH)["line"] = 99
+        rec = record_of(s, BUGS_HASH)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        c = carry_state.finalize_counts(s)
+        self.assertEqual((c["outstanding_cw"], c["unacknowledged_medium"]), (1, 0))
+
+    def test_no_decision_is_none(self):
+        s = ba_state()
+        rec = record_of(s, HA)
+        self.assertIsNone(carry_state.decision_state(rec, s))
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+
+    def test_history_kept_on_replace(self):
+        first = dismiss(ba_state(), HA, reason="first")
+        self.assertNotIn("history", first["decisions"][HA])
+        s = dismiss(first, HA, at_pass=3, reason="second")
+        self.assertEqual(s["decisions"][HA]["history"], [first["decisions"][HA]])
+        third = dismiss(s, HA, at_pass=4, reason="third")
+        self.assertEqual(third["decisions"][HA]["history"],
+                         [{k: v for k, v in s["decisions"][HA].items()
+                           if k != "history"}, first["decisions"][HA]])
+
+    def test_snapshotless_resumed_severity_change_reopens(self):
+        self._snapshotless_scenario()
+
+    def test_snapshotless_then_snapshot_added_stays_current(self):
+        s = snapshotless_decided_state()
+        row = fixture_row(s, ARCH_HASH)
+        row["snapshot"] = dict(
+            {k: row[k] for k in carry_state.EVIDENCE_KEYS}, at_pass=3)
+        rec = record_of(s, ARCH_HASH)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertNotIn(ARCH_HASH,
+                         carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_null_evidence_is_stale_absent_is_legacy(self):
+        self._null_evidence_scenario()
+        s = null_evidence_state()
+        del s["decisions"][HA]["evidence"]
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertNotIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+        for name, ev in (("missing keys", {"file": F}),
+                         ("list", []), ("string", "x")):
+            with self.subTest(name):
+                s = null_evidence_state()
+                s["decisions"][HA]["evidence"] = ev
+                rec = record_of(s, HA)
+                self.assertEqual(carry_state.decision_state(rec, s), "stale")
+                self.assertEqual(carry_state.stale_cause(rec, s), "code")
+
+    def test_pending_lists_stale_decided(self):
+        s = band_change_state()
+        self.assertEqual(carry_state.pending(s),
+                         [{"stable_hash": HA, "since_pass": 1}])
+
+    def test_rehash_new_hash_open_orphan_kept(self):
+        s = rehash_state()
+        orphan = json.dumps(s["decisions"][HA], sort_keys=True)
+        self.assertEqual(carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+                         [HC])
+        out = dismiss(s, HC, at_pass=2)
+        self.assertEqual(json.dumps(out["decisions"][HA], sort_keys=True), orphan)
+
+    # ---- contrast subtests: each mutant must make its scenario fail ------ #
+    def test_contrast_always_current_mutant(self):
+        self._band_change_scenario()
+
+        def mutant(record, state):
+            h = record["stable_hash"]
+            if h in state.get("decisions", {}) or h in state.get(
+                    "medium_acknowledgments", {}):
+                return "current"
+            return None
+        with self.subTest("contrast: always-current"):
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._band_change_scenario()
+
+    def test_contrast_band_blind_mutant(self):
+        real = real_decision_state()
+
+        def mutant(record, state):
+            result = real(record, state)
+            if result != "stale":
+                return result
+            ev = state["decisions"][record["stable_hash"]].get("evidence")
+            cur = carry_state._evidence_of(record)
+            keys = ("file", "line", "canonical_line_content")
+            if isinstance(ev, dict) and all(ev.get(k) == cur[k] for k in keys):
+                return "current"
+            return "stale"
+        s = band_change_state()
+        rec = record_of(s, HA)
+        with self.subTest("contrast: band-blind"):
+            self.assertEqual(real(rec, s), "stale")
+            self.assertEqual(mutant(rec, s), "current")
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._band_change_scenario()
+
+    def test_contrast_absent_vs_null_legacy_gate_mutant(self):
+        real = real_decision_state()
+
+        def mutant(record, state):
+            d = state.get("decisions", {}).get(record["stable_hash"])
+            if d is not None and not (isinstance(d, dict) and isinstance(
+                    d.get("evidence"), dict)):
+                return "current"
+            return real(record, state)
+        s = null_evidence_state()
+        rec = record_of(s, HA)
+        with self.subTest("contrast: isinstance legacy gate"):
+            self.assertEqual(real(rec, s), "stale")
+            self.assertEqual(mutant(rec, s), "current")
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._null_evidence_scenario()
+
+    def test_contrast_null_evidence_derivation_mutant(self):
+        real = carry_state._evidence_of
+
+        def mutant(record):
+            if not isinstance(record.get("snapshot"), dict):
+                return None
+            return real(record)
+        self._snapshotless_scenario()
+        with self.subTest("contrast: evidence None when snapshotless"):
+            with mock.patch.object(carry_state, "_evidence_of", mutant):
+                with self.assertRaises(AssertionError):
+                    self._snapshotless_scenario()
+
+
+def old_closed(record, state, last):
+    """The pre-47 closure rule, transcribed: closed by hash alone."""
+    h = record["stable_hash"]
+    if h in state.get("decisions", {}) or h in state.get(
+            "medium_acknowledgments", {}):
+        return True
+    return carry_state._fix_closes(record, state, last, None)
+
+
+ROLLBACK_FIXTURES = (
+    ("band change", band_change_state),
+    ("line move", line_move_state),
+    ("unchanged", unchanged_state),
+    ("history replace", history_state),
+    ("re-hash orphan", rehash_state),
+    ("snapshotless severity change", snapshotless_severity_state),
+    ("null evidence", null_evidence_state),
+    ("fixture as shipped", load_fixture),
+    ("pre-47 decisions", pre47_state),
+)
+
+
+def disagreements(state):
+    last = carry_state._check_state(state)[0]
+    return [r["stable_hash"] for r in carry_state.open_findings(state)
+            if old_closed(r, state, last)
+            != carry_state._closed(r, state, last, None)]
+
+
+def uncovered(predicate):
+    """Fixture names where the old and new rules disagree but `predicate`
+    would NOT quarantine the state."""
+    return [name for name, build in ROLLBACK_FIXTURES
+            if disagreements(build()) and not predicate(build())]
+
+
+class TestRollbackQuarantine(unittest.TestCase):
+    """Reverting carry_state.py is safe only after quarantining every state
+    where the pre-47 and post-47 closure rules disagree."""
+
+    def test_quarantine_covers_every_disagreement(self):
+        self.assertEqual(uncovered(carry_state.has_evidence_bound_decisions), [])
+        # Non-vacuity: the band-change fixture really disagrees.
+        self.assertEqual(disagreements(band_change_state()), [HA])
+
+    def test_legacy_states_not_quarantined(self):
+        self.assertFalse(carry_state.has_evidence_bound_decisions(load_fixture()))
+        self.assertFalse(carry_state.has_evidence_bound_decisions(pre47_state()))
+        for bad in (None, [], {"decisions": []}, {"decisions": {HA: "x"}}):
+            with self.subTest(repr(bad)):
+                self.assertFalse(carry_state.has_evidence_bound_decisions(bad))
+
+    def test_predicate_matches_absent_vs_null_rule(self):
+        s = null_evidence_state()
+        self.assertTrue(carry_state.has_evidence_bound_decisions(s))
+        self.assertEqual(disagreements(s), [HA])
+
+        def dict_only(state):
+            return any(isinstance(d, dict) and isinstance(d.get("evidence"), dict)
+                       for d in state.get("decisions", {}).values())
+        with self.subTest("contrast: dict-evidence predicate"):
+            self.assertIn("null evidence", uncovered(dict_only))
+
+    def test_contrast_never_quarantine(self):
+        with self.subTest("contrast: lambda s: False"):
+            self.assertIn("band change", uncovered(lambda s: False))
+        self.assertEqual(uncovered(carry_state.has_evidence_bound_decisions), [])
+
+    def test_history_only_record_is_quarantined(self):
+        s = ba_state()
+        s["decisions"] = {HA: dict(pre47_record(), history=[pre47_record()])}
+        self.assertTrue(carry_state.has_evidence_bound_decisions(s))
+
+    def test_rollback_paragraph_present(self):
+        doc = carry_state.__doc__
+        for needle in ("ROLLBACK", "quarantine-47",
+                       "has_evidence_bound_decisions"):
+            self.assertIn(needle, doc)
+
+
 ALLOWED_KEY_WRITES = {"record_decisions": {"decisions"},
                       "record_fix_verdicts": {"fix_verdicts"}}
 FROZEN_KEYS = {"passes", "medium_acknowledgments"}
