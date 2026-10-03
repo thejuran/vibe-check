@@ -232,6 +232,11 @@ def build_rows(state, mode, head_blobs=None, subset=None):
                       and not carry_state.is_closed(r, state, None)]
         rows = [_row(r, state, lead_titles, pending_since) for r in chosen]
         rows.sort(key=_sort_key)
+    # Row membership is fixed above; the linkage only annotates.
+    links = successor_links(state, rows)
+    for row in rows:
+        if row["stale"] is None and row["stable_hash"] in links:
+            row["stale"] = links[row["stable_hash"]]
     for i, row in enumerate(rows):
         row["n"] = i + 1
     return {"at_pass": last["pass_number"], "mode": mode, "rows": rows}, None
@@ -278,6 +283,89 @@ def resolve_fix_targets(state, subset):
                 row["routed_members"].append(
                     {"stable_hash": h, "title": members[h].get("title")})
     return rows
+
+
+def _earlier_identity(state, h):
+    """(file, title) of the most recent finding row with hash `h` in any
+    pass, else of the most recent member obligation with that hash; None
+    when the hash was never seen. Earlier passes are read defensively."""
+    passes = state.get("passes")
+    for pass_ in reversed(passes):
+        findings = pass_.get("findings") if isinstance(pass_, dict) else None
+        if not isinstance(findings, list):
+            continue
+        for f in findings:
+            if isinstance(f, dict) and f.get("stable_hash") == h:
+                return f.get("file"), f.get("title")
+    for pass_ in reversed(passes):
+        findings = pass_.get("findings") if isinstance(pass_, dict) else None
+        if not isinstance(findings, list):
+            continue
+        for f in findings:
+            members = f.get("members") if isinstance(f, dict) else None
+            if not isinstance(members, list):
+                continue
+            for m in members:
+                obligation = m.get("obligation") if isinstance(m,
+                                                               dict) else None
+                if (isinstance(obligation, dict)
+                        and obligation.get("stable_hash") == h):
+                    return m.get("file"), m.get("title")
+    return None
+
+
+def _claim_key(claim):
+    at_pass, h = claim
+    return (-at_pass if _is_count(at_pass) else 1, h)
+
+
+def successor_links(state, rows):
+    """{row hash: stale tag} linking an orphaned decision to its re-hashed
+    successor row (an edit to the decided line changes the hash).
+
+    annotation only — never closes, never changes finalize_counts.
+
+    An orphan is a decision whose hash is no open record. Its earlier
+    identity is the (file, title) it last had. Its candidate successors are
+    the rows in `rows` with that file and title and no decision or legacy
+    acknowledgment of their own. Exactly one candidate -> the orphan claims
+    it; more than one -> it annotates nothing. Several orphans claiming one
+    row: the highest decision `at_pass` wins, then the smallest hash.
+    """
+    decisions = state.get("decisions", {})
+    acks = state.get("medium_acknowledgments", {})
+    open_hashes = {r["stable_hash"] for r in carry_state.open_findings(state)}
+    claims = {}
+    for h in sorted(decisions):
+        decision = decisions[h]
+        if not isinstance(decision, dict) or h in open_hashes:
+            continue
+        identity = _earlier_identity(state, h)
+        if identity is None:
+            continue
+        candidates = [r for r in rows
+                      if (r.get("file"), r.get("title")) == identity
+                      and r["stable_hash"] not in decisions
+                      and r["stable_hash"] not in acks]
+        if len(candidates) == 1:
+            claims.setdefault(candidates[0]["stable_hash"], []).append(
+                (decision.get("at_pass"), h))
+    links = {}
+    for row_hash, row_claims in claims.items():
+        _, h = min(row_claims, key=_claim_key)
+        decision = decisions[h]
+        evidence = decision.get("evidence")
+        links[row_hash] = {
+            "cause": "code",
+            "decision": decision.get("decision"),
+            "reason": decision.get("reason"),
+            "at_pass": decision.get("at_pass"),
+            "was_band": (evidence.get("band") if isinstance(evidence, dict)
+                         else decision.get("band")),
+            "via": "successor",
+            "prior_hash": h,
+        }
+    return links
 
 
 # --------------------------------------------------------------------------- #
