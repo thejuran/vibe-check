@@ -27,10 +27,18 @@ open is keyed on status only, never on scores or confidence, so a
 min_confidence or threshold change can never close a finding.
 
 WHAT CLOSES. Exactly one of:
-  * an owner decision — the record's hash in `decisions` (new) or in
-    `medium_acknowledgments` (legacy). Both are READ; an old file is never
-    rewritten, so an old medium-only state counts exactly as the retired prose
-    rule did;
+  * an owner decision that still holds. Every `medium_acknowledgments` entry
+    (legacy) closes unconditionally, and so does a `decisions` record WITHOUT
+    an `evidence` key (written before decisions were evidence-bound); an old
+    file is never rewritten, so an old state counts exactly as before. A
+    `decisions` record WITH an `evidence` key closes only while that evidence
+    (the finding's snapshot at decision time — or, for a snapshotless finding,
+    its own file/line/canonical_line_content/band) still equals the finding's
+    current evidence on those four keys (`decision_state`). A same-hash band
+    change or line move re-opens the finding; an edit to the decided line
+    re-hashes it, so the new hash carries no decision at all. An `evidence`
+    key that is null or malformed never closes (fail closed). A superseded
+    record is kept in the new record's `history`; nothing is deleted;
   * a fix-agent `obsolete` verdict recorded on the LATEST pass whose
     `verified_blob` (the file's blob when the fix agent judged it) still equals
     HEAD's blob for that file. A stale verdict never closes; a verdict whose
@@ -59,6 +67,23 @@ CLI (stdin is always the parsed state object; stdout is JSON):
     python3 carry_state.py pending < state.json
     python3 carry_state.py record-decisions --decisions-file PATH < state.json
     python3 carry_state.py record-fix-verdicts --verdicts-file PATH < state.json
+
+ROLLBACK (reverting this file to its pre-47 version): the older reader closes
+a decided hash unconditionally — re-closing findings whose evidence changed
+after the decision — and the older writer replaces a decision record whole,
+dropping `evidence` and `history`. So, in order:
+  1. stop any running review or finalize session;
+  2. back up `.turingmind/state/` (copy the directory aside);
+  3. while THIS version is still importable, move every state file for which
+     `has_evidence_bound_decisions` is True into
+     `.turingmind/state/quarantine-47/`. Per file:
+       python3 -c 'import json,sys,carry_state; sys.exit(0 if carry_state.has_evidence_bound_decisions(json.load(open(sys.argv[1]))) else 1)' FILE
+     (exit 0 = quarantine it);
+  4. revert;
+  5. the quarantined reviews restart cleanly (no state = a fresh review; the
+     backup keeps the audit trail).
+Legacy state files (no `evidence` / `history` on any decision) are untouched by
+the procedure.
 
 stdlib only; imports exactly {json, os, sys} (`os` for `os.path.isfile`).
 """
@@ -225,6 +250,7 @@ def _check_state(state):
                 "line": m.get("line"),
                 "title": m.get("title"),
                 "agent": m.get("agent"),
+                "canonical_line_content": m.get("canonical_line_content"),
                 "status": f["status"],
                 "snapshot": obl.get("snapshot"),
                 "absorbed_into": f["stable_hash"],
@@ -275,10 +301,85 @@ def is_closed(record, state, head_blobs):
     return _closed(record, state, last, head_blobs)
 
 
-def _closed(record, state, last, head_blobs):
+# The keys score.py's snapshot compares: "stale" means score.py would have
+# refreshed the snapshot since the decision was taken.
+EVIDENCE_KEYS = ("file", "line", "canonical_line_content", "band")
+
+
+def _evidence_of(record):
+    """The record's current evidence on EVIDENCE_KEYS: from its snapshot when
+    that is a dict, else from the record's own fields (score.py builds the
+    next snapshot from those same fields, so the two agree when nothing
+    changed). Always a dict."""
+    snapshot = record.get("snapshot")
+    source = snapshot if isinstance(snapshot, dict) else record
+    return {k: source.get(k) for k in EVIDENCE_KEYS}
+
+
+def _full_evidence(evidence):
+    return isinstance(evidence, dict) and all(k in evidence
+                                              for k in EVIDENCE_KEYS)
+
+
+def decision_state(record, state):
+    """"current" | "stale" | None for the owner decision on this record.
+
+    None: no decision. "current": a legacy medium acknowledgment, a decision
+    that predates evidence binding (not a dict, or a dict with NO `evidence`
+    key), or evidence equal to the record's current evidence on all four
+    EVIDENCE_KEYS. "stale": any key differs, or the `evidence` key is present
+    but null / not a dict / missing a key (fail closed — the writer never
+    produces that)."""
     h = record["stable_hash"]
-    if h in state.get("decisions", {}) or h in state.get(
-            "medium_acknowledgments", {}):
+    if h in state.get("medium_acknowledgments", {}):
+        return "current"
+    decisions = state.get("decisions", {})
+    if h not in decisions:
+        return None
+    decision = decisions[h]
+    if not isinstance(decision, dict) or "evidence" not in decision:
+        return "current"
+    evidence = decision["evidence"]
+    if not _full_evidence(evidence):
+        return "stale"
+    current = _evidence_of(record)
+    if all(evidence[k] == current[k] for k in EVIDENCE_KEYS):
+        return "current"
+    return "stale"
+
+
+def stale_cause(record, state):
+    """None unless the decision is stale; "severity" when only the band
+    differs from the decision's evidence, else "code" (including a null or
+    malformed `evidence`)."""
+    if decision_state(record, state) != "stale":
+        return None
+    evidence = state.get("decisions", {}).get(record["stable_hash"])
+    evidence = evidence.get("evidence") if isinstance(evidence, dict) else None
+    if not _full_evidence(evidence):
+        return "code"
+    current = _evidence_of(record)
+    if all(evidence[k] == current[k]
+           for k in ("file", "line", "canonical_line_content")):
+        return "severity"
+    return "code"
+
+
+def has_evidence_bound_decisions(state):
+    """True when any `decisions` record carries an `evidence` key (any value,
+    null included) or a `history` key — the state files the pre-47 reader
+    would mis-close or the pre-47 writer would truncate. Read-only."""
+    if not isinstance(state, dict):
+        return False
+    decisions = state.get("decisions")
+    if not isinstance(decisions, dict):
+        return False
+    return any(isinstance(d, dict) and ("evidence" in d or "history" in d)
+               for d in decisions.values())
+
+
+def _closed(record, state, last, head_blobs):
+    if decision_state(record, state) == "current":
         return True
     return _fix_closes(record, state, last, head_blobs)
 
@@ -370,7 +471,10 @@ def record_decisions(state, payload):
     `payload` = {"at_pass": int, "decisions": [{stable_hash, decision, reason}]}.
     The hash must be an open record of the last pass (a member obligation's own
     hash included); the stored band is that record's band, never the payload's.
-    A later decision for the same hash replaces the earlier one.
+    The record also stores `evidence`: the finding's current evidence
+    (`_evidence_of`), always a four-key dict, never null. A later decision for
+    the same hash replaces the earlier one, and the earlier record (minus its
+    own `history`) is kept first in the new record's `history`.
     """
     _, records, reason = _check_state(state)
     if reason is not None:
@@ -383,12 +487,19 @@ def record_decisions(state, payload):
         new["decisions"] = {}
     for entry in payload["decisions"]:
         h = entry["stable_hash"]
-        new["decisions"][h] = {
+        prior = new["decisions"].get(h)
+        record = {
             "decision": entry["decision"],
             "reason": entry["reason"],
             "at_pass": payload["at_pass"],
             "band": by_hash[h]["band"],
+            "evidence": json.loads(json.dumps(_evidence_of(by_hash[h]))),
         }
+        if isinstance(prior, dict):
+            hist = ([{k: v for k, v in prior.items() if k != "history"}]
+                    + list(prior.get("history") or []))
+            record = dict(record, history=hist)
+        new["decisions"][h] = record
     return new
 
 
