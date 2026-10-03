@@ -170,6 +170,11 @@ def _row(record, state, lead_titles, pending_since):
     """One card row for a carry_state record (row or member sidecar)."""
     absorbed = record.get("absorbed_into")
     absorbed = absorbed if isinstance(absorbed, str) else None
+    # An absorbed record's defect text lives on the member dict that carries
+    # it (members[].obligation holds identity and scoring only); a row's own
+    # text lives on the row. Never the lead's text for a member.
+    source = (_unit_source(record, state["passes"][-1]) if absorbed
+              else record) or {}
     return {
         "n": 0,
         "stable_hash": record["stable_hash"],
@@ -177,7 +182,7 @@ def _row(record, state, lead_titles, pending_since):
         "file": record.get("file"),
         "line": record.get("line"),
         "title": record.get("title"),
-        "problem": _str_or(record.get("problem"), ""),
+        "problem": _str_or(source.get("problem"), ""),
         "agent": record.get("agent"),
         "absorbed_into": absorbed,
         "lead_title": lead_titles.get(absorbed) if absorbed else None,

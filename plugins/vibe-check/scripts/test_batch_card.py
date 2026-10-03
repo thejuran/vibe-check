@@ -175,6 +175,21 @@ class TestRows(unittest.TestCase):
         self.assertIsNone(rows[HB]["absorbed_into"])
         self.assertIsNone(rows[HB]["lead_title"])
 
+    def test_rows_member_problem_from_member_record(self):
+        """An absorbed row's one-line problem is the MEMBER's own text (the
+        member dict joined by obligation.stable_hash), never the lead's and
+        never empty just because members[].obligation carries no problem."""
+        s = dispatch_state()
+        for mode, blobs in (("fix-loop", None), ("finalize", {})):
+            with self.subTest(mode=mode):
+                rows = {r["stable_hash"]: r for r in rows_of(s, mode, blobs)}
+                self.assertEqual(rows[HA]["problem"], "MEMBERPROBLEM")
+                self.assertEqual(rows[HB]["problem"], LEAD_PROBLEM)
+        # A non-string member problem renders empty, never the lead's.
+        s["passes"][-1]["findings"][0]["members"][1]["problem"] = 7
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertEqual(rows[HA]["problem"], "")
+
     def test_rows_finalize_uses_finalize_counts(self):
         s = load_fixture()
         s["fix_verdicts"] = {ARCH_HASH: {
