@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_card  # noqa: E402  (sibling module under test)
 import batch_parse  # noqa: E402
 import carry_state  # noqa: E402
+import finalize_gate  # noqa: E402
 from test_carry_state import (  # noqa: E402
     ARCH_HASH, BUGS_HASH, F, HA, HB, ba_state, load_fixture, member_ref,
     mk_finding, mk_pass, mk_state, snap, string_key_writes)
@@ -978,6 +979,207 @@ class TestCliContract(TempDirCase):
                 self.assertEqual(proc.returncode, 2)
                 self.assertEqual(proc.stdout, b"")
                 self.assertEqual(proc.stderr.decode(), batch_card.USAGE)
+
+
+# --------------------------------------------------------------------------- #
+# Re-hash successor linkage (annotation only).
+# --------------------------------------------------------------------------- #
+SF = "app/a.py"
+TITLE = "T"
+
+
+def site(h, band="medium", status="persisted", at_pass=1, canonical="x = 1",
+         file=SF, title=TITLE, line=11):
+    """A finding whose snapshot matches its own fields (score.py's shape)."""
+    snapshot = {"at_pass": at_pass, "file": file, "line": line,
+                "canonical_line_content": canonical, "band": band}
+    return mk_finding(band, status, h, file=file, line=line, title=title,
+                      canonical_line_content=canonical, snapshot=snapshot)
+
+
+def decision_for(finding, at_pass, reason="False positive",
+                 decision="dismiss"):
+    return {"decision": decision, "reason": reason, "at_pass": at_pass,
+            "band": finding["band"],
+            "evidence": carry_state._evidence_of(finding)}
+
+
+def successor_state(band="medium"):
+    """Pass 1: HA decided. Pass 2: the decided line was edited -> HB."""
+    old = site(HA, band=band)
+    s1 = mk_state([mk_pass(1, [old])])
+    decided = dismiss(s1, HA, at_pass=1, reason="False positive")
+    new = site(HB, band=band, status="new", at_pass=2, canonical="x = 2")
+    out = copy.deepcopy(decided)
+    out["passes"] = [mk_pass(1, [old]), mk_pass(2, [new])]
+    return out
+
+
+SUCCESSOR_TAG = {"cause": "code", "decision": "dismiss",
+                 "reason": "False positive", "at_pass": 1,
+                 "was_band": "medium", "via": "successor", "prior_hash": HA}
+
+
+def stale_of(rows, h):
+    return [r for r in rows if r["stable_hash"] == h][0]["stale"]
+
+
+class TestSuccessor(unittest.TestCase):
+    def test_successor_tagged(self):
+        s = successor_state()
+        self.assertNotEqual(HA, HB)
+        self.assertNotIn(HA, [r["stable_hash"]
+                              for r in carry_state.open_findings(s)])
+        self.assertEqual(stale_of(rows_of(s), HB), SUCCESSOR_TAG)
+        self.assertEqual(stale_of(rows_of(s, "finalize", {}), HB),
+                         SUCCESSOR_TAG)
+
+    def test_successor_tagged_through_cli(self):
+        proc = run_cli(["rows", "--mode", "fix-loop"],
+                       json.dumps(successor_state()).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout)["rows"][0]["stale"],
+                         SUCCESSOR_TAG)
+
+    def test_successor_stays_open_and_counted(self):
+        for band, key in (("medium", "unacknowledged_medium_hashes"),
+                          ("critical", "outstanding_cw_hashes")):
+            with self.subTest(band=band):
+                s = successor_state(band)
+                bare = copy.deepcopy(s)
+                del bare["decisions"][HA]
+                counts = carry_state.finalize_counts(s, {})
+                self.assertIn(HB, counts[key])
+                self.assertEqual(counts, carry_state.finalize_counts(bare, {}))
+                verdicts = []
+                for state in (s, bare):
+                    proc = subprocess.run(
+                        [sys.executable, os.path.join(HERE, "carry_state.py"),
+                         "finalize-counts"], input=json.dumps(state).encode(),
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        timeout=30)
+                    self.assertEqual(proc.returncode, 0)
+                    cli_counts = json.loads(proc.stdout)
+                    verdicts.append(finalize_gate.decide({
+                        "state_file_present": True, "noninteractive": False,
+                        "pr_mode": False, "range_mode": False,
+                        "outstanding_cw": cli_counts["outstanding_cw"],
+                        "unacknowledged_medium":
+                            cli_counts["unacknowledged_medium"]}))
+                self.assertEqual(verdicts[0], verdicts[1])
+                tagged = rows_of(s, "finalize", {})
+                self.assertEqual([r["stable_hash"] for r in tagged], [HB])
+                self.assertEqual([r["stable_hash"] for r in tagged],
+                                 [r["stable_hash"]
+                                  for r in rows_of(bare, "finalize", {})])
+
+    def test_successor_ambiguous_no_annotation(self):
+        s = successor_state()
+        s["passes"][-1]["findings"].append(
+            site(HC, status="new", at_pass=2, canonical="x = 3"))
+        rows = rows_of(s)
+        self.assertEqual(sorted(r["stable_hash"] for r in rows), [HB, HC])
+        self.assertIsNone(stale_of(rows, HB))
+        self.assertIsNone(stale_of(rows, HC))
+
+    def _two_orphans(self, at_a, at_d):
+        a = site(HA)
+        d = site(HD, at_pass=2, canonical="x = 2")
+        b = site(HB, status="new", at_pass=3, canonical="x = 3")
+        return mk_state([mk_pass(1, [a]), mk_pass(2, [d]), mk_pass(3, [b])],
+                        decisions={HA: decision_for(a, at_a, reason="old"),
+                                   HD: decision_for(d, at_d, reason="new")})
+
+    def test_successor_tie_break(self):
+        stale = stale_of(rows_of(self._two_orphans(1, 2)), HB)
+        self.assertEqual((stale["prior_hash"], stale["at_pass"],
+                          stale["reason"]), (HD, 2, "new"))
+        stale = stale_of(rows_of(self._two_orphans(2, 1)), HB)
+        self.assertEqual(stale["prior_hash"], HA)
+        stale = stale_of(rows_of(self._two_orphans(2, 2)), HB)
+        self.assertEqual(stale["prior_hash"], HA)  # HA < HD
+
+    def test_successor_requires_undecided_row(self):
+        with self.subTest("own stale decision wins"):
+            s = successor_state()
+            b = s["passes"][-1]["findings"][0]
+            s["decisions"][HB] = dict(decision_for(b, 2, reason="mine"),
+                                      evidence=dict(
+                                          carry_state._evidence_of(b),
+                                          band="warning"))
+            stale = stale_of(rows_of(s), HB)
+            self.assertEqual((stale["via"], stale["prior_hash"],
+                              stale["reason"]), ("same_hash", HB, "mine"))
+        with self.subTest("own current decision: no tag"):
+            s = successor_state()
+            b = s["passes"][-1]["findings"][0]
+            s["decisions"][HB] = decision_for(b, 2, reason="mine")
+            self.assertNotIn(HB, [r["stable_hash"] for r in rows_of(s)])
+            self.assertIsNone(stale_of(rows_of(s, subset=[HB]), HB))
+        with self.subTest("legacy acknowledgment: no tag"):
+            s = successor_state()
+            s["medium_acknowledgments"][HB] = {"reason": "ack"}
+            self.assertIsNone(stale_of(rows_of(s, subset=[HB]), HB))
+
+    def test_successor_not_for_live_decision(self):
+        a = site(HA, at_pass=2)
+        b = site(HB, status="new", at_pass=2, canonical="x = 2")
+        s = mk_state([mk_pass(1, [a]), mk_pass(2, [a, b])],
+                     decisions={HA: decision_for(a, 1)})
+        rows = rows_of(s)
+        self.assertEqual([r["stable_hash"] for r in rows], [HB])
+        self.assertIsNone(stale_of(rows, HB))
+
+    def test_successor_from_member_obligation(self):
+        member = member_ref(file=SF, line=11, title=TITLE)
+        member["obligation"] = {"stable_hash": HA, "band": "medium",
+                                "snapshot": snap(1, file=SF, line=11,
+                                                 band="medium")}
+        lead = mk_finding("warning", "persisted", HC, file="lib/other.py",
+                          line=3, title="L", members=[member])
+        b = site(HB, status="new", at_pass=2, canonical="x = 2")
+        s = mk_state([mk_pass(1, [lead]), mk_pass(2, [b])],
+                     decisions={HA: {"decision": "defer", "reason": "later",
+                                     "at_pass": 1, "band": "medium",
+                                     "evidence": {"file": SF, "line": 11,
+                                                  "canonical_line_content":
+                                                      "x = 1",
+                                                  "band": "medium"}}})
+        stale = stale_of(rows_of(s), HB)
+        self.assertEqual(stale, {"cause": "code", "decision": "defer",
+                                 "reason": "later", "at_pass": 1,
+                                 "was_band": "medium", "via": "successor",
+                                 "prior_hash": HA})
+
+    def test_successor_without_earlier_identity_or_evidence(self):
+        with self.subTest("no earlier identity"):
+            s = successor_state()
+            s["passes"] = s["passes"][1:]
+            self.assertIsNone(stale_of(rows_of(s), HB))
+        with self.subTest("pre-47 decision: was_band from the record"):
+            s = successor_state()
+            del s["decisions"][HA]["evidence"]
+            s["decisions"][HA]["band"] = "warning"
+            self.assertEqual(stale_of(rows_of(s), HB)["was_band"], "warning")
+
+    def test_successor_different_title_or_file(self):
+        for field, value in (("title", "T2"), ("file", "app/b.py")):
+            with self.subTest(field=field):
+                s = successor_state()
+                s["passes"][-1]["findings"][0][field] = value
+                self.assertIsNone(stale_of(rows_of(s), HB))
+
+    def test_successor_mutation(self):
+        s = successor_state()
+        with self.subTest("real"):
+            self.assertEqual(stale_of(rows_of(s), HB), SUCCESSOR_TAG)
+        with self.subTest("mutant"):
+            with mock.patch.object(batch_card, "successor_links",
+                                   return_value={}):
+                tag = stale_of(rows_of(s), HB)
+            self.assertIsNone(tag)
+            with self.assertRaises(AssertionError):
+                self.assertEqual(tag, SUCCESSOR_TAG)
 
 
 if __name__ == "__main__":
