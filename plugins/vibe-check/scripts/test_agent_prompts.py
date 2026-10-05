@@ -2159,5 +2159,79 @@ class TestRetuneClausesMutation(unittest.TestCase):
         self.assertNotEqual(retune_focus_problems(recapped), [])
 
 
+# --------------------------------------------------------------------------- #
+# Fix agent: the description tells the truth about the model pin (W2, D-12)
+# --------------------------------------------------------------------------- #
+TIER_WORDS = ("opus", "fable", "sonnet", "haiku")
+FIX_MD_REL = os.path.join("agents", "fix.md")
+
+
+def _frontmatter(text):
+    """Line-based `key: value` pairs of the leading `---` block (no YAML lib)."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}
+    out = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return out
+        key, sep, value = line.partition(":")
+        if sep and key.strip() and not key.startswith(" "):
+            out[key.strip()] = value.strip()
+    return {}
+
+
+def fix_md_model_truth_holds(text):
+    """True only when the description names the pinned tier and no other.
+
+    The description is what the orchestrator and the owner read; the `model:`
+    line is what actually runs. A description that names a different tier, or
+    an environment variable that does not affect this agent, is a false claim.
+    """
+    fm = _frontmatter(text)
+    model = fm.get("model", "")
+    desc = fm.get("description", "")
+    if not desc or model not in TIER_WORDS:
+        return False
+    if "VIBE_CHECK_TOP_MODEL" in desc:
+        return False
+    low = desc.lower()
+    if not re.search(r"\b%s\b" % re.escape(model), low):
+        return False
+    for other in TIER_WORDS:
+        if other != model and re.search(r"\b%s\b" % other, low):
+            return False
+    return True
+
+
+class TestFixMdModelTruth(unittest.TestCase):
+    """agents/fix.md's description matches its `model:` pin (FIX-04)."""
+
+    def setUp(self):
+        self.text = read(FIX_MD_REL)
+
+    def test_description_matches_the_pin(self):
+        self.assertTrue(fix_md_model_truth_holds(self.text))
+
+    def test_mutant_model_changed_trips(self):
+        mutant = self.text.replace("\nmodel: opus\n", "\nmodel: sonnet\n", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(fix_md_model_truth_holds(mutant))
+
+    def test_mutant_env_override_claim_trips(self):
+        fm_end = self.text.index("\nmodel: ")
+        mutant = (self.text[:fm_end]
+                  + " (or Fable via $VIBE_CHECK_TOP_MODEL)"
+                  + self.text[fm_end:])
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(fix_md_model_truth_holds(mutant))
+
+    def test_mutant_description_removed_trips(self):
+        lines = self.text.split("\n")
+        mutant = "\n".join(l for l in lines if not l.startswith("description:"))
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(fix_md_model_truth_holds(mutant))
+
+
 if __name__ == "__main__":
     unittest.main()
