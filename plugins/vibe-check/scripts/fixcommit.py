@@ -152,6 +152,43 @@ def validate_paths(root, paths):
     return True, "accepted"
 
 
+# Directories a staged fix may never snapshot, check or write: git's own state
+# and this tool's state. Matched against EVERY path segment (a nested
+# `x/.git/hooks/pre-commit` is a submodule/worktree git dir just the same),
+# case-insensitively for case-insensitive filesystems.
+RESERVED_DIRS = (".git", ".turingmind")
+
+
+def _has_reserved_segment(path):
+    return any(seg.lower() in RESERVED_DIRS for seg in path.split("/"))
+
+
+def validate_fix_paths(root, paths):
+    """validate_paths plus normal form and reserved directories -> (ok, reason).
+
+    The ONE source for fixstage.py and fixcheck.py (never re-copied there).
+    On top of `validate_paths`, every path must be in normal form (`a/./b`,
+    `a/../b` or a trailing slash would give one file two keys) and no segment
+    of it — as written, or after resolving symlinks under the real root — may
+    be a reserved directory.
+    """
+    ok, reason = validate_paths(root, paths)
+    if not ok:
+        return ok, reason
+    for path in paths:
+        if os.path.normpath(path) != path:
+            return False, "refused: path is not in normal form"
+        if _has_reserved_segment(path):
+            return False, "refused: path is inside a reserved directory"
+        # Symlink resolution is guard's (the ONE canonicalization source).
+        resolved = guard.resolved_relpath(root, path)
+        if resolved is None:
+            return False, "refused: path fails containment under the repo root"
+        if _has_reserved_segment(resolved):
+            return False, "refused: path is inside a reserved directory"
+    return True, "accepted"
+
+
 def build_message(pass_number, title):
     """The commit message for one applied finding. Raises ValueError if unsafe.
 

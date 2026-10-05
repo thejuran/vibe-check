@@ -72,6 +72,21 @@ def contained(root, candidate):
     return False, "refused: path resolves outside root"
 
 
+def resolved_relpath(root, candidate):
+    """`candidate` canonicalized exactly as `contained` does, as a `/`-joined
+    path relative to the real root -> str, or None when not contained.
+
+    Lets a caller judge what a path REALLY names (a symlinked `alias/` that is
+    a `.git` dir) without re-implementing the canonicalization.
+    """
+    ok, _ = contained(root, candidate)
+    if not ok:
+        return None
+    root_real = os.path.realpath(root)
+    cand_real = os.path.realpath(os.path.join(root_real, candidate))
+    return os.path.relpath(cand_real, root_real).replace(os.sep, "/")
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
         prog="guard.py",

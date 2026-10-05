@@ -46,7 +46,8 @@ attempt (an interrupted earlier run) before walking; `after` refuses one
 
 The command is never built from finding text: the finding record is a JSON
 file (FL-03, see fixcommit.py), every path in it is validated by
-`fixcommit.validate_paths` (pre-filter + guard containment), and every check
+`fixcommit.validate_fix_paths` (pre-filter + guard containment + normal form +
+every-segment reserved-directory check), and every check
 is an argv list from the fixed shapes above, run with no shell. Binaries are
 repo-local (`.venv/bin`, `node_modules/.bin`) or one of the fixed PATH names
 in PATH_RUNNERS. A package-runner that downloads and executes packages on
@@ -99,8 +100,6 @@ JS_TEST_RE = re.compile(r"\.(test|spec)\.(ts|tsx|js|jsx)$")
 
 ID_RE = re.compile(r"^[0-9a-f]{8,64}$")
 ATTEMPT_RE = re.compile(r"^[0-9a-f]{32}$")
-
-RESERVED_TOP = (".git", ".turingmind")
 
 # Per-kind timeouts in seconds. The caller's Bash call needs 300000 ms.
 TIMEOUTS = {"test": 120, "typecheck": 120, "lint": 60, "syntax": 10}
@@ -338,15 +337,11 @@ def label_for(kind, command, already_failing):
 # ---------------------------------------------------------------- validation
 
 def _validate_paths(root, paths):
-    """fixcommit.validate_paths plus normal form and reserved-directory checks."""
-    ok, reason = fixcommit.validate_paths(root, paths)
+    """fixcommit.validate_fix_paths (containment, normal form, every-segment
+    reserved-directory check), raised as Refused."""
+    ok, reason = fixcommit.validate_fix_paths(root, paths)
     if not ok:
         raise Refused(reason)
-    for path in paths:
-        if os.path.normpath(path) != path:
-            raise Refused("refused: path is not in normal form")
-        if path.split("/", 1)[0].lower() in RESERVED_TOP:
-            raise Refused("refused: path is inside a reserved directory")
 
 
 def _check_root(root):

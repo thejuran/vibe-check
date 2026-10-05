@@ -133,10 +133,6 @@ ATTEMPT_RE = re.compile(r"^[0-9a-f]{32}$")
 SUBCOMMANDS = ("begin", "snapshot", "seal", "undo", "commit")
 KNOWN_FLAGS = ("--root", "--finding-json", "--attempt")
 
-# Top-level directories a fix may never snapshot or write: git's own state and
-# this tool's state (compared case-insensitively for case-insensitive filesystems).
-RESERVED_TOP = (".git", ".turingmind")
-
 CLOSED_KEEP = 5
 GIT_TIMEOUT = 120
 # Owner hooks (a pre-commit running a test suite) may legitimately be slow.
@@ -231,17 +227,11 @@ def _check_toplevel(root):
 
 
 def _validate_paths(root, paths):
-    """fixcommit.validate_paths plus normal form and reserved-directory checks."""
-    ok, reason = fixcommit.validate_paths(root, paths)
+    """fixcommit.validate_fix_paths (containment, normal form, every-segment
+    reserved-directory check), raised as Refused."""
+    ok, reason = fixcommit.validate_fix_paths(root, paths)
     if not ok:
         raise Refused(reason)
-    for path in paths:
-        if os.path.normpath(path) != path:
-            # `a/./b`, `a/../b` or a trailing slash would give one file two
-            # manifest keys; refuse rather than canonicalize.
-            raise Refused("refused: path is not in normal form")
-        if path.split("/", 1)[0].lower() in RESERVED_TOP:
-            raise Refused("refused: path is inside a reserved directory")
 
 
 def _load_record(root, record_path):
