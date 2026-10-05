@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.10
-milestone_name: Opus 5 rebuild + quiet down
-status: Awaiting next milestone
-stopped_at: Phase 44 context gathered
-last_updated: "2026-10-01T20:16:24.028Z"
-last_activity: 2026-10-01 — Milestone v2.10 completed and archived
+milestone: v2.11
+milestone_name: Quiet loop
+status: planning
+stopped_at: Phase 48 context gathered
+last_updated: "2026-10-05T16:47:57.466Z"
+last_activity: 2026-10-05
 progress:
-  total_phases: 18
-  completed_phases: 6
-  total_plans: 44
-  completed_plans: 44
-  percent: 33
+  total_phases: 17
+  completed_phases: 3
+  total_plans: 20
+  completed_plans: 20
+  percent: 18
 ---
 
 # Project State
@@ -21,14 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 44 — close — 2.10.0 release
+**Current focus:** Phase 48 — fix agent verification + git safety
 
 ## Current Position
 
-Phase: Milestone v2.10 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-10-01 — Milestone v2.10 completed and archived
+Phase: 48
+Plan: Not started
+Status: Ready to plan
+Progress: [██████████] 100%
+Last activity: 2026-10-05
 
 ## Performance Metrics
 
@@ -51,6 +52,9 @@ Last activity: 2026-10-01 — Milestone v2.10 completed and archived
 | 41 | 8 | - | - |
 | 42 | 7 | - | - |
 | 43 | 7 | - | - |
+| 45 | 4 | - | - |
+| 46 | 8 | - | - |
+| 47 | 8 | - | - |
 
 **Recent Trend:**
 
@@ -113,6 +117,23 @@ Last activity: 2026-10-01 — Milestone v2.10 completed and archived
 | Phase 43 P07 | 35min | 2 tasks | 3 files |
 | Phase 44 P01 | 6 min | 3 tasks | 2 files |
 | Phase 44 P02 | 15min | 3 tasks | 0 files |
+| Phase 45 P01 | 10 min | 2 tasks | 2 files |
+| Phase 45 P02 | 8 min | 2 tasks | 4 files |
+| Phase 45 P03 | 15min | 3 tasks | 1 files |
+| Phase 46 P01 | 15min | 2 tasks | 4 files |
+| Phase 46 P02 | 25min | 2 tasks | 2 files |
+| Phase 46 P03 | 35min | 2 tasks | 2 files |
+| Phase 46 P04 | 25m | 3 tasks | 6 files |
+| Phase 46 P05 | 12min | 2 tasks | 2 files |
+| Phase 46 P08 | 40min | 2 tasks | 2 files |
+| Phase 46 P06 | 10min | 2 tasks | 3 files |
+| Phase 47 P01 | 6 min | 2 tasks | 2 files |
+| Phase 47 P02 | 5 min | 1 tasks | 2 files |
+| Phase 47 P03 | 8min | 1 tasks | 1 files |
+| Phase 47 P04 | 13min | 3 tasks | 2 files |
+| Phase 47 P05 | 12min | 2 tasks | 2 files |
+| Phase 47 P06 | 25 min | 3 tasks | 5 files |
+| Phase 47 P07 | 12min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -240,6 +261,26 @@ Earlier decisions (v2.8) still on record:
 - [Phase 43]: 43-07: backlog 999.20 filed — review agents must not run state-mutating git commands in the reviewed repo (stash pop observed in Phase 43, 825bd49)
 - [Phase ?]: Phase 44-01: README Opus wording is alias-first and dated (opus alias, Opus 5 as of 2026-09-08); no Opus 5.5 claim
 - [Phase ?]: Phase 44-02: v2.10 published as-is (D-01); tag v2.10 obj 96564aa peels to edc450e; complete-milestone must not re-create/move v2.10
+- [Phase 45]: coverage_gate.py exits 2 with empty stdout on malformed-but-parseable input so the test-sufficiency lane falls back to dispatch-as-today
+- [Phase 45]: 45-02: test-sufficiency Selection row stays always-on; one post-disabled step removes the lane and binds TS_GATED together (disabled wins)
+- [Phase ?]: 45-03: lane-gating prose locks import coverage_gate.CASES and tracecheck.ANNOUNCE_RE; UNSET reset clause locked in gate_call_problems
+- [Phase ?]: 45-04: R1 reworded by owner — gate reason required on the Phase 1d status line (fixed wording per coverage_gate case), not the Phase 2 dispatch line; gated dispatch turn emitted no text in 4/4 runs (Phase 47 input)
+- [Phase 46]: 46-01: resolution object always closed (verified_blob only optional); rollback key list is data in future-schema _rollback.phase46_added
+- [Phase 46]: carry_state.py is the only writer of decisions/fix_verdicts; finalize counts close a finding only by owner decision or a latest-pass fix-obsolete verdict bound to HEAD's blob
+- [Phase ?]: 46-03: a still-applies from any asked agent blocks other agents' resolved verdicts (verdict: contradicted by still-applies)
+- [Phase 46]: 46-04: recheck hints issued at Phase 2 dispatch; Phase 5 fix_verdicts bound only to files unchanged across the batch and clean against HEAD
+- [Phase 46]: Finalize REVIEW.md keeps the 'Medium findings — dismissed' heading; content widens to all-band dismissals (decisions ∪ medium_acknowledgments)
+- [Phase 46]: A record-decisions refusal halts Finalize (exit 1) so finalize stays blocked
+- [Phase 46]: 46-08: obligation sidecar attached only to absorbed records (never the survivor's own member record), keeping normally-scored carried rows byte-unchanged
+- [Phase ?]: 46-06: writer-lock exemption set frozen to owner-attribution clauses only; prose clause split at sentence-ending periods only
+- [Phase 47]: 47-01: owner decisions are evidence-bound (file/line/canonical_line_content/band); evidence key absent = legacy close, null/malformed = stale; rollback quarantines files where has_evidence_bound_decisions is True
+- [Phase 47]: 47-02: REASON_CW_BULK dropped — D-12 bulk forms leave CW undecided (echoed), never refuse; REASONS has 8 members
+- [Phase ?]: 47-03: NONINTERACTIVE sentences byte-pinned as whole lines from 116f14a in test_pause_batching.py
+- [Phase 47]: 47-04: batch_card rows --subset resolves fix dispatch targets separately from undecided rows (closed lead kept as routing row; payload dispatches only selected records' own defects)
+- [Phase 47]: 47-04: re-hash successor linkage is annotation-only, applied after row membership is fixed; ambiguity annotates nothing
+- [Phase ?]: 47-05: Finalize-routed SUBSETFILE is consumed by one card and cleared before every automatic rerun
+- [Phase ?]: 47-06: absorbed card rows and look N read problem/current_code/fix_hint from the member record, never members[].obligation
+- [Phase 47]: Old fix-loop/finalize phrases banned plugin-wide by a corpus lock; only exact 116f14a byte pins are exempt
 
 ### Pending Todos
 
@@ -284,13 +325,21 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-01T20:05:30.818Z
+Last session: 2026-10-05T16:47:57.461Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 44 context gathered
+Stopped at: Phase 48 context gathered
+
+v2.11 sequencing notes for whoever plans next (design spec `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`, phase split and order are FIXED):
+
+- **No lane-prompt, scorer, or model-tier change anywhere in v2.11.** Phase 49 compares B3 against Phase 43's retuned result (catch 15/15 · FP 3/18); any of those changes would confound the comparison. Rule-2 helper-bypass quieting is backlog / v2.13.
+- **45 → 46 → 47 is a real data dependency**: Phase 47's batch card consumes Phase 46's per-finding decision snapshot and no-expiry carry-forward. Phase 48 is ordered after 47 by the spec; Phase 49 measures the complete release candidate.
+- **Every new guard is mutation-tested** (Phase 40's decorative-guard lesson): break the guarded behavior and confirm the test fails; assert fixtures contain what the test assumes.
+- **Phase 49 measurement runtime**: full B3 ×3 is assistant-driven via tmux per the Phase-43 method (43-CONTEXT D-13); park the clone projects' auto-memory first; installed-cache parity pre-flight; release gates (test / security / deep-review) run on the release commits BEFORE the publish plan; a completed milestone always publishes (standing directive).
+- **Pause metric (REL-02)** comes from session transcripts or the orchestrator gate log's `user_interactions` only — if neither exists, report "unavailable"; never infer from pass counts.
 
 Load-bearing sequencing notes for whoever plans next:
 
@@ -319,4 +368,4 @@ Load-bearing sequencing notes for whoever plans next:
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v2.11 phase: `/bm:plan-phase 45` (consider `/bm:discuss-phase 45` first for the announce-line wording and the coverage-artifact gate semantics)
