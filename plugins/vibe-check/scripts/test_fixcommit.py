@@ -197,71 +197,6 @@ class TestValidatePaths(_RootCase):
         self.assertFalse(ok)
         self.assertNotIn("SENTINEL-PATH", reason)
 
-
-# --------------------------------------------------------------------------- #
-# validate_fix_paths — the ONE every-segment reserved-dir check (fixstage +
-# fixcheck call it; neither keeps a local copy)
-# --------------------------------------------------------------------------- #
-class TestValidateFixPaths(_RootCase):
-    REFUSED_RESERVED = (
-        ".git/hooks/pre-commit", "x/.git/hooks/pre-commit",
-        "a/b/.GIT/config", ".turingmind/fixstage/x", "sub/.turingmind/x",
-    )
-
-    def test_plain_paths_accepted(self):
-        ok, reason = fixcommit.validate_fix_paths(
-            self.root, ["src/a.py", "x/.gitignore", "x.git/y"])
-        self.assertTrue(ok, reason)
-
-    def test_reserved_segment_anywhere_refused(self):
-        for path in self.REFUSED_RESERVED:
-            with self.subTest(path=path):
-                ok, reason = fixcommit.validate_fix_paths(self.root, [path])
-                self.assertFalse(ok)
-                self.assertIn("reserved directory", reason)
-
-    def test_non_normal_form_refused(self):
-        for path in ("./f.txt", "a/./b", "a/../b", "a//b", "a/"):
-            with self.subTest(path=path):
-                ok, reason = fixcommit.validate_fix_paths(self.root, [path])
-                self.assertFalse(ok)
-                self.assertIn("normal form", reason)
-
-    def test_symlink_into_reserved_dir_refused(self):
-        os.makedirs(os.path.join(self.root, "x", ".git", "hooks"))
-        os.symlink(os.path.join("x", ".git"),
-                   os.path.join(self.root, "alias"))
-        ok, reason = fixcommit.validate_fix_paths(
-            self.root, ["alias/hooks/pre-commit"])
-        self.assertFalse(ok)
-        self.assertIn("reserved directory", reason)
-
-    def test_base_rules_still_apply(self):
-        ok, reason = fixcommit.validate_fix_paths(
-            self.root, ["../../.git/hooks/pre-commit"])
-        self.assertFalse(ok)
-        self.assertIn("containment", reason)
-
-    def test_mutant_top_segment_only_lets_nested_git_through(self):
-        top_only = lambda p: p.split("/", 1)[0].lower() in (  # noqa: E731
-            fixcommit.RESERVED_DIRS)
-        with mock.patch.object(fixcommit, "_has_reserved_segment", top_only):
-            ok, _ = fixcommit.validate_fix_paths(
-                self.root, ["x/.git/hooks/pre-commit"])
-        self.assertTrue(ok, "every-segment test is not live")
-
-    def test_fixstage_and_fixcheck_keep_no_local_copy(self):
-        import fixcheck
-        import fixstage
-        for mod in (fixstage, fixcheck):
-            with self.subTest(mod=mod.__name__):
-                self.assertFalse(hasattr(mod, "RESERVED_TOP"))
-                with self.assertRaises(mod.Refused):
-                    mod._validate_paths(self.root, ["x/.git/hooks/pre-commit"])
-                with mock.patch.object(fixcommit, "validate_fix_paths",
-                                       lambda r, p: (True, "accepted")):
-                    mod._validate_paths(self.root, ["x/.git/hooks/pre-commit"])
-
     # --- F4: the loop, and why it must be a loop ------------------------- #
 
     def test_per_path_loop_calls_contained_once_per_path_with_a_str(self):
@@ -350,6 +285,85 @@ class TestValidateFixPaths(_RootCase):
         self.assertIn("guard.contained(", src)
         self.assertNotIn("realpath", src)
         self.assertNotIn("startswith(root", src)
+
+
+# --------------------------------------------------------------------------- #
+# validate_fix_paths — the ONE every-segment reserved-dir check (fixstage +
+# fixcheck call it; neither keeps a local copy)
+# --------------------------------------------------------------------------- #
+class TestValidateFixPaths(_RootCase):
+    REFUSED_RESERVED = (
+        ".git/hooks/pre-commit", "x/.git/hooks/pre-commit",
+        "a/b/.GIT/config", ".turingmind/fixstage/x", "sub/.turingmind/x",
+    )
+
+    def test_plain_paths_accepted(self):
+        ok, reason = fixcommit.validate_fix_paths(
+            self.root, ["src/a.py", "x/.gitignore", "x.git/y"])
+        self.assertTrue(ok, reason)
+
+    def test_reserved_segment_anywhere_refused(self):
+        for path in self.REFUSED_RESERVED:
+            with self.subTest(path=path):
+                ok, reason = fixcommit.validate_fix_paths(self.root, [path])
+                self.assertFalse(ok)
+                self.assertIn("reserved directory", reason)
+
+    def test_non_normal_form_refused(self):
+        for path in ("./f.txt", "a/./b", "a/../b", "a//b", "a/"):
+            with self.subTest(path=path):
+                ok, reason = fixcommit.validate_fix_paths(self.root, [path])
+                self.assertFalse(ok)
+                self.assertIn("normal form", reason)
+
+    def test_symlink_into_reserved_dir_refused(self):
+        os.makedirs(os.path.join(self.root, "x", ".git", "hooks"))
+        os.symlink(os.path.join("x", ".git"),
+                   os.path.join(self.root, "alias"))
+        ok, reason = fixcommit.validate_fix_paths(
+            self.root, ["alias/hooks/pre-commit"])
+        self.assertFalse(ok)
+        self.assertIn("reserved directory", reason)
+
+    def test_base_rules_still_apply(self):
+        ok, reason = fixcommit.validate_fix_paths(
+            self.root, ["../../.git/hooks/pre-commit"])
+        self.assertFalse(ok)
+        self.assertIn("containment", reason)
+
+    def test_mutant_top_segment_only_lets_nested_git_through(self):
+        top_only = lambda p: p.split("/", 1)[0].lower() in (  # noqa: E731
+            fixcommit.RESERVED_DIRS)
+        with mock.patch.object(fixcommit, "_has_reserved_segment", top_only):
+            ok, _ = fixcommit.validate_fix_paths(
+                self.root, ["x/.git/hooks/pre-commit"])
+        self.assertTrue(ok, "every-segment test is not live")
+
+    def test_fixstage_and_fixcheck_keep_no_local_copy(self):
+        import fixcheck
+        import fixstage
+        for mod in (fixstage, fixcheck):
+            with self.subTest(mod=mod.__name__):
+                self.assertFalse(hasattr(mod, "RESERVED_TOP"))
+                with self.assertRaises(mod.Refused):
+                    mod._validate_paths(self.root, ["x/.git/hooks/pre-commit"])
+                with mock.patch.object(fixcommit, "validate_fix_paths",
+                                       lambda r, p: (True, "accepted")):
+                    mod._validate_paths(self.root, ["x/.git/hooks/pre-commit"])
+
+    def test_f4_locks_live_under_validate_paths_not_here(self):
+        """The F4 loop locks exercise validate_paths, so they belong to
+        TestValidatePaths. A class inserted mid-body once absorbed them by
+        indentation; trimming this class must never delete them."""
+        f4 = ("test_per_path_loop_calls_contained_once_per_path_with_a_str",
+              "test_loop_short_circuits_on_the_first_refusal",
+              "test_contained_rejects_a_list_argument",
+              "test_guard_cli_is_the_bulk_interface",
+              "test_containment_is_delegated_not_reimplemented")
+        for name in f4:
+            with self.subTest(name=name):
+                self.assertIn(name, vars(TestValidatePaths))
+                self.assertNotIn(name, vars(TestValidateFixPaths))
 
 
 # --------------------------------------------------------------------------- #
