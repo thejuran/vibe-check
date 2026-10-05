@@ -12,6 +12,7 @@
 - ✅ **v2.8 Tunable, quieter reviews** — Phases 30-34 (shipped 2026-07-01 — early manual close by owner directive; 33-02 wiring + Phase-34 smoke proofs deferred into v2.9)
 - ✅ **v2.9 Prove it** — Phases 35-37 (shipped 2026-07-08 — codex knob live end-to-end + vibe-check's first measured numbers: catch 8/9 · FP 6/9)
 - ✅ **v2.10 Opus 5 rebuild + quiet down** — Phases 38, 40-44 (shipped 2026-10-01 — 2.10.0; untuned MISS 6/18 · 13/15, retuned PASS 3/18 · 15/15; Phase 39 dissolved)
+- 🚧 **v2.11 Quiet loop** — Phases 45-49 (in progress; design `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`, branch `feat/v2.11`)
 
 ## Phases
 
@@ -172,9 +173,156 @@ Full details: `.planning/milestones/v2.10-ROADMAP.md`.
 
 </details>
 
+## v2.11 Quiet loop (Phases 45-49) — IN PROGRESS
+
+**Goal:** A deep-review pass costs the owner one decision card, a finding is asked about once, and a
+lane that has nothing to read does not run — with no catch-rate loss. Design (owner-approved, phase
+split and order FIXED): `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`. Branch
+`feat/v2.11`. Regression instrument: the sealed B3 set, compared against Phase 43's retuned result
+(catch 15/15 · FP 3/18). Standing constraint: NO lane-prompt change, NO scorer change, NO model-tier
+change anywhere in this milestone — any of those would confound the Phase-49 comparison.
+
+- [x] **Phase 45: Lane gating on evidence** — `test-sufficiency` is not dispatched when Phase 1d finds no coverage artifact (announce line states why; dispatch count exactly one fewer there, unchanged everywhere else); `framework-skill`'s `frameworks`-includes-`skill` trigger pinned by a test. Deterministic — no prompt, no scorer change (completed 2026-10-01)
+- [x] **Phase 46: Carry-forward integrity** — 999.8 single writer per field family across Phase 4.5→5; no automatic expiry (an unresolved finding persists until verified against HEAD or closed by an explicit owner decision with reason); per-finding decision snapshot so "unchanged since pass N, decision pending" is computable — all pinned by state-shape tests (completed 2026-10-02)
+- [x] **Phase 47: Pause batching** — one combined card per fix-loop pass (apply all and rerun / apply selected… / skip and rerun / close out / abandon), one multi-select card at finalize for all unacknowledged mediums, unchanged-and-pending findings folded into the card and never re-asked; `$TURINGMIND_NONINTERACTIVE` unchanged (completed 2026-10-05)
+- [ ] **Phase 48: Fix-agent verification + git safety** — the fix agent verifies the cited condition no longer holds before committing (unverified ⇒ not committed, reported), one fix per hunk-isolated commit (999.15); detection agents cannot run mutating git in the reviewed repo, proven by a test (999.20); `agents/fix.md` description matches its `opus` pin (W2)
+- [ ] **Phase 49: Measure + release 2.11.0** — full B3 ×3 on the release candidate (catch unchanged 15/15, false alarms ≤3/18), decision cards per firing counted from transcripts / gate log against the 5.5 baseline (or reported unavailable), README `214c7df` disclosure (W1), release gates before the publish plan, plugin 2.11.0 + tag `v2.11` + atomic publish
+
+### Phase 45: Lane gating on evidence
+
+**Goal**: A deep-review lane that has nothing to read does not run — `test-sufficiency` is skipped, with a stated reason, on repos without a coverage artifact, and the `framework-skill` trigger rule is pinned — while every other lane's selection stays exactly as it was
+**Depends on**: Phase 44 (v2.10 shipped; Phase 43's retuned B3 result is the comparison anchor)
+**Requirements**: GATE-01, GATE-02
+**Success Criteria** (what must be TRUE):
+
+  1. On a repo where Phase 1d coverage discovery finds no coverage artifact, `/deep-review` does not dispatch `test-sufficiency`, the dispatch announce line says why in one line, and the dispatch count is exactly one fewer than the selection table would otherwise produce
+  2. On a repo that does have a coverage artifact, `test-sufficiency` still dispatches and every other lane's selection and the dispatch count are unchanged — the gate removes a lane with nothing to read, never a finding
+  3. `framework-skill` is dispatched only when triage's `frameworks` includes `skill`, and a mutation-tested test pins that rule (break the rule → the test fails)
+  4. The phase lands no agent-prompt change and no `score.py` change — only dispatch prose/scripts and tests — so the Phase-49 B3 comparison against Phase 43 stays clean
+
+**Plans:** 4/4 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 45-01-PLAN.md — `scripts/coverage_gate.py` decision helper + unit tests (sealed CASES, exit-2 on malformed input, TDD)
+- [x] 45-02-PLAN.md — Prose wiring: Phase 1d gate call, post-`disabled` selection gate + announce suffix, Phase 4 fixed Test Coverage note, spine/router doc updates
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 45-03-PLAN.md — `scripts/test_lane_gating.py`: golden-pinned selection tables + framework-skill rule (GATE-02), GATE-01 prose locks, in-memory + file-level mutation proofs, D-03 git-diff gate
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 45-04-PLAN.md — Live smoke on two scratch repos (no coverage vs coverage.xml) proving exactly-one-fewer; human-verify checkpoint
+
+### Phase 46: Carry-forward integrity
+
+**Goal**: A finding, once raised, is never silently lost and never silently kept — the review state file has one writer per field family, an unresolved finding persists until it is verified resolved or an owner decides, and each finding carries the decision snapshot the batching phase needs to say "unchanged since pass N, decision pending"
+**Depends on**: Phase 45
+**Requirements**: CARRY-01, CARRY-02, CARRY-03
+**Success Criteria** (what must be TRUE):
+
+  1. State-shape tests pin exactly one writer per field family across Phase 4.5→5 (999.8); introducing a second writer for any family makes the test fail (mutation-tested, not decorative)
+  2. An unresolved finding from pass N is still present in pass N+1's carry-forward and in the finalize gate with no automatic expiry — it leaves only when verification against HEAD resolves it or an explicit owner decision (dismiss / defer, with a reason) closes it, recorded in the state file the way `medium_acknowledgments` are
+  3. Every finding in state carries a decision snapshot (site, evidence, status at the last decision request), and "unchanged since pass N, decision pending" is computable from the state file alone — a test computes it for a fixture with changed and unchanged findings and gets the right answer for each
+  4. Finalize does not write REVIEW.md while any unresolved finding has neither a verified resolution nor a recorded owner decision
+
+**Plans:** 8/8 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 46-01-PLAN.md — Wave 0: copy the live Phase-45 loop state into `scripts/fixtures/`, extend `future-schema.json` + `state_shape.py` with `snapshot` / `kept_open` / `resolved` / `decisions` / `fix_verdicts`; rollback procedure as schema data
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [x] 46-02-PLAN.md — `scripts/carry_state.py` (TDD): finalize-counts, pending, record-decisions, record-fix-verdicts; legacy equality, no-expiry, gate table, orchestrator-compat tests
+- [x] 46-03-PLAN.md — `score.py`: snapshot writer, ingress scrub, token/agent-guarded verdict acceptance → `resolved[]`; Phase-45 fixture replay at the scorer
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [x] 46-04-PLAN.md — Review-pass prose: recheck tokens at dispatch, envelope wiring, `$FIX_VERDICTS_PREV`, `resolved` persisted by 4.5, render, Phase 5 `record-fix-verdicts`
+- [x] 46-05-PLAN.md — Finalize prose: HEAD fingerprints + counts via helper, dismiss/defer for c/w/m via `record-decisions`, REVIEW.md Deferred + Resolved-by-verification (incl. no-rerun fix-obsolete) sections
+- [x] 46-08-PLAN.md — `score.py`: kept-open obligation rows — a carried lead dropped by min_confidence / sub-threshold stays in `findings[]` with its stored scored fields (D-02 no-expiry under config or score changes)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [x] 46-06-PLAN.md — `test_carry_writers.py` one-writer-per-family lock (mutation-tested) + Phase-45 end-to-end replay through real modules (R1/R2/R3/R6)
+
+**Wave 5** *(blocked on Wave 4)*
+
+- [x] 46-07-PLAN.md — Live smoke on a scratch repo (`--plugin-dir` + `--add-dir`): raise → fix → recheck → finalize without a loop, one Defer; human-verify checkpoint
+
+### Phase 47: Pause batching
+
+**Goal**: A fix-loop pass costs the owner one decision card and finalize costs one, regardless of how many findings or unacknowledged mediums there are — and a finding that has not changed since it was last asked about is never asked about again on its own
+**Depends on**: Phase 46 (consumes the decision snapshot and the no-expiry carry-forward)
+**Requirements**: BATCH-01, BATCH-02, BATCH-03, BATCH-04
+**Success Criteria** (what must be TRUE):
+
+  1. A fix-loop pass with N findings asks the owner ONE card — apply all and rerun / apply selected… / skip and rerun / close out / abandon; the per-finding multi-select appears only after "apply selected", so a pass costs at most 2 cards for any N
+  2. Finalize with M unacknowledged mediums asks ONE multi-select card (dismiss / will-fix per finding) with a single free-text reason covering the dismissed set — one card for any M
+  3. Findings unchanged since their last decision request are listed inside the batch card as "unchanged since pass N, decision pending" and are never raised as a separate question
+  4. With `$TURINGMIND_NONINTERACTIVE` set, the run behaves exactly as it did before this phase (pinned by a test)
+  5. On a GSD-phase-mode run, the owner answers ≤2 cards per pass and ≤1 at finalize — the design spec's criterion 1, observed on a live run
+
+**Plans**: TBD
+
+### Phase 48: Fix-agent verification + git safety
+
+**Goal**: A fix the owner accepts is a fix that was checked — the fix agent proves the cited condition is gone before it commits, each fix lands alone in its own commit, and no detection agent can change the reviewed repo through git
+**Depends on**: Phase 47 (fixed order from the design spec; the fix agent's verified/unverified status is what the batch card reports back)
+**Requirements**: FIX-01, FIX-02, FIX-03, FIX-04
+**Success Criteria** (what must be TRUE):
+
+  1. After editing, the fix agent re-checks the finding's cited condition; when it still holds, nothing is committed and the finding is reported as unverified with the reason (999.15)
+  2. Each applied fix lands as its own commit containing only that fix's hunks — two accepted fixes in the same file produce two commits, each carrying only its own hunks (999.15)
+  3. A detection agent that attempts a mutating git command (`stash`, `commit`, `checkout`, `reset`, `add`, …) in the reviewed repo is blocked, while read-only git (`diff`, `show`, `log`, `blame`, `status`, …) still works — proven by a mutation-tested test; mutation is confined to the fix agent's trusted commit path (999.20)
+  4. `agents/fix.md`'s description states its actual `opus` pin (no `VIBE_CHECK_TOP_MODEL` claim), with a test that fails if description and frontmatter disagree (W2)
+  5. After a fix commit the hand-off to the orchestrator's 999.21 revalidation (build / test / scan marked stale and re-run) is confirmed working — this phase confirms the hand-off, it does not build the orchestrator half
+
+**Plans:** 9 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 48-01-PLAN.md — `scripts/gitguard.py` pure fail-closed git classifier + DENY/ALLOW tables + mutants (FIX-03, D-08)
+- [ ] 48-02-PLAN.md — `scripts/fixstage.py` snapshot/commit/undo: hunk-isolated commit via merge-file + temp index, not-separable exit, HEAD hand-off contract; `gitfixture.py` test helper (FIX-02, FIX-01 undo, D-01/02/04/07)
+- [ ] 48-03-PLAN.md — `scripts/fixcheck.py` baseline/after allowlisted check runner with exact labels (FIX-01, D-03/06/15)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 48-04-PLAN.md — `scripts/gitsnap.py` before/after git-state snapshot (Phase 43 stash shape) + D-16 comma titles in fixcommit
+- [ ] 48-05-PLAN.md — `hooks/hooks.json` PreToolUse hook + gitguard hook/notices/reset, scoped to vibe-check review agents (FIX-03, D-08/09/11/17)
+- [ ] 48-06-PLAN.md — `agents/fix.md` verified, hunk-isolated flow + new statuses + W2 description; existing fix.md locks updated with mutants (FIX-01/02/04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 48-07-PLAN.md — Phase 1 snapshot / Phase 3 entry gate + block notices + D-14 halt; contract paths; prose locks (FIX-03, D-10/11/14)
+- [ ] 48-08-PLAN.md — 50-fix-loop Step B: statuses, check labels, blobs rule, inline fallback via fixstage; locks (FIX-01/02, D-05/13)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 48-09-PLAN.md — Live smokes (hook block, nested-agent deny, applied / applied-uncommitted / unverified fixes, head_changed_since hand-off, hook latency) + owner checkpoint
+
+### Phase 49: Measure + release 2.11.0
+
+**Goal**: v2.11 is proven not to have cost any catch-rate, its pause saving is measured honestly, and it ships as plugin 2.11.0 through the standing release gates
+**Depends on**: Phases 45, 46, 47, 48 (measures the complete release candidate)
+**Requirements**: REL-01, REL-02, REL-03, REL-04
+**Success Criteria** (what must be TRUE):
+
+  1. A full B3 ×3 run on the release candidate — clone auto-memory parked, installed-cache parity pre-flight, scored from state against the sealed keys — shows catch-rate unchanged from Phase 43 (15/15) and false-alarm rate no worse (≤3/18), recorded in `RESULTS-v2.11.md`
+  2. Owner decision cards per deep-review firing are counted from session transcripts or the orchestrator gate log's deep-review `user_interactions` and compared to the 5.5 baseline; if neither source exists the metric is reported "unavailable" — it is never inferred from pass counts
+  3. The README discloses the `214c7df` post-measurement Codex-wait change (W1)
+  4. `plugin.json` is 2.11.0 and an annotated tag `v2.11` exists; the release gates (test / security / deep-review) passed on the release commits BEFORE the publish plan ran; main + tag + branch were pushed in one atomic, exact-hash-verified publish
+
+**Plans**: TBD
+
 ## Progress
 
-**Execution Order:** phases execute in numeric order; v2.9 (35 → 36 → 37) is archived — see `.planning/milestones/v2.9-ROADMAP.md`.
+**Execution Order:** phases execute in numeric order; v2.11 runs 45 → 46 → 47 → 48 → 49 (order fixed by the design spec). v2.9 and v2.10 are archived — see `.planning/milestones/v2.9-ROADMAP.md`, `.planning/milestones/v2.10-ROADMAP.md`.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -222,6 +370,11 @@ Full details: `.planning/milestones/v2.10-ROADMAP.md`.
 | 42. Wave 2 — agent-side noise interventions | v2.10 | 7/7 | Complete    | 2026-09-30 |
 | 43. Prove — full post-change measurement | v2.10 | 7/7 | Complete    | 2026-10-01 |
 | 44. Close — 2.10.0 release | v2.10 | 2/2 | Complete   | 2026-10-01 |
+| 45. Lane gating on evidence | v2.11 | 4/4 | Complete    | 2026-10-01 |
+| 46. Carry-forward integrity | v2.11 | 8/8 | Complete    | 2026-10-02 |
+| 47. Pause batching | v2.11 | 8/8 | Complete    | 2026-10-05 |
+| 48. Fix-agent verification + git safety | v2.11 | 0/? | Not started | - |
+| 49. Measure + release 2.11.0 | v2.11 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
 > `.planning/milestones/` (e.g. `v2.4-ROADMAP.md`, `v2.5-ROADMAP.md`, `v2.8-ROADMAP.md`).
@@ -746,11 +899,14 @@ could not see it (they do not cover the stash list). Recorded in RESULTS-v2.10.m
 
 - Prompt rule in every review agent (read-only git only: `diff`, `show`, `log`, `blame`,
   `rev-parse`, `ls-files`, `status`), locked by `scripts/test_agent_prompts.py` with a mutation test.
+
 - Consider an enforced guard rather than prose only: a PreToolUse hook or a restricted Bash
   allowlist for review subagents, plus a stash-list / HEAD / index snapshot compared before and
   after a review (fail loudly on any change).
+
 - Add a stash-list and HEAD check to the B3 runbook `post` block so a future measured run would
   catch this mechanically.
+
 - Changes the measured surface: MUST NOT land inside a measured window.
 
 **Source:** Phase 43 run window (43-04 SUMMARY anomaly; orchestrator carry 2026-10-01).
