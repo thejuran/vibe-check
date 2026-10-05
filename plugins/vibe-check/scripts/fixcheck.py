@@ -70,13 +70,13 @@ I/O: imports {ast, json, os, re, shutil, signal, subprocess, sys} plus the
 sibling fixcommit; writes only `<root>/.turingmind/fixcheck/<id>.json`.
 """
 
-import ast  # noqa: F401  (in-process syntax parse)
+import ast
 import json
 import os
 import re
 import shutil
-import signal  # noqa: F401  (process-group kill on timeout)
-import subprocess  # noqa: F401  (argv-only check runs)
+import signal
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -101,6 +101,20 @@ ID_RE = re.compile(r"^[0-9a-f]{8,64}$")
 ATTEMPT_RE = re.compile(r"^[0-9a-f]{32}$")
 
 RESERVED_TOP = (".git", ".turingmind")
+
+# Per-kind timeouts in seconds. The caller's Bash call needs 300000 ms.
+TIMEOUTS = {"test": 120, "typecheck": 120, "lint": 60, "syntax": 10}
+REAP_TIMEOUT = 2
+TAIL_LINES = 40
+
+OUTCOMES = ("passed", "failed", "timeout", "unavailable")
+REASON_RUNNER = "check could not run: runner missing or not executable"
+REASON_FILE = "check could not run: file unreadable"
+
+# Repo-local executables a recorded check may name (besides PATH_RUNNERS).
+LOCAL_RUNNERS = (".venv/bin/pytest", "node_modules/.bin/vitest",
+                 "node_modules/.bin/jest", "node_modules/.bin/tsc",
+                 "node_modules/.bin/eslint")
 
 
 class Refused(Exception):
@@ -341,13 +355,275 @@ def _check_root(root):
     return os.path.realpath(root)
 
 
+# ---------------------------------------------------------------- running
+
+def _tail(text):
+    return "\n".join(text.splitlines()[-TAIL_LINES:])
+
+
+def _run_inproc(root, check):
+    try:
+        with open(os.path.join(root, check["target"]), "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return {"outcome": "unavailable", "tail": REASON_FILE}
+    try:
+        if check["inproc"] == "ast":
+            ast.parse(data, filename=check["target"])
+        else:
+            json.loads(data.decode("utf-8"))
+    except (SyntaxError, ValueError, UnicodeDecodeError, RecursionError) as exc:
+        return {"outcome": "failed",
+                "tail": _tail("%s: %s" % (type(exc).__name__, exc))}
+    return {"outcome": "passed", "tail": ""}
+
+
+def _kill_group(proc):
+    """SIGKILL the runner's whole process group, then reap it."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except OSError:
+        pass  # the group is already gone
+    try:
+        out, _ = proc.communicate(timeout=REAP_TIMEOUT)
+        return out or b""
+    except subprocess.TimeoutExpired:
+        # Something outside the group still holds the pipe; stop waiting on it.
+        proc.kill()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        proc.wait()
+        return b""
+
+
+def run_check(root, check, timeout):
+    """Run one check -> {"outcome": passed|failed|timeout|unavailable, "tail"}.
+
+    External checks run as an argv list in their own session (no shell) so a
+    timeout can kill every process the runner started.
+    """
+    if check.get("inproc"):
+        return _run_inproc(root, check)
+    env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        proc = subprocess.Popen(check["argv"], cwd=root, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                start_new_session=True, env=env)
+    except OSError:
+        # FileNotFoundError / PermissionError: the runner cannot be executed.
+        return {"outcome": "unavailable", "tail": REASON_RUNNER}
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        out = _kill_group(proc)
+        text = out.decode("utf-8", errors="replace")
+        return {"outcome": "timeout",
+                "tail": _tail(text + "\ncheck timed out after %d s" % timeout)}
+    text = out.decode("utf-8", errors="replace")
+    if proc.returncode == 0:
+        return {"outcome": "passed", "tail": ""}
+    return {"outcome": "failed", "tail": _tail(text)}
+
+
+def _usable_at_baseline(outcome):
+    """Only a check that passes BEFORE the edit can judge the edit."""
+    return outcome == "passed"
+
+
+def _aggregate_outcome(outcomes):
+    """failed > timeout > unavailable > passed; not-run when nothing ran.
+
+    There is no default-to-passed: an unrecognised outcome is `unavailable`.
+    """
+    if not outcomes:
+        return "not-run"
+    if "failed" in outcomes:
+        return "failed"
+    if "timeout" in outcomes:
+        return "timeout"
+    if any(o != "passed" for o in outcomes):
+        return "unavailable"
+    return "passed"
+
+
+def _record_matches_attempt(record, attempt):
+    """Is `record` a baseline written under exactly this attempt?"""
+    return (isinstance(record, dict) and record.get("attempt") == attempt
+            and isinstance(record.get("paths"), dict))
+
+
+def _none_entry(already_failing):
+    return {"kind": "none", "argv": None, "display": "", "inproc": None,
+            "target": None, "already_failing": already_failing}
+
+
+def _baseline_path(root, path):
+    saw_red = False
+    for cand in pick_checks(root, path):
+        result = run_check(root, cand, TIMEOUTS[cand["kind"]])
+        if _usable_at_baseline(result["outcome"]):
+            entry = dict(cand)
+            entry["already_failing"] = False
+            return entry
+        if result["outcome"] in ("failed", "timeout"):
+            saw_red = True
+    return _none_entry(saw_red)
+
+
+def _argv_allowed(root, argv):
+    if not isinstance(argv, list) or not argv:
+        return False
+    if not all(isinstance(w, str) for w in argv):
+        return False
+    head = argv[0]
+    if head in PATH_RUNNERS:
+        return True
+    return head in [os.path.join(root, rel) for rel in LOCAL_RUNNERS]
+
+
+def _entry_ok(root, path, entry):
+    """A recorded check must still be one of the allowlisted shapes."""
+    if not isinstance(entry, dict) or entry.get("kind") not in KIND_ORDER:
+        return False
+    if entry["kind"] == "none":
+        return True
+    if not isinstance(entry.get("display"), str):
+        return False
+    if entry.get("inproc") is not None:
+        return (entry["kind"] == "syntax" and entry["inproc"] in ("ast", "json")
+                and entry.get("argv") is None and entry.get("target") == path)
+    return _argv_allowed(root, entry.get("argv"))
+
+
+# ---------------------------------------------------------------- records
+
+def _record_file(root, fid):
+    return os.path.join(root, ".turingmind", "fixcheck", fid + ".json")
+
+
+def _load_state(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+
+
+def _atomic_write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = "%s.tmp.%d" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+        tmp = None
+    finally:
+        if tmp is not None and os.path.lexists(tmp):
+            os.unlink(tmp)
+
+
+def _load_finding(root, finding_path):
+    try:
+        with open(finding_path, "r", encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError, UnicodeDecodeError):
+        raise Refused("refused: finding record is missing or not valid JSON")
+    if not isinstance(record, dict):
+        raise Refused("refused: finding record is not an object")
+    fid = record.get("id")
+    if not isinstance(fid, str) or ID_RE.match(fid) is None:
+        raise Refused("refused: finding id is not lowercase hex (8-64)")
+    _validate_paths(root, record.get("paths"))
+    return fid, list(record["paths"])
+
+
+def cmd_baseline(root, fid, paths, attempt):
+    rfile = _record_file(root, fid)
+    state = _load_state(rfile)
+    if not _record_matches_attempt(state, attempt):
+        # Missing, unreadable, or left by another (interrupted) attempt.
+        state = {"attempt": attempt, "paths": {}}
+    for path in paths:
+        if path not in state["paths"]:
+            state["paths"][path] = _baseline_path(root, path)
+    _atomic_write(rfile, json.dumps(state, sort_keys=True) + "\n")
+    summary = {"attempt": attempt,
+               "paths": {p: state["paths"][p]["kind"] for p in paths}}
+    sys.stdout.write(json.dumps(summary, sort_keys=True) + "\n")
+    return 0
+
+
+def _strongest(kinds):
+    if not kinds:
+        return "none"
+    return min(kinds, key=KIND_ORDER.index)
+
+
+def cmd_after(root, fid, paths, attempt):
+    rfile = _record_file(root, fid)
+    state = _load_state(rfile)
+    if state is None:
+        sys.stderr.write("refused: no baseline record for this finding "
+                         "(fail closed)\n")
+        return 2
+    if not _record_matches_attempt(state, attempt):
+        sys.stderr.write("refused: baseline record belongs to another attempt "
+                         "(fail closed)\n")
+        return 2
+    entries = []
+    for path in paths:
+        entry = state["paths"].get(path)
+        if not _entry_ok(root, path, entry):
+            sys.stderr.write("refused: baseline record is missing a path or "
+                             "holds an unrecognised check (fail closed)\n")
+            return 2
+        entries.append(entry)
+    try:
+        cache = {}
+        ran = []
+        for entry in entries:
+            if entry["kind"] == "none":
+                continue
+            key = json.dumps([entry.get("argv"), entry.get("inproc"),
+                              entry.get("target")])
+            if key not in cache:
+                cache[key] = run_check(root, entry,
+                                       TIMEOUTS.get(entry["kind"], 10))
+                ran.append((entry, cache[key]))
+        outcome = _aggregate_outcome([res["outcome"] for _, res in ran])
+        kind = _strongest([e["kind"] for e, _ in ran])
+        command = "; ".join(e["display"] for e, _ in ran)
+        tail = ""
+        if outcome not in ("passed", "not-run"):
+            for _, res in ran:
+                if res["outcome"] == outcome or (
+                        outcome == "unavailable" and res["outcome"] != "passed"):
+                    tail = res["tail"]
+                    break
+        already = kind == "none" and any(e.get("already_failing") for e in entries)
+        result = {"kind": kind, "command": command, "outcome": outcome,
+                  "label": label_for(kind, command, already), "tail": tail}
+        sys.stdout.write(json.dumps(result) + "\n")
+        return 0 if outcome in ("passed", "not-run") else 1
+    finally:
+        try:
+            os.unlink(rfile)
+        except FileNotFoundError:
+            pass
+
+
 # ---------------------------------------------------------------- CLI
 
 SUBCOMMAND_FLAGS = {
     "pick": ("--root", "--path"),
+    "baseline": ("--root", "--finding-json", "--attempt"),
+    "after": ("--root", "--finding-json", "--attempt"),
 }
 
-USAGE = "usage: fixcheck.py pick --root <repo> --path <p>\n"
+USAGE = ("usage: fixcheck.py pick --root <repo> --path <p>\n"
+         "       fixcheck.py {baseline|after} --root <repo> --finding-json "
+         "<file> --attempt <32hex>\n")
 
 
 def parse_argv(argv):
@@ -393,9 +669,22 @@ def run(argv):
     sub, values = parsed
     try:
         root = _check_root(values["--root"])
-        return cmd_pick(root, values["--path"])
+        if sub == "pick":
+            return cmd_pick(root, values["--path"])
+        attempt = values["--attempt"]
+        if ATTEMPT_RE.match(attempt) is None:
+            raise Refused("refused: attempt id is not 32 lowercase hex")
+        fid, paths = _load_finding(root, values["--finding-json"])
+        if sub == "baseline":
+            return cmd_baseline(root, fid, paths, attempt)
+        return cmd_after(root, fid, paths, attempt)
     except Refused as exc:
         sys.stderr.write(str(exc) + "\n")
+        return 1
+    except OSError as exc:
+        # Fixed reason plus the error class only; no paths or file contents.
+        sys.stderr.write("refused: %s during %s (fail closed)\n"
+                         % (type(exc).__name__, sub))
         return 1
 
 

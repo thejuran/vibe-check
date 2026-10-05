@@ -386,6 +386,11 @@ def _aggregate_without_unavailable(outcomes):
     return "passed"
 
 
+def _attempt_blind(record, attempt):
+    """Mutant for (d)/(e): accepts any well-formed record, whatever its attempt."""
+    return isinstance(record, dict) and isinstance(record.get("paths"), dict)
+
+
 class RunCase(TreeCase):
 
     def setUp(self):
@@ -799,9 +804,11 @@ class TestFixcheckMutants(RunCase):
         record = TestAttemptScoping.stale_then_fresh(self)
         self.assertTrue(fresh_baseline_used(record, ATT_B, "test"))
         self.setUp_again()
+        stale = {"attempt": ATT_A, "paths": {}}
+        self.assertFalse(fixcheck._record_matches_attempt(stale, ATT_B))
         with mock.patch.object(fixcheck, "_record_matches_attempt",
-                               lambda record, attempt: True):
-            self.assertTrue(fixcheck._record_matches_attempt({}, ATT_A))
+                               _attempt_blind):
+            self.assertTrue(fixcheck._record_matches_attempt(stale, ATT_B))
             record = TestAttemptScoping.stale_then_fresh(self)
         self.assertFalse(fresh_baseline_used(record, ATT_B, "test"))
 
@@ -810,7 +817,7 @@ class TestFixcheckMutants(RunCase):
         self.assertEqual((rc, ran), (2, False))
         self.setUp_again()
         with mock.patch.object(fixcheck, "_record_matches_attempt",
-                               lambda record, attempt: True):
+                               _attempt_blind):
             rc, ran = TestAttemptScoping.stale_after_rejected(self)
         self.assertNotEqual(rc, 2)
         self.assertTrue(ran)
