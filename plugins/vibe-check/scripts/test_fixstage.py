@@ -749,11 +749,417 @@ class TestCommit(CommitCase):
         sha = _swept_commit(self.repo, "f.txt")
         self.assertFalse(commit_carries_only(self.repo, sha, FIX30))
 
+    # ------------------------------------------------- D-02 not separable
+
+    def head_unchanged(self, repo, pre):
+        return git(repo, "rev-parse", "HEAD").stdout.strip() == pre
+
+    def _d(self, runner=None):
+        self.owner5()
+        pre = self.rev()
+        index = self.index_state()
+        res, attempt = self.fix_flow(
+            lambda: self.edit_line("f.txt", 6, "line 6 fixed\n"), runner=runner)
+        return res, attempt, pre, index
+
+    def test_d_overlap_not_separable(self):
+        res, attempt, pre, index = self._d()
+        self.assertEqual(res.returncode, 3, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: the fix overlaps uncommitted edits")
+        self.assertTrue(self.head_unchanged(self.repo, pre))
+        text = self.read("f.txt").decode()
+        self.assertIn(OWNER5, text)
+        self.assertIn("line 6 fixed", text)
+        self.assertEqual(self.index_state(), index)
+        self.assertIsNone(self.open_id())
+        self.assertEqual(self.closed_outcome(attempt), "not-separable")
+
+    def test_d_mutant_conflict_ignored_moves_head(self):
+        with mock.patch.object(fixstage, "_merge_rc_is_conflict",
+                               lambda rc: False):
+            res, _, pre, _ = self._d(self.inproc)
+        self.assertFalse(self.head_unchanged(self.repo, pre))
+
+    def test_e_untracked_file(self):
+        write(self.repo, "u.txt", "mine\n")
+        pre = self.rev()
+        res, attempt = self.fix_flow(lambda: write(self.repo, "u.txt", "fixed\n"),
+                                     paths=["u.txt"])
+        self.assertEqual(res.returncode, 3)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: file was untracked before the fix")
+        self.assertEqual(self.rev(), pre)
+        self.assertEqual(self.read("u.txt"), b"fixed\n")
+        self.assertEqual(self.closed_outcome(attempt), "not-separable")
+
+    def test_f_symlink_in_last_commit(self):
+        os.symlink("f.txt", os.path.join(self.repo, "s.txt"))
+        git(self.repo, "add", "--", "s.txt")
+        git(self.repo, "commit", "-q", "-m", "link")
+        os.unlink(os.path.join(self.repo, "s.txt"))
+        write(self.repo, "s.txt", "now a file\n")
+        pre = self.rev()
+        res, _ = self.fix_flow(lambda: write(self.repo, "s.txt", "fixed\n"),
+                               paths=["s.txt"])
+        self.assertEqual(res.returncode, 3)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: symlink or submodule")
+        self.assertEqual(self.rev(), pre)
+
+    def test_f2_binary_file(self):
+        write(self.repo, "b.bin", b"\x00\x01 one\n")
+        git(self.repo, "add", "--", "b.bin")
+        git(self.repo, "commit", "-q", "-m", "bin")
+        pre = self.rev()
+        res, _ = self.fix_flow(lambda: write(self.repo, "b.bin", b"\x00\x01 two\n"),
+                               paths=["b.bin"])
+        self.assertEqual(res.returncode, 3)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: binary or unmergeable file")
+        self.assertEqual(self.rev(), pre)
+        self.assertEqual(self.read("b.bin"), b"\x00\x01 two\n")
+
+    def test_h_owner_staged_same_file(self):
+        self.owner5()
+        git(self.repo, "add", "--", "f.txt")
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertTrue(commit_carries_only(self.repo, self.sha_of(res), FIX30))
+        staged = git(self.repo, "diff", "--cached", "--unified=0").stdout
+        added = [l[1:] for l in staged.splitlines()
+                 if l.startswith("+") and not l.startswith("+++")]
+        self.assertEqual(added, [OWNER5])
+        self.assertEqual(git(self.repo, "diff").stdout, "")
+
+    def test_j_sc5_handoff(self):
+        pre = self.rev()
+        branch = git(self.repo, "symbolic-ref", "HEAD").stdout.strip()
+        # an exit 3 leaves HEAD where it was
+        self.owner5()
+        res, _ = self.fix_flow(lambda: self.edit_line("f.txt", 6, "line 6 fixed\n"))
+        self.assertEqual(res.returncode, 3)
+        self.assertEqual(self.rev(), pre)
+        # an undo leaves HEAD where it was
+        attempt = self.begin()
+        self.ok("snapshot", attempt)
+        self.edit_line("f.txt", 20, "line 20 tried\n")
+        self.ok("seal", attempt)
+        self.ok("undo", attempt)
+        self.assertEqual(self.rev(), pre)
+        # an applied commit is the new HEAD, child of the pre-fix HEAD
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        sha = self.sha_of(res)
+        self.assertRegex(sha, r"^[0-9a-f]{40}$")
+        self.assertEqual(sha, self.rev())
+        self.assertEqual(self.rev("HEAD^"), pre)
+        self.assertEqual(git(self.repo, "symbolic-ref", "HEAD").stdout.strip(),
+                         branch)
+
+    def test_k_hostile_title_refused(self):
+        self.set_record(["f.txt"], title="$(touch pwned)")
+        pre = self.rev()
+        res, attempt = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 1)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "pwned")))
+        self.assertFalse(os.path.exists("pwned"))
+        self.assertEqual(self.rev(), pre)
+        self.assertEqual(self.closed_outcome(attempt), "refused")
+
     def test_l2_mutant_post_from_working_tree_sweeps_owner_edit(self):
         with mock.patch.object(fixstage, "_post_bytes", _post_from_working_tree):
             res, _ = self._a2(self.inproc)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertFalse(commit_carries_only(self.repo, self.sha_of(res), FIX30))
+
+
+
+def base_content_kept(repo, path, data):
+    proc = git(repo, "show", "main:" + path, check=False)
+    return proc.returncode == 0 and proc.stdout.encode() == data
+
+
+def base_mode_kept(repo, path, mode):
+    entry = git(repo, "ls-tree", "main", "--", path).stdout
+    return entry.startswith(mode + " ")
+
+
+def _other_terminal_commit(repo, message):
+    """Commit what is in the real index, hooks off, working tree untouched."""
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", message)
+    return git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+class TestBasePrecondition(CommitCase):
+    """An owner commit between seal and BASE capture is never overwritten."""
+
+    def blob(self, data):
+        src = os.path.join(self.tmp, "blobsrc")
+        with open(src, "wb") as fh:
+            fh.write(data)
+        return git(self.repo, "hash-object", "-w", "--", src).stdout.strip()
+
+    def stage_new_owner_file(self):
+        git(self.repo, "update-index", "--add", "--cacheinfo",
+            "100644,%s,new.txt" % self.blob(b"owner\n"))
+
+    def _t(self, runner=None):
+        state = {}
+
+        def owner():
+            self.stage_new_owner_file()
+            state["owner"] = _other_terminal_commit(self.repo, "owner")
+            state["index"] = self.index_state()
+        res, attempt = self.fix_flow(lambda: write(self.repo, "new.txt", "fix\n"),
+                                     owner_after_seal=owner, runner=runner,
+                                     paths=["new.txt"])
+        return res, attempt, state
+
+    def test_t_created_path_committed_by_owner(self):
+        with mock.patch.object(fixstage, "_build_temp_index",
+                               side_effect=AssertionError("temp index built")) as rec:
+            res, attempt, state = self._t(self.inproc)
+        self.assertFalse(rec.called)
+        self.assertEqual(res.returncode, 3, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: the file now exists in the last commit")
+        self.assertEqual(self.rev("main"), state["owner"])
+        self.assertTrue(base_content_kept(self.repo, "new.txt", b"owner\n"))
+        self.assertEqual(self.read("new.txt"), b"fix\n")
+        self.assertEqual(self.index_state(), state["index"])
+        self.assertEqual(self.closed_outcome(attempt), "not-separable")
+        closed = os.path.join(self.sdir(), "closed", attempt + ".not-separable")
+        self.assertFalse(os.path.exists(os.path.join(closed, "msg")))
+        self.assertFalse(os.path.exists(os.path.join(closed, "tmp-index")))
+
+    def test_t_mutant_no_base_check_overwrites_owner_commit(self):
+        with mock.patch.object(fixstage, "_base_precondition",
+                               lambda entry, base_entry, real_entry: None):
+            res, _, _ = self._t(self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(base_content_kept(self.repo, "new.txt", b"owner\n"))
+
+    def test_t1_created_path_staged_by_owner(self):
+        pre = self.rev()
+        res, _ = self.fix_flow(lambda: write(self.repo, "new.txt", "fix\n"),
+                               owner_after_seal=self.stage_new_owner_file,
+                               paths=["new.txt"])
+        self.assertEqual(res.returncode, 3)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: the file is staged in your index")
+        self.assertEqual(self.rev(), pre)
+
+    def test_t2_tracked_path_deleted_by_owner_commit(self):
+        def owner():
+            git(self.repo, "rm", "--cached", "-q", "--", "f.txt")
+            _other_terminal_commit(self.repo, "delete f")
+        res, _ = self.fix_flow(self.fix30, owner_after_seal=owner)
+        self.assertEqual(res.returncode, 3)
+        self.assertEqual(res.stdout.strip(),
+                         "not-separable: the file is no longer in the last commit")
+        self.assertEqual(git(self.repo, "ls-tree", "main", "--", "f.txt").stdout,
+                         "")
+        self.assertIn(FIX30, self.read("f.txt").decode())
+
+    def _t3(self, runner=None):
+        def owner():
+            git(self.repo, "update-index", "--chmod=+x", "--", "f.txt")
+            _other_terminal_commit(self.repo, "chmod")
+        return self.fix_flow(self.fix30, owner_after_seal=owner, runner=runner)
+
+    def test_t3_owner_committed_mode_kept(self):
+        res, _ = self._t3()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertTrue(base_mode_kept(self.repo, "f.txt", "100755"))
+        self.assertIn(FIX30, self.committed_text("main"))
+
+    def test_t3_mutant_post_mode_reverts_owner_chmod(self):
+        with mock.patch.object(
+                fixstage, "_target_mode",
+                lambda entry, base_entry: fixstage._git_mode(entry["post_mode"])):
+            res, _ = self._t3(self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(base_mode_kept(self.repo, "f.txt", "100755"))
+
+    def test_t4_owner_committed_content_kept(self):
+        state = {}
+
+        def owner():
+            lines = self.committed_text("HEAD").splitlines(True)
+            lines[4] = OWNER5 + "\n"
+            git(self.repo, "update-index", "--cacheinfo",
+                "100644,%s,f.txt" % self.blob("".join(lines).encode()))
+            state["owner"] = _other_terminal_commit(self.repo, "line 5")
+        res, _ = self.fix_flow(self.fix30, owner_after_seal=owner)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        sha = self.sha_of(res)
+        self.assertEqual(self.rev(sha + "^"), state["owner"])
+        text = self.committed_text("main")
+        self.assertIn(OWNER5, text)
+        self.assertIn(FIX30, text)
+
+
+def _unsigned_commit_object(root, tree, base, msgfile):
+    """Mutant: commit-tree that ignores commit.gpgSign."""
+    proc = fixstage._git(root, "commit-tree", "-p", base, "-F", msgfile, tree)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+class HookCase(CommitCase):
+
+    def hook(self, name, body):
+        path = os.path.join(self.repo, ".git", "hooks", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("#!/bin/sh\n" + body + "\n")
+        os.chmod(path, 0o755)
+        return path
+
+
+class TestCommitRejected(HookCase):
+
+    def assert_rejected(self, res, attempt, pre):
+        self.assertEqual(res.returncode, 4, res.stdout + res.stderr)
+        self.assertTrue(res.stdout.startswith("commit-not-created:"), res.stdout)
+        self.assertEqual(self.rev(), pre)
+        self.assertIn(FIX30, self.read("f.txt").decode())
+        self.assertEqual(self.closed_outcome(attempt), "hook-rejected")
+
+    def test_i_pre_commit_rejects(self):
+        self.hook("pre-commit", "echo nope from hook\nexit 1")
+        pre = self.rev()
+        res, attempt = self.fix_flow(self.fix30)
+        self.assert_rejected(res, attempt, pre)
+        self.assertIn("your commit hook rejected the commit", res.stdout)
+        self.assertIn("nope from hook", res.stdout)
+
+    def test_i2_commit_msg_rejects(self):
+        self.hook("commit-msg", "exit 1")
+        pre = self.rev()
+        res, attempt = self.fix_flow(self.fix30)
+        self.assert_rejected(res, attempt, pre)
+
+    def marker(self):
+        return os.path.join(self.tmp, "hookmark")
+
+    def hooks_ran(self, repo):
+        return os.path.exists(self.marker())
+
+    def _i3(self, runner=None):
+        self.hook("pre-commit",
+                  'printf "%%s\\n%%s\\n" "$GIT_INDEX_FILE" "$PWD" > "%s"'
+                  % self.marker())
+        self.hook("commit-msg", 'cp "$1" "%s"'
+                  % os.path.join(self.tmp, "msgcopy"))
+        return self.fix_flow(self.fix30, runner=runner)
+
+    def test_i3_hooks_see_temp_index_and_message(self):
+        res, _ = self._i3()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertTrue(self.hooks_ran(self.repo))
+        with open(self.marker()) as fh:
+            index_file, pwd = fh.read().splitlines()
+        self.assertNotEqual(os.path.realpath(index_file),
+                            os.path.join(self.repo, ".git", "index"))
+        self.assertTrue(index_file.endswith("tmp-index"), index_file)
+        self.assertEqual(os.path.realpath(pwd), self.repo)
+        with open(os.path.join(self.tmp, "msgcopy")) as fh:
+            self.assertEqual(fh.read(), "fix(review-pass-1): Fix it\n")
+
+    def test_i3_mutant_hooks_skipped(self):
+        with mock.patch.object(fixstage, "_run_commit_hooks",
+                               lambda root, temp_index, msgfile: (True, "")):
+            res, _ = self._i3(self.inproc)
+        self.assertEqual(res.returncode, 0)
+        self.assertFalse(self.hooks_ran(self.repo))
+
+    def signing_respected(self, repo, rc):
+        if rc != 0:
+            return True
+        raw = git(repo, "cat-file", "commit", "HEAD").stdout
+        return "\ngpgsig " in raw
+
+    def _i4(self, runner=None):
+        gpg = os.path.join(self.tmp, "fake-gpg")
+        with open(gpg, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(gpg, 0o755)
+        git(self.repo, "config", "commit.gpgSign", "true")
+        git(self.repo, "config", "gpg.program", gpg)
+        return self.fix_flow(self.fix30, runner=runner)
+
+    def test_i4_signing_failure(self):
+        pre = self.rev()
+        res, attempt = self._i4()
+        self.assert_rejected(res, attempt, pre)
+        self.assertEqual(res.stdout.splitlines()[0],
+                         "commit-not-created: the commit could not be signed")
+        self.assertTrue(self.signing_respected(self.repo, res.returncode))
+
+    def test_i4_mutant_unsigned_commit(self):
+        with mock.patch.object(fixstage, "_make_commit_object",
+                               _unsigned_commit_object):
+            res, _ = self._i4(self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(self.signing_respected(self.repo, res.returncode))
+
+
+class TestRetry(HookCase):
+
+    def _rejected_then_owner_edit(self):
+        hook = self.hook("pre-commit", "exit 1")
+        res, attempt_a = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 4, res.stdout + res.stderr)
+        self.owner5()
+        return hook, attempt_a
+
+    def test_r_retry_never_reuses_stale_attempt(self):
+        hook, a = self._rejected_then_owner_edit()
+        before = self.read("f.txt")
+        for name in ("undo", "commit"):
+            res = self.sub(name, a)
+            self.assertEqual(res.returncode, 1, name)
+            self.assertEqual(self.read("f.txt"), before)
+        self.assertTrue(os.path.isdir(
+            os.path.join(self.sdir(), "closed", a + ".hook-rejected")))
+        self.assertIsNone(self.open_id())
+        os.unlink(hook)
+        b = self.begin()
+        self.assertNotEqual(a, b)
+        self.ok("snapshot", b)
+        with open(os.path.join(self.sdir(), b, "0.pre"), "rb") as fh:
+            self.assertEqual(fh.read(), before)
+        self.edit_line("f.txt", 20, "line 20 fixed\n")
+        self.ok("seal", b)
+        res = self.sub("commit", b)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertTrue(commit_carries_only(self.repo, self.sha_of(res),
+                                            "line 20 fixed"))
+        text = self.read("f.txt").decode()
+        self.assertIn(OWNER5, text)
+        self.assertIn(FIX30, text)
+
+    def test_r_mutant_stale_attempt_accepted(self):
+        hook, a = self._rejected_then_owner_edit()
+        os.unlink(hook)
+        b = self.begin()
+        self.ok("snapshot", b)
+        self.edit_line("f.txt", 20, "line 20 fixed\n")
+        self.ok("seal", b)
+        original = fixstage._require_open_attempt
+
+        def accept_closed(root, fid, attempt):
+            closed = os.path.join(fixstage.stage_dir(root, fid), "closed")
+            for name in os.listdir(closed):
+                if name.startswith(attempt + "."):
+                    return os.path.join(closed, name)
+            return original(root, fid, attempt)
+        with mock.patch.object(fixstage, "_require_open_attempt", accept_closed):
+            res = self.sub("commit", a, self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(commit_carries_only(self.repo, self.sha_of(res),
+                                             "line 20 fixed"))
 
 
 if __name__ == "__main__":

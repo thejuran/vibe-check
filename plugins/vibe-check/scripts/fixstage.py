@@ -868,35 +868,144 @@ def _merge_delta(root, adir, scratch, entry, ours, pre, post):
     return proc.stdout
 
 
+def _target_mode(entry, base_entry):
+    """Commit mode of a tracked path -> mode | None (not separable).
+
+    The fix did not change the mode -> BASE's mode (an owner-committed chmod
+    is kept). The fix changed it and BASE still has the snapshot mode -> the
+    fix's mode. Both changed it -> None.
+    """
+    snap = _git_mode(entry.get("mode"))
+    post = _git_mode(entry.get("post_mode"))
+    if post == snap:
+        return base_entry[0]
+    if base_entry[0] == snap:
+        return post
+    return None
+
+
+def _base_precondition(entry, base_entry, real_entry):
+    """Re-validate a path's snapshot-time pre-state against BASE -> the fixed
+    not-separable reason, or None when committing the path is safe.
+
+    The snapshot recorded each path against the HEAD of snapshot time; BASE is
+    read later, so another terminal may have committed the path in between.
+
+    | path class (manifest)        | required in BASE / real index         | why it is then safe |
+    |------------------------------|---------------------------------------|---------------------|
+    | created by the fix (absent)  | absent from BASE ("the file now exists | the commit adds a path that exists |
+    |                              | in the last commit") and from the     | nowhere in BASE, so no committed |
+    |                              | real index ("the file is staged in    | version is replaced by the sealed |
+    |                              | your index")                          | post bytes |
+    | tracked, edited by the fix   | present in BASE ("the file is no      | merge-file applies only the sealed |
+    |                              | longer in the last commit"); mode via | pre->post delta onto BASE's version, |
+    |                              | `_target_mode` ("the file mode changed | so committed owner changes are kept |
+    |                              | in the last commit")                  | and an overlap is a conflict |
+    | tracked, deleted by the fix  | present in BASE; the pre bytes must   | a changed BASE version is never |
+    |                              | equal BASE's version (checked when    | deleted |
+    |                              | the removal is built)                 | |
+    | untracked, symlink/submodule,| always not separable (checked before) | nothing is committed |
+    | unmerged index entry         |                                       | |
+    | owner-staged path            | the commit is still BASE + the delta; | the locked full-entry compare in |
+    |                              | the staged merge only shapes the      | `_sync_real_index` guards the index |
+    |                              | real-index target                     | |
+    """
+    state = entry.get("state")
+    if state == "absent":
+        if base_entry is not None:
+            return "the file now exists in the last commit"
+        if real_entry is not None:
+            return "the file is staged in your index"
+        return None
+    if base_entry is None:
+        return "the file is no longer in the last commit"
+    if (entry.get("post_state") == "present"
+            and _target_mode(entry, base_entry) is None):
+        return "the file mode changed in the last commit"
+    return None
+
+
+def _path_refusal(entry, base_entry, real_entry):
+    """Paths that are never separable, whatever BASE holds -> reason | None."""
+    state = entry.get("state")
+    if state == "untracked":
+        return "file was untracked before the fix"
+    if state not in ("tracked", "absent"):
+        raise Refused("refused: attempt state is missing or corrupt")
+    if base_entry is not None and base_entry[0] not in REGULAR_MODES:
+        return "symlink or submodule"
+    if real_entry is not None and real_entry[0] not in REGULAR_MODES:
+        return "symlink or submodule"
+    if real_entry is not None and real_entry[2] != 0:
+        return "the file has an unresolved merge conflict"
+    return None
+
+
 def _precompute(root, base, adir, manifest, before, scratch):
     """Every blob the commit needs, built BEFORE any ref or index write, so a
     multi-path fix is all-or-nothing -> (ops, targets).
 
     ops: [(path, mode | None, oid | None)] for the temporary index (None =
     remove). targets: {path: (mode, oid) | None} for the real-index sync.
+    Any path that cannot be separated raises not-separable (exit 3) before
+    anything is written: the fix stays applied, uncommitted.
     """
+    checked = []
+    for entry in manifest["paths"]:
+        base_entry = _base_entry(root, base, entry["path"])
+        real = before.get(entry["path"])
+        reason = _path_refusal(entry, base_entry, real)
+        if reason is None:
+            reason = _base_precondition(entry, base_entry, real)
+        if reason is not None:
+            raise _not_separable(reason)
+        checked.append((entry, base_entry, real))
+
     ops = []
     targets = {}
-    for entry in manifest["paths"]:
+    for entry, base_entry, real in checked:
         path = entry["path"]
-        base_entry = _base_entry(root, base, path)
-        real = before.get(path)
-        if entry.get("state") == "absent":
+        post_present = entry.get("post_state") == "present"
+        if entry["state"] == "absent":
+            if not post_present:
+                continue  # created and removed again: nothing to commit
             post = _post_bytes(root, adir, entry)
             mode = _git_mode(entry.get("post_mode"))
             oid = _hash_blob(root, adir, scratch, entry, post)
             ops.append((path, mode, oid))
             targets[path] = (mode, oid)
             continue
+        clean = real is not None and _entry_equal(real, base_entry + (0,))
         pre = _pre_bytes(adir, entry)
-        post = _post_bytes(root, adir, entry)
         ours = _working_form(root, adir, scratch, entry, base)
+        if not post_present:
+            if pre != ours:
+                raise _not_separable(
+                    "the fix deletes a file that differs from the last commit")
+            if not clean:
+                raise _not_separable("the file is staged in your index")
+            ops.append((path, None, None))
+            targets[path] = None
+            continue
+        post = _post_bytes(root, adir, entry)
         merged = _merge_delta(root, adir, scratch, entry, ours, pre, post)
         oid = _hash_blob(root, adir, scratch, entry, merged)
-        mode = base_entry[0]
+        mode = _target_mode(entry, base_entry)
         ops.append((path, mode, oid))
-        if real is not None and _entry_equal(real, base_entry + (0,)):
+        if clean:
             targets[path] = (mode, oid)
+            continue
+        if real is None:
+            raise _not_separable("the file is staged in your index")
+        # The owner staged a version of this file: the same delta applied onto
+        # the STAGED version is what the index should hold after the commit.
+        staged = _working_form(root, adir, scratch, entry, "")
+        staged_merged = _merge_delta(root, adir, scratch, entry, staged, pre,
+                                     post)
+        targets[path] = (real[0], _hash_blob(root, adir, scratch, entry,
+                                             staged_merged))
+    if not ops:
+        raise _not_separable("the fix left no change to commit")
     return ops, targets
 
 
@@ -1167,7 +1276,15 @@ def _commit(root, record, adir, scratch):
         tree = _write_tree(root, temp_index)
         new = _make_commit_object(root, tree, base, msgfile)
     if new is None:
-        raise Refused("refused: the commit was not created")
+        if not ok:
+            reason = "your commit hook rejected the commit"
+        elif _gpg_sign(root):
+            reason = "the commit could not be signed"
+        else:
+            reason = "git could not create the commit"
+        raise _Outcome(4, "hook-rejected",
+                       ["commit-not-created: " + reason]
+                       + (tail.splitlines() if tail else []))
     if not _publish_ref(root, base, base_symref, new, subject):
         raise Refused("refused: the branch moved")
     _run_post_commit(root)
