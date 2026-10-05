@@ -27,7 +27,8 @@ Contract (fail CLOSED on every ambiguity):
     word is accepted only from /bin, /usr/bin, /usr/local/bin or
     /opt/homebrew/bin
   - any output redirection to a file refuses (only /dev/null and fd dups pass)
-  - any token whose basename is a trusted plugin script refuses
+  - any token whose basename is a trusted plugin script refuses; any other
+    plugin script basename refuses only as a `scripts/<name>` path
   - reasons are FIXED strings that never echo the command (callers render a
     sanitized command separately)
   - classify itself is pure — no I/O; only the CLI below does I/O
@@ -454,13 +455,33 @@ def _trusted_names(plugin_scripts):
     return frozenset(names)
 
 
+def _in_scripts_dir(piece):
+    """True when `piece` is path-qualified and its parent dir is `scripts`."""
+    parts = piece.split("/")
+    return len(parts) >= 2 and parts[-2] == "scripts"
+
+
 def _references_trusted_script(command, plugin_scripts):
+    """A token names a plugin script -> refuse.
+
+    The fixed TRUSTED_SCRIPT_BASENAMES (the mutating helpers) match by bare
+    basename anywhere. The hook-supplied listing of every other plugin script
+    only matches a path whose parent directory is `scripts/` (where the
+    plugin's scripts live): matching those common basenames (config.py,
+    score.py, ...) anywhere refused harmless reads of the reviewed repo's own
+    same-named files.
+    """
     lowered = command.lower()
     for ch in ("'", '"', "\\"):
         lowered = lowered.replace(ch, "")
     names = _trusted_names(plugin_scripts)
     for piece in _TRUSTED_SPLIT_RE.split(lowered):
-        if piece and piece.rsplit("/", 1)[-1] in names:
+        if not piece:
+            continue
+        base = piece.rsplit("/", 1)[-1]
+        if base in TRUSTED_SCRIPT_BASENAMES:
+            return True
+        if base in names and _in_scripts_dir(piece):
             return True
     return False
 

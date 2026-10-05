@@ -891,6 +891,32 @@ class TestHookTrustedScripts(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn(gitguard.REASON_TRUSTED_SCRIPT, err)
 
+    def test_colliding_basenames_in_the_repo_stay_readable(self):
+        # A reviewed repo's own config.py / score.py share a plugin script's
+        # basename; reading them is harmless and must not be refused.
+        names = gitguard._plugin_script_names()
+        self.assertTrue({"config.py", "score.py"} <= names)
+        for cmd in ("cat src/config.py", "git show HEAD:src/config.py",
+                    "git diff -- lib/score.py", "grep -n x config.py"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(gitguard.classify(cmd, names),
+                                 (True, "allowed"))
+                self.assertEqual(self._rc("vibe-check:bugs", cmd)[0], 0)
+        self.assertEqual(
+            gitguard.classify("cat /abs/plugin/scripts/config.py", names),
+            (False, gitguard.REASON_TRUSTED_SCRIPT))
+        self.assertEqual(gitguard.classify("cat src/fixstage.py", names),
+                         (False, gitguard.REASON_TRUSTED_SCRIPT))
+
+    def test_colliding_basename_mutant_trips(self):
+        names = gitguard._plugin_script_names()
+        always = lambda piece: True  # noqa: E731
+        self.assertEqual(gitguard.classify("cat src/config.py", names),
+                         (True, "allowed"))
+        with mock.patch.object(gitguard, "_in_scripts_dir", always):
+            self.assertEqual(gitguard.classify("cat src/config.py", names),
+                             (False, gitguard.REASON_TRUSTED_SCRIPT))
+
     def test_interpreter_and_unlisted_words_denied(self):
         for cmd in ("python3 -c 'print(1)'", "make"):
             with self.subTest(cmd=cmd):
