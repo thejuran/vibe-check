@@ -27,7 +27,7 @@ FIX_MD = os.path.join(PLUGIN_DIR, "agents", "fix.md")
 # sha256 of agents/fix.md after Phase 48 (FIX-01/02/04 rewrite of steps 4-6
 # + W2 description). Any further edit must re-pin deliberately.
 FIX_MD_SHA256 = (
-    "04b18811977a1109276c18f0004e92f4ee78c34a4a0b16a8e5fe42939bc3e31e")
+    "5bac21e617aedc278b7b782393fe5ad4b838669e949f4bad0393b4bfd3711f19")
 
 CARD_HEADING = "### The fix-loop card"
 STEP_B_HEADING = "### Step B"
@@ -167,13 +167,16 @@ def fallback_lifecycle_problems(step_b):
     if FRESH_ATTEMPT not in fb:
         problems.append("fresh-attempt sentence missing")
     arms = case_arms(fb, FIXSTAGE + "commit")
-    for label in ("0", "3", "4", "5", "6", "7", "*"):
+    for label in ("0", "3", "4", "5", "6", "7", "8", "*"):
         if label not in arms:
             problems.append("commit case lacks a %s) arm" % label)
     if "hook-changed" not in arms.get("5", ""):
         problems.append("5) arm must name hook-changed")
     if "moved-after-commit" not in arms.get("7", ""):
         problems.append("7) arm must name moved-after-commit")
+    if not ("published-unverified" in arms.get("8", "")
+            and "record errored" in arms.get("8", "")):
+        problems.append("8) arm must name published-unverified and record errored")
     if "NOTHING is staged and NOTHING is committed" not in arms.get("*", ""):
         problems.append("*) arm must say nothing is staged or committed")
     return problems
@@ -543,7 +546,8 @@ class TestStepBVerifiedFlow(unittest.TestCase):
         commit = self.line_with(FIXSTAGE + "commit", fb)
         arm5 = self.line_with("5) echo \"hook-changed", fb)
         arm7 = self.line_with("7) echo \"moved-after-commit", fb)
-        moved = self.step_b.replace(seal, "  : # sealed later", 1).replace(
+        arm8 = self.line_with("8) echo \"published-unverified", fb)
+        moved =self.step_b.replace(seal, "  : # sealed later", 1).replace(
             after, after + "\n" + seal, 1)
         mutants = {
             "seal after the after-check": moved,
@@ -553,6 +557,9 @@ class TestStepBVerifiedFlow(unittest.TestCase):
                 after, after.replace(" --attempt <A>", "")),
             "5) arm deleted": self.mutate(arm5 + "\n", ""),
             "7) arm deleted": self.mutate(arm7 + "\n", ""),
+            "8) arm deleted": self.mutate(arm8 + "\n", ""),
+            "8) arm says applied": self.mutate(
+                arm8, arm8.replace("record errored", "record applied")),
         }
         for name, mutant in mutants.items():
             with self.subTest(mutant=name):

@@ -424,9 +424,12 @@ def commit_gate_problems(text):
     if "could not undo cleanly" not in u.get("3", ""):
         problems.append("undo case lacks a 3) arm naming 'could not undo cleanly'")
     c = _case_arms(text, commit) or {}
-    for label in ("0", "3", "4", "5", "6", "7", "*"):
+    for label in ("0", "3", "4", "5", "6", "7", "8", "*"):
         if label not in c:
             problems.append("commit case lacks a %s) arm" % label)
+    if not ("published-unverified" in c.get("8", "")
+            and "record errored" in c.get("8", "")):
+        problems.append("commit 8) arm must name published-unverified and record errored")
     if "applied-uncommitted" not in c.get("3", ""):
         problems.append("commit 3) arm must name applied-uncommitted")
     if not ("hook-changed" in c.get("5", "")
@@ -682,6 +685,8 @@ class TestFixAgentOrdering(unittest.TestCase):
                     if l.strip().startswith("7) ") and "moved-after-commit" in l)
         arm3 = next(l for l in self.text.split("\n")
                     if l.strip().startswith("3) ") and "applied-uncommitted" in l)
+        arm8 = next(l for l in self.text.split("\n")
+                    if l.strip().startswith("8) ") and "published-unverified" in l)
         swapped = (self.text.replace(undo_line, "\0UNDO\0", 1)
                    .replace(commit_line, undo_line, 1)
                    .replace("\0UNDO\0", commit_line, 1))
@@ -689,6 +694,9 @@ class TestFixAgentOrdering(unittest.TestCase):
             "undo after commit": swapped,
             "7) arm deleted": self.text.replace(arm7 + "\n", "", 1),
             "3) arm deleted": self.text.replace(arm3 + "\n", "", 1),
+            "8) arm deleted": self.text.replace(arm8 + "\n", "", 1),
+            "8) arm says applied": self.text.replace(
+                arm8, arm8.replace("record errored", "record applied"), 1),
             "withdrawn wording": self.text.replace(
                 "nothing was rewritten", "the commit was withdrawn", 1),
             "nothing-committed sentence removed": self.text.replace(

@@ -45,7 +45,7 @@ absent means not on disk before the edit), `mode`, `index_blob`, `pre_sha256`,
 and after seal `post_state` (present | absent), `post_mode`, `post_sha256`.
 Closing outcomes: committed (dir removed) | undone | undo-partial | refused |
 not-separable | hook-rejected | hook-changed | head-moved | moved-after-commit |
-stale.
+published-unverified | stale.
 
 ## CLI and exit codes
 
@@ -71,7 +71,8 @@ reaches argv (FL-03, see fixcommit.py). Flags: `--root`, `--finding-json`,
           `committed` | 1 refused (attempt not open or not sealed; title, pass
           number or path validation; git older than 2.36) | 2 usage
           An error AFTER publishing never exits 1: it reports the published
-          outcome (0 or 5) with every fix path as `index-left-as-is`.
+          outcome (0 or 5, or 8 if the checks had not finished) with every
+          fix path as `index-left-as-is`.
         3 `not-separable: <reason>` - nothing committed, fix stays applied
         4 `commit-not-created: <reason>` + hook output tail - an owner hook
           rejected the commit or signing failed; nothing published
@@ -80,6 +81,10 @@ reaches argv (FL-03, see fixcommit.py). Flags: `--root`, `--finding-json`,
         6 `head-moved: <reason>` - the branch moved before publishing; nothing
           published
         7 `moved-after-commit: <sha>` - published, then HEAD moved again
+        8 `published-unverified: <sha>` (+ `hook-changed: <sha>` when that
+          much was known, + `index-left-as-is` lines) - published, but an error
+          stopped the post-commit checks (hook-changed content, HEAD moved
+          again) before they finished; nothing rewritten
 
 Refusals print a fixed reason on stderr that names the failing rule. Callers
 branch on the EXIT CODE.
@@ -1326,8 +1331,12 @@ def _commit(root, record, adir, scratch):
     # Published. From here on nothing is rewritten (D-18): only classified.
     # A failure past this point must never surface as `refused` (exit 1,
     # "nothing committed") while the commit sits on the branch: it reports
-    # the published sha with every fix path's staging entry left as is.
+    # the published sha with every fix path's staging entry left as is. If it
+    # failed before BOTH checks finished (did a hook change the content? did
+    # HEAD move again?), the result is `published-unverified` (exit 8), never
+    # a plain `committed`: the 5 and 7 classifications were not made.
     changed = None
+    verified = False
     try:
         _run_post_commit(root)
         changed = not _tree_matches(_commit_tree_of(root, new), expected_tree)
@@ -1336,6 +1345,7 @@ def _commit(root, record, adir, scratch):
             if changed:
                 lines.append("hook-changed: %s" % new)
             raise _Outcome(7, "moved-after-commit", lines)
+        verified = True
         if changed:
             targets, left = _hook_changed_targets(root, base, new, before)
             left += _sync_real_index(root, before, targets, adir)
@@ -1348,10 +1358,17 @@ def _commit(root, record, adir, scratch):
         return _Outcome(0, "committed",
                         ["commit_sha=%s" % new]
                         + ["index-left-as-is: %s" % p for p in left])
-    except (Refused, OSError, subprocess.SubprocessError) as exc:
+    except _Outcome:
+        raise
+    except Exception as exc:  # any failure at all: the commit IS published
         sys.stderr.write("commit: %s after the commit was published; the "
                          "staging area was left as is\n" % type(exc).__name__)
         left = ["index-left-as-is: %s" % p for p in sorted(known)]
+        if not verified:
+            return _Outcome(8, "published-unverified",
+                            ["published-unverified: %s" % new]
+                            + (["hook-changed: %s" % new] if changed else [])
+                            + left)
         if changed:
             return _Outcome(5, "hook-changed", ["hook-changed: %s" % new] + left)
         return _Outcome(0, "committed", ["commit_sha=%s" % new] + left)
@@ -1384,7 +1401,14 @@ def cmd_commit(root, record, attempt):
         raise
     for line in result.lines:
         sys.stdout.write(line + "\n")
-    _close_attempt(root, fid, attempt, result.outcome)
+    try:
+        _close_attempt(root, fid, attempt, result.outcome)
+    except OSError as exc:
+        # The result is already printed (and may name a published commit), so
+        # the exit code must match it; never turn it into `refused` exit 1. A
+        # still-open attempt is quarantined as `stale` by the next `begin`.
+        sys.stderr.write("commit: %s closing the attempt; the result above "
+                         "stands\n" % type(exc).__name__)
     return result.code
 
 

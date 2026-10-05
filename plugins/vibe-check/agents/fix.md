@@ -172,6 +172,7 @@ Detection agents do NOT produce patches; you do. A finding gives you `file`, `li
      5) echo "hook-changed — record errored: committed, but your commit hook changed what went into that commit; nothing was rewritten" >&2 ;;
      6) echo "head-moved — record errored: HEAD moved during the commit; nothing was published or rewritten; the edit is left applied and uncommitted" >&2 ;;
      7) echo "moved-after-commit — record errored: committed, then HEAD moved again; nothing was rewritten" >&2 ;;
+     8) echo "published-unverified — record errored: committed, but an error stopped the post-commit checks; nothing was rewritten" >&2 ;;
      *) echo "commit refused (exit $rc) — record errored; the edit is left applied and uncommitted. NOTHING is staged and NOTHING is committed on this path." >&2 ;;
    esac
    ```
@@ -184,6 +185,7 @@ Detection agents do NOT produce patches; you do. A finding gives you `file`, `li
    - **5** → `errored`, `commit_sha` null; take the sha from the `hook-changed:` line: "committed as <sha>, but your commit hook changed what went into that commit (it may include your unfinished edits); nothing was rewritten — check `git show <sha>`; the finding stays open".
    - **6** → `errored`: "HEAD moved during the commit (another commit landed); nothing was published or rewritten — check `git log`; the edit is left applied and uncommitted".
    - **7** → `errored`, `commit_sha` null; take the sha from the `moved-after-commit:` line: "committed as <sha>, then HEAD moved again (a post-commit hook or another commit); nothing was rewritten — check `git log`; the finding stays open".
+   - **8** → `errored`, `commit_sha` null; take the sha from the `published-unverified:` line: "committed as <sha>, but an error stopped the checks for a hook changing the commit or HEAD moving again; nothing was rewritten — check `git show <sha>` and `git log`; the finding stays open". If a `hook-changed:` line follows, add "your commit hook changed what went into that commit". Never record it `applied`.
    - **1** → `errored`: "commit refused (path/title validation); the edit is left applied and uncommitted". **2** → `errored` (usage error), same wording.
 
    Whatever the undo or commit fence returns, this attempt is over: never run another fixstage or fixcheck call with this `<A>`. A retry in a later pass starts with a fresh `begin`.

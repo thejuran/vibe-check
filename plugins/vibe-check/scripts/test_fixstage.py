@@ -654,11 +654,12 @@ class TestCommit(CommitCase):
         self.assertTrue(reflog.startswith("commit: "), reflog)
 
     def test_a3_failure_after_publish_reports_the_commit(self):
-        # Anything that fails once the ref is published must report the
-        # published sha (exit 0, staging left as is), never `refused` exit 1.
+        # Anything that fails once the ref is published AND verified (content
+        # unchanged, HEAD where we put it) must report the published sha
+        # (exit 0, staging left as is), never `refused` exit 1.
         def boom(*a, **k):
             raise OSError("SENTINEL_after_publish")
-        for seam in ("_sync_real_index", "_commit_tree_of", "_run_post_commit"):
+        for seam in ("_sync_real_index",):
             with self.subTest(seam=seam):
                 self.setUp_fresh()
                 pre = self.rev()
@@ -675,6 +676,78 @@ class TestCommit(CommitCase):
                 # closed/<attempt>.refused behind.
                 self.assertIsNone(self.closed_outcome(attempt))
                 self.assertIsNone(self.open_id())
+
+    def test_a3b_failure_before_the_checks_finish_is_published_unverified(self):
+        # A failure before the hook-changed AND moved-after-commit checks both
+        # finished is never a plain `committed`: exit 8 names the published
+        # sha with an explicit unverified marker, and nothing is rewritten.
+        # Non-I/O exceptions (ValueError) are covered too, never exit 1.
+        def oserror(*a, **k):
+            raise OSError("SENTINEL_after_publish")
+
+        def valueerror(*a, **k):
+            raise ValueError("SENTINEL_after_publish")
+        cases = (("_run_post_commit", oserror), ("_commit_tree_of", oserror),
+                 ("_head_state_after", oserror),
+                 ("_run_post_commit", valueerror))
+        for seam, exc in cases:
+            with self.subTest(seam=seam, exc=exc.__name__):
+                self.setUp_fresh()
+                pre = self.rev()
+                if seam == "_head_state_after":
+                    real = fixstage._head_state
+                    calls = []
+
+                    # Call 1 is _publish_ref's compare; call 2 is the
+                    # post-publish moved-after-commit check, which fails.
+                    def head_state(root, _real=real, _calls=calls):
+                        _calls.append(1)
+                        if len(_calls) > 1:
+                            raise OSError("SENTINEL_after_publish")
+                        return _real(root)
+                    patch = mock.patch.object(fixstage, "_head_state", head_state)
+                else:
+                    patch = mock.patch.object(fixstage, seam, exc)
+                with patch:
+                    res, attempt = self.fix_flow(self.fix30, runner=self.inproc)
+                self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+                lines = res.stdout.splitlines()
+                self.assertEqual(lines[0], "published-unverified: %s"
+                                 % self.rev())
+                self.assertNotIn("commit_sha=", res.stdout)
+                self.assertEqual(self.rev("HEAD^"), pre)
+                self.assertIn("index-left-as-is: f.txt", res.stdout)
+                self.assertIn("after the commit was published", res.stderr)
+                self.assertNotIn("SENTINEL", res.stderr)
+                self.assertEqual(self.closed_outcome(attempt),
+                                 "published-unverified")
+                self.assertIsNone(self.open_id())
+
+    def test_a3c_mutant_reporting_committed_when_unverified_trips(self):
+        # Mutant: the pre-fix fallback (exit 0 `committed` without the
+        # checks). The real code must differ from it on this seam.
+        def boom(*a, **k):
+            raise OSError("x")
+        with mock.patch.object(fixstage, "_commit_tree_of", boom):
+            res, _ = self.fix_flow(self.fix30, runner=self.inproc)
+        self.assertNotEqual(res.returncode, 0, "unverified reported as committed")
+        self.assertNotIn("commit_sha=", res.stdout)
+
+    def test_a3d_close_failure_after_result_keeps_the_exit_code(self):
+        # An OSError closing the attempt AFTER the result was printed must not
+        # turn a published commit into `refused` exit 1.
+        real = fixstage._close_attempt
+
+        def close(root, fid, attempt, outcome):
+            if outcome == "committed":
+                raise OSError("SENTINEL_close")
+            return real(root, fid, attempt, outcome)
+        with mock.patch.object(fixstage, "_close_attempt", close):
+            res, _ = self.fix_flow(self.fix30, runner=self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.sha_of(res), self.rev())
+        self.assertIn("closing the attempt", res.stderr)
+        self.assertNotIn("SENTINEL", res.stderr)
 
     def setUp_fresh(self):
         self.tearDown()
