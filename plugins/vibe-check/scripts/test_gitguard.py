@@ -21,6 +21,7 @@ Locked here:
 """
 
 import ast
+import json
 import os
 import re
 import sys
@@ -626,6 +627,452 @@ class TestClassifyMutants(unittest.TestCase):
         with mock.patch.object(gitguard, "PURE_READERS", readers), \
                 mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", words):
             self.assertAllowed("file -C -m x")
+
+
+# --------------------------------------------------------------------------- #
+# hook entrypoint (PreToolUse) — scoping, trusted scripts, recording, mutants
+# --------------------------------------------------------------------------- #
+HOOKS_JSON = os.path.join(os.path.dirname(SCRIPTS_DIR), "hooks", "hooks.json")
+
+GUARDED_TOOLS = ("Bash", "Agent", "Task", "Write", "Edit", "MultiEdit",
+                 "NotebookEdit", "EnterWorktree", "ExitWorktree")
+DENIED_NON_BASH_TOOLS = GUARDED_TOOLS[1:]
+
+HOOK_CASES = (  # (agent_type, command, expected rc)
+    (None, "git stash pop", 0),
+    ("vibe-check:fix", "git commit -F m", 0),
+    ("other-plugin:x", "git stash pop", 0),
+    ("general-purpose", "git stash pop", 0),
+    ("vibe-check:compliance", "git stash pop", 2),
+    ("vibe-check:compliance", "git log --oneline -5", 0),
+    ("vibe-check:bugs", "git -C sub diff HEAD~1 | head", 0),
+    ("vibe-check:bugs", "git log && git checkout main", 2),
+    ("vibe-check:triage", "git add .", 2),
+    ("vibe-check:bugs", "grep -rn foo src", 0),
+)
+
+CARRY_STATE_CMD = "cat " + os.path.join(SCRIPTS_DIR, "carry_state.py")
+
+
+def _git_env():
+    env = dict(os.environ)
+    env.update({"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@example.com"})
+    return env
+
+
+def _make_repo(test):
+    import subprocess
+    import tempfile
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    repo = os.path.realpath(tmp.name)
+    env = _git_env()
+    subprocess.run(["git", "init", "-q", repo], check=True, env=env)
+    with open(os.path.join(repo, "a.txt"), "w", encoding="utf-8") as fh:
+        fh.write("one\n")
+    with open(os.path.join(repo, "f.json"), "w", encoding="utf-8") as fh:
+        fh.write("{}\n")
+    subprocess.run(["git", "-C", repo, "add", "a.txt"], check=True, env=env)
+    subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "init"],
+                   check=True, env=env)
+    return repo
+
+
+def _rev_count(repo):
+    import subprocess
+    out = subprocess.run(["git", "-C", repo, "rev-list", "--count", "HEAD"],
+                         check=True, capture_output=True, text=True,
+                         env=_git_env())
+    return int(out.stdout.strip())
+
+
+def _payload(agent, tool="Bash", command=None, cwd=None, tool_input=None):
+    data = {"session_id": "s", "hook_event_name": "PreToolUse",
+            "tool_name": tool, "cwd": cwd}
+    if tool_input is not None:
+        data["tool_input"] = tool_input
+    elif tool == "Bash":
+        data["tool_input"] = {"command": command}
+    else:
+        data["tool_input"] = {"file_path": "x.txt"}
+    if agent is not None:
+        data["agent_type"] = agent
+        data["agent_id"] = "a1"
+    return data
+
+
+def _run_hook(payload_text, cwd):
+    import subprocess
+    if not isinstance(payload_text, str):
+        payload_text = json.dumps(payload_text)
+    proc = subprocess.run([sys.executable, GITGUARD_PY, "hook"],
+                          input=payload_text, capture_output=True, text=True,
+                          cwd=cwd, timeout=30)
+    return proc.returncode, proc.stderr
+
+
+def _hook_in_process(payload):
+    """Run hook_main in-process with stderr captured; -> (rc, stderr)."""
+    import io
+    err = io.StringIO()
+    with mock.patch.object(sys, "stderr", err):
+        rc = gitguard.hook_main(json.dumps(payload))
+    return rc, err.getvalue()
+
+
+def _blocks_path(repo):
+    return os.path.join(repo, ".turingmind", "git-guard", "blocks.jsonl")
+
+
+def _read_blocks(repo):
+    with open(_blocks_path(repo), "r", encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh.read().splitlines()]
+
+
+def _hooks_json_problems(text):
+    """Static contract check for hooks/hooks.json -> list of problems."""
+    problems = []
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return ["not valid JSON"]
+    try:
+        entry = data["hooks"]["PreToolUse"][0]
+        hook = entry["hooks"][0]
+    except (KeyError, IndexError, TypeError):
+        return ["missing hooks.PreToolUse[0].hooks[0]"]
+    matcher = entry.get("matcher")
+    if not isinstance(matcher, str):
+        return ["matcher missing"]
+    for tool in GUARDED_TOOLS:
+        if not re.fullmatch("(?:%s)" % matcher, tool):
+            problems.append("matcher misses " + tool)
+    if hook.get("type") != "command":
+        problems.append("type is not command")
+    if hook.get("command") != "python3":
+        problems.append("command is not python3")
+    if hook.get("args") != ["${CLAUDE_PLUGIN_ROOT}/scripts/gitguard.py",
+                            "hook"]:
+        problems.append("args are not the exec-form gitguard hook")
+    timeout = hook.get("timeout")
+    if not (isinstance(timeout, int) and not isinstance(timeout, bool)
+            and 0 < timeout <= 10):
+        problems.append("timeout not a positive int <= 10")
+    return problems
+
+
+class TestHookScoping(unittest.TestCase):
+    def setUp(self):
+        self.repo = _make_repo(self)
+
+    def test_cases(self):
+        for agent, cmd, expected in HOOK_CASES:
+            with self.subTest(agent=agent, cmd=cmd):
+                rc, _ = _run_hook(_payload(agent, command=cmd, cwd=self.repo),
+                                  self.repo)
+                self.assertEqual(rc, expected)
+
+    def test_review_agent_denied_tools(self):
+        for tool in DENIED_NON_BASH_TOOLS:
+            with self.subTest(tool=tool):
+                rc, _ = _run_hook(_payload("vibe-check:security", tool=tool,
+                                           cwd=self.repo), self.repo)
+                self.assertEqual(rc, 2)
+
+    def test_review_agent_read_allowed(self):
+        rc, _ = _run_hook(_payload("vibe-check:security", tool="Read",
+                                   cwd=self.repo), self.repo)
+        self.assertEqual(rc, 0)
+
+    def test_fix_agent_write_allowed(self):
+        rc, _ = _run_hook(_payload("vibe-check:fix", tool="Write",
+                                   cwd=self.repo), self.repo)
+        self.assertEqual(rc, 0)
+
+    def test_main_session_agent_allowed(self):
+        rc, _ = _run_hook(_payload(None, tool="Agent", cwd=self.repo),
+                          self.repo)
+        self.assertEqual(rc, 0)
+
+    def test_malformed_stdin_never_blocks(self):
+        for text in ("not json", "", "[]"):
+            with self.subTest(text=text):
+                rc, _ = _run_hook(text, self.repo)
+                self.assertEqual(rc, 0)
+
+    def test_non_string_agent_type_never_blocks(self):
+        payload = _payload(None, command="git stash pop", cwd=self.repo)
+        payload["agent_type"] = 123
+        rc, _ = _run_hook(payload, self.repo)
+        self.assertEqual(rc, 0)
+
+    def test_fail_closed_on_internal_error(self):
+        def boom(*a, **k):
+            raise RuntimeError("SENTINEL_boom")
+        with mock.patch.object(gitguard, "classify", boom):
+            rc, err = _hook_in_process(
+                _payload("vibe-check:bugs", command="git log", cwd=self.repo))
+            self.assertEqual(rc, 2)
+            self.assertIn("guard error (fail closed)", err)
+            self.assertNotIn("SENTINEL_boom", err)
+            rc, _ = _hook_in_process(
+                _payload(None, command="git log", cwd=self.repo))
+            self.assertEqual(rc, 0)
+
+    def test_deny_stderr_is_fixed_and_never_echoes_command(self):
+        cmd = "git stash pop " + SENTINEL
+        rc, err = _run_hook(_payload("vibe-check:bugs", command=cmd,
+                                     cwd=self.repo), self.repo)
+        self.assertEqual(rc, 2)
+        self.assertNotIn(SENTINEL, err)
+        self.assertIn("vibe-check: blocked", err)
+        for verb in ("diff", "show", "log", "blame", "status", "rev-parse",
+                     "ls-files"):
+            self.assertIn(verb, err)
+
+    def test_latency_smoke(self):
+        import time
+        payload = _payload(None, command="git status", cwd=self.repo)
+        for _ in range(5):
+            start = time.monotonic()
+            rc, _ = _run_hook(payload, self.repo)
+            self.assertEqual(rc, 0)
+            self.assertLess(time.monotonic() - start, 2.0)
+
+
+class TestHookTrustedScripts(unittest.TestCase):
+    def setUp(self):
+        self.repo = _make_repo(self)
+
+    def _rc(self, agent, cmd):
+        rc, err = _run_hook(_payload(agent, command=cmd, cwd=self.repo),
+                            self.repo)
+        return rc, err
+
+    def test_checker_shape_denied_with_trusted_reason(self):
+        rc, err = self._rc("vibe-check:bugs", FIXSTAGE_BYPASS)
+        self.assertEqual(rc, 2)
+        self.assertIn(gitguard.REASON_TRUSTED_SCRIPT, err)
+
+    def test_absolute_fixstage_commit_denied_and_head_unmoved(self):
+        before = _rev_count(self.repo)
+        cmd = ("python3 %s/fixstage.py commit --root %s --finding-json "
+               "%s/f.json" % (SCRIPTS_DIR, self.repo, self.repo))
+        rc, _ = self._rc("vibe-check:bugs", cmd)
+        self.assertEqual(rc, 2)
+        self.assertEqual(_rev_count(self.repo), before)
+
+    def test_gitsnap_direct_denied(self):
+        rc, _ = self._rc("vibe-check:compliance",
+                         "%s/gitsnap.py check --root %s"
+                         % (SCRIPTS_DIR, self.repo))
+        self.assertEqual(rc, 2)
+
+    def test_dynamic_listing_denies_unlisted_static_script(self):
+        self.assertNotIn("carry_state.py", gitguard.TRUSTED_SCRIPT_BASENAMES)
+        self.assertTrue(os.path.isfile(os.path.join(SCRIPTS_DIR,
+                                                    "carry_state.py")))
+        self.assertEqual(gitguard.classify(CARRY_STATE_CMD), (True, "allowed"))
+        rc, err = self._rc("vibe-check:bugs", CARRY_STATE_CMD)
+        self.assertEqual(rc, 2)
+        self.assertIn(gitguard.REASON_TRUSTED_SCRIPT, err)
+
+    def test_interpreter_and_unlisted_words_denied(self):
+        for cmd in ("python3 -c 'print(1)'", "make"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self._rc("vibe-check:bugs", cmd)[0], 2)
+
+    def test_fix_agent_and_owner_not_blocked(self):
+        self.assertEqual(self._rc("vibe-check:fix", FIXSTAGE_BYPASS)[0], 0)
+        self.assertEqual(self._rc(None, FIXSTAGE_BYPASS)[0], 0)
+
+    def test_plugin_script_names_lists_own_dir(self):
+        names = gitguard._plugin_script_names()
+        self.assertIsInstance(names, frozenset)
+        self.assertIn("carry_state.py", names)
+        self.assertIn("gitguard.py", names)
+        self.assertTrue(all(n == n.lower() for n in names))
+        self.assertTrue(all(n.endswith((".py", ".sh")) for n in names))
+
+    def test_listing_error_fails_closed(self):
+        def boom():
+            raise OSError("SENTINEL_listdir")
+        with mock.patch.object(gitguard, "_plugin_script_names", boom):
+            rc, err = _hook_in_process(
+                _payload("vibe-check:bugs", command="git log", cwd=self.repo))
+        self.assertEqual(rc, 2)
+        self.assertIn("guard error (fail closed)", err)
+
+
+class TestHookRecording(unittest.TestCase):
+    def setUp(self):
+        self.repo = _make_repo(self)
+
+    def test_deny_writes_one_line(self):
+        rc, _ = _run_hook(_payload("vibe-check:compliance",
+                                   command="git stash pop", cwd=self.repo),
+                          self.repo)
+        self.assertEqual(rc, 2)
+        records = _read_blocks(self.repo)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec["agent"], "compliance")
+        self.assertEqual(rec["tool"], "Bash")
+        self.assertEqual(rec["command"], "git stash pop")
+        self.assertEqual(rec["reason"], gitguard.classify("git stash pop")[1])
+
+    def test_allow_writes_nothing(self):
+        rc, _ = _run_hook(_payload("vibe-check:compliance",
+                                   command="git log", cwd=self.repo),
+                          self.repo)
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(_blocks_path(self.repo)))
+
+    def test_found_from_subdirectory(self):
+        sub = os.path.join(self.repo, "a", "b")
+        os.makedirs(sub)
+        rc, _ = _run_hook(_payload("vibe-check:bugs", tool="Agent", cwd=sub),
+                          sub)
+        self.assertEqual(rc, 2)
+        records = _read_blocks(self.repo)
+        self.assertEqual(records[0]["agent"], "bugs")
+        self.assertEqual(records[0]["tool"], "Agent")
+
+    def test_command_sanitized(self):
+        cmd = "git stash `pop`\nrm x " + "y" * 300
+        rc, _ = _run_hook(_payload("vibe-check:bugs", command=cmd,
+                                   cwd=self.repo), self.repo)
+        self.assertEqual(rc, 2)
+        with open(_blocks_path(self.repo), "r", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(len(lines), 1)
+        stored = json.loads(lines[0])["command"]
+        self.assertNotIn("`", stored)
+        self.assertNotIn("\n", stored)
+        self.assertLessEqual(len(stored), 121)
+        self.assertTrue(stored.endswith("…"))
+
+    def test_unknown_agent_and_tool_names_normalised(self):
+        payload = _payload("vibe-check:" + "X" * 3, tool="Agent",
+                           cwd=self.repo)
+        rc, _ = _hook_in_process(payload)
+        self.assertEqual(rc, 2)
+        records = _read_blocks(self.repo)
+        self.assertEqual(records[0]["agent"], "unknown-agent")
+        self.assertEqual(gitguard._short_tool("Bad Tool!"), "unknown-tool")
+
+    def test_unwritable_record_location_still_denies(self):
+        with open(os.path.join(self.repo, ".turingmind"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("not a dir\n")
+        rc, err = _run_hook(_payload("vibe-check:bugs",
+                                     command="git stash pop", cwd=self.repo),
+                            self.repo)
+        self.assertEqual(rc, 2)
+        self.assertIn("vibe-check: blocked", err)
+
+    def test_cwd_outside_repo_still_denies(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as outside:
+            rc, _ = _run_hook(_payload("vibe-check:bugs",
+                                       command="git stash pop", cwd=outside),
+                              outside)
+        self.assertEqual(rc, 2)
+
+
+class TestHooksJson(unittest.TestCase):
+    def _text(self):
+        with open(HOOKS_JSON, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_static_contract(self):
+        self.assertEqual(_hooks_json_problems(self._text()), [])
+
+    def test_description_scopes_the_hook(self):
+        data = json.loads(self._text())
+        desc = data.get("description", "")
+        self.assertIn("FIX-03", desc)
+        self.assertIn("999.20", desc)
+        self.assertIn("main session", desc)
+        self.assertIn("fix agent", desc)
+
+    def test_static_mutant_matcher_without_agent(self):
+        text = self._text()
+        mutated = text.replace("Agent|", "", 1)
+        self.assertNotEqual(mutated, text)
+        self.assertIn("matcher misses Agent", _hooks_json_problems(mutated))
+
+
+class TestHookMutants(unittest.TestCase):
+    def setUp(self):
+        self.repo = _make_repo(self)
+
+    def _rc(self, agent, cmd=None, tool="Bash"):
+        return _hook_in_process(_payload(agent, tool=tool, command=cmd,
+                                         cwd=self.repo))[0]
+
+    def test_a_exemption_widened(self):
+        class _AllVibe(frozenset):
+            def __contains__(self, item):
+                return isinstance(item, str) and item.startswith(
+                    "vibe-check:")
+        widened = _AllVibe({"vibe-check:fix"})
+        self.assertIn("vibe-check:compliance", widened)
+        self.assertNotIn("vibe-check:compliance", gitguard.EXEMPT_AGENTS)
+        self.assertEqual(self._rc("vibe-check:compliance", "git stash pop"), 2)
+        with mock.patch.object(gitguard, "EXEMPT_AGENTS", widened):
+            self.assertEqual(
+                self._rc("vibe-check:compliance", "git stash pop"), 0)
+
+    def test_b_exemption_removed(self):
+        self.assertNotEqual(gitguard.EXEMPT_AGENTS, frozenset())
+        self.assertEqual(self._rc("vibe-check:fix", "git commit -F m"), 0)
+        with mock.patch.object(gitguard, "EXEMPT_AGENTS", frozenset()):
+            self.assertEqual(self._rc("vibe-check:fix", "git commit -F m"), 2)
+
+    def test_c_prefix_typo(self):
+        self.assertNotEqual(gitguard.GUARDED_PREFIX, "vibecheck:")
+        with mock.patch.object(gitguard, "GUARDED_PREFIX", "vibecheck:"):
+            self.assertEqual(
+                self._rc("vibe-check:compliance", "git stash pop"), 0)
+
+    def test_d_deny_tools_emptied(self):
+        self.assertNotEqual(gitguard.DENY_TOOLS, frozenset())
+        self.assertEqual(self._rc("vibe-check:security", tool="Agent"), 2)
+        with mock.patch.object(gitguard, "DENY_TOOLS", frozenset()):
+            self.assertEqual(self._rc("vibe-check:security", tool="Agent"), 0)
+
+    def test_e_error_handler_allows(self):
+        def boom(*a, **k):
+            raise RuntimeError("x")
+        allow = lambda: (True, gitguard.ALLOWED)  # noqa: E731
+        self.assertNotEqual(gitguard._guard_error_verdict(), allow())
+        with mock.patch.object(gitguard, "classify", boom):
+            self.assertEqual(self._rc("vibe-check:bugs", "git log"), 2)
+            with mock.patch.object(gitguard, "_guard_error_verdict", allow):
+                self.assertEqual(self._rc("vibe-check:bugs", "git log"), 0)
+
+    def test_f_dynamic_listing_emptied(self):
+        empty = lambda: frozenset()  # noqa: E731
+        self.assertNotEqual(gitguard._plugin_script_names(), empty())
+        self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 2)
+        with mock.patch.object(gitguard, "_plugin_script_names", empty):
+            self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 0)
+
+    def test_g_listing_not_wired_into_classify(self):
+        real = gitguard.classify
+        seen = []
+
+        def unwired(command, plugin_scripts=frozenset()):
+            seen.append(plugin_scripts)
+            return real(command)
+        self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 2)
+        with mock.patch.object(gitguard, "classify", unwired):
+            self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 0)
+        self.assertTrue(seen and "carry_state.py" in seen[0])
 
 
 if __name__ == "__main__":
