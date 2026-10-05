@@ -383,6 +383,100 @@ class TestTerminalArmsPerConsumer(unittest.TestCase):
             self.assertNotIn("exit 1", line)
 
 
+# --- fix.md verified-flow scanners (pure functions over the prose) --------- #
+
+FIXSTAGE_INV = 'python3 "$VC_ROOT/scripts/fixstage.py" '
+FIXCHECK_INV = 'python3 "$VC_ROOT/scripts/fixcheck.py" '
+APPLY_EDIT = "**Apply the edit with `Edit`.**"
+NEVER_REUSE = "Never reuse an attempt id from an earlier pass"
+NOTHING_COMMITTED = "NOTHING is staged and NOTHING is committed"
+_ATTEMPT_CALL_RE = re.compile(
+    r'(fixstage\.py" (?:snapshot|seal|undo|commit)|fixcheck\.py" (?:baseline|after))')
+_DIRECT_GIT_RE = re.compile(
+    r"^\s*git (add|commit|stash|checkout|reset|restore)\b", re.M)
+_FENCE_RE = re.compile(r"```bash\n(.*?)```", re.S)
+
+
+def _case_arms(text, invocation):
+    """{label: arm text} of the `case` that follows `invocation`, or None."""
+    if invocation not in text:
+        return None
+    start = text.index(invocation)
+    end = text.find("\n   esac", start)
+    if end < 0:
+        return None
+    window = text[start:end]
+    arms = {}
+    for m in re.finditer(r"^\s+(\d|\*)\) (.*)$", window, re.M):
+        arms[m.group(1)] = m.group(2)
+    return arms
+
+
+def commit_gate_problems(text):
+    """Why the commit is NOT reachable only after verification ([] = holds)."""
+    problems = []
+    undo, commit = FIXSTAGE_INV + "undo", FIXSTAGE_INV + "commit"
+    if undo not in text or commit not in text:
+        return ["undo or commit invocation missing"]
+    if text.index(undo) > text.index(commit):
+        problems.append("the undo fence must precede the commit fence")
+    u = _case_arms(text, undo) or {}
+    if "could not undo cleanly" not in u.get("3", ""):
+        problems.append("undo case lacks a 3) arm naming 'could not undo cleanly'")
+    c = _case_arms(text, commit) or {}
+    for label in ("0", "3", "4", "5", "6", "7", "*"):
+        if label not in c:
+            problems.append("commit case lacks a %s) arm" % label)
+    if "applied-uncommitted" not in c.get("3", ""):
+        problems.append("commit 3) arm must name applied-uncommitted")
+    if not ("hook-changed" in c.get("5", "")
+            and "nothing was rewritten" in c.get("5", "")):
+        problems.append("commit 5) arm must name hook-changed and nothing was rewritten")
+    if "moved-after-commit" not in c.get("7", ""):
+        problems.append("commit 7) arm must name moved-after-commit")
+    if NOTHING_COMMITTED in c.get("0", "") or not any(
+            NOTHING_COMMITTED in v for k, v in c.items() if k != "0"):
+        problems.append("'%s' must sit in a non-zero commit arm" % NOTHING_COMMITTED)
+    if "withdrawn" in text:
+        problems.append("the prose must never say a commit was withdrawn")
+    return problems
+
+
+def attempt_lifecycle_problems(text):
+    """Why the attempt lifecycle order / scoping does NOT hold ([] = holds)."""
+    seq = (FIXSTAGE_INV + "begin", FIXSTAGE_INV + "snapshot", APPLY_EDIT,
+           FIXSTAGE_INV + "seal", FIXCHECK_INV + "after")
+    if any(s not in text for s in seq):
+        return ["a lifecycle step is missing"]
+    problems = []
+    idx = [text.index(s) for s in seq]
+    if idx != sorted(idx):
+        problems.append("order must be begin < snapshot < Edit < seal < after")
+    for line in text.split("\n"):
+        for m in _ATTEMPT_CALL_RE.finditer(line):
+            # each invocation runs to the next `&&` / `;` on its line
+            tail = re.split(r"&&|;", line[m.start():], maxsplit=1)[0]
+            if "--attempt" not in tail:
+                problems.append("%s lacks --attempt" % m.group(1))
+    if NEVER_REUSE not in text:
+        problems.append("the never-reuse sentence is missing")
+    return problems
+
+
+def direct_git_mutation_lines(text):
+    """Lines inside bash fences that mutate git state directly."""
+    return [m.group(0).strip() for body in _FENCE_RE.findall(text)
+            for m in _DIRECT_GIT_RE.finditer(body)]
+
+
+def step6_follows_read(text, step0, first_read):
+    commit = FIXSTAGE_INV + "commit"
+    if commit not in text:
+        return False
+    inv = text.index(commit)
+    return text.index(first_read) < inv and text.index(step0) < inv
+
+
 class TestFixAgentOrdering(unittest.TestCase):
     """TRUST-02: a prose edit must not move validation back behind the first disk touch.
 
@@ -479,34 +573,67 @@ class TestFixAgentOrdering(unittest.TestCase):
             guard_calls, 2,
             "expected TWO guard.py gate invocations (step 0 + the sibling gate), "
             "found %d" % guard_calls)
-        fixcommit_calls = self.text.count(
-            'python3 "$VC_ROOT/scripts/fixcommit.py"')
-        self.assertEqual(fixcommit_calls, 1,
-                         "expected the step-6 gate to invoke fixcommit.py once")
+        # Step 6 now commits through fixstage.py (48-06): exactly one begin,
+        # seal, undo and commit invocation, so a duplicated or deleted fence
+        # changes a count.
+        for verb in ("begin", "seal", "undo", "commit"):
+            with self.subTest(verb=verb):
+                self.assertEqual(self.text.count(FIXSTAGE_INV + verb), 1,
+                                 "expected exactly one fixstage %s invocation" % verb)
+        self.assertNotIn('python3 "$VC_ROOT/scripts/fixcommit.py"', self.text)
         self.assertIn("validated a SECOND time", self.text)
 
+    def test_invocation_count_mutant_trips(self):
+        line = next(l for l in self.text.split("\n") if FIXSTAGE_INV + "undo" in l)
+        mutant = self.text.replace(line + "\n", "", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertEqual(mutant.count(FIXSTAGE_INV + "undo"), 0)
+
     def test_step_6_gate_follows_the_first_read(self):
-        # Scoped to the INVOCATION, not to the first mention: the tool-use
-        # sentence at the head of the file names `fixcommit.py` too, and that
-        # mention legitimately precedes step 1.
-        invocation = self.text.index('--finding-json "$findingfile"')
-        self.assertLess(self.text.index(self.FIRST_READ), invocation,
-                        "the pre-commit gate is the SECOND gate, not the first")
-        self.assertLess(self.text.index(self.STEP0), invocation,
-                        "step 0 is the FIRST gate")
+        # Scoped to the commit INVOCATION, not to the first mention: the
+        # tool-use sentence at the head of the file names `fixstage.py` too,
+        # and that mention legitimately precedes step 1.
+        self.assertTrue(step6_follows_read(self.text, self.STEP0, self.FIRST_READ),
+                        "the commit gate must follow step 0 and the first Read")
+
+    def test_step_6_gate_mutant_trips(self):
+        line = next(l for l in self.text.split("\n")
+                    if FIXSTAGE_INV + "commit" in l)
+        mutant = self.text.replace(line + "\n", "", 1).replace(
+            self.FIRST_READ, line + "\n" + self.FIRST_READ, 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(step6_follows_read(mutant, self.STEP0, self.FIRST_READ))
+
+    # `--cleanup=verbatim`, `-F <msgfile>` and the end-of-options `--` now live
+    # in fixstage.py (it builds the commit with commit-tree from the message
+    # file) and are locked by test_fixstage.py. The prose keeps the mechanics
+    # the agent itself is responsible for.
+    RETAINED = ("EXIT CODE",
+                '--finding-json "$GREPO/.turingmind/fixstage/finding.json"',
+                "rc=$?", "Never use `--no-verify`", "temporary index")
 
     def test_retained_commit_mechanics(self):
-        for needle in ("EXIT CODE", "--cleanup=verbatim", '-F "$msgfile"',
-                       "trap 'rm -f", "Never use `--no-verify`",
-                       "End-of-options `--`"):
+        for needle in self.RETAINED:
             with self.subTest(needle=needle):
                 self.assertIn(needle, self.text)
 
-    def test_hard_rules_one_through_five_survive(self):
-        rules = self.text[self.text.index("## Hard rules"):]
-        for n in range(1, 6):
-            with self.subTest(rule=n):
-                self.assertIn("\n%d. **" % n, rules)
+    def test_retained_commit_mechanics_mutant_trips(self):
+        mutant = self.text.replace("temporary index", "staging step")
+        self.assertNotEqual(mutant, self.text)
+        self.assertTrue(any(n not in mutant for n in self.RETAINED))
+
+    def _rules_present(self, text):
+        rules = text[text.index("## Hard rules"):]
+        return all("\n%d. **" % n in rules for n in range(1, 7))
+
+    def test_hard_rules_one_through_six_survive(self):
+        self.assertTrue(self._rules_present(self.text))
+
+    def test_hard_rule_six_mutant_trips(self):
+        mutant = self.text.replace("\n6. **Never commit an unverified fix",
+                                   "\n**Never commit an unverified fix", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(self._rules_present(mutant))
 
     # -- FL-03 (R4): no attacker-influenced value on a command line -------- #
 
@@ -541,26 +668,89 @@ class TestFixAgentOrdering(unittest.TestCase):
                     "%s carries a successful-no-op gate; a rejection there falls "
                     "through into the guarded side effect (F5)" % path)
 
-    def test_the_git_calls_are_inside_the_success_branch(self):
-        start = self.text.index("--finding-json \"$findingfile\"")
-        window = self.text[start:start + 1800]
-        self.assertIn("; then", window)
-        else_idx = window.index("\n   else")
-        for call in ("git add --", "git commit --cleanup=verbatim"):
-            with self.subTest(call=call):
-                self.assertIn(call, window)
-                self.assertLess(window.index(call), else_idx,
-                                "%s must sit in the success branch, above else" % call)
-        self.assertIn("NOTHING is staged and NOTHING is committed",
-                      window[else_idx:])
+    # -- 48-06: the commit is reachable only after verification ------------ #
+
+    def test_commit_only_reachable_after_verification(self):
+        self.assertEqual(commit_gate_problems(self.text), [])
+
+    def test_commit_gate_mutants_trip(self):
+        undo_line = next(l for l in self.text.split("\n")
+                         if FIXSTAGE_INV + "undo" in l)
+        commit_line = next(l for l in self.text.split("\n")
+                           if FIXSTAGE_INV + "commit" in l)
+        arm7 = next(l for l in self.text.split("\n")
+                    if l.strip().startswith("7) ") and "moved-after-commit" in l)
+        arm3 = next(l for l in self.text.split("\n")
+                    if l.strip().startswith("3) ") and "applied-uncommitted" in l)
+        swapped = (self.text.replace(undo_line, "\0UNDO\0", 1)
+                   .replace(commit_line, undo_line, 1)
+                   .replace("\0UNDO\0", commit_line, 1))
+        mutants = {
+            "undo after commit": swapped,
+            "7) arm deleted": self.text.replace(arm7 + "\n", "", 1),
+            "3) arm deleted": self.text.replace(arm3 + "\n", "", 1),
+            "withdrawn wording": self.text.replace(
+                "nothing was rewritten", "the commit was withdrawn", 1),
+            "nothing-committed sentence removed": self.text.replace(
+                " NOTHING is staged and NOTHING is committed on this path.", "", 1),
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(mutant, self.text)
+                self.assertNotEqual(commit_gate_problems(mutant), [])
+
+    def test_attempt_lifecycle_order(self):
+        self.assertEqual(attempt_lifecycle_problems(self.text), [])
+
+    def test_attempt_lifecycle_mutants_trip(self):
+        lines = self.text.split("\n")
+        seal = next(l for l in lines if FIXSTAGE_INV + "seal" in l)
+        after = next(l for l in lines if FIXCHECK_INV + "after" in l)
+        commit = next(l for l in lines if FIXSTAGE_INV + "commit" in l)
+        moved = self.text.replace(seal, "   : # sealed later", 1).replace(
+            after, after + "\n" + seal, 1)
+        mutants = {
+            "seal after the after-check": moved,
+            "commit drops --attempt": self.text.replace(
+                commit, commit.replace(" --attempt <A>", ""), 1),
+            "after drops --attempt": self.text.replace(
+                after, after.replace(" --attempt <A>", ""), 1),
+            "never-reuse sentence deleted": self.text.replace(NEVER_REUSE, "", 1),
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(mutant, self.text)
+                self.assertNotEqual(attempt_lifecycle_problems(mutant), [])
+
+    def test_no_direct_git_mutation_in_fix_md(self):
+        self.assertEqual(direct_git_mutation_lines(self.text), [])
+
+    def test_direct_git_mutation_mutant_trips(self):
+        commit = next(l for l in self.text.split("\n")
+                      if FIXSTAGE_INV + "commit" in l)
+        mutant = self.text.replace(
+            commit, "   git add -- <validated finding file set>\n" + commit, 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertNotEqual(direct_git_mutation_lines(mutant), [])
 
     # -- the tool-use sentence names both trusted scripts ------------------ #
 
     def test_tool_sentence_names_both_trusted_scripts(self):
         head = self.text[:self.text.index("## Procedure")]
-        self.assertIn("`guard.py` at step 0", head)
-        self.assertIn("`fixcommit.py` at step 6", head)
-        self.assertNotIn("in the commit step (nothing else", head)
+        self.assertTrue(self._tool_sentence_holds(head))
+
+    @staticmethod
+    def _tool_sentence_holds(head):
+        return ("`guard.py` at step 0" in head
+                and "`fixstage.py` and `fixcheck.py` at steps 4\u20136" in head
+                and "in the commit step (nothing else" not in head)
+
+    def test_tool_sentence_mutant_trips(self):
+        head = self.text[:self.text.index("## Procedure")]
+        mutant = head.replace("`fixstage.py` and `fixcheck.py` at steps 4\u20136",
+                              "`fixcommit.py` at step 6", 1)
+        self.assertNotEqual(mutant, head)
+        self.assertFalse(self._tool_sentence_holds(mutant))
 
 
 # ======================================================================== #

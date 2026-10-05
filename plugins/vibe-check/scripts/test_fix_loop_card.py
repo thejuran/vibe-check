@@ -23,10 +23,10 @@ PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
 FIX_LOOP = os.path.join(PLUGIN_DIR, "phases", "review", "50-fix-loop.md")
 FIX_MD = os.path.join(PLUGIN_DIR, "agents", "fix.md")
 
-# sha256 of agents/fix.md when this lock was written. The milestone forbids
-# any change to agents/*.md; the payload's fields are fix.md's existing input.
+# sha256 of agents/fix.md after Phase 48 (FIX-01/02/04 rewrite of steps 4-6
+# + W2 description). Any further edit must re-pin deliberately.
 FIX_MD_SHA256 = (
-    "b1c4b166e40df29d59e2b9257dea724dc88f5f0f43ded9b15b04cffbb5468869")
+    "04b18811977a1109276c18f0004e92f4ee78c34a4a0b16a8e5fe42939bc3e31e")
 
 CARD_HEADING = "### The fix-loop card"
 STEP_B_HEADING = "### Step B"
@@ -238,7 +238,7 @@ class TestFixLoopCard(unittest.TestCase):
         self.assertNotEqual(mutant, self.text)
         self.assertFalse(dispatch_pins_hold(mutant))
 
-    # (g3) agents/fix.md untouched
+    # (g3) agents/fix.md changes only with a deliberate re-pin
     def test_fix_md_unchanged(self):
         with open(FIX_MD, "rb") as fh:
             digest = hashlib.sha256(fh.read()).hexdigest()

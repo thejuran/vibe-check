@@ -2233,5 +2233,99 @@ class TestFixMdModelTruth(unittest.TestCase):
         self.assertFalse(fix_md_model_truth_holds(mutant))
 
 
+# --------------------------------------------------------------------------- #
+# Fix agent: the verified flow's vocabulary and ordering (FIX-01, FIX-02)
+# --------------------------------------------------------------------------- #
+FIX_SNAPSHOT_INV = 'fixstage.py" snapshot'
+FIX_BASELINE_INV = 'fixcheck.py" baseline'
+FIX_APPLY_EDIT = "**Apply the edit with `Edit`.**"
+FIX_STATUS_ENUM = ('"status": "applied | applied-uncommitted | unverified | '
+                   'obsolete | needs-human | errored"')
+FIX_LABELS = ("verified by `<command>`", "syntax check only",
+              "problem re-checked; no automated check available")
+FIX_D13 = ("applied, not committed — mixed with your unfinished edits; "
+           "build/test re-run won't see it")
+FIX_OUTCOME_ENUM = '"outcome": "passed|failed|timeout|unavailable|not-run"'
+FIX_EXIT1 = "1 failed/timeout/unavailable (a check that could not run is never a pass)"
+
+
+def fix_snapshot_precedes_edit(text):
+    """snapshot and baseline both precede the first Apply-Edit instruction."""
+    if FIX_APPLY_EDIT not in text:
+        return False
+    edit = text.index(FIX_APPLY_EDIT)
+    return all(inv in text and text.index(inv) < edit
+               for inv in (FIX_SNAPSHOT_INV, FIX_BASELINE_INV))
+
+
+def fix_unavailable_is_unverified(text):
+    """The schema admits `unavailable` and step 5 maps it to exit 1 (undo)."""
+    step5 = text.find("5. **Prove the problem is gone.**")
+    step6 = text.find("6. **Commit only a fix that was proven.**")
+    if step5 < 0 or step6 < step5:
+        return False
+    return FIX_OUTCOME_ENUM in text and FIX_EXIT1 in text[step5:step6]
+
+
+class TestFixMdVerifiedFlow(unittest.TestCase):
+    """agents/fix.md checks a fix before it can be committed (FIX-01, FIX-02)."""
+
+    def setUp(self):
+        self.text = read(FIX_MD_REL)
+
+    def test_snapshot_and_baseline_precede_the_edit(self):
+        self.assertTrue(fix_snapshot_precedes_edit(self.text))
+
+    def test_snapshot_mutant_trips(self):
+        line = next(l for l in self.text.split("\n") if FIX_SNAPSHOT_INV in l)
+        mutant = self.text.replace(line + "\n", "", 1).replace(
+            FIX_APPLY_EDIT, FIX_APPLY_EDIT + "\n" + line, 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(fix_snapshot_precedes_edit(mutant))
+
+    def test_six_statuses_in_schema(self):
+        self.assertIn(FIX_STATUS_ENUM, self.text)
+
+    def test_six_statuses_mutant_trips(self):
+        mutant = self.text.replace("applied | applied-uncommitted | unverified | ",
+                                   "applied | ", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertNotIn(FIX_STATUS_ENUM, mutant)
+
+    def test_three_labels_present(self):
+        for label in FIX_LABELS:
+            with self.subTest(label=label):
+                self.assertIn(label, self.text)
+
+    def test_labels_mutant_trips(self):
+        mutant = self.text.replace("syntax check only", "syntax checked")
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(all(label in mutant for label in FIX_LABELS))
+
+    def test_d13_sentence_present(self):
+        self.assertIn(FIX_D13, self.text)
+
+    def test_d13_mutant_trips(self):
+        mutant = self.text.replace("build/test re-run won't see it",
+                                   "it will be committed later")
+        self.assertNotEqual(mutant, self.text)
+        self.assertNotIn(FIX_D13, mutant)
+
+    def test_unavailable_check_means_unverified(self):
+        self.assertTrue(fix_unavailable_is_unverified(self.text))
+
+    def test_unavailable_mutants_trip(self):
+        mutants = {
+            "enum drops unavailable": self.text.replace(
+                "|timeout|unavailable|not-run", "|timeout|not-run", 1),
+            "exit-1 sentence drops unavailable": self.text.replace(
+                "1 failed/timeout/unavailable", "1 failed/timeout", 1),
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(mutant, self.text)
+                self.assertFalse(fix_unavailable_is_unverified(mutant))
+
+
 if __name__ == "__main__":
     unittest.main()
