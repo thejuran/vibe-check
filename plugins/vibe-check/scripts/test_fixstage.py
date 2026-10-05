@@ -559,5 +559,202 @@ class TestUndo(FixstageCase):
         self.assertFalse(self.owner_edit_survived(self.repo))
 
 
+# ---------------------------------------------------------------- commit tests
+
+FIX30 = "line 30 fixed"
+OWNER5 = "line 5 owner"
+
+
+def commit_carries_only(repo, sha, expected_line):
+    """True when commit `sha` adds exactly one line, `expected_line`."""
+    out = git(repo, "show", "--format=", "--unified=0", sha).stdout
+    added = [line[1:] for line in out.splitlines()
+             if line.startswith("+") and not line.startswith("+++")]
+    return added == [expected_line]
+
+
+def _swept_commit(repo, path):
+    """The 999.15 defect: `git add` + a pathspec commit of the whole file."""
+    git(repo, "add", "--", path)
+    git(repo, "commit", "-q", "-m", "swept", "--", path)
+    return git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def _post_from_working_tree(root, adir, entry):
+    """Mutant: read the 'post' bytes from the working tree, not the seal."""
+    with open(os.path.join(root, entry["path"]), "rb") as fh:
+        return fh.read()
+
+
+class CommitCase(FixstageCase):
+    """Commit helpers: a full begin -> snapshot -> edit -> seal -> commit flow."""
+
+    def rev(self, name="HEAD"):
+        return git(self.repo, "rev-parse", name).stdout.strip()
+
+    def index_state(self):
+        return git(self.repo, "ls-files", "-s").stdout
+
+    def fix_flow(self, edits, owner_after_seal=None, runner=None, paths=None):
+        if paths is not None:
+            self.set_record(list(paths))
+        attempt = self.begin()
+        self.ok("snapshot", attempt)
+        edits()
+        self.ok("seal", attempt)
+        if owner_after_seal is not None:
+            owner_after_seal()
+        return self.sub("commit", attempt, runner), attempt
+
+    def sha_of(self, res):
+        for line in res.stdout.splitlines():
+            if line.startswith("commit_sha="):
+                return line[len("commit_sha="):]
+        self.fail("no commit_sha in %r" % res.stdout)
+
+    def closed_outcome(self, attempt):
+        closed = os.path.join(self.sdir(), "closed")
+        if not os.path.isdir(closed):
+            return None
+        for name in os.listdir(closed):
+            if name.startswith(attempt + "."):
+                return name[len(attempt) + 1:]
+        return None
+
+    def fix30(self):
+        self.edit_line("f.txt", 30, FIX30 + "\n")
+
+    def owner5(self):
+        self.edit_line("f.txt", 5, OWNER5 + "\n")
+
+    def committed_text(self, rev, path="f.txt"):
+        return git(self.repo, "show", "%s:%s" % (rev, path)).stdout
+
+
+class TestCommit(CommitCase):
+
+    def test_a_owner_unstaged_edit_stays_out(self):
+        self.owner5()
+        pre = self.rev()
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        sha = self.sha_of(res)
+        self.assertEqual(sha, self.rev())
+        self.assertEqual(self.rev("HEAD^"), pre)
+        stat = git(self.repo, "show", "--format=", "--name-only", sha).stdout
+        self.assertEqual(stat.split(), ["f.txt"])
+        self.assertTrue(commit_carries_only(self.repo, sha, FIX30))
+        self.assertIn(OWNER5, self.read("f.txt").decode())
+        self.assertEqual(git(self.repo, "diff", "--cached").stdout, "")
+        self.assertFalse(os.path.exists(
+            os.path.join(self.repo, ".git", "index.lock")))
+        reflog = git(self.repo, "reflog", "show", "--format=%gs", "-n1",
+                     "refs/heads/main").stdout
+        self.assertTrue(reflog.startswith("commit: "), reflog)
+
+    def _a2(self, runner=None):
+        return self.fix_flow(
+            self.fix30,
+            owner_after_seal=lambda: self.edit_line("f.txt", 12, "line 12 owner\n"),
+            runner=runner)
+
+    def test_a2_owner_edit_after_seal_stays_out(self):
+        res, _ = self._a2()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertTrue(commit_carries_only(self.repo, self.sha_of(res), FIX30))
+        self.assertIn("line 12 owner", self.read("f.txt").decode())
+
+    def test_b_foreign_staged_file_stays_staged(self):
+        write(self.repo, "g.txt", "g staged\n")
+        git(self.repo, "add", "--", "g.txt")
+        staged = git(self.repo, "ls-files", "-s", "--", "g.txt").stdout
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        sha = self.sha_of(res)
+        self.assertEqual(git(self.repo, "ls-files", "-s", "--", "g.txt").stdout,
+                         staged)
+        names = git(self.repo, "show", "--format=", "--name-only", sha).stdout
+        self.assertNotIn("g.txt", names.split())
+        self.assertEqual(git(self.repo, "diff", "--cached", "--name-only").stdout
+                         .split(), ["g.txt"])
+
+    def test_c_two_fixes_same_file_two_commits(self):
+        res1, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res1.returncode, 0, res1.stdout + res1.stderr)
+        res2, _ = self.fix_flow(
+            lambda: self.edit_line("f.txt", 10, "line 10 fixed\n"))
+        self.assertEqual(res2.returncode, 0, res2.stdout + res2.stderr)
+        sha1, sha2 = self.sha_of(res1), self.sha_of(res2)
+        self.assertNotEqual(sha1, sha2)
+        self.assertEqual(self.rev("HEAD^"), sha1)
+        self.assertTrue(commit_carries_only(self.repo, sha1, FIX30))
+        self.assertTrue(commit_carries_only(self.repo, sha2, "line 10 fixed"))
+
+    def test_g_created_file_modes(self):
+        for name, perm, mode in (("new.txt", 0o644, "100644"),
+                                 ("new.sh", 0o755, "100755")):
+            with self.subTest(name=name):
+                def create():
+                    write(self.repo, name, "created\n")
+                    os.chmod(os.path.join(self.repo, name), perm)
+                res, _ = self.fix_flow(create, paths=[name])
+                self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+                entry = git(self.repo, "ls-tree", self.sha_of(res), "--",
+                            name).stdout
+                self.assertTrue(entry.startswith(mode + " "), entry)
+                self.assertEqual(git(self.repo, "diff", "--cached").stdout, "")
+
+    def test_g2_attempt_closed_after_commit(self):
+        res, attempt = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIsNone(self.open_id())
+        self.assertFalse(os.path.exists(os.path.join(self.sdir(), attempt)))
+        again = self.sub("commit", attempt)
+        self.assertEqual(again.returncode, 1)
+        self.assertIn("stale", again.stderr)
+
+    def test_g3_busy_index_lock_left_alone(self):
+        lock = os.path.join(self.repo, ".git", "index.lock")
+
+        def take_lock():
+            with open(lock, "wb") as fh:
+                fh.write(b"another process\n")
+        try:
+            res, _ = self.fix_flow(self.fix30, owner_after_seal=take_lock)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertIn("index-left-as-is: f.txt", res.stdout.splitlines())
+            with open(lock, "rb") as fh:
+                self.assertEqual(fh.read(), b"another process\n")
+        finally:
+            if os.path.exists(lock):
+                os.unlink(lock)
+
+    def test_g4_unborn_repo(self):
+        self.repo = gitfixture.make_repo(os.path.join(self.tmp, "unborn"))
+        res, _ = self.fix_flow(lambda: write(self.repo, "new.txt", "first\n"),
+                               paths=["new.txt"])
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        sha = self.sha_of(res)
+        self.assertEqual(self.rev("main"), sha)
+        parents = git(self.repo, "rev-list", "--parents", "-n1", sha).stdout
+        self.assertEqual(parents.split(), [sha])
+        self.assertEqual(git(self.repo, "symbolic-ref", "HEAD").stdout.strip(),
+                         "refs/heads/main")
+
+    # ------------------------------------------------------------- mutants
+
+    def test_l_swept_commit_is_detected(self):
+        self.owner5()
+        self.fix30()
+        sha = _swept_commit(self.repo, "f.txt")
+        self.assertFalse(commit_carries_only(self.repo, sha, FIX30))
+
+    def test_l2_mutant_post_from_working_tree_sweeps_owner_edit(self):
+        with mock.patch.object(fixstage, "_post_bytes", _post_from_working_tree):
+            res, _ = self._a2(self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(commit_carries_only(self.repo, self.sha_of(res), FIX30))
+
+
 if __name__ == "__main__":
     unittest.main()
