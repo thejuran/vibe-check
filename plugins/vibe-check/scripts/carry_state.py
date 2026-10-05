@@ -598,7 +598,11 @@ def _reject_constant(_name):
     raise ValueError("non-finite number")
 
 
-def _load_json_text(text):
+def load_json_text(text):
+    """Parse JSON text strictly: NaN/Infinity raise ValueError.
+
+    Public so batch_card.py shares the same strict loader for its state input.
+    """
     return json.loads(text, parse_constant=_reject_constant)
 
 
@@ -608,7 +612,7 @@ def read_json_file(path):
         return None
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            return _load_json_text(fh.read())
+            return load_json_text(fh.read())
     except (OSError, ValueError, UnicodeDecodeError):
         return None
 
@@ -625,7 +629,7 @@ def run(argv, stdin_text):
         return _refuse(USAGE), ""
     sub, flags = parsed
     try:
-        state = _load_json_text(stdin_text)
+        state = load_json_text(stdin_text)
     except ValueError:
         return _refuse(REASON_STATE_JSON), ""
     reason = state_reason(state)

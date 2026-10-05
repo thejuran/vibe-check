@@ -933,7 +933,7 @@ def _run_rows(flags, state):
 def _load_state(stdin_text):
     """(state, None) or (None, reason)."""
     try:
-        state = carry_state._load_json_text(stdin_text)
+        state = carry_state.load_json_text(stdin_text)
     except ValueError:
         return None, REASON_STATE_JSON
     reason = carry_state.state_reason(state)
