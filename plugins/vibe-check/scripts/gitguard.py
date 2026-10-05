@@ -30,7 +30,25 @@ Contract (fail CLOSED on every ambiguity):
   - any token whose basename is a trusted plugin script refuses
   - reasons are FIXED strings that never echo the command (callers render a
     sanitized command separately)
-  - pure — no I/O; the hook CLI that reads the tool-call JSON is the only I/O
+  - classify itself is pure — no I/O; only the CLI below does I/O
+
+CLI (python3 gitguard.py <subcommand>):
+  hook                      PreToolUse hook; stdin = the tool-call JSON.
+                            exit 0 allow | 2 deny (+ one fixed stderr line).
+                            Guards only `vibe-check:*` agents other than
+                            `vibe-check:fix`; never the main session or other
+                            plugins. Each refusal is appended to
+                            <repo>/.turingmind/git-guard/blocks.jsonl.
+  notices --root R [--consume] [--repo-changed]
+                            prints one sanitized line per recorded block
+                            ("Blocked: <agent> tried `<cmd>` — repo
+                            untouched."), at most 10 plus a "…and N more"
+                            line; --consume deletes the record file after.
+                            The orchestrator must copy these lines into the
+                            review as its own message text — never leave them
+                            only inside Bash output, which the owner may not
+                            see. exit 0 | 2 usage.
+  reset --root R            deletes the record file if present. exit 0 | 2.
 
 I/O: stdlib only. The module's full import set is {argparse, json, os, re,
 shlex, sys}; it never imports subprocess, shutil or socket.
@@ -903,6 +921,71 @@ def hook_main(stdin_text):
 
 
 # --------------------------------------------------------------------------- #
+# notices renderer
+# --------------------------------------------------------------------------- #
+NOTICE_CAP = 10
+_GARBLED = object()
+
+
+def _blocks_file(root):
+    return os.path.join(root, BLOCKS_RELPATH)
+
+
+def _remove_blocks(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _load_records(path):
+    """Parse blocks.jsonl -> list of dicts or _GARBLED; missing file -> []."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except FileNotFoundError:
+        return []
+    records = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = _GARBLED
+        records.append(record if isinstance(record, dict) else _GARBLED)
+    return records
+
+
+def _render_one(record, suffix):
+    if not isinstance(record, dict):
+        return "Blocked: unknown-agent tried an unreadable command — %s" % suffix
+    agent = record.get("agent")
+    if not (isinstance(agent, str) and _SHORT_AGENT_RE.match(agent)):
+        agent = "unknown-agent"
+    tool = _short_tool(record.get("tool"))
+    if tool != "Bash":
+        return "Blocked: %s tried to use the `%s` tool — %s" % (
+            agent, tool, suffix)
+    command = _sanitize_command(record.get("command"))
+    if not command:
+        return "Blocked: %s tried an unreadable command — %s" % (agent, suffix)
+    return "Blocked: %s tried `%s` — %s" % (agent, command, suffix)
+
+
+def render_notices(records, repo_changed):
+    """One sanitized line per block, capped at NOTICE_CAP plus a tail line."""
+    suffix = "this attempt was refused." if repo_changed else "repo untouched."
+    records = list(records)
+    lines = [_render_one(r, suffix) for r in records[:NOTICE_CAP]]
+    extra = len(records) - NOTICE_CAP
+    if extra > 0:
+        lines.append("…and %d more blocked attempt%s"
+                     % (extra, "" if extra == 1 else "s"))
+    return lines
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def _build_parser():
@@ -911,6 +994,12 @@ def _build_parser():
         description="vibe-check review-agent git guard (see module docstring).")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("hook", help="PreToolUse hook (stdin = hook JSON)")
+    notices = sub.add_parser("notices", help="render recorded blocks")
+    notices.add_argument("--root", required=True)
+    notices.add_argument("--consume", action="store_true")
+    notices.add_argument("--repo-changed", action="store_true")
+    reset = sub.add_parser("reset", help="delete recorded blocks")
+    reset.add_argument("--root", required=True)
     return parser
 
 
@@ -926,6 +1015,23 @@ def run(argv):
         except (OSError, ValueError):
             return 0
         return hook_main(text)
+    path = _blocks_file(args.root)
+    if args.cmd == "reset":
+        _remove_blocks(path)
+        return 0
+    if args.cmd == "notices":
+        try:
+            records = _load_records(path)
+        except OSError as exc:
+            sys.stderr.write("gitguard: could not read block records (%s)\n"
+                             % type(exc).__name__)
+            return 1
+        for line in render_notices(records, args.repo_changed):
+            sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+        if args.consume:
+            _remove_blocks(path)
+        return 0
     return 2
 
 
