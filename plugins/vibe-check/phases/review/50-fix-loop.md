@@ -125,11 +125,12 @@ Dispatch ONE `Task` call to the `fix` agent with the selected findings:
 ```
 You are the fix agent. Apply each accepted finding per your subagent instructions (agents/fix.md):
 Read the file, locate the real site (use current_code as the anchor — line numbers may have
-drifted), design and apply the smallest correct fix, verify your own edit, then commit each finding
-atomically per the commit step in agents/fix.md (message via -F file; commit the finding's
-validated file set — every file it touched, primary + siblings — as the `--` pathspec on BOTH
-`git add` and `git commit`, so it is neither a single path nor a pathspec-less commit that would
-capture whatever else is staged; no --no-verify).
+drifted) and design the smallest correct fix. Then snapshot and baseline-check each file before
+editing it, apply the fix, re-check that the cited condition is gone and run the after-check, undo
+your own edit and report `unverified` if it is not, and otherwise commit through `fixstage.py commit`
+exactly as agents/fix.md steps 4-6 say (a fresh `fixstage.py begin` attempt per finding, seal right
+after your last edit, only your own hunks, one commit per finding, never `git add`/`git commit`
+yourself, no --no-verify).
 
 PASS_NUMBER = {{$PASS_NUMBER}}
 
@@ -146,7 +147,7 @@ command line — see the commit step in agents/fix.md for the file-based, `--`-g
 Return ONE JSON object per agents/fix.md (the {"agent":"fix","results":[...]} shape). JSON only.
 ```
 
-Parse the returned `results[]`. Each has `status ∈ {applied, obsolete, needs-human, errored}`, `commit_sha`, `files_touched`, `summary`.
+Parse the returned `results[]`. Each has `status ∈ {applied, applied-uncommitted, unverified, obsolete, needs-human, errored}`, plus `commit_sha`, `files_touched`, `check` (`{kind, command, outcome, label}`, or null when no edit was attempted) and `summary`. A result whose `status` is not one of those six is treated as `errored` in the render (it never closes anything — `carry_state.py` records only `obsolete`).
 
 **Record fix verdicts (the ONE state write Phase 5 makes — through the helper, never by hand).**
 1. Bind `$POST_BLOBS` = the same `git rev-parse "HEAD:<file>"` read for the same validated files (a file that failed the path validation above is still never passed to git), run now that every fix commit has landed, and `$POST_CLEAN` = the same two `git diff` checks re-run now.
@@ -154,10 +155,10 @@ Parse the returned `results[]`. Each has `status ∈ {applied, obsolete, needs-h
    - (i) names an `obsolete` result (the file of the sent finding with that id);
    - (ii) has `$POST_BLOBS[file] == $PRE_BLOBS[file]` — the file is byte-identical across the whole batch, so the code the agent judged IS the code at HEAD;
    - (ii-b) is clean at BOTH samples — `$PRE_CLEAN[file]` and `$POST_CLEAN[file]` both true — so a file with uncommitted edits before the batch, or left dirty by an `errored`/`needs-human` fix after it, is never bound even though no `applied` result names it (codex rewrite-3 high);
-   - (iii) does not appear in `files_touched` of any result with `status == "applied"` (belt-and-braces over the agent-claimed list; the blob equality and cleanliness are the gate, the list is not relied on alone).
+   - (iii) does not appear in `files_touched` of any result with status `applied`, `applied-uncommitted` or `unverified` — such a file was edited, may still be dirty, or was restored by an undo, so it is never evidence for an obsolete verdict (belt-and-braces over the agent-claimed list; the blob equality and cleanliness are the gate, the list is not relied on alone).
 
    Every other `obsolete` result is UNBOUND: its file is absent from `blobs`, so `carry_state.py` does not record it (its `fix verdict skipped: no file fingerprint` stderr line, exit 0, nothing written for that verdict) and the finding stays open to be rechecked on the next pass (the `<recheck>` hint path, or a fresh `obsolete` in a later batch that does not touch the file).
-3. Serialize `{"at_pass": <state.passes[-1].pass_number>, "head_sha": <git rev-parse HEAD, run now — the post-batch revision>, "sent": $FIX_SENT, "results": <the parsed results array verbatim>, "blobs": <the subset above>}` to a temp file with the Write tool (`$verdictfile`). `at_pass` is the LAST PERSISTED pass's number read from `$STATE_FILE` — the same last-pass number Finalize stamps on the owner's choices — never `$PASS_NUMBER`: when Finalize routes into this file, `$PASS_NUMBER` is `passes[-1].pass_number + 1` with no pass written for it, so a verdict stamped with it could never close anything; the helper refuses a payload whose `at_pass` is not the last pass's number. The results carry agent-authored `summary` text, so this payload never goes on a command line — the same rule as `fixcommit.py`'s `--finding-json`. Then run under bash:
+3. Serialize `{"at_pass": <state.passes[-1].pass_number>, "head_sha": <git rev-parse HEAD, run now — the post-batch revision>, "sent": $FIX_SENT, "results": <the parsed results array verbatim>, "blobs": <the subset above>}` to a temp file with the Write tool (`$verdictfile`). `at_pass` is the LAST PERSISTED pass's number read from `$STATE_FILE` — the same last-pass number Finalize stamps on the owner's choices — never `$PASS_NUMBER`: when Finalize routes into this file, `$PASS_NUMBER` is `passes[-1].pass_number + 1` with no pass written for it, so a verdict stamped with it could never close anything; the helper refuses a payload whose `at_pass` is not the last pass's number. The results carry agent-authored `summary` text, so this payload never goes on a command line — the same rule as `fixstage.py`'s `--finding-json`. Then run under bash:
    ```bash
    if python3 "$VC_ROOT/scripts/carry_state.py" record-fix-verdicts --verdicts-file "$verdictfile" < "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"; then
      :
@@ -176,27 +177,80 @@ How it is consumed: Finalize's `carry_state.py finalize-counts --head-blobs` tre
 
 **The fix agent is the only apply path.** Do NOT apply fixes inline from the orchestrator. The orchestrator's `allowed-tools` retains `Edit`/`Bash(git:*)` only for the documented inline-fallback case below; everything else — including findings the user hand-specifies after a `needs-human` — is re-dispatched to the `fix` agent so there is exactly one commit-message convention.
 
-**Inline fallback (narrow, fully specified).** Apply a fix inline from the orchestrator ONLY when re-dispatching the agent is impossible for this invocation (e.g. the finding edits the `fix` agent's own spec, or `$TURINGMIND_NONINTERACTIVE` blocks a sub-dispatch). When you do:
-- Commit through the SAME trusted helper `agents/fix.md` step 6 uses — `fixcommit.py` — never a hand-built commit. Serialize the finding record `{"pass_number": …, "title": …, "paths": [...]}` with the Write tool (`paths` = the finding's validated file set: every file the fix touched, primary + siblings); never put the title or a path on a command line, because the shell expands a command line before any helper runs. The helper re-validates every path (regex pre-filter + `guard.py` containment) and the title, REJECTS rather than strips, and writes the commit message file. The git calls sit INSIDE its success branch, so a rejection makes them unreachable:
+**Inline fallback (narrow, fully specified).** Apply a fix inline from the orchestrator ONLY when re-dispatching the agent is impossible for this invocation (e.g. the finding edits the `fix` agent's own spec, or `$TURINGMIND_NONINTERACTIVE` blocks a sub-dispatch). When you do, run the SAME verified, hunk-isolated flow `agents/fix.md` steps 4-6 run, through the same trusted helpers — `fixstage.py` and `fixcheck.py` — never a hand-built `git add`/`git commit`. Shell state does not persist between Bash calls, so every fence below re-derives `GREPO`; `<A>` is a placeholder you substitute with the attempt id, not a shell token.
+- **Write the finding record.** Serialize `{"id": …, "pass_number": …, "title": …, "paths": [...]}` with the Write tool to `.turingmind/fixstage/finding.json` under the repository top (`paths` = the finding's validated file set: every file the fix will touch, primary + siblings). Never put the title or a path on a command line, because the shell expands a command line before any helper runs; the record is the only way they reach the helpers, which re-validate every path (regex pre-filter + `guard.py` containment) and the title and REJECT rather than strip.
+- **Open a fresh attempt.** Run under bash:
   ```bash
   GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
-  msgfile=$(mktemp)                                   # assign before use
-  trap 'rm -f "$msgfile" "$findingfile"' EXIT         # clean up the temp files on exit
-  if python3 "$VC_ROOT/scripts/fixcommit.py" --finding-json "$findingfile" \
-       --root "$GREPO" --msgfile "$msgfile"; then
-    git add -- <validated finding file set>
-    git commit --cleanup=verbatim -F "$msgfile" -- <validated finding file set>
+  python3 "$VC_ROOT/scripts/fixstage.py" begin --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json"; rc=$?
+  case "$rc" in
+    0) echo "attempt opened — copy the attempt= value printed above" ;;
+    *) echo "fixstage begin refused (exit $rc) — recording errored; nothing was edited" >&2 ;;
+  esac
+  ```
+  On exit 0 copy the 32-hex value from the `attempt=<A>` line into every later call for this finding. Open a new `begin` for every finding, and never use an attempt id from an earlier pass or another finding. Any other exit → `errored`; nothing was edited.
+- **Snapshot and baseline BEFORE the inline Edit.** Give this Bash call `timeout: 300000`:
+  ```bash
+  GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+  if python3 "$VC_ROOT/scripts/fixstage.py" snapshot --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json" --attempt <A> && python3 "$VC_ROOT/scripts/fixcheck.py" baseline --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json" --attempt <A>; then
+    : # pre-edit bytes recorded and the check chosen — the inline Edit may now proceed
   else
-    # record `errored` for this finding. NOTHING is staged and NOTHING is committed on this path.
-    echo "fixcommit refused — recording errored for this finding; no git operation performed" >&2
+    echo "snapshot/baseline refused — recording errored; nothing was edited" >&2
   fi
   ```
-  `$findingfile` (the path of the record you wrote) and `<validated finding file set>` are runtime values you substitute. The `--` pathspec on BOTH `git add` and `git commit` is the finding's validated file set — NOT a single `<finding.file>` and NOT a pathspec-less commit that would sweep in everything else that happens to be staged (the pathspec is what scopes the commit to exactly this finding's files). The message goes in by file via `-F`, never inline `-m` (that reintroduces the title-injection vector); no `--no-verify`.
-- Record a synthetic result `{id, status: "applied", commit_sha, files_touched, summary}` so it renders identically to agent results.
+  A refusal makes the Edit unreachable: record `errored`.
+- **Edit, then seal at once** — right after the last inline Edit and before any check runs:
+  ```bash
+  GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+  if python3 "$VC_ROOT/scripts/fixstage.py" seal --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json" --attempt <A>; then
+    : # the fix's own bytes are recorded — the re-check and the after-check may now run
+  else
+    echo "seal refused — recording errored: could not record the fix's edit; left applied and uncommitted" >&2
+  fi
+  ```
+  A seal refusal ends the finding as `errored`: no check, no undo, no commit. No further Edit after sealing.
+- **Re-check, then run the after-check.** Re-read the changed region and decide whether the cited condition still holds. Then, with `timeout: 300000`:
+  ```bash
+  GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+  python3 "$VC_ROOT/scripts/fixcheck.py" after --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json" --attempt <A>; rc=$?
+  echo "after-check exit $rc"
+  ```
+  Keep the JSON line it prints (`kind`, `command`, `outcome`, `label`) as the result's `check`.
+- **Undo when the fix is not proven.** Undo when the cited condition still holds OR `fixcheck.py after` exited non-zero: exit 1 covers the outcomes `failed`, `timeout` AND `unavailable` (the check chosen before the edit could not run after it — never a pass), and exit 2 means no baseline exists for this attempt (the check could not run). Only the fix's own edit is reversed:
+  ```bash
+  GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+  python3 "$VC_ROOT/scripts/fixstage.py" undo --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json" --attempt <A>; rc=$?
+  case "$rc" in
+    0) echo "undone — record unverified with the reason and the check; nothing was committed" ;;
+    3) echo "could not undo cleanly: the not-undone paths above changed while the check ran and were left as is — record errored; nothing was committed" >&2 ;;
+    *) echo "undo refused (exit $rc) — record errored; the file is left as is and nothing was committed" >&2 ;;
+  esac
+  ```
+  Exit 0 → `unverified` with the reason and the `check`; 3 → `errored` "could not undo cleanly; left as is" naming the `not-undone:` paths; anything else → `errored` "undo refused; file left as is".
+- **Otherwise commit through fixstage** — the cited condition is gone AND the after-check exited 0:
+  ```bash
+  GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+  python3 "$VC_ROOT/scripts/fixstage.py" commit --root "$GREPO" --finding-json "$GREPO/.turingmind/fixstage/finding.json" --attempt <A>; rc=$?
+  case "$rc" in
+    0) echo "committed — record applied; commit_sha is the commit_sha= value above" ;;
+    3) echo "not separable — record applied-uncommitted: applied, not committed — mixed with your unfinished edits; build/test re-run won't see it" >&2 ;;
+    4) echo "commit-not-created — record errored: your commit hook rejected the commit (or it could not be signed); the edit is left applied and uncommitted" >&2 ;;
+    5) echo "hook-changed — record errored: committed, but your commit hook changed what went into that commit; nothing was rewritten" >&2 ;;
+    6) echo "head-moved — record errored: HEAD moved; nothing published or rewritten; the edit is left applied and uncommitted" >&2 ;;
+    7) echo "moved-after-commit — record errored: committed, then HEAD moved again; nothing was rewritten" >&2 ;;
+    *) echo "commit refused (exit $rc) — record errored; the edit is left applied and uncommitted. NOTHING is staged and NOTHING is committed on this path." >&2 ;;
+  esac
+  ```
+  Exit 0 → `applied` with the `commit_sha=` value, plus "your staging area still holds the old version of <p> — review `git status` before your next commit" for each `index-left-as-is: <p>` line; 3 → `applied-uncommitted`; 4 → `errored` "your commit hook rejected the commit; the edit is left applied and uncommitted"; 5 → `errored` "committed as <sha>, but your commit hook changed what went into it; nothing was rewritten — check `git show <sha>`" (sha from the `hook-changed:` line); 6 → `errored` "HEAD moved; nothing published or rewritten; the edit is left applied and uncommitted"; 7 → `errored` "committed as <sha>, then HEAD moved again; nothing was rewritten — check `git log`" (sha from the `moved-after-commit:` line); anything else → `errored` "commit refused; the edit is left applied and uncommitted". fixstage builds the message from the record by file, never inline `-m` (that would reintroduce the title-injection vector), runs the owner's hooks itself, and is never given `--no-verify`.
+- Whatever the undo or commit returned, this attempt is over: never run another fixstage or fixcheck call with this `<A>`. Record a synthetic result `{id, status, commit_sha, files_touched, check, summary}` with the status above, so it renders identically to agent results.
 
-**Render results** under a `### Fixes applied` heading, grouped by status:
-- `applied` → link each `commit_sha`, show the one-line `summary`.
-- `obsolete` / `needs-human` / `errored` → list with `summary` so the user can address them by hand (or pick Stop here… → I'll fix by hand, then rerun on the next card). These are reported outcomes, never silent drops. An `obsolete` result whose file was NOT in `blobs` is rendered with the suffix `(not recorded as verified — this file was changed by another fix in the same batch or differs from HEAD in the working tree/index; it will be rechecked on the next pass)` so the owner sees that the verdict was heard but not accepted as evidence (D-11 visibility).
+**Render results** in the turn after the single fix `Task` returns, copied into your reply as message text (never left only in a Bash call's output, which the terminal collapses), under a `### Fixes applied` heading, grouped by status:
+- `applied` → link each `commit_sha`, show the one-line `summary`, then the check that backed it — `check.label` verbatim: "verified by `<command>`", "syntax check only", or "problem re-checked; no automated check available".
+- `applied-uncommitted` → one line per file in `files_touched`: "<file>: applied, not committed — mixed with your unfinished edits; build/test re-run won't see it", then the `summary`.
+- `unverified` → "not applied — <summary> (check: <check.command> → <check.outcome>); the finding stays open". A `check.outcome` of `unavailable` is rendered as "could not run" — the check chosen before the edit could not be run after it, so it is never shown as verified.
+- `obsolete` / `needs-human` / `errored` (and any unknown status, rendered as `errored`) → list with `summary` so the user can address them by hand (or pick Stop here… → I'll fix by hand, then rerun on the next card). These are reported outcomes, never silent drops. An `obsolete` result whose file was NOT in `blobs` is rendered with the suffix `(not recorded as verified — this file was changed by another fix in the same batch or differs from HEAD in the working tree/index; it will be rechecked on the next pass)` so the owner sees that the verdict was heard but not accepted as evidence (D-11 visibility).
+
+Committed fixes move HEAD, so an orchestrator watching HEAD (julian-orchestrator's head_changed_since revalidation) re-runs its checks; applied-but-uncommitted fixes do not move HEAD, which is why their line says build/test re-run won't see them.
 
 The pass entry still carries no applied-commit list (`fixes_applied` stays `pass_forbidden` — DIET-03/999.8: Phase 5 never re-opens the pass entry Phase 4.5 wrote). Phase 5's only state write is the ROOT `fix_verdicts` family above, through `carry_state.py`, which never touches `passes`. Fix commits remain discoverable in git by their `fix(review-pass-N):` messages.
 
