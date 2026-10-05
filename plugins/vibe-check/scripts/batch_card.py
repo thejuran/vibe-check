@@ -1,7 +1,7 @@
 """batch_card.py — the owner's batch card as deterministic reads.
 
-Renders nothing, decides numbering/tags/parse, writes nothing; prose calls by
-path; owner text by file.
+Renders only the card's own text, decides numbering/tags/parse, writes
+nothing; prose calls by path; owner text by file.
 
 The two prose files that ask the owner one card per pass (the fix loop and
 Finalize) call this helper for everything they must not compute themselves:
@@ -11,7 +11,15 @@ Finalize) call this helper for everything they must not compute themselves:
                     answer always agree. Each row is tagged with
                     `pending_since` (unchanged since pass N, decision pending)
                     and `stale` (the owner's earlier decision no longer
-                    matches the evidence it judged).
+                    matches the evidence it judged). The document also
+                    carries `card_text`: the numbered list, rendered here,
+                    that the prose copies verbatim INTO the AskUserQuestion
+                    question, so the owner sees the rows on the card itself
+                    (text printed only inside a tool call is collapsed by
+                    the terminal and never seen). `list_text` is the full
+                    rendering; `card_text` equals it when it fits the card
+                    budget, else a compact form, else a compact form cut
+                    short with `card_text_truncated` true.
   decisions-report  Every owner decision with its current / superseded /
                     orphan status, for REVIEW.md.
 
@@ -118,6 +126,11 @@ _MAX_OPTIONS = 4
 _MAX_QUESTIONS = 4
 _MAX_MULTISELECT = _MAX_OPTIONS * _MAX_QUESTIONS
 _DESCRIPTION_PROBLEM_CHARS = 80
+# The card's question text carries the numbered list. A budget keeps a long
+# list from swamping the card; past it the list is compacted, then cut short.
+CARD_TEXT_MAX_CHARS = 2400
+_LIST_PROBLEM_CHARS = 120
+_COMPACT_TITLE_CHARS = 60
 TYPED_ALL = "All listed"
 TYPED_NONE = "None — skip & rerun"
 
@@ -244,7 +257,9 @@ def build_rows(state, mode, head_blobs=None, subset=None):
             row["stale"] = links[row["stable_hash"]]
     for i, row in enumerate(rows):
         row["n"] = i + 1
-    return {"at_pass": last["pass_number"], "mode": mode, "rows": rows}, None
+    doc = {"at_pass": last["pass_number"], "mode": mode, "rows": rows}
+    doc.update(card_texts(rows, mode))
+    return doc, None
 
 
 def resolve_fix_targets(state, subset):
@@ -371,6 +386,154 @@ def successor_links(state, rows):
             "prior_hash": h,
         }
     return links
+
+
+# --------------------------------------------------------------------------- #
+# Card text: the numbered list the owner reads ON the card.
+# --------------------------------------------------------------------------- #
+def _one_line(value):
+    """`value` as one printable line: every whitespace or control character
+    becomes a space, so a title can never start a fake row of its own."""
+    if not isinstance(value, str):
+        return ""
+    out = "".join(" " if (c.isspace() or ord(c) < 32 or 127 <= ord(c) < 160)
+                  else c for c in value)
+    return " ".join(out.split())
+
+
+def _cut(text, limit):
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def _where(row):
+    file = _one_line(row.get("file")) or "?"
+    line = row.get("line")
+    has_line = isinstance(line, int) and not isinstance(line, bool)
+    return "%s:%s" % (file, str(line) if has_line else "?")
+
+
+def _decision_word(decision):
+    return {"dismiss": "dismissed", "defer": "deferred"}.get(
+        decision, _one_line(decision) or "decided")
+
+
+def _was(stale):
+    reason = _one_line(stale.get("reason"))
+    word = _decision_word(stale.get("decision"))
+    return "(was: %s — %s)" % (word, reason) if reason else "(was: %s)" % word
+
+
+def _suffixes(row, compact):
+    """The suffixes after a row's first line, in the prose's order:
+    absorbed, pending, stale."""
+    out = []
+    if row.get("absorbed_into"):
+        out.append(" (absorbed)" if compact else
+                   ' (absorbed into "%s" — decided on its own)'
+                   % _one_line(row.get("lead_title")))
+    pending = row.get("pending_since")
+    if pending is not None:
+        out.append(" — pending since pass %s" % pending if compact else
+                   " — unchanged since pass %s, decision pending" % pending)
+    stale = row.get("stale")
+    if isinstance(stale, dict):
+        at_pass = stale.get("at_pass")
+        if stale.get("cause") == "severity":
+            out.append(
+                " — severity changed since your decision on pass %s" % at_pass
+                if compact else
+                " — severity changed (%s → %s) since your decision on pass "
+                "%s %s" % (_one_line(stale.get("was_band")) or "?",
+                           _one_line(row.get("band")), at_pass, _was(stale)))
+        else:
+            out.append(
+                " — code changed since your decision on pass %s" % at_pass
+                if compact else
+                " — code changed since your decision on pass %s %s"
+                % (at_pass, _was(stale)))
+    return "".join(out)
+
+
+def _quoted_titles(members, compact):
+    titles = []
+    for m in members:
+        title = _one_line(m.get("title"))
+        titles.append('"%s"' % (_cut(title, _COMPACT_TITLE_CHARS)
+                                if compact else title))
+    return ", ".join(titles)
+
+
+def _row_lines(row, mode, compact):
+    """The list lines for one row (the first line, plus the problem line in
+    finalize mode when the full form is rendered)."""
+    title = _one_line(row.get("title"))
+    if compact:
+        title = _cut(title, _COMPACT_TITLE_CHARS)
+    routed = row.get("routed_members") or []
+    head = "#%d %s" % (row["n"], _where(row))
+    if row.get("lead_selected") is False and routed:
+        first = ('%s — fixing absorbed %s (routed through "%s", which is not '
+                 "being fixed)" % (head, _quoted_titles(routed, compact),
+                                   title))
+    else:
+        first = "%s — %s (%s)" % (head, title, _one_line(row.get("band")))
+        if routed:
+            first += (" — also fixing absorbed %s through this row"
+                      % _quoted_titles(routed, compact))
+    if row.get("lead_closed") is True:
+        first += " (your earlier decision on this row stays)"
+    first += _suffixes(row, compact)
+    lines = [first]
+    if mode == "finalize" and not compact:
+        problem = row.get("problem")
+        problem = problem.splitlines()[0] if (isinstance(problem, str)
+                                              and problem.strip()) else ""
+        problem = _one_line(problem)[:_LIST_PROBLEM_CHARS]
+        if problem:
+            lines.append("    " + problem)
+    return lines
+
+
+def _render(rows, mode, compact):
+    return "\n".join(line for row in rows
+                     for line in _row_lines(row, mode, compact))
+
+
+def card_texts(rows, mode, limit=CARD_TEXT_MAX_CHARS):
+    """{"card_text", "list_text", "card_text_truncated"} for numbered rows.
+
+    list_text is the full rendering. card_text is list_text when it fits
+    `limit`; else the compact rendering (titles cut, no problem line, short
+    tags); else as many compact rows as fit, then one closing line naming
+    the rows left out, with card_text_truncated true.
+    """
+    full = _render(rows, mode, compact=False)
+    if len(full) <= limit:
+        return {"card_text": full, "list_text": full,
+                "card_text_truncated": False}
+    compact = _render(rows, mode, compact=True)
+    if len(compact) <= limit:
+        return {"card_text": compact, "list_text": full,
+                "card_text_truncated": False}
+    lines = [_row_lines(row, mode, compact=True)[0] for row in rows]
+    kept = 0
+    used = 0
+    # The compact form did not fit, so at least one row is always left out.
+    while kept < len(rows) - 1:
+        tail = _truncation_tail(rows, kept + 1)
+        if used + len(lines[kept]) + 1 + len(tail) > limit:
+            break
+        used += len(lines[kept]) + 1
+        kept += 1
+    return {"card_text": "\n".join(lines[:kept]
+                                   + [_truncation_tail(rows, kept)]),
+            "list_text": full, "card_text_truncated": True}
+
+
+def _truncation_tail(rows, kept):
+    """The closing line of a cut-short card list: the rows left out."""
+    return ("… and %d more (#%d-#%d) — the full list is printed above this "
+            "card." % (len(rows) - kept, rows[kept]["n"], rows[-1]["n"]))
 
 
 # --------------------------------------------------------------------------- #
@@ -552,7 +715,19 @@ def parse(rows_doc, answer):
     payload = ({"at_pass": rows_doc["at_pass"], "decisions": decisions}
                if decisions else None)
     return dict(result, payload=payload,
-                fix_targets=_dedup(result["fix"])), None
+                fix_targets=_dedup(result["fix"]),
+                echo_text=echo_text(result)), None
+
+
+def echo_text(result):
+    """The parse echo as one block of message text: the `echo` lines, then
+    "Reason: …" when a reason applies. The prose puts this block where the
+    owner sees it (the next printed message, or the fix-loop card)."""
+    lines = [_one_line(line) for line in result.get("echo") or []]
+    reason = _one_line(result.get("reason"))
+    if reason:
+        lines.append("Reason: " + reason)
+    return "\n".join(lines)
 
 
 def _unit_source(record, last):

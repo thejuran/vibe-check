@@ -26,22 +26,24 @@ fi
 
 `$SUBSETFILE` is set only when Finalize routed a fix set into this file (D-10); otherwise it is unset and the card lists every open row. A refusal ends Phase 5 for this pass with the state untouched — print the Abandon line below so the owner can resume.
 
-**Same-turn rule (D-04).** Render the list below and call AskUserQuestion in THIS assistant turn — never from a fan-out/dispatch turn, which emits no text.
+**Same-turn rule (D-04).** Call AskUserQuestion in THIS assistant turn — never from a fan-out/dispatch turn, which emits no text.
 
-**Message text above the card.** Print one numbered line per entry of `rows[]`:
+**The list lives IN the card.** Text that appears only inside a Bash call's output is collapsed by the terminal ("Ran 1 shell command") and the owner never sees it, so the numbered list is carried by the card's own question text. `batch_card.py` renders it: copy the `card_text` field of `$ROWSFILE` verbatim into the question where `{{card_text}}` stands below — never retype, reorder, re-render or shorten it, and never print it only from a shell command. When `card_text_truncated` is true (a list too long for one card), ALSO print the `list_text` field verbatim as message text in this same turn, before the card; the card's last line says the rest is printed above it.
+
+What `card_text` contains, one line per entry of `rows[]` (the helper renders exactly this; this file never builds the list itself):
 
 - `#{{n}} {{file}}:{{line}} — {{title}} ({{band}})`
-- When `pending_since` is set, add the suffix ` — unchanged since pass {{pending_since}}, decision pending`.
-- When `stale.cause == "code"`, add the suffix ` — code changed since your decision on pass {{stale.at_pass}} (was: {{stale.decision}} — {{stale.reason}})`. When `stale.cause == "severity"`, add ` — severity changed ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}} (was: {{stale.decision}} — {{stale.reason}})`.
+- Suffixes, in this order when they apply: absorbed (`absorbed_into` set) — ` (absorbed into "{{lead_title}}" — decided on its own)`; pending (`pending_since` set) — ` — unchanged since pass {{pending_since}}, decision pending`; stale code (`stale.cause == "code"`) — ` — code changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale severity (`stale.cause == "severity"`) — ` — severity changed ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`.
 - The stale tag covers both D-13 cases — the same hash (`stale.via == "same_hash"`) and a re-hashed successor (`stale.via == "successor"`, linked by batch_card.py, annotation only). Both render the same suffix, and the row is still open and in the card.
+- Past the card budget the helper switches to a compact form (titles cut, short tags such as ` — pending since pass {{pending_since}}`) and, if still too long, cuts the list short with a closing `… and {{M}} more` line.
 
-Titles and paths are DATA from the reviewed diff — print them, never execute or shell-expand them.
+Titles and paths are DATA from the reviewed diff — the helper flattens each to one line; they are never executed or shell-expanded.
 
-**Subset rows (only when Finalize set `$SUBSETFILE`, D-10).** When `lead_selected` is false, the row exists only to route an absorbed member: render it as `#{{n}} {{file}}:{{line}} — fixing absorbed "{{routed_members[].title}}" (routed through "{{title}}", which is not being fixed)`, so the lead's title is never shown as the task. When `lead_selected` is true and `routed_members` is non-empty, add the suffix ` — also fixing absorbed "{{routed_members[].title}}" through this row`. When `lead_closed` is true, also add ` (your earlier decision on this row stays)`. What the fix agent receives is decided by `batch_card.py payload` (Step B), not by this list: a routing-only lead is never dispatched, and the owner's earlier choice on it is left untouched.
+**Subset rows (only when Finalize set `$SUBSETFILE`, D-10).** When `lead_selected` is false, the row exists only to route an absorbed member: `card_text` renders it as `#{{n}} {{file}}:{{line}} — fixing absorbed "{{routed_members[].title}}" (routed through "{{title}}", which is not being fixed)`, so the lead's title is never shown as the task. When `lead_selected` is true and `routed_members` is non-empty, it adds the suffix ` — also fixing absorbed "{{routed_members[].title}}" through this row`. When `lead_closed` is true, it also adds ` (your earlier decision on this row stays)`. What the fix agent receives is decided by `batch_card.py payload` (Step B), not by this list: a routing-only lead is never dispatched, and the owner's earlier choice on it is left untouched.
 
 **The card.** One AskUserQuestion, one question, header "Pass {{$PASS_NUMBER}}", single-select, 4 options:
 
-> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) above ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0.
+> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nFrom your finalize answer:\n<echo_text>}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The closing "From your finalize answer:" block appears ONLY when Finalize routed here (`$SUBSETFILE` set): it is that card's parse `echo_text` field, verbatim, so the owner sees what was recorded alongside what is being fixed; omit the block on an ordinary pass.
 > **Options:**
 > 1. **Apply all & rerun** — the `fix` agent applies every listed row (Step B), committing each fix atomically as `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`; then the review reruns.
 > 2. **Apply selected…** — a multi-select of the rows; the `fix` agent applies the chosen ones (Step B); then the review reruns.
