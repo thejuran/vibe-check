@@ -1075,5 +1075,151 @@ class TestHookMutants(unittest.TestCase):
         self.assertTrue(seen and "carry_state.py" in seen[0])
 
 
+# --------------------------------------------------------------------------- #
+# notices / reset CLI (the orchestrator's block-notice source)
+# --------------------------------------------------------------------------- #
+def _run_cli(args, cwd=None):
+    import subprocess
+    proc = subprocess.run([sys.executable, GITGUARD_PY] + list(args),
+                          capture_output=True, text=True, cwd=cwd, timeout=30)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _write_blocks(root, lines):
+    path = _blocks_path(root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        for line in lines:
+            fh.write((line if isinstance(line, str) else json.dumps(line))
+                     + "\n")
+    return path
+
+
+def _rec(agent="compliance", tool="Bash", command="git stash pop"):
+    return {"agent": agent, "tool": tool, "command": command,
+            "reason": "refused: x"}
+
+
+class TestNotices(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+
+    def _notices(self, *extra):
+        rc, out, _ = _run_cli(["notices", "--root", self.root] + list(extra))
+        self.assertEqual(rc, 0)
+        return out.splitlines()
+
+    def test_three_lines(self):
+        _write_blocks(self.root, [_rec(), _rec(agent="bugs",
+                                               command="git checkout main"),
+                                  _rec(agent="bugs", tool="Agent",
+                                       command="")])
+        self.assertEqual(self._notices(), [
+            "Blocked: compliance tried `git stash pop` — repo untouched.",
+            "Blocked: bugs tried `git checkout main` — repo untouched.",
+            "Blocked: bugs tried to use the `Agent` tool — repo untouched.",
+        ])
+
+    def test_repo_changed_suffix(self):
+        _write_blocks(self.root, [_rec(), _rec(tool="Agent", command="")])
+        lines = self._notices("--repo-changed")
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertTrue(line.endswith("— this attempt was refused."),
+                            line)
+            self.assertNotIn("repo untouched", line)
+
+    def test_cap_at_ten(self):
+        _write_blocks(self.root, [_rec() for _ in range(13)])
+        lines = self._notices()
+        self.assertEqual(len(lines), 11)
+        self.assertEqual(lines[-1], "…and 3 more blocked attempts")
+        self.assertTrue(all(l.startswith("Blocked: ") for l in lines[:10]))
+
+    def test_consume(self):
+        path = _write_blocks(self.root, [_rec()])
+        self.assertEqual(len(self._notices("--consume")), 1)
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(self._notices("--consume"), [])
+
+    def test_no_file_prints_nothing(self):
+        self.assertEqual(self._notices(), [])
+
+    def test_without_consume_keeps_file(self):
+        path = _write_blocks(self.root, [_rec()])
+        self._notices()
+        self.assertTrue(os.path.exists(path))
+
+    def test_garbled_line(self):
+        _write_blocks(self.root, ["{not json " + SENTINEL, "", "[1, 2]"])
+        lines = self._notices()
+        self.assertEqual(lines, [
+            "Blocked: unknown-agent tried an unreadable command "
+            "— repo untouched."] * 2)
+        self.assertNotIn(SENTINEL, "\n".join(lines))
+
+    def test_render_resanitizes(self):
+        _write_blocks(self.root, [_rec(agent="Evil`Agent", tool="Ba sh\n",
+                                       command="git `stash`\npop\x1b[31m")])
+        lines = self._notices()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0].count("`"), 2)
+        self.assertNotIn("\x1b", lines[0])
+        self.assertTrue(lines[0].startswith("Blocked: unknown-agent tried "))
+
+    def test_render_resanitizes_bash_command(self):
+        _write_blocks(self.root, [_rec(command="git `stash`\npop")])
+        lines = self._notices()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0].count("`"), 2)
+        self.assertEqual(
+            lines[0], "Blocked: compliance tried `git stash pop` "
+                      "— repo untouched.")
+
+    def test_render_notices_pure(self):
+        lines = gitguard.render_notices([_rec()], repo_changed=False)
+        self.assertEqual(lines, [
+            "Blocked: compliance tried `git stash pop` — repo untouched."])
+        self.assertEqual(gitguard.render_notices([], repo_changed=True), [])
+
+    def test_end_to_end_from_hook(self):
+        repo = _make_repo(self)
+        rc, _ = _run_hook(_payload("vibe-check:compliance",
+                                   command="git stash pop", cwd=repo), repo)
+        self.assertEqual(rc, 2)
+        rc, out, _ = _run_cli(["notices", "--root", repo, "--consume"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.splitlines(), [
+            "Blocked: compliance tried `git stash pop` — repo untouched."])
+        self.assertFalse(os.path.exists(_blocks_path(repo)))
+
+    def test_usage_errors(self):
+        for args in (["notices"], ["bogus"], [], ["notices", "--root"]):
+            with self.subTest(args=args):
+                self.assertEqual(_run_cli(args)[0], 2)
+
+
+class TestReset(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+
+    def test_reset_deletes(self):
+        path = _write_blocks(self.root, [_rec()])
+        self.assertEqual(_run_cli(["reset", "--root", self.root])[0], 0)
+        self.assertFalse(os.path.exists(path))
+
+    def test_reset_without_file(self):
+        self.assertEqual(_run_cli(["reset", "--root", self.root])[0], 0)
+
+    def test_reset_usage(self):
+        self.assertEqual(_run_cli(["reset"])[0], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
