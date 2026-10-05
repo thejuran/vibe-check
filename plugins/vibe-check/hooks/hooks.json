@@ -1,0 +1,18 @@
+{
+  "description": "vibe-check: review agents may only run read-only git and may not spawn agents, write files or switch worktrees (FIX-03, 999.20). Never fires for the main session, the fix agent, or other plugins' agents.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Agent|Task|Write|Edit|MultiEdit|NotebookEdit|EnterWorktree|ExitWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/gitguard.py", "hook"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

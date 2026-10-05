@@ -88,9 +88,12 @@ Residuals (what this deterministic rule cannot see, and the belt for each):
   audited set by TestAllowlistAudit.
 """
 
+import argparse
+import json
 import os
 import re
 import shlex
+import sys
 
 # --------------------------------------------------------------------------- #
 # fixed reasons
@@ -749,3 +752,182 @@ def classify(command, plugin_scripts=frozenset()):
         return _classify(command, plugin_scripts)
     except Exception:  # noqa: BLE001 — fail closed on any classifier defect
         return False, REASON_INTERNAL
+
+
+# --------------------------------------------------------------------------- #
+# PreToolUse hook entrypoint
+# --------------------------------------------------------------------------- #
+GUARDED_PREFIX = "vibe-check:"
+EXEMPT_AGENTS = frozenset({"vibe-check:fix"})
+DENY_TOOLS = frozenset({
+    "Agent", "Task", "Write", "Edit", "MultiEdit", "NotebookEdit",
+    "EnterWorktree", "ExitWorktree",
+})
+
+REASON_DENY_TOOL = (
+    "review agents may not spawn agents, write files or switch worktrees")
+REASON_GUARD_ERROR = "guard error (fail closed)"
+
+DENY_MESSAGE = (
+    "vibe-check: blocked — %s. Review agents may only use read-only git "
+    "(diff, show, log, blame, status, rev-parse, ls-files). "
+    "The repo was not changed.\n")
+
+BLOCKS_RELPATH = os.path.join(".turingmind", "git-guard", "blocks.jsonl")
+COMMAND_CAP = 120
+
+_AGENT_RE = re.compile(r"^vibe-check:([a-z0-9-]{1,40})$")
+_SHORT_AGENT_RE = re.compile(r"^[a-z0-9-]{1,40}$")
+_TOOL_RE = re.compile(r"^[A-Za-z]{1,30}$")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029`]")
+_SPACE_RE = re.compile(r"\s+")
+
+
+def _plugin_script_names():
+    """Lowercase basenames of the *.py / *.sh files in this scripts/ dir."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    return frozenset(
+        name.lower() for name in os.listdir(here)
+        if name.lower().endswith((".py", ".sh")))
+
+
+def _guard_error_verdict():
+    return False, REASON_GUARD_ERROR
+
+
+def _sanitize_command(command):
+    if not isinstance(command, str):
+        return ""
+    text = _CONTROL_RE.sub(" ", command)
+    text = _SPACE_RE.sub(" ", text).strip()
+    if len(text) > COMMAND_CAP:
+        text = text[:COMMAND_CAP] + "…"
+    return text
+
+
+def _short_agent(agent_type):
+    match = _AGENT_RE.match(agent_type) if isinstance(agent_type, str) else None
+    return match.group(1) if match else "unknown-agent"
+
+
+def _short_tool(tool):
+    if isinstance(tool, str) and _TOOL_RE.match(tool):
+        return tool
+    return "unknown-tool"
+
+
+def _find_repo_root(cwd):
+    """Walk up from cwd to the first directory holding a `.git` entry."""
+    if not isinstance(cwd, str) or not cwd or not os.path.isabs(cwd):
+        return None
+    current = os.path.realpath(cwd)
+    while True:
+        if os.path.lexists(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def _record_block(payload, reason):
+    """Append one JSON line per refusal to <repo>/.turingmind/git-guard."""
+    root = _find_repo_root(payload.get("cwd"))
+    if root is None:
+        sys.stderr.write("vibe-check: block not recorded (no repo found)\n")
+        return
+    tool = payload.get("tool_name")
+    command = ""
+    if tool == "Bash":
+        tool_input = payload.get("tool_input")
+        if isinstance(tool_input, dict):
+            command = _sanitize_command(tool_input.get("command"))
+    record = {
+        "agent": _short_agent(payload.get("agent_type")),
+        "tool": _short_tool(tool),
+        "command": command,
+        "reason": reason,
+    }
+    path = os.path.join(root, BLOCKS_RELPATH)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+    flags = (os.O_WRONLY | os.O_CREAT | os.O_APPEND
+             | getattr(os, "O_NOFOLLOW", 0))
+    fd = os.open(path, flags, 0o644)
+    try:
+        os.write(fd, line)
+    finally:
+        os.close(fd)
+
+
+def hook_main(stdin_text):
+    """PreToolUse decision -> 0 allow | 2 deny (one stderr line on deny).
+
+    Fails OPEN for anything that cannot be attributed to a guarded agent
+    (malformed input, the main session, the fix agent, other plugins) and
+    fails CLOSED for vibe-check review agents.
+    """
+    try:
+        data = json.loads(stdin_text)
+    except (TypeError, ValueError):
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    agent = data.get("agent_type")
+    if not isinstance(agent, str) or not agent.startswith(GUARDED_PREFIX) \
+            or agent in EXEMPT_AGENTS:
+        return 0
+    try:
+        tool = data.get("tool_name")
+        if tool == "Bash":
+            tool_input = data.get("tool_input")
+            command = (tool_input.get("command")
+                       if isinstance(tool_input, dict) else None)
+            ok, reason = classify(command,
+                                  plugin_scripts=_plugin_script_names())
+        elif tool in DENY_TOOLS:
+            ok, reason = False, REASON_DENY_TOOL
+        else:
+            return 0
+    except Exception:  # noqa: BLE001 — fail closed for review agents
+        ok, reason = _guard_error_verdict()
+    if ok:
+        return 0
+    try:
+        _record_block(data, reason)
+    except Exception as exc:  # noqa: BLE001 — recording never flips a deny
+        sys.stderr.write("vibe-check: block not recorded (%s)\n"
+                         % type(exc).__name__)
+    sys.stderr.write(DENY_MESSAGE % reason)
+    return 2
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+def _build_parser():
+    parser = argparse.ArgumentParser(
+        prog="gitguard.py",
+        description="vibe-check review-agent git guard (see module docstring).")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("hook", help="PreToolUse hook (stdin = hook JSON)")
+    return parser
+
+
+def run(argv):
+    parser = _build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit:
+        return 2
+    if args.cmd == "hook":
+        try:
+            text = sys.stdin.read()
+        except (OSError, ValueError):
+            return 0
+        return hook_main(text)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(run(sys.argv[1:]))
