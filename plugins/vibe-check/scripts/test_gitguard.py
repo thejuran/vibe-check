@@ -473,5 +473,160 @@ class TestAllowlistAudit(unittest.TestCase):
                         <= gitguard.DENIED_READER_FLAGS["find"])
 
 
+
+# --------------------------------------------------------------------------- #
+# mutants — every lock must trip when weakened
+# --------------------------------------------------------------------------- #
+class TestClassifyMutants(unittest.TestCase):
+    def assertAllowed(self, cmd, scripts=frozenset()):
+        self.assertEqual(gitguard.classify(cmd, scripts), (True, "allowed"),
+                         "mutant did not flip " + repr(cmd))
+
+    def assertDenied(self, cmd, scripts=frozenset()):
+        self.assertIs(gitguard.classify(cmd, scripts)[0], False, cmd)
+
+    def test_a_stash_read_only(self):
+        mutated = gitguard.READ_ONLY_SUBCOMMANDS | {"stash"}
+        self.assertNotEqual(mutated, gitguard.READ_ONLY_SUBCOMMANDS)
+        self.assertDenied("git stash pop")
+        with mock.patch.object(gitguard, "READ_ONLY_SUBCOMMANDS", mutated):
+            self.assertAllowed("git stash pop")
+
+    def test_b_branch_always_allowed(self):
+        always = lambda args: (True, "allowed")  # noqa: E731
+        self.assertIsNot(gitguard.CONDITIONAL_SUBCOMMANDS["branch"], always)
+        self.assertDenied("git branch -D x")
+        with mock.patch.dict(gitguard.CONDITIONAL_SUBCOMMANDS,
+                             {"branch": always}):
+            self.assertAllowed("git branch -D x")
+
+    def test_c_dash_c_global_allowed(self):
+        denied = gitguard.DENIED_GLOBAL_OPTS - {"-c"}
+        allowed = gitguard.ALLOWED_GLOBAL_OPTS | {"-c"}
+        self.assertNotEqual(denied, gitguard.DENIED_GLOBAL_OPTS)
+        self.assertNotEqual(allowed, gitguard.ALLOWED_GLOBAL_OPTS)
+        self.assertDenied("git -c core.fsmonitor=x status")
+        with mock.patch.object(gitguard, "DENIED_GLOBAL_OPTS", denied), \
+                mock.patch.object(gitguard, "ALLOWED_GLOBAL_OPTS", allowed):
+            self.assertAllowed("git -c core.fsmonitor=x status")
+
+    def test_d_indirection_layer_is_live(self):
+        cmd = 'sh -c "git stash"'
+        self.assertEqual(gitguard.classify(cmd)[1],
+                         gitguard.REASON_INDIRECTION)
+        self.assertNotEqual(gitguard.INDIRECTION_WORDS, frozenset())
+        with mock.patch.object(gitguard, "INDIRECTION_WORDS", frozenset()):
+            allowed, reason = gitguard.classify(cmd)
+            self.assertIs(allowed, False)
+            self.assertNotEqual(reason, gitguard.REASON_INDIRECTION)
+
+    def test_e_newline_normalisation(self):
+        cmd = "git log\ngit stash pop"
+        identity = lambda c: c  # noqa: E731
+        self.assertNotEqual(gitguard._normalise_newlines(cmd), cmd)
+        self.assertDenied(cmd)
+        with mock.patch.object(gitguard, "_normalise_newlines", identity):
+            self.assertAllowed(cmd)
+
+    def test_f_unknown_subcommand_default(self):
+        self.assertNotEqual(gitguard.UNKNOWN_SUBCOMMAND_VERDICT,
+                            (True, "allowed"))
+        self.assertDenied("git co main")
+        with mock.patch.object(gitguard, "UNKNOWN_SUBCOMMAND_VERDICT",
+                               (True, "allowed")):
+            self.assertAllowed("git co main")
+
+    def test_g_trusted_basenames_are_the_first_layer(self):
+        self.assertNotEqual(gitguard.TRUSTED_SCRIPT_BASENAMES, frozenset())
+        self.assertDenied("cat /abs/scripts/gitsnap.py")
+        with mock.patch.object(gitguard, "TRUSTED_SCRIPT_BASENAMES",
+                               frozenset()):
+            self.assertAllowed("cat /abs/scripts/gitsnap.py")
+            allowed, reason = gitguard.classify(FIXSTAGE_BYPASS)
+            self.assertIs(allowed, False)
+            self.assertNotEqual(reason, gitguard.REASON_TRUSTED_SCRIPT)
+
+    def test_h_dynamic_plugin_scripts_are_live(self):
+        cmd = "cat /abs/scripts/batchsnap.py"
+        scripts = frozenset({"batchsnap.py"})
+        ignore = lambda plugin_scripts: gitguard.TRUSTED_SCRIPT_BASENAMES  # noqa: E731,E501
+        self.assertNotEqual(gitguard._trusted_names(scripts), ignore(scripts))
+        self.assertDenied(cmd, scripts)
+        with mock.patch.object(gitguard, "_trusted_names", ignore):
+            self.assertAllowed(cmd, scripts)
+
+    def test_i_allowlist_default_deny(self):
+        mutated = gitguard.SAFE_COMMAND_WORDS | {"make"}
+        self.assertNotEqual(mutated, gitguard.SAFE_COMMAND_WORDS)
+        self.assertDenied("make")
+        with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", mutated):
+            self.assertAllowed("make")
+
+    def test_j_interpreter_barrier_is_two_layers(self):
+        cmd = "python3 -c 'print(1)'"
+        trusted = ("python3 /abs/plugins/vibe-check/scripts/fixstage.py "
+                   "commit --root /r --finding-json /r/f.json")
+        safe = gitguard.SAFE_COMMAND_WORDS | {"python3"}
+        self.assertNotEqual(safe, gitguard.SAFE_COMMAND_WORDS)
+        with mock.patch.object(gitguard, "INDIRECTION_WORDS", frozenset()):
+            self.assertDenied(cmd)
+        with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", safe):
+            self.assertDenied(cmd)
+        with mock.patch.object(gitguard, "INDIRECTION_WORDS", frozenset()), \
+                mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", safe):
+            self.assertAllowed(cmd)
+            self.assertEqual(gitguard.classify(trusted),
+                             (False, gitguard.REASON_TRUSTED_SCRIPT))
+
+    def test_k_file_redirect_rule(self):
+        never = lambda tokens: False  # noqa: E731
+        self.assertTrue(gitguard._has_file_redirect(["echo", "x", ">", "f"]))
+        self.assertDenied("echo x > f.txt")
+        with mock.patch.object(gitguard, "_has_file_redirect", never):
+            self.assertAllowed("echo x > f.txt")
+
+    def test_l_substitution_rule(self):
+        never = lambda command: False  # noqa: E731
+        self.assertTrue(gitguard._has_substitution("ls $(echo x)"))
+        self.assertDenied("ls $(echo x)")
+        with mock.patch.object(gitguard, "_has_substitution", never):
+            self.assertAllowed("ls $(echo x)")
+
+    def test_m_uniq_readded_trips_two_locks(self):
+        cmd = "uniq /dev/null src/app.py"
+        mutated = gitguard.SAFE_COMMAND_WORDS | {"uniq"}
+        self.assertNotEqual(mutated, gitguard.SAFE_COMMAND_WORDS)
+        self.assertTrue(_audit_lock_holds())
+        self.assertIn((cmd, "REASON_NOT_ALLOWLISTED"), NON_GIT_DENY)
+        with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", mutated):
+            # lock 1: the NON_GIT_DENY row flips
+            self.assertAllowed(cmd)
+            # lock 2: the exact-set audit fails on its own
+            self.assertFalse(_audit_lock_holds())
+            with self.assertRaises(AssertionError):
+                TestAllowlistAudit(
+                    "test_safe_words_are_exactly_the_audited_set"
+                ).test_safe_words_are_exactly_the_audited_set()
+
+    def test_n_reader_flags(self):
+        self.assertNotEqual(gitguard.DENIED_READER_FLAGS, {})
+        cmds = ("rg --hostname-bin ./x foo", "rg -nz foo", "find . -fls out")
+        for cmd in cmds:
+            self.assertDenied(cmd)
+        with mock.patch.object(gitguard, "DENIED_READER_FLAGS", {}):
+            for cmd in cmds:
+                with self.subTest(cmd=cmd):
+                    self.assertAllowed(cmd)
+
+    def test_o_file_readded(self):
+        readers = gitguard.PURE_READERS | {"file"}
+        words = gitguard.SAFE_COMMAND_WORDS | {"file"}
+        self.assertNotEqual(words, gitguard.SAFE_COMMAND_WORDS)
+        self.assertDenied("file -C -m x")
+        with mock.patch.object(gitguard, "PURE_READERS", readers), \
+                mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", words):
+            self.assertAllowed("file -C -m x")
+
+
 if __name__ == "__main__":
     unittest.main()
