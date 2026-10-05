@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -964,7 +965,11 @@ class TestBasePrecondition(CommitCase):
 
     def _t3(self, runner=None):
         def owner():
-            git(self.repo, "update-index", "--chmod=+x", "--", "f.txt")
+            # Mode only: `update-index --chmod=+x <path>` would also re-stage
+            # the working-tree bytes (the fix), so set the entry directly.
+            oid = git(self.repo, "rev-parse", "HEAD:f.txt").stdout.strip()
+            git(self.repo, "update-index", "--cacheinfo",
+                "100755,%s,f.txt" % oid)
             _other_terminal_commit(self.repo, "chmod")
         return self.fix_flow(self.fix30, owner_after_seal=owner, runner=runner)
 
@@ -972,7 +977,8 @@ class TestBasePrecondition(CommitCase):
         res, _ = self._t3()
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertTrue(base_mode_kept(self.repo, "f.txt", "100755"))
-        self.assertIn(FIX30, self.committed_text("main"))
+        self.assertNotIn(FIX30, self.committed_text("main^"))
+        self.assertTrue(commit_carries_only(self.repo, self.sha_of(res), FIX30))
 
     def test_t3_mutant_post_mode_reverts_owner_chmod(self):
         with mock.patch.object(
@@ -1160,6 +1166,383 @@ class TestRetry(HookCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertFalse(commit_carries_only(self.repo, self.sha_of(res),
                                              "line 20 fixed"))
+
+
+
+# ------------------------------------------------- BASE binding (pass-3 f1)
+
+RACE_LABELS = ("after-base", "after-read-tree", "after-hooks", "in-publish")
+OTHER_CHANGED = "other changed\n"
+
+
+def _env_without_index():
+    env = gitfixture.helper_env()
+    env.pop("GIT_INDEX_FILE", None)
+    return env
+
+
+def foreign_commit(repo):
+    """Another terminal commits other.txt (hooks off, real index)."""
+    write(repo, "other.txt", OTHER_CHANGED)
+    subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "commit", "-q",
+                    "-m", "other-terminal", "--", "other.txt"],
+                   cwd=repo, env=_env_without_index(), check=True,
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    return git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def foreign_change_kept(repo):
+    proc = git(repo, "show", "main:other.txt", check=False)
+    return proc.returncode == 0 and proc.stdout == OTHER_CHANGED
+
+
+def foreign_commit_kept(repo, sha):
+    return git(repo, "merge-base", "--is-ancestor", sha, "main",
+               check=False).returncode == 0
+
+
+def _late_parent_commit_object(root, tree, base, msgfile):
+    """Mutant: parent = HEAD read at commit time (git commit's late capture)."""
+    head = fixstage._git(root, "rev-parse", "HEAD").stdout.strip()
+    proc = fixstage._git(root, "commit-tree", "-p", head, "-F", msgfile, tree)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def _late_base_publish(root, base, base_symref, new, subject):
+    """Mutant: compare-and-swap against the CURRENT HEAD instead of BASE."""
+    fixstage._race_point(root, "in-publish")
+    head = fixstage._git(root, "rev-parse", "HEAD").stdout.strip()
+    return fixstage._git(root, "update-ref", base_symref, new,
+                         head).returncode == 0
+
+
+def _publish_without_cas(root, base, base_symref, new, subject):
+    """Mutant: no pre-check and no old value - a forced move."""
+    fixstage._race_point(root, "in-publish")
+    return fixstage._git(root, "update-ref", base_symref, new).returncode == 0
+
+
+FORBIDDEN_REF_TOKENS = ('"-d"', "--delete", '"reset"', "branch -f",
+                        '"branch", "-f"', "--stdin")
+
+
+def ref_writes_forward_only(text):
+    """Source lock: exactly one ref write, inside _publish_ref, with the
+    old value as its last argument, and no deleting/forcing/rewinding form."""
+    code = "\n".join(line for line in text.splitlines()
+                     if not line.strip().startswith("#"))
+    if code.count("update-ref") != 1:
+        return False
+    if any(token in code for token in FORBIDDEN_REF_TOKENS):
+        return False
+    at = code.index("update-ref")
+    func_start = code.rfind("\ndef ", 0, at)
+    if func_start < 0 or not code.startswith("\ndef _publish_ref(", func_start):
+        return False
+    call_start = code.rfind("_git(", 0, at)
+    if call_start < func_start:
+        return False
+    depth = 0
+    for end in range(call_start + len("_git"), len(code)):
+        if code[end] == "(":
+            depth += 1
+        elif code[end] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    call = code[call_start:end + 1]
+    body = code[func_start:call_start]
+    return (re.search(r",\s*old\s*\)$", call) is not None
+            and re.search(r"\bold = base\b", body) is not None)
+
+
+class TestBaseBinding(CommitCase):
+
+    def setUp(self):
+        CommitCase.setUp(self)
+        write(self.repo, "other.txt", "other\n")
+        git(self.repo, "add", "--", "other.txt")
+        git(self.repo, "commit", "-q", "-m", "other")
+
+    def racer(self, wanted, state):
+        def race(root, label):
+            if label == wanted and "sha" not in state:
+                state["sha"] = foreign_commit(self.repo)
+        return race
+
+    def run_race(self, wanted, patches=()):
+        state = {}
+        pre = self.rev()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                fixstage, "_race_point", self.racer(wanted, state)))
+            for name, value in patches:
+                stack.enter_context(mock.patch.object(fixstage, name, value))
+            res, attempt = self.fix_flow(self.fix30, runner=self.inproc)
+        return res, attempt, state, pre
+
+    def test_s_foreign_commit_at_every_race_point(self):
+        for label in RACE_LABELS:
+            with self.subTest(label=label):
+                self.tearDown()
+                self.setUp()
+                res, attempt, state, pre = self.run_race(label)
+                self.assertEqual(res.returncode, 6, res.stdout + res.stderr)
+                self.assertTrue(res.stdout.startswith("head-moved:"), res.stdout)
+                self.assertEqual(self.rev("main"), state["sha"])
+                self.assertEqual(self.rev(state["sha"] + "^"), pre)
+                self.assertTrue(foreign_change_kept(self.repo))
+                self.assertEqual(git(self.repo, "log", "-S", FIX30,
+                                     "--format=%H", "main").stdout, "")
+                self.assertIn(FIX30, self.read("f.txt").decode())
+                self.assertEqual(self.closed_outcome(attempt), "head-moved")
+
+    def test_s_mutant_late_parent_reverts_foreign_change(self):
+        res, _, state, _ = self.run_race(
+            "after-read-tree",
+            patches=(("_make_commit_object", _late_parent_commit_object),
+                     ("_publish_ref", _late_base_publish)))
+        self.assertIn("sha", state)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(foreign_change_kept(self.repo))
+
+    def test_s_mutant_no_cas_drops_foreign_commit(self):
+        res, _, state, _ = self.run_race(
+            "in-publish", patches=(("_publish_ref", _publish_without_cas),))
+        self.assertIn("sha", state)
+        self.assertFalse(foreign_commit_kept(self.repo, state["sha"]))
+
+    def source(self):
+        with open(os.path.join(SCRIPTS_DIR, "fixstage.py")) as fh:
+            return fh.read()
+
+    def test_ref_writes_forward_only(self):
+        self.assertTrue(ref_writes_forward_only(self.source()))
+
+    def test_ref_lock_mutants(self):
+        text = self.source()
+        call = '"update-ref", "-m", "commit: " + subject, *target,\n                new, old)'
+        self.assertIn(call, text)
+        mutants = {
+            "second write": text + '\nX = ["git", "update-ref", ref, new]\n',
+            "delete form": text.replace('"update-ref", "-m"',
+                                        '"update-ref", "-d", "-m"'),
+            "no old value": text.replace(call, call.replace(
+                "new, old)", "new)")),
+        }
+        for name, mutated in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(mutated, text)
+                self.assertFalse(ref_writes_forward_only(mutated))
+
+
+class TestCommitHooks(HookCase):
+
+    def _m(self, runner=None):
+        self.owner5()
+        self.hook("pre-commit", "git add f.txt")
+        return self.fix_flow(self.fix30, runner=runner)
+
+    def test_m_hook_changed_content_reported(self):
+        pre = self.rev()
+        res, attempt = self._m()
+        self.assertEqual(res.returncode, 5, res.stdout + res.stderr)
+        self.assertNotIn("commit_sha=", res.stdout)
+        first = res.stdout.splitlines()[0]
+        self.assertTrue(first.startswith("hook-changed: "), res.stdout)
+        sha = first[len("hook-changed: "):]
+        self.assertEqual(self.rev("main"), sha)
+        self.assertEqual(self.rev(sha + "^"), pre)
+        self.assertEqual(git(self.repo, "diff", "--cached", "--", "f.txt").stdout,
+                         "")
+        text = self.read("f.txt").decode()
+        self.assertIn(OWNER5, text)
+        self.assertIn(FIX30, text)
+        self.assertEqual(self.closed_outcome(attempt), "hook-changed")
+
+    def test_m_mutant_tree_check_skipped_claims_success(self):
+        with mock.patch.object(fixstage, "_tree_matches", lambda a, b: True):
+            res, _ = self._m(self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(commit_carries_only(self.repo, self.sha_of(res), FIX30))
+
+    def test_o_post_commit_moves_head(self):
+        mark = os.path.join(self.tmp, "post-mark")
+        self.hook("post-commit",
+                  '[ -f "%s" ] && exit 0\ntouch "%s"\n'
+                  'git commit -q --allow-empty -m extra' % (mark, mark))
+        pre = self.rev()
+        index = self.index_state()
+        res, attempt = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 7, res.stdout + res.stderr)
+        first = res.stdout.splitlines()[0]
+        self.assertTrue(first.startswith("moved-after-commit: "), res.stdout)
+        sha = first[len("moved-after-commit: "):]
+        self.assertNotIn("commit_sha=", res.stdout)
+        self.assertEqual(self.rev("HEAD^"), sha)
+        self.assertEqual(self.rev(sha + "^"), pre)
+        self.assertEqual(self.index_state(), index)
+        self.assertEqual(self.closed_outcome(attempt), "moved-after-commit")
+
+    def _foreign_from_hook(self, final):
+        mark = os.path.join(self.tmp, "pre-mark")
+        self.hook("pre-commit",
+                  '[ -f "%s" ] && exit 0\ntouch "%s"\n'
+                  'env -u GIT_INDEX_FILE git commit -q --allow-empty '
+                  '-m other-terminal\nexit %d' % (mark, mark, final))
+        pre = self.rev()
+        index = self.index_state()
+        res, attempt = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 6, res.stdout + res.stderr)
+        self.assertTrue(res.stdout.startswith("head-moved:"), res.stdout)
+        main = self.rev("main")
+        self.assertNotEqual(main, pre)
+        self.assertEqual(self.rev(main + "^"), pre)
+        self.assertEqual(git(self.repo, "log", "-1", "--format=%s", "main")
+                         .stdout.strip(), "other-terminal")
+        self.assertIn(FIX30, self.read("f.txt").decode())
+        self.assertEqual(self.index_state(), index)
+        self.assertEqual(self.closed_outcome(attempt), "head-moved")
+
+    def test_p_foreign_commit_from_failing_hook(self):
+        self._foreign_from_hook(1)
+
+    def test_p2_foreign_commit_from_passing_hook(self):
+        self._foreign_from_hook(0)
+
+
+def real_index_entry_is(repo, path, mode, oid):
+    entry = git(repo, "ls-files", "-s", "--", path).stdout.split()
+    return entry[:2] == [mode, oid]
+
+
+def _sync_check_then_write(root, before, targets, workdir):
+    """Mutant: compare, then write the real index with no lock held."""
+    paths = sorted(targets)
+    now = fixstage._read_index_entries(root, None, paths)
+    ok = [p for p in paths if fixstage._entry_equal(now.get(p), before.get(p))]
+    fixstage._between_compare_and_publish(root)
+    for path in ok:
+        mode, oid = targets[path]
+        fixstage._git(root, "update-index", "--cacheinfo",
+                      "%s,%s,%s" % (mode, oid, path))
+    return [p for p in paths if p not in ok]
+
+
+class TestIndexSync(HookCase):
+
+    def entry(self, path="f.txt"):
+        return git(self.repo, "ls-files", "-s", "--", path).stdout.split()[:2]
+
+    def test_n_hook_changed_real_entry_left(self):
+        src = os.path.join(self.tmp, "variant")
+        with open(src, "w") as fh:
+            fh.write("variant\n")
+        variant = git(self.repo, "hash-object", "-w", "--", src).stdout.strip()
+        self.hook("pre-commit", "env -u GIT_INDEX_FILE git update-index "
+                  "--cacheinfo 100644,%s,f.txt" % variant)
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("index-left-as-is: f.txt", res.stdout.splitlines())
+        self.assertEqual(self.entry(), ["100644", variant])
+
+    def _n2(self, runner=None):
+        oid = self.entry()[1]
+        # Mode only, same oid (`--chmod=+x <path>` would re-stage the file).
+        self.hook("pre-commit", "env -u GIT_INDEX_FILE git update-index "
+                  "--cacheinfo 100755,%s,f.txt" % oid)
+        res, _ = self.fix_flow(self.fix30, runner=runner)
+        return res, oid
+
+    def test_n2_mode_only_change_left(self):
+        res, oid = self._n2()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("index-left-as-is: f.txt", res.stdout.splitlines())
+        self.assertTrue(real_index_entry_is(self.repo, "f.txt", "100755", oid))
+
+    def test_n2_mutant_oid_only_compare_loses_chmod(self):
+        def oid_only(a, b):
+            return (a and a[1]) == (b and b[1])
+        with mock.patch.object(fixstage, "_entry_equal", oid_only):
+            res, oid = self._n2(self.inproc)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertFalse(real_index_entry_is(self.repo, "f.txt", "100755", oid))
+
+    def no_lost_update(self, repo, attempts):
+        for name, rc in attempts:
+            if rc != 0:
+                continue
+            if name == "chmod" and self.entry("f.txt")[0] != "100755":
+                return False
+            if name == "add":
+                want = git(repo, "hash-object", "--", "g.txt").stdout.strip()
+                if self.entry("g.txt")[1] != want:
+                    return False
+        return True
+
+    def _q(self, patches=()):
+        attempts = []
+        stderr = []
+
+        def concurrent(root):
+            for name, argv in (("chmod", ["update-index", "--chmod=+x", "--",
+                                          "f.txt"]),
+                               ("add", ["add", "--", "g.txt"])):
+                proc = subprocess.run(["git"] + argv, cwd=self.repo,
+                                      env=_env_without_index(),
+                                      stdout=subprocess.PIPE,
+                                      stderr=subprocess.PIPE, text=True,
+                                      timeout=120)
+                attempts.append((name, proc.returncode))
+                stderr.append(proc.stderr)
+        write(self.repo, "g.txt", "g changed\n")
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                fixstage, "_between_compare_and_publish", concurrent))
+            for name, value in patches:
+                stack.enter_context(mock.patch.object(fixstage, name, value))
+            res, _ = self.fix_flow(self.fix30, runner=self.inproc)
+        return res, attempts, stderr
+
+    def test_q_lock_window_refuses_concurrent_writers(self):
+        res, attempts, stderr = self._q()
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual([rc != 0 for _, rc in attempts], [True, True])
+        for err in stderr:
+            self.assertIn("index.lock", err)
+        self.assertTrue(self.no_lost_update(self.repo, attempts))
+        self.assertFalse(os.path.exists(
+            os.path.join(self.repo, ".git", "index.lock")))
+
+    def test_q_mutant_unlocked_sync_loses_update(self):
+        res, attempts, _ = self._q(
+            patches=(("_sync_real_index", _sync_check_then_write),))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(attempts[0], ("chmod", 0))
+        self.assertFalse(self.no_lost_update(self.repo, attempts))
+
+    def index_files(self):
+        gitdir = os.path.join(self.repo, ".git")
+        out = {}
+        for name in os.listdir(gitdir):
+            if name == "index" or name.startswith("sharedindex."):
+                with open(os.path.join(gitdir, name), "rb") as fh:
+                    out[name] = fh.read()
+        return out
+
+    def test_q2_split_index_left_alone(self):
+        git(self.repo, "config", "core.splitIndex", "true")
+        git(self.repo, "update-index", "--split-index")
+        files = {}
+        res, _ = self.fix_flow(self.fix30,
+                               owner_after_seal=lambda: files.update(
+                                   self.index_files()))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("index-left-as-is: f.txt", res.stdout.splitlines())
+        self.assertTrue(any(n.startswith("sharedindex.") for n in files))
+        now = self.index_files()
+        for name, data in files.items():
+            self.assertEqual(now.get(name), data, name)
 
 
 if __name__ == "__main__":

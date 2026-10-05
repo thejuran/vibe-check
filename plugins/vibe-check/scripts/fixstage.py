@@ -1242,6 +1242,42 @@ def _run_post_commit(root):
         sys.stderr.write("commit: the post-commit hook timed out\n")
 
 
+def _hook_changed_targets(root, base, new, before):
+    """After a hook changed the committed content: the real-index targets for
+    every path the commit changed -> (targets, left).
+
+    Only paths whose entry before the commit equals BASE's entry (clean) get
+    the new commit's entry; any other path is left as it is.
+    """
+    if base is not None:
+        args = ["diff-tree", "-r", "--no-renames", "--no-commit-id", "-z",
+                base, new]
+    else:
+        args = ["diff-tree", "-r", "--no-renames", "--no-commit-id", "-z",
+                "--root", new]
+    proc = _git(root, *args, binary=True)
+    if proc.returncode != 0:
+        raise Refused("refused: could not read the new commit")
+    tokens = _decode(proc.stdout).split("\0")
+    targets = {}
+    left = []
+    i = 0
+    while i + 1 < len(tokens):
+        meta, path = tokens[i], tokens[i + 1]
+        i += 2
+        parts = meta.lstrip(":").split(" ")
+        if len(parts) != 5:
+            continue
+        old_mode, new_mode, old_oid, new_oid = parts[:4]
+        base_side = None if old_mode == "000000" else (old_mode, old_oid, 0)
+        if _entry_equal(before.get(path), base_side):
+            targets[path] = None if new_mode == "000000" else (new_mode,
+                                                               new_oid)
+        else:
+            left.append(path)
+    return targets, left
+
+
 def _commit(root, record, adir, scratch):
     """One isolated commit -> _Outcome (raised or returned)."""
     manifest = _load_manifest(adir)
@@ -1276,6 +1312,10 @@ def _commit(root, record, adir, scratch):
         tree = _write_tree(root, temp_index)
         new = _make_commit_object(root, tree, base, msgfile)
     if new is None:
+        if _head_state(root) != (base, base_symref):
+            raise _Outcome(6, "head-moved", [
+                "head-moved: the commit was not made and HEAD was changed by "
+                "something else; nothing was rewritten - check git log"])
         if not ok:
             reason = "your commit hook rejected the commit"
         elif _gpg_sign(root):
@@ -1286,8 +1326,25 @@ def _commit(root, record, adir, scratch):
                        ["commit-not-created: " + reason]
                        + (tail.splitlines() if tail else []))
     if not _publish_ref(root, base, base_symref, new, subject):
-        raise Refused("refused: the branch moved")
+        # The commit object stays unreferenced (gc removes it); never published.
+        raise _Outcome(6, "head-moved", [
+            "head-moved: the branch moved while the fix was being committed; "
+            "nothing was published or rewritten - check git log"])
     _run_post_commit(root)
+
+    # Published. From here on nothing is rewritten (D-18): only classified.
+    changed = not _tree_matches(_commit_tree_of(root, new), expected_tree)
+    if _head_state(root) != (new, base_symref):
+        lines = ["moved-after-commit: %s" % new]
+        if changed:
+            lines.append("hook-changed: %s" % new)
+        raise _Outcome(7, "moved-after-commit", lines)
+    if changed:
+        targets, left = _hook_changed_targets(root, base, new, before)
+        left += _sync_real_index(root, before, targets, adir)
+        return _Outcome(5, "hook-changed",
+                        ["hook-changed: %s" % new]
+                        + ["index-left-as-is: %s" % p for p in sorted(left)])
 
     left = _sync_real_index(root, before, targets, adir)
     return _Outcome(0, "committed",
