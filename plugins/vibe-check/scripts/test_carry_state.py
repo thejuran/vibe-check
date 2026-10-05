@@ -966,7 +966,8 @@ class TestRecordFixVerdicts(unittest.TestCase):
                 self.assertEqual(frozen_families(out), frozen_families(s))
 
     def test_record_fix_verdicts_writes_nothing_for_non_obsolete(self):
-        for status in ("applied", "needs-human", "errored", "OBSOLETE"):
+        for status in ("applied", "applied-uncommitted", "unverified",
+                       "needs-human", "errored", "OBSOLETE"):
             with self.subTest(status):
                 p = verdict_payload()
                 p["results"][0]["status"] = status
@@ -1764,12 +1765,18 @@ def fix_verdict(head_blob, verified_blob="blob-a"):
             "head_blob": head_blob}
 
 
+# Fix result statuses whose files_touched never enter `blobs` (rule iii): the
+# file was edited, may still be dirty, or was restored by an undo.
+TOUCHING_STATUSES = ("applied", "applied-uncommitted", "unverified")
+
+
 def bind_blobs(state, results, pre, post, pre_clean=None, post_clean=None):
     """50-fix-loop.md Step B rule 2: the files whose obsolete verdict may be
     recorded — named by an obsolete result, byte-identical across the batch,
-    clean against HEAD at both samples, not touched by an applied fix."""
+    clean against HEAD at both samples, not touched by an applied,
+    applied-uncommitted or unverified fix (rule iii)."""
     files = {f["stable_hash"]: f["file"] for f in state["passes"][-1]["findings"]}
-    touched = {p for r in results if r.get("status") == "applied"
+    touched = {p for r in results if r.get("status") in TOUCHING_STATUSES
                for p in r.get("files_touched", [])}
     out = {}
     for r in results:
@@ -1941,6 +1948,25 @@ class TestPhase45EndToEnd(unittest.TestCase):
         prose = read_prose("phases/review/50-fix-loop.md")
         for needle in ("PRE_BLOBS", "POST_BLOBS", "files_touched"):
             self.assertIn(needle, prose)
+
+    def test_fix_obsolete_unbound_when_file_touched_without_commit(self):
+        # An applied-uncommitted or unverified fix touched the file, yet the
+        # HEAD blob and both cleanliness samples can look unchanged: rule (iii)
+        # alone keeps the obsolete verdict from binding that file.
+        s = load_fixture()
+        pre = post = {ARCH_FILE: "blob-a"}
+        obsolete = {"id": ARCH_HASH, "status": "obsolete", "summary": "gone"}
+        for status in ("applied-uncommitted", "unverified"):
+            with self.subTest(status):
+                other = {"id": BUGS_HASH, "status": status, "commit_sha": None,
+                         "files_touched": [ARCH_FILE]}
+                self.assertEqual(bind_blobs(s, [obsolete, other], pre, post), {})
+                self.assertEqual(bind_blobs(s, [obsolete], pre, post), pre)
+        rule = next(l for l in read_prose("phases/review/50-fix-loop.md")
+                    .split("\n") if "(iii)" in l)
+        for status in TOUCHING_STATUSES:
+            with self.subTest(prose=status):
+                self.assertIn("`%s`" % status, rule)
 
     def test_fix_obsolete_unbound_when_working_tree_dirty(self):
         s = load_fixture()

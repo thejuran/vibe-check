@@ -11,6 +11,7 @@ checks each carry a mutant subtest proving the check would trip.
 
 import hashlib
 import os
+import re
 import sys
 import unittest
 
@@ -51,7 +52,160 @@ STOP_HEADER = 'header "Stop here"'
 MAX_HEADER_CHARS = 12
 
 STEP_B_NEEDLES = ("PRE_BLOBS", "POST_BLOBS", "PRE_CLEAN", "POST_CLEAN",
-                  "files_touched", "record-fix-verdicts", "^[A-Za-z0-9._/-]+$")
+                  "files_touched", "record-fix-verdicts", "^[A-Za-z0-9._/-]+$",
+                  "applied-uncommitted", "unverified", "check.label")
+
+# --- Step B verified flow: dispatch, blobs rule (iii), fallback, render ---- #
+
+DISPATCH_START = "You are the fix agent."
+DISPATCH_END = "PASS_NUMBER = {{$PASS_NUMBER}}"
+OLD_PATHSPEC = "`--` pathspec on BOTH `git add` and `git commit`"
+FALLBACK_START = "**Inline fallback (narrow, fully specified).**"
+RENDER_START = "**Render results**"
+RENDER_END = "The pass entry still carries"
+UNDO_CONDITION = "**Undo when the fix is not proven.**"
+FIXSTAGE = 'fixstage.py" '
+FIXCHECK = 'fixcheck.py" '
+FALLBACK_ORDER = (FIXSTAGE + "begin", FIXSTAGE + "snapshot", FIXSTAGE + "seal",
+                  FIXCHECK + "after", FIXSTAGE + "undo", FIXSTAGE + "commit")
+FRESH_ATTEMPT = "never use an attempt id from an earlier pass"
+D13_LINE = ("applied, not committed — mixed with your unfinished edits; "
+            "build/test re-run won't see it")
+HEAD_SENTENCE = ("applied-but-uncommitted fixes do not move HEAD, which is why "
+                 "their line says build/test re-run won't see them")
+CHECK_LABELS = ("verified by `<command>`", "syntax check only",
+                "problem re-checked; no automated check available")
+_ATTEMPT_CALL = re.compile(
+    r'(fixstage\.py" (?:snapshot|seal|undo|commit)|fixcheck\.py" (?:baseline|after))')
+_DIRECT_GIT = re.compile(r"^\s*git (add|commit|stash|checkout|reset|restore)\b",
+                         re.M)
+
+
+def _flat(text):
+    return " ".join(text.split())
+
+
+def dispatch_prompt(step_b):
+    start = step_b.index(DISPATCH_START)
+    return step_b[start:step_b.index(DISPATCH_END, start)]
+
+
+def fallback_section(step_b):
+    start = step_b.index(FALLBACK_START)
+    return step_b[start:step_b.index(RENDER_START, start)]
+
+
+def render_section(step_b):
+    start = step_b.index(RENDER_START)
+    return step_b[start:step_b.index(RENDER_END, start)]
+
+
+def render_line(render, status):
+    """The render bullet for `status`, or "" when it is missing."""
+    for line in render.split("\n"):
+        if line.startswith("- `%s` →" % status):
+            return line
+    return ""
+
+
+def case_arms(text, invocation):
+    """{label: arm text} of the `case` following `invocation` ({} if absent)."""
+    if invocation not in text:
+        return {}
+    start = text.index(invocation)
+    end = text.find("esac", start)
+    window = text[start:end if end >= 0 else len(text)]
+    return {m.group(1): m.group(2) for m in
+            re.finditer(r"^\s+(\d|\*)\) (.*)$", window, re.M)}
+
+
+def render_problems(step_b):
+    render = render_section(step_b)
+    problems = []
+    if D13_LINE not in render_line(render, "applied-uncommitted"):
+        problems.append("no applied-uncommitted render line with the D-13 text")
+    if "the finding stays open" not in render_line(render, "unverified"):
+        problems.append("no unverified render line keeping the finding open")
+    if HEAD_SENTENCE not in step_b:
+        problems.append("HEAD-movement sentence missing")
+    if "copied into your reply as message text" not in render:
+        problems.append("render is not copied as message text")
+    return problems
+
+
+def blobs_rule_problems(step_b):
+    rule = next((l for l in step_b.split("\n") if "(iii)" in l), "")
+    problems = ["rule (iii) does not name `%s`" % s
+                for s in ("applied", "applied-uncommitted", "unverified")
+                if "`%s`" % s not in rule]
+    if 'status == "applied"' in rule:
+        problems.append("rule (iii) is back to applied only")
+    return problems
+
+
+def fallback_git_problems(step_b):
+    fb = fallback_section(step_b)
+    problems = [] if FIXSTAGE + "commit" in fb else ["no fixstage commit"]
+    problems += ["direct git: " + m.group(0).strip()
+                 for m in _DIRECT_GIT.finditer(fb)]
+    return problems
+
+
+def fallback_lifecycle_problems(step_b):
+    fb = fallback_section(step_b)
+    if any(s not in fb for s in FALLBACK_ORDER):
+        return ["a lifecycle step is missing"]
+    problems = []
+    idx = [fb.index(s) for s in FALLBACK_ORDER]
+    if idx != sorted(idx):
+        problems.append("order must be begin < snapshot < seal < after < undo < commit")
+    for line in fb.split("\n"):
+        for m in _ATTEMPT_CALL.finditer(line):
+            tail = re.split(r"&&|;", line[m.start():], maxsplit=1)[0]
+            if "--attempt" not in tail:
+                problems.append("%s lacks --attempt" % m.group(1))
+    if FRESH_ATTEMPT not in fb:
+        problems.append("fresh-attempt sentence missing")
+    arms = case_arms(fb, FIXSTAGE + "commit")
+    for label in ("0", "3", "4", "5", "6", "7", "*"):
+        if label not in arms:
+            problems.append("commit case lacks a %s) arm" % label)
+    if "hook-changed" not in arms.get("5", ""):
+        problems.append("5) arm must name hook-changed")
+    if "moved-after-commit" not in arms.get("7", ""):
+        problems.append("7) arm must name moved-after-commit")
+    if "NOTHING is staged and NOTHING is committed" not in arms.get("*", ""):
+        problems.append("*) arm must say nothing is staged or committed")
+    return problems
+
+
+def unavailable_problems(step_b):
+    fb = fallback_section(step_b)
+    problems = []
+    if UNDO_CONDITION not in fb or FIXSTAGE + "undo" not in fb:
+        return ["undo condition or undo call missing"]
+    cond = fb[fb.index(UNDO_CONDITION):fb.index(FIXSTAGE + "undo")]
+    if "`unavailable`" not in cond:
+        problems.append("undo condition does not name `unavailable`")
+    line = render_line(render_section(step_b), "unverified")
+    if not ("`unavailable`" in line and '"could not run"' in line):
+        problems.append("render does not map unavailable to could not run")
+    return problems
+
+
+def dispatch_problems(step_b):
+    prompt = _flat(dispatch_prompt(step_b))
+    problems = ["dispatch lacks " + n for n in ("`unverified`",
+                                                 "`fixstage.py commit`")
+                if n not in prompt]
+    if OLD_PATHSPEC in prompt:
+        problems.append("dispatch still asks for the git add pathspec commit")
+    return problems
+
+
+def label_problems(step_b):
+    line = render_line(render_section(step_b), "applied")
+    return ["applied render lacks " + l for l in CHECK_LABELS if l not in line]
 
 
 SUBSET_ROWS_LINE = ('if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" '
@@ -333,6 +487,117 @@ class TestFixLoopCard(unittest.TestCase):
         with self.subTest("mutant: verbatim-copy rule removed"):
             mutant = self.card.replace(LIST_IN_CARD[0], "render the list", 1)
             self.assertNotEqual(list_in_card_problems(mutant), [])
+
+
+class TestStepBVerifiedFlow(unittest.TestCase):
+    """Step B dispatches, falls back to and renders the verified fix flow."""
+
+    def setUp(self):
+        self.step_b = step_b_section(read_text())
+
+    def mutate(self, old, new):
+        self.assertIn(old, self.step_b)
+        mutant = self.step_b.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.step_b)
+        return mutant
+
+    def line_with(self, needle, text=None):
+        return next(l for l in (text or self.step_b).split("\n") if needle in l)
+
+    # (a) render lists the new statuses
+    def test_render_lists_new_statuses(self):
+        self.assertEqual(render_problems(self.step_b), [])
+
+    def test_render_mutant_trips(self):
+        line = render_line(render_section(self.step_b), "applied-uncommitted")
+        self.assertNotEqual(render_problems(self.mutate(line + "\n", "")), [])
+
+    # (b) blobs rule (iii) excludes every touching status
+    def test_blobs_rule_excludes_touched(self):
+        self.assertEqual(blobs_rule_problems(self.step_b), [])
+
+    def test_blobs_rule_mutant_trips(self):
+        rule = self.line_with("(iii)")
+        old = ("   - (iii) does not appear in `files_touched` of any result "
+               'with `status == "applied"` (belt-and-braces).')
+        self.assertNotEqual(blobs_rule_problems(self.mutate(rule, old)), [])
+
+    # (c) the inline fallback commits only through fixstage
+    def test_fallback_uses_fixstage(self):
+        self.assertEqual(fallback_git_problems(self.step_b), [])
+
+    def test_fallback_git_mutant_trips(self):
+        commit = self.line_with(FIXSTAGE + "commit", fallback_section(self.step_b))
+        mutant = self.mutate(
+            commit, "  git add -- <validated finding file set>\n" + commit)
+        self.assertNotEqual(fallback_git_problems(mutant), [])
+
+    # (c2) begin < snapshot < seal < after < undo < commit, all attempt-scoped
+    def test_fallback_attempt_lifecycle(self):
+        self.assertEqual(fallback_lifecycle_problems(self.step_b), [])
+
+    def test_fallback_lifecycle_mutants_trip(self):
+        fb = fallback_section(self.step_b)
+        seal = self.line_with(FIXSTAGE + "seal", fb)
+        after = self.line_with(FIXCHECK + "after", fb)
+        commit = self.line_with(FIXSTAGE + "commit", fb)
+        arm5 = self.line_with("5) echo \"hook-changed", fb)
+        arm7 = self.line_with("7) echo \"moved-after-commit", fb)
+        moved = self.step_b.replace(seal, "  : # sealed later", 1).replace(
+            after, after + "\n" + seal, 1)
+        mutants = {
+            "seal after the after-check": moved,
+            "commit drops --attempt": self.mutate(
+                commit, commit.replace(" --attempt <A>", "")),
+            "after drops --attempt": self.mutate(
+                after, after.replace(" --attempt <A>", "")),
+            "5) arm deleted": self.mutate(arm5 + "\n", ""),
+            "7) arm deleted": self.mutate(arm7 + "\n", ""),
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(mutant, self.step_b)
+                self.assertNotEqual(fallback_lifecycle_problems(mutant), [])
+
+    # (c3) an after-check that could not run is never a pass
+    def test_fallback_unavailable_is_unverified(self):
+        self.assertEqual(unavailable_problems(self.step_b), [])
+
+    def test_unavailable_mutants_trip(self):
+        fb = fallback_section(self.step_b)
+        cond = self.line_with(UNDO_CONDITION, fb)
+        render = render_line(render_section(self.step_b), "unverified")
+        mutants = {
+            "unavailable dropped from undo": self.mutate(
+                cond, cond.replace(" AND `unavailable`", "")),
+            "could-not-run render dropped": self.mutate(
+                render, render.replace('"could not run"', '"passed"')),
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(unavailable_problems(mutant), [])
+
+    # (d) the dispatch prompt names the verified flow
+    def test_dispatch_prompt_names_verified_flow(self):
+        self.assertEqual(dispatch_problems(self.step_b), [])
+
+    def test_dispatch_prompt_mutant_trips(self):
+        prompt = dispatch_prompt(self.step_b)
+        mutant = self.mutate(prompt, prompt + "Commit the finding's validated "
+                             "file set as the " + OLD_PATHSPEC + ".\n")
+        self.assertNotEqual(dispatch_problems(mutant), [])
+
+    # (e) the three check labels render on applied fixes
+    def test_labels_present(self):
+        self.assertEqual(label_problems(self.step_b), [])
+
+    def test_label_mutants_trip(self):
+        line = render_line(render_section(self.step_b), "applied")
+        for label in CHECK_LABELS:
+            with self.subTest(label=label):
+                mutant = self.mutate(line, line.replace(label, "checked", 1))
+                self.assertNotEqual(label_problems(mutant), [])
+
 
 if __name__ == "__main__":
     unittest.main()
