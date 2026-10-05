@@ -460,13 +460,159 @@ def cmd_seal(root, record, attempt):
     return 0
 
 
+def _stored(adir, n, suffix, expected_sha):
+    """A stored byte copy, or None when it is missing or fails its digest."""
+    if expected_sha is None:
+        return None
+    path = os.path.join(adir, "%d.%s" % (n, suffix))
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    return data if _sha(data) == expected_sha else None
+
+
+def _undo_view(root, adir, entry):
+    """The manifest entry plus its stored bytes, for `_reverse_path`.
+
+    `intact` is False when a stored copy the entry promises is missing or does
+    not match its recorded digest; such a path is never written.
+    """
+    view = dict(entry)
+    view["root"] = root
+    view["workdir"] = adir
+    view["pre"] = None
+    view["post"] = None
+    intact = entry.get("post_state") in ("present", "absent")
+    if entry.get("state") in ("tracked", "untracked"):
+        view["pre"] = _stored(adir, entry["n"], "pre", entry.get("pre_sha256"))
+        intact = intact and view["pre"] is not None
+    elif entry.get("state") != "absent":
+        intact = False
+    if entry.get("post_state") == "present":
+        view["post"] = _stored(adir, entry["n"], "post", entry.get("post_sha256"))
+        intact = intact and view["post"] is not None
+    view["intact"] = intact
+    return view
+
+
+def _merge_reverse(entry, current):
+    """`git merge-file -p <current> <post> <pre>`: apply only post->pre onto
+    what is there now. Returns the merged bytes, or None on conflict/error."""
+    adir = entry["workdir"]
+    n = entry["n"]
+    cur_copy = os.path.join(adir, "%d.cur" % n)
+    try:
+        _atomic_write(cur_copy, current["bytes"])
+        proc = _git(entry["root"], "merge-file", "-p", "--", cur_copy,
+                    os.path.join(adir, "%d.post" % n),
+                    os.path.join(adir, "%d.pre" % n), binary=True)
+    finally:
+        if os.path.lexists(cur_copy):
+            os.unlink(cur_copy)
+    # rc > 0 counts conflicts; rc < 0 (255 from the shell's view) is an error,
+    # e.g. a binary file. Either way the file is left as it is.
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def _reverse_path(entry, current):
+    """Decide how to reverse ONE path -> ("restored"|"merged"|"kept", bytes|None).
+
+    `restored` with None means delete. Undo reverses only the fix's own delta:
+      (a) current == sealed post (presence and bytes) -> restore pre exactly
+      (b) changed since seal, the fix created the file -> keep
+      (c) changed since seal, the fix deleted the file -> keep
+      (d) changed since seal, both exist -> reverse merge-file; conflict -> keep
+    Never restores from HEAD and never restores pre over a changed file: that
+    would erase owner edits made before the fix or while the check ran.
+    """
+    if not entry["intact"] or not current["regular"]:
+        return ("kept", None)
+    post_present = entry["post_state"] == "present"
+    if current["present"] == post_present and (
+            not post_present or current["bytes"] == entry["post"]):
+        return ("restored", entry["pre"])
+    if entry["pre"] is None or not post_present or not current["present"]:
+        return ("kept", None)
+    merged = _merge_reverse(entry, current)
+    if merged is None:
+        return ("kept", None)
+    return ("merged", merged)
+
+
+def _same_state(a, b):
+    return (a["present"] == b["present"] and a["regular"] == b["regular"]
+            and a["bytes"] == b["bytes"] and a["mode"] == b["mode"])
+
+
+def _apply(abspath, current, data, mode):
+    """Write `data` (None = delete) with `mode`, unless the file changed again
+    since `current` was read. Returns True when applied."""
+    if data is None:
+        if not current["present"]:
+            return True
+        if not _same_state(_read_path(abspath), current):
+            return False
+        os.unlink(abspath)
+        return True
+    parent = os.path.dirname(abspath)
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=parent, prefix=".fixstage-")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.chmod(tmp, mode)
+        if not _same_state(_read_path(abspath), current):
+            return False
+        os.replace(tmp, abspath)
+        tmp = None
+        return True
+    finally:
+        if tmp is not None and os.path.lexists(tmp):
+            os.unlink(tmp)
+
+
 def cmd_undo(root, record, attempt):
-    adir = _require_open_attempt(root, record["id"], attempt)
+    fid = record["id"]
+    adir = _require_open_attempt(root, fid, attempt)
     manifest = _load_manifest(adir)
     if not manifest["sealed"]:
         raise Refused("refused: attempt not sealed")
-    sys.stderr.write("undo: not implemented\n")
-    return 2
+    # The manifest is our own state, but it decides where undo writes: re-run
+    # the same path validation the record passed before trusting it.
+    _validate_paths(root, [entry["path"] for entry in manifest["paths"]])
+    kept = []
+    for entry in manifest["paths"]:
+        path = entry["path"]
+        abspath = os.path.join(root, path)
+        try:
+            current = _read_path(abspath)
+            action, data = _reverse_path(_undo_view(root, adir, entry), current)
+            if action == "kept":
+                kept.append(path)
+                continue
+            if data is None:
+                mode = None
+            elif action == "restored" and not current["present"]:
+                mode = entry["mode"]
+            elif current["mode"] == entry.get("post_mode"):
+                mode = entry["mode"]
+            else:
+                mode = current["mode"]  # the owner changed the mode since seal
+            if not _apply(abspath, current, data, mode):
+                kept.append(path)
+        except (OSError, subprocess.SubprocessError) as exc:
+            sys.stderr.write("undo: %s while reversing a path; left as is\n"
+                             % type(exc).__name__)
+            kept.append(path)
+    for path in kept:
+        # Paths passed PATH_RE validation, so they are safe to print.
+        sys.stdout.write("not-undone: %s\n" % path)
+    _close_attempt(root, fid, attempt, "undo-partial" if kept else "undone")
+    return 3 if kept else 0
 
 
 def run(argv):
