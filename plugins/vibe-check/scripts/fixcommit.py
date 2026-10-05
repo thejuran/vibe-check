@@ -25,8 +25,8 @@ guard.py fails CLOSED on an empty root, refuses absolute escapes and
 `/repo-other` masquerades, and judges a deleted-file path lexically, so a
 multi-site fix touching a just-deleted sibling still validates.)
 
-`TITLE_ALLOWED = ^[A-Za-z0-9 ._:/()#=-]+$` is the commit-title allowlist
-(`-` stays last so it is a literal, not a range; `=` sits just before it). It is
+`TITLE_ALLOWED = ^[A-Za-z0-9 ._:/()#=,-]+$` is the commit-title allowlist
+(`-` stays last so it is a literal, not a range; `=` and `,` sit just before it). It is
 load-bearing:
 
   * It excludes newlines, carriage returns and ASCII control chars
@@ -38,11 +38,16 @@ load-bearing:
     inert in a one-line subject given the `%s`-arg formatting + `-F msgfile` +
     `--cleanup=verbatim` mechanics: it cannot start a new line, so it cannot
     forge a trailer without a newline.
-  * It EXCLUDES `"`, `'` and `,` — deliberately STRICTER than
-    `agents/codex-adversarial.md`'s display title-sanitization class, which
-    keeps all three. That is not a disagreement: a display string is rendered,
-    a commit subject is constructed, and the quote characters are not
-    demonstrably safe at a construction site. **Do NOT re-widen this class.**
+  * It PERMITS `,` (owner decision D-16, Phase 48): finding titles routinely
+    carry commas, and a comma is inert in a one-line `-F msgfile` +
+    `--cleanup=verbatim` subject — it cannot start a new line, so it cannot
+    forge a trailer.
+  * It still EXCLUDES `"` and `'` (and every control character) — deliberately
+    STRICTER than `agents/codex-adversarial.md`'s display title-sanitization
+    class, which keeps them. That is not a disagreement: a display string is
+    rendered, a commit subject is constructed, and the quote characters are not
+    demonstrably safe at a construction site. **Do NOT re-widen this class to
+    admit quotes, apostrophes or control characters.**
     `test_codex_translate.py::TestAllowlistRelationship` pins the relationship
     one-directionally (everything this class permits survives the display
     sanitizer unchanged; the reverse must not hold).
@@ -93,7 +98,7 @@ import guard  # noqa: E402  (the ONE containment source; never re-inlined here)
 PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 # Commit-title allowlist — stricter than the display sanitizer ON PURPOSE.
-TITLE_ALLOWED = re.compile(r"^[A-Za-z0-9 ._:/()#=-]+$")
+TITLE_ALLOWED = re.compile(r"^[A-Za-z0-9 ._:/()#=,-]+$")
 
 # Pass numbers are digits only; anything else could reach the subject line.
 PASS_RE = re.compile(r"^[0-9]+$")
@@ -111,7 +116,7 @@ def validate_title(title):
         return False, "refused: empty title (fail closed)"
     if TITLE_ALLOWED.match(title) is None:
         return False, ("refused: title contains a character outside the commit "
-                       "allowlist (control chars, quotes and comma are excluded)")
+                       "allowlist (control chars and quotes are excluded)")
     return True, "accepted"
 
 

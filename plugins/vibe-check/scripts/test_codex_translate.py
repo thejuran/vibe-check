@@ -52,16 +52,16 @@ BELL = "\x07"        # ASCII control
 NUL = "\x00"         # ASCII control (low end)
 DEL = "\x7f"         # ASCII control (DEL)
 
-# agents/fix.md:44 — the commit-construction allowlist. DELIBERATELY STRICTER
-# than this module's display sanitizer: `"`, `'` and `,` are rejected there
-# because the title is substituted into a shell command line where a `"` can
-# break out of the single argument. Not a disagreement — see the docstring of
+# fixcommit.TITLE_ALLOWED — the commit-construction allowlist. DELIBERATELY
+# STRICTER than this module's display sanitizer: `"` and `'` are rejected there
+# because a quote is not demonstrably safe at a construction site. `,` is
+# admitted (owner decision D-16). Not a disagreement — see the docstring of
 # TestAllowlistRelationship.
 FIX_MD_COMMIT_CLASS = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789"
-    " ._:/()#=-"
+    " ._:/()#=,-"
 )
 
 
@@ -185,17 +185,17 @@ class TestAllowlistRelationship(unittest.TestCase):
     """The display sanitizer is WIDER than the commit-construction allowlist.
 
     `agents/fix.md:44` rejects a title containing any character outside
-    `[A-Za-z0-9 ._:/()#=-]`. That class excludes `"`, `'` and `,`, which THIS
-    module deliberately keeps. The relationship is one-directional and must stay
-    that way:
+    `[A-Za-z0-9 ._:/()#=,-]` (comma admitted by owner decision D-16). That
+    class excludes `"` and `'`, which THIS module deliberately keeps. The
+    relationship is one-directional and must stay that way:
 
       * every character fix.md permits must survive sanitize_title unchanged
         (otherwise the display path would mangle a title the commit path
         considers legitimate), and
-      * sanitize_title additionally keeps `"`, `'` and `,` — which the commit
-        path (plan 40-07's fixcommit) REJECTS, because at the
-        `printf ... "<finding.title>"` substitution site a `"` can break out of
-        the shell argument. Do NOT re-widen the commit allowlist to match.
+      * sanitize_title additionally keeps `"` and `'` — which the commit
+        path (fixcommit) REJECTS, because a quote is not demonstrably safe at
+        a construction site. Do NOT re-widen the commit allowlist to admit
+        quotes or apostrophes.
     """
 
     def test_every_commit_class_character_survives_sanitize(self):
@@ -206,8 +206,8 @@ class TestAllowlistRelationship(unittest.TestCase):
                 "sanitize_title altered %r, which fix.md:44 permits" % ch,
             )
 
-    def test_display_keeps_the_three_characters_commit_path_rejects(self):
-        for ch in ('"', "'", ","):
+    def test_display_keeps_the_two_characters_commit_path_rejects(self):
+        for ch in ('"', "'"):
             self.assertNotIn(
                 ch, FIX_MD_COMMIT_CLASS,
                 "fix.md's commit class must NOT contain %r" % ch,

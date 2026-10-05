@@ -32,11 +32,11 @@ The ONE codepoint list (do not restate it anywhere else):
     ordinary non-ASCII letters.
 
 The display class here is deliberately WIDER than the commit-construction
-allowlist in `agents/fix.md`:44 (`[A-Za-z0-9 ._:/()#=-]`), which additionally
-rejects `"`, `'` and `,`. That is not a disagreement to reconcile: at the commit
-path's `printf ... "<finding.title>"` substitution site the title enters a SHELL
-command line, where a `"` can break out of the argument. Do NOT re-widen the
-commit allowlist to match this one. `test_codex_translate.TestAllowlistRelationship`
+allowlist (`fixcommit.TITLE_ALLOWED`, `[A-Za-z0-9 ._:/()#=,-]`), which
+additionally rejects `"` and `'` (a comma is admitted there by owner decision
+D-16). That is not a disagreement to reconcile: a commit subject is constructed,
+and a quote is not demonstrably safe at a construction site. Do NOT re-widen the
+commit allowlist to admit quotes or apostrophes. `test_codex_translate.TestAllowlistRelationship`
 pins the relationship in the one direction that must hold: every character the
 commit class permits survives this sanitizer unchanged.
 

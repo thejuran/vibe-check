@@ -27,10 +27,12 @@ Three defect families are locked here, each reproduced live before the fix:
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -80,7 +82,9 @@ class TestValidateTitle(unittest.TestCase):
             "DEL": "a\x7fb",
             "double quote": 'say "hi"',
             "single quote": "don't",
-            "comma": "a,b",
+            "inner double quote": 'a"b',
+            "inner apostrophe": "a'b",
+            "inner newline": "a\nb",
             "non-ascii": "héllo",
             "empty": "",
         }
@@ -111,12 +115,25 @@ class TestValidateTitle(unittest.TestCase):
         self.assertFalse(ok)
         self.assertNotIn(SENTINEL_TITLE, reason)
 
-    def test_allowlist_excludes_the_three_display_sanitizer_keeps(self):
+    def test_allowlist_excludes_quotes_and_apostrophe(self):
         # Deliberately STRICTER than codex-adversarial.md's display sanitizer.
         # 40-04's TestAllowlistRelationship pins the other direction.
-        for ch in ('"', "'", ","):
+        for ch in ('"', "'"):
             with self.subTest(ch=ch):
                 self.assertIsNone(fixcommit.TITLE_ALLOWED.match("a" + ch + "b"))
+
+    def test_allowlist_permits_comma(self):
+        # D-16: a comma is inert in a one-line -F/--cleanup=verbatim subject.
+        title = "Avoid shell=True, use argv"
+        ok, reason = fixcommit.validate_title(title)
+        self.assertTrue(ok, reason)
+        self.assertEqual(fixcommit.build_message(3, title),
+                         "fix(review-pass-3): Avoid shell=True, use argv\n")
+        with self.subTest("mutant: the pre-D-16 pattern rejects the comma"):
+            old = re.compile(r"^[A-Za-z0-9 ._:/()#=-]+$")
+            with mock.patch.object(fixcommit, "TITLE_ALLOWED", old):
+                ok, _ = fixcommit.validate_title(title)
+            self.assertFalse(ok, "comma test is not live: old pattern accepted")
 
     def test_allowlist_permits_equals(self):
         # `flag=value` titles are legitimate and inert given printf '%s' +
