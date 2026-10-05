@@ -77,8 +77,8 @@ class GitsnapCase(unittest.TestCase):
     def compare_inproc(self):
         return self.run_inproc("compare", "--root", self.repo, "--before", self.snap)
 
-    def make_stash(self):
-        write(self.repo, "f.txt", "stashed edit\n")
+    def make_stash(self, content="stashed edit\n"):
+        write(self.repo, "f.txt", content)
         git(self.repo, "stash", "push", "-q", "-m", "owner wip")
 
 
@@ -267,14 +267,36 @@ class TestGitsnapMutants(GitsnapCase):
             code, out = self.compare_inproc()
         self.assertEqual(code, 0, "mutant %s should go blind: %s" % (name, out))
 
-    def test_mutant_stash_component_dropped_misses_phase43_shape(self):
-        self.make_stash()
+    def test_mutant_stash_component_dropped_misses_stash_drop(self):
+        # A drop touches nothing but the stash list, so only the stash
+        # component can see it.
+        def drop():
+            git(self.repo, "stash", "drop", "-q")
+        self.make_stash("first\n")
+        self.make_stash("second\n")
+        self.make_stash("third\n")
+        self.mutant_flips("collect_stash", [], drop)
 
+    def test_mutant_stash_component_dropped_loses_phase43_stash_line(self):
+        # The re-stash in the Phase 43 shape also runs an internal reset that
+        # grows the HEAD reflog, so the reflog component catches it too. The
+        # stash component is still what NAMES the incident: without it the
+        # "stash list changed" line disappears.
         def pop_and_restash():
             git(self.repo, "stash", "pop", "-q")
             git(self.repo, "stash", "push", "-q", "-m",
                 "restore: undo accidental stash pop")
-        self.mutant_flips("collect_stash", [], pop_and_restash)
+        self.make_stash()
+        self.take_inproc()
+        pop_and_restash()
+        code, out = self.compare_inproc()
+        self.assertEqual(code, 1)
+        self.assertIn("stash list changed (1 → 1 entries; contents differ)", out)
+        with mock.patch.object(gitsnap, "collect_stash", return_value=[]):
+            self.take_inproc()
+            pop_and_restash()
+            code, out = self.compare_inproc()
+        self.assertNotIn("stash", out)
 
     def test_mutant_reflog_component_constant_misses_checkout_round_trip(self):
         def round_trip():
