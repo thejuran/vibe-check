@@ -220,8 +220,11 @@ READ_ONLY_SUBCOMMANDS = frozenset({
     "cat-file", "merge-base", "describe", "shortlog", "name-rev",
     "for-each-ref", "show-ref", "show-branch", "grep", "cherry", "range-diff",
     "whatchanged", "count-objects", "check-ignore", "check-attr",
-    "check-ref-format", "var", "version", "ls-remote",
+    "check-ref-format", "var", "version",
 })
+# `ls-remote` is deliberately absent: `--upload-pack=<cmd>` (any unique
+# abbreviation) runs an arbitrary program, and it reaches the network.
+# It falls through to UNKNOWN_SUBCOMMAND_VERDICT (refused).
 
 DENIED_SUBCOMMAND_FLAGS = frozenset({
     "--output", "-O", "--open-files-in-pager", "--ext-diff", "--textconv",

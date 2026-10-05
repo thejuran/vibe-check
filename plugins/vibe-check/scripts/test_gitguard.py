@@ -101,6 +101,9 @@ DENY = (
     "find . -name x -exec git add {} ;",
     "python3 -c \"import os; os.system('git stash')\"",
     'git log "unbalanced',
+    "git ls-remote --upload-pack='git stash pop; git-upload-pack' .",
+    "git ls-remote --upload-p=x .",
+    "git ls-remote origin",
 )
 
 # (command, expected reason constant name, plugin_scripts)
@@ -492,6 +495,14 @@ class TestClassifyMutants(unittest.TestCase):
         self.assertDenied("git stash pop")
         with mock.patch.object(gitguard, "READ_ONLY_SUBCOMMANDS", mutated):
             self.assertAllowed("git stash pop")
+
+    def test_a2_ls_remote_upload_pack_refused(self):
+        cmd = "git ls-remote --upload-pack='git stash pop; git-upload-pack' ."
+        mutated = gitguard.READ_ONLY_SUBCOMMANDS | {"ls-remote"}
+        self.assertNotIn("ls-remote", gitguard.READ_ONLY_SUBCOMMANDS)
+        self.assertDenied(cmd)
+        with mock.patch.object(gitguard, "READ_ONLY_SUBCOMMANDS", mutated):
+            self.assertAllowed(cmd)
 
     def test_b_branch_always_allowed(self):
         always = lambda args: (True, "allowed")  # noqa: E731
