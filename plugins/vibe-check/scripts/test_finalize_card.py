@@ -208,6 +208,41 @@ def check_superseded(schema, finalize):
     return problems
 
 
+LIST_IN_CARD = (
+    "copy the `card_text` field of `$ROWSFILE` verbatim into Q1",
+    "never print it only from a shell command",
+    "When `card_text_truncated` is true",
+    "ALSO print the `list_text` field verbatim as message text",
+)
+ECHO_VISIBLE = (
+    "it must never be visible only inside a Bash call's output",
+    "as the opening lines of the next message you print",
+    "as that card's closing \"From your finalize answer:\" block",
+    "whose summary message opens with `echo_text`",
+    "the stop message opens with `echo_text`",
+)
+
+
+def q1_line(text):
+    start = text.index("> **Q1** — header \"Decide\"")
+    return text[start:text.index("\n", start)]
+
+
+def check_list_in_card(text):
+    section = card_section(text)
+    problems = [n for n in LIST_IN_CARD + ECHO_VISIBLE
+                if section.count(n) != 1]
+    q1 = q1_line(section)
+    for needle in ("{{card_text}}", "listed below"):
+        if needle not in q1:
+            problems.append("Q1 lacks " + needle)
+    if "(message text above the card" in section:
+        problems.append("list printed as message text above the card")
+    if "print the `echo` lines verbatim as message text" in section:
+        problems.append("echo printed as message text only")
+    return problems
+
+
 class LockCase(unittest.TestCase):
     def assert_holds(self, check, *texts):
         self.assertEqual(check(*texts), [])
@@ -341,6 +376,21 @@ class TestFinalizeCard(LockCase):
                 "read them from `members[].obligation` instead")
             self.assert_trips(check_look_member, mutant)
 
+
+    def test_list_and_echo_visible_on_screen(self):
+        """D1: the numbered list rides in Q1 and the parse echo opens the
+        next visible message, never only a Bash call's collapsed output."""
+        self.assert_holds(check_list_in_card, self.text)
+        q1 = q1_line(self.text)
+        with self.subTest("mutant: card_text dropped from Q1"):
+            self.assert_trips(check_list_in_card, self.text.replace(
+                q1, q1.replace("{{card_text}}", ""), 1))
+        with self.subTest("mutant: back to a list above the card"):
+            self.assert_trips(check_list_in_card, inject_into_card(
+                self.text, "**The list (message text above the card, D-05).**"))
+        with self.subTest("mutant: echo back to message text only"):
+            self.assert_trips(check_list_in_card, remove(
+                self.text, "as the opening lines of the next message you print"))
 
 # --------------------------------------------------------------------------- #
 # REVIEW.md rendering.

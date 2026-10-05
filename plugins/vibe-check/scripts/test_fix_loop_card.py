@@ -103,6 +103,33 @@ def headers_fit(card):
     return True
 
 
+LIST_IN_CARD = (
+    "copy the `card_text` field of `$ROWSFILE` verbatim into the question",
+    "never print it only from a shell command",
+    "When `card_text_truncated` is true",
+    "ALSO print the `list_text` field verbatim as message text",
+)
+
+
+def question_line(card):
+    """The fix-loop card's **Question:** line."""
+    start = card.index("> **Question:** \"Pass {{$PASS_NUMBER}}")
+    return card[start:card.index("\n", start)]
+
+
+def list_in_card_problems(card):
+    """[] when the numbered list is carried INSIDE the card's question."""
+    problems = [n for n in LIST_IN_CARD if card.count(n) != 1]
+    question = question_line(card)
+    for needle in ("{{card_text}}", "From your finalize answer:",
+                   "<echo_text>", "listed below"):
+        if needle not in question:
+            problems.append("question lacks " + needle)
+    if "Message text above the card" in card:
+        problems.append("list printed as message text above the card")
+    return problems
+
+
 class TestFixLoopCard(unittest.TestCase):
 
     def setUp(self):
@@ -231,6 +258,28 @@ class TestFixLoopCard(unittest.TestCase):
         self.assertIn(clear, rerun)
         self.assertLess(rerun.index(clear), rerun.index("loop back to Phase 0"))
 
+
+    # (l) the numbered list is carried IN the card (D1: text inside a Bash
+    # call's output is collapsed by the terminal and never seen)
+    def test_list_lives_in_the_card_question(self):
+        self.assertEqual(list_in_card_problems(self.card), [])
+
+    def test_list_in_card_trips_on_mutants(self):
+        question = question_line(self.card)
+        with self.subTest("mutant: card_text dropped from the question"):
+            mutant = self.card.replace(
+                question, question.replace("{{card_text}}", ""), 1)
+            self.assertNotEqual(list_in_card_problems(mutant), [])
+        with self.subTest("mutant: finalize echo dropped"):
+            mutant = self.card.replace(
+                question, question.replace("<echo_text>", ""), 1)
+            self.assertNotEqual(list_in_card_problems(mutant), [])
+        with self.subTest("mutant: back to a list printed above the card"):
+            mutant = self.card + "\n**Message text above the card.** Print"
+            self.assertNotEqual(list_in_card_problems(mutant), [])
+        with self.subTest("mutant: verbatim-copy rule removed"):
+            mutant = self.card.replace(LIST_IN_CARD[0], "render the list", 1)
+            self.assertNotEqual(list_in_card_problems(mutant), [])
 
 if __name__ == "__main__":
     unittest.main()
