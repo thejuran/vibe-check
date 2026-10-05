@@ -11,20 +11,35 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
 
 <!-- LEGIBLE-03 (D-07): the card is a NEUTRAL menu — no preferred-default tag, suffix or any other nudge on ANY option in this file (D-03); the former what-next exception is gone with the what-next menu. -->
 
-**Bind the rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Run under bash:
+**Bind the rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Run EXACTLY ONE of the two fences below under bash — never an optional-flag expansion that adds `--subset` only when a variable is set: zsh does not word-split such an expansion (it reaches the helper as one argument, which it refuses), and a variable bound in Finalize's fence does not survive into this separate Bash call, so the flag would silently vanish and the card would list rows the owner never chose.
 
-```bash
-ROWSFILE=$(mktemp)
-ANSWERFILE=$(mktemp)
-if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop ${SUBSETFILE:+--subset "$SUBSETFILE"} < "$STATE_FILE"); then
-  printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
-else
-  echo "batch_card.py refused — fix loop cannot render its card; nothing was changed" >&2
-  exit 1
-fi
-```
+- **Finalize routed a fix set here (D-10)** → the subset fence. Substitute `<subset path>` with the literal path Finalize's subset step printed after `SUBSETFILE=` — the path itself, not `$SUBSETFILE`. If Finalize routed here but printed no subset path, refuse: print "No fix set from Finalize — the fix loop will not fall back to every open row; nothing was changed", then the Abandon line below, and stop. Never run the ordinary fence in its place.
 
-`$SUBSETFILE` is set only when Finalize routed a fix set into this file (D-10); otherwise it is unset and the card lists every open row. A refusal ends Phase 5 for this pass with the state untouched — print the Abandon line below so the owner can resume.
+  ```bash
+  ROWSFILE=$(mktemp)
+  ANSWERFILE=$(mktemp)
+  if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop --subset "<subset path>" < "$STATE_FILE"); then
+    printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
+  else
+    echo "batch_card.py refused — fix loop cannot render its card; nothing was changed" >&2
+    exit 1
+  fi
+  ```
+
+- **Every other pass** → the ordinary fence; the card lists every open row.
+
+  ```bash
+  ROWSFILE=$(mktemp)
+  ANSWERFILE=$(mktemp)
+  if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop < "$STATE_FILE"); then
+    printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
+  else
+    echo "batch_card.py refused — fix loop cannot render its card; nothing was changed" >&2
+    exit 1
+  fi
+  ```
+
+`$SUBSETFILE` below means that Finalize-routed subset path (D-10); on any other pass there is none. A refusal ends Phase 5 for this pass with the state untouched — print the Abandon line below so the owner can resume.
 
 **Same-turn rule (D-04).** Call AskUserQuestion in THIS assistant turn — never from a fan-out/dispatch turn, which emits no text.
 
@@ -78,7 +93,7 @@ The fix agent decides each actual edit (there is no pre-baked patch); findings i
   > 2. **Abandon** — stop. State file remains at `.turingmind/state/<$PHASE_ID>.json` (full resolved phase dir name per Phase 0.5) for resume. Print a "Paused." line that renders THIS command's own slash form by positional self-identity (the same self-identity idiom the spine's report-only one-liner uses): "Paused. Resume with `/vibe-check:review ${original_args}` or close out later with `--finalize`." when running `/review`, and "Paused. Resume with `/vibe-check:deep-review ${original_args}` or close out later with `--finalize`." when running `/deep-review`. Use `${original_args}` (the same shell-style var Close out uses); never a `$COMMAND`-style variable.
   > 3. **I'll fix by hand, then rerun** — end the turn with: "Paused for your edits. Commit them, then reply `done` and I'll rerun the review." When the owner replies, go to the Rerun with no further card.
 
-**The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun, so a Finalize-routed subset never carries into the next pass's card. Then loop back to Phase 0 of the current command with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0.5 detects new commits since the last pass's `head_sha`; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
+**The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun (substituting the literal subset path for `"$SUBSETFILE"`, as in the subset fence), and every later pass's card uses the ordinary fence, so a Finalize-routed subset never carries into the next pass's card. Then loop back to Phase 0 of the current command with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0.5 detects new commits since the last pass's `head_sha`; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
 
 **Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more. Nothing else in this file asks a question.
 

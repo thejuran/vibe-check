@@ -137,13 +137,13 @@ On a refusal the helper has printed one fixed reason on stderr (it never contain
      ```bash
      SUBSETFILE=$(mktemp)
      if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
-       :
+       printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
      else
        echo "I'm uncertain about Finalize mode — the fix set could not be copied; nothing was written or archived." >&2
        exit 1
      fi
      ```
-     Do NOT build or edit the list in prose. `fix_targets` holds only the hashes the owner chose; the fix-loop rows route an absorbed obligation (`absorbed_into` set) through its LEAD — after the fix the next pass re-scores it, so the member resolves, is re-absorbed, or re-emerges as its own row — and a lead you dismissed earlier in this same card stays dismissed while its member is fixed through it (the fix-loop row shows this). This covers "dismiss the lead, fix its member" in one card. Then **Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool and enter "The fix-loop card" with `$SUBSETFILE` set; that card consumes the file once and clears it before its automatic rerun. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation's gate returns `write`.
+     Do NOT build or edit the list in prose. `fix_targets` holds only the hashes the owner chose; the fix-loop rows route an absorbed obligation (`absorbed_into` set) through its LEAD — after the fix the next pass re-scores it, so the member resolves, is re-absorbed, or re-emerges as its own row — and a lead you dismissed earlier in this same card stays dismissed while its member is fixed through it (the fix-loop row shows this). This covers "dismiss the lead, fix its member" in one card. Then **Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool and enter "The fix-loop card" with `$SUBSETFILE` set — carry the literal path this fence printed after `SUBSETFILE=` into that card's subset fence (a shell variable does not survive into a later Bash call); that card consumes the file once and clears it before its automatic rerun. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation's gate returns `write`.
   3. `fix` empty → RE-RUN the counts step and the gate ONCE (same `$BLOBFILE`). `write` → the write above, whose summary message opens with `echo_text`. Still blocked → never re-show the card after recording; the stop message opens with `echo_text`, then:
      - `outstanding_cw` non-empty → print the header and the list from the `fallback` bullet above (refer to them, do not restate them here), then "Finalize stays blocked — name each remaining critical/warning by number in Mixed… on the next `--finalize`, or fix it." and stop.
      - only mediums remain → print each remaining medium as `{{file}}:{{line}} — {{title}}` (join rule above), then "These were left undecided by the card — run `--finalize` again to decide them." and stop.

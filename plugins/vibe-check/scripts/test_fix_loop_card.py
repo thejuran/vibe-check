@@ -54,6 +54,35 @@ STEP_B_NEEDLES = ("PRE_BLOBS", "POST_BLOBS", "PRE_CLEAN", "POST_CLEAN",
                   "files_touched", "record-fix-verdicts", "^[A-Za-z0-9._/-]+$")
 
 
+SUBSET_ROWS_LINE = ('if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" '
+                    'rows --mode fix-loop --subset "<subset path>" '
+                    '< "$STATE_FILE"); then')
+PLAIN_ROWS_LINE = ('if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" '
+                   'rows --mode fix-loop < "$STATE_FILE"); then')
+NO_SUBSET_REFUSAL = ("No fix set from Finalize — the fix loop will not fall "
+                     "back to every open row; nothing was changed")
+SUBSET_LITERAL_RULE = ("the literal path Finalize's subset step printed "
+                       "after `SUBSETFILE=`")
+
+
+def subset_fence_problems(card):
+    """Why the rows fences could mis-route a Finalize fix set (empty = ok)."""
+    problems = []
+    rows_lines = [line.strip() for line in card.splitlines()
+                  if ROWS_CALL in line]
+    if any(":+" in line or "$SUBSETFILE" in line for line in rows_lines):
+        problems.append("rows call builds --subset from a shell variable")
+    for line, name in ((SUBSET_ROWS_LINE, "subset fence"),
+                       (PLAIN_ROWS_LINE, "ordinary fence")):
+        if rows_lines.count(line) != 1:
+            problems.append(name + " missing or duplicated")
+    for needle in (NO_SUBSET_REFUSAL, SUBSET_LITERAL_RULE,
+                   "Never run the ordinary fence in its place"):
+        if needle not in card:
+            problems.append("missing: " + needle)
+    return problems
+
+
 def read_text():
     with open(FIX_LOOP, "r", encoding="utf-8") as fh:
         return fh.read()
@@ -188,7 +217,8 @@ class TestFixLoopCard(unittest.TestCase):
 
     # (g) helper calls; payload is the one dispatch source
     def test_helper_calls(self):
-        self.assertEqual(self.text.count(ROWS_CALL), 1)
+        # Two rows fences: the Finalize-routed subset one and the ordinary one.
+        self.assertEqual(self.text.count(ROWS_CALL), 2)
         self.assertEqual(self.text.count(SELECT_QUESTIONS_CALL), 1)
         self.assertEqual(self.text.count(PAYLOAD_CALL), 1)
         self.assertNotIn(SELECT_CALL, self.text)
@@ -257,6 +287,29 @@ class TestFixLoopCard(unittest.TestCase):
         clear = 'rm -f "$SUBSETFILE"; unset SUBSETFILE'
         self.assertIn(clear, rerun)
         self.assertLess(rerun.index(clear), rerun.index("loop back to Phase 0"))
+
+    # The rows call never builds --subset from an optional-flag expansion:
+    # zsh does not word-split `${SUBSETFILE:+--subset "$SUBSETFILE"}` (one
+    # argv word, refused by batch_card.parse_argv), and a variable bound in
+    # Finalize's fence does not survive into this Bash call.
+    def test_subset_flag_is_never_an_optional_expansion(self):
+        self.assertEqual(subset_fence_problems(self.card), [])
+        with self.subTest("mutant: the old :+ expansion"):
+            mutant = self.card.replace(
+                SUBSET_ROWS_LINE,
+                SUBSET_ROWS_LINE.replace(
+                    '--subset "<subset path>"',
+                    '${SUBSETFILE:+--subset "$SUBSETFILE"}'), 1)
+            self.assertNotEqual(subset_fence_problems(mutant), [])
+        with self.subTest("mutant: subset fence uses the variable"):
+            mutant = self.card.replace('"<subset path>"', '"$SUBSETFILE"', 1)
+            self.assertNotEqual(subset_fence_problems(mutant), [])
+        with self.subTest("mutant: ordinary fence dropped"):
+            mutant = self.card.replace(PLAIN_ROWS_LINE, "", 1)
+            self.assertNotEqual(subset_fence_problems(mutant), [])
+        with self.subTest("mutant: no refusal when the path is missing"):
+            mutant = self.card.replace(NO_SUBSET_REFUSAL, "", 1)
+            self.assertNotEqual(subset_fence_problems(mutant), [])
 
 
     # (l) the numbered list is carried IN the card (D1: text inside a Bash

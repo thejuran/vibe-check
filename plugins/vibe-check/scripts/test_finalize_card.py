@@ -337,6 +337,15 @@ class TestFinalizeCard(LockCase):
             self.assert_trips(check_d12,
                               remove(self.text, "apply to mediums only"))
 
+    # The fix-loop's subset fence takes the literal path, so Finalize must
+    # print it: a shell variable does not survive into a later Bash call.
+    def test_subset_path_is_printed_for_the_fix_loop(self):
+        printed = "printf 'SUBSETFILE=%s\\n' \"$SUBSETFILE\""
+        fences = [b for b in bash_fences(self.text) if '["fix_targets"]' in b]
+        self.assertEqual(len(fences), 1)
+        self.assertIn(printed, fences[0])
+        self.assertIn("carry the literal path this fence printed", self.text)
+
     def test_fix_routes_to_fix_loop_with_subset(self):
         self.assert_holds(check_fix_routing, self.text)
         with self.subTest("mutant: $SUBSETFILE removed"):
