@@ -3,6 +3,22 @@
 > **Lazy-loaded.** Read from the command spine (`commands/review.md` or `commands/deep-review.md`) when Phase 1 is entered (every review).
 > Announce on entry, after this Read: `✓ Phase 1 — Triage`.
 
+**Git-safety snapshot (FIX-03, D-10) — its own Bash call, BEFORE the triage Task, once per pass.** Review agents must leave the reviewed repo's git state alone. Before any agent runs, fingerprint that state and clear the block records left by an earlier pass; Phase 3 compares against this snapshot when every agent has returned.
+
+```bash
+GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+if python3 "$VC_ROOT/scripts/gitsnap.py" take --root "$GREPO" --out "$GREPO/.turingmind/git-guard/before.json" && python3 "$VC_ROOT/scripts/gitguard.py" reset --root "$GREPO"; then
+  echo "git-safety snapshot taken"
+else
+  echo "git-safety snapshot could not be taken — review HALTED before any agent ran" >&2
+fi
+```
+
+- Run it in its own turn — never in the turn that dispatches the triage Task.
+- On the else branch, print `git-safety snapshot could not be taken — review HALTED before any agent ran` as message text and STOP the review: dispatch no agent and do not continue to any later phase. This fails closed — without a snapshot the pass cannot prove the repo was left alone.
+- In `--all` mode take it ONCE, before the first chunk's triage — never once per chunk. The comparison in Phase 3 covers the whole pass.
+- `--finalize` dispatches no agents and never reaches this phase, so it takes no snapshot.
+
 Dispatch a single Task call to `triage` agent. Prompt:
 
 ````

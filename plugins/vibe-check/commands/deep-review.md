@@ -113,7 +113,7 @@ Runs when Phase 0.5 found no state file (it says when). **Before executing it, R
 
 ## Phase 1 — Triage
 
-Runs on EVERY review, after Phase 0.7 (or after Phase 0.6 when 0.7 was skipped). **Before executing it, Read $VC_ROOT/phases/review/10-triage.md** — do not execute this phase from memory of its title. Announce `✓ Phase 1 — Triage`.
+Runs on EVERY review, after Phase 0.7 (or after Phase 0.6 when 0.7 was skipped). **Before executing it, Read $VC_ROOT/phases/review/10-triage.md** — do not execute this phase from memory of its title. Announce `✓ Phase 1 — Triage` (its git-safety snapshot runs first, in its own turn).
 
 ## Phase 1.5 — Load intent context
 
@@ -141,7 +141,7 @@ Runs on EVERY deep review, as part of Phase 2: the architecture agent's prompt c
 
 ## Phase 3 — Collect, verify, merge, score
 
-Runs on EVERY review, after every Phase-2 agent has returned. **Before executing it, Read $VC_ROOT/phases/review/30-collect-score.md** — do not execute this phase from memory of its title. When `$CONFIG_CODEX` is not `off`, ALSO **Read $VC_ROOT/phases/deep-review/30-codex-collect.md** before announcing: it collects the Codex pass and joins it to the agent-response set at Phase 3 ENTRY, before step 0, then prints the one Codex outcome line at the end of Phase 3. Under `off`, do not read it; print `⊘ Codex off via [noise] codex=off` as the Codex outcome line at the end of Phase 3 instead (one line, never zero, never two). Announce `✓ Phase 3 — Collect, verify, merge, score`. The envelope's `command` is `"deep-review"`, which is what applies the ≥70 threshold. Its fail-closed scorer gate is un-skippable: a halt there ends the review.
+Runs on EVERY review, after every Phase-2 agent has returned. **Before executing it, Read $VC_ROOT/phases/review/30-collect-score.md** — do not execute this phase from memory of its title. When `$CONFIG_CODEX` is not `off`, ALSO **Read $VC_ROOT/phases/deep-review/30-codex-collect.md** before announcing: it collects the Codex pass and joins it to the agent-response set at Phase 3 ENTRY, before step 0, then prints the one Codex outcome line at the end of Phase 3. Under `off`, do not read it; print `⊘ Codex off via [noise] codex=off` as the Codex outcome line at the end of Phase 3 instead (one line, never zero, never two). Announce `✓ Phase 3 — Collect, verify, merge, score`. The envelope's `command` is `"deep-review"`, which is what applies the ≥70 threshold. Its fail-closed scorer gate is un-skippable: a halt there ends the review. Its git-safety entry gate (after the Codex join in deep-review) can also halt the pass.
 
 ## Phase 4 — Render results
 

@@ -6,10 +6,10 @@ This command is an **orchestrator** — its sole job is to execute the phases it
 
 **Output paths — non-negotiable:**
 
-- **WRITE only to `.turingmind/`** in the user's project. Specifically: `.turingmind/state/<$PHASE_ID>.json` where `<$PHASE_ID>` is the full resolved phase directory name (Phase 4.5; see Phase 0.5 for the exact filename rule — never abbreviate), optional `.turingmind/reviews/<ISO timestamp>/` (Phase 4.5 snapshot), and `.turingmind/REVIEW.md` (only via Finalize mode).
+- **WRITE only to `.turingmind/`** in the user's project. Specifically: `.turingmind/state/<$PHASE_ID>.json` where `<$PHASE_ID>` is the full resolved phase directory name (Phase 4.5; see Phase 0.5 for the exact filename rule — never abbreviate), optional `.turingmind/reviews/<ISO timestamp>/` (Phase 4.5 snapshot), `.turingmind/REVIEW.md` (only via Finalize mode), and the transient scratch paths `.turingmind/git-guard/` (the before/after git snapshot and the block log), `.turingmind/fixstage/` and `.turingmind/fixcheck/` (fix-agent scratch, removed after each finding).
 - **NEVER write to `.planning/`** — that namespace belongs to GSD. The tool READS PLAN.md/SPEC.md/RESEARCH.md from there (Phase 1.5) but writes nothing.
 - **NEVER write per-phase review files** like `.planning/phases/<id>/<NN>-REVIEW.md` or `<NN>-DEEP-REVIEW.md` even if you see GSD/other plugins creating files in that location. **This tool does not produce per-phase artifacts in `.planning/`.** The single authoritative artifact is `.turingmind/REVIEW.md`, written by `--finalize`.
-- Mid-loop `/review` and `/deep-review` invocations **print findings to the chat transcript only**. No file write of the report itself. State file under `.turingmind/state/` is the only thing persisted by a non-finalize pass.
+- Mid-loop `/review` and `/deep-review` invocations **print findings to the chat transcript only**. No file write of the report itself. State file under `.turingmind/state/` is the only review state persisted by a non-finalize pass (the scratch paths above are transient).
 
 **Phase progression — non-negotiable:**
 

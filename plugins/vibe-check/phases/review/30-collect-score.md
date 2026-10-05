@@ -7,6 +7,26 @@ Scoring is performed by the deterministic-core script `scripts/score.py` (Phase 
 
 The orchestrator still does the work the script CANNOT (it is a pure function — no git/file/shell I/O): it collects raw facts (the per-finding `source_window`, `canonical_line_content` from the HEAD read, the `changed_line_ranges`, the `$REVIEWED_UNION` set), and it parses + dispatches.
 
+**Git-safety gate (FIX-03, D-10/D-11/D-14) — first Bash call of Phase 3.** Run it after every Phase-2 agent has returned and, in `/deep-review`, after `30-codex-collect.md` has joined the Codex result (Codex is a separate process the hook cannot see, so the comparison must cover its run too). It compares the reviewed repo's git state with the snapshot Phase 1 took and renders one line per command the git guard refused.
+
+```bash
+GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+python3 "$VC_ROOT/scripts/gitsnap.py" compare --root "$GREPO" --before "$GREPO/.turingmind/git-guard/before.json"; rc=$?
+case "$rc" in
+  0) python3 "$VC_ROOT/scripts/gitguard.py" notices --root "$GREPO" --consume ;;
+  *) python3 "$VC_ROOT/scripts/gitguard.py" notices --root "$GREPO" --consume --repo-changed; echo "GIT STATE CHANGED DURING THE REVIEW — pass halted (rc=$rc)" ;;
+esac
+```
+
+COPY every output line of that call into your reply as message text in this same turn. Text that appears only inside a Bash call's output is collapsed by the terminal and the owner never sees it — never leave a block line or a change line only in the shell output.
+
+- **`rc` 0 — nothing changed.** Print each ``Blocked: <agent> tried `<cmd>` — repo untouched.`` line (if any) as message text and continue to step 0 normally (D-11). No lines means no agent was refused.
+- **`rc` 1 or 2 — STOP the pass (D-14).** STOP the review here if ANY of these is true:
+   - `gitsnap.py compare` exited 1 — the repo's HEAD, staged entries, stash, branches/tags, HEAD reflog or merge/rebase state changed while the agents ran;
+   - `gitsnap.py compare` exited 2, or any other non-zero code — the before/after comparison could not be confirmed (missing or unreadable snapshot, git failure).
+
+   On a STOP, print as message text one heading-free block that starts `⚠ The reviewed repo's git state changed while the review agents ran — this pass is halted.`, followed by gitsnap's change lines (on `rc` 2: `the before/after comparison could not be confirmed`), then the `Blocked: …` lines, then the sentence `This was either a review agent or you in another window — the snapshot cannot tell which.`, then the recovery hints `git stash list`, `git reflog -10`, `git status`. Then do NOT score, do NOT render findings, do NOT run Phase 4.5, do NOT enter the fix loop — persist nothing. The halt ends the review exactly like the scorer's fail-closed gate in step 5.
+
 0. **Raw-fact collection for carry-forward (multi-pass only).** For each finding in `$CARRYFORWARD`, the orchestrator reads HEAD and computes the canonical line content at `finding.file:finding.line` (strip trailing whitespace), passing it into the envelope as the finding's `canonical_line_content` (null/absent when the file:line is gone — the script reads that as `fixed-since-last`). The orchestrator does NOT assign `status`/+15 by hand — the script returns `status` (`fixed-since-last` / `persisted` / `needs-recheck`) and applies the +15 persistence modifier. **Recheck hints were ALREADY issued in Phase 2** (`20-dispatch.md` § Recheck hints) for every carried record whose agent was dispatched — Phase 3 does not add hints. (The old wording placed hint construction here, after scoring; scoring runs after dispatch, so such a hint could never reach this pass's agents and the needs-recheck finding looped pass after pass.) Phase 3's job here is to COLLECT verdicts:
    - **Recheck verdicts.** From each parsed agent response (step 1) take its top-level `recheck_verdicts` array (absent ⇒ none), and for each entry build `{"source": "recheck", "token", "verdict", "reason", "agent": <the DISPATCH identity of the agent that returned it>}` — the dispatch identity OVERRIDES any self-claimed agent, the same rule step 4 applies to findings.
    - **Previous-pass fix verdicts.** Append every entry of `$FIX_VERDICTS_PREV` (bound by Phase 0.5) as `{"source": "fix-obsolete", "stable_hash": <its key>, "agent": "fix", "verdict": "obsolete", "at_pass", "head_sha", "reason": <the record's reason>, "verified_blob": <the record's>, "head_blob": <Phase 0.5's HEAD read, null when the file is dirty or gone>}`. Forward all of them, including ones whose two blobs differ — the prose never pre-filters; `score.py` decides.

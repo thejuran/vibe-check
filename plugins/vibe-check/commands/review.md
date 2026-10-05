@@ -104,7 +104,7 @@ Runs when Phase 0.5 found no state file (it says when). **Before executing it, R
 
 ## Phase 1 — Triage
 
-Runs on EVERY review, after Phase 0.7 (or after Phase 0.6 when 0.7 was skipped). **Before executing it, Read $VC_ROOT/phases/review/10-triage.md** — do not execute this phase from memory of its title. Announce `✓ Phase 1 — Triage`.
+Runs on EVERY review, after Phase 0.7 (or after Phase 0.6 when 0.7 was skipped). **Before executing it, Read $VC_ROOT/phases/review/10-triage.md** — do not execute this phase from memory of its title. Announce `✓ Phase 1 — Triage` (its git-safety snapshot runs first, in its own turn).
 
 ## Phase 1.5 — Load intent context
 
@@ -116,7 +116,7 @@ Runs on EVERY review, after Phase 1 / 1.5. Read the file in its own turn — the
 
 ## Phase 3 — Collect, verify, merge, score
 
-Runs on EVERY review, after every Phase-2 agent has returned. **Before executing it, Read $VC_ROOT/phases/review/30-collect-score.md** — do not execute this phase from memory of its title. Announce `✓ Phase 3 — Collect, verify, merge, score`. Its fail-closed scorer gate is un-skippable: a halt there ends the review.
+Runs on EVERY review, after every Phase-2 agent has returned. **Before executing it, Read $VC_ROOT/phases/review/30-collect-score.md** — do not execute this phase from memory of its title. Announce `✓ Phase 3 — Collect, verify, merge, score`. Its fail-closed scorer gate is un-skippable: a halt there ends the review. Its git-safety entry gate (after the Codex join in deep-review) can also halt the pass.
 
 ## Phase 4 — Render results
 
