@@ -70,6 +70,8 @@ reaches argv (FL-03, see fixcommit.py). Flags: `--root`, `--finding-json`,
         0 `commit_sha=<sha>` (+ `index-left-as-is: <path>` lines), closed
           `committed` | 1 refused (attempt not open or not sealed; title, pass
           number or path validation; git older than 2.36) | 2 usage
+          An error AFTER publishing never exits 1: it reports the published
+          outcome (0 or 5) with every fix path as `index-left-as-is`.
         3 `not-separable: <reason>` - nothing committed, fix stays applied
         4 `commit-not-created: <reason>` + hook output tail - an owner hook
           rejected the commit or signing failed; nothing published
@@ -1320,26 +1322,39 @@ def _commit(root, record, adir, scratch):
         raise _Outcome(6, "head-moved", [
             "head-moved: the branch moved while the fix was being committed; "
             "nothing was published or rewritten - check git log"])
-    _run_post_commit(root)
 
     # Published. From here on nothing is rewritten (D-18): only classified.
-    changed = not _tree_matches(_commit_tree_of(root, new), expected_tree)
-    if _head_state(root) != (new, base_symref):
-        lines = ["moved-after-commit: %s" % new]
+    # A failure past this point must never surface as `refused` (exit 1,
+    # "nothing committed") while the commit sits on the branch: it reports
+    # the published sha with every fix path's staging entry left as is.
+    changed = None
+    try:
+        _run_post_commit(root)
+        changed = not _tree_matches(_commit_tree_of(root, new), expected_tree)
+        if _head_state(root) != (new, base_symref):
+            lines = ["moved-after-commit: %s" % new]
+            if changed:
+                lines.append("hook-changed: %s" % new)
+            raise _Outcome(7, "moved-after-commit", lines)
         if changed:
-            lines.append("hook-changed: %s" % new)
-        raise _Outcome(7, "moved-after-commit", lines)
-    if changed:
-        targets, left = _hook_changed_targets(root, base, new, before)
-        left += _sync_real_index(root, before, targets, adir)
-        return _Outcome(5, "hook-changed",
-                        ["hook-changed: %s" % new]
-                        + ["index-left-as-is: %s" % p for p in sorted(left)])
+            targets, left = _hook_changed_targets(root, base, new, before)
+            left += _sync_real_index(root, before, targets, adir)
+            return _Outcome(5, "hook-changed",
+                            ["hook-changed: %s" % new]
+                            + ["index-left-as-is: %s" % p
+                               for p in sorted(left)])
 
-    left = _sync_real_index(root, before, targets, adir)
-    return _Outcome(0, "committed",
-                    ["commit_sha=%s" % new]
-                    + ["index-left-as-is: %s" % p for p in left])
+        left = _sync_real_index(root, before, targets, adir)
+        return _Outcome(0, "committed",
+                        ["commit_sha=%s" % new]
+                        + ["index-left-as-is: %s" % p for p in left])
+    except (Refused, OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write("commit: %s after the commit was published; the "
+                         "staging area was left as is\n" % type(exc).__name__)
+        left = ["index-left-as-is: %s" % p for p in sorted(known)]
+        if changed:
+            return _Outcome(5, "hook-changed", ["hook-changed: %s" % new] + left)
+        return _Outcome(0, "committed", ["commit_sha=%s" % new] + left)
 
 
 def _remove_scratch(scratch):

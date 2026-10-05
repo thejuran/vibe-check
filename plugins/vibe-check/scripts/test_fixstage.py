@@ -653,6 +653,33 @@ class TestCommit(CommitCase):
                      "refs/heads/main").stdout
         self.assertTrue(reflog.startswith("commit: "), reflog)
 
+    def test_a3_failure_after_publish_reports_the_commit(self):
+        # Anything that fails once the ref is published must report the
+        # published sha (exit 0, staging left as is), never `refused` exit 1.
+        def boom(*a, **k):
+            raise OSError("SENTINEL_after_publish")
+        for seam in ("_sync_real_index", "_commit_tree_of", "_run_post_commit"):
+            with self.subTest(seam=seam):
+                self.setUp_fresh()
+                pre = self.rev()
+                with mock.patch.object(fixstage, seam, boom):
+                    res, attempt = self.fix_flow(self.fix30, runner=self.inproc)
+                self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+                sha = self.sha_of(res)
+                self.assertEqual(sha, self.rev())
+                self.assertEqual(self.rev("HEAD^"), pre)
+                self.assertIn("index-left-as-is: f.txt", res.stdout)
+                self.assertIn("after the commit was published", res.stderr)
+                self.assertNotIn("SENTINEL", res.stderr)
+                # `committed` removes the attempt dir; a refusal would leave
+                # closed/<attempt>.refused behind.
+                self.assertIsNone(self.closed_outcome(attempt))
+                self.assertIsNone(self.open_id())
+
+    def setUp_fresh(self):
+        self.tearDown()
+        self.setUp()
+
     def _a2(self, runner=None):
         return self.fix_flow(
             self.fix30,
