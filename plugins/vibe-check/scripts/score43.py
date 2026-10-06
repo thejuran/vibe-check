@@ -39,14 +39,24 @@ Imports exactly {argparse, json, os, re, subprocess, sys} plus the sibling
     python3 score43.py fp --state PATH
     python3 score43.py catch-candidates --state PATH --diff D [--manifest PATH]
     python3 score43.py codex-status --state PATH
-    python3 score43.py aggregate --runs-root R --label first|retune|combined
-        --fp-bar 8 --sealed-fp-bar 9 --catch-bar 15 --catch-verdicts PATH
-        [--expected-diffs PATH] [--first-root R1 --retune-root R2 --failed-diffs PATH]
+    python3 score43.py aggregate --runs-root R --label first|retune|combined|retune-full
+        [--profile phase43|phase49] --fp-bar 8 --sealed-fp-bar 9 --catch-bar 15
+        --catch-verdicts PATH [--expected-diffs PATH]
+        [--first-root R1 --retune-root R2 --failed-diffs PATH]
         [--denoms-blob SHA] --verdict-out PATH
+    python3 score43.py aggregate --profile phase49 --fp-bar 3 --sealed-fp-bar 6 --catch-bar 15 ...
     python3 score43.py failed-diffs --runs-root R --out PATH [--catch-verdicts PATH]
     python3 score43.py retune-gate --repo DIR --s S --s2 S2 --failed-diffs PATH
-        --last-first-commit SHA [--first-root R1 --retune-root R2]
-    python3 score43.py headline-check --results PATH --verdict PATH
+        --last-first-commit SHA [--first-root R1 --retune-root R2] [--cohort failed|full]
+    python3 score43.py headline-check [--profile phase43|phase49] --results PATH --verdict PATH
+
+Profiles (`PROFILES`): each names its pinned bar triple, the headline H1 and
+before-values the headline grammar is checked against, the aggregate labels it
+allows and the label a `Retune: used` headline must bind to. `phase43` is the
+default and is the Phase-43 behaviour unchanged. Under `phase49` a retune is
+scored only as `retune-full`: all 12 diffs x run-1..3 on the retune root decide
+the verdict alone, and the first pass is carried beside it as `untuned` (no
+mixed-snapshot combine).
 
 `--catch-verdicts` is a JSON object {"<catch diff>/run-<n>": "CATCH"|"MISS"} with
 exactly one entry per expected catch run. `--expected-diffs` / `--failed-diffs`
@@ -89,9 +99,27 @@ ROLE = {d: ("catch" if d in CATCH_DIFFS else "quiet") for d in DIFFS}
 QUIET_EXCLUDED = ("should-quiet-7",)
 RUN_NUMBERS = (1, 2, 3)
 
-FP_BAR = 8            # corrected cohort, deciding
-SEALED_FP_BAR = 9     # sealed literal, never deciding
-CATCH_BAR = 15
+# Named measurement profiles. Each pins its own bar triple (corrected cohort
+# deciding bar, sealed-literal bar that never decides, catch bar), the headline
+# grammar it is transcribed under, the aggregate labels it allows and the label
+# a "Retune: used" headline must bind to.
+PROFILES = {
+    "phase43": {"fp_bar": 8, "sealed_fp_bar": 9, "catch_bar": 15,
+                "h1": "# B3 v2.10 — Phase 43",
+                "fp_before": 16, "sealed_before": 19, "catch_before": 15,
+                "labels": ("first", "retune", "combined"),
+                "retune_label": "combined"},
+    "phase49": {"fp_bar": 3, "sealed_fp_bar": 6, "catch_bar": 15,
+                "h1": "# B3 v2.11 — Phase 49",
+                "fp_before": 3, "sealed_before": 6, "catch_before": 15,
+                "labels": ("first", "retune-full"),
+                "retune_label": "retune-full"},
+}
+DEFAULT_PROFILE = "phase43"
+
+FP_BAR = PROFILES["phase43"]["fp_bar"]                 # corrected cohort, deciding
+SEALED_FP_BAR = PROFILES["phase43"]["sealed_fp_bar"]   # sealed literal, never deciding
+CATCH_BAR = PROFILES["phase43"]["catch_bar"]
 CORRECTED_QUIET_DENOM = 18
 
 SEAL_COMMIT = "633f1dd"
@@ -369,9 +397,10 @@ def _per_diff(expected, fp, catch, codex):
 def aggregate(ledger, fp_verdicts, catch_verdicts, denoms, fp_bar=FP_BAR,
               sealed_fp_bar=SEALED_FP_BAR, catch_bar=CATCH_BAR, label="first",
               codex=None, untuned=None):
-    """Exact-fraction aggregate. `first`/`combined` decide PASS|MISS on the
-    corrected cohort and carry the sealed literal beside it; `retune` is the
-    per-diff subset record with no headline and no verdict."""
+    """Exact-fraction aggregate. `first`/`combined`/`retune-full` decide
+    PASS|MISS on the corrected cohort and carry the sealed literal beside it;
+    `retune` is the per-diff subset record with no headline and no verdict.
+    `combined` and `retune-full` also carry the untuned first-pass triple."""
     _require_complete(ledger)
     check_denoms(denoms)
     expected = ledger["expected"]
@@ -385,7 +414,7 @@ def aggregate(ledger, fp_verdicts, catch_verdicts, denoms, fp_bar=FP_BAR,
         return {"label": "retune", "expected_diffs": expected, "runs": 3 * len(expected),
                 "per_diff": per_diff, "dropouts": dropouts,
                 "snapshot_commit_note": SNAPSHOT_NOTE}
-    if label not in ("first", "combined"):
+    if label not in ("first", "combined", "retune-full"):
         raise ScoreError("unknown label")
     if list(expected) != list(DIFFS):
         raise ScoreError("%s: the headline needs all %d diffs" % (label, len(DIFFS)))
@@ -423,9 +452,9 @@ def aggregate(ledger, fp_verdicts, catch_verdicts, denoms, fp_bar=FP_BAR,
         "dropouts": dropouts,
         "snapshot_commit_note": SNAPSHOT_NOTE,
     }
-    if label == "combined":
+    if label in ("combined", "retune-full"):
         if not isinstance(untuned, dict):
-            raise ScoreError("combined: the untuned first-pass triple is required")
+            raise ScoreError("%s: the untuned first-pass triple is required" % label)
         out["untuned"] = {"quiet_fired": untuned["quiet_fired"],
                           "sealed_quiet_fired": untuned["sealed_quiet_fired"],
                           "catch_hit": untuned["catch_hit"]}
@@ -504,13 +533,17 @@ def _ancestor(repo, a, b):
 
 
 def retune_gate(repo, s, s2, failed_diffs_path, first_root, retune_root,
-                last_first_commit, notes=None):
+                last_first_commit, notes=None, cohort="failed"):
     """Every D-05..D-07 ordering/scope check; returns the list of failures.
 
     `retune_root=None` is the PRE-RUN form: identical ancestry, allowlist and
     frozen-file checks, the ledger skipped. An empty checked set never passes.
+    `cohort` picks the retune ledger's expected set in the full form: "failed"
+    (the committed FAILED-DIFFS) or "full" (all diffs, the full-cohort retune).
     """
     failures = []
+    if cohort not in ("failed", "full"):
+        raise ScoreError("retune-gate: unknown cohort")
     s_sha = _resolve(repo, s, failures, "S")
     s2_sha = _resolve(repo, s2, failures, "S2")
     last_sha = _resolve(repo, last_first_commit, failures, "last first-pass commit")
@@ -564,7 +597,7 @@ def retune_gate(repo, s, s2, failed_diffs_path, first_root, retune_root,
             failures.append("frozen: %s differs between S and S2" % p)
     if retune_root is None or failed is None:
         return failures
-    ledger = completeness_ledger(retune_root, failed)
+    ledger = completeness_ledger(retune_root, list(DIFFS) if cohort == "full" else failed)
     failures += ["ledger hole: " + h for h in ledger["holes"]]
     failures += ["ledger extra: " + e for e in ledger["extras"]]
     try:
@@ -582,19 +615,33 @@ def retune_gate(repo, s, s2, failed_diffs_path, first_root, retune_root,
 # Headline check
 # --------------------------------------------------------------------------- #
 
-_PHASE43_H1 = "# B3 v2.10 — Phase 43"
-_DECIDING_RE = re.compile(
-    r"^\*\*(PASS|MISS)\*\* — false alarms 16→([0-9]+) of 18 \(corrected cohort, bar ≤ 8; "
-    r"should-quiet-7 excluded per SUPERSESSIONS-v2\.10\.md #001\); "
-    r"catches 15→([0-9]+) of 15 \(bar 15\)", re.MULTILINE)
-_SEALED_RE = re.compile(r"^Sealed literal \(never deciding\): false alarms 19→([0-9]+) of 21",
-                        re.MULTILINE)
+_PHASE43_H1 = PROFILES["phase43"]["h1"]
+
+
+def _deciding_re(prof):
+    n = lambda k: re.escape(str(prof[k]))  # noqa: E731
+    return re.compile(
+        r"^\*\*(PASS|MISS)\*\* — false alarms " + n("fp_before") + r"→([0-9]+) of 18 "
+        r"\(corrected cohort, bar ≤ " + n("fp_bar") + r"; "
+        r"should-quiet-7 excluded per SUPERSESSIONS-v2\.10\.md #001\); "
+        r"catches " + n("catch_before") + r"→([0-9]+) of 15 \(bar " + n("catch_bar") + r"\)",
+        re.MULTILINE)
+
+
+def _sealed_re(prof):
+    return re.compile(r"^Sealed literal \(never deciding\): false alarms "
+                      + re.escape(str(prof["sealed_before"])) + r"→([0-9]+) of 21",
+                      re.MULTILINE)
+
+
+_DECIDING_RE = _deciding_re(PROFILES["phase43"])
+_SEALED_RE = _sealed_re(PROFILES["phase43"])
 _RETUNE_RE = re.compile(r"^Retune: (not used|used)\b", re.MULTILINE)
 _UNTUNED_RE = re.compile(r"untuned first pass: ([0-9]+)/18, ([0-9]+)/21, ([0-9]+)/15")
 
 
-def _headline_block(text):
-    starts = [m.start() for m in re.finditer(r"^%s" % re.escape(_PHASE43_H1), text, re.MULTILINE)]
+def _headline_block(text, h1=_PHASE43_H1):
+    starts = [m.start() for m in re.finditer(r"^%s" % re.escape(h1), text, re.MULTILINE)]
     if not starts:
         return None
     section = text[starts[-1]:]
@@ -606,19 +653,24 @@ def _headline_block(text):
     return rest[:nxt.start()] if nxt else rest
 
 
-def headline_check(results_path, verdict_path):
+def headline_check(results_path, verdict_path, profile=DEFAULT_PROFILE):
     """Field names whose headline transcription disagrees with the artifact ([] = match)."""
+    prof = PROFILES[profile]
     with open(results_path, encoding="utf-8") as fh:
         text = fh.read()
     art = _read_json(verdict_path)
     if not isinstance(art, dict):
         raise ValueError("verdict artifact is not an object")
-    block = _headline_block(text)
+    block = _headline_block(text, prof["h1"])
     if block is None:
         return ["headline-block"]
     bad = []
-    dec = _DECIDING_RE.findall(block)
-    sealed = _SEALED_RE.findall(block)
+    if (art.get("fp_bar"), art.get("catch_bar"),
+            (art.get("sealed_literal") or {}).get("fp_bar")) != (
+                prof["fp_bar"], prof["catch_bar"], prof["sealed_fp_bar"]):
+        bad.append("bars")
+    dec = _deciding_re(prof).findall(block)
+    sealed = _sealed_re(prof).findall(block)
     retune = _RETUNE_RE.findall(block)
     if len(dec) != 1:
         bad.append("deciding-line")
@@ -641,7 +693,7 @@ def headline_check(results_path, verdict_path):
         if art.get("label") != "first":
             bad.append("label")
     else:
-        if art.get("label") != "combined":
+        if art.get("label") != prof["retune_label"]:
             bad.append("label")
         trip = _UNTUNED_RE.findall(block)
         u = art.get("untuned") if isinstance(art.get("untuned"), dict) else {}
@@ -733,14 +785,68 @@ def _write_verdict(path, result):
         fh.write("\n")
 
 
+def _untuned_from_first(first_root, denoms, label, require_recorded=False):
+    """The untuned first-pass triple recomputed from the first-pass runs, and
+    cross-checked against <first_root>/VERDICT.json (label "first")."""
+    first = completeness_ledger(first_root, DIFFS)
+    _require_complete(first)
+    f_states = _load_states(first)
+    u_fp = {k: fp_verdict(s) for k, s in f_states.items()}
+    u_codex = {k: codex_status(s) for k, s in f_states.items()}
+    first_catch = os.path.join(first_root, "CATCH-VERDICTS.json")
+    u_res = aggregate(first, u_fp, _read_json(first_catch), denoms, label="first",
+                      codex=u_codex)
+    untuned = {"quiet_fired": u_res["quiet_fired"],
+               "sealed_quiet_fired": u_res["sealed_literal"]["quiet_fired"],
+               "catch_hit": u_res["catch_hit"]}
+    recorded = os.path.join(first_root, "VERDICT.json")
+    if os.path.exists(recorded):
+        rec = _read_json(recorded)
+        if not isinstance(rec, dict) or (
+                rec.get("label"), rec.get("quiet_fired"),
+                (rec.get("sealed_literal") or {}).get("quiet_fired"),
+                rec.get("catch_hit")) != ("first", untuned["quiet_fired"],
+                                          untuned["sealed_quiet_fired"],
+                                          untuned["catch_hit"]):
+            raise ScoreError("%s: first-pass VERDICT.json disagrees with the "
+                             "first-pass runs" % label)
+    elif require_recorded:
+        raise ScoreError("%s: the first-pass VERDICT.json is missing" % label)
+    return first, f_states, untuned
+
+
 def _cmd_aggregate(args):
-    if (args.fp_bar, args.sealed_fp_bar, args.catch_bar) != (FP_BAR, SEALED_FP_BAR, CATCH_BAR):
-        raise ScoreError("bars must be --fp-bar %d --sealed-fp-bar %d --catch-bar %d"
-                         % (FP_BAR, SEALED_FP_BAR, CATCH_BAR))
+    prof = PROFILES[args.profile]
+    if args.label not in prof["labels"]:
+        raise ScoreError("label %s is not allowed under profile %s" % (args.label, args.profile))
+    bars = (prof["fp_bar"], prof["sealed_fp_bar"], prof["catch_bar"])
+    if (args.fp_bar, args.sealed_fp_bar, args.catch_bar) != bars:
+        raise ScoreError("bars must be --fp-bar %d --sealed-fp-bar %d --catch-bar %d" % bars)
+    bar_kw = {"fp_bar": bars[0], "sealed_fp_bar": bars[1], "catch_bar": bars[2]}
     denoms = load_denoms(args.denoms_blob or SEAL_COMMIT)
     catch_map = _read_json(args.catch_verdicts)
     combined_flags = (args.first_root, args.retune_root, args.failed_diffs)
-    if args.label == "combined":
+    if args.label == "retune-full":
+        if args.retune_root is not None or args.failed_diffs is not None:
+            raise ScoreError("retune-full refuses --retune-root/--failed-diffs "
+                             "(the retune root is --runs-root; every diff is re-run)")
+        if not args.runs_root:
+            raise ScoreError("retune-full needs --runs-root (the full-cohort retune root)")
+        if not args.first_root:
+            raise ScoreError("retune-full needs --first-root (the first-pass root)")
+        if args.expected_diffs and _diff_list(_read_json(args.expected_diffs),
+                                              "expected diffs") != list(DIFFS):
+            raise ScoreError("retune-full: the expected set is all %d diffs" % len(DIFFS))
+        ledger = completeness_ledger(args.runs_root, DIFFS)
+        _require_complete(ledger)
+        _f, _fs, untuned = _untuned_from_first(args.first_root, denoms, "retune-full",
+                                               require_recorded=True)
+        states = _load_states(ledger)
+        fp = {k: fp_verdict(s) for k, s in states.items()}
+        codex = {k: codex_status(s) for k, s in states.items()}
+        result = aggregate(ledger, fp, catch_map, denoms, label="retune-full", codex=codex,
+                           untuned=untuned, **bar_kw)
+    elif args.label == "combined":
         if None in combined_flags:
             raise ScoreError("combined needs --first-root, --retune-root and --failed-diffs")
         failed = _diff_list(_read_json(args.failed_diffs), "failed diffs")
@@ -750,32 +856,15 @@ def _cmd_aggregate(args):
         _require_complete(first)
         retune = completeness_ledger(args.retune_root, failed)
         _require_complete(retune)
-        f_states, r_states = _load_states(first), _load_states(retune)
+        _f, f_states, untuned = _untuned_from_first(args.first_root, denoms, "combined")
+        r_states = _load_states(retune)
         merged = dict(f_states)
         merged.update(r_states)  # D-07: the retuned diffs' runs replace their originals
         fp = {k: fp_verdict(s) for k, s in merged.items()}
         codex = {k: codex_status(s) for k, s in merged.items()}
         ledger = {"expected": list(DIFFS), "holes": [], "extras": []}
-        u_fp = {k: fp_verdict(s) for k, s in f_states.items()}
-        u_codex = {k: codex_status(s) for k, s in f_states.items()}
-        first_catch = os.path.join(args.first_root, "CATCH-VERDICTS.json")
-        u_res = aggregate(first, u_fp, _read_json(first_catch), denoms, label="first",
-                          codex=u_codex)
-        untuned = {"quiet_fired": u_res["quiet_fired"],
-                   "sealed_quiet_fired": u_res["sealed_literal"]["quiet_fired"],
-                   "catch_hit": u_res["catch_hit"]}
-        recorded = os.path.join(args.first_root, "VERDICT.json")
-        if os.path.exists(recorded):
-            rec = _read_json(recorded)
-            if (rec.get("label"), rec.get("quiet_fired"),
-                    (rec.get("sealed_literal") or {}).get("quiet_fired"),
-                    rec.get("catch_hit")) != ("first", untuned["quiet_fired"],
-                                              untuned["sealed_quiet_fired"],
-                                              untuned["catch_hit"]):
-                raise ScoreError("combined: first-pass VERDICT.json disagrees with the "
-                                 "first-pass runs")
         result = aggregate(ledger, fp, catch_map, denoms, label="combined", codex=codex,
-                           untuned=untuned)
+                           untuned=untuned, **bar_kw)
     else:
         if any(x is not None for x in combined_flags):
             raise ScoreError("--first-root/--retune-root/--failed-diffs are for combined only")
@@ -795,7 +884,8 @@ def _cmd_aggregate(args):
         states = _load_states(ledger)
         fp = {k: fp_verdict(s) for k, s in states.items()}
         codex = {k: codex_status(s) for k, s in states.items()}
-        result = aggregate(ledger, fp, catch_map, denoms, label=args.label, codex=codex)
+        result = aggregate(ledger, fp, catch_map, denoms, label=args.label, codex=codex,
+                           **bar_kw)
     lines = []
     if result["label"] == "retune":
         for d, row in result["per_diff"].items():
@@ -838,7 +928,8 @@ def _cmd_failed_diffs(runs_root, out_path, catch_path):
 def _cmd_retune_gate(args):
     notes = []
     failures = retune_gate(args.repo, args.s, args.s2, args.failed_diffs, args.first_root,
-                           args.retune_root, args.last_first_commit, notes=notes)
+                           args.retune_root, args.last_first_commit, notes=notes,
+                           cohort=args.cohort)
     for n in notes:
         print("retune-gate: " + n)
     for f in failures:
@@ -851,8 +942,8 @@ def _cmd_retune_gate(args):
     return 0
 
 
-def _cmd_headline_check(results_path, verdict_path):
-    bad = headline_check(results_path, verdict_path)
+def _cmd_headline_check(results_path, verdict_path, profile=DEFAULT_PROFILE):
+    bad = headline_check(results_path, verdict_path, profile)
     if bad:
         print("headline-check mismatch: " + ", ".join(bad), file=sys.stderr)
         return 1
@@ -878,7 +969,9 @@ def _parser():
     p.add_argument("--state", required=True)
     p = sub.add_parser("aggregate")
     p.add_argument("--runs-root", default=None)
-    p.add_argument("--label", required=True, choices=("first", "retune", "combined"))
+    p.add_argument("--label", required=True,
+                   choices=("first", "retune", "combined", "retune-full"))
+    p.add_argument("--profile", choices=tuple(PROFILES), default=DEFAULT_PROFILE)
     p.add_argument("--fp-bar", type=int, required=True)
     p.add_argument("--sealed-fp-bar", type=int, required=True)
     p.add_argument("--catch-bar", type=int, required=True)
@@ -901,7 +994,9 @@ def _parser():
     p.add_argument("--last-first-commit", required=True)
     p.add_argument("--first-root", default=None)
     p.add_argument("--retune-root", default=None)
+    p.add_argument("--cohort", choices=("failed", "full"), default="failed")
     p = sub.add_parser("headline-check")
+    p.add_argument("--profile", choices=tuple(PROFILES), default=DEFAULT_PROFILE)
     p.add_argument("--results", required=True)
     p.add_argument("--verdict", required=True)
     return parser
@@ -935,7 +1030,7 @@ def run(argv):
         if args.cmd == "retune-gate":
             return _cmd_retune_gate(args)
         if args.cmd == "headline-check":
-            return _cmd_headline_check(args.results, args.verdict)
+            return _cmd_headline_check(args.results, args.verdict, args.profile)
     except ScoreError as exc:
         sys.stderr.write(str(exc) + "\n")
         return 1

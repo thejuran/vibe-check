@@ -908,7 +908,7 @@ class TestProfiles(_TmpDirCase):
             with self.subTest(bar=name):
                 code, _o, err = self.hc(res, art, "phase49")
                 self.assertEqual(code, 1)
-                self.assertIn("bars", err.split(":", 1)[1].replace(" ", "").split(","))
+                self.assertIn("bars", err.split(":", 1)[1].strip().replace(" ", "").split(","))
         # Same lock under phase43: a phase49-barred artifact is refused.
         bad = artifact(fp_bar=3, sealed_bar=6)
         self.assertIn("bars", score43.headline_check(
