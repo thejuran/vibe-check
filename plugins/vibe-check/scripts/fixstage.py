@@ -74,7 +74,11 @@ reaches argv (FL-03, see fixcommit.py). Flags: `--root`, `--finding-json`,
           output failure at any point AFTER the branch moved never exits 1
           and never escapes: it reports the published sha with its outcome
           (0 or 5, or 8 if the checks had not finished) with every fix path
-          as `index-left-as-is`.
+          as `index-left-as-is`. When stdout fails while printing the
+          result, the result lines are replayed on stderr, and the attempt
+          keeps a `result` file (outcome + lines) under `closed/`; a
+          `committed` attempt is then closed `committed-unreported` instead
+          of being removed.
         3 `not-separable: <reason>` - nothing committed, fix stays applied
         4 `commit-not-created: <reason>` + hook output tail - an owner hook
           rejected the commit or signing failed; nothing published
@@ -1485,16 +1489,34 @@ def _silence_stdout():
 
 
 def _emit_result(lines):
-    """Print the result lines. The commit is already decided (and may be
-    published): a broken pipe or an interrupt mid-print must not change the
-    exit code. A BrokenPipeError escaping would become `refused` exit 1 in
-    `run()`."""
+    """Print the result lines; True when stdout took them all. The commit is
+    already decided (and may be published): a broken pipe or an interrupt
+    mid-print must not change the exit code (a BrokenPipeError escaping would
+    become `refused` exit 1 in `run()`), and must not lose the published sha:
+    on a failed write the result lines are replayed on stderr."""
     try:
         for line in lines:
             sys.stdout.write(line + "\n")
         sys.stdout.flush()
+        return True
     except BaseException:  # the exit code carries the result
         _silence_stdout()
+        _diag("".join(line + "\n" for line in lines))  # replay the result on stderr
+        return False
+
+
+def _persist_result(adir, result):
+    """Record the outcome and result lines in the attempt dir BEFORE they are
+    printed, so a result stdout never delivered survives in `closed/`. Best
+    effort: stdout, the stderr replay and the exit code still carry it."""
+    try:
+        with open(os.path.join(adir, "result"), "w") as fh:
+            fh.write("outcome: %s\n" % result.outcome)
+            for line in result.lines:
+                fh.write(line + "\n")
+    except BaseException as exc:  # recording is best-effort; the result stands
+        _diag("commit: %s recording the result; the result stands\n"
+              % type(exc).__name__)
 
 
 def cmd_commit(root, record, attempt):
@@ -1540,9 +1562,14 @@ def cmd_commit(root, record, attempt):
         # Every outcome past the stale-attempt gate closes the attempt.
         _close_attempt(root, fid, attempt, "refused")
         raise
-    _emit_result(result.lines)
+    _persist_result(adir, result)
+    outcome = result.outcome
+    if not _emit_result(result.lines) and outcome == "committed":
+        # stdout never took the sha: keep the attempt (and its result file)
+        # in closed/ instead of deleting it with a delivered `committed`
+        outcome = "committed-unreported"
     try:
-        _close_attempt(root, fid, attempt, result.outcome)
+        _close_attempt(root, fid, attempt, outcome)
     except BaseException as exc:  # the result above stands
         # The result is already printed (and may name a published commit), so
         # the exit code must match it; never turn it into `refused` exit 1 or
