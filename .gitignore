@@ -33,3 +33,6 @@ docs/design/b3-ground-truth/runs-v2.10-phase41/**/transcript.jsonl
 
 # Phase-43 measurement transcripts — same rule.
 docs/design/b3-ground-truth/runs-v2.10-phase43/**/transcript.jsonl
+
+# Phase-49 measurement transcripts — same rule.
+docs/design/b3-ground-truth/runs-v2.11-phase49/**/transcript.jsonl
