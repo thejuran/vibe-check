@@ -808,6 +808,56 @@ class TestHookScoping(unittest.TestCase):
                           self.repo)
         self.assertEqual(rc, 0)
 
+    def test_main_session_vibe_agent_without_agent_id_allowed(self):
+        payload = _payload("vibe-check:bugs", command="git stash pop",
+                           cwd=self.repo)
+        del payload["agent_id"]
+        rc, _ = _run_hook(payload, self.repo)
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(_blocks_path(self.repo)))
+
+    def test_main_session_vibe_agent_null_agent_id_allowed(self):
+        payload = _payload("vibe-check:bugs", command="git stash pop",
+                           cwd=self.repo)
+        payload["agent_id"] = None
+        rc, _ = _run_hook(payload, self.repo)
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(_blocks_path(self.repo)))
+
+    def test_main_session_vibe_agent_denied_tools_allowed(self):
+        for tool in DENIED_NON_BASH_TOOLS:
+            with self.subTest(tool=tool):
+                payload = _payload("vibe-check:security", tool=tool,
+                                   cwd=self.repo)
+                payload["agent_id"] = None
+                rc, _ = _run_hook(payload, self.repo)
+                self.assertEqual(rc, 0)
+
+    def test_non_null_agent_id_stays_guarded(self):
+        for agent_id in ("", 0, False, 123, "a9bf"):
+            with self.subTest(agent_id=agent_id):
+                payload = _payload("vibe-check:compliance",
+                                   command="git stash pop", cwd=self.repo)
+                payload["agent_id"] = agent_id
+                rc, err = _run_hook(payload, self.repo)
+                self.assertEqual(rc, 2)
+                self.assertIn("vibe-check: blocked", err)
+
+    def test_subagent_of_other_plugin_never_blocks(self):
+        for agent in ("other-plugin:x", "general-purpose"):
+            with self.subTest(agent=agent):
+                payload = _payload(agent, command="git stash pop",
+                                   cwd=self.repo)
+                self.assertEqual(payload["agent_id"], "a1")
+                rc, _ = _run_hook(payload, self.repo)
+                self.assertEqual(rc, 0)
+
+    def test_fix_subagent_still_exempt(self):
+        payload = _payload("vibe-check:fix", tool="Write", cwd=self.repo)
+        self.assertEqual(payload["agent_id"], "a1")
+        rc, _ = _run_hook(payload, self.repo)
+        self.assertEqual(rc, 0)
+
     def test_malformed_stdin_never_blocks(self):
         for text in ("not json", "", "[]"):
             with self.subTest(text=text):
@@ -817,6 +867,7 @@ class TestHookScoping(unittest.TestCase):
     def test_non_string_agent_type_never_blocks(self):
         payload = _payload(None, command="git stash pop", cwd=self.repo)
         payload["agent_type"] = 123
+        payload["agent_id"] = "a1"
         rc, _ = _run_hook(payload, self.repo)
         self.assertEqual(rc, 0)
 
