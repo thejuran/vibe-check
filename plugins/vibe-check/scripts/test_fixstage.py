@@ -901,9 +901,13 @@ class TestCommit(CommitCase):
         self.assertNotIn("refused", res.stderr)
 
     def _m1_mutant(self):
+        # The cmd_commit backstop would mask the narrowed handler, so the
+        # mutant removes it too; the spy half below proves the handler itself.
         return _mutant_module(
             ("except BaseException as exc:  # any failure at all",
-             "except Exception as exc:  # any failure at all"))
+             "except Exception as exc:  # any failure at all"),
+            ("except BaseException:  # backstop: a published commit is never lost",
+             "except _NeverRaised:  # backstop removed"))
 
     def test_a3i_mutant_exception_only_handler_lets_interrupt_escape(self):
         # M1: the handler narrowed back to Exception (and no backstop behind
@@ -1665,6 +1669,396 @@ class TestBaseBinding(CommitCase):
             with self.subTest(mutant=name):
                 self.assertNotEqual(mutated, text)
                 self.assertFalse(ref_writes_forward_only(mutated))
+
+
+def _oserror_post_commit(*a, **k):
+    raise OSError("SENTINEL_after_publish")
+
+
+class TestPostPublishFaults(CommitCase):
+    """Every step after the branch may have moved is best-effort under a guard
+    that cannot replace the recorded outcome (fault injection + mutants)."""
+
+    def branch(self):
+        return git(self.repo, "symbolic-ref", "HEAD").stdout.strip()
+
+    def commit_tree(self, parent, message):
+        return git(self.repo, "commit-tree", "%s^{tree}" % parent, "-p", parent,
+                   "-m", message).stdout.strip()
+
+    def is_ancestor(self, a, b):
+        return git(self.repo, "merge-base", "--is-ancestor", a, b,
+                   check=False).returncode == 0
+
+    def run_commit(self, patches=(), module=None, stdout=None, stderr=None,
+                   escape_ok=False):
+        with contextlib.ExitStack() as stack:
+            for obj, name, value in patches:
+                stack.enter_context(mock.patch.object(obj, name, value))
+            return self.fix_flow(self.fix30, runner=self.inproc_streams(
+                stdout=stdout, stderr=stderr, module=module,
+                escape_ok=escape_ok))
+
+    def assert_unverified(self, res, attempt, pre, sha=None):
+        self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.splitlines()[0],
+                         "published-unverified: %s" % (sha or self.rev()))
+        self.assertNotIn("commit_sha=", res.stdout)
+        self.assertEqual(self.closed_outcome(attempt), "published-unverified")
+        self.assertIsNone(self.open_id())
+        self.assertNotIn("SENTINEL", res.stderr)
+
+    def assert_uncertain(self, res, attempt, candidate):
+        self.assertEqual(res.returncode, 9, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.splitlines()[0],
+                         "publication-uncertain: %s" % candidate)
+        self.assertEqual(self.closed_outcome(attempt), "publication-uncertain")
+        self.assertNotEqual(self.closed_outcome(attempt), "refused")
+        self.assertIsNone(self.open_id())
+        self.assertNotIn("SENTINEL", res.stderr)
+
+    # ------------------------------------------------- publish-gap wrappers
+
+    def gap_after(self, module=None, then=None):
+        """_publish_ref that publishes, optionally runs `then(new)`, and is
+        interrupted before Python sees True. Returns (wrapper, seen)."""
+        mod = fixstage if module is None else module
+        real = mod._publish_ref
+        seen = {}
+
+        def wrapper(root, base, base_symref, new, subject):
+            real(root, base, base_symref, new, subject)
+            seen["candidate"] = new
+            if then is not None:
+                then(new)
+            raise KeyboardInterrupt("SENTINEL_gap")
+        return wrapper, seen
+
+    def gap_before(self):
+        seen = {}
+
+        def wrapper(root, base, base_symref, new, subject):
+            seen["candidate"] = new
+            raise KeyboardInterrupt("SENTINEL_gap")
+        return wrapper, seen
+
+    def advance_branch(self, candidate):
+        other = self.commit_tree(candidate, "other")
+        git(self.repo, "update-ref", self.branch(), other, candidate)
+
+    def unrelated_gap(self, pre):
+        seen = {}
+
+        def wrapper(root, base, base_symref, new, subject):
+            seen["candidate"] = new
+            unrelated = self.commit_tree(pre, "unrelated")
+            git(self.repo, "update-ref", self.branch(), unrelated, pre)
+            raise KeyboardInterrupt("SENTINEL_gap")
+        return wrapper, seen
+
+    def failing_reads(self, module, mode, flag):
+        real = module._git
+
+        def fake(root, *args, **kw):
+            if flag and args and args[0] in ("rev-parse", "merge-base"):
+                if mode == "raise":
+                    raise OSError("SENTINEL_read")
+                return subprocess.CompletedProcess(["git"] + list(args), 128,
+                                                   "", "")
+            return real(root, *args, **kw)
+        return fake
+
+    def f11_patches(self, module, mode):
+        flag = []
+        mod = module
+        real = mod._publish_ref
+        seen = {}
+
+        def wrapper(root, base, base_symref, new, subject):
+            real(root, base, base_symref, new, subject)
+            seen["candidate"] = new
+            flag.append(1)
+            raise KeyboardInterrupt("SENTINEL_gap")
+        return [(mod, "_publish_ref", wrapper),
+                (mod, "_git", self.failing_reads(mod, mode, flag))], seen
+
+    # ---------------------------------------------------------- cleanup
+
+    def test_a3n_F1_cleanup_interrupt_clean_fix(self):
+        def boom(scratch):
+            raise KeyboardInterrupt("SENTINEL_cleanup")
+        pre = self.rev()
+        res, attempt = self.run_commit([(fixstage, "_remove_scratch", boom)])
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.sha_of(res), self.rev())
+        self.assertEqual(self.rev("HEAD^"), pre)
+        self.assertIsNone(self.closed_outcome(attempt))
+        self.assertIn("KeyboardInterrupt", res.stderr)
+        self.assertIn("removing temporary files", res.stderr)
+        self.assertNotIn("SENTINEL", res.stderr)
+
+    def test_a3n_F2_cleanup_interrupt_unverified(self):
+        def boom(scratch):
+            raise KeyboardInterrupt("SENTINEL_cleanup")
+        pre = self.rev()
+        res, attempt = self.run_commit([
+            (fixstage, "_remove_scratch", boom),
+            (fixstage, "_run_post_commit", _oserror_post_commit)])
+        self.assert_unverified(res, attempt, pre)
+
+    def test_a3n_F3_cleanup_systemexit(self):
+        def boom(scratch):
+            raise SystemExit(4)
+        res, _ = self.run_commit([(fixstage, "_remove_scratch", boom)])
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.sha_of(res), self.rev())
+
+    # ----------------------------------------------------------- stderr
+
+    def test_a3n_F4_broken_stderr_in_post_publish_handler(self):
+        pre = self.rev()
+        res, attempt = self.run_commit(
+            [(fixstage, "_run_post_commit", _oserror_post_commit)],
+            stderr=_RaisingStream(BrokenPipeError))
+        self.assert_unverified(res, attempt, pre)
+
+    def test_a3n_F5_interrupted_stderr_in_post_publish_handler(self):
+        pre = self.rev()
+        res, attempt = self.run_commit(
+            [(fixstage, "_run_post_commit", _oserror_post_commit)],
+            stderr=_RaisingStream(KeyboardInterrupt))
+        self.assert_unverified(res, attempt, pre)
+
+    def test_a3n_F6_broken_stderr_in_close_handler(self):
+        real = fixstage._close_attempt
+
+        def close(root, fid, attempt, outcome):
+            if outcome == "committed":
+                raise OSError("SENTINEL_close")
+            return real(root, fid, attempt, outcome)
+        res, _ = self.run_commit([(fixstage, "_close_attempt", close)],
+                                 stderr=_RaisingStream(BrokenPipeError))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.sha_of(res), self.rev())
+
+    # ------------------------------------------------------ publish gap
+
+    def test_a3n_F7_publish_gap_ref_moved(self):
+        pre = self.rev()
+        wrapper, seen = self.gap_after()
+        res, attempt = self.run_commit([(fixstage, "_publish_ref", wrapper)])
+        self.assertEqual(seen["candidate"], self.rev())
+        self.assertEqual(self.rev("HEAD^"), pre)
+        self.assert_unverified(res, attempt, pre)
+        self.assertIn("index-left-as-is: f.txt", res.stdout)
+
+    def test_a3n_F8_publish_gap_ref_not_moved_reraises(self):
+        pre = self.rev()
+        wrapper, _ = self.gap_before()
+        out = io.StringIO()
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_commit([(fixstage, "_publish_ref", wrapper)], stdout=out,
+                            escape_ok=True)
+        self.assertEqual(self.rev(), pre)
+        self.assertNotIn("published-unverified", out.getvalue())
+        self.assertNotIn("publication-uncertain", out.getvalue())
+
+    def test_a3n_F9_backstop_after_failing_handler(self):
+        pre = self.rev()
+        res, attempt = self.run_commit(self.f9_patches(fixstage))
+        self.assert_unverified(res, attempt, pre)
+
+    def f9_patches(self, mod):
+        real = mod._published_outcome
+        calls = []
+
+        def first_call_interrupted(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise KeyboardInterrupt("SENTINEL_mapping")
+            return real(*a, **k)
+        return [(mod, "_run_post_commit", _oserror_post_commit),
+                (mod, "_published_outcome", first_call_interrupted)]
+
+    def test_a3n_F10_branch_advanced_after_publish(self):
+        pre = self.rev()
+        wrapper, seen = self.gap_after(then=self.advance_branch)
+        res, attempt = self.run_commit([(fixstage, "_publish_ref", wrapper)])
+        candidate = seen["candidate"]
+        self.assertEqual(candidate, self.rev("HEAD^"))
+        self.assertNotEqual(candidate, self.rev())
+        self.assert_unverified(res, attempt, pre, sha=candidate)
+
+    def test_a3n_F11_recovery_read_fails(self):
+        for mode in ("raise", "rc128"):
+            with self.subTest(mode=mode):
+                self.setUp_fresh()
+                patches, seen = self.f11_patches(fixstage, mode)
+                res, attempt = self.run_commit(patches)
+                self.assertEqual(seen["candidate"], self.rev())
+                self.assert_uncertain(res, attempt, seen["candidate"])
+                self.assertNotEqual(res.returncode, 1)
+
+    def test_a3n_F12_ref_moved_to_unrelated_commit(self):
+        pre = self.rev()
+        wrapper, seen = self.unrelated_gap(pre)
+        res, attempt = self.run_commit([(fixstage, "_publish_ref", wrapper)])
+        candidate = seen["candidate"]
+        self.assertNotEqual(candidate, self.rev())
+        self.assertFalse(self.is_ancestor(candidate, self.rev()))
+        self.assert_uncertain(res, attempt, candidate)
+
+    # ------------------------------------------------------------ units
+
+    def test_a3n_U1_diag_never_raises(self):
+        for factory in (BrokenPipeError, KeyboardInterrupt):
+            with self.subTest(factory=factory.__name__):
+                with contextlib.redirect_stderr(_RaisingStream(factory)):
+                    self.assertIsNone(fixstage._diag("x"))
+
+    def test_a3n_U2_recover_publication_tri_state(self):
+        base = self.rev()
+        cand = self.commit_tree(base, "cand")
+        later = self.commit_tree(cand, "later")
+        unrelated = self.commit_tree(base, "unrelated")
+        branch = self.branch()
+
+        def at(sha):
+            git(self.repo, "update-ref", branch, sha)
+            return fixstage._recover_publication(self.repo, branch, cand, base)
+
+        def boom(exc):
+            def raiser(*a, **k):
+                raise exc
+            return raiser
+        with mock.patch.dict(os.environ, gitfixture.helper_env()):
+            self.assertEqual(at(cand), "published")
+            self.assertEqual(at(later), "published")
+            self.assertEqual(at(base), "unpublished")
+            self.assertEqual(at(unrelated), "unknown")
+            git(self.repo, "update-ref", branch, cand)
+            for exc in (OSError("x"), KeyboardInterrupt()):
+                with mock.patch.object(fixstage, "_git", boom(exc)):
+                    self.assertEqual(fixstage._recover_publication(
+                        self.repo, branch, cand, base), "unknown")
+            rc128 = subprocess.CompletedProcess(["git"], 128, "", "")
+            with mock.patch.object(fixstage, "_git", lambda *a, **k: rc128):
+                self.assertEqual(fixstage._recover_publication(
+                    self.repo, branch, cand, base), "unknown")
+
+    # ---------------------------------------------------------- mutants
+
+    def test_a3n_MC_mutant_cleanup_guard_narrowed(self):
+        mutant = _mutant_module(
+            ("except BaseException as exc:  # cleanup is best-effort",
+             "except OSError as exc:  # cleanup is best-effort"))
+
+        def boom(scratch):
+            raise KeyboardInterrupt("SENTINEL_cleanup")
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_commit([(mutant, "_remove_scratch", boom)], module=mutant,
+                            escape_ok=True)
+
+    def test_a3n_MD_mutant_diag_guard_removed(self):
+        mutant = _mutant_module(
+            ("except BaseException:  # nowhere left to report",
+             "except _NeverRaised:  # nowhere left to report"))
+        with contextlib.redirect_stderr(_RaisingStream(BrokenPipeError)):
+            with self.assertRaises(BrokenPipeError):
+                mutant._diag("x")
+
+    def test_a3n_MB_mutant_backstop_removed(self):
+        mutant = _mutant_module(
+            ("except BaseException:  # backstop: a published commit is never lost",
+             "except _NeverRaised:  # backstop removed"))
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_commit(self.f9_patches(mutant), module=mutant,
+                            escape_ok=True)
+        self.setUp_fresh()
+        res, _ = self.run_commit(self.f9_patches(fixstage))
+        self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+
+    def test_a3n_MR1_mutant_read_failure_reads_as_unpublished(self):
+        mutant = _mutant_module(
+            ('return "unknown"  # recovery read failed',
+             'return "unpublished"  # recovery read failed'))
+        for mode in ("raise", "rc128"):
+            with self.subTest(mode=mode):
+                self.setUp_fresh()
+                patches, _ = self.f11_patches(mutant, mode)
+                with self.assertRaises(KeyboardInterrupt):
+                    self.run_commit(patches, module=mutant, escape_ok=True)
+                self.setUp_fresh()
+                patches, _ = self.f11_patches(fixstage, mode)
+                res, _ = self.run_commit(patches)
+                self.assertEqual(res.returncode, 9, res.stdout + res.stderr)
+
+    def test_a3n_MR2_mutant_ancestry_removed(self):
+        mutant = _mutant_module(
+            ('if _git(root, "merge-base", "--is-ancestor", candidate, ref)'
+             '.returncode == 0:  # candidate is under the ref',
+             "if False:  # ancestry check removed"))
+        wrapper, _ = self.gap_after(module=mutant, then=self.advance_branch)
+        res, _ = self.run_commit([(mutant, "_publish_ref", wrapper)],
+                                 module=mutant)
+        self.assertEqual(res.returncode, 9, res.stdout + res.stderr)
+        self.setUp_fresh()
+        wrapper, _ = self.gap_after(then=self.advance_branch)
+        res, _ = self.run_commit([(fixstage, "_publish_ref", wrapper)])
+        self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+
+    def test_a3n_MR3_mutant_unknown_routed_to_refused(self):
+        def mutant_module():
+            return _mutant_module(
+                ('elif state == "unknown":  # never refused: uncertain '
+                 'publication', "elif False:  # unknown routed to refused"))
+        mutant = mutant_module()
+        patches, _ = self.f11_patches(mutant, "raise")
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_commit(patches, module=mutant, escape_ok=True)
+        self.setUp_fresh()
+        mutant = mutant_module()
+        pre = self.rev()
+
+        def unrelated(root, base, base_symref, new, subject):
+            other = self.commit_tree(pre, "unrelated")
+            git(self.repo, "update-ref", self.branch(), other, pre)
+            raise KeyboardInterrupt("SENTINEL_gap")
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_commit([(mutant, "_publish_ref", unrelated)],
+                            module=mutant, escape_ok=True)
+
+    def test_a3n_MX_unpub_classifier_forced_unpublished(self):
+        wrapper, _ = self.gap_after()
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_commit([(fixstage, "_publish_ref", wrapper),
+                             (fixstage, "_recover_publication",
+                              lambda *a: "unpublished")], escape_ok=True)
+
+    def test_a3n_MX_pub_classifier_forced_published(self):
+        pre = self.rev()
+        wrapper, seen = self.gap_before()
+        res, _ = self.run_commit([(fixstage, "_publish_ref", wrapper),
+                                  (fixstage, "_recover_publication",
+                                   lambda *a: "published")])
+        self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.splitlines()[0],
+                         "published-unverified: %s" % seen["candidate"])
+        self.assertNotEqual(seen["candidate"], self.rev())
+        self.assertEqual(self.rev(), pre)
+
+    # ------------------------------------------------------ source lock
+
+    def test_a3m_classifier_keeps_the_single_ref_write_lock(self):
+        with open(FIXSTAGE) as fh:
+            source = fh.read()
+        self.assertTrue(ref_writes_forward_only(source))
+        start = source.index("\ndef _recover_publication(")
+        end = source.index("\ndef ", start + 1)
+        body = source[start:end]
+        for verb in ("update-ref", "commit-tree", "reset", "checkout",
+                     "write-tree", "update-index"):
+            self.assertNotIn(verb, body)
 
 
 class TestCommitHooks(HookCase):
