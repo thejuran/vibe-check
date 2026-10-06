@@ -36,9 +36,11 @@ Contract (fail CLOSED on every ambiguity):
 CLI (python3 gitguard.py <subcommand>):
   hook                      PreToolUse hook; stdin = the tool-call JSON.
                             exit 0 allow | 2 deny (+ one fixed stderr line).
-                            Guards only `vibe-check:*` agents other than
-                            `vibe-check:fix`; never the main session or other
-                            plugins. Each refusal is appended to
+                            Guards only `vibe-check:*` SUBAGENT calls (payload
+                            agent_id present) other than `vibe-check:fix`;
+                            never the main session (even one started as a
+                            vibe-check agent) or other plugins. Each refusal
+                            is appended to
                             <repo>/.turingmind/git-guard/blocks.jsonl.
   notices --root R [--consume] [--repo-changed]
                             prints one sanitized line per recorded block
@@ -902,18 +904,27 @@ def _record_block(payload, reason):
         os.close(fd)
 
 
+def _is_subagent_call(data):
+    """Claude Code sets agent_id only inside a subagent call; absent/null is the main thread (even `claude --agent vibe-check:x`), any other value, even "" or a non-string, is a subagent call (fail closed)."""
+    return data.get("agent_id") is not None
+
+
 def hook_main(stdin_text):
     """PreToolUse decision -> 0 allow | 2 deny (one stderr line on deny).
 
     Fails OPEN for anything that cannot be attributed to a guarded agent
-    (malformed input, the main session, the fix agent, other plugins) and
-    fails CLOSED for vibe-check review agents.
+    (malformed input, the main session -- no agent_id, including one
+    started with `claude --agent vibe-check:<x>` -- the fix agent, other
+    plugins) and fails CLOSED for vibe-check review agents, which are
+    subagent calls (non-null agent_id).
     """
     try:
         data = json.loads(stdin_text)
     except (TypeError, ValueError):
         return 0
     if not isinstance(data, dict):
+        return 0
+    if not _is_subagent_call(data):
         return 0
     agent = data.get("agent_type")
     if not isinstance(agent, str) or not agent.startswith(GUARDED_PREFIX) \

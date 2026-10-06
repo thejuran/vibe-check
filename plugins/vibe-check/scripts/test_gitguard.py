@@ -1162,6 +1162,29 @@ class TestHookMutants(unittest.TestCase):
             self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 0)
         self.assertTrue(seen and "carry_state.py" in seen[0])
 
+    def _rc_payload(self, agent, agent_id, cmd="git stash pop"):
+        payload = _payload(agent, command=cmd, cwd=self.repo)
+        payload["agent_id"] = agent_id
+        return _hook_in_process(payload)[0]
+
+    def test_h_agent_id_check_removed(self):
+        self.assertTrue(callable(gitguard._is_subagent_call))
+        self.assertEqual(self._rc_payload("vibe-check:bugs", None), 0)
+        with mock.patch.object(gitguard, "_is_subagent_call",
+                               lambda d: True):
+            self.assertEqual(self._rc_payload("vibe-check:bugs", None), 2)
+
+    def test_i_agent_id_check_narrowed_to_truthy(self):
+        self.assertEqual(self._rc_payload("vibe-check:bugs", ""), 2)
+        with mock.patch.object(gitguard, "_is_subagent_call",
+                               lambda d: bool(d.get("agent_id"))):
+            self.assertEqual(self._rc_payload("vibe-check:bugs", ""), 0)
+
+    def test_j_prefix_conjunct_removed(self):
+        self.assertEqual(self._rc_payload("other-plugin:x", "a1"), 0)
+        with mock.patch.object(gitguard, "GUARDED_PREFIX", ""):
+            self.assertEqual(self._rc_payload("other-plugin:x", "a1"), 2)
+
 
 # --------------------------------------------------------------------------- #
 # notices / reset CLI (the orchestrator's block-notice source)
