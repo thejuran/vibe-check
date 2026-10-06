@@ -27,10 +27,10 @@ PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
 FIX_LOOP = os.path.join(PLUGIN_DIR, "phases", "review", "50-fix-loop.md")
 FIX_MD = os.path.join(PLUGIN_DIR, "agents", "fix.md")
 
-# sha256 of agents/fix.md after Phase 48 (FIX-01/02/04 rewrite of steps 4-6
-# + W2 description). Any further edit must re-pin deliberately.
+# sha256 of agents/fix.md after Phase 49-03 (exit-9 `9)` commit arm + **9**
+# outcome bullet, codex rewrite 4). Any further edit must re-pin deliberately.
 FIX_MD_SHA256 = (
-    "5bac21e617aedc278b7b782393fe5ad4b838669e949f4bad0393b4bfd3711f19")
+    "edd3fb2074a4b413442f565d37f440b0a92bac58e00a250fb455ef4482dd5e9e")
 
 CARD_HEADING = "### The fix-loop card"
 STEP_B_HEADING = "### Step B"
