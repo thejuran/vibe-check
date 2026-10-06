@@ -22,7 +22,9 @@ every one is load-bearing):
                   every staged entry
 - stash           `stash list --format=%H`, newest first
 - refs            `for-each-ref` objectname/refname, minus refs/stash (the
-                  stash component owns it), plus a sha256 of the listing
+                  stash component owns it) and refs/remotes/* (a background
+                  fetch moves them; review agents cannot), plus a sha256 of
+                  the listing
 - head_reflog_count  `rev-list --walk-reflogs --count HEAD` (a checkout-and-back
                   round trip leaves HEAD unchanged but grows the reflog)
 - in_progress     which of MERGE_HEAD, REBASE_HEAD, CHERRY_PICK_HEAD,
@@ -59,6 +61,11 @@ import sys
 
 IN_PROGRESS_MARKERS = ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD",
                        "REVERT_HEAD", "rebase-merge", "rebase-apply")
+
+# A fetch (background or IDE) moves remote-tracking refs and review agents
+# cannot (the guard denies fetch/pull), so they are not part of the
+# fingerprint. The trailing slash makes this an exact namespace prefix.
+EXCLUDED_REF_PREFIXES = ("refs/remotes/",)
 
 SNAPSHOT_KEYS = {
     "head": (str, type(None)),
@@ -144,13 +151,13 @@ def collect_stash(root):
 
 
 def collect_refs(root):
-    """{refname: sha} for every ref except refs/stash."""
+    """{refname: sha} for every ref except refs/stash and refs/remotes/*."""
     out = _text(_git_ok(root, "for-each-ref",
                         "--format=%(objectname) %(refname)"))
     refs = {}
     for line in out.splitlines():
         sha, _, name = line.partition(" ")
-        if name and name != "refs/stash":
+        if name and name != "refs/stash" and not name.startswith(EXCLUDED_REF_PREFIXES):
             refs[name] = sha
     return refs
 
