@@ -764,7 +764,8 @@ class TestCommitSet(SnapCase):
         self.assertEqual(batchsnap.NEVER_REVERT,
                          ("40-01", "40-06", "40-09", "40-14",
                           "41-01", "41-02", "41-03", "41-07", "41-08",
-                          "43-02", "43-03", "43-04", "43-05", "43-07"))
+                          "43-02", "43-03", "43-04", "43-05", "43-07",
+                          "49-04", "49-05", "49-06", "49-08", "49-09"))
         # Structurally excluded: no NEVER_REVERT id appears in any batch allowlist.
         for batch, plans in batchsnap.BATCH_PLANS.items():
             for plan in plans:
@@ -786,7 +787,7 @@ class TestCommitSet(SnapCase):
         for plan in ("41-01", "41-02", "41-03", "41-07", "41-08"):
             self.assertIn(plan, batchsnap.NEVER_REVERT)
             self.assertNotIn(plan, batchsnap.BATCH_PLANS[4])
-        self.assertEqual(len(batchsnap.KNOWN_PLANS), 29)
+        self.assertEqual(len(batchsnap.KNOWN_PLANS), 38)
 
     def test_batch_plans_phase43(self):
         """Batch 5 is exactly the launch-gate fix and batch 6 exactly the
@@ -801,6 +802,42 @@ class TestCommitSet(SnapCase):
                 self.assertNotIn(plan, plans, "%s is in BATCH_PLANS[%s]" % (plan, batch))
         self.assertEqual(set(p for p in batchsnap.KNOWN_PLANS if p.startswith("43-")),
                          set("43-%02d" % n for n in range(1, 8)))
+
+    def test_batch_plans_phase49(self):
+        """Batch 7 is exactly the three pre-measurement fixes and batch 8 exactly
+        the conditional targeted fix; every Phase-49 tooling/evidence plan is
+        outside every batch by construction."""
+        self.assertEqual(batchsnap.BATCH_PLANS[7], ("49-01", "49-02", "49-03"))
+        self.assertEqual(batchsnap.BATCH_PLANS[8], ("49-07",))
+        never49 = ("49-04", "49-05", "49-06", "49-08", "49-09")
+        for plan in never49:
+            self.assertIn(plan, batchsnap.NEVER_REVERT)
+            for batch, plans in batchsnap.BATCH_PLANS.items():
+                self.assertNotIn(plan, plans, "%s is in BATCH_PLANS[%s]" % (plan, batch))
+        self.assertEqual(set(p for p in batchsnap.KNOWN_PLANS if p.startswith("49-")),
+                         set("49-%02d" % n for n in range(1, 10)))
+
+    def test_commit_set_batch7_fails_on_planted_49_04(self):
+        """Mutation proof for the Phase-49 unit: planting the tooling plan 49-04
+        into BATCH_PLANS[7] must fail naming 49-04 and NEVER_REVERT; with the
+        real allowlist restored the same call emits exactly the three shas."""
+        recorded = self.record_all(self.repo, 7)
+        with open(recorded) as fh:
+            self.assertNotIn("49-04", json.load(fh))  # fixture: no recorded sha
+        real = batchsnap.BATCH_PLANS
+        try:
+            batchsnap.BATCH_PLANS = dict(real)
+            batchsnap.BATCH_PLANS[7] = real[7] + ("49-04",)
+            with self.assertRaises(batchsnap.BatchError) as ctx:
+                batchsnap.commit_set(self.repo, 7, recorded)
+            msg = str(ctx.exception)
+            self.assertIn("49-04", msg)
+            self.assertIn("NEVER_REVERT", msg)
+            self.assertNotIn("incomplete", msg.lower())
+        finally:
+            batchsnap.BATCH_PLANS = real
+        emitted = batchsnap.commit_set(self.repo, 7, recorded)
+        self.assertEqual(len(emitted), 3)
 
     def test_commit_set_batch4_fails_on_planted_41_01(self):
         """Mutation proof for the Phase-41 unit: planting the ledger/manifest
@@ -1090,6 +1127,24 @@ class TestRecordCommit(SnapCase):
         self.assertEqual(batchsnap.record_commit(self.repo, "41-04", sha, self.recorded), 0)
         with open(self.recorded) as fh:
             self.assertEqual(json.load(fh), {"41-04": [sha]})
+
+    def test_record_commit_phase49_range(self):
+        """49-09 is the last known Phase-49 id; 49-10 is refused as unknown."""
+        sha = make_commit(self.repo, "49-09")
+        proc = subprocess.run(
+            [sys.executable, BATCHSNAP_PY, "record-commit", "--plan", "49-10",
+             "--sha", sha, "--recorded", self.recorded, "--repo", self.repo],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("unknown plan id", proc.stdout)
+        self.assertFalse(os.path.exists(self.recorded))
+        proc = subprocess.run(
+            [sys.executable, BATCHSNAP_PY, "record-commit", "--plan", "49-09",
+             "--sha", sha, "--recorded", self.recorded, "--repo", self.repo],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        with open(self.recorded) as fh:
+            self.assertEqual(json.load(fh), {"49-09": [sha]})
 
     def test_appends_to_existing_plan(self):
         a = make_commit(self.repo, "40-03")

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -37,7 +38,7 @@ ONE_DIFF_FIRST = {"should-quiet-1": [True, True, False], "should-quiet-7": [True
 PINNED_AGGREGATE_FLAGS = {"--runs-root", "--label", "--fp-bar", "--sealed-fp-bar",
                           "--catch-bar", "--catch-verdicts", "--expected-diffs",
                           "--first-root", "--retune-root", "--failed-diffs",
-                          "--denoms-blob", "--verdict-out"}
+                          "--denoms-blob", "--verdict-out", "--profile"}
 
 
 def make_state(fired=False, band=None, codex="joined", rows=None):
@@ -741,6 +742,389 @@ class TestOneDiffRetuneThroughClosure(_RepoCase):
             "--verdict-out", self.p("C2.json"))
         self.assertEqual(code, 1)
         self.assertIn("disagrees", err)
+
+
+# --------------------------------------------------------------------------
+# Named profiles (phase43 default, phase49)
+# --------------------------------------------------------------------------
+
+# Corrected 3 of 18 (should-quiet-6 all three runs) -- a phase49 PASS.
+FIRE_3_OF_18 = {"should-quiet-6": [True, True, True]}
+# Corrected 5 of 18 -- a phase49 MISS.
+FIRE_5_OF_18 = {"should-quiet-6": [True, True, True], "should-quiet-1": [True, True, False]}
+
+P49_BARS = ("--fp-bar", "3", "--sealed-fp-bar", "6", "--catch-bar", "15")
+P43_BARS = ("--fp-bar", "8", "--sealed-fp-bar", "9", "--catch-bar", "15")
+
+
+def v211_results(path, verdict, x, m, k, retune="Retune: not used", bar=3,
+                 h1="# B3 v2.11 — Phase 49 release-candidate measurement (REL-01/REL-02)"):
+    lines = [h1, "", "## Phase-49 pre-registration", "", "text", "",
+             "## Headline", "",
+             "**%s** — false alarms 3→%d of 18 (corrected cohort, bar ≤ %d; should-quiet-7 "
+             "excluded per SUPERSESSIONS-v2.10.md #001); catches 15→%d of 15 (bar 15) "
+             "(no rounding — exact fractions)" % (verdict, x, bar, m),
+             "Sealed literal (never deciding): false alarms 6→%d of 21 vs the sealed "
+             "bar ≤ 6 — would be PASS" % k,
+             retune, "", "## What was measured", ""]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return path
+
+
+def artifact(label="first", verdict="PASS", x=3, m=15, k=3, fp_bar=3, sealed_bar=6,
+             catch_bar=15, untuned=None):
+    art = {"label": label, "verdict": verdict, "quiet_fired": x, "catch_hit": m,
+           "sealed_literal": {"quiet_fired": k, "fp_bar": sealed_bar},
+           "fp_bar": fp_bar, "catch_bar": catch_bar}
+    if untuned is not None:
+        art["untuned"] = untuned
+    return art
+
+
+class TestProfiles(_TmpDirCase):
+
+    def agg(self, root, profile=None, bars=P49_BARS, label="first", out="V.json"):
+        cv = write_json(self.p("cv-" + out), catch_map())
+        argv = ["aggregate", "--runs-root", root, "--label", label]
+        if profile:
+            argv += ["--profile", profile]
+        argv += list(bars) + ["--catch-verdicts", cv, "--verdict-out", self.p(out)]
+        code, out_s, err = self.cli(*argv)
+        return code, out_s, err, (json.load(open(self.p(out))) if code == 0 else None)
+
+    def test_profile_table_values(self):
+        want43 = {"fp_bar": 8, "sealed_fp_bar": 9, "catch_bar": 15,
+                  "h1": "# B3 v2.10 — Phase 43", "fp_before": 16, "sealed_before": 19,
+                  "catch_before": 15}
+        want49 = {"fp_bar": 3, "sealed_fp_bar": 6, "catch_bar": 15,
+                  "h1": "# B3 v2.11 — Phase 49", "fp_before": 3, "sealed_before": 6,
+                  "catch_before": 15}
+        for name, want in (("phase43", want43), ("phase49", want49)):
+            got = score43.PROFILES[name]
+            self.assertEqual({k: got[k] for k in want}, want)
+        self.assertEqual(score43.PROFILES["phase43"]["labels"], ("first", "retune", "combined"))
+        self.assertEqual(score43.PROFILES["phase43"]["retune_label"], "combined")
+        self.assertEqual(score43.PROFILES["phase49"]["labels"], ("first", "retune-full"))
+        self.assertEqual(score43.PROFILES["phase49"]["retune_label"], "retune-full")
+        # The legacy constants are aliases of the phase43 profile.
+        self.assertEqual((score43.FP_BAR, score43.SEALED_FP_BAR, score43.CATCH_BAR), (8, 9, 15))
+
+    def test_default_profile_is_phase43_and_byte_identical(self):
+        root = write_runs(self.p("first"), FIRE_8_OF_18)
+        _c, out_a, _e, v_a = self.agg(root, None, P43_BARS, out="a.json")
+        _c, out_b, _e, v_b = self.agg(root, "phase43", P43_BARS, out="b.json")
+        self.assertEqual(v_a, v_b)
+        self.assertEqual(out_a, out_b)
+        self.assertEqual(open(self.p("a.json")).read(), open(self.p("b.json")).read())
+
+    def test_phase49_bars_accepted(self):
+        root = write_runs(self.p("first"), FIRE_3_OF_18)
+        code, _o, err, v = self.agg(root, "phase49")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((v["fp_bar"], v["catch_bar"], v["sealed_literal"]["fp_bar"]),
+                         (3, 15, 6))
+        self.assertEqual(v["verdict"], "PASS")
+
+    def test_phase49_decides_against_bar_3(self):
+        root = write_runs(self.p("first"), FIRE_5_OF_18)
+        code, _o, err, v = self.agg(root, "phase49")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((v["quiet_fired"], v["verdict"]), (5, "MISS"))
+        # The same runs under phase43 (bar 8) pass: the profile bar is what decides.
+        _c, _o, _e, v43 = self.agg(root, "phase43", P43_BARS, out="v43.json")
+        self.assertEqual(v43["verdict"], "PASS")
+
+    def test_phase49_refuses_phase43_bars(self):
+        root = write_runs(self.p("first"), FIRE_3_OF_18)
+        code, _o, err, _v = self.agg(root, "phase49", P43_BARS)
+        self.assertEqual(code, 1)
+        self.assertIn("bars must be --fp-bar 3 --sealed-fp-bar 6 --catch-bar 15", err)
+
+    def test_phase43_refuses_phase49_bars(self):
+        root = write_runs(self.p("first"), FIRE_3_OF_18)
+        code, _o, err, _v = self.agg(root, "phase43", P49_BARS)
+        self.assertEqual(code, 1)
+        self.assertIn("bars must be --fp-bar 8 --sealed-fp-bar 9 --catch-bar 15", err)
+
+    def test_mutant_profile_fp_bar_is_read_from_table(self):
+        root = write_runs(self.p("first"), FIRE_3_OF_18)
+        with mock.patch.dict(score43.PROFILES["phase49"], {"fp_bar": 8}):
+            self.assertEqual(score43.PROFILES["phase49"]["fp_bar"], 8)
+            code, _o, err, _v = self.agg(root, "phase49", out="m.json")
+        self.assertEqual(code, 1)
+        self.assertIn("bars must be --fp-bar 8", err)
+        self.assertEqual(self.agg(root, "phase49", out="r.json")[0], 0)
+
+    def test_unknown_profile_is_usage_error(self):
+        root = write_runs(self.p("first"), FIRE_3_OF_18)
+        self.assertEqual(self.agg(root, "phase99")[0], 2)
+
+    def hc(self, results, art, profile=None):
+        vpath = write_json(self.p("art.json"), art)
+        argv = ["headline-check", "--results", results, "--verdict", vpath]
+        if profile:
+            argv += ["--profile", profile]
+        return self.cli(*argv)
+
+    def test_headline_check_phase49_match(self):
+        res = v211_results(self.p("R.md"), "PASS", 3, 15, 3)
+        code, out, err = self.hc(res, artifact(), "phase49")
+        self.assertEqual(code, 0, err)
+        self.assertIn("headline-check: match", out)
+
+    def test_headline_check_phase49_from_real_aggregate(self):
+        root = write_runs(self.p("first"), FIRE_3_OF_18)
+        _c, _o, _e, v = self.agg(root, "phase49")
+        res = v211_results(self.p("R.md"), v["verdict"], v["quiet_fired"], v["catch_hit"],
+                           v["sealed_literal"]["quiet_fired"])
+        code, _o, err = self.cli("headline-check", "--profile", "phase49",
+                                 "--results", res, "--verdict", self.p("V.json"))
+        self.assertEqual(code, 0, err)
+
+    def test_headline_check_profiles_do_not_cross(self):
+        res49 = v211_results(self.p("R49.md"), "PASS", 3, 15, 3)
+        # phase43 (default) on v2.11 text: no Phase-43 H1.
+        code, _o, err = self.hc(res49, artifact(fp_bar=8, sealed_bar=9))
+        self.assertEqual(code, 1)
+        self.assertIn("headline-block", err)
+        # phase49 on Phase-43 grammar text.
+        res43 = v211_results(self.p("R43.md"), "PASS", 3, 15, 3,
+                             h1="# B3 v2.10 — Phase 43 post-change measurement")
+        code, _o, err = self.hc(res43, artifact(), "phase49")
+        self.assertEqual(code, 1)
+        self.assertIn("headline-block", err)
+
+    def test_headline_check_phase49_wrong_bar_in_deciding_line(self):
+        res = v211_results(self.p("R.md"), "PASS", 3, 15, 3, bar=8)
+        code, _o, err = self.hc(res, artifact(), "phase49")
+        self.assertEqual(code, 1)
+        self.assertIn("deciding-line", err)
+
+    def test_headline_check_artifact_bars_cross_checked(self):
+        res = v211_results(self.p("R.md"), "PASS", 3, 15, 3)
+        for name, art in (("fp", artifact(fp_bar=8)), ("catch", artifact(catch_bar=14)),
+                          ("sealed", artifact(sealed_bar=9))):
+            with self.subTest(bar=name):
+                code, _o, err = self.hc(res, art, "phase49")
+                self.assertEqual(code, 1)
+                self.assertIn("bars", err.split(":", 1)[1].replace(" ", "").split(","))
+        # Same lock under phase43: a phase49-barred artifact is refused.
+        bad = artifact(fp_bar=3, sealed_bar=6)
+        self.assertIn("bars", score43.headline_check(
+            v211_results(self.p("R43b.md"), "PASS", 3, 15, 3,
+                         h1="# B3 v2.10 — Phase 43 x"), write_json(self.p("b.json"), bad)))
+
+
+class TestRetuneFull(_RepoCase):
+    """Under phase49 the retune is the full 12-diff cohort on S2 and its verdict
+    is decided from those runs alone."""
+
+    def make_first(self, fired, name="F"):
+        root = write_runs(self.p(name), fired)
+        write_json(os.path.join(root, "CATCH-VERDICTS.json"), catch_map())
+        cv = write_json(self.p("cv-%s.json" % name), catch_map())
+        code, _o, err = self.cli("aggregate", "--profile", "phase49", "--runs-root", root,
+                                 "--label", "first", *P49_BARS, "--catch-verdicts", cv,
+                                 "--verdict-out", os.path.join(root, "VERDICT.json"))
+        self.assertEqual(code, 0, err)
+        return root
+
+    def make_retune(self, fired, name="R"):
+        root = write_runs(self.p(name), fired)
+        write_json(os.path.join(root, "CATCH-VERDICTS.json"), catch_map())
+        return root
+
+    def full(self, r, f, *extra, profile="phase49", label="retune-full", out="RV.json"):
+        argv = ["aggregate", "--profile", profile, "--label", label]
+        if r is not None:
+            argv += ["--runs-root", r]
+        if f is not None:
+            argv += ["--first-root", f]
+        argv += list(P49_BARS if profile == "phase49" else P43_BARS)
+        argv += ["--catch-verdicts", os.path.join(r or self.tmp, "CATCH-VERDICTS.json"),
+                 "--verdict-out", self.p(out)] + list(extra)
+        code, o, err = self.cli(*argv)
+        return code, o, err, (json.load(open(self.p(out))) if code == 0 else None)
+
+    def alone(self, r, out):
+        cv = os.path.join(r, "CATCH-VERDICTS.json")
+        code, _o, err = self.cli("aggregate", "--profile", "phase49", "--runs-root", r,
+                                 "--label", "first", *P49_BARS, "--catch-verdicts", cv,
+                                 "--verdict-out", self.p(out))
+        self.assertEqual(code, 0, err)
+        return json.load(open(self.p(out)))["verdict"]
+
+    def test_verdict_decided_only_from_retune_root(self):
+        f_miss = self.make_first(FIRE_5_OF_18, "F1")
+        r_pass = self.make_retune(FIRE_3_OF_18, "R1")
+        code, out, err, v1 = self.full(r_pass, f_miss, out="v1.json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(v1["label"], "retune-full")
+        self.assertEqual(v1["untuned"], {"quiet_fired": 5, "sealed_quiet_fired": 5,
+                                         "catch_hit": 15})
+        self.assertIn("retune-full: PASS", out)
+        self.assertIn("untuned first pass: 5/18, 5/21, 15/15", out)
+        f_pass = self.make_first(FIRE_3_OF_18, "F2")
+        r_miss = self.make_retune(FIRE_5_OF_18, "R2")
+        code, _o, err, v2 = self.full(r_miss, f_pass, out="v2.json")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(v2["untuned"]["quiet_fired"], 3)
+        # Not a mix: the two verdicts differ and each is what R alone implies.
+        self.assertNotEqual(v1["verdict"], v2["verdict"])
+        self.assertEqual(v1["verdict"], self.alone(r_pass, "a1.json"))
+        self.assertEqual(v2["verdict"], self.alone(r_miss, "a2.json"))
+        self.assertEqual((v1["verdict"], v2["verdict"]), ("PASS", "MISS"))
+
+    def test_retune_root_hole_refuses(self):
+        f = self.make_first(FIRE_3_OF_18)
+        r = self.make_retune(FIRE_3_OF_18)
+        shutil.rmtree(os.path.join(r, "should-quiet-4", "run-3"))
+        code, _o, err, _v = self.full(r, f)
+        self.assertEqual(code, 1)
+        self.assertIn("should-quiet-4/run-3", err)
+        self.assertFalse(os.path.exists(self.p("RV.json")))
+
+    def test_first_root_required(self):
+        r = self.make_retune(FIRE_3_OF_18)
+        code, _o, err, _v = self.full(r, None)
+        self.assertEqual(code, 1)
+        self.assertIn("--first-root", err)
+
+    def test_runs_root_required(self):
+        f = self.make_first(FIRE_3_OF_18)
+        argv = ["aggregate", "--profile", "phase49", "--label", "retune-full",
+                "--first-root", f, *P49_BARS, "--catch-verdicts",
+                os.path.join(f, "CATCH-VERDICTS.json"), "--verdict-out", self.p("x.json")]
+        code, _o, err = self.cli(*argv)
+        self.assertEqual(code, 1)
+        self.assertIn("--runs-root", err)
+
+    def test_first_verdict_disagreement_refuses(self):
+        f = self.make_first(FIRE_3_OF_18)
+        r = self.make_retune(FIRE_3_OF_18)
+        v = json.load(open(os.path.join(f, "VERDICT.json")))
+        v["quiet_fired"] += 1
+        write_json(os.path.join(f, "VERDICT.json"), v)
+        code, _o, err, _v = self.full(r, f)
+        self.assertEqual(code, 1)
+        self.assertIn("disagrees", err)
+
+    def test_first_verdict_must_exist(self):
+        f = self.make_first(FIRE_3_OF_18)
+        os.remove(os.path.join(f, "VERDICT.json"))
+        r = self.make_retune(FIRE_3_OF_18)
+        code, _o, err, _v = self.full(r, f)
+        self.assertEqual(code, 1)
+        self.assertIn("VERDICT.json", err)
+
+    def test_retune_and_failed_flags_refused(self):
+        f = self.make_first(FIRE_3_OF_18)
+        r = self.make_retune(FIRE_3_OF_18)
+        for flag in (("--retune-root", r), ("--failed-diffs", self.fd)):
+            with self.subTest(flag=flag[0]):
+                code, _o, err, _v = self.full(r, f, *flag)
+                self.assertEqual(code, 1)
+                self.assertIn(flag[0], err)
+
+    def test_expected_diffs_must_be_all_12(self):
+        f = self.make_first(FIRE_3_OF_18)
+        r = self.make_retune(FIRE_3_OF_18)
+        short = write_json(self.p("short.json"), list(score43.DIFFS[:11]))
+        code, _o, err, _v = self.full(r, f, "--expected-diffs", short)
+        self.assertEqual(code, 1)
+        self.assertIn("all 12 diffs", err)
+        allx = write_json(self.p("all.json"), list(score43.DIFFS))
+        self.assertEqual(self.full(r, f, "--expected-diffs", allx, out="ok.json")[0], 0)
+
+    def test_label_profile_refusals(self):
+        f = self.make_first(FIRE_3_OF_18)
+        r = self.make_retune(FIRE_3_OF_18)
+        for label in ("combined", "retune"):
+            with self.subTest(label=label):
+                code, _o, err, _v = self.full(r, f, label=label)
+                self.assertEqual(code, 1)
+                self.assertIn("label %s is not allowed under profile phase49" % label, err)
+        code, _o, err, _v = self.full(r, f, profile="phase43")
+        self.assertEqual(code, 1)
+        self.assertIn("label retune-full is not allowed under profile phase43", err)
+
+    def test_mutant_labels_read_from_table(self):
+        f = self.make_first(FIRE_3_OF_18)
+        r = self.make_retune(FIRE_3_OF_18)
+        with mock.patch.dict(score43.PROFILES["phase49"],
+                             {"labels": ("first", "retune-full", "combined")}):
+            code, _o, err, _v = self.full(r, f, label="combined")
+        self.assertNotIn("not allowed under profile", err)
+        code, _o, err, _v = self.full(r, f, label="combined")
+        self.assertIn("label combined is not allowed under profile phase49", err)
+
+    # retune-gate --cohort
+
+    def gate_cohort(self, s2, root, cohort=None, pre_run=False):
+        argv = ["retune-gate", "--repo", self.repo, "--s", self.S, "--s2", s2,
+                "--failed-diffs", self.fd, "--last-first-commit", self.F]
+        if not pre_run:
+            argv += ["--first-root", self.first, "--retune-root", root]
+        if cohort:
+            argv += ["--cohort", cohort]
+        return self.cli(*argv)
+
+    def test_retune_gate_cohort_full(self):
+        s2 = self.retune()
+        root = write_runs(self.p("rfull"))
+        code, out, err = self.gate_cohort(s2, root, "full")
+        self.assertEqual(code, 0, err)
+        self.assertIn("retune-gate: PASS", out)
+        code, _o, err = self.gate_cohort(s2, root)  # default: failed cohort
+        self.assertEqual(code, 1)
+        self.assertIn("ledger extra: should-quiet-2/run-1", err)
+        code, _o, err = self.gate_cohort(s2, root, "failed")
+        self.assertIn("ledger extra: should-quiet-2/run-1", err)
+        shutil.rmtree(os.path.join(root, "should-quiet-2"))
+        code, _o, err = self.gate_cohort(s2, root, "full")
+        self.assertEqual(code, 1)
+        self.assertIn("ledger hole: should-quiet-2/run-1", err)
+
+    def test_retune_gate_pre_run_ignores_cohort(self):
+        s2 = self.retune()
+        for cohort in ("full", "failed"):
+            with self.subTest(cohort=cohort):
+                code, out, err = self.gate_cohort(s2, None, cohort, pre_run=True)
+                self.assertEqual(code, 0, err)
+                self.assertIn("pre-run form", out)
+
+    # headline retune label per profile
+
+    def test_headline_retune_label_per_profile(self):
+        used = ("Retune: used — full-cohort S2 headline above; untuned first pass: "
+                "5/18, 5/21, 15/15 (see §Retune)")
+        res = v211_results(self.p("R.md"), "PASS", 3, 15, 3, retune=used)
+        u = {"quiet_fired": 5, "sealed_quiet_fired": 5, "catch_hit": 15}
+        good = write_json(self.p("good.json"), artifact(label="retune-full", untuned=u))
+        code, _o, err = self.cli("headline-check", "--profile", "phase49", "--results", res,
+                                 "--verdict", good)
+        self.assertEqual(code, 0, err)
+        comb = write_json(self.p("comb.json"), artifact(label="combined", untuned=u))
+        code, _o, err = self.cli("headline-check", "--profile", "phase49", "--results", res,
+                                 "--verdict", comb)
+        self.assertEqual(code, 1)
+        self.assertIn("label", err)
+        # phase43 keeps `combined` as its retune label.
+        res43 = v211_results(self.p("R43.md"), "PASS", 3, 15, 3, retune=used,
+                             h1="# B3 v2.10 — Phase 43 x")
+        with open(res43, encoding="utf-8") as fh:
+            text = fh.read().replace("false alarms 3→3 of 18 (corrected cohort, bar ≤ 3",
+                                     "false alarms 16→3 of 18 (corrected cohort, bar ≤ 8")
+            text = text.replace("false alarms 6→3 of 21", "false alarms 19→3 of 21")
+        with open(res43, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        c43 = write_json(self.p("c43.json"), artifact(label="combined", fp_bar=8,
+                                                      sealed_bar=9, untuned=u))
+        self.assertEqual(score43.headline_check(res43, c43), [])
+        r43 = write_json(self.p("r43.json"), artifact(label="retune-full", fp_bar=8,
+                                                      sealed_bar=9, untuned=u))
+        self.assertEqual(score43.headline_check(res43, r43), ["label"])
 
 
 # --------------------------------------------------------------------------
