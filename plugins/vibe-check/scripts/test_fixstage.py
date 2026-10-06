@@ -707,6 +707,38 @@ class CommitCase(FixstageCase):
         _, err = proc.communicate(timeout=120)
         return Result(proc.returncode, "", err)
 
+    def cli_closed_both(self, *args, script=None, extra_env=None):
+        """The real CLI with stdout AND stderr on one pipe whose read end is
+        closed BEFORE spawn: every flush to either stream gets EPIPE."""
+        env = gitfixture.helper_env()
+        if extra_env:
+            env.update(extra_env)
+        r, w = os.pipe()
+        os.close(r)
+        try:
+            proc = subprocess.Popen([sys.executable, script or FIXSTAGE]
+                                    + list(args), stdout=w, stderr=w, env=env)
+        finally:
+            os.close(w)
+        proc.communicate(timeout=120)
+        return Result(proc.returncode, "", "")
+
+    def mutated_script(self, *replacements):
+        """fixstage.py written to a temp dir with each (old, new) applied once."""
+        with open(FIXSTAGE) as fh:
+            source = fh.read()
+        mutated = source
+        for old, new in replacements:
+            self.assertEqual(mutated.count(old), 1, old)
+            mutated = mutated.replace(old, new)
+        self.assertNotEqual(mutated, source)
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir)
+        script = os.path.join(tmpdir, "fixstage.py")
+        with open(script, "w") as fh:
+            fh.write(mutated)
+        return script
+
     def setUp_fresh(self):
         self.tearDown()
         self.setUp()
@@ -966,6 +998,44 @@ class TestCommit(CommitCase):
         self.assertNotIn("refused", res.stderr)
         # the sha the closed pipe never delivered is replayed on stderr
         self.assertIn("commit_sha=%s" % self.rev(), res.stderr.splitlines())
+
+    def test_a3h2_cli_with_both_streams_closed_keeps_the_outcome(self):
+        # Both output streams on one closed pipe: the stderr replay must not
+        # turn the outcome into the interpreter's shutdown-flush exit 120.
+        pre = self.rev()
+        res, attempt = self.fix_flow(self.fix30, runner=self.cli_closed_both)
+        self.assertEqual(res.returncode, 0)
+        self.assertNotEqual(self.rev(), pre)
+        self.assertEqual(self.rev("HEAD^"), pre)
+        self.assertEqual(self.closed_outcome(attempt), "committed-unreported")
+        # exit 8: an error stopped the post-commit checks, then both streams fail
+        self.setUp_fresh()
+        pre = self.rev()
+        boom = self.mutated_script((
+            '    """post-commit, rc ignored exactly as `git commit` ignores it."""\n',
+            '    """post-commit, rc ignored exactly as `git commit` ignores it."""\n'
+            '    raise OSError("SENTINEL_post_commit")\n'))
+
+        def runner(*args):
+            return self.cli_closed_both(*args, script=boom,
+                                        extra_env={"PYTHONPATH": SCRIPTS_DIR})
+        res, attempt = self.fix_flow(self.fix30, runner=runner)
+        self.assertEqual(res.returncode, 8)
+        self.assertEqual(self.rev("HEAD^"), pre)
+        self.assertEqual(self.closed_outcome(attempt), "published-unverified")
+
+    def test_a3h3_mutant_without_stderr_redirect_exits_120(self):
+        # With the stderr devnull redirect neutered, the same run fails at the
+        # interpreter's shutdown flush, so the redirect is load-bearing.
+        script = self.mutated_script((
+            "            os.dup2(devnull, sys.stderr.fileno())\n",
+            "            pass\n"))
+
+        def runner(*args):
+            return self.cli_closed_both(*args, script=script,
+                                        extra_env={"PYTHONPATH": SCRIPTS_DIR})
+        res, _ = self.fix_flow(self.fix30, runner=runner)
+        self.assertEqual(res.returncode, 120)
 
     def _m1_mutant(self):
         # The cmd_commit backstop would mask the narrowed handler, so the
