@@ -860,9 +860,9 @@ class TestCommit(CommitCase):
         # changes the exit code (BrokenPipeError would become `refused` 1).
         def oserror(*a, **k):
             raise OSError("SENTINEL_after_publish")
-        cases = (("B4", BrokenPipeError, None, 0, None),
+        cases = (("B4", BrokenPipeError, None, 0, "committed-unreported"),
                  ("B5", BrokenPipeError, oserror, 8, "published-unverified"),
-                 ("B6", KeyboardInterrupt, None, 0, None))
+                 ("B6", KeyboardInterrupt, None, 0, "committed-unreported"))
         for name, factory, seam, rc, outcome in cases:
             with self.subTest(case=name):
                 self.setUp_fresh()
@@ -878,6 +878,67 @@ class TestCommit(CommitCase):
                 self.assertEqual(self.rev("HEAD^"), pre)
                 self.assertEqual(self.closed_outcome(attempt), outcome)
                 self.assertIsNone(self.open_id())
+
+    def test_a3f2_broken_stdout_replays_the_sha_and_keeps_the_record(self):
+        # A failed stdout write must not lose the published sha: the result
+        # lines are replayed on stderr, and the attempt keeps a `result` file
+        # (closed as `committed-unreported`, never deleted).
+        def oserror(*a, **k):
+            raise OSError("SENTINEL_after_publish")
+        cases = (("BrokenPipe", BrokenPipeError, None, "commit_sha=%s",
+                  "committed-unreported"),
+                 ("Interrupt", KeyboardInterrupt, None, "commit_sha=%s",
+                  "committed-unreported"),
+                 ("Unverified", BrokenPipeError, oserror, "published-unverified: %s",
+                  "published-unverified"))
+        for name, factory, seam, line, outcome in cases:
+            with self.subTest(case=name):
+                self.setUp_fresh()
+                patch = (mock.patch.object(fixstage, "_run_post_commit", seam)
+                         if seam else contextlib.nullcontext())
+                with patch:
+                    res, attempt = self.fix_flow(
+                        self.fix30,
+                        runner=self.inproc_streams(stdout=_RaisingStream(factory)))
+                want = line % self.rev()
+                self.assertNotIn(want, res.stdout.splitlines())
+                self.assertIn(want, res.stderr.splitlines())
+                self.assertEqual(self.closed_outcome(attempt), outcome)
+                rec = os.path.join(self.sdir(), "closed",
+                                   "%s.%s" % (attempt, outcome), "result")
+                with open(rec) as fh:
+                    kept = fh.read().splitlines()
+                self.assertIn(want, kept)
+                self.assertIn("outcome: %s" % (
+                    "committed" if outcome == "committed-unreported" else outcome), kept)
+
+    def test_a3f3_delivered_result_leaves_no_record_behind(self):
+        # A normal run still removes the committed attempt (no result file
+        # lingers) and replays nothing on stderr.
+        res, attempt = self.fix_flow(self.fix30, runner=self.inproc_streams())
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIsNone(self.closed_outcome(attempt))
+        self.assertFalse(os.path.exists(os.path.join(self.sdir(), attempt)))
+        self.assertNotIn("commit_sha=", res.stderr)
+
+    def test_a3f4_mutant_without_stderr_replay_loses_the_sha(self):
+        mutant = _mutant_module(
+            ("        _diag(\"\".join(line + \"\\n\" for line in lines))  # replay the result on stderr\n",
+             "        pass\n"))
+        res, _ = self.fix_flow(self.fix30, runner=self.inproc_streams(
+            stdout=_RaisingStream(BrokenPipeError), module=mutant))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertNotIn("commit_sha=", res.stderr)
+
+    def test_a3f5_mutant_closing_as_committed_deletes_the_record(self):
+        mutant = _mutant_module(
+            ("        outcome = \"committed-unreported\"",
+             "        outcome = \"committed\""))
+        res, attempt = self.fix_flow(self.fix30, runner=self.inproc_streams(
+            stdout=_RaisingStream(BrokenPipeError), module=mutant))
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIsNone(self.closed_outcome(attempt))
+        self.assertFalse(os.path.exists(os.path.join(self.sdir(), attempt)))
 
     def test_a3g_interrupt_closing_the_attempt_keeps_the_exit_code(self):
         # B7: an interrupt closing the attempt after the result was printed.
@@ -903,6 +964,8 @@ class TestCommit(CommitCase):
         self.assertNotEqual(self.rev(), pre)
         self.assertEqual(self.rev("HEAD^"), pre)
         self.assertNotIn("refused", res.stderr)
+        # the sha the closed pipe never delivered is replayed on stderr
+        self.assertIn("commit_sha=%s" % self.rev(), res.stderr.splitlines())
 
     def _m1_mutant(self):
         # The cmd_commit backstop would mask the narrowed handler, so the
