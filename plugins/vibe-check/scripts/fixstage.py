@@ -45,7 +45,7 @@ absent means not on disk before the edit), `mode`, `index_blob`, `pre_sha256`,
 and after seal `post_state` (present | absent), `post_mode`, `post_sha256`.
 Closing outcomes: committed (dir removed) | undone | undo-partial | refused |
 not-separable | hook-rejected | hook-changed | head-moved | moved-after-commit |
-published-unverified | stale.
+published-unverified | publication-uncertain | stale.
 
 ## CLI and exit codes
 
@@ -70,9 +70,11 @@ reaches argv (FL-03, see fixcommit.py). Flags: `--root`, `--finding-json`,
         0 `commit_sha=<sha>` (+ `index-left-as-is: <path>` lines), closed
           `committed` | 1 refused (attempt not open or not sealed; title, pass
           number or path validation; git older than 2.36) | 2 usage
-          An error AFTER publishing never exits 1: it reports the published
-          outcome (0 or 5, or 8 if the checks had not finished) with every
-          fix path as `index-left-as-is`.
+          An error, an interruption (KeyboardInterrupt, SystemExit) or an
+          output failure at any point AFTER the branch moved never exits 1
+          and never escapes: it reports the published sha with its outcome
+          (0 or 5, or 8 if the checks had not finished) with every fix path
+          as `index-left-as-is`.
         3 `not-separable: <reason>` - nothing committed, fix stays applied
         4 `commit-not-created: <reason>` + hook output tail - an owner hook
           rejected the commit or signing failed; nothing published
@@ -85,6 +87,19 @@ reaches argv (FL-03, see fixcommit.py). Flags: `--root`, `--finding-json`,
           much was known, + `index-left-as-is` lines) - published, but an error
           stopped the post-commit checks (hook-changed content, HEAD moved
           again) before they finished; nothing rewritten
+        9 `publication-uncertain: <sha>` - interrupted inside publishing and
+          the branch could not be read, or moved somewhere that neither is
+          the old tip nor contains <sha>; <sha> may or may not be on the
+          branch; nothing rewritten; check `git log` before retrying
+
+Residuals: a signal that raises no Python exception (SIGKILL; SIGTERM or
+SIGHUP under their default disposition), a second interrupt inside the
+recovery arm outside the classifier's own guard, and a published commit
+rewound to exactly the old tip before the recovery read (the forward-only
+policy forbids that rewind) are not reported; the commit still shows in
+`git log` and the open attempt is quarantined as `stale` by the next `begin`.
+Out of scope: on an unborn branch there is no old tip to compare, so an
+interrupt while publishing there reports 9.
 
 Refusals print a fixed reason on stderr that names the failing rule. Callers
 branch on the EXIT CODE.
@@ -1300,8 +1315,13 @@ def _published_outcome(new, verified, changed, known):
     return _Outcome(0, "committed", ["commit_sha=%s" % new] + left)
 
 
-def _commit(root, record, adir, scratch):
-    """One isolated commit -> _Outcome (raised or returned)."""
+def _commit(root, record, adir, scratch, pub):
+    """One isolated commit -> _Outcome (raised or returned).
+
+    `pub` is owned by the caller and records publication as it happens: the
+    candidate sha and the old tip before the ref write, `sha` once it landed,
+    then the post-commit check state. The caller's backstop maps it to the
+    published outcome if anything escapes after the branch may have moved."""
     manifest = _load_manifest(adir)
     if not manifest["sealed"]:
         raise Refused("refused: attempt not sealed")
@@ -1312,6 +1332,7 @@ def _commit(root, record, adir, scratch):
         raise Refused(str(exc))
     _validate_paths(root, record["paths"])  # the D-15 second gate
     known = {entry["path"] for entry in manifest["paths"]}
+    pub["known"] = sorted(known)
     if not manifest["paths"] or any(p not in known for p in record["paths"]):
         raise _not_separable("a path was edited without a pre-edit snapshot")
     _validate_paths(root, sorted(known))
@@ -1347,11 +1368,15 @@ def _commit(root, record, adir, scratch):
         raise _Outcome(4, "hook-rejected",
                        ["commit-not-created: " + reason]
                        + (tail.splitlines() if tail else []))
+    pub["candidate"] = new
+    pub["base"] = base
+    pub["symref"] = base_symref
     if not _publish_ref(root, base, base_symref, new, subject):
         # The commit object stays unreferenced (gc removes it); never published.
         raise _Outcome(6, "head-moved", [
             "head-moved: the branch moved while the fix was being committed; "
             "nothing was published or rewritten - check git log"])
+    pub["sha"] = new
 
     # Published. From here on nothing is rewritten (D-18): only classified.
     # A failure past this point must never surface as `refused` (exit 1,
@@ -1365,13 +1390,14 @@ def _commit(root, record, adir, scratch):
     verified = False
     try:
         _run_post_commit(root)
-        changed = not _tree_matches(_commit_tree_of(root, new), expected_tree)
+        changed = pub["changed"] = not _tree_matches(
+            _commit_tree_of(root, new), expected_tree)
         if _head_state(root) != (new, base_symref):
             lines = ["moved-after-commit: %s" % new]
             if changed:
                 lines.append("hook-changed: %s" % new)
             raise _Outcome(7, "moved-after-commit", lines)
-        verified = True
+        verified = pub["verified"] = True
         if changed:
             targets, left = _hook_changed_targets(root, base, new, before)
             left += _sync_real_index(root, before, targets, adir)
@@ -1398,8 +1424,47 @@ def _remove_scratch(scratch):
             if os.path.lexists(path):
                 os.unlink(path)
         except OSError as exc:
-            sys.stderr.write("commit: %s removing a temporary file\n"
-                             % type(exc).__name__)
+            _diag("commit: %s removing a temporary file\n" % type(exc).__name__)
+
+
+def _cleanup_scratch(scratch):
+    """Remove the scratch files, best-effort. It only ever runs with a result
+    established or an exception already in flight, so swallowing a cleanup
+    fault can never hide an unreported publication."""
+    try:
+        _remove_scratch(scratch)
+    except BaseException as exc:  # cleanup is best-effort
+        _diag("commit: %s removing temporary files; the result stands\n"
+              % type(exc).__name__)
+
+
+def _recover_publication(root, symref, candidate, base):
+    """Did `candidate` land on the branch? -> "published" | "unpublished" |
+    "unknown". Read-only git; used when publishing was interrupted before its
+    outcome was recorded.
+
+    "published": the ref is `candidate`, or contains it (another writer moved
+    the branch forward after publication). "unpublished": the ref is still
+    exactly `base`. The ref write is one atomic compare-and-swap from `base`
+    to `candidate`, so only ref == base proves the candidate never landed
+    (refs here only ever move forward). "unknown": the ref could not be read,
+    anything failed during recovery, or the ref is neither `base` nor
+    contains `candidate`.
+    """
+    try:
+        proc = _git(root, "rev-parse", "--verify", "-q", symref or "HEAD")
+        ref = (proc.stdout or "").strip() if proc.returncode == 0 else ""
+        if not ref:
+            raise OSError("unreadable ref")
+        if ref == candidate:
+            return "published"
+        if ref == base:
+            return "unpublished"
+        if _git(root, "merge-base", "--is-ancestor", candidate, ref).returncode == 0:  # candidate is under the ref
+            return "published"
+        return "unknown"  # moved elsewhere
+    except BaseException:
+        return "unknown"  # recovery read failed
 
 
 def _silence_stdout():
@@ -1436,13 +1501,41 @@ def cmd_commit(root, record, attempt):
     fid = record["id"]
     adir = _require_open_attempt(root, fid, attempt)
     scratch = []
+    pub = {}
+    result = None
     try:
         try:
-            result = _commit(root, record, adir, scratch)
+            result = _commit(root, record, adir, scratch, pub)
         except _Outcome as raised:
             result = raised
+        except BaseException:  # backstop: a published commit is never lost
+            sha = pub.get("sha")
+            if sha is None:
+                if pub.get("candidate") is None:
+                    raise  # failed before publishing: unchanged
+                state = _recover_publication(root, pub.get("symref"),
+                                             pub["candidate"], pub.get("base"))
+                if state == "published":
+                    sha = pub["candidate"]
+                elif state == "unknown":  # never refused: uncertain publication
+                    result = _Outcome(9, "publication-uncertain", [
+                        "publication-uncertain: %s" % pub["candidate"]])
+                    _diag("commit: interrupted while publishing; could not "
+                          "tell whether the commit landed\n")
+                else:
+                    raise  # the branch is still at its old tip: not published
+            if sha is not None:
+                try:
+                    result = _published_outcome(
+                        sha, pub.get("verified", False), pub.get("changed"),
+                        pub.get("known", []))
+                except BaseException:  # the sha must survive the mapping
+                    result = _Outcome(8, "published-unverified",
+                                      ["published-unverified: %s" % sha])
+                _diag("commit: interrupted after the commit was published; "
+                      "reporting it\n")
         finally:
-            _remove_scratch(scratch)
+            _cleanup_scratch(scratch)
     except (Refused, OSError, subprocess.SubprocessError):
         # Every outcome past the stale-attempt gate closes the attempt.
         _close_attempt(root, fid, attempt, "refused")

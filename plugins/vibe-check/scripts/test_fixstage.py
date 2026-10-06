@@ -707,6 +707,10 @@ class CommitCase(FixstageCase):
         _, err = proc.communicate(timeout=120)
         return Result(proc.returncode, "", err)
 
+    def setUp_fresh(self):
+        self.tearDown()
+        self.setUp()
+
     def fix30(self):
         self.edit_line("f.txt", 30, FIX30 + "\n")
 
@@ -983,10 +987,6 @@ class TestCommit(CommitCase):
         res, _ = self.fix_flow(self.fix30, runner=runner)
         self.assertNotEqual(res.returncode, 0,
                             "mutant exited %d (expected 120)" % res.returncode)
-
-    def setUp_fresh(self):
-        self.tearDown()
-        self.setUp()
 
     def _a2(self, runner=None):
         return self.fix_flow(
