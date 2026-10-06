@@ -12,7 +12,10 @@ checks each carry a mutant subtest proving the check would trip.
 import hashlib
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -51,9 +54,26 @@ CARD_HEADER = 'header "Pass {{$PASS_NUMBER}}"'
 STOP_HEADER = 'header "Stop here"'
 MAX_HEADER_CHARS = 12
 
+# fix.md's **8** bullet carries this rider; the Step B exit-8 render clause
+# must carry the same sentence (D-01.3b).
+EXIT8_RIDER = ('if a `hook-changed:` line follows, add "your commit hook changed '
+               'what went into that commit"')
+# Exit 9: publication uncertain. Never "nothing committed", never retried.
+EXIT9_RENDER = ('9 → `errored` "interrupted while publishing; commit <sha> may '
+                'or may not be on your branch — check `git log` for it before '
+                'you retry anything" (sha from the `publication-uncertain:` '
+                'line; never `applied`; this fix is not retried automatically)')
+
 STEP_B_NEEDLES = ("PRE_BLOBS", "POST_BLOBS", "PRE_CLEAN", "POST_CLEAN",
                   "files_touched", "record-fix-verdicts", "^[A-Za-z0-9._/-]+$",
-                  "applied-uncommitted", "unverified", "check.label")
+                  "applied-uncommitted", "unverified", "check.label",
+                  EXIT8_RIDER, EXIT9_RENDER)
+
+COMMIT_INVOCATION = 'fixstage.py" commit'
+EXIT9_NO_RETRY = "do NOT retry this fix"
+FIX_MD_NO_REATTEMPT = "Do NOT re-attempt this finding automatically"
+FENCE_SHA = "0123456789abcdef0123456789abcdef01234567"
+FENCE_ATTEMPT = "0123456789abcdef0123456789abcdef"
 
 # --- Step B verified flow: dispatch, blobs rule (iii), fallback, render ---- #
 
@@ -167,9 +187,16 @@ def fallback_lifecycle_problems(step_b):
     if FRESH_ATTEMPT not in fb:
         problems.append("fresh-attempt sentence missing")
     arms = case_arms(fb, FIXSTAGE + "commit")
-    for label in ("0", "3", "4", "5", "6", "7", "8", "*"):
+    for label in ("0", "3", "4", "5", "6", "7", "8", "9", "*"):
         if label not in arms:
             problems.append("commit case lacks a %s) arm" % label)
+    arm9 = arms.get("9", "")
+    if not ("publication-uncertain" in arm9 and "record errored" in arm9
+            and EXIT9_NO_RETRY in arm9
+            and "NOTHING is committed" not in arm9):
+        problems.append("9) arm must name publication-uncertain, record "
+                        "errored, forbid a retry and not claim nothing was "
+                        "committed")
     if "hook-changed" not in arms.get("5", ""):
         problems.append("5) arm must name hook-changed")
     if "moved-after-commit" not in arms.get("7", ""):
@@ -180,6 +207,110 @@ def fallback_lifecycle_problems(step_b):
     if "NOTHING is staged and NOTHING is committed" not in arms.get("*", ""):
         problems.append("*) arm must say nothing is staged or committed")
     return problems
+
+
+def exit8_rider_problems(step_b):
+    """The exit-8 render clause (from `8 → errored` to `9 → errored`) carries
+    the hook-changed rider. Anchored: the rider's sentence also occurs in the
+    `5)` echo arm, so a bare substring check could pass on the wrong clause."""
+    start = step_b.find("8 → `errored`")
+    end = step_b.find("9 → `errored`", start + 1) if start >= 0 else -1
+    if start < 0 or end < 0:
+        return ["no exit-8 render clause"]
+    if EXIT8_RIDER not in step_b[start:end]:
+        return ["exit-8 clause lacks the hook-changed rider"]
+    return []
+
+
+def exit9_render_problems(step_b):
+    """The exit-9 render clause (from `9 → errored` to `anything else →`)."""
+    start = step_b.find("9 → `errored`")
+    end = step_b.find("anything else →", start + 1) if start >= 0 else -1
+    if start < 0 or end < 0:
+        return ["no exit-9 render clause"]
+    clause = step_b[start:end]
+    return ["exit-9 clause lacks %s" % token
+            for token in ("publication-uncertain:", "git log",
+                          "not retried automatically")
+            if token not in clause]
+
+
+def fix_md_exit9_problems(text):
+    """agents/fix.md's commit case has a `9)` arm between `8)` and `*)`, and
+    exactly one **9** bullet forbidding an automatic re-attempt."""
+    problems = []
+    arms = case_arms(text, COMMIT_INVOCATION)
+    if "9" not in arms:
+        problems.append("fix.md commit case lacks a 9) arm")
+    else:
+        arm = arms["9"]
+        for token in ("publication-uncertain", "record errored", EXIT9_NO_RETRY):
+            if token not in arm:
+                problems.append("9) arm lacks %s" % token)
+        if "NOTHING is committed" in arm:
+            problems.append("9) arm claims nothing was committed")
+        labels = list(arms)
+        if not ("8" in labels and "*" in labels
+                and labels.index("8") < labels.index("9") < labels.index("*")):
+            problems.append("9) arm is not between 8) and *)")
+    bullets = [l for l in text.split("\n") if l.strip().startswith("- **9** →")]
+    if len(bullets) != 1:
+        problems.append("fix.md needs exactly one **9** bullet")
+    else:
+        for token in ("errored", "publication-uncertain:", "git log",
+                      FIX_MD_NO_REATTEMPT):
+            if token not in bullets[0]:
+                problems.append("**9** bullet lacks %s" % token)
+    return problems
+
+
+def exit9_parity_problems(fix_text, step_b):
+    """Both consumers' `9)` arms are identical and forbid a retry."""
+    fix_arm = case_arms(fix_text, COMMIT_INVOCATION).get("9")
+    loop_arm = case_arms(step_b, COMMIT_INVOCATION).get("9")
+    if fix_arm is None or loop_arm is None:
+        return ["a 9) arm is missing (fix.md: %s, 50-fix-loop.md: %s)"
+                % (fix_arm is not None, loop_arm is not None)]
+    problems = []
+    if fix_arm.strip() != loop_arm.strip():
+        problems.append("9) arms differ between fix.md and 50-fix-loop.md")
+    if EXIT9_NO_RETRY not in fix_arm or EXIT9_NO_RETRY not in loop_arm:
+        problems.append("a 9) arm does not forbid a retry")
+    return problems
+
+
+def run_commit_fence(text, rc):
+    """Execute the ```bash fence holding the fixstage commit call, with a
+    fixstage stub that prints `publication-uncertain: <sha>` (the real
+    fixstage's stdout line 1 on a failed recovery read) and exits `rc`.
+    Returns stdout + stderr."""
+    at = text.index(COMMIT_INVOCATION)
+    open_at = text.rindex("```bash", 0, at)
+    close_at = text.index("```", at)
+    line_start = text.rfind("\n", 0, open_at) + 1
+    indent = text[line_start:open_at]
+    body = text[text.index("\n", open_at) + 1:close_at]
+    lines = [l[len(indent):] if l.startswith(indent) else l.lstrip()
+             for l in body.split("\n")]
+    snippet = "\n".join(lines).replace("<A>", FENCE_ATTEMPT)
+    tmp = tempfile.mkdtemp()
+    try:
+        os.makedirs(os.path.join(tmp, "scripts"))
+        with open(os.path.join(tmp, "scripts", "fixstage.py"), "w") as fh:
+            fh.write("import sys\nprint('publication-uncertain: %s')\n"
+                     "sys.exit(%d)\n" % (FENCE_SHA, rc))
+        repo = os.path.join(tmp, "repo")
+        os.makedirs(repo)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       timeout=30)
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=tmp, VC_ROOT=tmp)
+        proc = subprocess.run(["bash", "-c", snippet], cwd=repo, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=30)
+        return proc.stdout + proc.stderr
+    finally:
+        shutil.rmtree(tmp)
 
 
 def unavailable_problems(step_b):
@@ -515,6 +646,41 @@ class TestStepBVerifiedFlow(unittest.TestCase):
         line = render_line(render_section(self.step_b), "applied-uncommitted")
         self.assertNotEqual(render_problems(self.mutate(line + "\n", "")), [])
 
+    # (k) exit 8 carries fix.md's hook-changed rider
+    def test_exit8_render_has_hook_changed_rider(self):
+        self.assertEqual(exit8_rider_problems(self.step_b), [])
+
+    def test_exit8_rider_matches_fix_md(self):
+        with open(FIX_MD, encoding="utf-8") as fh:
+            fix_text = fh.read()
+        phrase = 'add "your commit hook changed what went into that commit"'
+        self.assertIn(phrase, self.line_with("**8**", fix_text))
+        start = self.step_b.index("8 → `errored`")
+        end = self.step_b.index("9 → `errored`", start)
+        self.assertIn(phrase, self.step_b[start:end])
+
+    def test_exit8_rider_mutant_trips(self):
+        mutant = self.mutate(EXIT8_RIDER, "")
+        self.assertNotEqual(exit8_rider_problems(mutant), [])
+
+    # (l) exit 9: publication uncertain
+    def test_exit9_render_clause(self):
+        self.assertEqual(exit9_render_problems(self.step_b), [])
+
+    def test_exit9_render_mutant_trips(self):
+        mutant = self.mutate(EXIT9_RENDER, "")
+        self.assertNotEqual(exit9_render_problems(mutant), [])
+
+    def test_exit9_arm_mutant_trips(self):
+        lines = self.step_b.split("\n")
+        hits = [l for l in lines
+                if l.strip().startswith('9) echo "publication-uncertain')]
+        self.assertEqual(len(hits), 1)
+        mutant = self.mutate(hits[0] + "\n", "")
+        self.assertIn("commit case lacks a 9) arm",
+                      fallback_lifecycle_problems(mutant))
+        self.assertEqual(fallback_lifecycle_problems(self.step_b), [])
+
     # (b) blobs rule (iii) excludes every touching status
     def test_blobs_rule_excludes_touched(self):
         self.assertEqual(blobs_rule_problems(self.step_b), [])
@@ -604,6 +770,78 @@ class TestStepBVerifiedFlow(unittest.TestCase):
             with self.subTest(label=label):
                 mutant = self.mutate(line, line.replace(label, "checked", 1))
                 self.assertNotEqual(label_problems(mutant), [])
+
+
+class TestExit9BothConsumers(unittest.TestCase):
+    """Exit 9 (publication uncertain) reaches agents/fix.md, the primary apply
+    path, and 50-fix-loop.md's fallback alike: never `NOTHING is committed`,
+    never retried automatically."""
+
+    def setUp(self):
+        with open(FIX_MD, encoding="utf-8") as fh:
+            self.fix_text = fh.read()
+        self.step_b = step_b_section(read_text())
+
+    def drop_line(self, text, prefix):
+        hits = [l for l in text.split("\n") if l.strip().startswith(prefix)]
+        self.assertEqual(len(hits), 1, prefix)
+        self.assertEqual(text.count(hits[0] + "\n"), 1)
+        mutant = text.replace(hits[0] + "\n", "", 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    def test_fix_md_exit9_arm_and_bullet(self):
+        self.assertEqual(fix_md_exit9_problems(self.fix_text), [])
+
+    def test_fix_md_exit9_arm_mutant_trips(self):
+        mutant = self.drop_line(self.fix_text, '9) echo "publication-uncertain')
+        self.assertIn("fix.md commit case lacks a 9) arm",
+                      fix_md_exit9_problems(mutant))
+        self.assertIn("NOTHING is committed", run_commit_fence(mutant, 9))
+
+    def test_fix_md_exit9_bullet_mutant_trips(self):
+        mutant = self.drop_line(self.fix_text, "- **9** →")
+        self.assertNotEqual(fix_md_exit9_problems(mutant), [])
+        self.assertEqual(self.fix_text.count(FIX_MD_NO_REATTEMPT), 1)
+        start = self.fix_text.index(FIX_MD_NO_REATTEMPT)
+        end = self.fix_text.index("reconcile. ", start) + len("reconcile. ")
+        sentence_gone = self.fix_text[:start] + self.fix_text[end:]
+        self.assertNotEqual(sentence_gone, self.fix_text)
+        self.assertNotEqual(fix_md_exit9_problems(sentence_gone), [])
+
+    def test_exit9_parity(self):
+        self.assertEqual(exit9_parity_problems(self.fix_text, self.step_b), [])
+
+    def test_exit9_parity_mutant_trips(self):
+        self.assertEqual(self.fix_text.count(EXIT9_NO_RETRY), 1)
+        mutant = self.fix_text.replace(EXIT9_NO_RETRY, "retry later")
+        self.assertNotEqual(mutant, self.fix_text)
+        self.assertNotEqual(exit9_parity_problems(mutant, self.step_b), [])
+
+    def assert_rc9_handled(self, text):
+        out = run_commit_fence(text, 9)
+        self.assertIn(FENCE_SHA, out)
+        self.assertIn("publication-uncertain", out)
+        self.assertNotIn("NOTHING is committed", out)
+
+    def test_fix_md_commit_fence_rc9(self):
+        self.assert_rc9_handled(self.fix_text)
+
+    def test_fix_loop_commit_fence_rc9(self):
+        self.assert_rc9_handled(self.step_b)
+
+    def test_commit_fence_rc9_mutants_trip(self):
+        for name, text in (("fix.md", self.fix_text),
+                           ("50-fix-loop.md", self.step_b)):
+            with self.subTest(file=name):
+                mutant = self.drop_line(text, '9) echo "publication-uncertain')
+                self.assertIn("NOTHING is committed",
+                              run_commit_fence(mutant, 9))
+
+    def test_commit_fence_rc8_sanity(self):
+        # The harness really reaches the case: rc 8 selects the 8) arm.
+        self.assertIn("published-unverified",
+                      run_commit_fence(self.fix_text, 8))
 
 
 if __name__ == "__main__":
