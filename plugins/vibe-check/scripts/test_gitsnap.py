@@ -226,6 +226,82 @@ class TestDetectsChange(GitsnapCase):
         self.assertChanged("a merge/rebase is now in progress")
 
 
+class TestRemoteRefsExcluded(GitsnapCase):
+    """Remote-tracking refs move on a background fetch; they are not tracked.
+
+    Local namespaces (refs/heads, refs/tags) and lookalike namespaces such as
+    refs/remotes-evil/ stay tracked: the exclusion is an exact prefix.
+    """
+
+    def assertSame(self):
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, "", proc.stdout + proc.stderr)
+        return proc
+
+    def test_remote_ref_created_is_not_a_change(self):
+        self.take()
+        git(self.repo, "update-ref", "refs/remotes/origin/x", "HEAD")
+        self.assertSame()
+
+    def test_remote_ref_moved_is_not_a_change(self):
+        git(self.repo, "update-ref", "refs/remotes/origin/x", "HEAD")
+        self.take()
+        # A commit object made without touching any local ref or HEAD reflog.
+        sha = git(self.repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD",
+                  "-m", "fetched").stdout.strip()
+        git(self.repo, "update-ref", "refs/remotes/origin/x", sha)
+        self.assertSame()
+
+    def test_remote_ref_deleted_is_not_a_change(self):
+        git(self.repo, "update-ref", "refs/remotes/origin/x", "HEAD")
+        self.take()
+        git(self.repo, "update-ref", "-d", "refs/remotes/origin/x")
+        self.assertSame()
+
+    def test_real_fetch_is_not_a_change(self):
+        # Remote config lives in .git/config and the fetch writes FETCH_HEAD;
+        # gitsnap fingerprints neither, so only refs/remotes/* could move.
+        bare = os.path.join(self.tmp, "origin.git")
+        pusher = os.path.join(self.tmp, "pusher")
+        git(self.tmp, "init", "-q", "--bare", "-b", "main", bare)
+        git(self.repo, "remote", "add", "origin", bare)
+        git(self.repo, "push", "-q", "origin", "main")
+        git(self.tmp, "clone", "-q", bare, pusher)
+        self.take()
+        write(pusher, "g.txt", "upstream\n")
+        git(pusher, "add", "--", "g.txt")
+        git(pusher, "commit", "-q", "-m", "upstream")
+        git(pusher, "push", "-q", "origin", "main")
+        git(pusher, "push", "-q", "origin", "HEAD:refs/heads/newbranch")
+        git(self.repo, "fetch", "-q", "origin")
+        self.assertSame()
+
+    def test_snapshot_omits_remote_refs(self):
+        git(self.repo, "update-ref", "refs/remotes/origin/x", "HEAD")
+        self.take()
+        with open(self.snap) as fh:
+            data = json.load(fh)
+        self.assertFalse(
+            [k for k in data["refs"] if k.startswith("refs/remotes/")],
+            data["refs"])
+        self.assertIn("refs/heads/main", data["refs"])
+
+    def test_remotes_lookalike_ref_is_still_tracked(self):
+        self.take()
+        git(self.repo, "update-ref", "refs/remotes-evil/x", "HEAD")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("refs/remotes-evil/x created", proc.stdout)
+
+    def test_local_branch_created_is_still_detected(self):
+        self.take()
+        git(self.repo, "update-ref", "refs/heads/x", "HEAD")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("refs/heads/x created", proc.stdout)
+
+
 class TestCannotConfirm(GitsnapCase):
 
     def test_missing_before_file_exits_2(self):
@@ -312,6 +388,39 @@ class TestGitsnapMutants(GitsnapCase):
             write(self.repo, "f.txt", "staged %d\n" % counter[0])
             git(self.repo, "add", "f.txt")
         self.mutant_flips("collect_index_sha256", "0" * 64, add)
+
+    def test_mutant_no_remote_exclusion_halts_on_fetch(self):
+        def event():
+            git(self.repo, "update-ref", "refs/remotes/origin/x", "HEAD")
+        self.take_inproc()
+        event()
+        code, out = self.compare_inproc()
+        self.assertEqual(code, 0, "real code must ignore remotes: " + out)
+        self.assertNotEqual(gitsnap.EXCLUDED_REF_PREFIXES, ())
+        git(self.repo, "update-ref", "-d", "refs/remotes/origin/x")
+        with mock.patch.object(gitsnap, "EXCLUDED_REF_PREFIXES", ()):
+            self.take_inproc()
+            event()
+            code, out = self.compare_inproc()
+        self.assertEqual(code, 1, "mutant without exclusion must halt: " + out)
+        self.assertIn("refs/remotes/origin/x created", out)
+
+    def test_mutant_substring_exclusion_hides_lookalike_ref(self):
+        def event():
+            git(self.repo, "update-ref", "refs/remotes-evil/x", "HEAD")
+        self.take_inproc()
+        event()
+        code, out = self.compare_inproc()
+        self.assertEqual(code, 1, "real code must track lookalike: " + out)
+        self.assertIn("refs/remotes-evil/x created", out)
+        self.assertNotEqual(gitsnap.EXCLUDED_REF_PREFIXES, ("refs/remotes",))
+        git(self.repo, "update-ref", "-d", "refs/remotes-evil/x")
+        with mock.patch.object(gitsnap, "EXCLUDED_REF_PREFIXES",
+                               ("refs/remotes",)):
+            self.take_inproc()
+            event()
+            code, out = self.compare_inproc()
+        self.assertEqual(code, 0, "slashless mutant should go blind: " + out)
 
 
 class TestModuleShape(unittest.TestCase):
