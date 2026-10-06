@@ -1275,6 +1275,31 @@ def _hook_changed_targets(root, base, new, before):
     return targets, left
 
 
+def _diag(text):
+    """Best-effort stderr line on the post-publication path. The exit code and
+    stdout carry the result; a broken stderr has no other channel."""
+    try:
+        sys.stderr.write(text)
+    except BaseException:  # nowhere left to report
+        pass
+
+
+def _published_outcome(new, verified, changed, known):
+    """The result for a commit that IS published but whose post-commit steps
+    did not all finish -> _Outcome. Every fix path's staging entry is left as
+    is. Unverified (the checks did not both finish) is exit 8, never a plain
+    `committed`; verified reports 5 or 0 as the checks found."""
+    left = ["index-left-as-is: %s" % p for p in sorted(known)]
+    if not verified:
+        return _Outcome(8, "published-unverified",
+                        ["published-unverified: %s" % new]
+                        + (["hook-changed: %s" % new] if changed else [])
+                        + left)
+    if changed:
+        return _Outcome(5, "hook-changed", ["hook-changed: %s" % new] + left)
+    return _Outcome(0, "committed", ["commit_sha=%s" % new] + left)
+
+
 def _commit(root, record, adir, scratch):
     """One isolated commit -> _Outcome (raised or returned)."""
     manifest = _load_manifest(adir)
@@ -1331,10 +1356,11 @@ def _commit(root, record, adir, scratch):
     # Published. From here on nothing is rewritten (D-18): only classified.
     # A failure past this point must never surface as `refused` (exit 1,
     # "nothing committed") while the commit sits on the branch: it reports
-    # the published sha with every fix path's staging entry left as is. If it
-    # failed before BOTH checks finished (did a hook change the content? did
-    # HEAD move again?), the result is `published-unverified` (exit 8), never
-    # a plain `committed`: the 5 and 7 classifications were not made.
+    # the published sha with every fix path's staging entry left as is. That
+    # covers interrupts (KeyboardInterrupt, SystemExit) as well as errors. If
+    # it failed before BOTH checks finished (did a hook change the content?
+    # did HEAD move again?), the result is `published-unverified` (exit 8),
+    # never a plain `committed`: the 5 and 7 classifications were not made.
     changed = None
     verified = False
     try:
@@ -1360,18 +1386,10 @@ def _commit(root, record, adir, scratch):
                         + ["index-left-as-is: %s" % p for p in left])
     except _Outcome:
         raise
-    except Exception as exc:  # any failure at all: the commit IS published
-        sys.stderr.write("commit: %s after the commit was published; the "
-                         "staging area was left as is\n" % type(exc).__name__)
-        left = ["index-left-as-is: %s" % p for p in sorted(known)]
-        if not verified:
-            return _Outcome(8, "published-unverified",
-                            ["published-unverified: %s" % new]
-                            + (["hook-changed: %s" % new] if changed else [])
-                            + left)
-        if changed:
-            return _Outcome(5, "hook-changed", ["hook-changed: %s" % new] + left)
-        return _Outcome(0, "committed", ["commit_sha=%s" % new] + left)
+    except BaseException as exc:  # any failure at all: the commit IS published
+        _diag("commit: %s after the commit was published; the staging area "
+              "was left as is\n" % type(exc).__name__)
+        return _published_outcome(new, verified, changed, known)
 
 
 def _remove_scratch(scratch):
@@ -1382,6 +1400,36 @@ def _remove_scratch(scratch):
         except OSError as exc:
             sys.stderr.write("commit: %s removing a temporary file\n"
                              % type(exc).__name__)
+
+
+def _silence_stdout():
+    """Point fd 1 at os.devnull after a failed write to stdout.
+
+    Per the Python docs' "Note on SIGPIPE": redirect the remaining output to
+    devnull so the interpreter's shutdown flush cannot fail and turn the exit
+    status into 120.
+    """
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError):
+        pass  # nowhere left to report to; the exit code carries the result
+
+
+def _emit_result(lines):
+    """Print the result lines. The commit is already decided (and may be
+    published): a broken pipe or an interrupt mid-print must not change the
+    exit code. A BrokenPipeError escaping would become `refused` exit 1 in
+    `run()`."""
+    try:
+        for line in lines:
+            sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+    except BaseException:  # the exit code carries the result
+        _silence_stdout()
 
 
 def cmd_commit(root, record, attempt):
@@ -1399,16 +1447,16 @@ def cmd_commit(root, record, attempt):
         # Every outcome past the stale-attempt gate closes the attempt.
         _close_attempt(root, fid, attempt, "refused")
         raise
-    for line in result.lines:
-        sys.stdout.write(line + "\n")
+    _emit_result(result.lines)
     try:
         _close_attempt(root, fid, attempt, result.outcome)
-    except OSError as exc:
+    except BaseException as exc:  # the result above stands
         # The result is already printed (and may name a published commit), so
-        # the exit code must match it; never turn it into `refused` exit 1. A
-        # still-open attempt is quarantined as `stale` by the next `begin`.
-        sys.stderr.write("commit: %s closing the attempt; the result above "
-                         "stands\n" % type(exc).__name__)
+        # the exit code must match it; never turn it into `refused` exit 1 or
+        # an escaping interrupt. A still-open attempt is quarantined as
+        # `stale` by the next `begin`.
+        _diag("commit: %s closing the attempt; the result above stands\n"
+              % type(exc).__name__)
     return result.code
 
 
