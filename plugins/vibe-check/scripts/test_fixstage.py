@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -587,6 +588,51 @@ def _post_from_working_tree(root, adir, entry):
         return fh.read()
 
 
+
+class _RaisingStream(io.StringIO):
+    """A text stream whose FIRST write raises `factory()`; later writes append."""
+
+    def __init__(self, factory):
+        io.StringIO.__init__(self)
+        self._factory = factory
+        self._raised = False
+
+    def write(self, text):
+        if not self._raised:
+            self._raised = True
+            raise self._factory()
+        return io.StringIO.write(self, text)
+
+
+def _mutant_module(*replacements):
+    """fixstage built from its source with each (old, new) applied exactly once.
+
+    Every `old` must occur exactly once, so a mutant can never silently equal
+    the real module. `_NeverRaised` is appended so mutants can name it."""
+    with open(FIXSTAGE) as fh:
+        source = fh.read()
+    src = source
+    for old, new in replacements:
+        if src.count(old) != 1:
+            raise AssertionError("mutant anchor not unique: %r" % old)
+        src = src.replace(old, new)
+    if src == source:
+        raise AssertionError("mutant equals the real module")
+    src += "\nclass _NeverRaised(Exception):\n    pass\n"
+    mod = types.ModuleType("fixstage_mutant")
+    mod.__file__ = FIXSTAGE
+    exec(compile(src, FIXSTAGE, "exec"), mod.__dict__)
+    return mod
+
+
+def _keyboardinterrupt(*a, **k):
+    raise KeyboardInterrupt()
+
+
+def _systemexit(*a, **k):
+    raise SystemExit(3)
+
+
 class CommitCase(FixstageCase):
     """Commit helpers: a full begin -> snapshot -> edit -> seal -> commit flow."""
 
@@ -621,6 +667,45 @@ class CommitCase(FixstageCase):
             if name.startswith(attempt + "."):
                 return name[len(attempt) + 1:]
         return None
+
+    def inproc_streams(self, stdout=None, stderr=None, module=None,
+                       escape_ok=False):
+        """A runner like `inproc` with caller-chosen streams (default StringIO)
+        and module (default fixstage). An interrupt escaping `run` fails the
+        test unless `escape_ok`, so a regression never aborts the session."""
+        mod = fixstage if module is None else module
+
+        def runner(*args):
+            out = io.StringIO() if stdout is None else stdout
+            err = io.StringIO() if stderr is None else stderr
+            with mock.patch.dict(os.environ, gitfixture.helper_env()), \
+                    contextlib.redirect_stdout(out), \
+                    contextlib.redirect_stderr(err):
+                try:
+                    code = mod.run(list(args))
+                except (KeyboardInterrupt, SystemExit) as exc:
+                    if escape_ok:
+                        raise
+                    self.fail("%s escaped fixstage.run" % type(exc).__name__)
+            return Result(code, out.getvalue(), err.getvalue())
+        return runner
+
+    def cli_closed_stdout(self, *args, script=None, extra_env=None):
+        """The real CLI with stdout = a pipe whose read end is closed BEFORE
+        spawn: every flush to stdout gets EPIPE (Python ignores SIGPIPE)."""
+        env = gitfixture.helper_env()
+        if extra_env:
+            env.update(extra_env)
+        r, w = os.pipe()
+        os.close(r)
+        try:
+            proc = subprocess.Popen([sys.executable, script or FIXSTAGE]
+                                    + list(args), stdout=w,
+                                    stderr=subprocess.PIPE, text=True, env=env)
+        finally:
+            os.close(w)
+        _, err = proc.communicate(timeout=120)
+        return Result(proc.returncode, "", err)
 
     def fix30(self):
         self.edit_line("f.txt", 30, FIX30 + "\n")
@@ -689,7 +774,11 @@ class TestCommit(CommitCase):
             raise ValueError("SENTINEL_after_publish")
         cases = (("_run_post_commit", oserror), ("_commit_tree_of", oserror),
                  ("_head_state_after", oserror),
-                 ("_run_post_commit", valueerror))
+                 ("_run_post_commit", valueerror),
+                 ("_run_post_commit", _keyboardinterrupt),
+                 ("_run_post_commit", _systemexit))
+        interrupts = {_keyboardinterrupt: "KeyboardInterrupt",
+                      _systemexit: "SystemExit"}
         for seam, exc in cases:
             with self.subTest(seam=seam, exc=exc.__name__):
                 self.setUp_fresh()
@@ -709,8 +798,11 @@ class TestCommit(CommitCase):
                 else:
                     patch = mock.patch.object(fixstage, seam, exc)
                 with patch:
-                    res, attempt = self.fix_flow(self.fix30, runner=self.inproc)
+                    res, attempt = self.fix_flow(
+                        self.fix30, runner=self.inproc_streams())
                 self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+                if exc in interrupts:
+                    self.assertIn(interrupts[exc], res.stderr)
                 lines = res.stdout.splitlines()
                 self.assertEqual(lines[0], "published-unverified: %s"
                                  % self.rev())
@@ -748,6 +840,145 @@ class TestCommit(CommitCase):
         self.assertEqual(self.sha_of(res), self.rev())
         self.assertIn("closing the attempt", res.stderr)
         self.assertNotIn("SENTINEL", res.stderr)
+
+    def test_a3e_interrupt_after_verification_reports_the_commit(self):
+        # B3: both checks finished (verified), then an interrupt: the commit
+        # is still reported, exit 0, never an escaping KeyboardInterrupt.
+        pre = self.rev()
+        with mock.patch.object(fixstage, "_sync_real_index", _keyboardinterrupt):
+            res, _ = self.fix_flow(self.fix30, runner=self.inproc_streams())
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.sha_of(res), self.rev())
+        self.assertEqual(self.rev("HEAD^"), pre)
+
+    def test_a3f_broken_stdout_keeps_the_outcome_code(self):
+        # B4-B6: a broken pipe or an interrupt while printing the result never
+        # changes the exit code (BrokenPipeError would become `refused` 1).
+        def oserror(*a, **k):
+            raise OSError("SENTINEL_after_publish")
+        cases = (("B4", BrokenPipeError, None, 0, None),
+                 ("B5", BrokenPipeError, oserror, 8, "published-unverified"),
+                 ("B6", KeyboardInterrupt, None, 0, None))
+        for name, factory, seam, rc, outcome in cases:
+            with self.subTest(case=name):
+                self.setUp_fresh()
+                pre = self.rev()
+                stream = _RaisingStream(factory)
+                patch = (mock.patch.object(fixstage, "_run_post_commit", seam)
+                         if seam else contextlib.nullcontext())
+                with patch:
+                    res, attempt = self.fix_flow(
+                        self.fix30, runner=self.inproc_streams(stdout=stream))
+                self.assertEqual(res.returncode, rc, res.stdout + res.stderr)
+                self.assertNotIn("refused", res.stderr)
+                self.assertEqual(self.rev("HEAD^"), pre)
+                self.assertEqual(self.closed_outcome(attempt), outcome)
+                self.assertIsNone(self.open_id())
+
+    def test_a3g_interrupt_closing_the_attempt_keeps_the_exit_code(self):
+        # B7: an interrupt closing the attempt after the result was printed.
+        real = fixstage._close_attempt
+
+        def close(root, fid, attempt, outcome):
+            if outcome == "committed":
+                raise KeyboardInterrupt("SENTINEL_close")
+            return real(root, fid, attempt, outcome)
+        with mock.patch.object(fixstage, "_close_attempt", close):
+            res, _ = self.fix_flow(self.fix30, runner=self.inproc_streams())
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(self.sha_of(res), self.rev())
+        self.assertIn("closing the attempt", res.stderr)
+        self.assertNotIn("SENTINEL", res.stderr)
+
+    def test_a3h_cli_with_closed_stdout_pipe_still_exits_with_the_outcome(self):
+        # B8: the real CLI. Neither `refused` 1 (BrokenPipeError at print
+        # time) nor 120 (the interpreter's failed shutdown flush).
+        pre = self.rev()
+        res, _ = self.fix_flow(self.fix30, runner=self.cli_closed_stdout)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotEqual(self.rev(), pre)
+        self.assertEqual(self.rev("HEAD^"), pre)
+        self.assertNotIn("refused", res.stderr)
+
+    def _m1_mutant(self):
+        return _mutant_module(
+            ("except BaseException as exc:  # any failure at all",
+             "except Exception as exc:  # any failure at all"))
+
+    def test_a3i_mutant_exception_only_handler_lets_interrupt_escape(self):
+        # M1: the handler narrowed back to Exception (and no backstop behind
+        # it) lets the interrupt escape: the fix loop would say NOTHING is
+        # committed. The real module reports exit 8 on the same seam, and it
+        # is the `_commit` handler (not a later layer) that produced it.
+        mutant = self._m1_mutant()
+        with mock.patch.object(mutant, "_run_post_commit", _keyboardinterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.fix_flow(self.fix30, runner=self.inproc_streams(
+                    module=mutant, escape_ok=True))
+        self.setUp_fresh()
+        callers = []
+
+        def spy(new, verified, changed, known):
+            callers.append(sys._getframe(1).f_code.co_name)
+            return fixstage._Outcome(8, "published-unverified",
+                                     ["published-unverified: SPY_SENTINEL"])
+        with mock.patch.object(fixstage, "_run_post_commit", _keyboardinterrupt), \
+                mock.patch.object(fixstage, "_published_outcome", spy):
+            res, _ = self.fix_flow(self.fix30, runner=self.inproc_streams())
+        self.assertEqual(res.returncode, 8, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.splitlines()[0],
+                         "published-unverified: SPY_SENTINEL")
+        self.assertEqual(callers, ["_commit"])
+
+    def test_a3j_mutant_oserror_close_handler_lets_interrupt_escape(self):
+        # M2: the close handler narrowed back to OSError.
+        mutant = _mutant_module(
+            ("except BaseException as exc:  # the result above stands",
+             "except OSError as exc:  # the result above stands"))
+        real = mutant._close_attempt
+
+        def close(root, fid, attempt, outcome):
+            if outcome == "committed":
+                raise KeyboardInterrupt("SENTINEL_close")
+            return real(root, fid, attempt, outcome)
+        with mock.patch.object(mutant, "_close_attempt", close):
+            with self.assertRaises(KeyboardInterrupt):
+                self.fix_flow(self.fix30, runner=self.inproc_streams(
+                    module=mutant, escape_ok=True))
+
+    def test_a3k_mutant_unguarded_emit_returns_refused(self):
+        # M3: without the print guard, B4's broken pipe becomes `refused` 1.
+        def unguarded(lines):
+            for line in lines:
+                sys.stdout.write(line + "\n")
+        stream = _RaisingStream(BrokenPipeError)
+        with mock.patch.object(fixstage, "_emit_result", unguarded):
+            res, _ = self.fix_flow(self.fix30,
+                                   runner=self.inproc_streams(stdout=stream))
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("fail closed", res.stderr)
+
+    def test_a3l_mutant_without_devnull_redirect_exits_nonzero(self):
+        # M4: with the devnull redirect neutered, B8's run fails at the
+        # interpreter's shutdown flush, so B8's guard is load-bearing.
+        with open(FIXSTAGE) as fh:
+            source = fh.read()
+        old = "            os.dup2(devnull, sys.stdout.fileno())\n"
+        self.assertEqual(source.count(old), 1)
+        mutated = source.replace(old, "            pass\n")
+        self.assertNotEqual(mutated, source)
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir)
+        script = os.path.join(tmpdir, "fixstage.py")
+        with open(script, "w") as fh:
+            fh.write(mutated)
+
+        def runner(*args):
+            return self.cli_closed_stdout(
+                *args, script=script, extra_env={"PYTHONPATH": SCRIPTS_DIR})
+        res, _ = self.fix_flow(self.fix30, runner=runner)
+        self.assertNotEqual(res.returncode, 0,
+                            "mutant exited %d (expected 120)" % res.returncode)
 
     def setUp_fresh(self):
         self.tearDown()
