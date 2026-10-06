@@ -110,6 +110,13 @@ class TestCount(_Case):
         path = self.fixture("t.jsonl", [ask("toolu_1"), rec])
         self.assertEqual(count_cards.count_cards(path), (1, 0))
 
+    def test_line_separator_inside_a_string_does_not_split_a_record(self):
+        rec = ask("toolu_1", question="before\u2028after")
+        path = self.p("t.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        self.assertEqual(count_cards.count_cards(path), (1, 0))
+
     def test_cli_count_prints_two_lines(self):
         path = self.fixture("t.jsonl", [ask("toolu_1"), ask("toolu_2")], raw=("bad",))
         code, out, _e = self.cli("count", "--transcript", path)

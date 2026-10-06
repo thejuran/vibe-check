@@ -14,7 +14,8 @@ run). This module counts blocks, not substrings.
 Evidence rules: transcripts are local-only (never committed). A run's
 transcript is bound to its committed evidence by `transcript.jsonl.sha256`;
 `tally` refuses a run whose transcript is missing or whose sha256 differs
-from the first token of that file. Output is counts only — never transcript
+from the first token of that file; it reads each transcript once, so the
+bytes it hashes are the bytes it counts. Output is counts only — never transcript
 text, question text or answer labels — and errors name a fixed reason plus
 the exception class only.
 
@@ -66,42 +67,49 @@ def _blocks(rec):
             yield c
 
 
-def count_cards(path):
-    """(cards, malformed) for one transcript."""
+def _count_text(text):
+    """(cards, malformed) for the text of one transcript."""
     seen = set()
     malformed = 0
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except ValueError:
-                malformed += 1
-                continue
-            if not isinstance(rec, dict):
-                malformed += 1
-                continue
-            if rec.get("type") != "assistant" or not _is_main(rec):
-                continue
-            for block in _blocks(rec):
-                if block.get("name") == CARD_TOOL:
-                    seen.add(_dedupe_key(block))
+    for line in text.split("\n"):  # newline only, like file iteration (never U+2028)
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            malformed += 1
+            continue
+        if not isinstance(rec, dict):
+            malformed += 1
+            continue
+        if rec.get("type") != "assistant" or not _is_main(rec):
+            continue
+        for block in _blocks(rec):
+            if block.get("name") == CARD_TOOL:
+                seen.add(_dedupe_key(block))
     return len(seen), malformed
 
 
-def _sha_ok(transcript, sha_file):
-    if not (os.path.isfile(transcript) and os.path.isfile(sha_file)):
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def count_cards(path):
+    """(cards, malformed) for one transcript."""
+    return _count_text(_read_bytes(path).decode("utf-8", errors="replace"))
+
+
+def _sha_ok(data, sha_file):
+    """True when `data` (the bytes that will be counted) hashes to the first
+    token of `sha_file`."""
+    if not os.path.isfile(sha_file):
         return False
     with open(sha_file, encoding="utf-8", errors="replace") as fh:
         tokens = fh.read().split()
     if not tokens:
         return False
-    h = hashlib.sha256()
-    with open(transcript, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest() == tokens[0].lower()
+    return hashlib.sha256(data).hexdigest() == tokens[0].lower()
 
 
 def tally(runs_root):
@@ -117,9 +125,12 @@ def tally(runs_root):
             if not RUN_RE.match(run) or not os.path.isdir(rdir):
                 continue
             transcript = os.path.join(rdir, TRANSCRIPT)
-            if not _sha_ok(transcript, transcript + ".sha256"):
+            # ONE read: the bytes hashed against the committed sha are the
+            # bytes counted, so a swap between check and count cannot slip in
+            data = _read_bytes(transcript) if os.path.isfile(transcript) else None
+            if data is None or not _sha_ok(data, transcript + ".sha256"):
                 raise IntegrityError("transcript missing or sha mismatch: %s/%s" % (diff, run))
-            cards, bad = count_cards(transcript)
+            cards, bad = _count_text(data.decode("utf-8", errors="replace"))
             malformed += bad
             rows.append((diff, run, cards))
     return rows, malformed
