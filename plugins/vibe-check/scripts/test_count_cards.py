@@ -204,6 +204,45 @@ class TestTally(_Case):
         self.assertNotIn(self.tmp, err)
 
 
+class TestSingleRead(_Case):
+    """The bytes that are hashed are the bytes that are counted: a transcript
+    swapped between the sha check and the count can never be tallied."""
+
+    def test_swap_between_hash_and_count_is_not_counted(self):
+        root = self.p("runs")
+        path = self.run_dir(root, "d1", 1, [ask("a")])           # sealed: 1 card
+        swapped = write_lines(self.p("swapped.jsonl"), [ask("a"), ask("b")])  # 2 cards
+        real_open = open
+        opens = []
+
+        def fake_open(file, *args, **kwargs):
+            if os.path.realpath(str(file)) == os.path.realpath(path):
+                opens.append(file)
+                if len(opens) > 1:  # every read after the first sees the swap
+                    return real_open(swapped, *args, **kwargs)
+            return real_open(file, *args, **kwargs)
+        with mock.patch.object(count_cards, "open", fake_open, create=True):
+            code, out, err = self.cli("tally", "--runs-root", root)
+        self.assertEqual(code, 0, err)
+        self.assertIn("d1 run-1 cards=1", out.splitlines())
+        self.assertEqual(len(opens), 1, "the transcript was read more than once")
+
+    def test_swapped_bytes_fail_the_sha(self):
+        root = self.p("runs")
+        path = self.run_dir(root, "d1", 1, [ask("a")])
+        swapped = write_lines(self.p("swapped.jsonl"), [ask("a"), ask("b")])
+        real_open = open
+
+        def fake_open(file, *args, **kwargs):
+            if os.path.realpath(str(file)) == os.path.realpath(path):
+                return real_open(swapped, *args, **kwargs)
+            return real_open(file, *args, **kwargs)
+        with mock.patch.object(count_cards, "open", fake_open, create=True):
+            code, _o, err = self.cli("tally", "--runs-root", root)
+        self.assertEqual(code, 1)
+        self.assertIn("transcript missing or sha mismatch: d1/run-1", err)
+
+
 class TestMutants(_Case):
     """Each mutant asserts the patched callable differs from the real one and
     that the outcome flips — so the real code's behaviour is proven live."""
