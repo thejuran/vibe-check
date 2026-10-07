@@ -1,0 +1,65 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-07T04:25:04Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "SSRF validator does not unwrap NAT64/6to4/Teredo-embedded IPv4 addresses",
+          "reason": "absorbed-into: 3ba71b578e6e58d7621075bc3ec00a0eed47514dbc3be92ebaf1234697bb7a25"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "ipv4_mapped property accessed twice instead of reused",
+          "reason": "absorbed-into: 3ba71b578e6e58d7621075bc3ec00a0eed47514dbc3be92ebaf1234697bb7a25"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check leaves NAT64 and DNS-resolved loopback/link-local unblocked (pre-existing gap, not caused by this diff)",
+          "reason": "absorbed-into: 3ba71b578e6e58d7621075bc3ec00a0eed47514dbc3be92ebaf1234697bb7a25"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Non-canonical numeric IPv4 forms bypass ip_address() parsing and DNS-based resolution is unchecked",
+          "reason": "absorbed-into: 5b71f88e59a92fc4820c9fd06917d6bf6d77b2b6e0384677959c39add6743909"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Only IPv4-mapped IPv6 is unwrapped; IPv4-compatible and NAT64 forms of loopback/metadata still pass",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Non-canonical IPv4 literals bypass the IP block entirely (pre-existing)",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
