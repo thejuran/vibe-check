@@ -1,0 +1,337 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "ce567d331b4c10aeeafd24975b75719906f471d6",
+      "timestamp": "2026-10-07T14:05:02Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python",
+        "framework-fastapi"
+      ],
+      "findings": [
+        {
+          "id": "codex-001",
+          "agent": "codex-adversarial",
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "Connect the saved timeout to shutdown draining",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 99,
+          "intent_doc_match": null,
+          "problem": "Posting shutdown_drain_timeout=120.5 now succeeds and persists that value, but scheduler.py:81 still initializes the drain timeout exclusively from the environment, and scheduler.py:634 uses that constant. With no environment override, shutdown still times out after 60 seconds, regardless of the saved setting or a restart. Operators cannot obtain the longer drain period this endpoint now accepts.",
+          "why_it_matters": "Posting shutdown_drain_timeout=120.5 now succeeds and persists that value, but scheduler.py:81 still initializes the drain timeout exclusively from the environment, and scheduler.py:634 uses that constant. With no environment override, shutdown still times out after 60 seconds, regardless of the saved setting or a restart. Operators cannot obtain the longer drain period this endpoint now accepts.",
+          "fix_hint": "Read the current general.shutdown_drain_timeout at shutdown, retaining the intended environment override, and test that saving 120.5 changes the effective drain timeout.",
+          "current_code": "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+          "source_window": [
+            "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+            "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+            "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+            "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+            "        },"
+          ],
+          "canonical_line_content": "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs",
+            "architecture",
+            "impact",
+            "codex-adversarial"
+          ],
+          "stable_hash": "0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "Connect the saved timeout to shutdown draining",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 99,
+              "problem": "Posting shutdown_drain_timeout=120.5 now succeeds and persists that value, but scheduler.py:81 still initializes the drain timeout exclusively from the environment, and scheduler.py:634 uses that constant. With no environment override, shutdown still times out after 60 seconds, regardless of the saved setting or a restart. Operators cannot obtain the longer drain period this endpoint now accepts.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": null,
+              "why_it_matters": "Posting shutdown_drain_timeout=120.5 now succeeds and persists that value, but scheduler.py:81 still initializes the drain timeout exclusively from the environment, and scheduler.py:634 uses that constant. With no environment override, shutdown still times out after 60 seconds, regardless of the saved setting or a restart. Operators cannot obtain the longer drain period this endpoint now accepts.",
+              "fix_hint": "Read the current general.shutdown_drain_timeout at shutdown, retaining the intended environment override, and test that saving 120.5 changes the effective drain timeout.",
+              "current_code": "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "Every settings save resets shutdown_drain_timeout to 60.0 because the form has no input for it",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 80,
+              "problem": "When the form field is missing or empty, `safe_float` returns the hardcoded default of 60.0, not the current value. I checked triggarr/templates/settings.html and it has no `shutdown_drain_timeout` input; grep finds only the max_consecutive_failures input at line 74. git status shows routes.py as the only modified file. So for now, every POST /settings (for example, a user changing only the log level) writes 60.0 over any value set in config.toml. _settings_to_dict (routes.py:227) then saves it through general.model_dump(). The code just above already handles a field the form doesn't send by preserving it: `tracking_delay_seconds: current_settings.general.tracking_delay_seconds`. The failing test at tests/test_web.py:694 confirms the input is planned but not added yet. Even once the input exists, a client that leaves the field out falls back to 60.0 instead of keeping the current value.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": null,
+              "why_it_matters": "A drain timeout set by the user is silently lost the first time anyone saves unrelated settings, so graceful shutdown uses a different window than the one configured.",
+              "fix_hint": "use current_settings.general.shutdown_drain_timeout as the safe_float default (and/or add the template input in the same change)",
+              "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "Every settings save resets shutdown_drain_timeout to 60.0 because the settings form has no input for it",
+              "category": "blast-radius",
+              "severity": "medium",
+              "agent": "impact",
+              "agent_confidence": 80,
+              "problem": "save_settings now reads form.get(\"shutdown_drain_timeout\"), but no template under triggarr/templates/ defines that field (a grep for 'drain' in triggarr/templates returns nothing). The browser therefore never submits it, form.get returns None, and safe_float falls back to its default of 60.0 (validation.py:224-225). If an operator sets shutdown_drain_timeout = 300 in config.toml, the next save of any setting (log level, page size, and so on) quietly writes 60.0 to disk. The tracking_delay_seconds line just above (routes.py:548) handles a field with no form input by keeping current_settings.general.<field>. This line falls back to a hardcoded default instead. tests/test_web.py:694 expects the input to render, which suggests the template change is planned but missing from this diff.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": "CWE-1188",
+              "why_it_matters": "A value the operator set in the config file is lost on an unrelated UI save. Once the field controls the drain, shutdown would cut off in-flight work sooner than intended.",
+              "fix_hint": "Add the input to the settings template in the same change, or fall back to current_settings.general.shutdown_drain_timeout instead of 60.0 when the field is missing from the form.",
+              "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "Form clamps to 3600.0 but the model has no upper bound, so a larger valid TOML value is silently cut",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 65,
+              "problem": "triggarr/models/config.py:139 declares `Field(default=60.0, ge=1.0, allow_inf_nan=False)` with no `le`, so a config.toml value like 7200.0 is valid. The save handler clamps to 3600.0. Combined with bugs-001, or once the input renders the current value, saving the form changes 7200 to 3600 with no warning. The other clamped fields (e.g. max_consecutive_failures with le=100 matching safe_int's max of 100) keep the model bounds and form bounds the same.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": null,
+              "why_it_matters": "A save that should change nothing silently shortens a valid configured drain window.",
+              "fix_hint": "align the form max with a model `le=3600.0` (or drop the form upper clamp)",
+              "current_code": "safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "The persisted shutdown_drain_timeout has no runtime effect because the scheduler reads only an env var",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 60,
+              "problem": "The only place the drain timeout is used at runtime is scheduler.py:58-81. _read_shutdown_drain_timeout() reads os.environ['TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT'] once at import and stores it in the module constant _SHUTDOWN_DRAIN_TIMEOUT. Nothing reads settings.general.shutdown_drain_timeout apart from routes.py:446 and routes.py:550. A value saved through the UI is written to TOML and changes nothing about how long shutdown waits, now or after a restart. The env var reader also clamps only at >= 1.0 and does not reject inf or nan (float('inf') parses and max(inf, 1.0) == inf). That is an existing gap outside this diff. pending: confirm whether a later plan wires the config field into the scheduler; if it does not, this setting is purely cosmetic.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": null,
+              "why_it_matters": "Users would change a setting that does nothing, and could keep a Docker stop_grace_period that does not match the real drain time.",
+              "fix_hint": "Make the scheduler take the drain timeout from settings.general, with the env var as an override, or label the UI field to say it has no effect yet.",
+              "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "UI save caps shutdown_drain_timeout at 3600, but the config model has no upper bound",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 55,
+              "problem": "GeneralConfig declares shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False) at models/config.py:139, with no `le`. A value such as 7200 set in TOML passes validation and loads. Once the template renders that value, the next UI save clamps it to 3600.0 without telling the user. The model and the web handler disagree about which values are valid.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": "CWE-20",
+              "why_it_matters": "Valid config values above 3600 get rewritten without notice, so file-based config and UI behavior disagree.",
+              "fix_hint": "Add le=3600.0 to the Field in config.py so the model and the form clamp agree, or remove the upper clamp from the form.",
+              "current_code": "safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 550,
+              "title": "POST parse added before the settings.html input exists, so every settings save resets a hand-edited drain timeout to 60s",
+              "category": "pattern-consistency",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 40,
+              "problem": "save_settings now reads form.get(\"shutdown_drain_timeout\"), but triggarr/templates/settings.html has no input with that name in the working tree. A grep of settings.html for 'drain' finds nothing; only request_timeout and page_size match. form.get returns None, so safe_float falls back to 60.0. Any settings save then overwrites a value the operator put in the TOML by hand. Fields the form does not carry are handled differently: tracking_delay_seconds keeps its stored value via current_settings.general.tracking_delay_seconds. pending: confirm Plan 75-02 Task 2, which adds the template input, lands in the same commit or push as this hunk.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": current_settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": safe_int(form.get(\"max_consecutive_failures\"), 5, 1, 100),",
+                "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+                "            \"skip_unreleased\": form.get(\"skip_unreleased\") == \"on\",",
+                "        },"
+              ],
+              "cwe": null,
+              "why_it_matters": "If this is pushed or tagged before the template change, saving any setting (log level, page size, and so on) silently replaces a configured drain timeout with 60s.",
+              "fix_hint": "ship the settings.html input in the same commit; or fall back to current_settings.general.shutdown_drain_timeout instead of the literal 60.0 when the field is missing from the form",
+              "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+              "intent_doc_match": {
+                "doc": "75-02-PLAN.md",
+                "section": "Task 2: Add the numeric drain-timeout input + precedence help text to settings.html (D-02, D-10)",
+                "quote": "Output: One GET render var, one POST parse line, one settings.html input with help text",
+                "confidence": 0.75
+              }
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/routes.py",
+            "line": 550,
+            "canonical_line_content": "            \"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+            "band": "critical"
+          }
+        },
+        {
+          "id": "codex-002",
+          "agent": "codex-adversarial",
+          "file": "triggarr/web/routes.py",
+          "line": 446,
+          "title": "Add the form input for the newly persisted setting",
+          "category": "adversarial",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 99,
+          "intent_doc_match": null,
+          "problem": "The added template context has no corresponding input in settings.html. Users cannot view or edit the timeout, and browser submissions omit it, causing the new save logic to write 60.0. Thus a value of 120.5 saved through a direct POST is reset by the next ordinary settings save. The existing rendering assertion in tests/test_web.py:694 also requires this missing field.",
+          "why_it_matters": "The added template context has no corresponding input in settings.html. Users cannot view or edit the timeout, and browser submissions omit it, causing the new save logic to write 60.0. Thus a value of 120.5 saved through a direct POST is reset by the next ordinary settings save. The existing rendering assertion in tests/test_web.py:694 also requires this missing field.",
+          "fix_hint": "Add a numeric shutdown_drain_timeout input associated with settings-form, render the current value, and support fractional values with the same bounds as the handler. Preserve the current value when the field is omitted.",
+          "current_code": "            \"shutdown_drain_timeout\": settings.general.shutdown_drain_timeout,",
+          "source_window": [
+            "            \"tracking_delay_seconds\": settings.general.tracking_delay_seconds,",
+            "            \"max_consecutive_failures\": settings.general.max_consecutive_failures,",
+            "            \"shutdown_drain_timeout\": settings.general.shutdown_drain_timeout,",
+            "            \"skip_unreleased\": settings.general.skip_unreleased,",
+            "            \"auth_method\": settings.auth.method,"
+          ],
+          "canonical_line_content": "            \"shutdown_drain_timeout\": settings.general.shutdown_drain_timeout,",
+          "orchestrator_score": 94,
+          "band": "warning",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "0eeb469a066950aa9b794644c8dce0ba203b101f282b1252582bb2189c4fcfe7",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 446,
+              "title": "Add the form input for the newly persisted setting",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 99,
+              "problem": "The added template context has no corresponding input in settings.html. Users cannot view or edit the timeout, and browser submissions omit it, causing the new save logic to write 60.0. Thus a value of 120.5 saved through a direct POST is reset by the next ordinary settings save. The existing rendering assertion in tests/test_web.py:694 also requires this missing field.",
+              "source_window": [
+                "            \"tracking_delay_seconds\": settings.general.tracking_delay_seconds,",
+                "            \"max_consecutive_failures\": settings.general.max_consecutive_failures,",
+                "            \"shutdown_drain_timeout\": settings.general.shutdown_drain_timeout,",
+                "            \"skip_unreleased\": settings.general.skip_unreleased,",
+                "            \"auth_method\": settings.auth.method,"
+              ],
+              "cwe": null,
+              "why_it_matters": "The added template context has no corresponding input in settings.html. Users cannot view or edit the timeout, and browser submissions omit it, causing the new save logic to write 60.0. Thus a value of 120.5 saved through a direct POST is reset by the next ordinary settings save. The existing rendering assertion in tests/test_web.py:694 also requires this missing field.",
+              "fix_hint": "Add a numeric shutdown_drain_timeout input associated with settings-form, render the current value, and support fractional values with the same bounds as the handler. Preserve the current value when the field is omitted.",
+              "current_code": "            \"shutdown_drain_timeout\": settings.general.shutdown_drain_timeout,",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/routes.py",
+            "line": 446,
+            "canonical_line_content": "            \"shutdown_drain_timeout\": settings.general.shutdown_drain_timeout,",
+            "band": "warning"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "Every settings save resets shutdown_drain_timeout to 60.0 because the form has no input for it",
+          "reason": "absorbed-into: 0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "Every settings save resets shutdown_drain_timeout to 60.0 because the settings form has no input for it",
+          "reason": "absorbed-into: 0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "Form clamps to 3600.0 but the model has no upper bound, so a larger valid TOML value is silently cut",
+          "reason": "absorbed-into: 0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "The persisted shutdown_drain_timeout has no runtime effect because the scheduler reads only an env var",
+          "reason": "absorbed-into: 0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "UI save caps shutdown_drain_timeout at 3600, but the config model has no upper bound",
+          "reason": "absorbed-into: 0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 550,
+          "title": "POST parse added before the settings.html input exists, so every settings save resets a hand-edited drain timeout to 60s",
+          "reason": "absorbed-into: 0ceea335d7ac100cee33f14fcefffc8b8b492d011e305f601df7e5b4db5d0985"
+        },
+        {
+          "file": "triggarr/search/scheduler.py",
+          "line": 81,
+          "title": "Saved shutdown_drain_timeout has no runtime effect because the scheduler still uses an env constant read at import",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 2
+      }
+    }
+  ]
+}
