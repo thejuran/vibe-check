@@ -751,8 +751,9 @@ transcript, not the pane: the TUI redraws the pane, so `tmux capture-pane` histo
 subagent's hook-error line (found in the dress rehearsal, 2026-10-06). Each failure is a named STOP.
 On success it prints `A4: PASS (installed-cache guard saw vibe-check:compliance)`, copies the
 matching row and the hook-path line(s) (the fixed prefix and command path only) into
-`runs-v2.11-phase49/<label>/a4/` after the privacy scan, kills the tmux session and removes the
-scratch repo. It commits nothing: the rehearsal record commits the evidence.
+`runs-v2.11-phase49/<label>/a4/` after the privacy scan and commits them (pathspec-scoped, so
+`close-window`'s clean-runs-folder check holds; found in the dress rehearsal, 2026-10-06), kills the
+tmux session and removes the scratch repo.
 
 ```bash
 # BLOCK: a4-check
@@ -811,6 +812,14 @@ python3 "$SCRIPTS/lanearchive.py" scan "$EVD/blocks-row.jsonl" "$EVD/hook-line.t
   rm -f "$EVD/blocks-row.jsonl" "$EVD/hook-line.txt"
   echo 'PRIVACY SCAN REFUSED — evidence not kept — STOPPING'; exit 1; }
 printf 'A4-commit: %s\n' "$A4_BATCH_SHA" > "$EVD/a4-commit.txt"
+# commit the evidence now, pathspec-scoped: close-window requires a clean runs folder
+git -C "$REPO" add -- "$RUNS/a4/"
+git -C "$REPO" commit -q --only -m "runs(49): A4 installed-cache smoke evidence ($LABEL)" -- "$RUNS/a4/"
+A4C=$(git -C "$REPO" log -1 --format=%H -- "$RUNS/a4/")
+test -z "$(git -C "$REPO" show --name-only --format= "$A4C" | grep -v "^$RUNS/a4/" || true)" \
+  || { echo 'COMMIT SCOPE VIOLATION — STOPPING'; exit 1; }
+test -z "$(git -C "$REPO" status --porcelain -- "$RUNS/a4/")" \
+  || { echo 'A4 EVIDENCE NOT FULLY COMMITTED — STOPPING'; exit 1; }
 if command -v tmux > /dev/null && tmux has-session -t "=p49-a4" 2> /dev/null; then
   tmux kill-session -t "p49-a4"
 fi
