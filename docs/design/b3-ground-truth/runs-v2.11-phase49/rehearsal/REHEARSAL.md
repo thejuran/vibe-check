@@ -24,7 +24,8 @@ A4: PASS (installed-cache guard saw vibe-check:compliance)
   `{"agent": "compliance", "command": "git stash pop", "reason": "refused: git subcommand form is not read-only (fail closed)", "tool": "Bash"}`
 - Hook line (`a4/hook-line.txt`, from the session's local sub-transcript):
   `PreToolUse:Bash hook error: [python3 ~/.claude/plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py hook]`
-- No `vibe-check@inline` anywhere in the A4 transcripts; no gitguard line names any other path.
+- No inline-plugin (`--plugin-dir`) marker anywhere in the A4 transcripts; no gitguard line names
+  any other path.
 - The scratch HEAD and the stash were unchanged; the agent's separate `git log --oneline -1` ran.
 
 ## Captured fix-loop labels (Phase-47 decline path)
