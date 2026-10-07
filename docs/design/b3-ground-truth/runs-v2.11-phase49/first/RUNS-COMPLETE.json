@@ -1,0 +1,81 @@
+{
+  "label": "first",
+  "snapshot_commit": "e6eafbd3b8c4242064997f82fad5edd058d65a1c",
+  "expected_diffs": [
+    "triggarr-secret-in-logs",
+    "triggarr-autoescape",
+    "third-organic-should-catch",
+    "should-quiet-1",
+    "should-quiet-2",
+    "should-quiet-3",
+    "triggarr-session-rotation",
+    "triggarr-settings-form-split",
+    "should-quiet-4",
+    "should-quiet-5",
+    "should-quiet-6",
+    "should-quiet-7"
+  ],
+  "run_commits": {
+    "triggarr-secret-in-logs": {
+      "1": "55cc775ba52f5fd44771986902baf0747152a21a",
+      "2": "604251f831aa60f462b3fe82f15e523896130d30",
+      "3": "876ce174a62a514b104a97840e2580496a886753"
+    },
+    "triggarr-autoescape": {
+      "1": "41cf188eae66c7217be7954c9909f317087ccfee",
+      "2": "e50e912b0d3045d489806fa085e508dfe9e5e775",
+      "3": "dbeacbcaa343377163b0180371fcd142ce1105f5"
+    },
+    "third-organic-should-catch": {
+      "1": "34505b0ba7646f821653c23bd115e7013bdd52e5",
+      "2": "dc64ec0367803211425b0cc697289b2485f05c81",
+      "3": "d2277703b73b4f77d75af30bd0d4a6fc4205f7d6"
+    },
+    "should-quiet-1": {
+      "1": "13b850a122259aad2ae8664811866147d6503f14",
+      "2": "2e8376acc4dcab619d343ba524315bb736a3dfe3",
+      "3": "52127ab6188a527e30b615eb136586711a8ac918"
+    },
+    "should-quiet-2": {
+      "1": "11138013a394a854fe2e718051e3d71b1d1838d1",
+      "2": "4561136334014e3eb8b33fcc2a5e183aca2c9a19",
+      "3": "748a0b6818dbea084fa2aab67f38b4bf89b24187"
+    },
+    "should-quiet-3": {
+      "1": "9db56e7e8188d72d228f1a067ab7e2b43f0b6786",
+      "2": "97c7928e4359d0150aafcf10c43419c4723e930c",
+      "3": "6793e4015b811a6206663b94e751d3e374e4bac2"
+    },
+    "triggarr-session-rotation": {
+      "1": "e24e652c1b542a982fcea282bbee0369fc850d80",
+      "2": "07d88e27bb06e3a806b95ffb2c200b5eeff02b55",
+      "3": "143f425b7a29208fc621299eb9fe5df7a36e178c"
+    },
+    "triggarr-settings-form-split": {
+      "1": "901f2dae6369f62206f04d83de0a79d2d9aef1c4",
+      "2": "48190937d8e59925d654dad54f97d6d1c5c2943e",
+      "3": "2c3626c76265e3783368dfe516cdd259b729cf1b"
+    },
+    "should-quiet-4": {
+      "1": "e86c8ede568ca993adf4b61cab9d2ec178d0e787",
+      "2": "dd49a9e3178e837b4bf1e1d59c813c5da92bb9af",
+      "3": "a9e1ddf3a9c81c509b76c8381431c6b5ca35f9f8"
+    },
+    "should-quiet-5": {
+      "1": "540d3f51676430b2e4d50e882b9e4a511a133ef0",
+      "2": "b87dd30c4378c1f20ca0030360c9f0949eeaa1df",
+      "3": "af24c77c3b04229a187366c465dea60afc49977b"
+    },
+    "should-quiet-6": {
+      "1": "727c7920fc5a342638f3900c7b1124d2176e86ea",
+      "2": "cc2bb5713171ad97ba4e67e3aaa49f2fd7e3fa7e",
+      "3": "a704eb4976d4e804b258da344b1209ba64f7ca4c"
+    },
+    "should-quiet-7": {
+      "1": "0c30f86fe3ccc52c77a63775eb417343a0845a94",
+      "2": "3d89175becc8c596a806354eda7697dab2805f9c",
+      "3": "b6270edd7062efbe230099ea86efe0cf9ca1e74e"
+    }
+  },
+  "closed_at": "2026-10-07T14:15:04Z"
+}
