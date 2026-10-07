@@ -58,6 +58,7 @@ into `PLAN-COMMITS.json`; `test_never_revert_membership` locks the set.
 """
 
 import ast
+import contextlib
 import json
 import os
 import re
@@ -66,6 +67,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batchsnap  # noqa: E402
@@ -709,6 +711,39 @@ class TestCompleteness(SnapCase):
             self.assertNotIn("suite is not green", msg)
         finally:
             batchsnap._pytest_argv = real
+
+    def _suite_timeout_seen(self, module_timeout=None):
+        """The timeout `_assert_suite_green` hands to subprocess.run."""
+        seen = []
+
+        class _Done(object):
+            returncode = 0
+            stdout = "1 passed in 0.01s"
+
+        def fake_run(argv, **kw):
+            seen.append(kw.get("timeout"))
+            return _Done()
+        plug = os.path.join(self.tmp, "plug")
+        os.makedirs(os.path.join(plug, "scripts"))
+        patches = [mock.patch.object(batchsnap.subprocess, "run", fake_run)]
+        if module_timeout is not None:
+            patches.append(mock.patch.object(batchsnap, "SUITE_TIMEOUT", module_timeout))
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            batchsnap._assert_suite_green(plug)
+        return seen
+
+    def test_suite_run_gets_the_suite_timeout(self):
+        """The suite outgrew 120 s (about 130 s at 2323 tests): the suite run alone
+        carries SUITE_TIMEOUT (900 s); every git call keeps 120."""
+        self.assertEqual(batchsnap.SUITE_TIMEOUT, 900)
+        self.assertEqual(self._suite_timeout_seen(), [900])
+
+    def test_mutant_suite_timeout_is_read_from_the_constant(self):
+        """Patching the constant changes what the suite run gets, so the value is
+        read from SUITE_TIMEOUT and not a literal at the call."""
+        self.assertEqual(self._suite_timeout_seen(module_timeout=7), [7])
 
     def test_archive_tree_pinned(self):
         """F12: the sealed baseline must be intact in anything the owner runs against."""
@@ -1437,7 +1472,7 @@ class TestImportSet(unittest.TestCase):
     def test_every_subprocess_run_carries_timeout(self):
         with open(BATCHSNAP_PY) as fh:
             tree = ast.parse(fh.read())
-        calls = 0
+        calls = suite_calls = 0
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -1449,9 +1484,18 @@ class TestImportSet(unittest.TestCase):
             kw = {k.arg: k.value for k in node.keywords}
             self.assertIn("timeout", kw, "subprocess.run at line %d has no timeout"
                           % node.lineno)
+            if isinstance(kw["timeout"], ast.Name):
+                # the one suite run carries the named, larger suite timeout
+                self.assertEqual(kw["timeout"].id, "SUITE_TIMEOUT",
+                                 "subprocess.run at line %d: unknown timeout name"
+                                 % node.lineno)
+                suite_calls += 1
+                continue
             self.assertEqual(kw["timeout"].value, 120,
                              "subprocess.run at line %d: timeout must be 120" % node.lineno)
         self.assertGreater(calls, 0, "found no subprocess.run calls -- test is vacuous")
+        self.assertEqual(suite_calls, 1, "exactly one subprocess.run (the suite) may "
+                         "use SUITE_TIMEOUT")
 
     def test_no_subject_string_matching(self):
         """R3: selection is by recorded identity; no subject heuristic anywhere."""
