@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a11686-c416-76c0-87e4-310ccaa0eadd",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The new timeout validates correctly, but never controls shutdown. The targeted validation test passes.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout into the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but ignored. triggarr/search/scheduler.py:70–81 still derives its timeout solely from the environment or a hard-coded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured longer drain, potentially interrupting an in-flight search. No runtime caller reads the new field.\",\"file\":\"triggarr/models/config.py\",\"line_start\":135,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Use settings.general.shutdown_drain_timeout as the shutdown timeout default, apply the explicit environment override, and add an integration test proving a nondefault config value reaches the drain.\"}],\"next_steps\":[\"Connect the configuration field to shutdown and verify config/default/environment precedence.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The new timeout validates correctly, but never controls shutdown. The targeted validation test passes.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the new timeout into the shutdown drain",
+        "body": "A supported value such as shutdown_drain_timeout=120.5 is accepted but ignored. triggarr/search/scheduler.py:70–81 still derives its timeout solely from the environment or a hard-coded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured longer drain, potentially interrupting an in-flight search. No runtime caller reads the new field.",
+        "file": "triggarr/models/config.py",
+        "line_start": 135,
+        "line_end": 139,
+        "confidence": 0.99,
+        "recommendation": "Use settings.general.shutdown_drain_timeout as the shutdown timeout default, apply the explicit environment override, and add an integration test proving a nondefault config value reaches the drain."
+      }
+    ],
+    "next_steps": [
+      "Connect the configuration field to shutdown and verify config/default/environment precedence."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The new timeout validates correctly, but never controls shutdown. The targeted validation test passes.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout into the shutdown drain\",\"body\":\"A supported value such as shutdown_drain_timeout=120.5 is accepted but ignored. triggarr/search/scheduler.py:70–81 still derives its timeout solely from the environment or a hard-coded 60 seconds, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds despite the configured longer drain, potentially interrupting an in-flight search. No runtime caller reads the new field.\",\"file\":\"triggarr/models/config.py\",\"line_start\":135,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Use settings.general.shutdown_drain_timeout as the shutdown timeout default, apply the explicit environment override, and add an integration test proving a nondefault config value reaches the drain.\"}],\"next_steps\":[\"Connect the configuration field to shutdown and verify config/default/environment precedence.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
