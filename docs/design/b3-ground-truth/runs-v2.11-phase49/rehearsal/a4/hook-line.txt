@@ -1,0 +1,1 @@
+PreToolUse:Bash hook error: [python3 ~/.claude/plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py hook]

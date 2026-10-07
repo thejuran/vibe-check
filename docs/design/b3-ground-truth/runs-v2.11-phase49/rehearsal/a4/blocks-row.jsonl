@@ -1,0 +1,1 @@
+{"agent": "compliance", "command": "git stash pop", "reason": "refused: git subcommand form is not read-only (fail closed)", "tool": "Bash"}
