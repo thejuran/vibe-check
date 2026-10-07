@@ -1,0 +1,53 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-10-07T10:33:59Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 22,
+          "title": "Frontend still sends GET /server/config/set/{section}/{option}/{value} after the backend moved to POST-only, so saving settings would fail",
+          "reason": "absorbed-into: dcc55cc7a17c2e37b054504d543e7f45672adfef7bfc5df31e862b04d1d45a60"
+        },
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 22,
+          "title": "Settings save is broken at HEAD: the frontend still sends GET /server/config/set/<section>/<option>/<value>, but the backend now only accepts POST /server/config/set",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/angular/src/app/tests/mocks/mock-rest.service.ts",
+          "line": 1,
+          "title": "MockRestService does not implement post(), so specs for ConfigService migrated to post(url, body) will need a mock update",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/angular/src/app/services/utils/rest.service.ts",
+          "line": 60,
+          "title": "New generic POST body parameter sits on a path slated to carry config/secret values with existing response logging",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
