@@ -1,0 +1,329 @@
+{
+  "codex_lines": 1,
+  "dispatched": 8,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [
+          "fastapi"
+        ],
+        "intent_docs_found": [
+          "CLAUDE.md"
+        ],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 29
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [\"fastapi\"],\n  \"total_lines\": 29,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": [\"CLAUDE.md\"]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01UYpeVK4QhUVBuPcQUZb7wv"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "The imports generate_session_secret, sign_session, COOKIE_MAX_AGE and is_secure_request are still used elsewhere in routes.py (lines 1294, 1329-1341, 1470-1479, 1941-2009), so this diff introduces no unused-import (F401) lint failure.",
+          "The password-change audit log line ('Password changed; session secret rotated...') was also removed. A successful password change now writes no log entry at all; only failed attempts are logged (routes.py:1551)."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 90,
+            "category": "logic-error",
+            "current_code": "new_auth = current_settings.auth.model_copy(update={\"password_hash\": SecretStr(new_hash)})",
+            "cwe": "CWE-613",
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "restore session_secret rotation in the model_copy update and re-issue the acting user's cookie signed with the new secret, as in the removed block and the reset flow at routes.py:1941-2009",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1567,
+            "problem": "The diff deletes the generate_session_secret() rotation and only updates password_hash. A session lives only as an itsdangerous TimestampSigner signature keyed on session_secret (triggarr/auth.py:97-115, validate_session). Nothing in the cookie is tied to password_hash. So after this change, every cookie issued before the password change, including one held by an attacker, keeps validating for the full 30-day COOKIE_MAX_AGE. The middleware also re-signs live cookies with the unchanged secret (triggarr/web/middleware.py:146, 197-206), which can keep an attacker's session alive past that. I found no same-purpose replacement: the only other rotation is in the reset-token flow (routes.py:1941), a different path. The user changes their password precisely to recover from a possibly compromised session, and that guarantee is gone on the changed line.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Changing the password no longer rotates session_secret, so stolen or other-device session cookies stay valid (session-hijack persistence)",
+            "why_it_matters": "An attacker who has a session cookie keeps authenticated access to the UI (which holds the Radarr/Sonarr API keys and settings) even after the owner changes the password to lock them out."
+          },
+          {
+            "agent_confidence": 72,
+            "category": "logic-error",
+            "current_code": "return templates.TemplateResponse(\n        request=request,\n        name=\"partials/security_password.html\",\n        context={\"success\": \"Password updated\"},\n    )",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "restore the rotation and cookie re-issue rather than deleting the tests",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1581,
+            "problem": "Several tests cover exactly the removed behavior: tests/test_auth_routes.py:604 test_change_password_rotates_session_secret_and_persists, :641 test_change_password_reissues_acting_user_cookie, :677 test_change_password_evicts_other_device_session, and tests/test_auth_integration.py:182 test_password_change_invalidates_old_sessions. The response no longer sets a refreshed triggarr_session cookie and session_secret stays the same, so these assertions should fail and break the 'All tests pass' gate in the project CLAUDE.md. pending: I read the test names only, not their bodies or a test run; confirm by running pytest tests/test_auth_routes.py tests/test_auth_integration.py.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Existing tests that assert rotation and eviction on password change will now fail",
+            "why_it_matters": "A red test suite blocks the release or deep-review gate. It also shows that this change reverses a deliberately tested security behavior."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"bugs\",\"findings\":[{\"id\":\"bugs-001\",\"file\":\"triggarr/web/routes.py\",\"line\":1567,\"title\":\"Changing the password no longer rotates session_secret, so stolen or other-device session cookies stay valid (session-hijack persistence)\",\"category\":\"logic-error\",\"cwe\":\"CWE-613\",\"severity\":\"high\",\"agent_confidence\":90,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The diff deletes the generate_session_secret() rotation and only updates password_hash. A session lives only as an itsdangerous TimestampSigner signature keyed on session_secret (triggarr/auth.py:97-115, validate_session). Nothing in the cookie is tied to password_hash. So after this change, every cookie issued before the password change, including one held by an attacker, keeps validating for the full 30-day COOKIE_MAX_AGE. The middleware also re-signs live cookies with the unchanged secret (triggarr/web/middleware.py:146, 197-206), which can keep an attacker's session alive past that. I found no same-purpose replacement: the only other rotation is in the reset-token flow (routes.py:1941), a different path. The user changes their password precisely to recover from a possibly compromised session, and that guarantee is gone on the changed line.\",\"current_code\":\"new_auth = current_settings.auth.model_copy(update={\\\"password_hash\\\": SecretStr(new_hash)})\",\"fix_hint\":\"restore session_secret rotation in the model_copy update and re-issue the acting user's cookie signed with the new secret, as in the removed block and the reset flow at routes.py:1941-2009\",\"why_it_matters\":\"An attacker who has a session cookie keeps authenticated access to the UI (which holds the Radarr/Sonarr API keys and settings) even after the owner changes the password to lock them out.\",\"silenced_marker_nearby\":false},{\"id\":\"bugs-002\",\"file\":\"triggarr/web/routes.py\",\"line\":1581,\"title\":\"Existing tests that assert rotation and eviction on password change will now fail\",\"category\":\"logic-error\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":72,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Several tests cover exactly the removed behavior: tests/test_auth_routes.py:604 test_change_password_rotates_session_secret_and_persists, :641 test_change_password_reissues_acting_user_cookie, :677 test_change_password_evicts_other_device_session, and tests/test_auth_integration.py:182 test_password_change_invalidates_old_sessions. The response no longer sets a refreshed triggarr_session cookie and session_secret stays the same, so these assertions should fail and break the 'All tests pass' gate in the project CLAUDE.md. pending: I read the test names only, not their bodies or a test run; confirm by running pytest tests/test_auth_routes.py tests/test_auth_integration.py.\",\"current_code\":\"return templates.TemplateResponse(\\n        request=request,\\n        name=\\\"partials/security_password.html\\\",\\n        context={\\\"success\\\": \\\"Password updated\\\"},\\n    )\",\"fix_hint\":\"restore the rotation and cookie re-issue rather than deleting the tests\",\"why_it_matters\":\"A red test suite blocks the release or deep-review gate. It also shows that this change reverses a deliberately tested security behavior.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"The imports generate_session_secret, sign_session, COOKIE_MAX_AGE and is_secure_request are still used elsewhere in routes.py (lines 1294, 1329-1341, 1470-1479, 1941-2009), so this diff introduces no unused-import (F401) lint failure.\",\"The password-change audit log line ('Password changed; session secret rotated...') was also removed. A successful password change now writes no log entry at all; only failed attempts are logged (routes.py:1551).\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_01V6mHH5RgHA9918e6jRQSmb"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [],
+        "findings": [
+          {
+            "agent_confidence": 95,
+            "category": "auth",
+            "current_code": "new_auth = current_settings.auth.model_copy(update={\"password_hash\": SecretStr(new_hash)})",
+            "cwe": "CWE-613",
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "restore session_secret rotation: generate a new session_secret alongside the new password_hash, persist both, and re-issue the acting user's own cookie signed with the new secret (mirroring the password-reset flow at routes.py ~1941-2005)",
+            "id": "sec-001",
+            "in_diff": true,
+            "intent_doc_match": "README.md:236/247 and CHANGELOG.md:46-50 explicitly document 'Changing your password now logs out all other active sessions... This makes a password change an effective way to lock out a session you think may be compromised.' This diff silently removes the mechanism that implements that documented guarantee.",
+            "line": 1567,
+            "problem": "The diff removes session_secret rotation from change_password(). Previously, changing the password generated a new session_secret, persisted it, and re-signed only the acting user's cookie with it -- which made validate_session() fail for every other cookie signed with the old secret (triggarr/web/middleware.py:146, triggarr/auth.py:97). After this change, new_auth is built from only {'password_hash': ...}; session_secret is left untouched, so every previously issued session cookie (e.g. a stolen cookie, a session on a lost/shared device, or a session an attacker is actively using) remains valid for the full 30-day COOKIE_MAX_AGE after the password is changed. This defeats the exact threat model the removed code's own comment described: 'the \"I changed my password because a session may be compromised\" case.' The equivalent password-reset flow a few hundred lines below (routes.py ~1941-2005, labeled D-12) still performs this rotation, confirming the pattern is intentional security behavior and that this removal is a regression limited to the change-password endpoint.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Password change no longer invalidates other sessions (session-secret rotation removed)",
+            "why_it_matters": "A password change is the standard remediation a user takes when they suspect their account/session has been compromised. With this control removed, an attacker holding a stolen session cookie keeps full access for up to 30 days even after the victim changes their password -- silently defeating the account-recovery action the UI still reports as successful ('Password updated'), with no indication to the user that other sessions are still live."
+          },
+          {
+            "agent_confidence": 35,
+            "category": "data-exposure",
+            "current_code": "(no logging call remains after a successful password change)",
+            "cwe": "CWE-778",
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "add back a logger.info on successful password change (without logging the secret itself)",
+            "id": "sec-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1581,
+            "problem": "The diff removes the `logger.info(\"Password changed; session secret rotated, other sessions invalidated\")` line with no replacement log statement for the password-change success path. This is a minor observability regression rather than a vulnerability on its own (no sensitive data was in the removed log line), but it removes the only audit trail for this security-relevant event.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Removal of security-relevant audit log line for password change",
+            "why_it_matters": "Without an audit log entry, operators lose visibility into when/whether password changes occurred, which matters for incident investigation."
+          }
+        ]
+      },
+      "raw_return_text": "I have everything I need to confirm this is a real, demonstrated security regression (both source and sink in view, plus confirmed by repository history and documentation that this was an intentional, shipped control). Here is my finding.\n\n```json\n{\n  \"agent\": \"security\",\n  \"findings\": [\n    {\n      \"id\": \"sec-001\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 1567,\n      \"title\": \"Password change no longer invalidates other sessions (session-secret rotation removed)\",\n      \"category\": \"auth\",\n      \"cwe\": \"CWE-613\",\n      \"severity\": \"high\",\n      \"agent_confidence\": 95,\n      \"in_diff\": true,\n      \"intent_doc_match\": \"README.md:236/247 and CHANGELOG.md:46-50 explicitly document 'Changing your password now logs out all other active sessions... This makes a password change an effective way to lock out a session you think may be compromised.' This diff silently removes the mechanism that implements that documented guarantee.\",\n      \"problem\": \"The diff removes session_secret rotation from change_password(). Previously, changing the password generated a new session_secret, persisted it, and re-signed only the acting user's cookie with it -- which made validate_session() fail for every other cookie signed with the old secret (triggarr/web/middleware.py:146, triggarr/auth.py:97). After this change, new_auth is built from only {'password_hash': ...}; session_secret is left untouched, so every previously issued session cookie (e.g. a stolen cookie, a session on a lost/shared device, or a session an attacker is actively using) remains valid for the full 30-day COOKIE_MAX_AGE after the password is changed. This defeats the exact threat model the removed code's own comment described: 'the \\\"I changed my password because a session may be compromised\\\" case.' The equivalent password-reset flow a few hundred lines below (routes.py ~1941-2005, labeled D-12) still performs this rotation, confirming the pattern is intentional security behavior and that this removal is a regression limited to the change-password endpoint.\",\n      \"current_code\": \"new_auth = current_settings.auth.model_copy(update={\\\"password_hash\\\": SecretStr(new_hash)})\",\n      \"fix_hint\": \"restore session_secret rotation: generate a new session_secret alongside the new password_hash, persist both, and re-issue the acting user's own cookie signed with the new secret (mirroring the password-reset flow at routes.py ~1941-2005)\",\n      \"why_it_matters\": \"A password change is the standard remediation a user takes when they suspect their account/session has been compromised. With this control removed, an attacker holding a stolen session cookie keeps full access for up to 30 days even after the victim changes their password -- silently defeating the account-recovery action the UI still reports as successful ('Password updated'), with no indication to the user that other sessions are still live.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"sec-002\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 1581,\n      \"title\": \"Removal of security-relevant audit log line for password change\",\n      \"category\": \"data-exposure\",\n      \"cwe\": \"CWE-778\",\n      \"severity\": \"low\",\n      \"agent_confidence\": 35,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The diff removes the `logger.info(\\\"Password changed; session secret rotated, other sessions invalidated\\\")` line with no replacement log statement for the password-change success path. This is a minor observability regression rather than a vulnerability on its own (no sensitive data was in the removed log line), but it removes the only audit trail for this security-relevant event.\",\n      \"current_code\": \"(no logging call remains after a successful password change)\",\n      \"fix_hint\": \"add back a logger.info on successful password change (without logging the secret itself)\",\n      \"why_it_matters\": \"Without an audit log entry, operators lose visibility into when/whether password changes occurred, which matters for incident investigation.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_012S2BYfwJ85pDo3dMC1Trz5"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "The imports generate_session_secret, sign_session, COOKIE_MAX_AGE and is_secure_request are still used elsewhere in routes.py (setup ~1294-1341, login ~1470-1509, reset_confirm_post ~1941-2009). No ruff F401 is introduced.",
+          "No intent doc authorizes removing the rotation. Every planning record found (STATE.md:78, STATE.md:113, v2.10-ROADMAP.md:198, CONCERNS.md:206) treats change_password rotation as the canonical pattern.",
+          "The success log line 'Password changed; session secret rotated...' was also removed, so password changes are no longer audit-logged at info level. That belongs to the security/compliance lanes.",
+          "Security lane should independently flag CWE-613 (insufficient session expiration). reports/security-2026-04-15.md:251 is the original finding this code fixed."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 90,
+            "category": "pattern-consistency",
+            "current_code": "new_auth = current_settings.auth.model_copy(update={\"password_hash\": SecretStr(new_hash)})",
+            "cwe": "CWE-613",
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "restore generate_session_secret() rotation in the auth model_copy plus the re-issued triggarr_session cookie, as before (and as in reset_confirm_post)",
+            "id": "arch-001",
+            "in_diff": true,
+            "intent_doc_match": {
+              "confidence": 0.05,
+              "doc": ".planning/STATE.md",
+              "quote": "`change_password` now rotates `session_secret`, invalidating all other sessions on password change while re-issuing the acting user's cookie (CWE-613). Supersedes v2.6 threat decision T-58-07/AR-58-02 (was *accept*, now *mitigate*).",
+              "section": "v2.8.1 fix record"
+            },
+            "line": 1567,
+            "problem": "The codebase has one established rule: changing a credential rotates session_secret and re-issues the acting user's cookie. reset_confirm_post (routes.py ~1941-2009) follows it, and .planning/STATE.md says that path was built to 'deliberately mirror this change_password pattern'. The design spec docs/superpowers/specs/2026-06-02-recovery-counts-config-design.md:57 justifies the reset rotation with 'same rationale as change_password'. This diff removes the rotation from the original, so the two credential-change paths now behave differently: a password reset logs out other devices, but a password change does not.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "change_password no longer rotates session_secret, breaking the established credential-change pattern that reset_confirm_post copies",
+            "why_it_matters": "This silently undoes the documented v2.8.1 CWE-613 fix: stolen session cookies stay valid for 30 days after the user changes their password. It also leaves the reset spec and STATE.md pointing at a pattern that is gone."
+          },
+          {
+            "agent_confidence": 70,
+            "category": "pattern-consistency",
+            "current_code": "return templates.TemplateResponse(\n        request=request,\n        name=\"partials/security_password.html\",\n        context={\"success\": \"Password updated\"},\n    )",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "revert the hunk; if dropping rotation is intended, record a new threat decision and update tests, STATE.md, CONCERNS.md and the reset spec together",
+            "id": "arch-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1581,
+            "problem": "tests/test_auth_routes.py:604 (test_change_password_rotates_session_secret_and_persists) and the tests around lines 653-706 check that session_secret is rotated in the saved TOML, that old cookies fail and that the acting cookie is re-issued. This diff contradicts all of them. pending: confirm by running uv run pytest tests/test_auth_routes.py -x; I did not run the suite. Along with arch-001, this points to an accidental revert, not a deliberate decision.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Removed rotation contract is still asserted by existing tests and docs",
+            "why_it_matters": "If this is a deliberate change, it leaves a red test suite and stale docs. If it is accidental, it is a security regression that CI should block."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\"agent\":\"architecture\",\"findings\":[{\"id\":\"arch-001\",\"file\":\"triggarr/web/routes.py\",\"line\":1567,\"title\":\"change_password no longer rotates session_secret, breaking the established credential-change pattern that reset_confirm_post copies\",\"category\":\"pattern-consistency\",\"cwe\":\"CWE-613\",\"severity\":\"medium\",\"agent_confidence\":90,\"in_diff\":true,\"intent_doc_match\":{\"doc\":\".planning/STATE.md\",\"section\":\"v2.8.1 fix record\",\"quote\":\"`change_password` now rotates `session_secret`, invalidating all other sessions on password change while re-issuing the acting user's cookie (CWE-613). Supersedes v2.6 threat decision T-58-07/AR-58-02 (was *accept*, now *mitigate*).\",\"confidence\":0.05},\"problem\":\"The codebase has one established rule: changing a credential rotates session_secret and re-issues the acting user's cookie. reset_confirm_post (routes.py ~1941-2009) follows it, and .planning/STATE.md says that path was built to 'deliberately mirror this change_password pattern'. The design spec docs/superpowers/specs/2026-06-02-recovery-counts-config-design.md:57 justifies the reset rotation with 'same rationale as change_password'. This diff removes the rotation from the original, so the two credential-change paths now behave differently: a password reset logs out other devices, but a password change does not.\",\"current_code\":\"new_auth = current_settings.auth.model_copy(update={\\\"password_hash\\\": SecretStr(new_hash)})\",\"fix_hint\":\"restore generate_session_secret() rotation in the auth model_copy plus the re-issued triggarr_session cookie, as before (and as in reset_confirm_post)\",\"why_it_matters\":\"This silently undoes the documented v2.8.1 CWE-613 fix: stolen session cookies stay valid for 30 days after the user changes their password. It also leaves the reset spec and STATE.md pointing at a pattern that is gone.\",\"silenced_marker_nearby\":false},{\"id\":\"arch-002\",\"file\":\"triggarr/web/routes.py\",\"line\":1581,\"title\":\"Removed rotation contract is still asserted by existing tests and docs\",\"category\":\"pattern-consistency\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":70,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"tests/test_auth_routes.py:604 (test_change_password_rotates_session_secret_and_persists) and the tests around lines 653-706 check that session_secret is rotated in the saved TOML, that old cookies fail and that the acting cookie is re-issued. This diff contradicts all of them. pending: confirm by running uv run pytest tests/test_auth_routes.py -x; I did not run the suite. Along with arch-001, this points to an accidental revert, not a deliberate decision.\",\"current_code\":\"return templates.TemplateResponse(\\n        request=request,\\n        name=\\\"partials/security_password.html\\\",\\n        context={\\\"success\\\": \\\"Password updated\\\"},\\n    )\",\"fix_hint\":\"revert the hunk; if dropping rotation is intended, record a new threat decision and update tests, STATE.md, CONCERNS.md and the reset spec together\",\"why_it_matters\":\"If this is a deliberate change, it leaves a red test suite and stale docs. If it is accidental, it is a security regression that CI should block.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"The imports generate_session_secret, sign_session, COOKIE_MAX_AGE and is_secure_request are still used elsewhere in routes.py (setup ~1294-1341, login ~1470-1509, reset_confirm_post ~1941-2009). No ruff F401 is introduced.\",\"No intent doc authorizes removing the rotation. Every planning record found (STATE.md:78, STATE.md:113, v2.10-ROADMAP.md:198, CONCERNS.md:206) treats change_password rotation as the canonical pattern.\",\"The success log line 'Password changed; session secret rotated...' was also removed, so password changes are no longer audit-logged at info level. That belongs to the security/compliance lanes.\",\"Security lane should independently flag CWE-613 (insufficient session expiration). reports/security-2026-04-15.md:251 is the original finding this code fixed.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01JzP8DuUbgWfqPBLEL7vnxS"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "What the diff does: it reverts the 'log out all other devices on password change' control in POST /settings/password (triggarr/web/routes.py:1522-1585). It drops the session_secret rotation, the re-issue of the acting user's cookie, and the audit log line 'Password changed; session secret rotated'.",
+          "Replacement check: I found no control that does the same job. Cookies sign only username plus timestamp (auth.py:79-94). Nothing binds them to password_hash or keeps a server-side session list. The only other rotation point is the password-reset confirm flow (routes.py:1941-2011), which handles a different path. So the removal rule applies and no cap was used.",
+          "Blast radius: every deployed instance with auth enabled. A compromised session now outlives a password change for up to COOKIE_MAX_AGE, and indefinitely with the sliding refresh in middleware.py:197. Other devices stay logged in after the change. Users who change their password expecting a full lockout of an attacker get no lockout.",
+          "Side effects: the imports generate_session_secret, sign_session, COOKIE_MAX_AGE and is_secure_request are still used elsewhere in routes.py (setup at :1294, login at :1470, reset at :1941), so ruff will not flag them as unused. Losing the logger.info line removes the audit trail for password changes.",
+          "Positive side of the change: users are no longer logged out by their own password change, and other devices stop being force-logged-out. If that is the product goal, it needs a different mechanism, for example a per-user session generation counter that also invalidates other sessions, not removal of eviction.",
+          "No schema or migration change. The persisted TOML shape is unchanged (session_secret simply stays the same). No performance impact.",
+          "Verdict: blocking. This is a session-invalidation regression (CWE-613), and it also breaks four existing tests. Revert unless removing the 'evict other sessions on password change' guarantee is an explicit product decision."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 92,
+            "category": "blast-radius",
+            "current_code": "new_auth = current_settings.auth.model_copy(update={\"password_hash\": SecretStr(new_hash)})",
+            "cwe": "CWE-613",
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "restore session_secret rotation in change_password and re-issue the acting user's cookie under the new secret, matching the reset_confirm flow at routes.py:1941-2011",
+            "id": "impact-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1567,
+            "problem": "The diff removes the generate_session_secret() rotation from change_password. Session cookies are a TimestampSigner over the username only (triggarr/auth.py:79-94, validate_session at :97-114). They are not tied to the password hash or to any per-session nonce, and I found no other mechanism that ends sessions. After a password change, every cookie signed under the old secret still passes validate_session in middleware (triggarr/web/middleware.py:146). The sliding refresh at middleware.py:197 then re-signs it under the same unchanged secret, so a stolen cookie can stay valid indefinitely.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Password change no longer rotates session_secret, so hijacked sessions survive the change",
+            "why_it_matters": "The usual reason to change a password is to lock out someone who has a session cookie. With this change, an attacker holding a cookie keeps full UI access, including Radarr/Sonarr control and settings, after the victim changes the password. The password-reset path still rotates (routes.py:1941), so the two flows now behave differently."
+          },
+          {
+            "agent_confidence": 90,
+            "category": "breaking-api",
+            "current_code": "return templates.TemplateResponse(\n        request=request,\n        name=\"partials/security_password.html\",\n        context={\"success\": \"Password updated\"},\n    )",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "revert the removal; if the change is intentional, the tests and the stated security promise must be deliberately retired",
+            "id": "impact-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1581,
+            "problem": "These tests assert the old behaviour and will fail: tests/test_auth_routes.py:604 (asserts the persisted session_secret differs from the original), :641 (asserts a Set-Cookie triggarr_session that validates under the rotated secret), :677 (asserts another device's cookie no longer validates), and tests/test_auth_integration.py:183 (asserts the cookie from before the change is rejected). With no rotation, the persisted secret equals _TEST_SESSION_SECRET and no cookie is set.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Removal breaks four existing tests that assert rotation, cookie re-issue and eviction of other devices",
+            "why_it_matters": "`pytest tests/ -x` will fail, which blocks the deep-review correctness gate in CLAUDE.md. The tests encode a documented trust requirement ('changing the password must evict all existing sessions')."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\"agent\":\"impact\",\"findings\":[{\"id\":\"impact-001\",\"file\":\"triggarr/web/routes.py\",\"line\":1567,\"title\":\"Password change no longer rotates session_secret, so hijacked sessions survive the change\",\"category\":\"blast-radius\",\"cwe\":\"CWE-613\",\"severity\":\"high\",\"agent_confidence\":92,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The diff removes the generate_session_secret() rotation from change_password. Session cookies are a TimestampSigner over the username only (triggarr/auth.py:79-94, validate_session at :97-114). They are not tied to the password hash or to any per-session nonce, and I found no other mechanism that ends sessions. After a password change, every cookie signed under the old secret still passes validate_session in middleware (triggarr/web/middleware.py:146). The sliding refresh at middleware.py:197 then re-signs it under the same unchanged secret, so a stolen cookie can stay valid indefinitely.\",\"current_code\":\"new_auth = current_settings.auth.model_copy(update={\\\"password_hash\\\": SecretStr(new_hash)})\",\"fix_hint\":\"restore session_secret rotation in change_password and re-issue the acting user's cookie under the new secret, matching the reset_confirm flow at routes.py:1941-2011\",\"why_it_matters\":\"The usual reason to change a password is to lock out someone who has a session cookie. With this change, an attacker holding a cookie keeps full UI access, including Radarr/Sonarr control and settings, after the victim changes the password. The password-reset path still rotates (routes.py:1941), so the two flows now behave differently.\",\"silenced_marker_nearby\":false},{\"id\":\"impact-002\",\"file\":\"triggarr/web/routes.py\",\"line\":1581,\"title\":\"Removal breaks four existing tests that assert rotation, cookie re-issue and eviction of other devices\",\"category\":\"breaking-api\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":90,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"These tests assert the old behaviour and will fail: tests/test_auth_routes.py:604 (asserts the persisted session_secret differs from the original), :641 (asserts a Set-Cookie triggarr_session that validates under the rotated secret), :677 (asserts another device's cookie no longer validates), and tests/test_auth_integration.py:183 (asserts the cookie from before the change is rejected). With no rotation, the persisted secret equals _TEST_SESSION_SECRET and no cookie is set.\",\"current_code\":\"return templates.TemplateResponse(\\n        request=request,\\n        name=\\\"partials/security_password.html\\\",\\n        context={\\\"success\\\": \\\"Password updated\\\"},\\n    )\",\"fix_hint\":\"revert the removal; if the change is intentional, the tests and the stated security promise must be deliberately retired\",\"why_it_matters\":\"`pytest tests/ -x` will fail, which blocks the deep-review correctness gate in CLAUDE.md. The tests encode a documented trust requirement ('changing the password must evict all existing sessions').\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"What the diff does: it reverts the 'log out all other devices on password change' control in POST /settings/password (triggarr/web/routes.py:1522-1585). It drops the session_secret rotation, the re-issue of the acting user's cookie, and the audit log line 'Password changed; session secret rotated'.\",\"Replacement check: I found no control that does the same job. Cookies sign only username plus timestamp (auth.py:79-94). Nothing binds them to password_hash or keeps a server-side session list. The only other rotation point is the password-reset confirm flow (routes.py:1941-2011), which handles a different path. So the removal rule applies and no cap was used.\",\"Blast radius: every deployed instance with auth enabled. A compromised session now outlives a password change for up to COOKIE_MAX_AGE, and indefinitely with the sliding refresh in middleware.py:197. Other devices stay logged in after the change. Users who change their password expecting a full lockout of an attacker get no lockout.\",\"Side effects: the imports generate_session_secret, sign_session, COOKIE_MAX_AGE and is_secure_request are still used elsewhere in routes.py (setup at :1294, login at :1470, reset at :1941), so ruff will not flag them as unused. Losing the logger.info line removes the audit trail for password changes.\",\"Positive side of the change: users are no longer logged out by their own password change, and other devices stop being force-logged-out. If that is the product goal, it needs a different mechanism, for example a per-user session generation counter that also invalidates other sessions, not removal of eviction.\",\"No schema or migration change. The persisted TOML shape is unchanged (session_secret simply stays the same). No performance impact.\",\"Verdict: blocking. This is a session-invalidation regression (CWE-613), and it also breaks four existing tests. Revert unless removing the 'evict other sessions on password change' guarantee is an explicit product decision.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_016mV9N7NgzngTpKZWJSCrKy"
+    },
+    {
+      "parsed": {
+        "agent": "compliance",
+        "agent_notes": [
+          "reset_confirm_post's comments (lines ~1848, 1926, 1982, 1990) explicitly claim to mirror change_password's rotation/refresh behavior; after this diff those comments are now inaccurate and should be updated if the removal is intentional.",
+          "No &lt;intent-context&gt; (PLAN.md/SPEC.md) was supplied for this review; the STATE.md excerpt quoted above is project planning documentation found in-repo, not a provided intent-context block, so intent_doc_match was left null per the scoring rules."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 88,
+            "category": "rule-violation",
+            "current_code": "new_auth = current_settings.auth.model_copy(update={\"password_hash\": SecretStr(new_hash)})",
+            "cwe": "CWE-613",
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "Restore the session_secret rotation + cookie re-issuance block (generate_session_secret, SecretStr(new_session_secret), re-sign and set_cookie for the acting user) so change_password again matches the pattern reset_confirm_post documents itself as mirroring.",
+            "id": "compliance-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 1567,
+            "problem": "Root CLAUDE.md: 'Everything else — style, structure, architecture — yields to the existing codebase's conventions: before introducing a new pattern, check how the same problem is solved elsewhere in the repo and follow that.' The diff deletes session_secret rotation and cookie re-issuance from change_password (triggarr/web/routes.py:1522-1585), reverting commit 0866332 'fix(auth): rotate session secret on password change to evict other sessions'. The same file's reset_confirm_post (lines 1846-2012) still performs this rotation and its own docstring/comments explicitly describe the two handlers as mirrors: 'token-validated apply path mirroring change_password (D-08..D-13)', 'proceed with apply in change_password's exact order (D-10)', and 'Post-lock refresh chain (D-11) — mirrors change_password lines 1468-1470'. .planning/STATE.md (v2.10 cross-cutting notes) also records: 'Track A's reset-confirm session rotation reuses the v2.8.1 change_password rotation pattern.' The diff leaves change_password solving the identical problem (credential change invalidating stale sessions) differently from, and now inconsistently with, the convention it was the origin of.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "change_password drops documented session-secret rotation, diverging from reset_confirm_post's mirrored pattern",
+            "why_it_matters": "A user who changes their password specifically because a session may be compromised no longer gets their other devices' sessions invalidated — the exact threat model the original commit and the reset-confirm docstring describe — while the sibling reset flow still provides that guarantee, leaving an inconsistent and weaker security posture between two credential-change paths in the same file."
+          }
+        ]
+      },
+      "raw_return_text": "I have what I need from the earlier `Read` call. Compiling the finding now.\n\n```json\n{\"agent\":\"compliance\",\"findings\":[{\"id\":\"compliance-001\",\"file\":\"triggarr/web/routes.py\",\"line\":1567,\"title\":\"change_password drops documented session-secret rotation, diverging from reset_confirm_post's mirrored pattern\",\"category\":\"rule-violation\",\"cwe\":\"CWE-613\",\"severity\":\"high\",\"agent_confidence\":88,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Root CLAUDE.md: 'Everything else — style, structure, architecture — yields to the existing codebase's conventions: before introducing a new pattern, check how the same problem is solved elsewhere in the repo and follow that.' The diff deletes session_secret rotation and cookie re-issuance from change_password (triggarr/web/routes.py:1522-1585), reverting commit 0866332 'fix(auth): rotate session secret on password change to evict other sessions'. The same file's reset_confirm_post (lines 1846-2012) still performs this rotation and its own docstring/comments explicitly describe the two handlers as mirrors: 'token-validated apply path mirroring change_password (D-08..D-13)', 'proceed with apply in change_password's exact order (D-10)', and 'Post-lock refresh chain (D-11) — mirrors change_password lines 1468-1470'. .planning/STATE.md (v2.10 cross-cutting notes) also records: 'Track A's reset-confirm session rotation reuses the v2.8.1 change_password rotation pattern.' The diff leaves change_password solving the identical problem (credential change invalidating stale sessions) differently from, and now inconsistently with, the convention it was the origin of.\",\"current_code\":\"new_auth = current_settings.auth.model_copy(update={\\\"password_hash\\\": SecretStr(new_hash)})\",\"fix_hint\":\"Restore the session_secret rotation + cookie re-issuance block (generate_session_secret, SecretStr(new_session_secret), re-sign and set_cookie for the acting user) so change_password again matches the pattern reset_confirm_post documents itself as mirroring.\",\"why_it_matters\":\"A user who changes their password specifically because a session may be compromised no longer gets their other devices' sessions invalidated — the exact threat model the original commit and the reset-confirm docstring describe — while the sibling reset flow still provides that guarantee, leaving an inconsistent and weaker security posture between two credential-change paths in the same file.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"reset_confirm_post's comments (lines ~1848, 1926, 1982, 1990) explicitly claim to mirror change_password's rotation/refresh behavior; after this diff those comments are now inaccurate and should be updated if the removal is intentional.\",\"No &lt;intent-context&gt; (PLAN.md/SPEC.md) was supplied for this review; the STATE.md excerpt quoted above is project planning documentation found in-repo, not a provided intent-context block, so intent_doc_match was left null per the scoring rules.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:compliance",
+      "tool_use_id": "toolu_01DwrpQiYYHAH9BzHTuB726G"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "Diff only removes code (session-secret rotation branch in change_password); no new mutable-default, bare-except, is-vs-eq, type-hint, context-manager, or perf issues introduced. Verified generate_session_secret, sign_session, COOKIE_MAX_AGE, SecretStr, is_secure_request imports remain used elsewhere in routes.py (e.g. login_post and the password-reset flow around line 1941), so no unused-import/ruff F401 fallout from this removal. The behavioral change itself (password change no longer invalidates other sessions) is a security/architecture concern outside this agent's Python-pitfall scope."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"language-python\",\"findings\":[],\"agent_notes\":[\"Diff only removes code (session-secret rotation branch in change_password); no new mutable-default, bare-except, is-vs-eq, type-hint, context-manager, or perf issues introduced. Verified generate_session_secret, sign_session, COOKIE_MAX_AGE, SecretStr, is_secure_request imports remain used elsewhere in routes.py (e.g. login_post and the password-reset flow around line 1941), so no unused-import/ruff F401 fallout from this removal. The behavioral change itself (password change no longer invalidates other sessions) is a security/architecture concern outside this agent's Python-pitfall scope.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01VBVjUFKAonxJyFyAHUz8gR"
+    },
+    {
+      "parsed": {
+        "agent": "framework-fastapi",
+        "agent_notes": [
+          "Diff removes session_secret rotation + cookie re-issuance from POST /settings/password (change_password, triggarr/web/routes.py ~1564-1585), reverting the fix for a previously-documented finding (reports/security-2026-04-15.md SHIELD-008, CWE-613: sessions not invalidated on password change). Verified no dangling references or unused imports result (generate_session_secret/sign_session/COOKIE_MAX_AGE/is_secure_request remain used in login_post and the sibling reset_confirm_post, which still performs the rotation at routes.py:1937-1967 — so this change also creates a behavioral inconsistency between the two sibling password-change paths). This is a generic session-management/auth regression, not a FastAPI-mechanism defect (equally wrong in any framework), so it's out of this agent's lane — flagging for security/bugs to pick up, not reporting as a framework-fastapi finding."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"framework-fastapi\",\"findings\":[],\"agent_notes\":[\"Diff removes session_secret rotation + cookie re-issuance from POST /settings/password (change_password, triggarr/web/routes.py ~1564-1585), reverting the fix for a previously-documented finding (reports/security-2026-04-15.md SHIELD-008, CWE-613: sessions not invalidated on password change). Verified no dangling references or unused imports result (generate_session_secret/sign_session/COOKIE_MAX_AGE/is_secure_request remain used in login_post and the sibling reset_confirm_post, which still performs the rotation at routes.py:1937-1967 — so this change also creates a behavioral inconsistency between the two sibling password-change paths). This is a generic session-management/auth regression, not a FastAPI-mechanism defect (equally wrong in any framework), so it's out of this agent's lane — flagging for security/bugs to pick up, not reporting as a framework-fastapi finding.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:framework-fastapi",
+      "tool_use_id": "toolu_01Wy4jummaQcsAmaZhQcV2tc"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "Do not ship: password changes no longer revoke compromised sessions."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 100,
+            "category": "adversarial",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Preserve rejection of all pre-change cookies.",
+            "id": "codex-001",
+            "intent_doc_match": null,
+            "line": 1567,
+            "problem": "Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: AuthMiddleware accepts the cookie at triggarr/web/middleware.py:145–148, and validate_session checks only its signature and age, not the password hash. Access persists until the cookie's original 30-day expiry. The removed rotation explicitly prevented this; no replacement revocation runs on this path. The existing test_password_change_invalidates_old_sessions regression test asserts the protection this change removes.",
+            "severity": "high",
+            "title": "Stolen session cookies retain access after password changes",
+            "why_it_matters": "Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: AuthMiddleware accepts the cookie at triggarr/web/middleware.py:145–148, and validate_session checks only its signature and age, not the password hash. Access persists until the cookie's original 30-day expiry. The removed rotation explicitly prevented this; no replacement revocation runs on this path. The existing test_password_change_invalidates_old_sessions regression test asserts the protection this change removes."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [{\"id\": \"codex-001\", \"file\": \"triggarr/web/routes.py\", \"line\": 1567, \"title\": \"Stolen session cookies retain access after password changes\", \"category\": \"adversarial\", \"cwe\": null, \"severity\": \"high\", \"agent_confidence\": 100, \"problem\": \"Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: AuthMiddleware accepts the cookie at triggarr/web/middleware.py:145\\u2013148, and validate_session checks only its signature and age, not the password hash. Access persists until the cookie's original 30-day expiry. The removed rotation explicitly prevented this; no replacement revocation runs on this path. The existing test_password_change_invalidates_old_sessions regression test asserts the protection this change removes.\", \"why_it_matters\": \"Updating only password_hash preserves the existing session_secret. An attacker holding a pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: AuthMiddleware accepts the cookie at triggarr/web/middleware.py:145\\u2013148, and validate_session checks only its signature and age, not the password hash. Access persists until the cookie's original 30-day expiry. The removed rotation explicitly prevented this; no replacement revocation runs on this path. The existing test_password_change_invalidates_old_sessions regression test asserts the protection this change removes.\", \"fix_hint\": \"Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Preserve rejection of all pre-change cookies.\", \"intent_doc_match\": null}], \"agent_notes\": [\"Do not ship: password changes no longer revoke compromised sessions.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01HwNXPsjgx9DewsX9xrc38y"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 8,
+  "unrecovered": []
+}
