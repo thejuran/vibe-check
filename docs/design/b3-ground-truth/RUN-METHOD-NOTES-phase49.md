@@ -106,6 +106,7 @@ and a reverted fix as `ship-revert: <40-hex revert sha> (revert of R=<40-hex>)`.
 gate and 49-09's pre-flight parse these COMMITTED lines, never a SUMMARY.
 
 fix-class: PROMPT — templates/codex-focus.txt: one calibration rule for backlog class 999.19 (a), a new setting declared but not yet read by runtime code is staged work (quiet note), targeting the should-quiet-6 Codex-led residual (diagnosis: SCORING-v2.11-phase49.md §6; scope: runs-v2.11-phase49/retune/FIX-SCOPE.json; awaiting owner decision, no fix authored)
+retune: declined by owner (fix-class PROMPT, 2026-10-07T12:41:00-0400; first-pass verdict MISS stands)
 
 ## Sessions
 
