@@ -85,6 +85,7 @@ which no measured label ever reads. The `preflight` block re-derives the snapsho
 `MANIFEST.json`; this line is the human-readable record of which commit was measured.
 
 rehearsal-snapshot: batch7 9e095611c719e18cc8cdaa3af4c73e1f9f00ed50 /Users/julianamacbook/.vibe-check-snapshots/batch7-9e095611c719
+snapshot: batch7 e6eafbd3b8c4242064997f82fad5edd058d65a1c /Users/julianamacbook/.vibe-check-snapshots/batch7-e6eafbd3b8c4
 
 ## Retune
 
