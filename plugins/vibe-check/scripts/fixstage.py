@@ -1480,7 +1480,10 @@ def _silence_stdout():
 
     Per the Python docs' "Note on SIGPIPE": redirect the remaining output to
     devnull so the interpreter's shutdown flush cannot fail and turn the exit
-    status into 120.
+    status into 120. Never raises: it runs inside `_emit_result`'s failure
+    path after the commit may be published, where a stdout of None (no
+    `fileno`) or an interrupt during the redirect must not escape and turn a
+    published commit into `refused` exit 1.
     """
     try:
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -1488,7 +1491,7 @@ def _silence_stdout():
             os.dup2(devnull, sys.stdout.fileno())
         finally:
             os.close(devnull)
-    except (OSError, ValueError):
+    except BaseException:  # no usable descriptor, or interrupted
         pass  # nowhere left to report to; the exit code carries the result
 
 

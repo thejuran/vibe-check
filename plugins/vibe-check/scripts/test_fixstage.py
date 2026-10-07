@@ -1912,9 +1912,73 @@ class TestDiagFallback(unittest.TestCase):
         # The fallback narrowed back to (OSError, ValueError): every stream
         # above escapes _diag, so the broad fallback is load-bearing.
         mutant = _mutant_module((
+            "sys.stderr.fileno())\n"
+            "        finally:\n"
+            "            os.close(devnull)\n"
             "    except BaseException:  # no usable descriptor, or interrupted\n",
+            "sys.stderr.fileno())\n"
+            "        finally:\n"
+            "            os.close(devnull)\n"
             "    except (OSError, ValueError):\n"))
         self.assertEqual(len(self._diag_raised(mutant)), len(self.STREAMS))
+
+
+class TestSilenceStdout(unittest.TestCase):
+    """`_silence_stdout` never raises: it runs in `_emit_result`'s failure path
+    after the commit may be published, so a stdout of None (fd 1 closed), a
+    stream without a usable descriptor, or an interrupt during dup2 must not
+    escape and turn a published commit into `refused` exit 1."""
+
+    CASES = (
+        ("stdout is None", lambda: None, None),
+        ("fileno raises KeyboardInterrupt",
+         lambda: _InterruptingStderr(fileno_raises=KeyboardInterrupt), None),
+        ("dup2 raises KeyboardInterrupt",
+         lambda: _InterruptingStderr(fileno_raises=None), _keyboardinterrupt),
+    )
+
+    def _silence_raised(self, module):
+        raised = []
+        for name, make, dup2 in self.CASES:
+            stream = make()
+            if dup2 is not None:
+                stream.fileno = lambda: 1  # a descriptor; dup2 itself is faulted
+            patches = [mock.patch.object(sys, "stdout", stream)]
+            if dup2 is not None:
+                patches.append(mock.patch.object(module.os, "dup2", dup2))
+            with contextlib.ExitStack() as stack:
+                for p in patches:
+                    stack.enter_context(p)
+                try:
+                    module._silence_stdout()
+                except BaseException as exc:  # recorded, never re-raised
+                    raised.append("%s: %s" % (name, type(exc).__name__))
+        return raised
+
+    def test_silence_stdout_survives_every_unusable_stdout(self):
+        self.assertEqual(self._silence_raised(fixstage), [])
+
+    def test_emit_result_with_none_stdout_replays_and_does_not_raise(self):
+        err = io.StringIO()
+        with mock.patch.object(sys, "stdout", None), \
+                mock.patch.object(sys, "stderr", err):
+            ok = fixstage._emit_result(["committed: SENTINEL_SHA"])
+        self.assertFalse(ok)
+        self.assertIn("SENTINEL_SHA", err.getvalue())
+
+    def test_mutant_narrow_fallback_lets_the_failure_escape(self):
+        # The fallback narrowed back to (OSError, ValueError): every case
+        # above escapes _silence_stdout, so the broad fallback is load-bearing.
+        mutant = _mutant_module((
+            "sys.stdout.fileno())\n"
+            "        finally:\n"
+            "            os.close(devnull)\n"
+            "    except BaseException:  # no usable descriptor, or interrupted\n",
+            "sys.stdout.fileno())\n"
+            "        finally:\n"
+            "            os.close(devnull)\n"
+            "    except (OSError, ValueError):\n"))
+        self.assertEqual(len(self._silence_raised(mutant)), len(self.CASES))
 
 
 class TestPostPublishFaults(CommitCase):
