@@ -1,0 +1,82 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-10-07T11:17:52Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted working tree)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "cancel_download treats 404 (transfer already gone/completed) as a hard 'unavailable' failure",
+          "reason": "absorbed-into: b91808adb7f91337d76588ed775d18b4f21854c01f3b836f4b58b21f647619ee"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Cancel failures raise TransferEnqueueError, an enqueue-named error type",
+          "reason": "absorbed-into: ff494be64a4c9f859bbf695aa05a3d5295ce4cbda737bec9058991337be4e049"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "An empty success_statuses set silently falls back to {200, 201}",
+          "reason": "absorbed-into: ff494be64a4c9f859bbf695aa05a3d5295ce4cbda737bec9058991337be4e049"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 261,
+          "title": "Cancel failures are raised as TransferEnqueueError, so callers cannot tell them apart from enqueue or poll failures",
+          "reason": "absorbed-into: ff494be64a4c9f859bbf695aa05a3d5295ce4cbda737bec9058991337be4e049"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "Empty success_statuses set silently falls back to {200,201}",
+          "reason": "absorbed-into: ff494be64a4c9f859bbf695aa05a3d5295ce4cbda737bec9058991337be4e049"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancelling a transfer that is already gone (404) raises an 'unavailable' error instead of succeeding",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses defaulted via truthy `or`, so an empty set silently falls back to {200, 201}",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 204,
+          "title": "New DELETE cancel capability \u2014 caller-side authz/ownership check not in view",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 139,
+          "title": "SlskdTransferClient docstring still says it exposes only POST enqueue and GET status",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
