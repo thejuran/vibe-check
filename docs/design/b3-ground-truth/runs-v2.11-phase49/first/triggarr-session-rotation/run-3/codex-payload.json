@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1162a-ceda-7082-8c0e-b7d852b5c2e2",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen session cookies remain usable after password changes\",\"body\":\"Updating only password_hash preserves session_secret both in memory and on disk. AuthMiddleware (triggarr/web/middleware.py:144–148) accepts cookies using that secret, and validate_session checks only the signature and 30-day expiry, not the password hash. An attacker holding a pre-change cookie therefore retains authenticated access after the owner changes their password, including after restart. The removed rotation previously revoked that access; no replacement revocation guards this path.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1.0,\"recommendation\":\"Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Verify the existing rotation, cookie-reissue, and other-device eviction tests in tests/test_auth_routes.py pass.\"}],\"next_steps\":[\"Restore revocation and run the password-change regression tests.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: password changes no longer revoke compromised sessions.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Stolen session cookies remain usable after password changes",
+        "body": "Updating only password_hash preserves session_secret both in memory and on disk. AuthMiddleware (triggarr/web/middleware.py:144–148) accepts cookies using that secret, and validate_session checks only the signature and 30-day expiry, not the password hash. An attacker holding a pre-change cookie therefore retains authenticated access after the owner changes their password, including after restart. The removed rotation previously revoked that access; no replacement revocation guards this path.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 1567,
+        "line_end": 1567,
+        "confidence": 1,
+        "recommendation": "Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Verify the existing rotation, cookie-reissue, and other-device eviction tests in tests/test_auth_routes.py pass."
+      }
+    ],
+    "next_steps": [
+      "Restore revocation and run the password-change regression tests."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen session cookies remain usable after password changes\",\"body\":\"Updating only password_hash preserves session_secret both in memory and on disk. AuthMiddleware (triggarr/web/middleware.py:144–148) accepts cookies using that secret, and validate_session checks only the signature and 30-day expiry, not the password hash. An attacker holding a pre-change cookie therefore retains authenticated access after the owner changes their password, including after restart. The removed rotation previously revoked that access; no replacement revocation guards this path.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1.0,\"recommendation\":\"Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Verify the existing rotation, cookie-reissue, and other-device eviction tests in tests/test_auth_routes.py pass.\"}],\"next_steps\":[\"Restore revocation and run the password-change regression tests.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
