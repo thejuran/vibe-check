@@ -1,0 +1,29 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1148b-d04c-70d0-ad55-3748220d2953",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"approve\",\"summary\":\"No substantive defect found in the working tree diff. The added checks block the targeted address classes while preserving private-network URLs. All 48 validation tests pass.\",\"findings\":[],\"next_steps\":[]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "approve",
+    "summary": "No substantive defect found in the working tree diff. The added checks block the targeted address classes while preserving private-network URLs. All 48 validation tests pass.",
+    "findings": [],
+    "next_steps": []
+  },
+  "rawOutput": "{\"verdict\":\"approve\",\"summary\":\"No substantive defect found in the working tree diff. The added checks block the targeted address classes while preserving private-network URLs. All 48 validation tests pass.\",\"findings\":[],\"next_steps\":[]}",
+  "parseError": null,
+  "reasoningSummary": []
+}

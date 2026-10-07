@@ -1,0 +1,65 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-07T04:17:15Z",
+      "mode": "deep",
+      "diff_range": "working-tree (uncommitted vs HEAD)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Other IP encodings still reach loopback: IPv4-compatible, NAT64, 6to4, numeric/short IPv4, localhost",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check skips BLOCKED_HOSTS so ::ffff:100.100.100.200 still passes",
+          "reason": "absorbed-into: 18c69fdccddee7931acfd2d11bf61c9cd766ce98db73a3bcc918629ceb670c20"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Only IPv4-mapped IPv6 is unwrapped; IPv4-compatible, 6to4 and NAT64 embeddings are not",
+          "reason": "absorbed-into: 18c69fdccddee7931acfd2d11bf61c9cd766ce98db73a3bcc918629ceb670c20"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Shorthand IPv4 loopback forms such as 127.1 and 2130706433 skip the block check",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Deprecated IPv4-compatible IPv6 literal (e.g. ::127.0.0.1) still bypasses loopback/link-local block",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 77,
+          "title": "Hardcoded BLOCKED_HOSTS string list bypassable via alternate IP encodings (e.g. IPv6-mapped Alibaba metadata IP)",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
