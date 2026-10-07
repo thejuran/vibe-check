@@ -1,0 +1,64 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-10-07T11:09:27Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 207,
+          "title": "quote() raises TypeError if transfer_id is not a string",
+          "reason": "absorbed-into: 6623a93dd606d3c9cc85a12b996674ac3fc12a9315411ec486103f5a41e7523e"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 208,
+          "title": "DELETE without remove=true leaves the cancelled transfer in slskd's download list, so polling still sees it",
+          "reason": "absorbed-into: 6623a93dd606d3c9cc85a12b996674ac3fc12a9315411ec486103f5a41e7523e"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancelling a transfer slskd no longer has (404) raises an 'unavailable' error",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 209,
+          "title": "cancel_download treats 404 (transfer already gone or finished) as a hard 'unavailable' failure, so retrying a cancel is not safe",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 136,
+          "title": "Class docstring still says the client exposes only POST and GET; it now also issues DELETE",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "`or`-based Optional fallback treats an explicit empty set as None",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
