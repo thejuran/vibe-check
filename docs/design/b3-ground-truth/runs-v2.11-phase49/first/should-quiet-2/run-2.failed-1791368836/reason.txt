@@ -1,0 +1,1 @@
+unplanned Migration card (phases/review/07-first-run.md step 3 fired although .turingmind/ exists; pre-existing since 2.10.0); stopped at the card, nothing answered, no state file written; owner decision: fail and redo the slot
