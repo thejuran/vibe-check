@@ -707,6 +707,23 @@ class CommitCase(FixstageCase):
         _, err = proc.communicate(timeout=120)
         return Result(proc.returncode, "", err)
 
+    def cli_closed_stderr(self, *args, script=None, extra_env=None):
+        """The real CLI with stdout captured and stderr = a pipe whose read
+        end is closed BEFORE spawn: every flush to stderr gets EPIPE."""
+        env = gitfixture.helper_env()
+        if extra_env:
+            env.update(extra_env)
+        r, w = os.pipe()
+        os.close(r)
+        try:
+            proc = subprocess.Popen([sys.executable, script or FIXSTAGE]
+                                    + list(args), stdout=subprocess.PIPE,
+                                    stderr=w, text=True, env=env)
+        finally:
+            os.close(w)
+        out, _ = proc.communicate(timeout=120)
+        return Result(proc.returncode, out, "")
+
     def cli_closed_both(self, *args, script=None, extra_env=None):
         """The real CLI with stdout AND stderr on one pipe whose read end is
         closed BEFORE spawn: every flush to either stream gets EPIPE."""
@@ -1035,6 +1052,47 @@ class TestCommit(CommitCase):
             return self.cli_closed_both(*args, script=script,
                                         extra_env={"PYTHONPATH": SCRIPTS_DIR})
         res, _ = self.fix_flow(self.fix30, runner=runner)
+        self.assertEqual(res.returncode, 120)
+
+    def _timeout_script(self, buffered, *extra):
+        """fixstage with the post-commit hook timing out (and, when
+        `buffered`, stderr switched to block buffering just before the
+        diagnostic), plus any `extra` (old, new) replacements."""
+        inject = '    """post-commit, rc ignored exactly as `git commit` ignores it."""\n'
+        added = '        raise subprocess.TimeoutExpired("git hook run post-commit", 0)\n'
+        if buffered:
+            added = ('        sys.stderr.reconfigure(line_buffering=False)\n'
+                     + added)
+        return self.mutated_script(
+            (inject + "    try:\n", inject + "    try:\n" + added), *extra)
+
+    def _timeout_run(self, script):
+        def runner(*args):
+            return self.cli_closed_stderr(*args, script=script,
+                                          extra_env={"PYTHONPATH": SCRIPTS_DIR})
+        pre = self.rev()
+        res, _ = self.fix_flow(self.fix30, runner=runner)
+        return pre, res
+
+    def test_a3h4_post_commit_timeout_with_closed_stderr_keeps_the_outcome(self):
+        # The post-commit timeout diagnostic on a closed stderr, line- and
+        # block-buffered: the published commit still exits 0 with its sha on
+        # stdout, never `published-unverified` 8 or the shutdown-flush 120.
+        for buffered in (False, True):
+            with self.subTest(buffered=buffered):
+                self.setUp_fresh()
+                pre, res = self._timeout_run(self._timeout_script(buffered))
+                self.assertEqual(res.returncode, 0, buffered)
+                self.assertEqual(self.rev("HEAD^"), pre)
+                self.assertEqual(self.sha_of(res), self.rev())
+
+    def test_a3h5_mutant_without_the_diag_flush_exits_120(self):
+        # With _diag's flush removed, the block-buffered timeout diagnostic
+        # sits in the buffer and fails at shutdown: the flush is load-bearing.
+        script = self._timeout_script(True, (
+            "        sys.stderr.write(text)\n        sys.stderr.flush()\n",
+            "        sys.stderr.write(text)\n"))
+        _, res = self._timeout_run(script)
         self.assertEqual(res.returncode, 120)
 
     def _m1_mutant(self):
@@ -1806,6 +1864,57 @@ class TestBaseBinding(CommitCase):
 
 def _oserror_post_commit(*a, **k):
     raise OSError("SENTINEL_after_publish")
+
+
+class _InterruptingStderr:
+    """A replaced stderr whose write raises KeyboardInterrupt; it has no
+    `fileno` unless `fileno_raises` is set, in which case `fileno` raises it."""
+
+    def __init__(self, fileno_raises=None):
+        if fileno_raises is not None:
+            def fileno():
+                raise fileno_raises()
+            self.fileno = fileno
+
+    def write(self, text):
+        raise KeyboardInterrupt()
+
+    def flush(self):
+        pass
+
+
+class TestDiagFallback(unittest.TestCase):
+    """`_diag` never raises, even when its devnull fallback cannot reach a
+    descriptor (a replaced stream, or an interrupt during the redirect)."""
+
+    STREAMS = (
+        ("no fileno", lambda: _InterruptingStderr()),
+        ("fileno raises KeyboardInterrupt",
+         lambda: _InterruptingStderr(fileno_raises=KeyboardInterrupt)),
+        ("fileno raises RuntimeError",
+         lambda: _InterruptingStderr(fileno_raises=RuntimeError)),
+    )
+
+    def _diag_raised(self, module):
+        raised = []
+        for name, make in self.STREAMS:
+            with mock.patch.object(sys, "stderr", make()):
+                try:
+                    module._diag("x\n")
+                except BaseException as exc:  # recorded, never re-raised
+                    raised.append("%s: %s" % (name, type(exc).__name__))
+        return raised
+
+    def test_diag_survives_a_stderr_without_a_usable_descriptor(self):
+        self.assertEqual(self._diag_raised(fixstage), [])
+
+    def test_mutant_narrow_fallback_lets_the_failure_escape(self):
+        # The fallback narrowed back to (OSError, ValueError): every stream
+        # above escapes _diag, so the broad fallback is load-bearing.
+        mutant = _mutant_module((
+            "    except BaseException:  # no usable descriptor, or interrupted\n",
+            "    except (OSError, ValueError):\n"))
+        self.assertEqual(len(self._diag_raised(mutant)), len(self.STREAMS))
 
 
 class TestPostPublishFaults(CommitCase):
