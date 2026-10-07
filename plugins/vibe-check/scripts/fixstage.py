@@ -1296,11 +1296,15 @@ def _hook_changed_targets(root, base, new, before):
 
 def _diag(text):
     """Best-effort stderr line on the post-publication path. The exit code and
-    stdout carry the result; a broken stderr has no other channel."""
+    stdout carry the result; a broken stderr has no other channel. The write is
+    flushed inside the guard, and a failure points fd 2 at devnull, so bytes
+    left in the stderr buffer cannot fail the interpreter's shutdown flush and
+    turn the exit code into 120."""
     try:
         sys.stderr.write(text)
+        sys.stderr.flush()
     except BaseException:  # nowhere left to report
-        pass
+        _silence_stderr()
 
 
 def _published_outcome(new, verified, changed, known):
@@ -1482,6 +1486,19 @@ def _silence_stdout():
         devnull = os.open(os.devnull, os.O_WRONLY)
         try:
             os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError):
+        pass  # nowhere left to report to; the exit code carries the result
+
+
+def _silence_stderr():
+    """Point fd 2 at os.devnull after a failed write to stderr (the stderr twin
+    of `_silence_stdout`)."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stderr.fileno())
         finally:
             os.close(devnull)
     except (OSError, ValueError):
