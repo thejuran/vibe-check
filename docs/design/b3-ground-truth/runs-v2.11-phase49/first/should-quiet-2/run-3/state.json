@@ -1,0 +1,41 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-10-07T10:40:28Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "Frontend config set still sends GET to an endpoint the backend now accepts only as POST",
+          "reason": "absorbed-into: ad24d4d648b5591a5e2fe868dcb44df3a586e7f0a1549d276d71653c9b4e1c44"
+        },
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "Config set still sends GET with the value in the URL path although the backend route was moved to POST",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
