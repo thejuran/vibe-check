@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a11619-ceaa-7be3-98be-fa3cfd45a6d2",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen session cookies retain access after password changes\",\"body\":\"Updating only password_hash preserves the session signing secret. An attacker can replay a previously stolen triggarr_session cookie after the owner changes their password: AuthMiddleware (triggarr/web/middleware.py:144–148) accepts it using validate_session, which checks only the signature and 30-day expiry, never the password hash. Removing secret rotation therefore preserves attacker access for the cookie’s remaining lifetime. Existing session-eviction tests explicitly require the opposite behavior.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1,\"recommendation\":\"Restore atomic password-hash and session-secret rotation, and reissue the acting user's cookie using the new secret. Preserve the existing session-eviction assertions.\"}],\"next_steps\":[\"Restore revocation and run the password-change tests in tests/test_auth_routes.py and tests/test_auth_integration.py.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: password changes no longer revoke compromised sessions.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Stolen session cookies retain access after password changes",
+        "body": "Updating only password_hash preserves the session signing secret. An attacker can replay a previously stolen triggarr_session cookie after the owner changes their password: AuthMiddleware (triggarr/web/middleware.py:144–148) accepts it using validate_session, which checks only the signature and 30-day expiry, never the password hash. Removing secret rotation therefore preserves attacker access for the cookie’s remaining lifetime. Existing session-eviction tests explicitly require the opposite behavior.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 1567,
+        "line_end": 1567,
+        "confidence": 1,
+        "recommendation": "Restore atomic password-hash and session-secret rotation, and reissue the acting user's cookie using the new secret. Preserve the existing session-eviction assertions."
+      }
+    ],
+    "next_steps": [
+      "Restore revocation and run the password-change tests in tests/test_auth_routes.py and tests/test_auth_integration.py."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen session cookies retain access after password changes\",\"body\":\"Updating only password_hash preserves the session signing secret. An attacker can replay a previously stolen triggarr_session cookie after the owner changes their password: AuthMiddleware (triggarr/web/middleware.py:144–148) accepts it using validate_session, which checks only the signature and 30-day expiry, never the password hash. Removing secret rotation therefore preserves attacker access for the cookie’s remaining lifetime. Existing session-eviction tests explicitly require the opposite behavior.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1,\"recommendation\":\"Restore atomic password-hash and session-secret rotation, and reissue the acting user's cookie using the new secret. Preserve the existing session-eviction assertions.\"}],\"next_steps\":[\"Restore revocation and run the password-change tests in tests/test_auth_routes.py and tests/test_auth_integration.py.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
