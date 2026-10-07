@@ -1255,7 +1255,7 @@ def _run_post_commit(root):
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                        timeout=HOOK_TIMEOUT)
     except subprocess.TimeoutExpired:
-        sys.stderr.write("commit: the post-commit hook timed out\n")
+        _diag("commit: the post-commit hook timed out\n")
 
 
 def _hook_changed_targets(root, base, new, before):
@@ -1494,14 +1494,16 @@ def _silence_stdout():
 
 def _silence_stderr():
     """Point fd 2 at os.devnull after a failed write to stderr (the stderr twin
-    of `_silence_stdout`)."""
+    of `_silence_stdout`). Never raises: it runs inside `_diag`'s failure path,
+    where a replaced stream without a usable `fileno` or an interrupt during
+    the redirect must not escape and change the exit code."""
     try:
         devnull = os.open(os.devnull, os.O_WRONLY)
         try:
             os.dup2(devnull, sys.stderr.fileno())
         finally:
             os.close(devnull)
-    except (OSError, ValueError):
+    except BaseException:  # no usable descriptor, or interrupted
         pass  # nowhere left to report to; the exit code carries the result
 
 
