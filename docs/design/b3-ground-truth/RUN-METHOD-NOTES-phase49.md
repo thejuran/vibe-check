@@ -84,6 +84,8 @@ dress rehearsal records its own build once, in the form `rehearsal-snapshot: bat
 which no measured label ever reads. The `preflight` block re-derives the snapshot from its own
 `MANIFEST.json`; this line is the human-readable record of which commit was measured.
 
+rehearsal-snapshot: batch7 9e095611c719e18cc8cdaa3af4c73e1f9f00ed50 /Users/julianamacbook/.vibe-check-snapshots/batch7-9e095611c719
+
 ## Retune
 
 49-07 appends exactly one `retune:` line per phase, in one of these forms:
