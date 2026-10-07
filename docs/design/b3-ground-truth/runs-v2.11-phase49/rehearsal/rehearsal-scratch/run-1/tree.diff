@@ -1,0 +1,20 @@
+diff --git a/triggarr/db.py b/triggarr/db.py
+index fd713b6..542d58c 100644
+--- a/triggarr/db.py
++++ b/triggarr/db.py
+@@ -854,3 +854,15 @@ async def get_dashboard_stats(db: aiosqlite.Connection, *, instance_id: str | No
+         "albums_updated": albums_updated,
+         "avg_time_to_grab_seconds": avg_seconds,
+     }
++
++
++def count_history_for_item(db_path: Path, item_name: str) -> int:
++    """Return how many search_history rows name ``item_name``."""
++    conn = sqlite3.connect(db_path)
++    try:
++        row = conn.execute(
++            f"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'"
++        ).fetchone()
++    finally:
++        conn.close()
++    return int(row[0]) if row else 0

@@ -1,0 +1,324 @@
+{
+  "codex_lines": 1,
+  "dispatched": 7,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [],
+        "intent_docs_found": [
+          "CLAUDE.md"
+        ],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 12
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [],\n  \"total_lines\": 12,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": [\"CLAUDE.md\"]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01UZYbEBFKYShDhgFmrPqYHg"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "The connection is closed in a finally block, so the connection itself does not leak. The `if row` guard is unnecessary because COUNT(*) always returns a row, but it is harmless.",
+          "No callers of count_history_for_item exist in /Users/julianamacbook/triggarr/triggarr yet, so bugs-002 depends on how it is wired in later."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 92,
+            "category": "logic-error",
+            "current_code": "row = conn.execute(\n    f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"\n).fetchone()",
+            "cwe": "CWE-89",
+            "file": "triggarr/db.py",
+            "fix_hint": "use a parameterized query: conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,))",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 864,
+            "problem": "item_name is placed directly into the SQL text inside single quotes with an f-string. Item names are media titles from Radarr, Sonarr and Lidarr, and many contain apostrophes (\"Schindler's List\", \"Ocean's Eleven\", \"Grey's Anatomy\"). For a title like that, the quote closes the SQL string early, so sqlite3 raises OperationalError (syntax error) and the function throws instead of returning a count. A crafted title such as `x' OR '1'='1` gets past the filter and returns the count for every row in the table. The function catches nothing, so the error reaches the caller. The same problem is also a SQL injection (CWE-89), which breaks the project's rule to use parameterized queries only. Everything above is visible in the changed lines.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Item names containing an apostrophe make the query crash or return the wrong count, and the query is open to SQL injection",
+            "why_it_matters": "The count fails at runtime for common real titles, and crafted titles can change what the query returns."
+          },
+          {
+            "agent_confidence": 35,
+            "category": "error-handling",
+            "current_code": "def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\n    \"\"\"Return how many search_history rows name ``item_name``.\"\"\"\n    conn = sqlite3.connect(db_path)",
+            "cwe": null,
+            "file": "triggarr/db.py",
+            "fix_hint": "make it async and take the existing aiosqlite.Connection, matching the other db.py helpers",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 859,
+            "problem": "Every other database helper in triggarr/db.py is async and takes an aiosqlite.Connection. This new helper opens a blocking sqlite3 connection with the default 5s busy timeout. If it is called from a FastAPI route or a scheduler coroutine without asyncio.to_thread, it blocks the event loop while the scheduler is writing to the database. It also opens a second connection outside the app's shared aiosqlite connection. pending: confirm how callers use it (no caller exists in the repo yet).",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Synchronous sqlite3 call in a module that otherwise uses aiosqlite would block the event loop if called from async code",
+            "why_it_matters": "Blocking the event loop stalls web requests and scheduled jobs while the call waits."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"bugs\",\"findings\":[{\"id\":\"bugs-001\",\"file\":\"triggarr/db.py\",\"line\":864,\"title\":\"Item names containing an apostrophe make the query crash or return the wrong count, and the query is open to SQL injection\",\"category\":\"logic-error\",\"cwe\":\"CWE-89\",\"severity\":\"high\",\"agent_confidence\":92,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"item_name is placed directly into the SQL text inside single quotes with an f-string. Item names are media titles from Radarr, Sonarr and Lidarr, and many contain apostrophes (\\\"Schindler's List\\\", \\\"Ocean's Eleven\\\", \\\"Grey's Anatomy\\\"). For a title like that, the quote closes the SQL string early, so sqlite3 raises OperationalError (syntax error) and the function throws instead of returning a count. A crafted title such as `x' OR '1'='1` gets past the filter and returns the count for every row in the table. The function catches nothing, so the error reaches the caller. The same problem is also a SQL injection (CWE-89), which breaks the project's rule to use parameterized queries only. Everything above is visible in the changed lines.\",\"current_code\":\"row = conn.execute(\\n    f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"\\n).fetchone()\",\"fix_hint\":\"use a parameterized query: conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,))\",\"why_it_matters\":\"The count fails at runtime for common real titles, and crafted titles can change what the query returns.\",\"silenced_marker_nearby\":false},{\"id\":\"bugs-002\",\"file\":\"triggarr/db.py\",\"line\":859,\"title\":\"Synchronous sqlite3 call in a module that otherwise uses aiosqlite would block the event loop if called from async code\",\"category\":\"error-handling\",\"cwe\":null,\"severity\":\"low\",\"agent_confidence\":35,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Every other database helper in triggarr/db.py is async and takes an aiosqlite.Connection. This new helper opens a blocking sqlite3 connection with the default 5s busy timeout. If it is called from a FastAPI route or a scheduler coroutine without asyncio.to_thread, it blocks the event loop while the scheduler is writing to the database. It also opens a second connection outside the app's shared aiosqlite connection. pending: confirm how callers use it (no caller exists in the repo yet).\",\"current_code\":\"def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\\n    \\\"\\\"\\\"Return how many search_history rows name ``item_name``.\\\"\\\"\\\"\\n    conn = sqlite3.connect(db_path)\",\"fix_hint\":\"make it async and take the existing aiosqlite.Connection, matching the other db.py helpers\",\"why_it_matters\":\"Blocking the event loop stalls web requests and scheduled jobs while the call waits.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"The connection is closed in a finally block, so the connection itself does not leak. The `if row` guard is unnecessary because COUNT(*) always returns a row, but it is harmless.\",\"No callers of count_history_for_item exist in /Users/julianamacbook/triggarr/triggarr yet, so bugs-002 depends on how it is wired in later.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_013D5megKZAFhyX9p79G91Jd"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [],
+        "findings": [
+          {
+            "agent_confidence": 93,
+            "category": "injection",
+            "current_code": "def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\n    \"\"\"Return how many search_history rows name ``item_name``.\"\"\"\n    conn = sqlite3.connect(db_path)\n    try:\n        row = conn.execute(\n            f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"\n        ).fetchone()\n    finally:\n        conn.close()\n    return int(row[0]) if row else 0",
+            "cwe": "CWE-89",
+            "file": "triggarr/db.py",
+            "fix_hint": "use a parameterized query: conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,))",
+            "id": "sec-001",
+            "in_diff": true,
+            "intent_doc_match": "Violates CLAUDE.md absolute rule: 'Never interpolate user input into SQL — parameterized queries only.'",
+            "line": 864,
+            "problem": "The new function builds a SQL query by interpolating `item_name` directly into the string with an f-string and wraps it only in single quotes, with no escaping or parameterization. Any caller that passes external or user-influenced data (e.g. a movie/show/album title originating from Radarr/Sonarr/Lidarr metadata, a search query, or a UI filter) as `item_name` can break out of the string literal and inject arbitrary SQL. Since Python's `sqlite3.execute()` runs a single statement, classic stacked-query writes are blocked, but UNION-based injection is fully viable here: the query selects exactly one column (`COUNT(*)`), so a payload like `x' UNION SELECT api_key FROM some_config_table -- ` (or any other single-column exfiltration) would return attacker-chosen data as the 'count', and boolean/error-based blind injection can probe the rest of the schema. This is a textbook unparameterized-query defect, not a tightening or refactor of an existing safe pattern — every other query in this file (e.g. lines 822, 834-839) uses aiosqlite with bound parameters (`?` placeholders and a params tuple), so this new function is inconsistent with the file's own established safe pattern as well as the project's explicit rule.",
+            "severity": "critical",
+            "silenced_marker_nearby": false,
+            "title": "SQL injection via f-string interpolation in count_history_for_item",
+            "why_it_matters": "If this helper is ever wired to any caller-supplied or metadata-derived value (a title, a search term, a value from an external API response), an attacker-controlled string containing a single quote can alter the query's logic or exfiltrate data from other tables via UNION SELECT, directly contradicting the project's own 'parameterized queries only' rule and its established pattern elsewhere in this same file."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"security\",\n  \"findings\": [\n    {\n      \"id\": \"sec-001\",\n      \"file\": \"triggarr/db.py\",\n      \"line\": 864,\n      \"title\": \"SQL injection via f-string interpolation in count_history_for_item\",\n      \"category\": \"injection\",\n      \"cwe\": \"CWE-89\",\n      \"severity\": \"critical\",\n      \"agent_confidence\": 93,\n      \"in_diff\": true,\n      \"intent_doc_match\": \"Violates CLAUDE.md absolute rule: 'Never interpolate user input into SQL — parameterized queries only.'\",\n      \"problem\": \"The new function builds a SQL query by interpolating `item_name` directly into the string with an f-string and wraps it only in single quotes, with no escaping or parameterization. Any caller that passes external or user-influenced data (e.g. a movie/show/album title originating from Radarr/Sonarr/Lidarr metadata, a search query, or a UI filter) as `item_name` can break out of the string literal and inject arbitrary SQL. Since Python's `sqlite3.execute()` runs a single statement, classic stacked-query writes are blocked, but UNION-based injection is fully viable here: the query selects exactly one column (`COUNT(*)`), so a payload like `x' UNION SELECT api_key FROM some_config_table -- ` (or any other single-column exfiltration) would return attacker-chosen data as the 'count', and boolean/error-based blind injection can probe the rest of the schema. This is a textbook unparameterized-query defect, not a tightening or refactor of an existing safe pattern — every other query in this file (e.g. lines 822, 834-839) uses aiosqlite with bound parameters (`?` placeholders and a params tuple), so this new function is inconsistent with the file's own established safe pattern as well as the project's explicit rule.\",\n      \"current_code\": \"def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\\n    \\\"\\\"\\\"Return how many search_history rows name ``item_name``.\\\"\\\"\\\"\\n    conn = sqlite3.connect(db_path)\\n    try:\\n        row = conn.execute(\\n            f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"\\n        ).fetchone()\\n    finally:\\n        conn.close()\\n    return int(row[0]) if row else 0\",\n      \"fix_hint\": \"use a parameterized query: conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,))\",\n      \"why_it_matters\": \"If this helper is ever wired to any caller-supplied or metadata-derived value (a title, a search term, a value from an external API response), an attacker-controlled string containing a single quote can alter the query's logic or exfiltrate data from other tables via UNION SELECT, directly contradicting the project's own 'parameterized queries only' rule and its established pattern elsewhere in this same file.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_0173oFsmUY7Abm7TGHCniYki"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "count_history_for_item has no callers in triggarr/ or tests/. It is dead code added with no test in tests/test_db.py. Either wire it up through the established async path or drop it.",
+          "Before this diff, the stdlib sqlite3 import in db.py was used only for `sqlite3.OperationalError` in migration suppressions (L123-276). This is the first use of sqlite3.connect in the package.",
+          "There is overlap, but not duplication: get_search_history already computes COUNT(*) over search_history with an item_name filter (LIKE substring). An exact-match count would fit better as an option on that path or a small async sibling. This is only the second instance, so it is below the rule of three.",
+          "No intent-context block was provided, so intent_doc_match is null throughout."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 85,
+            "category": "pattern-consistency",
+            "current_code": "def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\n    \"\"\"Return how many search_history rows name ``item_name``.\"\"\"\n    conn = sqlite3.connect(db_path)",
+            "cwe": null,
+            "file": "triggarr/db.py",
+            "fix_hint": "make it `async def count_history_for_item(db: aiosqlite.Connection, item_name: str)` using `async with db.execute(...)` like get_search_history",
+            "id": "arch-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 859,
+            "problem": "Every other public query function in triggarr/db.py takes an injected `db: aiosqlite.Connection` and is async. Examples are get_recent_searches (L445), get_search_history (L487), get_trackable_entries (L591), update_outcome_and_stats (L648) and get_dashboard_stats (L752), and callers in web/routes.py, search/engine.py and tracking.py pass in the shared connection. count_history_for_item is the only function that opens its own synchronous `sqlite3.connect(db_path)` from a path. It skips the app's single managed connection and anything set on it, such as the row_factory used by `row[\"cnt\"]`-style access. If an async route or the scheduler calls it, it will block the event loop.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "New DB accessor bypasses the module's established async aiosqlite connection-injection pattern",
+            "why_it_matters": "A second way to reach the database splits connection handling and brings blocking I/O into an asyncio daemon. Future callers will copy whichever pattern they see first."
+          },
+          {
+            "agent_confidence": 90,
+            "category": "pattern-consistency",
+            "current_code": "f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"",
+            "cwe": "CWE-89",
+            "file": "triggarr/db.py",
+            "fix_hint": "use `\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,)`",
+            "id": "arch-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 864,
+            "problem": "All other queries in db.py bind values with `?` placeholders, including ones on this same column: get_search_history binds `item_name LIKE ?` (L546), and insert_search_entry (L425-427) and migrate_from_state (L734) bind item_name. Where db.py builds a dynamic f-string elsewhere (L542, L553, L562), it only adds placeholder or clause structure and never values. The new function puts the raw item_name into the SQL text. Item names come from Radarr/Sonarr titles, and an apostrophe such as \"Schindler's List\" will break the query or let the title change the SQL.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Query interpolates item_name into SQL instead of using the module's `?` parameter binding",
+            "why_it_matters": "This breaks the global security rule (\"parameterized queries only\") and the module's own consistent convention. It also fails on ordinary titles that contain apostrophes."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\"agent\":\"architecture\",\"findings\":[{\"id\":\"arch-001\",\"file\":\"triggarr/db.py\",\"line\":859,\"title\":\"New DB accessor bypasses the module's established async aiosqlite connection-injection pattern\",\"category\":\"pattern-consistency\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":85,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Every other public query function in triggarr/db.py takes an injected `db: aiosqlite.Connection` and is async. Examples are get_recent_searches (L445), get_search_history (L487), get_trackable_entries (L591), update_outcome_and_stats (L648) and get_dashboard_stats (L752), and callers in web/routes.py, search/engine.py and tracking.py pass in the shared connection. count_history_for_item is the only function that opens its own synchronous `sqlite3.connect(db_path)` from a path. It skips the app's single managed connection and anything set on it, such as the row_factory used by `row[\\\"cnt\\\"]`-style access. If an async route or the scheduler calls it, it will block the event loop.\",\"current_code\":\"def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\\n    \\\"\\\"\\\"Return how many search_history rows name ``item_name``.\\\"\\\"\\\"\\n    conn = sqlite3.connect(db_path)\",\"fix_hint\":\"make it `async def count_history_for_item(db: aiosqlite.Connection, item_name: str)` using `async with db.execute(...)` like get_search_history\",\"why_it_matters\":\"A second way to reach the database splits connection handling and brings blocking I/O into an asyncio daemon. Future callers will copy whichever pattern they see first.\",\"silenced_marker_nearby\":false},{\"id\":\"arch-002\",\"file\":\"triggarr/db.py\",\"line\":864,\"title\":\"Query interpolates item_name into SQL instead of using the module's `?` parameter binding\",\"category\":\"pattern-consistency\",\"cwe\":\"CWE-89\",\"severity\":\"medium\",\"agent_confidence\":90,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"All other queries in db.py bind values with `?` placeholders, including ones on this same column: get_search_history binds `item_name LIKE ?` (L546), and insert_search_entry (L425-427) and migrate_from_state (L734) bind item_name. Where db.py builds a dynamic f-string elsewhere (L542, L553, L562), it only adds placeholder or clause structure and never values. The new function puts the raw item_name into the SQL text. Item names come from Radarr/Sonarr titles, and an apostrophe such as \\\"Schindler's List\\\" will break the query or let the title change the SQL.\",\"current_code\":\"f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"\",\"fix_hint\":\"use `\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,)`\",\"why_it_matters\":\"This breaks the global security rule (\\\"parameterized queries only\\\") and the module's own consistent convention. It also fails on ordinary titles that contain apostrophes.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"count_history_for_item has no callers in triggarr/ or tests/. It is dead code added with no test in tests/test_db.py. Either wire it up through the established async path or drop it.\",\"Before this diff, the stdlib sqlite3 import in db.py was used only for `sqlite3.OperationalError` in migration suppressions (L123-276). This is the first use of sqlite3.connect in the package.\",\"There is overlap, but not duplication: get_search_history already computes COUNT(*) over search_history with an item_name filter (LIKE substring). An exact-match count would fit better as an option on that path or a small async sibling. This is only the second instance, so it is below the rule of three.\",\"No intent-context block was provided, so intent_doc_match is null throughout.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01QRDzucere23PnhQMAMiK5f"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Blast radius today is zero at runtime. count_history_for_item is new and a repo-wide grep shows no callers in triggarr/ or tests/. The 16 importers of triggarr.db (engine.py, scheduler.py, tracking.py, web/routes.py, 12 test files) are unaffected because no existing signature changed.",
+          "No public API break: the change only adds a function, and no existing function, schema or migration is touched.",
+          "No schema or migration impact: it reads only the existing search_history.item_name column (db.py:322).",
+          "Latent risk: the f-string SQL at db.py:864 is a trap for whoever wires this up next. It fails on any title containing an apostrophe, and that kind of title is routine in Radarr/Sonarr data. If it is exposed through web/routes.py with request input, it becomes CWE-89.",
+          "The function also adds no tests to tests/test_db.py, so the apostrophe failure would not be caught before it ships.",
+          "Verdict: not shippable as written. It is dead code, but the line violates the project's absolute 'parameterized queries only' rule. Switch to a `?` placeholder, and preferably make it async on the shared aiosqlite connection, before merging."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 85,
+            "category": "blast-radius",
+            "current_code": "f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"",
+            "cwe": "CWE-89",
+            "file": "triggarr/db.py",
+            "fix_hint": "use conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,))",
+            "id": "impact-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 864,
+            "problem": "The new function puts `item_name` straight into the SQL string. Any title with an apostrophe, such as \"Schindler's List\" or \"Grey's Anatomy\" (common in Radarr/Sonarr data stored in search_history.item_name), causes a sqlite3.OperationalError syntax error. A crafted value such as `x' OR '1'='1` changes the query's meaning. Every other search_history query in this module uses `?` placeholders (db.py:425-427, db.py:546, db.py:734), so this function breaks the module's established pattern and the user's absolute rule in CLAUDE.md ('parameterized queries only').",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "New count_history_for_item builds SQL by f-string interpolation of item_name (SQL injection; breaks on apostrophes)",
+            "why_it_matters": "The function has no callers today, so nothing runs it yet. The first caller to wire it up would crash on ordinary titles, and if the input comes from a web route it becomes an injection sink against the history DB."
+          },
+          {
+            "agent_confidence": 55,
+            "category": "perf-at-scale",
+            "current_code": "def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\n    \"\"\"Return how many search_history rows name ``item_name``.\"\"\"\n    conn = sqlite3.connect(db_path)",
+            "cwe": null,
+            "file": "triggarr/db.py",
+            "fix_hint": "make it async and take the shared aiosqlite.Connection like the sibling functions in db.py",
+            "id": "impact-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 859,
+            "problem": "Every other DB function in db.py takes a shared `aiosqlite.Connection` (opened with PRAGMA journal_mode=WAL / synchronous=NORMAL at scheduler.py:455-457). This one opens a new blocking `sqlite3.connect(db_path)` with the default 5s busy timeout. If a FastAPI route or the async scheduler calls it, the event loop stalls during a full COUNT over search_history. I found no index on item_name in the schema near db.py:322, so this is a table scan that grows as history accumulates. It can also wait up to 5s on the writer lock. pending: confirm there is no item_name index and that a future caller is async.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Synchronous sqlite3 helper in an otherwise all-aiosqlite module would block the event loop and skip WAL/connection conventions",
+            "why_it_matters": "It breaks the module's single-connection async pattern and would cause UI and scheduler latency spikes at larger history sizes."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"impact\",\"findings\":[{\"id\":\"impact-001\",\"file\":\"triggarr/db.py\",\"line\":864,\"title\":\"New count_history_for_item builds SQL by f-string interpolation of item_name (SQL injection; breaks on apostrophes)\",\"category\":\"blast-radius\",\"cwe\":\"CWE-89\",\"severity\":\"high\",\"agent_confidence\":85,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The new function puts `item_name` straight into the SQL string. Any title with an apostrophe, such as \\\"Schindler's List\\\" or \\\"Grey's Anatomy\\\" (common in Radarr/Sonarr data stored in search_history.item_name), causes a sqlite3.OperationalError syntax error. A crafted value such as `x' OR '1'='1` changes the query's meaning. Every other search_history query in this module uses `?` placeholders (db.py:425-427, db.py:546, db.py:734), so this function breaks the module's established pattern and the user's absolute rule in CLAUDE.md ('parameterized queries only').\",\"current_code\":\"f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"\",\"fix_hint\":\"use conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,))\",\"why_it_matters\":\"The function has no callers today, so nothing runs it yet. The first caller to wire it up would crash on ordinary titles, and if the input comes from a web route it becomes an injection sink against the history DB.\",\"silenced_marker_nearby\":false},{\"id\":\"impact-002\",\"file\":\"triggarr/db.py\",\"line\":859,\"title\":\"Synchronous sqlite3 helper in an otherwise all-aiosqlite module would block the event loop and skip WAL/connection conventions\",\"category\":\"perf-at-scale\",\"cwe\":null,\"severity\":\"low\",\"agent_confidence\":55,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Every other DB function in db.py takes a shared `aiosqlite.Connection` (opened with PRAGMA journal_mode=WAL / synchronous=NORMAL at scheduler.py:455-457). This one opens a new blocking `sqlite3.connect(db_path)` with the default 5s busy timeout. If a FastAPI route or the async scheduler calls it, the event loop stalls during a full COUNT over search_history. I found no index on item_name in the schema near db.py:322, so this is a table scan that grows as history accumulates. It can also wait up to 5s on the writer lock. pending: confirm there is no item_name index and that a future caller is async.\",\"current_code\":\"def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\\n    \\\"\\\"\\\"Return how many search_history rows name ``item_name``.\\\"\\\"\\\"\\n    conn = sqlite3.connect(db_path)\",\"fix_hint\":\"make it async and take the shared aiosqlite.Connection like the sibling functions in db.py\",\"why_it_matters\":\"It breaks the module's single-connection async pattern and would cause UI and scheduler latency spikes at larger history sizes.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"Blast radius today is zero at runtime. count_history_for_item is new and a repo-wide grep shows no callers in triggarr/ or tests/. The 16 importers of triggarr.db (engine.py, scheduler.py, tracking.py, web/routes.py, 12 test files) are unaffected because no existing signature changed.\",\"No public API break: the change only adds a function, and no existing function, schema or migration is touched.\",\"No schema or migration impact: it reads only the existing search_history.item_name column (db.py:322).\",\"Latent risk: the f-string SQL at db.py:864 is a trap for whoever wires this up next. It fails on any title containing an apostrophe, and that kind of title is routine in Radarr/Sonarr data. If it is exposed through web/routes.py with request input, it becomes CWE-89.\",\"The function also adds no tests to tests/test_db.py, so the apostrophe failure would not be caught before it ships.\",\"Verdict: not shippable as written. It is dead code, but the line violates the project's absolute 'parameterized queries only' rule. Switch to a `?` placeholder, and preferably make it async on the shared aiosqlite connection, before merging.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_011pEMHPfQuu1m9fEcviRE4i"
+    },
+    {
+      "parsed": {
+        "agent": "compliance",
+        "agent_notes": [
+          "Could not determine the caller of count_history_for_item from the diff alone (no call site present); item_name's provenance (Radarr/Sonarr title data vs. direct user input) is inferred from existing identical fields in db.py, not confirmed via a caller in this diff."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 88,
+            "category": "rule-violation",
+            "current_code": "row = conn.execute(\n    f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"\n).fetchone()",
+            "cwe": "CWE-89",
+            "file": "triggarr/db.py",
+            "fix_hint": "use `conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,))`",
+            "id": "compliance-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 864,
+            "problem": "Global CLAUDE.md Security section (absolute) states: 'Never interpolate user input into SQL — parameterized queries only.' This function builds its query with an f-string: `f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"`, instead of binding item_name with a `?` placeholder as every other item_name-touching query in this same file does (triggarr/db.py lines 427, 546, 734).",
+            "severity": "critical",
+            "silenced_marker_nearby": false,
+            "title": "SQL injection via f-string interpolation of item_name",
+            "why_it_matters": "A single quote in item_name (e.g. a title like \"Ocean's Eleven\") breaks the query, and crafted input can alter its logic or exfiltrate data; the rest of db.py treats this exact field as needing parameterization, confirming it's considered untrusted."
+          },
+          {
+            "agent_confidence": 70,
+            "category": "rule-violation",
+            "current_code": "def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\n    \"\"\"Return how many search_history rows name ``item_name``.\"\"\"\n    conn = sqlite3.connect(db_path)",
+            "cwe": null,
+            "file": "triggarr/db.py",
+            "fix_hint": "change signature to `async def count_history_for_item(db: aiosqlite.Connection, item_name: str) -&gt; int` and use `await db.execute(...)` like the rest of the module",
+            "id": "compliance-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 861,
+            "problem": "Global CLAUDE.md states: 'Everything else — style, structure, architecture — yields to the existing codebase's conventions: before introducing a new pattern, check how the same problem is solved elsewhere in the repo and follow that.' triggarr/db.py's own module docstring (lines 1-6) documents the established convention: 'All public functions accept an aiosqlite.Connection instead of a Path, so callers share a single long-lived connection.' Every other function in the file (grep-confirmed) follows this; count_history_for_item alone takes `db_path: Path` and opens a new blocking `sqlite3.connect(db_path)`.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "New function bypasses the file's documented aiosqlite.Connection convention",
+            "why_it_matters": "A blocking sqlite3 connection opened per call, separate from the app's shared aiosqlite connection, can stall the event loop if invoked from async code and sidesteps the single-connection lifecycle (migrations, locking) the rest of db.py depends on."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"compliance\",\n  \"findings\": [\n    {\n      \"id\": \"compliance-001\",\n      \"file\": \"triggarr/db.py\",\n      \"line\": 864,\n      \"title\": \"SQL injection via f-string interpolation of item_name\",\n      \"category\": \"rule-violation\",\n      \"cwe\": \"CWE-89\",\n      \"severity\": \"critical\",\n      \"agent_confidence\": 88,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"Global CLAUDE.md Security section (absolute) states: 'Never interpolate user input into SQL — parameterized queries only.' This function builds its query with an f-string: `f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"`, instead of binding item_name with a `?` placeholder as every other item_name-touching query in this same file does (triggarr/db.py lines 427, 546, 734).\",\n      \"current_code\": \"row = conn.execute(\\n    f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"\\n).fetchone()\",\n      \"fix_hint\": \"use `conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,))`\",\n      \"why_it_matters\": \"A single quote in item_name (e.g. a title like \\\"Ocean's Eleven\\\") breaks the query, and crafted input can alter its logic or exfiltrate data; the rest of db.py treats this exact field as needing parameterization, confirming it's considered untrusted.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"compliance-002\",\n      \"file\": \"triggarr/db.py\",\n      \"line\": 861,\n      \"title\": \"New function bypasses the file's documented aiosqlite.Connection convention\",\n      \"category\": \"rule-violation\",\n      \"agent_confidence\": 70,\n      \"severity\": \"medium\",\n      \"cwe\": null,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"Global CLAUDE.md states: 'Everything else — style, structure, architecture — yields to the existing codebase's conventions: before introducing a new pattern, check how the same problem is solved elsewhere in the repo and follow that.' triggarr/db.py's own module docstring (lines 1-6) documents the established convention: 'All public functions accept an aiosqlite.Connection instead of a Path, so callers share a single long-lived connection.' Every other function in the file (grep-confirmed) follows this; count_history_for_item alone takes `db_path: Path` and opens a new blocking `sqlite3.connect(db_path)`.\",\n      \"current_code\": \"def count_history_for_item(db_path: Path, item_name: str) -&gt; int:\\n    \\\"\\\"\\\"Return how many search_history rows name ``item_name``.\\\"\\\"\\\"\\n    conn = sqlite3.connect(db_path)\",\n      \"fix_hint\": \"change signature to `async def count_history_for_item(db: aiosqlite.Connection, item_name: str) -&gt; int` and use `await db.execute(...)` like the rest of the module\",\n      \"why_it_matters\": \"A blocking sqlite3 connection opened per call, separate from the app's shared aiosqlite connection, can stall the event loop if invoked from async code and sidesteps the single-connection lifecycle (migrations, locking) the rest of db.py depends on.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Could not determine the caller of count_history_for_item from the diff alone (no call site present); item_name's provenance (Radarr/Sonarr title data vs. direct user input) is inferred from existing identical fields in db.py, not confirmed via a caller in this diff.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:compliance",
+      "tool_use_id": "toolu_013HZE746jDTvwJH7FUmLv7K"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "count_history_for_item also breaks the module's documented architecture (db.py docstring: 'All public functions accept an aiosqlite.Connection instead of a Path...'): it opens its own synchronous sqlite3.connect(db_path) instead of taking the shared aiosqlite.Connection, and that synchronous call would block the event loop if invoked from async request-handling code. That's an architecture/async-blocking concern outside this agent's lane (flagging for the architecture/fastapi reviewers) but worth noting since it compounds with the injection finding above."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 90,
+            "category": "sql-injection",
+            "current_code": "row = conn.execute(\n    f\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\"\n).fetchone()",
+            "cwe": "CWE-89",
+            "file": "triggarr/db.py",
+            "fix_hint": "Use a parameterized query: conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,))",
+            "id": "py-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 864,
+            "problem": "`count_history_for_item` builds its query with `f\"...WHERE item_name = '{item_name}'\"`, splicing the caller-supplied `item_name` directly into the SQL string instead of using a bound parameter. Every other query builder in this same file (e.g. lines 522-564) interpolates only placeholder/column-structure strings and passes actual values through `params`/`?` placeholders, so this is a deviation from the file's own established, safe pattern.",
+            "severity": "critical",
+            "silenced_marker_nearby": false,
+            "title": "SQL built with f-string interpolation of item_name enables SQL injection",
+            "why_it_matters": "Any single-quote or SQL metacharacter in item_name breaks the query or lets a caller alter its logic (e.g. `' OR '1'='1`), and if item_name ever originates from a title string a user can influence (search text, a renamed media file, an API-reported title), this becomes an exploitable SQL injection against the local SQLite DB."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"language-python\",\n  \"findings\": [\n    {\n      \"id\": \"py-001\",\n      \"file\": \"triggarr/db.py\",\n      \"line\": 864,\n      \"title\": \"SQL built with f-string interpolation of item_name enables SQL injection\",\n      \"category\": \"sql-injection\",\n      \"cwe\": \"CWE-89\",\n      \"severity\": \"critical\",\n      \"agent_confidence\": 90,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"`count_history_for_item` builds its query with `f\\\"...WHERE item_name = '{item_name}'\\\"`, splicing the caller-supplied `item_name` directly into the SQL string instead of using a bound parameter. Every other query builder in this same file (e.g. lines 522-564) interpolates only placeholder/column-structure strings and passes actual values through `params`/`?` placeholders, so this is a deviation from the file's own established, safe pattern.\",\n      \"current_code\": \"row = conn.execute(\\n    f\\\"SELECT COUNT(*) FROM search_history WHERE item_name = '{item_name}'\\\"\\n).fetchone()\",\n      \"fix_hint\": \"Use a parameterized query: conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,))\",\n      \"why_it_matters\": \"Any single-quote or SQL metacharacter in item_name breaks the query or lets a caller alter its logic (e.g. `' OR '1'='1`), and if item_name ever originates from a title string a user can influence (search text, a renamed media file, an API-reported title), this becomes an exploitable SQL injection against the local SQLite DB.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"count_history_for_item also breaks the module's documented architecture (db.py docstring: 'All public functions accept an aiosqlite.Connection instead of a Path...'): it opens its own synchronous sqlite3.connect(db_path) instead of taking the shared aiosqlite.Connection, and that synchronous call would block the event loop if invoked from async request-handling code. That's an architecture/async-blocking concern outside this agent's lane (flagging for the architecture/fastapi reviewers) but worth noting since it compounds with the injection finding above.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01KGrUfbzE9aiBJwhoNiaNbT"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "Do not ship: the new helper fails on valid titles and permits SQL injection."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 100,
+            "category": "adversarial",
+            "cwe": null,
+            "file": "triggarr/db.py",
+            "fix_hint": "Use conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,)). Add regression tests for apostrophes and SQL-shaped names, verifying exact-match counts.",
+            "id": "codex-001",
+            "intent_doc_match": null,
+            "line": 863,
+            "problem": "The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \"Schindler's List\" raises OperationalError, while \"' OR 1=1 --\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken.",
+            "severity": "medium",
+            "title": "Parameterize item_name to prevent SQL injection and title lookup failures",
+            "why_it_matters": "The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \"Schindler's List\" raises OperationalError, while \"' OR 1=1 --\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [{\"id\": \"codex-001\", \"file\": \"triggarr/db.py\", \"line\": 863, \"title\": \"Parameterize item_name to prevent SQL injection and title lookup failures\", \"category\": \"adversarial\", \"cwe\": null, \"severity\": \"medium\", \"agent_confidence\": 100, \"problem\": \"The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \\\"Schindler's List\\\" raises OperationalError, while \\\"' OR 1=1 --\\\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken.\", \"why_it_matters\": \"The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \\\"Schindler's List\\\" raises OperationalError, while \\\"' OR 1=1 --\\\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken.\", \"fix_hint\": \"Use conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,)). Add regression tests for apostrophes and SQL-shaped names, verifying exact-match counts.\", \"intent_doc_match\": null}], \"agent_notes\": [\"Do not ship: the new helper fails on valid titles and permits SQL injection.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01PztbSdd1opYsHmDosrDtC5"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 7,
+  "unrecovered": []
+}

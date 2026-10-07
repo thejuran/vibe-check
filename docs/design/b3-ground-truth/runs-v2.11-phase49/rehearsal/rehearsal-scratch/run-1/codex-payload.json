@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a113c4-4ce8-7700-ba5b-29795edf3775",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: the new helper fails on valid titles and permits SQL injection.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Parameterize item_name to prevent SQL injection and title lookup failures\",\"body\":\"The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \\\"Schindler's List\\\" raises OperationalError, while \\\"' OR 1=1 --\\\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken.\",\"file\":\"triggarr/db.py\",\"line_start\":863,\"line_end\":865,\"confidence\":1.0,\"recommendation\":\"Use conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,)). Add regression tests for apostrophes and SQL-shaped names, verifying exact-match counts.\"}],\"next_steps\":[\"Parameterize the query and run the regression tests before merging.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: the new helper fails on valid titles and permits SQL injection.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Parameterize item_name to prevent SQL injection and title lookup failures",
+        "body": "The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \"Schindler's List\" raises OperationalError, while \"' OR 1=1 --\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken.",
+        "file": "triggarr/db.py",
+        "line_start": 863,
+        "line_end": 865,
+        "confidence": 1,
+        "recommendation": "Use conn.execute(\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\", (item_name,)). Add regression tests for apostrophes and SQL-shaped names, verifying exact-match counts."
+      }
+    ],
+    "next_steps": [
+      "Parameterize the query and run the regression tests before merging."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: the new helper fails on valid titles and permits SQL injection.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Parameterize item_name to prevent SQL injection and title lookup failures\",\"body\":\"The f-string interprets item_name as SQL. Executing the added function against an in-memory fixture confirmed that \\\"Schindler's List\\\" raises OperationalError, while \\\"' OR 1=1 --\\\" counts every row instead of matching the supplied name. Existing inserts support these strings through bound parameters. No callers of the new helper were found, so external exploitability is not established, but its documented counting behavior is demonstrably broken.\",\"file\":\"triggarr/db.py\",\"line_start\":863,\"line_end\":865,\"confidence\":1.0,\"recommendation\":\"Use conn.execute(\\\"SELECT COUNT(*) FROM search_history WHERE item_name = ?\\\", (item_name,)). Add regression tests for apostrophes and SQL-shaped names, verifying exact-match counts.\"}],\"next_steps\":[\"Parameterize the query and run the regression tests before merging.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
