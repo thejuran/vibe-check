@@ -1,0 +1,248 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "14eecb580499ec2ab4e8d469c768479509a9695a",
+      "timestamp": "2026-10-07T12:33:20Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "agent": "bugs",
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "New startup validator aborts with an uncaught ValidationError traceback for configs that loaded before",
+          "category": "error-handling",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 62,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "validate_url_ssrf now runs on every InstanceConfig built from triggarr.toml, including disabled instances. The startup path, ensure_config() in triggarr/config.py:370-373, catches only TOMLDecodeError and UnicodeDecodeError, and its docstring at line 345 says pydantic.ValidationError keeps propagating uncaught. A hand-edited config that loaded fine before this change will now crash at startup with a raw traceback instead of the friendly message plus exit(1) that _log_corrupt_config_and_exit gives. Two examples: a disabled instance with url = \"radarr:7878\" (no scheme, so urlparse reads 'radarr' as the scheme), or a URL with a malformed IPv6 bracket. Under Docker's restart policy this becomes a crash loop. Rejecting disabled instances is documented as intended (D-01/D-02), so the finding is the unfriendly, unhandled failure path, not the rejection itself. pending: confirm no handler above ensure_config (in main/_run) catches ValidationError and logs it.",
+          "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+          "fix_hint": "catch pydantic.ValidationError in ensure_config/load path and log a friendly per-field error naming the instance + sys.exit(1), mirroring _log_corrupt_config_and_exit",
+          "why_it_matters": "On upgrade, existing users with a stale or malformed URL on an instance they don't use get a container that won't start and only a traceback to diagnose it.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        from triggarr.web.validation import validate_arr_url_config",
+            "",
+            "        ok, err = validate_arr_url_config(v)",
+            "        if not ok:",
+            "            raise ValueError(err)"
+          ],
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "architecture",
+            "bugs",
+            "impact",
+            "security"
+          ],
+          "stable_hash": "a11aff939068c71e989321122537159dc6d15c0101a6cd6aedc5995798c3c462",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "New startup validator aborts with an uncaught ValidationError traceback for configs that loaded before",
+              "category": "error-handling",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 62,
+              "problem": "validate_url_ssrf now runs on every InstanceConfig built from triggarr.toml, including disabled instances. The startup path, ensure_config() in triggarr/config.py:370-373, catches only TOMLDecodeError and UnicodeDecodeError, and its docstring at line 345 says pydantic.ValidationError keeps propagating uncaught. A hand-edited config that loaded fine before this change will now crash at startup with a raw traceback instead of the friendly message plus exit(1) that _log_corrupt_config_and_exit gives. Two examples: a disabled instance with url = \"radarr:7878\" (no scheme, so urlparse reads 'radarr' as the scheme), or a URL with a malformed IPv6 bracket. Under Docker's restart policy this becomes a crash loop. Rejecting disabled instances is documented as intended (D-01/D-02), so the finding is the unfriendly, unhandled failure path, not the rejection itself. pending: confirm no handler above ensure_config (in main/_run) catches ValidationError and logs it.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": null,
+              "why_it_matters": "On upgrade, existing users with a stale or malformed URL on an instance they don't use get a container that won't start and only a traceback to diagnose it.",
+              "fix_hint": "catch pydantic.ValidationError in ensure_config/load path and log a friendly per-field error naming the instance + sys.exit(1), mirroring _log_corrupt_config_and_exit",
+              "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 106,
+              "title": "Config model layer now depends on the web package for URL validation",
+              "category": "dependency",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 45,
+              "problem": "Before this change, triggarr/models/config.py imported nothing from inside triggarr. It was a leaf that 9 production modules import, including db.py, state.py, search/engine.py and startup.py. The new validator makes it depend on triggarr/web/validation.py, so the config schema now relies on the UI layer, and anything that loads InstanceConfig (the scheduler, the CLI, tests) also pulls in triggarr.web. I checked for an import cycle and there isn't one: web/__init__.py is empty and validation.py imports only stdlib (ipaddress, re, urllib.parse). That means the function-local import isn't needed to avoid a cycle. It only hides the dependency. The codebase does already tolerate one lower-layer-to-web lazy import (triggarr/search/scheduler.py:532 and :538 import from triggarr.web.routes), so this is not a clear break from an established layering rule. pending: confirm whether the project means to keep models/ free of web/ dependencies.",
+              "source_window": [
+                "        Raises ValueError on violation so Pydantic surfaces a ValidationError.",
+                "        \"\"\"",
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)"
+              ],
+              "cwe": null,
+              "why_it_matters": "The config model sits at the bottom of the dependency graph. If it starts depending on the web package, a later change to web/validation.py (for example, adding a FastAPI or loguru import) could quietly add an import cycle or slow down every non-web consumer. It also makes it harder to find where SSRF policy lives.",
+              "fix_hint": "Move the stdlib-only URL/SSRF helpers (BLOCKED_HOSTS, _BLOCKED_NETWORKS, validate_arr_url, validate_arr_url_config) into a neutral module such as triggarr/net_validation.py or triggarr/models/url_validation.py. Have both models/config.py (top-level import) and web/routes.py import from it, and leave web/validation.py for form helpers only.",
+              "current_code": "        from triggarr.web.validation import validate_arr_url_config",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 110,
+              "title": "Startup ValidationError for a URL with credentials goes to stderr unredacted, bypassing the loguru redacting sink",
+              "category": "error-handling",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 35,
+              "problem": "When this validator raises during startup, pydantic's ValidationError includes input_value=<full url>. Because ensure_config doesn't catch it, the traceback goes to stderr through sys.excepthook rather than the redacting loguru sink. A URL carrying userinfo (http://user:pass@host) or other secret-bearing parts would therefore be printed in the clear. The apikey= validator just above already has the same exposure. pending: confirm no top-level handler routes uncaught exceptions through loguru, and confirm whether userinfo URLs occur in practice.",
+              "source_window": [
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)",
+                "        return v",
+                ""
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "Credentials embedded in a URL could end up in container logs.",
+              "fix_hint": "handle ValidationError at the startup boundary and log only field location + error msg, not input_value",
+              "current_code": "raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 106,
+              "title": "New config-load SSRF validator inherits helper's documented DNS-rebinding / non-canonical-IP gap",
+              "category": "ssrf",
+              "severity": "low",
+              "agent": "security",
+              "agent_confidence": 30,
+              "problem": "This diff wires validate_arr_url_config (an existing, unchanged helper in triggarr/web/validation.py, added in the prior commit) into InstanceConfig.url at config-load time. The helper's own docstring already discloses that hostnames are never DNS-resolved at validation time, so a hostname that currently resolves to a public/allowed address but is rebound to 127.0.0.1 or another blocked address at request time would pass this new validator and still be blocked-address-free at config load. Non-canonical IPv4 literal forms (decimal/octal/hex) that some resolvers normalize to a blocked address are similarly unexamined by ipaddress.ip_address() and fall through to the unresolved-hostname branch. This is purely a pre-existing property of the helper being extended to a new caller, not a weakening introduced by this diff's own changed lines.",
+              "source_window": [
+                "        Raises ValueError on violation so Pydantic surfaces a ValidationError.",
+                "        \"\"\"",
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)"
+              ],
+              "cwe": "CWE-918",
+              "why_it_matters": "If exploitable, a config-supplied *arr URL could reach an internal or metadata service despite passing validation, but this requires control over triggarr.toml (a different, higher-privilege trust boundary than the HTTP settings form) and the gap already exists for every other caller of this helper.",
+              "fix_hint": null,
+              "current_code": "ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "Relaxed SSRF helper misses alternate encodings of metadata hosts (pre-existing helper gap)",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 30,
+              "problem": "This diff tightens checks and routes the URL through validate_arr_url_config (triggarr/web/validation.py:111). That helper's unchanged logic lets several metadata-host encodings through. (1) A trailing-dot FQDN such as http://metadata.google.internal./ is not in BLOCKED_HOSTS. (2) Decimal or short-form IPv4 such as http://2852039166/ fails ipaddress.ip_address() and is treated as a hostname, though getaddrinfo may resolve it to 169.254.169.254. (3) Plain IPv4 in 100.64.0.0/10 other than 100.100.100.200 is checked only in the IPv4-mapped form, not as a bare IPv4 literal. The strict validate_arr_url has the same gaps, so this is pre-existing. pending: demonstrate httpx resolving the decimal/trailing-dot form to the metadata IP.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": "CWE-918",
+              "why_it_matters": "The documented goal is to always block cloud-metadata addresses, and these encodings slip past that.",
+              "fix_hint": "normalize hostname (rstrip('.'), lower) and reject non-dotted-quad numeric hosts; apply _BLOCKED_NETWORKS to plain IPv4 too",
+              "current_code": "from triggarr.web.validation import validate_arr_url_config",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 110,
+              "title": "Startup ValidationError output includes the raw URL, which can carry userinfo credentials",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 25,
+              "problem": "When this validator raises, pydantic's ValidationError string contains input_value=<full url>. At startup that error propagates uncaught, so the traceback goes to stderr instead of through the loguru redacting sink. A URL such as 'http://user:pass@169.254.1.1' would print its basic-auth credentials to the container logs. The same exposure already exists through reject_apikey_in_url. This diff only adds more rejection cases that reach it. pending: confirm that stderr tracebacks skip the redacting sink, and that userinfo URLs occur in practice.",
+              "source_window": [
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)",
+                "        return v",
+                ""
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "The project's security convention says secrets never appear in logs.",
+              "fix_hint": "Handle ValidationError at the ensure_config boundary and log only field location and message, not input_value",
+              "current_code": "raise ValueError(err)",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/models/config.py",
+            "line": 108,
+            "canonical_line_content": null,
+            "band": "medium"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "Config model layer now depends on the web package for URL validation",
+          "reason": "absorbed-into: a11aff939068c71e989321122537159dc6d15c0101a6cd6aedc5995798c3c462"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 110,
+          "title": "Startup ValidationError for a URL with credentials goes to stderr unredacted, bypassing the loguru redacting sink",
+          "reason": "absorbed-into: a11aff939068c71e989321122537159dc6d15c0101a6cd6aedc5995798c3c462"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "New config-load SSRF validator inherits helper's documented DNS-rebinding / non-canonical-IP gap",
+          "reason": "absorbed-into: a11aff939068c71e989321122537159dc6d15c0101a6cd6aedc5995798c3c462"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Relaxed SSRF helper misses alternate encodings of metadata hosts (pre-existing helper gap)",
+          "reason": "absorbed-into: a11aff939068c71e989321122537159dc6d15c0101a6cd6aedc5995798c3c462"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 110,
+          "title": "Startup ValidationError output includes the raw URL, which can carry userinfo credentials",
+          "reason": "absorbed-into: a11aff939068c71e989321122537159dc6d15c0101a6cd6aedc5995798c3c462"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "Rejected instance URL now aborts startup with an uncaught pydantic traceback, even for disabled instances",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 561,
+          "title": "Loopback URLs allowed at config load are still rejected by the settings form, so saving silently fails",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
