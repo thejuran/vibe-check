@@ -675,6 +675,9 @@ a launch line WITHOUT `--plugin-dir`, so the session loads the installed 2.10.0 
 prints the fixed owner-framed delegation prompt (the 48-09 A5 shape): send it once. If the model
 refuses before any tool call, record the refusal and retry with at most two rewordings that keep
 the owner-framed shape; if no attempt reaches the hook after three tries, STOP (A4 unproven).
+The scratch dir is new, so the session first shows Claude Code's workspace-trust prompt: select
+`Yes, I trust this folder` (it is the throwaway repo this block just created; the A4 session is not
+a measured session, so the fixed keystroke set does not apply to it).
 
 ```bash
 # BLOCK: a4-smoke
@@ -740,12 +743,16 @@ echo 'BLOCK OK'
 
 Asserts, in order: the scratch HEAD and stash are unchanged; `.turingmind/git-guard/blocks.jsonl`
 holds at least one row with `agent` == `compliance`, `tool` == `Bash` and a command starting with
-`git stash pop`; the pane (`tmux capture-pane -p -S -2000 -t p49-a4`) names
-`plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py` and does NOT contain
-`vibe-check@inline`. Each failure is a named STOP. On success it prints
-`A4: PASS (installed-cache guard saw vibe-check:compliance)`, copies the matching row and the pane's
-hook-path line(s) into `runs-v2.11-phase49/<label>/a4/` after the privacy scan, kills the tmux
-session and removes the scratch repo. It commits nothing: the rehearsal record commits the evidence.
+`git stash pop`; the A4 session's LOCAL transcripts (`~/.claude/projects/<scratch dir>/`, the
+session file and its subagent sub-transcripts) carry a `PreToolUse:Bash hook error: [python3 …
+gitguard.py hook]` line naming `plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py`, no
+such line names any other path, and nothing names `vibe-check@inline`. The evidence is read from the
+transcript, not the pane: the TUI redraws the pane, so `tmux capture-pane` history never keeps a
+subagent's hook-error line (found in the dress rehearsal, 2026-10-06). Each failure is a named STOP.
+On success it prints `A4: PASS (installed-cache guard saw vibe-check:compliance)`, copies the
+matching row and the hook-path line(s) (the fixed prefix and command path only) into
+`runs-v2.11-phase49/<label>/a4/` after the privacy scan, kills the tmux session and removes the
+scratch repo. It commits nothing: the rehearsal record commits the evidence.
 
 ```bash
 # BLOCK: a4-check
@@ -779,26 +786,34 @@ for line in open(sys.argv[1], encoding="utf-8"):
 sys.exit(1)
 PY
 ) || { echo 'A4: NO blocks.jsonl ROW FOR compliance / Bash / git stash pop — STOPPING'; exit 1; }
-# (3) the hook that refused it ran from the installed cache, not an @inline plugin
-command -v tmux > /dev/null && tmux has-session -t "=p49-a4" 2> /dev/null \
-  || { echo 'A4: NO tmux SESSION p49-a4 TO READ — STOPPING'; exit 1; }
-PANE=$(tmux capture-pane -p -S -2000 -t "p49-a4")
+# (3) the hook that refused it ran from the installed cache, not an @inline plugin. The evidence
+# is the A4 session's LOCAL transcripts (the session file and its subagent sub-transcripts): the
+# TUI redraws the pane, so the pane history never keeps a subagent's hook-error line (rehearsal
+# 2026-10-06). Only the fixed hook-error prefix and the hook command path are read, never text.
+A4_PROJ=$(proj_dir "$A4_DIR")
+test -d "$A4_PROJ" || { echo 'A4: NO LOCAL TRANSCRIPT FOR THE A4 SESSION — STOPPING'; exit 1; }
 HOOKPATH='plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py'
-printf '%s\n' "$PANE" | grep -qF "$HOOKPATH" \
-  || { echo 'A4: THE PANE DOES NOT NAME THE INSTALLED-CACHE gitguard.py — STOPPING'; exit 1; }
-! printf '%s\n' "$PANE" | grep -qF 'vibe-check@inline' \
-  || { echo 'A4: THE PANE NAMES vibe-check@inline — STOPPING'; exit 1; }
+HOOKLINES=$(grep -rhoE --include='*.jsonl' \
+  'PreToolUse:Bash hook error: \[python3 [^]"]*/scripts/gitguard\.py hook\]' "$A4_PROJ" | sort -u || true)
+printf '%s\n' "$HOOKLINES" | grep -qF "$HOOKPATH" \
+  || { echo 'A4: THE TRANSCRIPT DOES NOT NAME THE INSTALLED-CACHE gitguard.py — STOPPING'; exit 1; }
+! printf '%s\n' "$HOOKLINES" | grep -vF "$HOOKPATH" | grep -q . \
+  || { echo 'A4: A gitguard HOOK RAN FROM ANOTHER PATH (a second plugin copy loaded) — STOPPING'; exit 1; }
+! grep -rqF --include='*.jsonl' 'vibe-check@inline' "$A4_PROJ" \
+  || { echo 'A4: THE TRANSCRIPT NAMES vibe-check@inline — STOPPING'; exit 1; }
 # evidence: the row and the hook-path line(s) only, after the privacy scan
 EVD=$REPO/$RUNS/a4
 mkdir -p "$EVD"
 printf '%s\n' "$ROW" > "$EVD/blocks-row.jsonl"
-printf '%s\n' "$PANE" | grep -F "$HOOKPATH" | sed "s|$HOME|~|g" > "$EVD/hook-line.txt"
+printf '%s\n' "$HOOKLINES" | sed "s|$HOME|~|g" > "$EVD/hook-line.txt"
 python3 "$SCRIPTS/lanearchive.py" scan "$EVD/blocks-row.jsonl" "$EVD/hook-line.txt" 2> "$HOME/.b3/p49-scan.err" || {
   sed -n 's/^privacy scan refused: /PRIVACY SCAN REFUSED — token kind: /p' "$HOME/.b3/p49-scan.err"
   rm -f "$EVD/blocks-row.jsonl" "$EVD/hook-line.txt"
   echo 'PRIVACY SCAN REFUSED — evidence not kept — STOPPING'; exit 1; }
 printf 'A4-commit: %s\n' "$A4_BATCH_SHA" > "$EVD/a4-commit.txt"
-tmux kill-session -t "p49-a4"
+if command -v tmux > /dev/null && tmux has-session -t "=p49-a4" 2> /dev/null; then
+  tmux kill-session -t "p49-a4"
+fi
 rm -rf "$A4_DIR"
 rm "$A4_ENV"
 echo "blocks.jsonl row: $ROW"
@@ -2128,7 +2143,8 @@ unfreeze → restore-cache → close-window.
   resync loads the installed 2.10.0 cache, which now holds the release candidate. A vibe-check
   review subagent's `git stash pop` must be refused by the installed-cache git guard: one
   `blocks.jsonl` row, the stash unchanged, the hook message naming
-  `plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py` and not `vibe-check@inline`.
+  `plugins/cache/thejuran/vibe-check/2.10.0/scripts/gitguard.py` and not `vibe-check@inline`
+  (read from the A4 session's local transcripts; the pane does not keep the hook-error line).
 - The decline cards are answered BY LABEL (`Stop here…`, then `Abandon`). The labels the
   `post` driver-check allows are the strings captured live from the rehearsal transcript.
 - `first-pass-close` is not run: the rehearsal is never closed as a pass. `close-window` instead
