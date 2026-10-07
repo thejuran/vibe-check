@@ -677,3 +677,82 @@ Neither bar is decorative. The catch map and the fp bar each decide the verdict 
 a check confirmed that should-quiet-7 is absent. Under D-04 this list drives the 49-07 diagnosis
 and the retune-gate consistency check. It is NOT the retune run set: if the owner applies the one
 targeted fix, the retune re-runs all 12 diffs × 3 on S2, scored as `retune-full`.
+
+---
+
+## 6 Retune diagnosis
+
+Written 2026-10-07 by 49-07 Task 1, after the first-pass verdict commit `14fded8` and before any
+fix exists. Evidence is quoted by run id and `file:line` only, never lane text.
+
+**Eligibility (D-04).** `git show HEAD:…/first/FAILED-DIFFS.json` parsed via `python3 -c` from
+`plugins/vibe-check/scripts`: the list is `["should-quiet-3", "should-quiet-4", "should-quiet-6"]`,
+non-empty, every entry is in `score43.DIFFS`, `should-quiet-7` is absent, and
+`git log --format=%H -- …/first/FAILED-DIFFS.json` has exactly one commit
+(`14fded8c863cbe3fd8b8d516831a722302b70d75`). All asserts passed.
+
+**Method (Phase-42 confound order).** For each failed run, in order: (a) Codex focus text,
+(b) the moved-control qualifier (`pending:` notes), (c) Codex dropouts, and only then (d) a v2.11
+code path. Score arithmetic is reproduced from the unchanged formula
+(`scripts/score.py` `compute_score` :1099-1150, `SEVERITY_WEIGHT` :41,
+`AGENT_CONFIDENCE_OFFSET` :123, `_lone_lane_cap` :506, `band_for` :519; warning floor 80,
+critical floor 95, lone-lane cap 94).
+
+**v2.11 code paths, checked once for all three diffs (d).**
+- `git diff main..e6eafbd -- plugins/vibe-check/scripts/score.py` adds the carried-finding
+  machinery (`_snapshot_for`, `_kept_open_rows`, `_accept_verdict`) and does not touch
+  `compute_score`, `SEVERITY_WEIGHT`, `AGENT_CONFIDENCE_OFFSET`, `_lone_lane_cap` or `band_for`.
+- Every fired row has `status: new` in a single-pass state (`passes[-1].pass_number` = 1), so
+  the Phase-46 kept-open / carried-finding path is not engaged.
+- The Phase-47 fix-loop card path runs after scoring and writes no finding.
+- The Phase-48 guard/gitsnap path snapshots git state and never edits findings.
+- One v2.11 change does alter the lane set: the diff-mode coverage gate
+  (`phases/deep-review/20-selection.md` GATE-01, `agents/index.md:31`) no longer dispatches
+  `test-sufficiency` when no coverage artifact exists, so every v2.11 run here has one lane fewer
+  than its Phase-43 counterpart. That cannot raise a row: `test-sufficiency` is a member of none
+  of the fired rows, and Claude-to-Claude agreement earns no bonus (`score.py:1188-1208`), so
+  removing a Claude lane can only remove members.
+- Conclusion: no failed row is attributable to a v2.11 code path.
+
+| failed run | lane that fired (lead) | row | (a) Codex | (b) moved-control | (c) dropout | arithmetic | implicated |
+|---|---|---|---|---|---|---|---|
+| should-quiet-3/run-1 | language-python | `src/roonseek/transfer.py:259` [warning, 82], category `optional-handling`, members bugs/impact/architecture/language-python | not implicated: `codex_findings=0` in all 3 runs | not implicated: the lead lane's row carries no `pending:` note; the lanes that do (bugs L212/L270, architecture L261, impact L212) stay sub-band | 0 | 70 + 20 (in diff) − 8 (medium) = 82 → warning by 2 points. Runs 2-3 of the same lane emit the same site at severity `low` (sub-band). Phase-43 first run-3 had the same site at confidence 60 → 72, medium | sampling variance in one lane's severity on an unchanged hypothetical-input class (an optional-default coalescing note), sitting 2 points over the warning floor. Lane prompt `agents/language-python.md` |
+| should-quiet-4/run-2 | security (single member) | `triggarr/models/config.py:93` [warning, 94], category `ssrf` | not implicated: `codex_findings=0` in all 3 runs (the Phase-43 retune of the Codex helper-bypass class holds) | not engaged on the lead row: the security row carries no `pending:` note | 0 | 90 + 20 − 8 = 102 → lone-lane cap 94 → warning. Run 1: security emits L106 at `low`; run 3: security emits nothing. Phase-43 first + retune: the L91-L94 site was filtered `sub-threshold` in all 6 runs | the deferred backlog class 999.19 (b) "a stricter validator rejects a value a legacy config may hold, traced to a startup failure". `agents/security.md:87-95` deliberately reports that class at honest confidence, so this is a 1-in-3 sampling of a rule kept on purpose in Phases 42-43 |
+| should-quiet-6/run-1 | codex-adversarial | `triggarr/models/config.py:135` [critical, 100], members codex + architecture | IMPLICATED: Codex is the lead in all 3 runs at confidence 0.99, severity medium (`codex-payload.json` `result.findings`, L135 / L139 / L139) | the Claude members do carry `pending:` notes (architecture L135/L139, bugs L139); the Claude-only group at L139 in run-1 is filtered `sub-threshold` | 0 | 99 + 20 − 8 + 10 (Codex + Claude corroboration) = 121 → 100, critical. Without corroboration Codex alone still scores 94 (lone-lane cap) → warning | the deferred backlog class 999.19 (a) "a new setting is declared but not yet read by runtime code". Codex focus text `templates/codex-focus.txt` carries no rule for this class |
+| should-quiet-6/run-2 | codex-adversarial | `triggarr/models/config.py:139` [critical, 100], members codex + bugs×2 + impact | as run-1 | as run-1 | 0 | as run-1. The best Claude member (bugs, confidence 55, medium) would score 55 − 2 + 20 − 8 = 65 without Codex: below the medium floor | as run-1 |
+| should-quiet-6/run-3 | codex-adversarial | `triggarr/models/config.py:139` [critical, 100], members codex + bugs×2 + impact | as run-1 | as run-1 | 0 | as run-2 (best Claude member: bugs confidence 40, low) | as run-1 |
+
+**Fix candidates and the passing diffs that share their surface.** Any fix is measured on all
+12 diffs × 3 on S2, so a fix's shared surface is what could regress.
+
+1. **Codex focus text, class 999.19 (a) "declared but not yet wired"** (`templates/codex-focus.txt`).
+   It would remove the should-quiet-6 residual, 3 of the 5 fired runs. Codex runs on every diff,
+   so all 11 other diffs share this surface. The closest catch neighbour is
+   triggarr-settings-form-split, whose AXIS is existing form fields that stop being submitted.
+   The rule must cover only NEW settings no runtime code reads yet, never existing behaviour that
+   stops working; triggarr-session-rotation and triggarr-autoescape are removal classes the rule
+   must leave alone too.
+2. **Security lane, class 999.19 (b) "stricter validator breaks a legacy config"**
+   (`agents/security.md`; the same clause sits in the bugs/impact Safe-change block and in the
+   Codex focus text). It would remove the should-quiet-4 single. It reverses a rule the
+   Phase-42/43 design deliberately kept at honest confidence. Shared with should-quiet-1 and
+   should-quiet-4's tightening axis and with every catch diff the security lane reviews.
+3. **language-python lane, hypothetical-future-input class** (`agents/language-python.md`).
+   It would remove the should-quiet-3 single. That lane ran on 9 of the 12 diffs in the first pass (every diff
+   with Python), including triggarr-secret-in-logs, triggarr-autoescape and triggarr-session-rotation.
+
+**Selected fix (exactly one, D-04): candidate 1, PROMPT class.** It is the only single change
+that can bring the quiet arm under the bar on its own. With should-quiet-6 quiet, the observed
+first-pass rows give 2/18 (the two singles) against a bar of 3. Candidates 2 and 3 each remove
+one run at most and leave 4/18, so neither can pass alone. All three failed diffs are lane-prompt
+behaviour unchanged by v2.11, so no CODE-class fix exists.
+
+**Plain-language statement for the owner (Task 2).** The fix adds one sentence to the fixed
+instruction Codex receives on every review: a change that adds a new setting which nothing reads
+yet is staged work, not a defect, and should be left as a quiet note unless the change also
+claims the setting is in effect. What a user would see: Codex stops raising a loud alarm on
+half-finished "new option added, not hooked up yet" changes. The risk: a real "you added the
+option but forgot to wire it" mistake would also become a quiet note, and in a review of your own
+work that is sometimes exactly the bug you want flagged. The diffs it could affect: every diff,
+because Codex reads the instruction on every review. The catch most at risk is
+triggarr-settings-form-split (fields that stop being saved), which the rule must not cover.

@@ -105,6 +105,8 @@ recorded as `ship-decision: <ship-as-measured|ship-without-fix|no-ship> (owner, 
 and a reverted fix as `ship-revert: <40-hex revert sha> (revert of R=<40-hex>)`. 49-08's release
 gate and 49-09's pre-flight parse these COMMITTED lines, never a SUMMARY.
 
+fix-class: PROMPT — templates/codex-focus.txt: one calibration rule for backlog class 999.19 (a), a new setting declared but not yet read by runtime code is staged work (quiet note), targeting the should-quiet-6 Codex-led residual (diagnosis: SCORING-v2.11-phase49.md §6; scope: runs-v2.11-phase49/retune/FIX-SCOPE.json; awaiting owner decision, no fix authored)
+
 ## Sessions
 
 ## Harness fingerprint — 2026-10-06T22:07:24-0400

@@ -1,0 +1,4 @@
+[
+  "plugins/vibe-check/templates/codex-focus.txt",
+  "plugins/vibe-check/scripts/test_agent_prompts.py"
+]
