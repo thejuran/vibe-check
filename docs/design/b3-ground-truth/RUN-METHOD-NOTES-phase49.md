@@ -76,6 +76,8 @@ carry a `parity: <the active snapshot_commit>` line and re-runs the same two-dir
 hash check itself; it never compares version strings. 49-05 and 49-06 gate (2)(v) parse both line
 forms.
 
+parity: e6eafbd3b8c4242064997f82fad5edd058d65a1c forward=134/134 reverse=0 extra at 2026-10-06T22:06:46-0400
+
 ## Snapshot
 
 One line per measurement snapshot built with `batchsnap.py build`, in the form
