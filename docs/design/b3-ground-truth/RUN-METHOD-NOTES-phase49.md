@@ -103,3 +103,16 @@ and a reverted fix as `ship-revert: <40-hex revert sha> (revert of R=<40-hex>)`.
 gate and 49-09's pre-flight parse these COMMITTED lines, never a SUMMARY.
 
 ## Sessions
+
+## Harness fingerprint — 2026-10-06T22:07:24-0400
+claude-code: 2.1.281 (Claude Code)
+model: Fable 5.1
+context-window: 1M
+codex: codex-cli 0.153.4
+codex-companion: 1.0.4
+autoupdate: Auto-updates: disabled (set by env: DISABLE_AUTOUPDATER)
+batch-sha: e6eafbd3b8c4242064997f82fad5edd058d65a1c
+snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch7-e6eafbd3b8c4
+plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch7-e6eafbd3b8c4/plugins/vibe-check
+driver: assistant-tmux
+session: first triggarr-secret-in-logs
