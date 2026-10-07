@@ -1,0 +1,269 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "14eecb580499ec2ab4e8d469c768479509a9695a",
+      "timestamp": "2026-10-07T12:46:17Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "agent": "bugs",
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Loopback URL now allowed at config load, but the settings form still rejects it, so no settings can be saved",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 60,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new validator calls validate_arr_url_config, which deliberately accepts loopback literals (127.0.0.1, ::1) and localhost, so a TOML with url=\"http://127.0.0.1:7878\" now loads cleanly. The settings POST handler (triggarr/web/routes.py:560-564) still runs every submitted instance URL through the strict validate_arr_url, and that function rejects is_loopback addresses (triggarr/web/validation.py:88). The form re-submits every instance's URL, so once any instance has the loopback URL that this layer now permits, every settings save fails: the handler logs a warning and sends a 303 back to the settings page without telling the user. The mismatch existed before, because the old load path did no validation at all. This diff turns the loopback allowance into the stated, documented contract while leaving the UI save path out of step with it.",
+          "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+          "fix_hint": "make save_settings use the same relaxed validator (or the same loopback policy) as config load, or surface the rejection to the user",
+          "why_it_matters": "Same-host homelab users, the case this change sets out to support, cannot change any setting through the UI and get no feedback.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        from triggarr.web.validation import validate_arr_url_config",
+            "",
+            "        ok, err = validate_arr_url_config(v)",
+            "        if not ok:",
+            "            raise ValueError(err)"
+          ],
+          "orchestrator_score": 70,
+          "band": "medium",
+          "attribution": [
+            "bugs",
+            "impact"
+          ],
+          "stable_hash": "f12fbe78be966cae3fdf3703811998c489e8b3855c58e1ac3224079b73f3aaca",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "Loopback URL now allowed at config load, but the settings form still rejects it, so no settings can be saved",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 60,
+              "problem": "The new validator calls validate_arr_url_config, which deliberately accepts loopback literals (127.0.0.1, ::1) and localhost, so a TOML with url=\"http://127.0.0.1:7878\" now loads cleanly. The settings POST handler (triggarr/web/routes.py:560-564) still runs every submitted instance URL through the strict validate_arr_url, and that function rejects is_loopback addresses (triggarr/web/validation.py:88). The form re-submits every instance's URL, so once any instance has the loopback URL that this layer now permits, every settings save fails: the handler logs a warning and sends a 303 back to the settings page without telling the user. The mismatch existed before, because the old load path did no validation at all. This diff turns the loopback allowance into the stated, documented contract while leaving the UI save path out of step with it.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": null,
+              "why_it_matters": "Same-host homelab users, the case this change sets out to support, cannot change any setting through the UI and get no feedback.",
+              "fix_hint": "make save_settings use the same relaxed validator (or the same loopback policy) as config load, or surface the rejection to the user",
+              "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 110,
+              "title": "A config URL the new validator rejects crashes startup with an uncaught ValidationError traceback",
+              "category": "error-handling",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 45,
+              "problem": "load_settings (triggarr/config.py:227) builds Settings(**data). ensure_config (triggarr/config.py:370-373) only catches TOMLDecodeError and UnicodeDecodeError, and its docstring says ValidationError propagates uncaught as a 'schema bug'. Before this diff, an existing triggarr.toml with a hand-edited or legacy URL loaded fine, even when the instance was disabled. Examples: a scheme-less 'radarr:7878', where urlparse reads 'radarr' as the scheme; 'http://0.0.0.0:7878'; any link-local literal. Now the validator raises ValueError for these, startup dies with a raw pydantic traceback from asyncio.run, and in Docker the container goes into a restart loop. The v2.2 migration path (detect_and_migrate_v22) also writes the migrated URL to disk before this validation runs. Unlike TOML corruption, this failure gets no friendly loguru message naming the config path and the instance. The rejection itself is described as intended hardening, so the finding is about how the failure is handled. pending: confirm whether rejected values such as scheme-less host:port or 0.0.0.0 appear in configs the project supports.",
+              "source_window": [
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)",
+                "        return v",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "An upgrade turns a config that used to work, possibly with only a disabled instance at fault, into a crash loop with no clear message for the operator.",
+              "fix_hint": "catch pydantic.ValidationError in ensure_config and log a friendly error naming the offending instance/url field before sys.exit(1)",
+              "current_code": "if not ok:\n    raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 108,
+              "title": "Hand-edited TOML URLs that the new check rejects (including on disabled instances) now stop the daemon at startup with an uncaught traceback",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 45,
+              "problem": "The new field validator runs on every InstanceConfig.url, including on disabled instances. ensure_config() (triggarr/config.py:370-373) only catches TOMLDecodeError and UnicodeDecodeError, and its docstring says pydantic.ValidationError 'continue[s] to propagate uncaught'. So if an existing triggarr.toml holds a URL the new check rejects, startup aborts with a raw traceback, and under a Docker restart policy the container restart-loops. One traced value: `http://0.0.0.0:7878`, put in by hand in the TOML. On Linux/macOS, connecting to the unspecified address reaches the local host, so it worked before. Now it hits validation.py:155 (`addr.is_unspecified`), which raises in config.py:110 and aborts. Other hand-edited values that now abort startup but were harmless before: a scheme-less `radarr:7878` (urlparse sees the scheme as 'radarr' and rejects it at validation.py:143) or any junk left on a disabled instance. Before this change, these failed per cycle (httpx.HTTPError caught in engine.py) or did nothing at all when the instance was disabled. The UI form path already rejected all of these through validate_arr_url (routes.py:561), so only TOML edited by hand is exposed. The docstring says this is intended hardening, which is why this stays capped. pending: confirm whether 0.0.0.0, scheme-less or disabled-with-junk URLs are inside the supported config contract (README/default template). If they are, this becomes a real upgrade regression at medium severity.",
+              "source_window": [
+                "        from triggarr.web.validation import validate_arr_url_config",
+                "",
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)"
+              ],
+              "cwe": null,
+              "why_it_matters": "When upgrading, a config that worked silently is now refused with no clear guidance. In a Docker deployment this looks like a crash loop rather than a config error.",
+              "fix_hint": "Catch pydantic.ValidationError in ensure_config() and log a friendly message naming the instance/field (without the URL value) before sys.exit(1), as _log_corrupt_config_and_exit already does for TOML errors; add a release note that invalid URLs now block startup.",
+              "current_code": "ok, err = validate_arr_url_config(v)\nif not ok:\n    raise ValueError(err)",
+              "intent_doc_match": true
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 110,
+              "title": "The raw ValidationError at startup prints the full URL, including any user:pass@ credentials, outside the redacting log sink",
+              "category": "error-handling",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 35,
+              "problem": "A pydantic ValidationError's string form includes input_value. When this new validator rejects a URL at startup, the uncaught exception (ensure_config does not handle it) is printed by the default traceback handler to stderr, not through the loguru redacting sink. A URL carrying basic-auth userinfo, e.g. 'http://user:secret@169.254.1.5', would end up in container logs. reject_apikey_in_url already has the same exposure, so this is pre-existing in kind. pending: confirm the startup traceback is not routed through the redacting sink somewhere upstream (main/_run).",
+              "source_window": [
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)",
+                "        return v",
+                ""
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "Credentials embedded in a URL could leak into logs.",
+              "fix_hint": "handle ValidationError at the startup boundary and log a redacted message instead of letting the traceback print",
+              "current_code": "raise ValueError(err)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/models/config.py",
+              "line": 110,
+              "title": "Rejected URL value (possibly with embedded basic-auth credentials) appears in the ValidationError text that routes.py logs and the startup traceback prints",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 30,
+              "problem": "Pydantic ValidationError messages include `input_value=<url>`. If a hand-edited TOML URL such as `ftp://user:pass@host` or `http://user:pass@0.0.0.0` fails the new check, the full value, credentials included, lands in the uncaught startup traceback. On the settings POST path, routes.py:600 logs `Invalid settings rejected: {exc}`, but the stricter validate_arr_url at routes.py:561 normally rejects such URLs first, so that path is mostly shielded. reject_apikey_in_url already has the same behaviour, so this is a pre-existing pattern that the diff extends to one more class of rejected input. pending: show a URL with userinfo that passes routes.py:561 but fails validate_arr_url_config. That cannot happen, because the config variant is strictly looser. So the only real exposure is the startup traceback for hand-edited TOML.",
+              "source_window": [
+                "        ok, err = validate_arr_url_config(v)",
+                "        if not ok:",
+                "            raise ValueError(err)",
+                "        return v",
+                ""
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "CLAUDE.md says to never log secrets. Basic-auth credentials in a reverse-proxy URL are secrets that the redacting sink does not know about.",
+              "fix_hint": "If a friendly startup handler is added, log `exc.errors(include_input=False)` rather than str(exc).",
+              "current_code": "raise ValueError(err)",
+              "intent_doc_match": true
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/models/config.py",
+            "line": 108,
+            "canonical_line_content": null,
+            "band": "medium"
+          }
+        },
+        {
+          "id": "sec-001",
+          "agent": "security",
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "New unconditional SSRF validator can crash the app at startup on pre-existing configs",
+          "category": "ssrf",
+          "cwe": "CWE-755",
+          "severity": "medium",
+          "agent_confidence": 90,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The new `validate_url_ssrf` field_validator runs on every InstanceConfig.url unconditionally, including disabled instances (confirmed by the docstring and by `tests/test_config.py::test_instance_config_disabled_instance_metadata_url_still_raises`, which already asserts a disabled metadata URL raises ValidationError). Before this diff, InstanceConfig had no SSRF check at all, so any pre-existing triggarr.toml with a disabled instance whose url is a placeholder (\"http://\"), non-http scheme, or link-local/multicast/unspecified literal loaded successfully. I read `triggarr/config.py` (unchanged by this diff): `ensure_config`'s own comment at the time of this diff states 'OSError ... and pydantic.ValidationError (schema bug) continue to propagate uncaught', and `load_settings`/`ensure_config` only catch `tomllib.TOMLDecodeError`/`UnicodeDecodeError` -- not `pydantic.ValidationError`. `triggarr/__main__.py main()` only catches `KeyboardInterrupt` around `asyncio.run(_run())`. So a ValidationError raised by this new validator at config-load time propagates all the way out as an uncaught traceback, crashing the whole process before it ever binds the HTTP port -- the operator can't even reach the settings UI to fix it.",
+          "current_code": "    @field_validator(\"url\")\n    @classmethod\n    def validate_url_ssrf(cls, v: str) -> str:\n        ...\n        from triggarr.web.validation import validate_arr_url_config\n\n        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+          "fix_hint": "In triggarr/config.py's ensure_config/load_settings, catch pydantic.ValidationError the same way TOMLDecodeError is handled (log a friendly, field-scoped error without echoing the raw URL, then sys.exit(1)) instead of letting it propagate uncaught.",
+          "why_it_matters": "On upgrade, any existing self-hosted deployment with a disabled *arr instance that happens to have a placeholder, malformed, non-http, or link-local/multicast URL in triggarr.toml will fail to start at all, with no recovery path short of manually editing the TOML file on disk -- a self-inflicted denial of service introduced purely by adding this validator without updating the startup error path.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    @field_validator(\"url\")",
+            "    @classmethod",
+            "    def validate_url_ssrf(cls, v: str) -> str:",
+            "        \"\"\"D-01/D-02: Apply relaxed SSRF validation at config-load time.",
+            ""
+          ],
+          "orchestrator_score": 94,
+          "band": "warning",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "2da26ca95733c4c90aaa960193b73025e055e3d71c2ce1fa55538a207ec6841d",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/models/config.py",
+              "line": 93,
+              "title": "New unconditional SSRF validator can crash the app at startup on pre-existing configs",
+              "category": "ssrf",
+              "severity": "medium",
+              "agent": "security",
+              "agent_confidence": 90,
+              "problem": "The new `validate_url_ssrf` field_validator runs on every InstanceConfig.url unconditionally, including disabled instances (confirmed by the docstring and by `tests/test_config.py::test_instance_config_disabled_instance_metadata_url_still_raises`, which already asserts a disabled metadata URL raises ValidationError). Before this diff, InstanceConfig had no SSRF check at all, so any pre-existing triggarr.toml with a disabled instance whose url is a placeholder (\"http://\"), non-http scheme, or link-local/multicast/unspecified literal loaded successfully. I read `triggarr/config.py` (unchanged by this diff): `ensure_config`'s own comment at the time of this diff states 'OSError ... and pydantic.ValidationError (schema bug) continue to propagate uncaught', and `load_settings`/`ensure_config` only catch `tomllib.TOMLDecodeError`/`UnicodeDecodeError` -- not `pydantic.ValidationError`. `triggarr/__main__.py main()` only catches `KeyboardInterrupt` around `asyncio.run(_run())`. So a ValidationError raised by this new validator at config-load time propagates all the way out as an uncaught traceback, crashing the whole process before it ever binds the HTTP port -- the operator can't even reach the settings UI to fix it.",
+              "source_window": [
+                "    @field_validator(\"url\")",
+                "    @classmethod",
+                "    def validate_url_ssrf(cls, v: str) -> str:",
+                "        \"\"\"D-01/D-02: Apply relaxed SSRF validation at config-load time.",
+                ""
+              ],
+              "cwe": "CWE-755",
+              "why_it_matters": "On upgrade, any existing self-hosted deployment with a disabled *arr instance that happens to have a placeholder, malformed, non-http, or link-local/multicast URL in triggarr.toml will fail to start at all, with no recovery path short of manually editing the TOML file on disk -- a self-inflicted denial of service introduced purely by adding this validator without updating the startup error path.",
+              "fix_hint": "In triggarr/config.py's ensure_config/load_settings, catch pydantic.ValidationError the same way TOMLDecodeError is handled (log a friendly, field-scoped error without echoing the raw URL, then sys.exit(1)) instead of letting it propagate uncaught.",
+              "current_code": "    @field_validator(\"url\")\n    @classmethod\n    def validate_url_ssrf(cls, v: str) -> str:\n        ...\n        from triggarr.web.validation import validate_arr_url_config\n\n        ok, err = validate_arr_url_config(v)\n        if not ok:\n            raise ValueError(err)\n        return v",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/models/config.py",
+            "line": 93,
+            "canonical_line_content": null,
+            "band": "warning"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 110,
+          "title": "A config URL the new validator rejects crashes startup with an uncaught ValidationError traceback",
+          "reason": "absorbed-into: f12fbe78be966cae3fdf3703811998c489e8b3855c58e1ac3224079b73f3aaca"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Hand-edited TOML URLs that the new check rejects (including on disabled instances) now stop the daemon at startup with an uncaught traceback",
+          "reason": "absorbed-into: f12fbe78be966cae3fdf3703811998c489e8b3855c58e1ac3224079b73f3aaca"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 110,
+          "title": "The raw ValidationError at startup prints the full URL, including any user:pass@ credentials, outside the redacting log sink",
+          "reason": "absorbed-into: f12fbe78be966cae3fdf3703811998c489e8b3855c58e1ac3224079b73f3aaca"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 110,
+          "title": "Rejected URL value (possibly with embedded basic-auth credentials) appears in the ValidationError text that routes.py logs and the startup traceback prints",
+          "reason": "absorbed-into: f12fbe78be966cae3fdf3703811998c489e8b3855c58e1ac3224079b73f3aaca"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
