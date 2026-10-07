@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a116b1-f5ff-76b2-b745-887490059fad",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The new setting is not wired into the settings form, so it cannot round-trip through the UI.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Add the drain-timeout input before accepting it from the form\",\"body\":\"The added template context has no corresponding input in templates/settings.html. A POST containing shutdown_drain_timeout=120.5 now persists successfully, but the next ordinary browser Save Settings omits that field and line 550 replaces it with 60.0. Users cannot view or edit the newly accepted value, and unrelated settings saves erase it. The existing test_settings_page_renders_new_config_fields assertion also requires the missing input.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Add a shutdown_drain_timeout input associated with settings-form and populated from the new context value. Preserve the current value when the field is absent, and verify a browser-form round trip retains 120.5.\"}],\"next_steps\":[\"Complete the form wiring and run the settings rendering and round-trip tests.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The new setting is not wired into the settings form, so it cannot round-trip through the UI.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Add the drain-timeout input before accepting it from the form",
+        "body": "The added template context has no corresponding input in templates/settings.html. A POST containing shutdown_drain_timeout=120.5 now persists successfully, but the next ordinary browser Save Settings omits that field and line 550 replaces it with 60.0. Users cannot view or edit the newly accepted value, and unrelated settings saves erase it. The existing test_settings_page_renders_new_config_fields assertion also requires the missing input.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 550,
+        "line_end": 550,
+        "confidence": 0.99,
+        "recommendation": "Add a shutdown_drain_timeout input associated with settings-form and populated from the new context value. Preserve the current value when the field is absent, and verify a browser-form round trip retains 120.5."
+      }
+    ],
+    "next_steps": [
+      "Complete the form wiring and run the settings rendering and round-trip tests."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The new setting is not wired into the settings form, so it cannot round-trip through the UI.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Add the drain-timeout input before accepting it from the form\",\"body\":\"The added template context has no corresponding input in templates/settings.html. A POST containing shutdown_drain_timeout=120.5 now persists successfully, but the next ordinary browser Save Settings omits that field and line 550 replaces it with 60.0. Users cannot view or edit the newly accepted value, and unrelated settings saves erase it. The existing test_settings_page_renders_new_config_fields assertion also requires the missing input.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Add a shutdown_drain_timeout input associated with settings-form and populated from the new context value. Preserve the current value when the field is absent, and verify a browser-form round trip retains 120.5.\"}],\"next_steps\":[\"Complete the form wiring and run the settings rendering and round-trip tests.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
