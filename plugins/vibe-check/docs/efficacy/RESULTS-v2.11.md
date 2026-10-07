@@ -117,6 +117,12 @@ disclosed in the body below, with its effect on the measurement.
 Sealed literal (never deciding): false alarms 6→8 of 21 vs the sealed bar ≤ 6 — would be MISS; should-quiet-7 fired 3/3 (reported descriptively — it contains a real config-loss defect, #001)
 Retune: not used (owner declined the diagnosed fix; see §Changes made after measurement)
 
+**Release not B3-measured.** The B3 result above was measured on build `e6eafbd`. 2.11.0 also
+contains `11c8afc` (the fix agent's commit helper no longer lets an error while silencing its
+output, such as a missing stdout, turn an already-published commit into a `refused` exit), made
+after that measurement and not re-measured, so the release itself is not B3-measured. The owner
+chose to ship it under the release waiver committed in `RUN-METHOD-NOTES-phase49.md` §Release.
+
 **The release candidate missed the pre-registered bar, and 2.11.0 ships anyway by owner
 decision.** On the corrected cohort the tool raised a false alarm on 5/18 clean runs against a bar
 of ≤ 3; it kept every catch, 15/15. The sealed literal over all 21 quiet runs was 8/21 (bar ≤ 6,
@@ -200,7 +206,7 @@ siblings are not scored runs and carry no sha file). The counter prints counts o
 
 | window | firings | fix-loop firings (≥ 1 card) | cards | cards per fix-loop firing | cards per firing |
 |---|---|---|---|---|---|
-| **v2.11, Phase 49 first pass on S (the shipped build)** | 36 | 24 | 48 | 48/24 (2.00) | 48/36 (1.33) |
+| **v2.11, Phase 49 first pass on S (the measured build)** | 36 | 24 | 48 | 48/24 (2.00) | 48/36 (1.33) |
 | v2.10, Phase 43 first pass (same counter, recount) | 36 | 26 | 52 | 52/26 (2.00) | 52/36 (1.44) |
 | v2.10, Phase 43 retune (same counter, recount) | 9 | 9 | 18 | 18/9 (2.00) | 18/9 (2.00) |
 
@@ -224,23 +230,28 @@ Nothing here is inferred from pass counts.
 
 ### Changes made after measurement (disclosed)
 
-- **Measured surface:** `git log S..HEAD -- plugins/vibe-check ':!plugins/vibe-check/docs'` is
-  empty at the release commits, apart from the 2.11.0 version bump in
-  `plugins/vibe-check/.claude-plugin/plugin.json` (version line only). The six behavioural
-  directories (`agents`, `commands`, `phases`, `templates`, `scripts`, `hooks`) are byte-identical
-  between S and the release commit (`git diff --quiet S HEAD` over those six paths exits 0). The
-  shipped 2.11.0 is the measured build.
+- **Measured surface:** besides the 2.11.0 version bump in
+  `plugins/vibe-check/.claude-plugin/plugin.json` (version line only), one commit after S touches
+  the six behavioural directories (`agents`, `commands`, `phases`, `templates`, `scripts`,
+  `hooks`): `11c8afc`, a fix forced by the release deep review. It changes
+  `scripts/fixstage.py` (`_silence_stdout` now catches any exception instead of only `OSError` and
+  `ValueError`) and adds tests in `scripts/test_fixstage.py`.
+- **Release not B3-measured.** The B3 result above was measured on build `e6eafbd`. 2.11.0 also
+  contains `11c8afc` (the fix agent's commit helper no longer lets an error while silencing its
+  output, such as a missing stdout, turn an already-published commit into a `refused` exit), made
+  after that measurement and not re-measured, so the release itself is not B3-measured. The owner
+  chose this over a re-measure and recorded it as the committed `release-waiver:` line in
+  `RUN-METHOD-NOTES-phase49.md` §Release.
 - **The declined fix.** 49-07 diagnosed the miss and scoped one PROMPT-class fix: a calibration
   rule in `templates/codex-focus.txt` for settings that are declared but not yet read (backlog
   class 999.19 (a), aimed at the should-quiet-6 residual). It is recorded in
   `runs-v2.11-phase49/retune/FIX-SCOPE.json` and `SCORING-v2.11-phase49.md` §6. The owner declined
-  it, so it was never written, built or measured, and nothing in the shipped plugin comes from it.
+  it, so it was never written, built or measured, and nothing in the released plugin comes from it.
   The diagnosis found no v2.11 code path implicated: the two new alarms are lane sampling of
   pre-existing behaviour.
-- **After this commit:** if the release gates force any change to the six behavioural directories,
-  publication is blocked. It is never a disclosure-only pass: either the final tree is re-measured
-  (and this verdict then binds to the new snapshot), or the owner records a release waiver and this
-  document then states that the release itself is not B3-measured.
+- **Why a waiver and not disclosure alone:** when the release gates force a change to the six
+  behavioural directories, publication is blocked unless the final tree is re-measured or the owner
+  records a release waiver. The release gates forced `11c8afc`, and the owner chose the waiver.
 
 ## Honest limitations
 
@@ -261,19 +272,24 @@ Nothing here is inferred from pass counts.
    false-alarm arm already decides.
 7. **Three repos, all the owner's.** This measures these defect classes on this stack, not recall
    in general.
+8. **The release is not the measured build.** `11c8afc` (an error-handling change in the fix
+   agent's commit helper) landed after the measurement and was not re-measured. 2.11.0 ships under
+   an owner release waiver.
 
 ## Plain-language summary (for the owner)
 
 **2.11 missed its target, and it ships anyway because you decided it should.** We ran the same
-twelve sealed diffs three times each on the finished 2.11 build. It caught every real defect,
+twelve sealed diffs three times each on the 2.11 release candidate. It caught every real defect,
 15 of 15. On the clean diffs it raised a false alarm in 5 of 18 runs; the target was at most 3.
 Three of those five are the one known weak spot we predicted before running anything (a setting
 that is declared but not used yet, which the Codex reviewer keeps calling a bug). The other two are
 one-off alarms on two different diffs, each in one run out of three.
 
-We found a likely fix for the known weak spot, but you chose not to apply it, so 2.11.0 is exactly
-the build we measured. Nothing in the reviewer changed after the measurement except the version
-number.
+We found a likely fix for the known weak spot, but you chose not to apply it. The release review
+then forced one small change after the measurement (`11c8afc`, how the fix agent's commit helper
+handles an error after a commit is already published). You chose to ship it without re-measuring,
+so the release itself is not B3-measured: the numbers above describe build `e6eafbd`, the release
+candidate before that change.
 
 On pauses: when a review reaches the fix loop and you decline, you still see exactly two decision
 cards, the same as in 2.10. The new pause batching did not add any. The bigger saving it was built

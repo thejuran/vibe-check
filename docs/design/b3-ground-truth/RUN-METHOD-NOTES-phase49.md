@@ -292,3 +292,7 @@ snapshot-root: /Users/julianamacbook/.vibe-check-snapshots/batch7-e6eafbd3b8c4
 plugin-root: /Users/julianamacbook/.vibe-check-snapshots/batch7-e6eafbd3b8c4/plugins/vibe-check
 driver: assistant-tmux
 session: first should-quiet-7
+
+## Release
+
+release-waiver: unmeasured 11c8afce8e6f385c1f386fc5b2edcb246b4907c1 (owner, 2026-10-07T19:40:50Z)
