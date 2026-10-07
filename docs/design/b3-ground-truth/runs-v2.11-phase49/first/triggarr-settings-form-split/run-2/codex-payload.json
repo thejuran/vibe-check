@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1163f-0841-7220-bc8d-510b1ebc8366",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\n  \"verdict\": \"needs-attention\",\n  \"summary\": \"Do not ship: Save Settings now silently resets General settings and discards edits.\",\n  \"findings\": [\n    {\n      \"severity\": \"high\",\n      \"title\": \"Split forms cause every settings save to overwrite General configuration\",\n      \"body\": \"General controls now belong to a separate form with no submit button. The Save Settings button at line 241 submits only instance fields. save_settings in triggarr/web/routes.py:530–539 replaces omitted General values with defaults and persists them: for example, hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=true becomes false, and max_history_rows=10000 becomes 1000. General edits cannot be saved through the button either. The existing test_general_fields_submit_with_the_save_settings_form explicitly guards this regression.\",\n      \"file\": \"triggarr/templates/settings.html\",\n      \"line_start\": 18,\n      \"line_end\": 18,\n      \"confidence\": 1.0,\n      \"recommendation\": \"Restore id=\\\"settings-form\\\" on the instance form and form=\\\"settings-form\\\" on every General control, keeping the Security forms independent.\"\n    }\n  ],\n  \"next_steps\": [\n    \"Restore the shared form association and run the existing General-field submission regression test.\"\n  ]\n}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: Save Settings now silently resets General settings and discards edits.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Split forms cause every settings save to overwrite General configuration",
+        "body": "General controls now belong to a separate form with no submit button. The Save Settings button at line 241 submits only instance fields. save_settings in triggarr/web/routes.py:530–539 replaces omitted General values with defaults and persists them: for example, hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=true becomes false, and max_history_rows=10000 becomes 1000. General edits cannot be saved through the button either. The existing test_general_fields_submit_with_the_save_settings_form explicitly guards this regression.",
+        "file": "triggarr/templates/settings.html",
+        "line_start": 18,
+        "line_end": 18,
+        "confidence": 1,
+        "recommendation": "Restore id=\"settings-form\" on the instance form and form=\"settings-form\" on every General control, keeping the Security forms independent."
+      }
+    ],
+    "next_steps": [
+      "Restore the shared form association and run the existing General-field submission regression test."
+    ]
+  },
+  "rawOutput": "{\n  \"verdict\": \"needs-attention\",\n  \"summary\": \"Do not ship: Save Settings now silently resets General settings and discards edits.\",\n  \"findings\": [\n    {\n      \"severity\": \"high\",\n      \"title\": \"Split forms cause every settings save to overwrite General configuration\",\n      \"body\": \"General controls now belong to a separate form with no submit button. The Save Settings button at line 241 submits only instance fields. save_settings in triggarr/web/routes.py:530–539 replaces omitted General values with defaults and persists them: for example, hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=true becomes false, and max_history_rows=10000 becomes 1000. General edits cannot be saved through the button either. The existing test_general_fields_submit_with_the_save_settings_form explicitly guards this regression.\",\n      \"file\": \"triggarr/templates/settings.html\",\n      \"line_start\": 18,\n      \"line_end\": 18,\n      \"confidence\": 1.0,\n      \"recommendation\": \"Restore id=\\\"settings-form\\\" on the instance form and form=\\\"settings-form\\\" on every General control, keeping the Security forms independent.\"\n    }\n  ],\n  \"next_steps\": [\n    \"Restore the shared form association and run the existing General-field submission regression test.\"\n  ]\n}",
+  "parseError": null,
+  "reasoningSummary": []
+}
