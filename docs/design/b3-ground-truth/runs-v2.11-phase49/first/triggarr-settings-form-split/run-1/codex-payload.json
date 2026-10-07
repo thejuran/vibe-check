@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a11633-d7c1-71e2-a2ea-70ad727f86ee",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: saving settings silently resets General configuration and discards edits.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Splitting the forms drops General fields and resets saved limits\",\"body\":\"The General controls now belong to a separate form with no submit button. Clicking “Save Settings” submits only the instance form. In triggarr/web/routes.py:529–539, save_settings interprets the missing General fields as defaults and persists them: for example, an existing hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=True becomes False, and max_history_rows becomes 1000. Thus an ordinary instance save silently removes configured search restrictions, while edits to General fields cannot be saved with the button. The existing regression test at tests/test_web.py:832 explicitly covers this association.\",\"file\":\"triggarr/templates/settings.html\",\"line_start\":18,\"line_end\":18,\"confidence\":1.0,\"recommendation\":\"Restore id=\\\"settings-form\\\" on the instance form and form=\\\"settings-form\\\" on every General control, keeping Security separate. Run test_general_fields_submit_with_the_save_settings_form and verify a save preserves nondefault General values.\"}],\"next_steps\":[\"Restore the shared form association before merging.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: saving settings silently resets General configuration and discards edits.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Splitting the forms drops General fields and resets saved limits",
+        "body": "The General controls now belong to a separate form with no submit button. Clicking “Save Settings” submits only the instance form. In triggarr/web/routes.py:529–539, save_settings interprets the missing General fields as defaults and persists them: for example, an existing hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=True becomes False, and max_history_rows becomes 1000. Thus an ordinary instance save silently removes configured search restrictions, while edits to General fields cannot be saved with the button. The existing regression test at tests/test_web.py:832 explicitly covers this association.",
+        "file": "triggarr/templates/settings.html",
+        "line_start": 18,
+        "line_end": 18,
+        "confidence": 1,
+        "recommendation": "Restore id=\"settings-form\" on the instance form and form=\"settings-form\" on every General control, keeping Security separate. Run test_general_fields_submit_with_the_save_settings_form and verify a save preserves nondefault General values."
+      }
+    ],
+    "next_steps": [
+      "Restore the shared form association before merging."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: saving settings silently resets General configuration and discards edits.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Splitting the forms drops General fields and resets saved limits\",\"body\":\"The General controls now belong to a separate form with no submit button. Clicking “Save Settings” submits only the instance form. In triggarr/web/routes.py:529–539, save_settings interprets the missing General fields as defaults and persists them: for example, an existing hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=True becomes False, and max_history_rows becomes 1000. Thus an ordinary instance save silently removes configured search restrictions, while edits to General fields cannot be saved with the button. The existing regression test at tests/test_web.py:832 explicitly covers this association.\",\"file\":\"triggarr/templates/settings.html\",\"line_start\":18,\"line_end\":18,\"confidence\":1.0,\"recommendation\":\"Restore id=\\\"settings-form\\\" on the instance form and form=\\\"settings-form\\\" on every General control, keeping Security separate. Run test_general_fields_submit_with_the_save_settings_form and verify a save preserves nondefault General values.\"}],\"next_steps\":[\"Restore the shared form association before merging.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
