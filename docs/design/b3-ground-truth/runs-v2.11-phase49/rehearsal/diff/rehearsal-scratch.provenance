@@ -1,0 +1,15 @@
+# Provenance — rehearsal-scratch.patch (Phase-49 dress rehearsal, never scored)
+
+diff_id: rehearsal-scratch
+role: rehearsal only (a deliberate, obvious defect so the fix-loop cards appear)
+source_repo: ~/triggarr
+base_sha: 4a154be457a8853582a4b0c7fbad5d29dd546679
+base_sha_note: the ~/triggarr main HEAD on 2026-10-06; `git apply --check` exit 0 verified there.
+EXPECTED_TREE_DIFF_SHA256: 9c0dfc2d15ee952ee9ff2726e5c38d67a71470bd2dc477540eea4922b3afc07d
+EXPECTED_TOUCHED_PATHS: triggarr/db.py
+
+## What the patch is
+It appends one function to the tracked module triggarr/db.py that builds a SQL query with an
+f-string from its `item_name` argument and executes it through sqlite3 (SQL injection). The
+defect is in a tracked file on purpose: the runbook's `fresh` and `post` gates hash the full
+tracked `git diff` and refuse untracked files, so an added-file patch would be invisible to them.
