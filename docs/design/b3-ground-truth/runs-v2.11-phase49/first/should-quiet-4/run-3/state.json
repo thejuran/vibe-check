@@ -1,0 +1,71 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "14eecb580499ec2ab4e8d469c768479509a9695a",
+      "timestamp": "2026-10-07T12:56:07Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "Config model layer now imports from the web UI layer, reversing the existing models-to-web dependency direction",
+          "reason": "absorbed-into: 3aa39e7d98962a2a1ae71893278a3321820252dc3f49378da0ac33297f07a0e0"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "An existing config whose URL was accepted before now crashes startup with an uncaught ValidationError traceback",
+          "reason": "absorbed-into: 3aa39e7d98962a2a1ae71893278a3321820252dc3f49378da0ac33297f07a0e0"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Config-load SSRF check can be bypassed via a trailing-dot metadata hostname or an integer-form IP (pre-existing gap in the helper)",
+          "reason": "absorbed-into: 3aa39e7d98962a2a1ae71893278a3321820252dc3f49378da0ac33297f07a0e0"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 106,
+          "title": "Loopback URLs now accepted at config load are still rejected by the settings form, so a settings save silently does nothing",
+          "reason": "absorbed-into: 3aa39e7d98962a2a1ae71893278a3321820252dc3f49378da0ac33297f07a0e0"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Relaxed SSRF validator can be bypassed via decimal/integer IP or trailing-dot metadata hostname (pre-existing helper gap)",
+          "reason": "absorbed-into: 3aa39e7d98962a2a1ae71893278a3321820252dc3f49378da0ac33297f07a0e0"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 108,
+          "title": "Config the old code loaded (e.g. http://0.0.0.0:7878) now crashes startup with an uncaught ValidationError traceback",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 93,
+          "title": "Load-time and UI-save validators disagree on loopback IPs: config with 127.0.0.1 loads but any settings save is silently refused",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
