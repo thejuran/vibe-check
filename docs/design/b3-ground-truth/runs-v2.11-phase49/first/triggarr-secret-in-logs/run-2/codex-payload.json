@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1142b-6c9f-7cb3-b8fa-10d414328ae0",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: the HTTP error log now exposes URL credentials on ordinary upstream failures.\",\"findings\":[{\"severity\":\"high\",\"title\":\"HTTP failure logging exposes reverse-proxy credentials\",\"body\":\"A supported URL such as http://proxyuser:proxysecret@radarr:7878 passes InstanceConfig validation. On a 502 response, formatting HTTPStatusError includes that complete URL, including proxysecret; this was reproduced with the installed httpx and redacting sink. collect_secrets() only collects API keys and application auth secrets, so URL credentials survive redaction into stderr and the web log buffer. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":233,\"line_end\":235,\"confidence\":1.0,\"recommendation\":\"Restore status-code-only logging, or explicitly remove credentials and sensitive URL components before formatting the exception. Add a regression test using a credential-bearing URL and a 502 response.\"}],\"next_steps\":[\"Remove raw HTTP exception logging and verify URL credentials never reach either logging sink.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: the HTTP error log now exposes URL credentials on ordinary upstream failures.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "HTTP failure logging exposes reverse-proxy credentials",
+        "body": "A supported URL such as http://proxyuser:proxysecret@radarr:7878 passes InstanceConfig validation. On a 502 response, formatting HTTPStatusError includes that complete URL, including proxysecret; this was reproduced with the installed httpx and redacting sink. collect_secrets() only collects API keys and application auth secrets, so URL credentials survive redaction into stderr and the web log buffer. Previously this branch logged only the status code.",
+        "file": "triggarr/clients/base.py",
+        "line_start": 233,
+        "line_end": 235,
+        "confidence": 1,
+        "recommendation": "Restore status-code-only logging, or explicitly remove credentials and sensitive URL components before formatting the exception. Add a regression test using a credential-bearing URL and a 502 response."
+      }
+    ],
+    "next_steps": [
+      "Remove raw HTTP exception logging and verify URL credentials never reach either logging sink."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: the HTTP error log now exposes URL credentials on ordinary upstream failures.\",\"findings\":[{\"severity\":\"high\",\"title\":\"HTTP failure logging exposes reverse-proxy credentials\",\"body\":\"A supported URL such as http://proxyuser:proxysecret@radarr:7878 passes InstanceConfig validation. On a 502 response, formatting HTTPStatusError includes that complete URL, including proxysecret; this was reproduced with the installed httpx and redacting sink. collect_secrets() only collects API keys and application auth secrets, so URL credentials survive redaction into stderr and the web log buffer. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":233,\"line_end\":235,\"confidence\":1.0,\"recommendation\":\"Restore status-code-only logging, or explicitly remove credentials and sensitive URL components before formatting the exception. Add a regression test using a credential-bearing URL and a 502 response.\"}],\"next_steps\":[\"Remove raw HTTP exception logging and verify URL credentials never reach either logging sink.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
