@@ -56,7 +56,8 @@ INSIDE the manifest — `verify` uses the list the build used, not a module cons
 that may have drifted since.
 
 I/O: stdlib only, imports exactly {argparse, hashlib, json, os, re, subprocess,
-sys}; every `subprocess.run` carries `timeout=120`. GATE semantics (D-13): exit 0
+sys}; every `subprocess.run` carries `timeout=120`, except the one suite run,
+which carries `SUITE_TIMEOUT` (the suite outgrew 120 s). GATE semantics (D-13): exit 0
 clean, 1 on any assertion failure, 2 on a usage error or an unreadable input.
 Callers branch on the EXIT CODE, never by parsing stdout.
 
@@ -160,6 +161,10 @@ KNOWN_PLANS = (tuple("40-%02d" % n for n in range(1, 15))
 # suite check and again whenever anything runs in the snapshot, so they are
 # neither hashed at build nor compared at verify. The list is recorded inside the
 # manifest so verify uses exactly what the build used.
+# The snapshot suite run alone: about 130 s at 2323 tests, past the 120 s every
+# git call keeps. Generous so suite growth does not block a snapshot build.
+SUITE_TIMEOUT = 900
+
 HASH_EXCLUDE = ("__pycache__/", "*.pyc", ".pytest_cache/")
 
 # The lazy-read instruction form 40-08 establishes (Pattern 8). Written to match
@@ -533,7 +538,8 @@ def _assert_suite_green(plugin_root):
     for argv in _pytest_argv():
         try:
             proc = subprocess.run(argv, cwd=scripts, stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT, text=True, timeout=120)
+                                  stderr=subprocess.STDOUT, text=True,
+                                  timeout=SUITE_TIMEOUT)
         except OSError as exc:
             attempts.append("%s: %s" % (argv[0], exc))
             continue
