@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a11696-b8fa-7ac1-b0a6-c1c0880838c6",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The validation works, but the new timeout setting has no effect on shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"GeneralConfig(shutdown_drain_timeout=120.5) accepts and preserves the value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT, initialized solely from the environment or 60.0 in triggarr/search/scheduler.py:58–81 and passed to asyncio.timeout at line 634. Thus an operator configuring a longer drain still gets forced resource closure after 60 seconds. No runtime consumer reads the new field.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Use the active general.shutdown_drain_timeout as the shutdown default, preserving the environment override, and add an integration test proving a non-default configuration reaches the drain timeout.\"}],\"next_steps\":[\"Connect the setting to shutdown and verify configuration and environment precedence.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The validation works, but the new timeout setting has no effect on shutdown.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the new timeout setting into the shutdown drain",
+        "body": "GeneralConfig(shutdown_drain_timeout=120.5) accepts and preserves the value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT, initialized solely from the environment or 60.0 in triggarr/search/scheduler.py:58–81 and passed to asyncio.timeout at line 634. Thus an operator configuring a longer drain still gets forced resource closure after 60 seconds. No runtime consumer reads the new field.",
+        "file": "triggarr/models/config.py",
+        "line_start": 139,
+        "line_end": 139,
+        "confidence": 0.99,
+        "recommendation": "Use the active general.shutdown_drain_timeout as the shutdown default, preserving the environment override, and add an integration test proving a non-default configuration reaches the drain timeout."
+      }
+    ],
+    "next_steps": [
+      "Connect the setting to shutdown and verify configuration and environment precedence."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The validation works, but the new timeout setting has no effect on shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"GeneralConfig(shutdown_drain_timeout=120.5) accepts and preserves the value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT, initialized solely from the environment or 60.0 in triggarr/search/scheduler.py:58–81 and passed to asyncio.timeout at line 634. Thus an operator configuring a longer drain still gets forced resource closure after 60 seconds. No runtime consumer reads the new field.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Use the active general.shutdown_drain_timeout as the shutdown default, preserving the environment override, and add an integration test proving a non-default configuration reaches the drain timeout.\"}],\"next_steps\":[\"Connect the setting to shutdown and verify configuration and environment precedence.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
