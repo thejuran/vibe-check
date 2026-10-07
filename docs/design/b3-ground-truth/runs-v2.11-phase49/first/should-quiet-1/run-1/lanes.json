@@ -1,0 +1,246 @@
+{
+  "codex_lines": 1,
+  "dispatched": 7,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [],
+        "intent_docs_found": [],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 7
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [],\n  \"total_lines\": 7,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_015vf4PASjot8oPJWGogHRHF"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "The diff only adds checks: is_multicast and an ipv4_mapped unwrap. Within what it adds, there is no logic, null or off-by-one defect. `ipv4_mapped` is read only after the isinstance check, and the `mapped` value is checked with the same predicate as the outer address. Both findings are existing gaps, capped at confidence 40 or lower with low severity.",
+          "On Python 3.13+, IPv6Address.is_loopback and similar properties already delegate to ipv4_mapped, so the new block is redundant there but harmless. On 3.11 and 3.12 it is needed."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 35,
+            "category": "logic-error",
+            "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n    mapped = addr.ipv4_mapped",
+            "cwe": "CWE-918",
+            "file": "triggarr/web/validation.py",
+            "fix_hint": "also unwrap addr.sixtofour and, if desired, the low 32 bits for ::/96 and 64:ff9b::/96 before applying the same blocked-address predicate",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 85,
+            "problem": "The new check only unwraps `ipv4_mapped` (::ffff:0:0/96). Other IPv6 forms that embed an IPv4 address are not unwrapped. For example, `http://[::127.0.0.1]/` has ipv4_mapped None and is_loopback False. `http://[2002:7f00:1::]/` (6to4, readable via `addr.sixtofour`) and `http://[64:ff9b::a9fe:a9fe]/` (NAT64 for 169.254.169.254) also pass. Whether these reach the embedded IPv4 target depends on the host's network stack. Linux does not route deprecated IPv4-compatible addresses, and 6to4/NAT64 need a relay or gateway, so actual exploitability is unconfirmed. The old code allowed these inputs too, so this is a gap the diff did not address, not a regression. pending: show that the deployment's stack routes one of these forms (e.g. NAT64 gateway present for 64:ff9b::/96) to a blocked IPv4 target.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "IPv4-compatible (::a.b.c.d), 6to4 and NAT64 forms of loopback/link-local still pass",
+            "why_it_matters": "Incomplete unwrapping leaves alternate encodings of blocked addresses accepted by the SSRF validator."
+          },
+          {
+            "agent_confidence": 40,
+            "category": "logic-error",
+            "current_code": "except ValueError:\n    # Not an IP literal (e.g. \"radarr\") -- perfectly fine.\n    pass",
+            "cwe": "CWE-918",
+            "file": "triggarr/web/validation.py",
+            "fix_hint": "normalize via socket.inet_aton for all-numeric/hex hostnames (or resolve and check every returned address) before the blocked-address predicate",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 81,
+            "problem": "`ipaddress.ip_address` only accepts strict dotted-quad IPv4. It raises ValueError for shorthand and integer forms such as `127.1`, `2130706433` or `0x7f000001`. The except branch treats these as plain hostnames and accepts them, so none of the new multicast/mapped checks run. The system resolver (getaddrinfo/inet_aton), which httpx uses, may still resolve these forms to 127.0.0.1 or 169.254.169.254. DNS names that resolve to blocked addresses also pass. This is a gap in the existing, unchanged logic, not something the diff introduced. pending: confirm the HTTP client used for *arr calls resolves e.g. `http://2130706433/` to 127.0.0.1 in the deployed image.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Non-canonical IPv4 literals (127.1, 2130706433, 0x7f.0.0.1) bypass the IP check as 'hostnames'",
+            "why_it_matters": "Alternate IPv4 spellings defeat the loopback/link-local/metadata block the validator exists to enforce."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"bugs\",\"findings\":[{\"id\":\"bugs-001\",\"file\":\"triggarr/web/validation.py\",\"line\":85,\"title\":\"IPv4-compatible (::a.b.c.d), 6to4 and NAT64 forms of loopback/link-local still pass\",\"category\":\"logic-error\",\"cwe\":\"CWE-918\",\"severity\":\"low\",\"agent_confidence\":35,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The new check only unwraps `ipv4_mapped` (::ffff:0:0/96). Other IPv6 forms that embed an IPv4 address are not unwrapped. For example, `http://[::127.0.0.1]/` has ipv4_mapped None and is_loopback False. `http://[2002:7f00:1::]/` (6to4, readable via `addr.sixtofour`) and `http://[64:ff9b::a9fe:a9fe]/` (NAT64 for 169.254.169.254) also pass. Whether these reach the embedded IPv4 target depends on the host's network stack. Linux does not route deprecated IPv4-compatible addresses, and 6to4/NAT64 need a relay or gateway, so actual exploitability is unconfirmed. The old code allowed these inputs too, so this is a gap the diff did not address, not a regression. pending: show that the deployment's stack routes one of these forms (e.g. NAT64 gateway present for 64:ff9b::/96) to a blocked IPv4 target.\",\"current_code\":\"if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\\n    mapped = addr.ipv4_mapped\",\"fix_hint\":\"also unwrap addr.sixtofour and, if desired, the low 32 bits for ::/96 and 64:ff9b::/96 before applying the same blocked-address predicate\",\"why_it_matters\":\"Incomplete unwrapping leaves alternate encodings of blocked addresses accepted by the SSRF validator.\",\"silenced_marker_nearby\":false},{\"id\":\"bugs-002\",\"file\":\"triggarr/web/validation.py\",\"line\":81,\"title\":\"Non-canonical IPv4 literals (127.1, 2130706433, 0x7f.0.0.1) bypass the IP check as 'hostnames'\",\"category\":\"logic-error\",\"cwe\":\"CWE-918\",\"severity\":\"low\",\"agent_confidence\":40,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"`ipaddress.ip_address` only accepts strict dotted-quad IPv4. It raises ValueError for shorthand and integer forms such as `127.1`, `2130706433` or `0x7f000001`. The except branch treats these as plain hostnames and accepts them, so none of the new multicast/mapped checks run. The system resolver (getaddrinfo/inet_aton), which httpx uses, may still resolve these forms to 127.0.0.1 or 169.254.169.254. DNS names that resolve to blocked addresses also pass. This is a gap in the existing, unchanged logic, not something the diff introduced. pending: confirm the HTTP client used for *arr calls resolves e.g. `http://2130706433/` to 127.0.0.1 in the deployed image.\",\"current_code\":\"except ValueError:\\n    # Not an IP literal (e.g. \\\"radarr\\\") -- perfectly fine.\\n    pass\",\"fix_hint\":\"normalize via socket.inet_aton for all-numeric/hex hostnames (or resolve and check every returned address) before the blocked-address predicate\",\"why_it_matters\":\"Alternate IPv4 spellings defeat the loopback/link-local/metadata block the validator exists to enforce.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"The diff only adds checks: is_multicast and an ipv4_mapped unwrap. Within what it adds, there is no logic, null or off-by-one defect. `ipv4_mapped` is read only after the isinstance check, and the `mapped` value is checked with the same predicate as the outer address. Both findings are existing gaps, capped at confidence 40 or lower with low severity.\",\"On Python 3.13+, IPv6Address.is_loopback and similar properties already delegate to ipv4_mapped, so the new block is redundant there but harmless. On 3.11 and 3.12 it is needed.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_015PzBUyiu7DV3WZg6MFCpJC"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "Pre-existing, untouched by this diff (triggarr/web/validation.py:89-91): hostnames that fail ipaddress.ip_address()'s strict dotted-decimal grammar (e.g. decimal-integer '2130706433', octal, or shorthand '127.1') fall through the except ValueError to the 'treat as plain hostname' path and skip all IP-literal blocking entirely. Some resolvers/HTTP stacks accept these non-canonical forms and resolve them to the literal address they encode (classic SSRF-filter-bypass pattern). Not evaluated for exploitability against this project's actual HTTP client; flagged for awareness only since it's orthogonal to the lines changed here.",
+          "Pre-existing, untouched by this diff: validate_arr_url is invoked only once at settings-save time (triggarr/web/routes.py:522), and the saved URL is later used by the arr HTTP client to make real requests without re-validation at connect time. If the hostname is ever non-literal and its DNS resolution can change between save-time validation and request-time connection (DNS rebinding), this filter would not catch it. Likely low real-world risk here since this is an authenticated single-admin settings form, not attacker-reachable input, but noted for completeness since the whole validator exists specifically to defend against SSRF per the referenced D-10 threat doc."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 40,
+            "category": "ssrf",
+            "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n    mapped = addr.ipv4_mapped\n    if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n        return (False, \"Blocked address\")",
+            "cwe": "CWE-918",
+            "file": "triggarr/web/validation.py",
+            "fix_hint": "also detect the deprecated IPv4-compatible form (upper 96 bits zero, low 32 bits nonzero/non-::1) and check the embedded IPv4 the same way, or simply reject any IPv6 literal outside ::1/::ffff:0:0:0/96 whose low 32 bits are nonzero and whose high 96 bits are zero",
+            "id": "sec-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 85,
+            "problem": "The new check only unwraps the 'IPv4-mapped' form (::ffff:a.b.c.d, where Python's ipv4_mapped requires bits 32-47 == 0xFFFF). A hostname using the older, deprecated 'IPv4-compatible' form (e.g. '::127.0.0.1' or '::169.254.169.254', no 'ffff' hextet) parses successfully via ipaddress.ip_address (CPython's IPv6 parser accepts a trailing dotted-quad generally, converting it to hextets with zero high bits), but for such an address is_loopback/is_link_local/is_unspecified/is_multicast all evaluate against the raw IPv6 value (not ==1, not in fe80::/10, etc.) and ipv4_mapped returns None, so neither the original nor the new check fires.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Deprecated IPv4-compatible IPv6 literal (::127.0.0.1) still bypasses SSRF guard",
+            "why_it_matters": "If the HTTP client's connect-time resolver (libc/getaddrinfo via httpx/asyncio) treats '::127.0.0.1' or '::169.254.169.254' as routable to the embedded IPv4 address, this is a live loopback/metadata SSRF bypass identical in spirit to the one this diff just fixed for the ::ffff: form. This exact blind spot existed before the diff too, so it is not a regression -- it's an unaddressed sibling case. pending: confirm whether the deployed HTTP client/OS network stack actually routes a literal '::127.0.0.1' / '::169.254.169.254' connection to the embedded IPv4 host (if the stack rejects/treats it as unreachable, this is not exploitable)."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"security\",\n  \"findings\": [\n    {\n      \"id\": \"sec-001\",\n      \"file\": \"triggarr/web/validation.py\",\n      \"line\": 85,\n      \"title\": \"Deprecated IPv4-compatible IPv6 literal (::127.0.0.1) still bypasses SSRF guard\",\n      \"category\": \"ssrf\",\n      \"cwe\": \"CWE-918\",\n      \"severity\": \"low\",\n      \"agent_confidence\": 40,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The new check only unwraps the 'IPv4-mapped' form (::ffff:a.b.c.d, where Python's ipv4_mapped requires bits 32-47 == 0xFFFF). A hostname using the older, deprecated 'IPv4-compatible' form (e.g. '::127.0.0.1' or '::169.254.169.254', no 'ffff' hextet) parses successfully via ipaddress.ip_address (CPython's IPv6 parser accepts a trailing dotted-quad generally, converting it to hextets with zero high bits), but for such an address is_loopback/is_link_local/is_unspecified/is_multicast all evaluate against the raw IPv6 value (not ==1, not in fe80::/10, etc.) and ipv4_mapped returns None, so neither the original nor the new check fires.\",\n      \"current_code\": \"if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\\n    mapped = addr.ipv4_mapped\\n    if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\\n        return (False, \\\"Blocked address\\\")\",\n      \"fix_hint\": \"also detect the deprecated IPv4-compatible form (upper 96 bits zero, low 32 bits nonzero/non-::1) and check the embedded IPv4 the same way, or simply reject any IPv6 literal outside ::1/::ffff:0:0:0/96 whose low 32 bits are nonzero and whose high 96 bits are zero\",\n      \"why_it_matters\": \"If the HTTP client's connect-time resolver (libc/getaddrinfo via httpx/asyncio) treats '::127.0.0.1' or '::169.254.169.254' as routable to the embedded IPv4 address, this is a live loopback/metadata SSRF bypass identical in spirit to the one this diff just fixed for the ::ffff: form. This exact blind spot existed before the diff too, so it is not a regression -- it's an unaddressed sibling case. pending: confirm whether the deployed HTTP client/OS network stack actually routes a literal '::127.0.0.1' / '::169.254.169.254' connection to the embedded IPv4 host (if the stack rejects/treats it as unreachable, this is not exploitable).\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Pre-existing, untouched by this diff (triggarr/web/validation.py:89-91): hostnames that fail ipaddress.ip_address()'s strict dotted-decimal grammar (e.g. decimal-integer '2130706433', octal, or shorthand '127.1') fall through the except ValueError to the 'treat as plain hostname' path and skip all IP-literal blocking entirely. Some resolvers/HTTP stacks accept these non-canonical forms and resolve them to the literal address they encode (classic SSRF-filter-bypass pattern). Not evaluated for exploitability against this project's actual HTTP client; flagged for awareness only since it's orthogonal to the lines changed here.\",\n    \"Pre-existing, untouched by this diff: validate_arr_url is invoked only once at settings-save time (triggarr/web/routes.py:522), and the saved URL is later used by the arr HTTP client to make real requests without re-validation at connect time. If the hostname is ever non-literal and its DNS resolution can change between save-time validation and request-time connection (DNS rebinding), this filter would not catch it. Likely low real-world risk here since this is an authenticated single-admin settings form, not attacker-reachable input, but noted for completeness since the whole validator exists specifically to defend against SSRF per the referenced D-10 threat doc.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_01KRBgrNdsHuttNQJsbwNEhV"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "The four-way predicate (is_link_local / is_loopback / is_unspecified / is_multicast) now appears twice in validate_arr_url, at lines 82 and 87. Two copies is below the rule of three, so this is not a finding. If a third location or a fifth property (e.g. is_reserved) is added, pull it into one _is_blocked_ip(addr) helper so the two branches cannot drift apart.",
+          "Dependencies are unchanged: validation.py still imports only the stdlib (ipaddress, re, urllib.parse). Its only consumer is triggarr/web/routes.py (line 53 import, line 522 call). No new coupling and no import cycle.",
+          "The change fits the module's existing style: (bool, message) return tuples, a generic 'Blocked address' message that leaks no internals, and ValueError fallthrough for non-IP hostnames.",
+          "Validation is syntactic only. Hostnames are not resolved, so a DNS name that resolves to a loopback or metadata IP still passes. This was true before the diff and is consistent with the documented design (private networks are allowed because *arr apps run locally). Noted for the security lane, not an architecture finding.",
+          "Other IPv6 forms that embed IPv4 addresses (6to4 via addr.sixtofour, Teredo via addr.teredo, NAT64 64:ff9b::/96) are not unwrapped. Whether they are in scope depends on the D-10 decision text, which was not provided."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 55,
+            "category": "pattern-consistency",
+            "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n                return (False, \"Blocked address\")",
+            "cwe": "CWE-918",
+            "file": "triggarr/web/validation.py",
+            "fix_hint": "normalize once (effective = addr.ipv4_mapped or addr), then check str(effective) in BLOCKED_HOSTS and run the property predicate on effective, so the mapped and plain forms are treated the same",
+            "id": "arch-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 85,
+            "problem": "validate_arr_url has two blocklists: the BLOCKED_HOSTS string set checked at line 77, and the ipaddress property predicate at lines 82/87. The new IPv4-mapped unwrapping (line 85) only feeds the predicate. The string set is still matched against the raw hostname. So '100.100.100.200' (Alibaba Cloud metadata, which is not link-local, loopback, unspecified or multicast) is blocked as a literal, but 'http://[::ffff:100.100.100.200]/' gets through. 169.254.169.254 is unaffected because the is_link_local check on the mapped address catches it. pending: confirm whether D-10 in the phase-59 plan meant to cover BLOCKED_HOSTS entries; no intent doc was provided to check.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "IPv4-mapped normalization feeds only the property predicate, not the BLOCKED_HOSTS literal set",
+            "why_it_matters": "This diff makes IPv4-mapped normalization the convention, but only one of the two blocklists uses it. Every literal IP added to BLOCKED_HOSTS later will have the same bypass through the mapped form."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"architecture\",\n  \"findings\": [\n    {\n      \"id\": \"arch-001\",\n      \"file\": \"triggarr/web/validation.py\",\n      \"line\": 85,\n      \"title\": \"IPv4-mapped normalization feeds only the property predicate, not the BLOCKED_HOSTS literal set\",\n      \"category\": \"pattern-consistency\",\n      \"cwe\": \"CWE-918\",\n      \"severity\": \"medium\",\n      \"agent_confidence\": 55,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"validate_arr_url has two blocklists: the BLOCKED_HOSTS string set checked at line 77, and the ipaddress property predicate at lines 82/87. The new IPv4-mapped unwrapping (line 85) only feeds the predicate. The string set is still matched against the raw hostname. So '100.100.100.200' (Alibaba Cloud metadata, which is not link-local, loopback, unspecified or multicast) is blocked as a literal, but 'http://[::ffff:100.100.100.200]/' gets through. 169.254.169.254 is unaffected because the is_link_local check on the mapped address catches it. pending: confirm whether D-10 in the phase-59 plan meant to cover BLOCKED_HOSTS entries; no intent doc was provided to check.\",\n      \"current_code\": \"if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\\n            mapped = addr.ipv4_mapped\\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\\n                return (False, \\\"Blocked address\\\")\",\n      \"fix_hint\": \"normalize once (effective = addr.ipv4_mapped or addr), then check str(effective) in BLOCKED_HOSTS and run the property predicate on effective, so the mapped and plain forms are treated the same\",\n      \"why_it_matters\": \"This diff makes IPv4-mapped normalization the convention, but only one of the two blocklists uses it. Every literal IP added to BLOCKED_HOSTS later will have the same bypass through the mapped form.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"The four-way predicate (is_link_local / is_loopback / is_unspecified / is_multicast) now appears twice in validate_arr_url, at lines 82 and 87. Two copies is below the rule of three, so this is not a finding. If a third location or a fifth property (e.g. is_reserved) is added, pull it into one _is_blocked_ip(addr) helper so the two branches cannot drift apart.\",\n    \"Dependencies are unchanged: validation.py still imports only the stdlib (ipaddress, re, urllib.parse). Its only consumer is triggarr/web/routes.py (line 53 import, line 522 call). No new coupling and no import cycle.\",\n    \"The change fits the module's existing style: (bool, message) return tuples, a generic 'Blocked address' message that leaks no internals, and ValueError fallthrough for non-IP hostnames.\",\n    \"Validation is syntactic only. Hostnames are not resolved, so a DNS name that resolves to a loopback or metadata IP still passes. This was true before the diff and is consistent with the documented design (private networks are allowed because *arr apps run locally). Noted for the security lane, not an architecture finding.\",\n    \"Other IPv6 forms that embed IPv4 addresses (6to4 via addr.sixtofour, Teredo via addr.teredo, NAT64 64:ff9b::/96) are not unwrapped. Whether they are in scope depends on the D-10 decision text, which was not provided.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_019Zx7q7c76o54mi3hV1u3E1"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "The diff only tightens a control. It adds `is_multicast` to the blocked IP literals and unwraps IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) through the same four checks. Nothing is loosened, and the function signature and return shape `(bool, str)` are unchanged.",
+          "Blast radius is small. `validate_arr_url` has one production caller, triggarr/web/routes.py:522, in the settings-save handler. A rejected URL logs a warning and redirects back to the settings page (routes.py:524-525). The function is not called when config is loaded at startup or by the scheduler, so a newly rejected value can't stop startup or turn off running searches. Existing config files that already hold such a URL keep working until the user saves the settings form again.",
+          "No regression for supported inputs. Multicast addresses (224.0.0.0/4, ff00::/8) can't be a Radarr or Sonarr HTTP server address. ::ffff:127.0.0.1 and similar were meant to be blocked already, because the plain IPv4 forms were blocked. Private LAN ranges (10/8, 172.16/12, 192.168/16, fd00::/8) are still allowed, as the docstring promises, because the new checks don't use `is_private`.",
+          "Python version note: on CPython 3.13+, `IPv6Address.is_loopback`, `is_link_local` and related properties already account for IPv4-mapped addresses, so the new branch is redundant there. On 3.11 and 3.12, which the project supports (Python 3.11+), it is needed. It is correct and harmless on every version.",
+          "Checked the edge cases. `ipv4_mapped` returns None for addresses that aren't mapped, so the truthiness guard is safe. `ipaddress.ip_address` on 3.9+ accepts IPv6 scope IDs (fe80::1%eth0) and still flags them as link-local. The new lines can't raise anything outside the existing `except ValueError`.",
+          "No database, schema or migration impact. Performance impact is negligible: a few extra property checks in a settings-form handler that runs only when the user saves.",
+          "Both findings are existing gaps the diff didn't introduce: unhandled IPv6 forms that embed IPv4 (imp-001) and names or numeric forms that resolve to loopback (imp-002). Both are capped as non-blocking notes.",
+          "Verdict: shippable as-is. Nothing here blocks."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 35,
+            "category": "blast-radius",
+            "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped",
+            "cwe": "CWE-918",
+            "file": "triggarr/web/validation.py",
+            "fix_hint": "Optionally also unwrap the IPv4-compatible (low 32 bits when the high 96 bits are zero), addr.sixtofour and the 64:ff9b::/96 prefix before the same four checks",
+            "id": "imp-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 85,
+            "problem": "The new branch only unwraps `addr.ipv4_mapped` (::ffff:a.b.c.d). Other IPv6 forms that embed an IPv4 address are not unwrapped: `::127.0.0.1` (IPv4-compatible; ipv4_mapped is None and is_loopback is False), `64:ff9b::7f00:1` (NAT64) and `2002:7f00:1::` (6to4). The old code allowed all of them too, so this is an existing gap next to the one the diff closes, not a regression. pending: show a deployment (a NAT64 gateway or a dual-stack kernel that routes ::127.0.0.1 to loopback) where the httpx client actually reaches 127.0.0.1 or 169.254.169.254 through one of these literals.",
+            "severity": "low",
+            "title": "IPv6 literal check skips IPv4-compatible, NAT64 and 6to4 forms that embed loopback or metadata IPs",
+            "why_it_matters": "Without this, the hardening is not complete for every IPv6 alias of a loopback or metadata address. Whether any of these aliases can be reached depends on the network stack, so the risk is low for a self-hosted LAN tool."
+          },
+          {
+            "agent_confidence": 30,
+            "category": "blast-radius",
+            "current_code": "    except ValueError:\n        # Not an IP literal (e.g. \"radarr\") -- perfectly fine.\n        pass",
+            "cwe": "CWE-918",
+            "file": "triggarr/web/validation.py",
+            "fix_hint": "If loopback blocking is meant to cover names too, add localhost to the blocked hosts and normalize numeric IPv4 forms (e.g. via socket.inet_aton) before the ipaddress check",
+            "id": "imp-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 81,
+            "problem": "`ipaddress.ip_address()` raises ValueError for `localhost`, the short form `127.1`, decimal `2130706433` and hex `0x7f000001`. The except branch then treats them as plain hostnames and accepts them, even though the system resolver turns them into 127.0.0.1. No DNS resolution check happens either. The old code accepted the same inputs, and the diff's new checks (multicast and IPv4-mapped) are not weakened by this. pending: confirm that the HTTP client resolves these hostnames to loopback in the deployed container, and decide whether loopback blocking is meant to cover names as well as literals.",
+            "severity": "low",
+            "title": "Hostnames that are not IP literals, such as localhost, 127.1 and 2130706433, skip every address check",
+            "why_it_matters": "The loopback check, which this diff extends, can be sidestepped by simply typing `localhost`. Fixing that is a product decision because some users may run their *arr apps on the same host."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"impact\",\"findings\":[{\"id\":\"imp-001\",\"file\":\"triggarr/web/validation.py\",\"line\":85,\"title\":\"IPv6 literal check skips IPv4-compatible, NAT64 and 6to4 forms that embed loopback or metadata IPs\",\"category\":\"blast-radius\",\"cwe\":\"CWE-918\",\"severity\":\"low\",\"agent_confidence\":35,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The new branch only unwraps `addr.ipv4_mapped` (::ffff:a.b.c.d). Other IPv6 forms that embed an IPv4 address are not unwrapped: `::127.0.0.1` (IPv4-compatible; ipv4_mapped is None and is_loopback is False), `64:ff9b::7f00:1` (NAT64) and `2002:7f00:1::` (6to4). The old code allowed all of them too, so this is an existing gap next to the one the diff closes, not a regression. pending: show a deployment (a NAT64 gateway or a dual-stack kernel that routes ::127.0.0.1 to loopback) where the httpx client actually reaches 127.0.0.1 or 169.254.169.254 through one of these literals.\",\"current_code\":\"if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\\n            mapped = addr.ipv4_mapped\",\"fix_hint\":\"Optionally also unwrap the IPv4-compatible (low 32 bits when the high 96 bits are zero), addr.sixtofour and the 64:ff9b::/96 prefix before the same four checks\",\"why_it_matters\":\"Without this, the hardening is not complete for every IPv6 alias of a loopback or metadata address. Whether any of these aliases can be reached depends on the network stack, so the risk is low for a self-hosted LAN tool.\"},{\"id\":\"imp-002\",\"file\":\"triggarr/web/validation.py\",\"line\":81,\"title\":\"Hostnames that are not IP literals, such as localhost, 127.1 and 2130706433, skip every address check\",\"category\":\"blast-radius\",\"cwe\":\"CWE-918\",\"severity\":\"low\",\"agent_confidence\":30,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"`ipaddress.ip_address()` raises ValueError for `localhost`, the short form `127.1`, decimal `2130706433` and hex `0x7f000001`. The except branch then treats them as plain hostnames and accepts them, even though the system resolver turns them into 127.0.0.1. No DNS resolution check happens either. The old code accepted the same inputs, and the diff's new checks (multicast and IPv4-mapped) are not weakened by this. pending: confirm that the HTTP client resolves these hostnames to loopback in the deployed container, and decide whether loopback blocking is meant to cover names as well as literals.\",\"current_code\":\"    except ValueError:\\n        # Not an IP literal (e.g. \\\"radarr\\\") -- perfectly fine.\\n        pass\",\"fix_hint\":\"If loopback blocking is meant to cover names too, add localhost to the blocked hosts and normalize numeric IPv4 forms (e.g. via socket.inet_aton) before the ipaddress check\",\"why_it_matters\":\"The loopback check, which this diff extends, can be sidestepped by simply typing `localhost`. Fixing that is a product decision because some users may run their *arr apps on the same host.\"}],\"agent_notes\":[\"The diff only tightens a control. It adds `is_multicast` to the blocked IP literals and unwraps IPv4-mapped IPv6 addresses (::ffff:x.x.x.x) through the same four checks. Nothing is loosened, and the function signature and return shape `(bool, str)` are unchanged.\",\"Blast radius is small. `validate_arr_url` has one production caller, triggarr/web/routes.py:522, in the settings-save handler. A rejected URL logs a warning and redirects back to the settings page (routes.py:524-525). The function is not called when config is loaded at startup or by the scheduler, so a newly rejected value can't stop startup or turn off running searches. Existing config files that already hold such a URL keep working until the user saves the settings form again.\",\"No regression for supported inputs. Multicast addresses (224.0.0.0/4, ff00::/8) can't be a Radarr or Sonarr HTTP server address. ::ffff:127.0.0.1 and similar were meant to be blocked already, because the plain IPv4 forms were blocked. Private LAN ranges (10/8, 172.16/12, 192.168/16, fd00::/8) are still allowed, as the docstring promises, because the new checks don't use `is_private`.\",\"Python version note: on CPython 3.13+, `IPv6Address.is_loopback`, `is_link_local` and related properties already account for IPv4-mapped addresses, so the new branch is redundant there. On 3.11 and 3.12, which the project supports (Python 3.11+), it is needed. It is correct and harmless on every version.\",\"Checked the edge cases. `ipv4_mapped` returns None for addresses that aren't mapped, so the truthiness guard is safe. `ipaddress.ip_address` on 3.9+ accepts IPv6 scope IDs (fe80::1%eth0) and still flags them as link-local. The new lines can't raise anything outside the existing `except ValueError`.\",\"No database, schema or migration impact. Performance impact is negligible: a few extra property checks in a settings-form handler that runs only when the user saves.\",\"Both findings are existing gaps the diff didn't introduce: unhandled IPv6 forms that embed IPv4 (imp-001) and names or numeric forms that resolve to loopback (imp-002). Both are capped as non-blocking notes.\",\"Verdict: shippable as-is. Nothing here blocks.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01GYr9wu9j5qEo2DaxEwcwtF"
+    },
+    {
+      "parsed": {
+        "agent": "compliance",
+        "agent_notes": [
+          "Reviewed diff against root ~/.claude/CLAUDE.md (Security absolute rules, Correctness &amp; resources rules) and project /Users/julianamacbook/triggarr/CLAUDE.md (Python/ruff conventions, Loguru-only logging, SecretStr discipline, atomic writes). No directory-level CLAUDE.md/AGENTS.md exists for triggarr/web/.",
+          "The diff adds addr.is_multicast to the existing link-local/loopback/unspecified SSRF check and unwraps IPv4-mapped IPv6 addresses (addr.ipv4_mapped) to re-run the same check against the mapped IPv4 address. This strengthens an existing security control; no new SQL/subprocess/innerHTML/secret-handling/logging code was introduced.",
+          "Nullable-property rule ('Guard nullable returns before property access') is satisfied: addr.ipv4_mapped is checked for truthiness in the if-condition before mapped = addr.ipv4_mapped and mapped.* are accessed.",
+          "Added lines stay within the 120-char line length convention from triggarr/CLAUDE.md.",
+          "Minor non-binding observation (not a rule violation, since mechanical style is explicitly delegated to linters/code review per ~/.claude/CLAUDE.md): addr.ipv4_mapped is computed twice (once in the if-condition, once reassigned to `mapped`); a walrus expression would avoid the double property access, but no CLAUDE.md rule mandates this and no existing walrus-operator convention exists elsewhere in the codebase to be inconsistent with.",
+          "The 'per D-10' comment references a decision ID also used in triggarr/web/middleware.py, triggarr/templates/settings.html, and tests/test_auth_middleware.py — consistent with an existing codebase convention of citing decision IDs in comments, not a new pattern."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"compliance\",\"findings\":[],\"agent_notes\":[\"Reviewed diff against root ~/.claude/CLAUDE.md (Security absolute rules, Correctness &amp; resources rules) and project /Users/julianamacbook/triggarr/CLAUDE.md (Python/ruff conventions, Loguru-only logging, SecretStr discipline, atomic writes). No directory-level CLAUDE.md/AGENTS.md exists for triggarr/web/.\",\"The diff adds addr.is_multicast to the existing link-local/loopback/unspecified SSRF check and unwraps IPv4-mapped IPv6 addresses (addr.ipv4_mapped) to re-run the same check against the mapped IPv4 address. This strengthens an existing security control; no new SQL/subprocess/innerHTML/secret-handling/logging code was introduced.\",\"Nullable-property rule ('Guard nullable returns before property access') is satisfied: addr.ipv4_mapped is checked for truthiness in the if-condition before mapped = addr.ipv4_mapped and mapped.* are accessed.\",\"Added lines stay within the 120-char line length convention from triggarr/CLAUDE.md.\",\"Minor non-binding observation (not a rule violation, since mechanical style is explicitly delegated to linters/code review per ~/.claude/CLAUDE.md): addr.ipv4_mapped is computed twice (once in the if-condition, once reassigned to `mapped`); a walrus expression would avoid the double property access, but no CLAUDE.md rule mandates this and no existing walrus-operator convention exists elsewhere in the codebase to be inconsistent with.\",\"The 'per D-10' comment references a decision ID also used in triggarr/web/middleware.py, triggarr/templates/settings.html, and tests/test_auth_middleware.py — consistent with an existing codebase convention of citing decision IDs in comments, not a new pattern.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:compliance",
+      "tool_use_id": "toolu_0147eXdg8XQfxXiEwWiYxqXK"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "Diff adds is_multicast and IPv4-mapped IPv6 (ipv4_mapped) checks to validate_arr_url in triggarr/web/validation.py. Reviewed for Python-specific pitfalls (type hints, mutable defaults, bare except, is-vs-eq, context managers, perf): none found. isinstance(addr, ipaddress.IPv6Address) guard correctly precedes the ipv4_mapped access (IPv4Address has no such attribute, so this avoids an AttributeError). The truthy check on addr.ipv4_mapped is safe for Optional-narrowing purposes here: IPv4Address does not override __bool__/__len__, so any non-None IPv4Address instance (including 0.0.0.0) is truthy, meaning the subsequent mapped.is_unspecified/is_loopback/etc. checks still run correctly rather than being short-circuited away for a falsy-looking address. No new function signatures, resource acquisitions, loops, or except blocks were introduced."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"language-python\",\"findings\":[],\"agent_notes\":[\"Diff adds is_multicast and IPv4-mapped IPv6 (ipv4_mapped) checks to validate_arr_url in triggarr/web/validation.py. Reviewed for Python-specific pitfalls (type hints, mutable defaults, bare except, is-vs-eq, context managers, perf): none found. isinstance(addr, ipaddress.IPv6Address) guard correctly precedes the ipv4_mapped access (IPv4Address has no such attribute, so this avoids an AttributeError). The truthy check on addr.ipv4_mapped is safe for Optional-narrowing purposes here: IPv4Address does not override __bool__/__len__, so any non-None IPv4Address instance (including 0.0.0.0) is truthy, meaning the subsequent mapped.is_unspecified/is_loopback/etc. checks still run correctly rather than being short-circuited away for a falsy-looking address. No new function signatures, resource acquisitions, loops, or except blocks were introduced.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01Q6b1H7pyy6K2fCDXPm9q8e"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "No substantive defect found in the changed checks. Multicast and mapped IPv6 restrictions preserve supported private-network addresses. All 48 validation tests pass."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [], \"agent_notes\": [\"No substantive defect found in the changed checks. Multicast and mapped IPv6 restrictions preserve supported private-network addresses. All 48 validation tests pass.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_014NndTuNqJjMAbn5sg2iJRF"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 7,
+  "unrecovered": []
+}

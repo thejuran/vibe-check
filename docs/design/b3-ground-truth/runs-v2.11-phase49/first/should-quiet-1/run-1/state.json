@@ -1,0 +1,65 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-07T04:02:36Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Deprecated IPv4-compatible IPv6 literal (::127.0.0.1) still bypasses SSRF guard",
+          "reason": "absorbed-into: 2d825c76218fc01905fe304ac596f323b24c1ac60f87892ea5f96c8d70c87062"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-compatible (::a.b.c.d), 6to4 and NAT64 forms of loopback/link-local still pass",
+          "reason": "absorbed-into: 2d825c76218fc01905fe304ac596f323b24c1ac60f87892ea5f96c8d70c87062"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv6 literal check skips IPv4-compatible, NAT64 and 6to4 forms that embed loopback or metadata IPs",
+          "reason": "absorbed-into: 2d825c76218fc01905fe304ac596f323b24c1ac60f87892ea5f96c8d70c87062"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Hostnames that are not IP literals, such as localhost, 127.1 and 2130706433, skip every address check",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped normalization feeds only the property predicate, not the BLOCKED_HOSTS literal set",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Non-canonical IPv4 literals (127.1, 2130706433, 0x7f.0.0.1) bypass the IP check as 'hostnames'",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
