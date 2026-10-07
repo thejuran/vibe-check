@@ -1,0 +1,40 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1168e-21a9-7740-88cc-eae0e589b629",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The validation works, but the new configuration setting does not control shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"With no environment override, shutdown_drain_timeout=120.5 is accepted but the runtime timeout remains 60.0 (confirmed locally). scheduler.py:70–81 reads only the environment at import time, and line 634 uses that constant. Operators extending the drain through TOML will still have resources forcibly closed after 60 seconds while a search remains active.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from the active settings at shutdown, applying the environment override afterward. Add an integration test proving a nondefault config value reaches the drain.\"}],\"next_steps\":[]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The validation works, but the new configuration setting does not control shutdown.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the new timeout setting into the shutdown drain",
+        "body": "With no environment override, shutdown_drain_timeout=120.5 is accepted but the runtime timeout remains 60.0 (confirmed locally). scheduler.py:70–81 reads only the environment at import time, and line 634 uses that constant. Operators extending the drain through TOML will still have resources forcibly closed after 60 seconds while a search remains active.",
+        "file": "triggarr/models/config.py",
+        "line_start": 139,
+        "line_end": 139,
+        "confidence": 0.99,
+        "recommendation": "Resolve the drain timeout from the active settings at shutdown, applying the environment override afterward. Add an integration test proving a nondefault config value reaches the drain."
+      }
+    ],
+    "next_steps": []
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The validation works, but the new configuration setting does not control shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the new timeout setting into the shutdown drain\",\"body\":\"With no environment override, shutdown_drain_timeout=120.5 is accepted but the runtime timeout remains 60.0 (confirmed locally). scheduler.py:70–81 reads only the environment at import time, and line 634 uses that constant. Operators extending the drain through TOML will still have resources forcibly closed after 60 seconds while a search remains active.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from the active settings at shutdown, applying the environment override afterward. Add an integration test proving a nondefault config value reaches the drain.\"}],\"next_steps\":[]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
