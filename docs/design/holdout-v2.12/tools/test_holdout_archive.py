@@ -665,6 +665,844 @@ class TestActiveWriters(ArchiveCase):
             "close the window), wait a few seconds, and run this again")
 
 
+# ================================================================ decode
+
+
+class TestDecodedStrings(unittest.TestCase):
+
+    def test_escaped_quote(self):
+        self.assertIn('x"y', holdout_archive.decoded_strings('{"a":"x\\"y"}'))
+
+    def test_unicode_escape(self):
+        self.assertIn("é", holdout_archive.decoded_strings('"\\u00e9"'))
+
+    def test_surrogate_pair(self):
+        self.assertIn("\U0001F600",
+                      holdout_archive.decoded_strings('"\\ud83d\\ude00"'))
+
+    def test_broken_literal(self):
+        self.assertEqual(holdout_archive.decoded_strings('"abc'), [])
+
+    def test_depth(self):
+        text = json.dumps({"o": json.dumps({"i": "deep"})})
+        self.assertIn("deep", holdout_archive.decoded_strings(text, depth=2))
+        self.assertNotIn("deep",
+                         holdout_archive.decoded_strings(text, depth=1))
+        self.assertIn("deep", holdout_archive.decoded_strings(text))
+        self.assertEqual(holdout_archive.DECODE_DEPTH, 3)
+
+    def test_no_surrounding_quotes(self):
+        out = holdout_archive.decoded_strings('{"key": "value"}')
+        self.assertEqual(sorted(out), ["key", "value"])
+
+    def test_newline_and_backslash(self):
+        out = holdout_archive.decoded_strings(json.dumps("a\\b\nc"))
+        self.assertIn("a\\b\nc", out)
+
+
+# ================================================================ leakscan
+
+
+class LeakCase(ArchiveCase):
+
+    def setUp(self):
+        super().setUp()
+        self.root_a = os.path.join(self.tmp, "rootA")
+        self.root_b = os.path.join(self.tmp, "rootB")
+        os.makedirs(self.root_a)
+        os.makedirs(self.root_b)
+
+    def scan(self, roots=None, **kwargs):
+        return self.quiet(holdout_archive.leakscan, self.folder,
+                          scan_roots=roots or [self.root_a], **kwargs)
+
+    def ledger(self):
+        with open(self.p("LEAKSCAN.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def ledger_text(self):
+        with open(self.p("LEAKSCAN.json"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def assert_no_probe_text(self, text):
+        for probe in all_probes():
+            self.assertFalse(probe in text, "probe text in output")
+            self.assertFalse(json.dumps(probe)[1:-1] in text,
+                             "escaped probe text in output")
+
+
+class TestLeakscan(LeakCase):
+
+    def test_probe_generation(self):
+        probes = holdout_archive._probes(self.folder)
+        texts = {p for p, _, _ in probes}
+        self.assertEqual(texts, set(all_probes()))
+        for probe, slot, cid in probes:
+            self.assertEqual(self.slot_of[cid], slot)
+            self.assertEqual(all_probes()[probe], slot)
+        self.assertNotIn(SHORT_LINE, texts)
+        with open(self.p("sealed/cases/%s/change.diff" % self.ids["C1"]),
+                  encoding="utf-8") as fh:
+            self.assertIn("+" + SHORT_LINE + "\n", fh.read())
+        for special in (QUOTE_LINE, BACKSLASH_LINE, ACCENT_LINE,
+                        MULTILINE_DEFECT):
+            self.assertGreaterEqual(len(special), 30)
+        self.assertIn('"', QUOTE_LINE)
+        self.assertIn("\\", BACKSLASH_LINE)
+        self.assertIn("é", ACCENT_LINE)
+        self.assertIn("\n", MULTILINE_DEFECT)
+
+    def test_clean_roots(self):
+        plant(self.root_a, "a.txt", "nothing here\n")
+        result, out = self.scan()
+        self.assertEqual(result["hits"], [])
+        self.assertEqual(result["probes"], len(all_probes()))
+        self.assertIn("OK: leak scan: 0 matches across %d probes (raw + "
+                      "JSON-decoded)" % len(all_probes()), out)
+
+    def test_single_hit(self):
+        path = plant(self.root_a, "sub/leak.txt",
+                     "before\n" + legacy_line("C2") + "\nafter\n")
+        result, out = self.scan()
+        self.assertEqual(result["hits"], [{
+            "location": path, "count": 1, "decoded": False, "slots": ["C2"],
+            "case_ids": [self.ids["C2"]]}])
+        self.assertEqual(result["hit_slots"], ["C2"])
+        self.assertEqual(result["hit_case_ids"], [self.ids["C2"]])
+        self.assertIn("PROBLEM: leak scan: 1 location(s) contain holdout "
+                      "text:", out)
+        self.assertIn("  %s: 1 (slots: C2)\n" % path, out)
+        self.assertIn("PROBLEM: slots to replace: C2\n", out)
+        self.assertIn("PROBLEM: publish will refuse until these slots are "
+                      "replaced through the finder and a fresh cross-check "
+                      "and the holdout is re-sealed; deleting the matched "
+                      "files is cleanup, not a remedy", out)
+        self.assert_no_probe_text(out)
+
+    def test_two_cases_in_one_file(self):
+        plant(self.root_a, "two.txt",
+              legacy_line("Q1") + "\n" + key_detail("C3") + "\n")
+        result, out = self.scan()
+        self.assertEqual(len(result["hits"]), 1)
+        self.assertEqual(result["hits"][0]["slots"], ["C3", "Q1"])
+        self.assertEqual(result["hits"][0]["count"], 2)
+        self.assertIn("PROBLEM: slots to replace: C3, Q1", out)
+
+    def test_git_log_hit(self):
+        repo = holdout_fixture.make_repo(self.tmp)
+        holdout_fixture.write(repo, "readme.txt", "hello\n")
+        holdout_fixture.git(repo, "add", "readme.txt")
+        holdout_fixture.git(repo, "commit", "-q", "-m", GIT_DEFECT)
+        result, out = self.scan(repo=repo)
+        self.assertEqual([h["location"] for h in result["hits"]],
+                         ["git log -p --all"])
+        self.assertEqual(result["hits"][0]["slots"], ["C2"])
+        self.assertIn("  git log -p --all: 1 (slots: C2)", out)
+
+    def test_repo_tree_hit(self):
+        repo = holdout_fixture.make_repo(self.tmp)
+        path = holdout_fixture.write(repo, "src/x.py",
+                                     normalized_line("Q3") + "\n")
+        result, _ = self.scan(repo=repo)
+        self.assertEqual([h["location"] for h in result["hits"]], [path])
+
+    def test_holdout_cfg_dirs_are_not_hits(self):
+        plant(self.folder, "cfg-finder/history.jsonl",
+              json.dumps({"display": legacy_line("C1")}) + "\n")
+        plant(self.folder, "cfg-xcheck/t.jsonl", legacy_line("C2") + "\n")
+        result, _ = self.scan(roots=[self.p("cfg-finder"), self.folder,
+                                     self.root_a])
+        self.assertEqual(result["hits"], [])
+
+    def test_escaped_transcripts(self):
+        files = self._escaped_files()
+        result, out = self.scan()
+        by_loc = {h["location"]: h for h in result["hits"]}
+        for path, probe, kind in files:
+            self.assertIn(path, by_loc, kind)
+            self.assertTrue(by_loc[path]["decoded"], kind)
+            self.assertIn("  %s: " % path, out)
+        self.assertIn("(JSON-decoded)", out)
+        self.assert_no_probe_text(out)
+
+    def _escaped_files(self):
+        files = []
+        specials = [(QUOTE_LINE, "q"), (BACKSLASH_LINE, "b"),
+                    (ACCENT_LINE, "u"), (MULTILINE_DEFECT, "n")]
+        for probe, tag in specials:
+            variants = {
+                "history.jsonl": json.dumps({"display": probe,
+                                             "project": "/x"}) + "\n",
+                "session.jsonl": json.dumps(
+                    {"type": "tool_result",
+                     "content": [{"text": "prefix\n" + probe +
+                                  "\nsuffix"}]}) + "\n",
+                "nested.jsonl": json.dumps(
+                    {"content": json.dumps({"text": probe})}) + "\n",
+                "uescape.json": json.dumps(probe, ensure_ascii=True),
+            }
+            for name, text in variants.items():
+                self.assertFalse(probe in text, (tag, name))
+                path = plant(self.root_a, "%s/%s" % (tag, name), text)
+                files.append((path, probe, name))
+        return files
+
+    def test_raw_and_decoded_count_two(self):
+        probe = legacy_line("Q2")
+        path = plant(self.root_a, "both.txt",
+                     json.dumps({"x": probe}) + "\n" + probe + "\n")
+        result, out = self.scan()
+        self.assertEqual(result["hits"][0]["location"], path)
+        self.assertEqual(result["hits"][0]["count"], 2)
+        self.assertFalse(result["hits"][0]["decoded"])
+        self.assertNotIn("(JSON-decoded)", out)
+
+    def test_mutant_decoded_pass_is_load_bearing(self):
+        files = self._escaped_files()
+        with mock.patch.object(holdout_archive, "decoded_strings",
+                               return_value=[]):
+            result, _ = self.scan()
+        self.assertEqual(result["hits"], [])
+        result, _ = self.scan()
+        self.assertEqual(len(result["hits"]), len(files))
+
+    def test_mutant_depth_one_drops_nested(self):
+        files = self._escaped_files()
+        with mock.patch.object(holdout_archive, "DECODE_DEPTH", 1):
+            result, _ = self.scan()
+        found = {h["location"] for h in result["hits"]}
+        for path, _, kind in files:
+            if kind == "nested.jsonl":
+                self.assertNotIn(path, found)
+            else:
+                self.assertIn(path, found)
+
+    def test_default_scan_roots(self):
+        roots = holdout_archive.default_scan_roots(home="/fake/home")
+        self.assertEqual(roots, [
+            "/fake/home/.claude", "/fake/home/.claude/history.jsonl",
+            "/private/tmp/claude-%d" % os.getuid(), "/fake/home/.codex",
+            "/fake/home/.zsh_history"])
+
+    def test_missing_sealed_needs_archive(self):
+        shutil.rmtree(self.p("sealed"))
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.scan()
+        self.assertEqual(str(ctx.exception), "no sealed/ to build probes "
+                                             "from; use --from-archive")
+
+    def test_missing_root_is_skipped(self):
+        result, _ = self.scan(roots=[os.path.join(self.tmp, "nope"),
+                                     self.root_a])
+        self.assertEqual(result["hits"], [])
+
+    def test_symlinks_are_not_followed(self):
+        outside = plant(self.tmp, "outside/leak.txt", legacy_line("C1"))
+        os.symlink(os.path.dirname(outside), os.path.join(self.root_a, "l"))
+        result, _ = self.scan()
+        self.assertEqual(result["hits"], [])
+
+
+class TestLeakLedger(LeakCase):
+
+    def test_clean_scan_entry(self):
+        self.scan()
+        led = self.ledger()
+        self.assertEqual(led["schema"], holdout_manifest.LEAKSCAN_SCHEMA)
+        self.assertEqual(len(led["scans"]), 1)
+        entry = led["scans"][0]
+        self.assertEqual(set(entry), {"at", "seal_sha256", "probes", "hits",
+                                      "hit_case_ids", "hit_slots"})
+        self.assertEqual((entry["hits"], entry["hit_case_ids"],
+                          entry["hit_slots"], entry["probes"]),
+                         (0, [], [], len(all_probes())))
+        self.assertEqual(entry["seal_sha256"],
+                         holdout_kit.sha256_file(self.p("SEAL.json")))
+        self.assertRegex(entry["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    def test_hit_scan_appends(self):
+        self.scan()
+        first = self.ledger()["scans"][0]
+        plant(self.root_b, "leak.txt", key_detail("Q2") + "\n")
+        self.scan(roots=[self.root_b])
+        led = self.ledger()
+        self.assertEqual(len(led["scans"]), 2)
+        self.assertEqual(led["scans"][0], first)
+        self.assertEqual(led["scans"][1]["hit_case_ids"], [self.ids["Q2"]])
+        self.assertEqual(led["scans"][1]["hit_slots"], ["Q2"])
+        self.assertEqual(led["scans"][1]["hits"], 1)
+        text = self.ledger_text()
+        self.assertNotIn(self.root_b, text)
+        self.assertNotIn("leak.txt", text)
+        self.assert_no_probe_text(text)
+
+    def test_unsealed_fixture_records_none(self):
+        os.remove(self.p("SEAL.json"))
+        self.scan()
+        self.assertIsNone(self.ledger()["scans"][0]["seal_sha256"])
+
+    def test_malformed_ledger_refused_and_kept(self):
+        plant(self.folder, "LEAKSCAN.json", "not json")
+        with self.assertRaises(holdout_kit.KitError):
+            self.scan()
+        with open(self.p("LEAKSCAN.json"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "not json")
+
+    def test_mutant_record_is_called(self):
+        plant(self.root_a, "leak.txt", legacy_line("C1") + "\n")
+        with mock.patch.object(holdout_archive, "record_leakscan"):
+            self.scan()
+        self.assertFalse(os.path.exists(self.p("LEAKSCAN.json")))
+        self.scan()
+        self.assertTrue(os.path.exists(self.p("LEAKSCAN.json")))
+
+    def test_publish_gate_reads_ledger(self):
+        plant(self.root_a, "leak.txt", legacy_line("C1") + "\n")
+        self.scan()
+        problems = holdout_manifest.leak_ledger_problems(self.folder,
+                                                         self.seal())
+        self.assertTrue(any(self.ids["C1"] in p for p in problems))
+
+
+class TestLeakRetire(LeakCase):
+
+    def retired(self):
+        with open(self.p("RETIRED.json"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_hit_retires_case(self):
+        plant(self.root_a, "leak.txt", normalized_line("C3") + "\n")
+        _, out = self.scan()
+        led = json.loads(self.retired())
+        self.assertEqual(led["schema"], holdout_manifest.RETIRED_SCHEMA)
+        self.assertEqual(len(led["retired"]), 1)
+        self.assertEqual(led["retired"][0]["slot"], "C3")
+        self.assertEqual(led["retired"][0]["reason"], "leakscan")
+        problems = holdout_manifest.retired_problems(self.folder)
+        self.assertTrue(any(self.ids["C3"] in p for p in problems))
+        self.assertIn("PROBLEM: retired C3 (%s): its revision and content "
+                      "cannot be re-sealed under any ID" % self.ids["C3"],
+                      out)
+        text = self.retired()
+        self.assertIsNone(ID_ANY.search(text))
+        self.assertNotIn(self.root_a, text)
+        self.assert_no_probe_text(text)
+
+    def test_clean_scan_creates_nothing(self):
+        self.scan()
+        self.assertFalse(os.path.exists(self.p("RETIRED.json")))
+
+    def test_second_hit_appends_nothing(self):
+        plant(self.root_a, "leak.txt", normalized_line("C3") + "\n")
+        self.scan()
+        before = json.loads(self.retired())
+        self.scan()
+        self.assertEqual(json.loads(self.retired()), before)
+
+    def test_mutant_retire_is_called(self):
+        plant(self.root_a, "leak.txt", normalized_line("C3") + "\n")
+        with mock.patch.object(holdout_manifest, "retire_case"):
+            self.scan()
+        self.assertFalse(os.path.exists(self.p("RETIRED.json")))
+
+
+# ================================================================ scrub
+
+FIXED = ("SEAL.json", ".metadata_never_index", ARCHIVE_REL, "bin/holdout",
+         "kit/KIT-INVENTORY.json", "LEAKSCAN.json", "RETIRED.json")
+
+SCRUB_PLANTS = {
+    "xcheck/X-1/blind.json": "{}\n",
+    "xcheck-r2/X-2/revealed/key.json": json.dumps({"d": key_detail("C1")}),
+    "cfg-xcheck/transcript.jsonl": json.dumps({"t": legacy_line("C2")}),
+    "cfg-xcheck-r2/transcript.jsonl": "{}\n",
+    "cfg-finder/history.jsonl": json.dumps({"display": legacy_line("Q3")}),
+    "kit/notes.md": "notes\n",
+    "bin/crosscheck-r2": "#!/bin/sh\n",
+    "tmp/owner/verify/sealed/x": legacy_line("Q1"),
+    "tmp/crosscheck/xcheck-r2/SANDBOX-SENTINEL": "s\n",
+}
+
+
+class ScrubCase(LeakCase):
+
+    template = "encrypted"
+
+    def setUp(self):
+        super().setUp()
+        self.home = os.path.join(self.tmp, "home")
+        self.ctmp = os.path.join(self.tmp, "ctmp")
+        self.bases = {"home": self.home, "tmp": self.ctmp}
+
+    def scrub(self):
+        return self.quiet(holdout_archive.scrub, self.folder,
+                          residue_bases=self.bases)
+
+    def plant_all(self):
+        for rel, data in SCRUB_PLANTS.items():
+            plant(self.folder, rel, data)
+        with open(self.p("kit/tools/holdout_kit.py"), "ab") as fh:
+            fh.write(b"#")
+        plant(self.folder, "LEAKSCAN.json", '{"schema": "kept"}\n')
+        plant(self.folder, "RETIRED.json", '{"schema": "kept too"}\n')
+
+    def expected_survivors(self, modified=("kit/tools/holdout_kit.py",)):
+        allow = holdout_archive.survivor_allowlist(self.folder)
+        return sorted(rel for rel in allow
+                      if os.path.isfile(self.p(rel)) and rel not in modified)
+
+
+class TestScrub(ScrubCase):
+
+    def test_constants(self):
+        self.assertEqual(holdout_archive.SCRUB_FIXED_SURVIVORS, FIXED)
+        for rel in holdout_archive.SCRUB_FIXED_SURVIVORS:
+            self.assertFalse(rel.startswith("tmp/"))
+            self.assertFalse(rel.startswith("work/"))
+        self.assertEqual(holdout_archive.SCRUB_SETTLE_SECONDS, 2.0)
+
+    def test_full_scrub(self):
+        self.plant_all()
+        expected = self.expected_survivors()
+        with mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS", 0.0):
+            residue, out = self.scrub()
+        self.assertEqual(residue, [])
+        survivors = holdout_kit.walk_regular(self.folder)
+        self.assertEqual(survivors, expected)
+        self.assertFalse(any(r.startswith("tmp/") for r in survivors))
+        self.assertFalse(os.path.exists(self.p("tmp")))
+        self.assertFalse(os.path.exists(self.p("kit/tools/holdout_kit.py")))
+        self.assertTrue(os.path.exists(self.p("kit/tools/holdout_manifest.py")))
+        for rel in ("logs", "work", "sealed", "xcheck", "xcheck-r2",
+                    "cfg-xcheck", "cfg-xcheck-r2", "cfg-finder", "notes.txt",
+                    "bin/finder", "bin/crosscheck", "bin/crosscheck-r2",
+                    "kit/notes.md", "kit/eligible-repos.json"):
+            self.assertFalse(os.path.lexists(self.p(rel)), rel)
+        for rel in survivors:
+            with open(self.p(rel), "rb") as fh:
+                data = fh.read().decode("utf-8", "replace")
+            self.assert_no_probe_text(data)
+        self.assertRegex(out, r"OK: plaintext removed \(\d+ file\(s\) under "
+                              r"[^)]*\); survivors: SEAL.json, the archive, "
+                              r"bin/holdout and the unmodified kit")
+        self.assertIn("logs", out)
+        self.assertNotIn("finder.log", out)
+        self.assertNotIn("X-1", out)
+        self.assertNotIn("blind.json", out)
+
+    def test_ledgers_survive_byte_identical(self):
+        self.plant_all()
+        with mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS", 0.0):
+            self.scrub()
+        with open(self.p("LEAKSCAN.json"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), '{"schema": "kept"}\n')
+        with open(self.p("RETIRED.json"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), '{"schema": "kept too"}\n')
+
+    def test_refuses_before_encrypt(self):
+        src, _ = _template("sealed")
+        shutil.rmtree(self.folder)
+        shutil.copytree(src, self.folder, symlinks=True)
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.scrub()
+        self.assertEqual(str(ctx.exception), "archive missing or not "
+                                             "verified; run encrypt first")
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_refuses_without_recorded_hash(self):
+        seal = self.seal()
+        del seal["archive_sha256"]
+        holdout_kit.write_json_atomic(self.p("SEAL.json"), seal)
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.scrub()
+        self.assertIn("archive missing or not verified", str(ctx.exception))
+        self.assertTrue(os.path.exists(self.p("sealed")))
+
+    def test_refuses_tampered_archive_and_mutant(self):
+        with open(self.archive, "ab") as fh:
+            fh.write(b"x")
+        with self.assertRaises(holdout_kit.KitError):
+            self.scrub()
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+        recorded = self.seal()["archive_sha256"]
+        real = holdout_kit.sha256_file
+
+        def lying(path):
+            if os.path.abspath(path) == self.archive:
+                return recorded
+            return real(path)
+
+        with mock.patch.object(holdout_kit, "sha256_file",
+                               side_effect=lying), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  0.0):
+            self.scrub()
+        self.assertFalse(os.path.exists(self.p("logs/finder.log")))
+
+    def test_missing_inventory_deletes_nothing(self):
+        os.remove(self.p("kit/KIT-INVENTORY.json"))
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_archive.survivor_allowlist(self.folder)
+        with self.assertRaises(holdout_kit.KitError):
+            self.scrub()
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_malformed_inventory_deletes_nothing(self):
+        plant(self.folder, "kit/KIT-INVENTORY.json",
+              json.dumps({"files": {"../x": "0" * 64}}))
+        with self.assertRaises(holdout_kit.KitError):
+            self.scrub()
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_symlink_refused_before_delete(self):
+        os.symlink("/etc", self.p("work/link"))
+        with self.assertRaises(holdout_kit.KitError):
+            self.scrub()
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_mutant_old_fixed_list(self):
+        self.plant_all()
+
+        def old_list(folder, allowlist):
+            n = 0
+            for name in ("sealed", "work", "xcheck", "cfg-finder",
+                         "cfg-xcheck", "tmp"):
+                path = os.path.join(folder, name)
+                if os.path.isdir(path):
+                    n += len(holdout_kit.walk_regular(path))
+                    shutil.rmtree(path)
+            return n, ["sealed"]
+
+        with mock.patch.object(holdout_archive, "_remove_non_survivors",
+                               side_effect=old_list), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  0.0):
+            with self.assertRaises(holdout_kit.KitError) as ctx:
+                self.scrub()
+        msg = str(ctx.exception)
+        self.assertTrue(msg.startswith("scrub incomplete: "), msg)
+        for name in ("logs", "notes.txt", "kit", "bin"):
+            self.assertIn(name, msg)
+
+    def test_mutant_allowlist_decides(self):
+        real_walk = holdout_kit.walk_regular(self.folder)
+        everything = {rel: None for rel in real_walk}
+        with mock.patch.object(holdout_archive, "survivor_allowlist",
+                               return_value=everything), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  0.0):
+            self.scrub()
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+        src, _ = _template("encrypted")
+        shutil.rmtree(self.folder)
+        shutil.copytree(src, self.folder, symlinks=True)
+        with mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS", 0.0):
+            self.scrub()
+        self.assertFalse(os.path.exists(self.p("logs/finder.log")))
+
+    def test_residue_reported_not_deleted(self):
+        proj = os.path.join(self.home, ".claude", "projects",
+                            "-Users-x--vibe-check-holdout-work")
+        os.makedirs(proj)
+        plant(proj, "s.jsonl", "{}\n")
+        hist = plant(self.home, ".claude/history.jsonl",
+                     json.dumps({"display": "a", "project": self.folder})
+                     + "\n" + json.dumps({"display": "b", "project": "/o"})
+                     + "\n")
+        tmpres = os.path.join(self.ctmp, "-vibe-check-holdout-xcheck")
+        os.makedirs(tmpres)
+        os.makedirs(os.path.join(self.home, ".claude", "paste-cache"))
+        with mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS", 0.0):
+            residue, out = self.scrub()
+        self.assertEqual(sorted(residue), sorted([
+            proj, hist, tmpres,
+            os.path.join(self.home, ".claude", "paste-cache")]))
+        for path in residue:
+            self.assertTrue(os.path.exists(path))
+        self.assertIn("PROBLEM: residue: %s — delete it by hand" % proj, out)
+        self.assertIn("PROBLEM: residue: %s (1 line(s) name the holdout) — "
+                      "delete those lines by hand" % hist, out)
+
+    def test_rehash_fails_after_scrub(self):
+        with mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS", 0.0):
+            self.scrub()
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.rehash_folder(self.p("SEAL.json"),
+                                           self.p("sealed"))
+
+    def test_archive_never_holds_ledgers(self):
+        dest = os.path.join(self.tmp, "out")
+        self.quiet(holdout_archive.decrypt_to, self.archive, dest,
+                   openssl=self.shim)
+        self.assertFalse(os.path.exists(os.path.join(dest, "LEAKSCAN.json")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "RETIRED.json")))
+
+    def test_writer_blocks_scrub(self):
+        self.spawn(["sleep", "30"], cwd=self.p("work"))
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.scrub()
+        self.assertIn("holdout folder is still in use by 1 process(es)",
+                      str(ctx.exception))
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_lsof_unavailable_blocks_scrub(self):
+        with mock.patch.object(holdout_archive, "LSOF_BIN",
+                               "/nonexistent/lsof"):
+            with self.assertRaises(holdout_kit.KitError):
+                self.scrub()
+        with mock.patch.object(holdout_archive, "PGREP_BIN",
+                               "/nonexistent/pgrep"):
+            with self.assertRaises(holdout_kit.KitError):
+                self.scrub()
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+
+class TestScrubSettle(ScrubCase):
+
+    LATE = "cfg-xcheck/late.jsonl"
+
+    def start_late_writer(self):
+        self.marker = os.path.join(self.tmp, "go")
+        script = ("import os, sys, time\n"
+                  "marker, target = sys.argv[1], sys.argv[2]\n"
+                  "while not os.path.exists(marker):\n"
+                  "    time.sleep(0.05)\n"
+                  "os.makedirs(os.path.dirname(target), exist_ok=True)\n"
+                  "open(target, 'w').write('late\\n')\n")
+        return self.spawn([sys.executable, "-c", script, self.marker,
+                           self.p(self.LATE)])
+
+    def wrapped_rewalk(self, stale=False):
+        real = holdout_archive._rewalk_survivors
+        calls = []
+
+        def wrapper(folder):
+            if calls and stale:
+                return calls[0]
+            result = real(folder)
+            if not calls:
+                with open(self.marker, "w") as fh:
+                    fh.write("go")
+            calls.append(result)
+            return result
+        return wrapper
+
+    def test_late_write_fails_scrub(self):
+        self.start_late_writer()
+        with mock.patch.object(holdout_archive, "active_writers",
+                               return_value=[]), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  1.0), \
+                mock.patch.object(holdout_archive, "_rewalk_survivors",
+                                  side_effect=self.wrapped_rewalk()):
+            with self.assertRaises(holdout_kit.KitError) as ctx:
+                _, out = self.scrub()
+        self.assertEqual(str(ctx.exception), "scrub incomplete: 1 unexpected "
+                                             "file(s) remain under "
+                                             "cfg-xcheck")
+
+    def test_early_write_is_deleted(self):
+        proc = self.start_late_writer()
+        with open(self.marker, "w") as fh:
+            fh.write("go")
+        proc.wait(timeout=10)
+        self.assertTrue(os.path.exists(self.p(self.LATE)))
+        with mock.patch.object(holdout_archive, "active_writers",
+                               return_value=[]), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  1.0):
+            _, out = self.scrub()
+        self.assertFalse(os.path.exists(self.p(self.LATE)))
+        self.assertIn("OK: plaintext removed", out)
+
+    def test_mutant_second_walk_is_load_bearing(self):
+        self.start_late_writer()
+        with mock.patch.object(holdout_archive, "active_writers",
+                               return_value=[]), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  1.0), \
+                mock.patch.object(holdout_archive, "_rewalk_survivors",
+                                  side_effect=self.wrapped_rewalk(
+                                      stale=True)):
+            _, out = self.scrub()
+        self.assertIn("OK: plaintext removed", out)
+        self.assertTrue(os.path.exists(self.p(self.LATE)))
+
+
+class TestLeakscanArchive(ScrubCase):
+
+    def scrubbed(self):
+        with mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS", 0.0):
+            self.scrub()
+        self.assertFalse(os.path.exists(self.p("sealed")))
+
+    def test_from_archive_matches_live_scan(self):
+        plant(self.root_a, "leak.txt", key_detail("Q1") + "\n")
+        live, _ = self.scan()
+        live_entry = json.loads(open(self.p("RETIRED.json")).read())
+        os.remove(self.p("RETIRED.json"))
+        os.remove(self.p("LEAKSCAN.json"))
+        self.scrubbed()
+        plant(self.folder, "LEAKSCAN.json", json.dumps(
+            {"schema": holdout_manifest.LEAKSCAN_SCHEMA, "scans": []}))
+        arch, out = self.scan(from_archive=True, openssl=self.shim)
+        strip = lambda r: [(h["location"], h["count"], h["slots"])
+                           for h in r["hits"]]
+        self.assertEqual(strip(arch), strip(live))
+        self.assertEqual(arch["probes"], live["probes"])
+        self.assertFalse(os.path.exists(self.p("tmp/owner/verify")))
+        self.assertFalse(os.path.exists(self.p("tmp/verify")))
+        self.assertEqual(len(json.load(open(self.p("LEAKSCAN.json")))
+                             ["scans"]), 1)
+        archived = json.loads(open(self.p("RETIRED.json")).read())
+        drop_at = lambda e: {k: v for k, v in e.items() if k != "at"}
+        self.assertEqual([drop_at(e) for e in archived["retired"]],
+                         [drop_at(e) for e in live_entry["retired"]])
+        self.assertIn("PROBLEM: retired Q1 (%s)" % self.ids["Q1"], out)
+
+    def test_from_archive_ledger_appends_after_scrub(self):
+        self.scan()
+        self.scrubbed()
+        self.scan(from_archive=True, openssl=self.shim)
+        self.assertEqual(len(self.ledger()["scans"]), 2)
+
+    def test_verify_copy_removed_on_error(self):
+        self.scrubbed()
+        with mock.patch.object(holdout_archive, "_scan_file",
+                               side_effect=RuntimeError("boom")):
+            plant(self.root_a, "a.txt", "x\n")
+            with self.assertRaises(RuntimeError):
+                self.scan(from_archive=True, openssl=self.shim)
+        self.assertFalse(os.path.exists(self.p("tmp/owner/verify")))
+
+    def test_scrubbed_without_archive_flag(self):
+        self.scrubbed()
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.scan()
+        self.assertEqual(str(ctx.exception), "no sealed/ to build probes "
+                                             "from; use --from-archive")
+
+
+# ================================================================ CLI
+
+
+class TestCliArchive(ScrubCase):
+
+    def cli(self, *args):
+        with mock.patch.object(holdout_archive, "_default_residue_bases",
+                               return_value=self.bases), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  0.0):
+            return self.run_inproc(["--folder", self.folder, *args])
+
+    def test_refuses_under_claudecode(self):
+        env = {"CLAUDECODE": "1",
+               "CLAUDE_CONFIG_DIR": self.p("cfg-finder")}
+        for argv in (["encrypt"], ["scrub", "--yes"],
+                     ["leakscan", "--scan-root", self.root_a],
+                     ["decrypt", "--archive", ARCHIVE_REL, "--dest",
+                      os.path.join(self.tmp, "out")]):
+            with mock.patch.dict(os.environ, env):
+                rc, out, err = self.cli(*argv)
+            self.assertEqual(rc, 1, argv)
+            self.assertEqual(err, holdout_kit.REFUSE_MSG + "\n", argv)
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "out")))
+        self.assertFalse(os.path.exists(self.p("LEAKSCAN.json")))
+
+    def test_scrub_without_yes_prints_plan(self):
+        rc, out, err = self.cli("scrub")
+        self.assertEqual(rc, 0, err)
+        self.assertIn("Re-run with --yes to remove the plaintext.", out)
+        self.assertIn("logs", out)
+        self.assertNotIn("finder.log", out)
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_scrub_yes(self):
+        rc, out, err = self.cli("scrub", "--yes")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(os.listdir(self.folder)),
+                         [".metadata_never_index", "SEAL.json", "archive",
+                          "bin", "kit"])
+        self.assertEqual(os.listdir(self.p("bin")), ["holdout"])
+
+    def test_scrub_before_encrypt(self):
+        src, _ = _template("sealed")
+        shutil.rmtree(self.folder)
+        shutil.copytree(src, self.folder, symlinks=True)
+        rc, out, err = self.cli("scrub", "--yes")
+        self.assertEqual(rc, 1)
+        self.assertIn("PROBLEM: archive missing or not verified; run encrypt "
+                      "first", out)
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_scrub_incomplete_exit(self):
+        with mock.patch.object(holdout_archive, "_remove_non_survivors",
+                               return_value=(0, [])):
+            rc, out, err = self.cli("scrub", "--yes")
+        self.assertEqual(rc, 1)
+        self.assertTrue(err.startswith("holdout: scrub incomplete: "), err)
+        self.assertNotIn("OK: plaintext removed", out)
+
+    def test_scrub_writer_cli(self):
+        self.spawn(["sleep", "30"], cwd=self.p("work"))
+        rc, out, err = self.cli("scrub", "--yes")
+        self.assertEqual(rc, 1)
+        self.assertTrue(err.startswith("holdout: holdout folder is still in "
+                                       "use by 1 process(es)"), err)
+        self.assertTrue(os.path.exists(self.p("logs/finder.log")))
+
+    def test_leakscan_cli_decoded_hit(self):
+        plant(self.root_b, "t.jsonl", json.dumps({"text": QUOTE_LINE}))
+        rc, out, err = self.cli("leakscan", "--scan-root", self.root_b)
+        self.assertEqual(rc, 1, err)
+        self.assertIn("PROBLEM: leak scan: 1 location(s) contain holdout "
+                      "text:", out)
+        self.assertRegex(out, r"\(slots: C1\) \(JSON-decoded\)\n")
+        self.assertNotIn(QUOTE_LINE, out)
+        self.assertIn("OK: tuning repo not scanned (pass --repo)", out)
+
+    def test_leakscan_cli_clean(self):
+        rc, out, err = self.cli("leakscan", "--scan-root", self.root_a)
+        self.assertEqual(rc, 0, err)
+        m = re.search(r"OK: leak scan: 0 matches across (\d+) probes \(raw "
+                      r"\+ JSON-decoded\)", out)
+        self.assertIsNotNone(m)
+        self.assertGreaterEqual(int(m.group(1)), 6)
+
+    def test_cli_encrypt_scrub_decrypt_rehash(self):
+        # Drives the documented recovery through holdout_kit.run: encrypt,
+        # scrub, decrypt back into the folder, rehash. Works on a sealed
+        # (unencrypted) copy so encrypt runs through the CLI too.
+        src, _ = _template("sealed")
+        shutil.rmtree(self.folder)
+        shutil.copytree(src, self.folder, symlinks=True)
+        with mock.patch.object(holdout_archive, "OPENSSL_BIN", self.shim), \
+                mock.patch.object(holdout_archive, "_default_residue_bases",
+                                  return_value=self.bases), \
+                mock.patch.object(holdout_archive, "SCRUB_SETTLE_SECONDS",
+                                  0.0):
+            rc, out, err = self.run_inproc(["--folder", self.folder,
+                                            "encrypt"])
+            self.assertEqual(rc, 0, err)
+            self.assertIn("OK: archive_sha256 recorded in SEAL.json", out)
+            rc, out, err = self.run_inproc(["--folder", self.folder, "scrub",
+                                            "--yes"])
+            self.assertEqual(rc, 0, err)
+            self.assertFalse(os.path.exists(self.p("sealed")))
+            rc, out, err = self.run_inproc(
+                ["--folder", self.folder, "decrypt", "--archive", ARCHIVE_REL,
+                 "--dest", self.folder])
+            self.assertEqual(rc, 0, err)
+            self.assertIn("OK: decrypted", out)
+        rc, out, err = self.run_inproc(
+            ["--folder", self.folder, "rehash", "--seal", self.p("SEAL.json"),
+             "--sealed", self.p("sealed")])
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("OK: all 6 cases match the seal", out)
+        self.assertTrue(os.path.isfile(self.p("logs/finder.log")))
+
+
 # ================================================================ shape
 
 
