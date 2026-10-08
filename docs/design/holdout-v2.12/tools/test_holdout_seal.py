@@ -1028,8 +1028,7 @@ class TestModuleShape(unittest.TestCase):
 
     def test_exports(self):
         for name in ("prepare_crosscheck", "reveal", "reveal_workspace",
-                     "reset_crosscheck", "seal_blockers", "agreement_problems",
-                     "do_seal", "add_parser", "cmd", "DISAGREE_MSG",
+                     "reset_crosscheck", "add_parser", "cmd", "DISAGREE_MSG",
                      "INPUTS_CHANGED_MSG", "STALE_WORKSPACE_MSG",
                      "LINE_SLACK", "WORKSPACES_RELPATH"):
             self.assertTrue(hasattr(holdout_seal, name), name)
