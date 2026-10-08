@@ -308,7 +308,7 @@ class TestResetBlindness(unittest.TestCase):
 
     def test_reset_section(self):
         body = sections(read(XCHECK))["If the owner resets a case"]
-        low = body.lower()
+        low = " ".join(body.lower().split())
         for s in ("fresh workspace", "different cross-check session",
                   "never asked to judge"):
             with self.subTest(s=s):
