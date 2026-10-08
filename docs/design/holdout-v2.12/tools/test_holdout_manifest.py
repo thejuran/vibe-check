@@ -469,6 +469,42 @@ class TestBuildSeal(ManifestCase):
 # ================================================================ inventory
 
 
+class TestRegistryEntry(ManifestCase):
+    """sealed/keys/xcheck-workspaces.json (the cross-check workspace
+    registry) is not a case: build_seal skips it, the inventory lists it."""
+
+    def _write_registry(self):
+        path = self.p("keys", holdout_kit.XCHECK_REGISTRY)
+        holdout_kit.write_json_atomic(path, {"generations": []})
+        return path
+
+    def test_build_seal_skips_registry(self):
+        self._write_registry()
+        seal = holdout_manifest.build_seal(self.folder)
+        self.assertEqual(sorted(seal["cases"]), sorted(self.ids.values()))
+
+    def test_registry_in_inventory_not_in_any_case(self):
+        self._write_registry()
+        seal = self.seal_build()
+        inv = holdout_kit.load_json(self.p("INVENTORY.json"))
+        self.assertIn("keys/" + holdout_kit.XCHECK_REGISTRY, inv["files"])
+        for cid in seal["cases"]:
+            self.assertNotIn(
+                holdout_kit.XCHECK_REGISTRY.encode(),
+                holdout_manifest.case_serialization(self.folder, cid))
+
+    def test_registry_directory_is_not_skipped(self):
+        os.makedirs(self.p("keys", holdout_kit.XCHECK_REGISTRY))
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.build_seal(self.folder)
+
+    def test_other_stray_file_still_refused(self):
+        with open(self.p("keys", "notes.json"), "w") as fh:
+            fh.write("{}\n")
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.build_seal(self.folder)
+
+
 class TestInventory(ManifestCase):
 
     def test_inventory_lists_every_content_file(self):

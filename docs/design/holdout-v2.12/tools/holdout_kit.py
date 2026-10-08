@@ -77,6 +77,11 @@ KEY_FILES = frozenset({"key.json", "provenance.json", "proof-results.json",
 # serialization and the private inventory. SANDBOX-SENTINEL is a harmless
 # fixed-text read target for the cross-check sandbox probe.
 SEALED_PRIVATE = ("HMAC-KEY", "INVENTORY.json", "SANDBOX-SENTINEL")
+# The cross-check workspace registry (holdout_seal). It is the one entry in
+# sealed/keys/ that is not a case folder: validate's opaque-id check and
+# build_seal skip exactly this regular file. It lives under sealed/ so no
+# cross-check session can read it, and it is archived with the cases.
+XCHECK_REGISTRY = "xcheck-workspaces.json"
 SANDBOX_SENTINEL_TEXT = ("holdout sandbox sentinel. If a cross-check session "
                          "can print this line, its sandbox is not enforcing "
                          "denyRead. Stop.\n")
@@ -284,7 +289,7 @@ def safe_extract_tar(tar_path, dest):
                     raise KitError("the archive holds an unsafe path; "
                                    "nothing was extracted")
             for m in members:
-                tar.extract(m, dest_real)
+                tar.extract(m, dest_real, filter="data")
     except (OSError, tarfile.TarError):
         raise KitError("cannot read or extract %s"
                        % os.path.basename(tar_path))

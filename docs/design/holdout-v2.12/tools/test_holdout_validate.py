@@ -255,6 +255,36 @@ class TestSlots(ValidateCase):
             self.assertNotIn("triggarr", c.message)
 
 
+class TestRegistryEntry(ValidateCase):
+    """sealed/keys/xcheck-workspaces.json (the cross-check workspace
+    registry) is the one non-case entry validate accepts there."""
+
+    def _registry(self, parent="keys"):
+        return os.path.join(self.folder, "sealed", parent,
+                            holdout_kit.XCHECK_REGISTRY)
+
+    def test_registry_file_is_accepted(self):
+        with open(self._registry(), "w") as fh:
+            fh.write('{"generations": []}\n')
+        self.assertEqual([c for c in self.checks() if not c.ok], [])
+
+    def test_registry_name_under_cases_is_refused(self):
+        with open(self._registry("cases"), "w") as fh:
+            fh.write("{}\n")
+        self.assertProblem("opaque ids")
+
+    def test_registry_name_as_directory_is_refused(self):
+        os.makedirs(self._registry())
+        self.assertProblem("opaque ids")
+
+    def test_mutant_registry_exception_is_load_bearing(self):
+        with open(self._registry(), "w") as fh:
+            fh.write("{}\n")
+        with mock.patch.object(holdout_validate, "_is_registry",
+                               return_value=False):
+            self.assertProblem("opaque ids")
+
+
 class TestAllowlist(ValidateCase):
 
     def test_d_extra_case_file(self):

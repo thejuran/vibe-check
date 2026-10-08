@@ -189,9 +189,13 @@ def _case_slot(sealed, case_id):
 def _key_dir_ids(sealed):
     keys = os.path.join(sealed, "keys")
     try:
-        return sorted(os.listdir(keys))
+        names = os.listdir(keys)
     except OSError:
         raise KitError("sealed/keys is missing or unreadable")
+    registry = os.path.join(keys, holdout_kit.XCHECK_REGISTRY)
+    if not os.path.islink(registry) and os.path.isfile(registry):
+        names.remove(holdout_kit.XCHECK_REGISTRY)
+    return sorted(names)
 
 
 def build_seal(folder):
@@ -304,7 +308,8 @@ def public_shape_problems(seal):
 # "<file>" so a stray file's name can never carry case details into output.
 _GENERIC_PARTS = (frozenset({"cases", "keys", "proof", "run"})
                   | holdout_kit.CASE_FILES | holdout_kit.KEY_FILES
-                  | frozenset(holdout_kit.SEALED_PRIVATE))
+                  | frozenset(holdout_kit.SEALED_PRIVATE)
+                  | frozenset({holdout_kit.XCHECK_REGISTRY}))
 
 
 def _generic(rel):

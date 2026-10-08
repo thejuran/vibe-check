@@ -301,13 +301,23 @@ def _check_slots(ctx):
                    "six cases, one per slot C1..Q3, each with a keys folder")
 
 
+def _is_registry(parent, name):
+    """The cross-check workspace registry: a regular file, never a case."""
+    full = os.path.join(parent, name)
+    return (name == holdout_kit.XCHECK_REGISTRY and not os.path.islink(full)
+            and os.path.isfile(full))
+
+
 def _check_opaque_ids(ctx):
     problems = []
     for where, parent, names in (("sealed/cases", ctx.cases_dir,
                                   ctx.case_names),
                                  ("sealed/keys", ctx.keys_dir,
                                   ctx.key_names)):
-        bad = sum(1 for n in names if not _is_id_dir(parent, n))
+        bad = sum(1 for n in names
+                  if not _is_id_dir(parent, n)
+                  and not (parent == ctx.keys_dir
+                           and _is_registry(parent, n)))
         if bad:
             problems.append("%s holds %d entr%s that %s not an opaque case "
                             "folder (H- followed by 8 hex digits). Fix: "
