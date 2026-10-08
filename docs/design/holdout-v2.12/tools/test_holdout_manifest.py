@@ -712,5 +712,1290 @@ class TestModuleShape(unittest.TestCase):
             self.assertTrue(hasattr(holdout_manifest, name), name)
 
 
+# ================================================================ rehash
+
+
+def _flip_byte(path):
+    with open(path, "rb") as fh:
+        data = bytearray(fh.read())
+    data[0] ^= 0x01
+    with open(path, "wb") as fh:
+        fh.write(bytes(data))
+
+
+class SealedCase(ManifestCase):
+    """A six-case holdout after seal-build."""
+
+    def setUp(self):
+        super().setUp()
+        self.seal = self.seal_build()
+        self.seal_path = os.path.join(self.folder, "SEAL.json")
+
+    def rehash(self):
+        return holdout_manifest.rehash_folder(self.seal_path, self.sealed)
+
+
+class TestRehash(SealedCase):
+
+    def test_untouched_tree_is_clean(self):
+        self.assertTrue(os.path.isfile(self.p(holdout_kit.SENTINEL_NAME)))
+        r = self.rehash()
+        self.assertTrue(r["ok"])
+        self.assertTrue(r["commitment_ok"])
+        self.assertEqual(r["cases"], {cid: True for cid in self.ids.values()})
+        for key in ("mismatched", "missing", "extra", "missing_cases",
+                    "extra_cases"):
+            self.assertEqual(r[key], [], key)
+
+    def test_cli_clean(self):
+        with open(self.p("INVENTORY.json")) as fh:
+            n = len(json.load(fh)["files"])
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.strip(),
+                         "OK: all 6 cases match the seal; key commitment "
+                         "verified; %d files in inventory" % n)
+
+    def test_sentinel_deleted_still_clean(self):
+        os.remove(self.p(holdout_kit.SENTINEL_NAME))
+        self.assertTrue(self.rehash()["ok"])
+
+    def test_private_names_mutant_reports_sentinel(self):
+        self.assertTrue(self.rehash()["ok"])
+        with mock.patch.object(holdout_manifest, "_private_names",
+                               ("HMAC-KEY", "INVENTORY.json")):
+            r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["extra"], [holdout_kit.SENTINEL_NAME])
+
+    def test_byte_flip(self):
+        cid = self.ids["C2"]
+        self.assertTrue(self.rehash()["ok"])
+        _flip_byte(self.p("keys", cid, "key.json"))
+        r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertFalse(r["cases"][cid])
+        self.assertEqual(sum(1 for v in r["cases"].values() if not v), 1)
+        self.assertEqual(r["mismatched"], ["keys/%s/key.json" % cid])
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: 1 case(s) differ from the seal", proc.stdout)
+
+    def test_byte_flip_mutant_case_hmac(self):
+        cid = self.ids["C2"]
+        _flip_byte(self.p("keys", cid, "key.json"))
+        self.assertFalse(self.rehash()["cases"][cid])
+        stored = {k: v["hmac"] for k, v in self.seal["cases"].items()}
+        with mock.patch.object(holdout_manifest, "case_hmac",
+                               lambda key, folder, c: stored[c]):
+            self.assertTrue(self.rehash()["cases"][cid])
+
+    def test_missing_file(self):
+        cid = self.ids["Q1"]
+        self.assertTrue(self.rehash()["ok"])
+        os.remove(self.p("keys", cid, "proof-results.json"))
+        r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["missing"], ["keys/%s/proof-results.json" % cid])
+        self.assertFalse(r["cases"][cid])
+
+    def test_extra_file(self):
+        cid = self.ids["Q2"]
+        self.assertTrue(self.rehash()["ok"])
+        _write(self.p("keys", cid, "extra.txt"), "x")
+        r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["extra"], ["keys/%s/<file>" % cid])
+        self.assertFalse(r["cases"][cid])
+
+    def test_wrong_key(self):
+        self.assertTrue(self.rehash()["ok"])
+        _write(self.p("HMAC-KEY"), (b"\x05" * 32).hex() + "\n")
+        r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertFalse(r["commitment_ok"])
+        self.assertFalse(any(r["cases"].values()))
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: the HMAC key does not match the committed key",
+                      proc.stdout)
+
+    def test_key_missing(self):
+        os.remove(self.p("HMAC-KEY"))
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.rehash()
+        self.assertIn("HMAC key missing", str(ctx.exception))
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: HMAC key missing", proc.stdout)
+
+    def test_symlink_refused(self):
+        cid = self.ids["C3"]
+        link = self.p("cases", cid, "link")
+        os.symlink(self.p("cases", cid, "change.diff"), link)
+        self.assertTrue(os.path.islink(link))
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.rehash()
+        self.assertIn("symlink refused", str(ctx.exception))
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: symlink refused", proc.stdout)
+
+    def test_seal_id_not_in_folder(self):
+        old = self.ids["C1"]
+        seal = json.loads(json.dumps(self.seal))
+        seal["cases"]["H-0000beef"] = seal["cases"].pop(old)
+        holdout_kit.write_json_atomic(self.seal_path, seal)
+        r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertFalse(r["cases"]["H-0000beef"])
+        self.assertEqual(r["missing_cases"], ["H-0000beef"])
+        self.assertEqual(r["extra_cases"], [old])
+
+    def test_case_dir_not_in_seal(self):
+        new = write_case(self.folder, "C1", case_id="H-0000cafe")
+        r = self.rehash()
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["extra_cases"], [new])
+        self.assertTrue(r["extra"])
+
+    def test_seventh_case_in_seal_refused(self):
+        seal = json.loads(json.dumps(self.seal))
+        seal["cases"]["H-0000beef"] = {"slot": "C1", "hmac": "b" * 64}
+        holdout_kit.write_json_atomic(self.seal_path, seal)
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            self.rehash()
+        self.assertIn("public shape", str(ctx.exception))
+
+    def test_archive_sha256_present_is_fine(self):
+        seal = json.loads(json.dumps(self.seal))
+        seal["archive_sha256"] = "d" * 64
+        holdout_kit.write_json_atomic(self.seal_path, seal)
+        self.assertTrue(self.rehash()["ok"])
+
+    def test_inventory_missing(self):
+        os.remove(self.p("INVENTORY.json"))
+        with self.assertRaises(holdout_kit.KitError):
+            self.rehash()
+
+    def test_sealed_must_be_named_sealed(self):
+        other = os.path.join(self.tmp, "copy")
+        shutil.copytree(self.sealed, other)
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.rehash_folder(self.seal_path, other)
+
+    def test_output_never_names_repo(self):
+        cid = self.ids["Q3"]
+        _write(self.p("keys", cid, REPO_NAME + "-notes.txt"), "x")
+        _write(self.p(REPO_NAME + ".txt"), "x")
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed)
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn(REPO_NAME, proc.stdout + proc.stderr)
+        for ln in proc.stdout.splitlines():
+            for tok in re.findall(r"[A-Za-z0-9_.<>-]+(?:/[A-Za-z0-9_.<>-]+)+",
+                                  ln):
+                for part in tok.split("/"):
+                    self.assertTrue(
+                        part in ("cases", "keys", "proof", "run", "<file>")
+                        or part in holdout_kit.CASE_FILES
+                        or part in holdout_kit.KEY_FILES
+                        or ID_ANY.fullmatch(part), (part, ln))
+
+
+class TestRehashSetupFolder(unittest.TestCase):
+    """seal-build + rehash on a folder made by the real `setup`."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = os.path.realpath(self._tmp.name)
+        self._env = _clean_env()
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+        self._tmp.cleanup()
+
+    def test_setup_folder_rehashes_clean(self):
+        folder = holdout_fixture.make_fake_holdout(self.tmp)
+        sealed = os.path.join(folder, "sealed")
+        self.assertTrue(os.path.isfile(os.path.join(
+            sealed, holdout_kit.SENTINEL_NAME)))
+        make_six_cases(folder)
+        seal = holdout_manifest.build_seal(folder)
+        holdout_manifest.write_inventory(folder)
+        seal_path = os.path.join(folder, "SEAL.json")
+        holdout_kit.write_json_atomic(seal_path, seal)
+        r = holdout_manifest.rehash_folder(seal_path, sealed)
+        self.assertEqual(r["extra"], [])
+        self.assertTrue(r["ok"])
+        with mock.patch.object(holdout_manifest, "_private_names",
+                               ("HMAC-KEY", "INVENTORY.json")):
+            r = holdout_manifest.rehash_folder(seal_path, sealed)
+        self.assertEqual(r["extra"], [holdout_kit.SENTINEL_NAME])
+        self.assertFalse(r["ok"])
+
+
+# ================================================================ extract
+
+
+class TestExtract(SealedCase):
+
+    def test_cases_only(self):
+        dest = os.path.join(self.tmp, "runner")
+        n = holdout_manifest.extract_part(self.sealed, "cases", dest)
+        self.assertTrue(os.path.isdir(os.path.join(dest, "cases")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "keys")))
+        got = holdout_kit.walk_regular(dest)
+        self.assertEqual(n, len(got))
+        self.assertTrue(all(r.startswith("cases/") for r in got))
+        self.assertEqual(got, [r for r in holdout_kit.walk_regular(self.sealed)
+                               if r.startswith("cases/")])
+
+    def test_keys_only(self):
+        dest = os.path.join(self.tmp, "scorer")
+        n = holdout_manifest.extract_part(self.sealed, "keys", dest)
+        self.assertFalse(os.path.exists(os.path.join(dest, "cases")))
+        got = holdout_kit.walk_regular(dest)
+        self.assertEqual(n, len(got))
+        self.assertTrue(all(r.startswith("keys/") for r in got))
+        self.assertFalse(any(holdout_kit.SENTINEL_NAME in r for r in got))
+
+    def test_both_refused(self):
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.extract_part(self.sealed, "both",
+                                          os.path.join(self.tmp, "d"))
+
+    def test_symlink_refused(self):
+        cid = self.ids["C1"]
+        os.symlink(self.p("cases", cid, "change.diff"),
+                   self.p("cases", cid, "link"))
+        dest = os.path.join(self.tmp, "d")
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.extract_part(self.sealed, "cases", dest)
+        self.assertFalse(os.path.exists(os.path.join(dest, "cases")))
+
+    def test_existing_dest_part_refused(self):
+        dest = os.path.join(self.tmp, "d")
+        os.makedirs(os.path.join(dest, "cases"))
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.extract_part(self.sealed, "cases", dest)
+
+    def test_cli_extract(self):
+        dest = os.path.join(self.tmp, "d")
+        proc = self.cli("--folder", self.folder, "extract", "--part", "keys",
+                        "--dest", dest)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(proc.stdout.startswith("OK: extracted keys/"))
+        self.assertTrue(os.path.isdir(os.path.join(dest, "keys")))
+        self.assertFalse(os.path.exists(os.path.join(dest, "cases")))
+
+    def test_cli_extract_both_is_usage_error(self):
+        proc = self.cli("--folder", self.folder, "extract", "--part", "both",
+                        "--dest", os.path.join(self.tmp, "d"))
+        self.assertEqual(proc.returncode, 2)
+
+
+# ================================================================ seal-order
+
+
+class TestSealOrder(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = os.path.realpath(self._tmp.name)
+        self.repo = holdout_fixture.make_repo(self.tmp)
+        holdout_fixture.write(self.repo, "README", "x\n")
+        self.commit("init")
+        self.env = mock.patch.dict(os.environ, holdout_fixture.helper_env(),
+                                   clear=True)
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self._tmp.cleanup()
+
+    def commit(self, msg):
+        holdout_fixture.git(self.repo, "add", "-A")
+        holdout_fixture.git(self.repo, "commit", "-q", "-m", msg)
+        return holdout_fixture.git(self.repo, "rev-parse",
+                                   "HEAD").stdout.strip()
+
+    def write_seal(self, text="{}\n"):
+        holdout_fixture.write(self.repo, holdout_manifest.SEAL_RELPATH, text)
+
+    def test_no_commit(self):
+        self.assertEqual(holdout_manifest.seal_order_problems(self.repo),
+                         ["SEAL.json has no commit"])
+
+    def test_one_commit(self):
+        self.write_seal()
+        self.commit("seal")
+        self.assertEqual(holdout_manifest.seal_order_problems(self.repo), [])
+
+    def test_two_commits(self):
+        self.write_seal()
+        self.commit("seal")
+        self.write_seal("{ }\n")
+        self.commit("edit")
+        self.assertEqual(holdout_manifest.seal_order_problems(self.repo),
+                         ["SEAL.json has 2 commits; expected exactly 1"])
+
+    def test_edit_on_other_branch_counts(self):
+        self.write_seal()
+        self.commit("seal")
+        holdout_fixture.git(self.repo, "checkout", "-q", "-b", "side")
+        self.write_seal("{\"x\": 1}\n")
+        self.commit("side edit")
+        holdout_fixture.git(self.repo, "checkout", "-q", "main")
+        self.assertEqual(holdout_manifest.seal_order_problems(self.repo),
+                         ["SEAL.json has 2 commits; expected exactly 1"])
+
+    def test_before_descendant(self):
+        self.write_seal()
+        self.commit("seal")
+        holdout_fixture.write(self.repo, "later.txt", "x\n")
+        later = self.commit("53-01 tuning")
+        self.assertEqual(holdout_manifest.seal_order_problems(
+            self.repo, before=later), [])
+
+    def test_before_not_descendant(self):
+        base = holdout_fixture.git(self.repo, "rev-parse",
+                                   "HEAD").stdout.strip()
+        self.write_seal()
+        self.commit("seal")
+        holdout_fixture.git(self.repo, "checkout", "-q", "-b", "early", base)
+        holdout_fixture.write(self.repo, "early.txt", "x\n")
+        early = self.commit("53-01 tuning before the seal")
+        self.assertEqual(holdout_manifest.seal_order_problems(
+            self.repo, before=early),
+            ["seal commit is not an ancestor of %s" % early])
+
+    def test_before_unknown_rev(self):
+        self.write_seal()
+        self.commit("seal")
+        problems = holdout_manifest.seal_order_problems(self.repo,
+                                                        before="no-such-rev")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no-such-rev", problems[0])
+
+    def test_not_a_repo(self):
+        problems = holdout_manifest.seal_order_problems(
+            os.path.join(self.tmp, "nothing"))
+        self.assertEqual(len(problems), 1)
+
+    def test_cli_works_under_claudecode(self):
+        self.write_seal()
+        self.commit("seal")
+        env = holdout_fixture.helper_env()
+        env["CLAUDECODE"] = "1"
+        env.pop("CLAUDE_CONFIG_DIR", None)
+        proc = subprocess.run([sys.executable, KIT_PY, "seal-order", "--repo",
+                               self.repo], env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(proc.stdout.startswith(
+            "OK: SEAL.json has exactly one commit"))
+
+    def test_cli_problem(self):
+        proc = subprocess.run([sys.executable, KIT_PY, "seal-order", "--repo",
+                               self.repo], env=holdout_fixture.kit_env(),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=120)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout.strip(),
+                         "PROBLEM: SEAL.json has no commit")
+
+
+# ================================================================ leak ledger
+
+
+def write_ledger(folder, scans):
+    holdout_kit.write_json_atomic(
+        os.path.join(folder, holdout_manifest.LEAKSCAN_RELPATH),
+        {"schema": holdout_manifest.LEAKSCAN_SCHEMA, "scans": scans})
+
+
+def scan_entry(folder, hits=0, ids=(), slots=(), at="2026-10-08T10:00:00Z",
+               seal_sha=None):
+    seal_path = os.path.join(folder, "SEAL.json")
+    if seal_sha is None and os.path.isfile(seal_path):
+        seal_sha = holdout_kit.sha256_file(seal_path)
+    return {"at": at, "seal_sha256": seal_sha, "probes": 40, "hits": hits,
+            "hit_case_ids": list(ids), "hit_slots": list(slots)}
+
+
+NO_SCAN = "no leak scan recorded; run leakscan before publish"
+FOUND = ("the last leak scan found holdout text on the tuning side; replace "
+         "the slots it named, re-seal, and scan again")
+PREDATES = "the last leak scan predates the current seal; run leakscan again"
+
+
+def not_replaced(slot, cid, at):
+    return ("case %s (%s) was named by a leak scan on %s and has not been "
+            "replaced; deleting the matched files is cleanup, not a remedy: "
+            "replace the slot through the finder and a fresh cross-check, "
+            "then re-seal" % (slot, cid, at))
+
+
+class TestLeakLedger(SealedCase):
+
+    def problems(self):
+        return holdout_manifest.leak_ledger_problems(self.folder, self.seal)
+
+    def test_no_ledger(self):
+        self.assertEqual(self.problems(), [NO_SCAN])
+
+    def test_clean(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        self.assertEqual(self.problems(), [])
+
+    def test_last_scan_hits(self):
+        cid = self.ids["Q1"]
+        write_ledger(self.folder, [scan_entry(self.folder, hits=2, ids=[cid],
+                                              slots=["Q1"])])
+        self.assertIn(FOUND, self.problems())
+
+    def test_predates_current_seal(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        self.assertEqual(self.problems(), [])
+        _flip_byte(self.p("keys", self.ids["C1"], "key.json"))
+        self.seal = self.seal_build()
+        self.assertEqual(self.problems(), [PREDATES])
+
+    def test_null_seal_sha(self):
+        entry = scan_entry(self.folder)
+        entry["seal_sha256"] = None
+        write_ledger(self.folder, [entry])
+        self.assertEqual(self.problems(), [PREDATES])
+
+    def test_codex_case_clean_rescan_does_not_clear(self):
+        cid = self.ids["C2"]
+        at = "2026-10-08T09:00:00Z"
+        write_ledger(self.folder, [
+            scan_entry(self.folder, hits=1, ids=[cid], slots=["C2"], at=at),
+            scan_entry(self.folder, at="2026-10-08T11:00:00Z")])
+        self.assertEqual(self.problems(), [not_replaced("C2", cid, at)])
+
+    def test_replaced_slot_clears(self):
+        cid = self.ids["C2"]
+        at = "2026-10-08T09:00:00Z"
+        first = scan_entry(self.folder, hits=1, ids=[cid], slots=["C2"],
+                           at=at)
+        shutil.rmtree(self.p("cases", cid))
+        shutil.rmtree(self.p("keys", cid))
+        write_case(self.folder, "C2",
+                   diff=default_diff("C2").replace("new_compute",
+                                                   "fresh_compute"),
+                   key=default_key("C2", tag="b"),
+                   provenance=default_provenance("C2", tag="b"))
+        self.seal = self.seal_build()
+        self.assertNotIn(cid, self.seal["cases"])
+        write_ledger(self.folder, [first, scan_entry(self.folder)])
+        self.assertEqual(self.problems(), [])
+
+    def test_malformed_ledger(self):
+        path = os.path.join(self.folder, holdout_manifest.LEAKSCAN_RELPATH)
+        for body in ([], {"schema": holdout_manifest.LEAKSCAN_SCHEMA},
+                     {"schema": "other/1", "scans": [scan_entry(self.folder)]},
+                     {"schema": holdout_manifest.LEAKSCAN_SCHEMA, "scans": []},
+                     {"schema": holdout_manifest.LEAKSCAN_SCHEMA,
+                      "scans": [{"hits": "0"}]}):
+            with open(path, "w") as fh:
+                json.dump(body, fh)
+            self.assertEqual(self.problems(), [NO_SCAN], body)
+        with open(path, "w") as fh:
+            fh.write("not json")
+        self.assertEqual(self.problems(), [NO_SCAN])
+
+
+# ================================================================ publish
+
+
+class TestPublish(SealedCase):
+
+    def setUp(self):
+        super().setUp()
+        self.repo = holdout_fixture.make_repo(self.tmp)
+        self.dest = os.path.join(self.repo,
+                                 *holdout_manifest.SEAL_RELPATH.split("/"))
+
+    def test_clean_ledger_publishes(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        dest = holdout_manifest.publish(self.folder, self.repo)
+        self.assertEqual(dest, self.dest)
+        with open(dest, "rb") as a, open(self.seal_path, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        status = holdout_fixture.git(self.repo, "status", "--porcelain",
+                                     "-uall").stdout.split("\n")
+        self.assertEqual([s for s in status if s],
+                         ["?? " + holdout_manifest.SEAL_RELPATH])
+
+    def test_cli_publish(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        proc = self.cli("--folder", self.folder, "publish", "--repo",
+                        self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(),
+                         "OK: SEAL.json published to %s. Commit it on its own."
+                         % self.dest)
+
+    def test_idempotent(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        holdout_manifest.publish(self.folder, self.repo)
+        self.assertEqual(holdout_manifest.publish(self.folder, self.repo),
+                         self.dest)
+
+    def test_never_overwrites(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        holdout_fixture.write(self.repo, holdout_manifest.SEAL_RELPATH,
+                              "{\"other\": true}\n")
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.publish(self.folder, self.repo)
+        with open(self.dest) as fh:
+            self.assertEqual(fh.read(), "{\"other\": true}\n")
+
+    def test_shape_failure_refused(self):
+        seal = json.loads(json.dumps(self.seal))
+        seal["repo"] = REPO_NAME
+        holdout_kit.write_json_atomic(self.seal_path, seal)
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.publish(self.folder, self.repo)
+        self.assertFalse(os.path.exists(self.dest))
+
+    def test_each_failing_ledger_refuses(self):
+        cid = self.ids["C2"]
+        at = "2026-10-08T09:00:00Z"
+        stale = scan_entry(self.folder)
+        stale["seal_sha256"] = "e" * 64
+        cases = [
+            (None, NO_SCAN),
+            ([scan_entry(self.folder, hits=2, ids=[cid], slots=["C2"])],
+             FOUND),
+            ([stale], PREDATES),
+            ([scan_entry(self.folder, hits=1, ids=[cid], slots=["C2"], at=at),
+              scan_entry(self.folder)], not_replaced("C2", cid, at)),
+        ]
+        ledger = os.path.join(self.folder, holdout_manifest.LEAKSCAN_RELPATH)
+        for scans, line in cases:
+            if scans is None:
+                if os.path.exists(ledger):
+                    os.remove(ledger)
+            else:
+                write_ledger(self.folder, scans)
+            proc = self.cli("--folder", self.folder, "publish", "--repo",
+                            self.repo)
+            self.assertEqual(proc.returncode, 1, line)
+            self.assertEqual(proc.stderr.splitlines()[0], "holdout: " + line)
+            self.assertFalse(os.path.exists(self.dest), line)
+
+    def test_mutant_leak_gate(self):
+        cid = self.ids["C2"]
+        write_ledger(self.folder, [
+            scan_entry(self.folder, hits=1, ids=[cid], slots=["C2"]),
+            scan_entry(self.folder)])
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.publish(self.folder, self.repo)
+        self.assertFalse(os.path.exists(self.dest))
+        with mock.patch.object(holdout_manifest, "leak_ledger_problems",
+                               return_value=[]):
+            holdout_manifest.publish(self.folder, self.repo)
+        self.assertTrue(os.path.isfile(self.dest))
+
+    def test_refuses_under_claudecode(self):
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        proc = self.cli("--folder", self.folder, "publish", "--repo",
+                        self.repo, env=env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stderr, holdout_kit.REFUSE_MSG + "\n")
+        self.assertFalse(os.path.exists(self.dest))
+
+    def test_requires_folder(self):
+        rc, _, err = self.run_inproc(["publish", "--repo", self.repo])
+        self.assertEqual(rc, 1)
+        self.assertIn("--folder", err)
+        self.assertFalse(os.path.exists(self.dest))
+
+
+# ================================================================ retirement
+
+
+def relabel_case(folder, old_id):
+    """Copy a case byte-for-byte to a fresh ID, delete the old one, re-run
+    seal-build and append a clean leak scan against the new SEAL.json."""
+    sealed = os.path.join(folder, "sealed")
+    new_id = holdout_kit.new_case_id()
+    for part in ("cases", "keys"):
+        shutil.copytree(os.path.join(sealed, part, old_id),
+                        os.path.join(sealed, part, new_id))
+    case_json = os.path.join(sealed, "cases", new_id, "case.json")
+    with open(case_json) as fh:
+        data = json.load(fh)
+    data["id"] = new_id
+    with open(case_json, "w") as fh:
+        json.dump(data, fh)
+    for part in ("cases", "keys"):
+        shutil.rmtree(os.path.join(sealed, part, old_id))
+    seal = holdout_manifest.build_seal(folder)
+    holdout_manifest.write_inventory(folder)
+    holdout_kit.write_json_atomic(os.path.join(folder, "SEAL.json"), seal)
+    ledger_path = os.path.join(folder, holdout_manifest.LEAKSCAN_RELPATH)
+    scans = []
+    if os.path.exists(ledger_path):
+        with open(ledger_path) as fh:
+            scans = json.load(fh)["scans"]
+    write_ledger(folder, scans + [scan_entry(folder)])
+    return new_id
+
+
+def retired_line_prefix(slot, cid):
+    return "case %s (%s) reuses material retired on " % (slot, cid)
+
+
+class RetiredCase(SealedCase):
+
+    def setUp(self):
+        super().setUp()
+        write_ledger(self.folder, [scan_entry(self.folder)])
+        self.repo = holdout_fixture.make_repo(self.tmp)
+        self.dest = os.path.join(self.repo,
+                                 *holdout_manifest.SEAL_RELPATH.split("/"))
+        self.retired_path = os.path.join(self.folder,
+                                         holdout_manifest.RETIRED_RELPATH)
+
+    def ledger_text(self):
+        with open(self.retired_path) as fh:
+            return fh.read()
+
+    def ledger(self):
+        with open(self.retired_path) as fh:
+            return json.load(fh)
+
+    def replace(self, slot, **kw):
+        """Delete the slot's current case, write a new one, re-seal, and
+        append a clean scan. Returns the new ID."""
+        old = self.ids[slot]
+        for part in ("cases", "keys"):
+            shutil.rmtree(self.p(part, old))
+        new = write_case(self.folder, slot, **kw)
+        self.ids[slot] = new
+        self.seal = self.seal_build()
+        with open(os.path.join(self.folder,
+                               holdout_manifest.LEAKSCAN_RELPATH)) as fh:
+            scans = json.load(fh)["scans"]
+        write_ledger(self.folder, scans + [scan_entry(self.folder)])
+        return new
+
+    def matched(self, problems):
+        self.assertEqual(len(problems), 1, problems)
+        m = re.search(r"\(([a-z,]+)\); a retired change", problems[0])
+        self.assertTrue(m, problems[0])
+        return m.group(1)
+
+
+class TestRetired(RetiredCase):
+
+    def test_fingerprint_is_id_independent(self):
+        old = self.ids["C2"]
+        new = "H-0000f00d"
+        for part in ("cases", "keys"):
+            shutil.copytree(self.p(part, old), self.p(part, new))
+        a = holdout_manifest.case_fingerprint(self.folder, old)
+        b = holdout_manifest.case_fingerprint(self.folder, new)
+        self.assertEqual(a, b)
+        for fp in (a, b):
+            self.assertFalse(any(ID_ANY.search(s) for s in _strings(fp)))
+            self.assertEqual(set(fp), {"source", "diff_sha256",
+                                       "lines_sha256", "key_sha256"})
+            self.assertEqual(set(fp["source"]),
+                             {"repo_name", "base_rev", "feature_rev"})
+
+    def test_lines_hash_ignores_context_and_whitespace(self):
+        a = holdout_manifest._diff_lines_sha256(default_diff("C1", 1).encode())
+        b = holdout_manifest._diff_lines_sha256(default_diff("C1", 3).encode())
+        c = holdout_manifest._diff_lines_sha256(
+            default_diff("C1", 1).replace("+    return", "+\treturn  ")
+            .encode())
+        self.assertEqual(a, b)
+        self.assertEqual(a, c)
+        d = holdout_manifest._diff_lines_sha256(
+            default_diff("C2", 1).encode())
+        self.assertNotEqual(a, d)
+
+    def test_retire_writes_opaque_entry(self):
+        cid = self.ids["C2"]
+        ledger = holdout_manifest.retire_case(self.folder, cid, "leakscan")
+        self.assertEqual(ledger["schema"], holdout_manifest.RETIRED_SCHEMA)
+        self.assertEqual(len(ledger["retired"]), 1)
+        entry = ledger["retired"][0]
+        self.assertEqual(entry["slot"], "C2")
+        self.assertEqual(entry["reason"], "leakscan")
+        self.assertEqual(entry["source"]["repo_name"], REPO_NAME)
+        text = self.ledger_text()
+        self.assertIsNone(ID_ANY.search(text))
+        with open(self.p("cases", cid, "change.diff")) as fh:
+            for ln in fh:
+                if ln.startswith(("+", "-")) and ln.strip("+- \n"):
+                    self.assertNotIn(ln[1:].strip(), text)
+        key = default_key("C2")
+        self.assertNotIn(key["defect"], text)
+        self.assertNotIn(key["causal_failure"], text)
+        self.assertNotIn(self.tmp, text)
+        self.assertNotIn("/Users", text)
+        with open(os.path.join(self.folder,
+                               holdout_manifest.RETIRED_REVISIONS_RELPATH)) as f:
+            revs = json.load(f)
+        self.assertEqual(revs["revisions"], [entry["source"]])
+
+    def test_retire_twice_appends_once(self):
+        cid = self.ids["C2"]
+        holdout_manifest.retire_case(self.folder, cid, "leakscan")
+        ledger = holdout_manifest.retire_case(self.folder, cid, "owner")
+        self.assertEqual(len(ledger["retired"]), 1)
+        self.assertEqual(len(self.ledger()["retired"]), 1)
+
+    def test_retire_keeps_earlier_entries(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        first = self.ledger()["retired"][0]
+        holdout_manifest.retire_case(self.folder, self.ids["Q1"], "owner")
+        entries = self.ledger()["retired"]
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0], first)
+
+    def test_retire_deleted_case_refused(self):
+        cid = self.ids["C2"]
+        for part in ("cases", "keys"):
+            shutil.rmtree(self.p(part, cid))
+        with self.assertRaises(holdout_kit.KitError) as ctx:
+            holdout_manifest.retire_case(self.folder, cid, "leakscan")
+        self.assertIn("retire BEFORE deleting", str(ctx.exception))
+        self.assertFalse(os.path.exists(self.retired_path))
+
+    def test_retire_bad_reason(self):
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.retire_case(self.folder, self.ids["C2"], "other")
+
+    def test_retire_from_content_folder(self):
+        cid = self.ids["Q2"]
+        verify = os.path.join(self.tmp, "verify")
+        shutil.copytree(self.sealed, os.path.join(verify, "sealed"))
+        live = holdout_manifest.case_fingerprint(self.folder, cid)
+        for part in ("cases", "keys"):
+            shutil.rmtree(self.p(part, cid))
+        ledger = holdout_manifest.retire_case(self.folder, cid, "leakscan",
+                                              content_folder=verify)
+        entry = ledger["retired"][0]
+        self.assertEqual(entry["slot"], "Q2")
+        for k, v in live.items():
+            self.assertEqual(entry[k], v)
+        self.assertTrue(os.path.isfile(self.retired_path))
+        self.assertFalse(os.path.exists(os.path.join(
+            verify, holdout_manifest.RETIRED_RELPATH)))
+
+    def test_relabel_caught(self):
+        old = self.ids["C2"]
+        holdout_manifest.retire_case(self.folder, old, "leakscan")
+        at = self.ledger()["retired"][0]["at"]
+        new = relabel_case(self.folder, old)
+        self.assertNotEqual(new, old)
+        with open(self.seal_path) as fh:
+            seal = json.load(fh)
+        self.assertNotIn(old, seal["cases"])
+        self.assertEqual(
+            holdout_manifest.leak_ledger_problems(self.folder, seal), [])
+        problems = holdout_manifest.retired_problems(self.folder)
+        self.assertEqual(problems, [
+            "case C2 (%s) reuses material retired on %s (source,diff,lines,"
+            "key); a retired change cannot return under a new ID: replace it "
+            "with a different change (different revision AND different diff)"
+            % (new, at)])
+        proc = self.cli("--folder", self.folder, "publish", "--repo",
+                        self.repo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertTrue(proc.stderr.startswith(
+            "holdout: " + retired_line_prefix("C2", new)), proc.stderr)
+        self.assertFalse(os.path.exists(self.dest))
+
+    def test_variant_more_context(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "leakscan")
+        self.replace("C1", diff=default_diff("C1", context=3))
+        self.assertEqual(self.matched(
+            holdout_manifest.retired_problems(self.folder)),
+            "source,lines,key")
+
+    def test_variant_new_provenance_same_diff(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        self.replace("C1", provenance=default_provenance(
+            "C1", repo_name="other-repo", tag="z"))
+        self.assertEqual(self.matched(
+            holdout_manifest.retired_problems(self.folder)),
+            "diff,lines,key")
+
+    def test_variant_same_key_except_slot(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        key = dict(default_key("C1"), slot="C2")
+        self.replace("C2", key=key,
+                     provenance=default_provenance("C2", repo_name="other-repo",
+                                                   tag="z"),
+                     diff=make_diff("src/other.py", ["a = 1"], ["a = 2"]))
+        problems = holdout_manifest.retired_problems(self.folder)
+        self.assertTrue(problems[0].startswith(
+            retired_line_prefix("C2", self.ids["C2"])))
+        self.assertEqual(self.matched(problems), "key")
+
+    def test_genuinely_different_case_passes(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "leakscan")
+        self.replace("C1", key=default_key("C1", tag="b"),
+                     provenance=default_provenance("C1", tag="b"),
+                     diff=make_diff("src/new.py", ["b = 1"], ["b = 3"]))
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+        holdout_manifest.publish(self.folder, self.repo)
+        self.assertTrue(os.path.isfile(self.dest))
+
+    def test_shared_base_alone_never_matches(self):
+        base = b"shared constructed base tree"
+        self.replace("Q1", base=base, key=default_key("Q1", tag="c1"),
+                     provenance=default_provenance("Q1", tag="c1",
+                                                   organic=False),
+                     diff=make_diff("src/q.py", ["q = 1"], ["q = 2"]))
+        holdout_manifest.retire_case(self.folder, self.ids["Q1"], "owner")
+        self.replace("Q1", base=base, key=default_key("Q1", tag="c2"),
+                     provenance=default_provenance("Q1", tag="c2",
+                                                   organic=False),
+                     diff=make_diff("src/q.py", ["q = 1"], ["q = 5"]))
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+        entry = self.ledger()["retired"][0]
+        self.assertEqual(entry["source"]["feature_rev"], None)
+
+    def test_m1_retired_gate_is_load_bearing(self):
+        old = self.ids["C2"]
+        holdout_manifest.retire_case(self.folder, old, "leakscan")
+        relabel_case(self.folder, old)
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.publish(self.folder, self.repo)
+        self.assertFalse(os.path.exists(self.dest))
+        with mock.patch.object(holdout_manifest, "retired_problems",
+                               return_value=[]):
+            holdout_manifest.publish(self.folder, self.repo)
+        self.assertTrue(os.path.isfile(self.dest))
+
+    def test_m2_id_bound_fingerprint_reopens_the_hole(self):
+        real = holdout_manifest.case_fingerprint
+
+        def id_bound(folder, case_id):
+            fp = real(folder, case_id)
+            mix = lambda v: None if v is None else hashlib.sha256(
+                (v + case_id).encode()).hexdigest()
+            return {"source": {k: mix(v) for k, v in fp["source"].items()},
+                    "diff_sha256": mix(fp["diff_sha256"]),
+                    "lines_sha256": mix(fp["lines_sha256"]),
+                    "key_sha256": mix(fp["key_sha256"])}
+
+        # Mutant: an ID-bound fingerprint lets the relabeled case through.
+        with mock.patch.object(holdout_manifest, "case_fingerprint",
+                               id_bound):
+            holdout_manifest.retire_case(self.folder, self.ids["Q1"],
+                                         "leakscan")
+            relabeled = relabel_case(self.folder, self.ids["Q1"])
+            self.assertEqual(holdout_manifest.retired_problems(self.folder),
+                             [])
+        # Real: the same retire + relabel is caught.
+        os.remove(self.retired_path)
+        holdout_manifest.retire_case(self.folder, relabeled, "leakscan")
+        again = relabel_case(self.folder, relabeled)
+        problems = holdout_manifest.retired_problems(self.folder)
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith(
+            retired_line_prefix("Q1", again)))
+
+    def test_m3_absent_and_malformed(self):
+        self.assertFalse(os.path.exists(self.retired_path))
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+        with open(self.retired_path, "w") as fh:
+            json.dump([], fh)
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.retired_problems(self.folder)
+        with open(self.retired_path, "w") as fh:
+            json.dump({"schema": holdout_manifest.RETIRED_SCHEMA,
+                       "retired": [{"at": "x"}]}, fh)
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.retired_problems(self.folder)
+
+    def test_empty_ledger_passes(self):
+        holdout_kit.write_json_atomic(
+            self.retired_path, {"schema": holdout_manifest.RETIRED_SCHEMA,
+                                "retired": []})
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+
+    def test_sync_recreates_skip_list(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        holdout_manifest.retire_case(self.folder, self.ids["Q3"], "owner")
+        path = os.path.join(self.folder,
+                            holdout_manifest.RETIRED_REVISIONS_RELPATH)
+        with open(path) as fh:
+            before = json.load(fh)
+        shutil.rmtree(os.path.join(self.folder, "work"))
+        self.assertEqual(holdout_manifest.sync_retired_revisions(self.folder),
+                         2)
+        with open(path) as fh:
+            self.assertEqual(json.load(fh), before)
+
+    def test_sync_without_ledger_writes_empty(self):
+        self.assertEqual(holdout_manifest.sync_retired_revisions(self.folder),
+                         0)
+        with open(os.path.join(
+                self.folder, holdout_manifest.RETIRED_REVISIONS_RELPATH)) as f:
+            self.assertEqual(json.load(f)["revisions"], [])
+
+    def test_retired_not_in_seal_or_inventory(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        self.seal_build()
+        with open(self.p("INVENTORY.json")) as fh:
+            self.assertNotIn("RETIRED", fh.read())
+        with open(self.seal_path) as fh:
+            self.assertNotIn("RETIRED", fh.read())
+
+
+class TestCliRetire(RetiredCase):
+
+    def test_retire_slot(self):
+        cid = self.ids["C2"]
+        proc = self.cli("--folder", self.folder, "retire", "--slot", "C2",
+                        "--reason", "owner")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(),
+                         "OK: retired C2 (%s): recorded in RETIRED.json; its "
+                         "revision and content cannot be re-sealed under any "
+                         "ID" % cid)
+        led = self.ledger()
+        self.assertEqual((len(led["retired"]), led["retired"][0]["slot"]),
+                         (1, "C2"))
+        self.assertEqual(led["retired"][0]["reason"], "owner")
+
+    def test_retire_case(self):
+        cid = self.ids["Q1"]
+        proc = self.cli("--folder", self.folder, "retire", "--case", cid,
+                        "--reason", "leakscan")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(proc.stdout.startswith("OK: retired Q1 (%s)" % cid))
+        self.assertEqual(self.ledger()["retired"][0]["reason"], "leakscan")
+
+    def test_usage_errors(self):
+        cid = self.ids["Q1"]
+        for argv in (["retire", "--slot", "C2", "--case", cid, "--reason",
+                      "owner"],
+                     ["retire", "--reason", "owner"],
+                     ["retire", "--slot", "C2"],
+                     ["retire", "--sync", "--reason", "owner"],
+                     ["retire", "--slot", "C9", "--reason", "owner"]):
+            rc, _, _ = self.run_inproc(["--folder", self.folder] + argv)
+            self.assertEqual(rc, 2, argv)
+        self.assertFalse(os.path.exists(self.retired_path))
+
+    def test_unknown_case(self):
+        rc, _, err = self.run_inproc(["--folder", self.folder, "retire",
+                                      "--case", "H-0000beef", "--reason",
+                                      "owner"])
+        self.assertEqual(rc, 1)
+        self.assertIn("retire BEFORE deleting", err)
+
+    def test_sync(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        proc = self.cli("--folder", self.folder, "retire", "--sync")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(),
+                         "OK: finder skip list rewritten (1 retired "
+                         "revision(s))")
+
+    def test_refuses_under_claudecode(self):
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        proc = self.cli("--folder", self.folder, "retire", "--slot", "C2",
+                        "--reason", "owner", env=env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stderr, holdout_kit.REFUSE_MSG + "\n")
+        self.assertFalse(os.path.exists(self.retired_path))
+
+
+# ================================================================ resume grammar
+
+CONFORMING = [
+    ("sealed", "sealed"),
+    ("sealed non-runnable=1", "sealed"),
+    ("dry run ok prompted sandbox=ok", "dry-run-ok"),
+    ("dry run ok", "dry-run-failed"),
+    ("dry run ok prompted", "dry-run-failed"),
+    ("dry run ok no-prompt", "dry-run-failed"),
+    ("dry run ok no-prompt problems=5", "dry-run-failed"),
+    ("dry run ok problems=3", "dry-run-failed"),
+    ("dry run ok prompted problems=2,4", "dry-run-failed"),
+    ("dry run ok prompted sandbox=ok problems=2,4", "dry-run-failed"),
+    ("dry run ok no-prompt sandbox=ok", "dry-run-failed"),
+    ("dry run ok sandbox=ok", "dry-run-failed"),
+    ("replaced slots=C1,Q2", "replaced"),
+    ("replaced slots=Q3 non-runnable=1", "replaced"),
+    ("clean leakscan=0", "clean"),
+    ("blocked disagreement", "blocked"),
+    ("blocked sandbox", "blocked"),
+    ("blocked no-prompt", "blocked"),
+    ("  sealed  ", "sealed"),
+    ("sealed\n", "sealed"),
+    ("dry run ok prompted sandbox=ok\n", "dry-run-ok"),
+]
+
+NON_CONFORMING = [
+    "sealed!", "Sealed", "sealed, C1 came from a repo I will not name",
+    "sealed\nall good", "replaced", "replaced slots=C4", "blocked",
+    "clean leakscan=1", "dry run ok, openssl prompted", "",
+    "sealed non-runnable=7", "dry run ok prompted sandbox=OK",
+    "dry run ok sandbox=ok prompted", "dry run ok prompted sandbox=ok\nfine",
+    "dry run ok prompted sandbox=failed", "dry run ok prompted  sandbox=ok",
+]
+
+# The dry-run checkpoint (51-09 Task 1): only the clean success form may
+# proceed; a reply that reports no openssl prompt, step problems, or omits
+# the explicit sandbox-probe OK is a conforming but BLOCKING outcome.
+DRY_RUN_TRANSITIONS = [
+    ("dry run ok prompted sandbox=ok", "proceed"),
+    ("dry run ok", "blocking"),
+    ("dry run ok prompted", "blocking"),
+    ("dry run ok no-prompt", "blocking"),
+    ("dry run ok no-prompt problems=5", "blocking"),
+    ("dry run ok problems=1", "blocking"),
+    ("dry run ok prompted sandbox=ok problems=3", "blocking"),
+    ("dry run ok no-prompt sandbox=ok", "blocking"),
+    ("dry run ok sandbox=ok", "blocking"),
+    ("blocked sandbox", "blocking"),
+    ("blocked no-prompt", "blocking"),
+    ("blocked other", "blocking"),
+    ("sealed", "proceed"),
+    ("replaced slots=C2", "proceed"),
+    ("clean leakscan=0", "proceed"),
+    ("dry run ok, it prompted", None),
+]
+
+# The permissive dry-run grammar from before the amendment, used as a mutant.
+PERMISSIVE_DRY_RUN = (("dry-run-ok", re.compile(
+    r"dry run ok(?: prompted| no-prompt)?"
+    r"(?: problems=[0-9]+(?:,[0-9]+)*)?")),)
+
+
+class TestResumeGrammar(unittest.TestCase):
+
+    def test_conforming(self):
+        for text, kind in CONFORMING:
+            with self.subTest(text=text):
+                self.assertEqual(holdout_manifest.resume_reply_kind(text),
+                                 kind)
+
+    def test_non_conforming(self):
+        for text in NON_CONFORMING:
+            with self.subTest(text=text):
+                self.assertIsNone(holdout_manifest.resume_reply_kind(text))
+
+    def test_never_raises(self):
+        for value in (None, 5, b"sealed", ["sealed"]):
+            self.assertIsNone(holdout_manifest.resume_reply_kind(value))
+
+    def test_mutant_empty_grammar(self):
+        with mock.patch.object(holdout_manifest, "RESUME_GRAMMAR", ()):
+            for text, _ in CONFORMING:
+                self.assertIsNone(holdout_manifest.resume_reply_kind(text))
+
+    def test_kinds_partition(self):
+        kinds = {k for k, _ in holdout_manifest.RESUME_GRAMMAR}
+        self.assertEqual(kinds, {"dry-run-ok", "dry-run-failed", "sealed",
+                                 "replaced", "clean", "blocked"})
+        self.assertEqual(holdout_manifest.RESUME_BLOCKING_KINDS,
+                         frozenset({"dry-run-failed", "blocked"}))
+        self.assertTrue(holdout_manifest.RESUME_BLOCKING_KINDS <= kinds)
+        order = [k for k, _ in holdout_manifest.RESUME_GRAMMAR]
+        self.assertLess(order.index("dry-run-ok"),
+                        order.index("dry-run-failed"))
+
+
+class TestDryRunTransitions(unittest.TestCase):
+
+    def test_transitions(self):
+        for text, outcome in DRY_RUN_TRANSITIONS:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    holdout_manifest.resume_reply_outcome(text), outcome)
+
+    def test_only_clean_success_proceeds_at_dry_run(self):
+        proceeding = [t for t, _ in CONFORMING
+                      if holdout_manifest.resume_reply_kind(t) is not None
+                      and holdout_manifest.resume_reply_kind(t).startswith(
+                          "dry-run")
+                      and holdout_manifest.resume_reply_outcome(t)
+                      == "proceed"]
+        self.assertEqual({t.strip() for t in proceeding},
+                         {"dry run ok prompted sandbox=ok"})
+
+    def test_mutant_permissive_grammar_lets_failures_through(self):
+        self.assertEqual(holdout_manifest.resume_reply_outcome(
+            "dry run ok no-prompt"), "blocking")
+        with mock.patch.object(holdout_manifest, "RESUME_GRAMMAR",
+                               PERMISSIVE_DRY_RUN):
+            self.assertEqual(holdout_manifest.resume_reply_outcome(
+                "dry run ok no-prompt"), "proceed")
+            self.assertEqual(holdout_manifest.resume_reply_outcome(
+                "dry run ok problems=5"), "proceed")
+
+    def test_mutant_blocking_set_is_load_bearing(self):
+        with mock.patch.object(holdout_manifest, "RESUME_BLOCKING_KINDS",
+                               frozenset({"blocked"})):
+            self.assertEqual(holdout_manifest.resume_reply_outcome(
+                "dry run ok no-prompt problems=5"), "proceed")
+
+
+class TestCliResumeCheck(ManifestCase):
+
+    PROBLEM = ("PROBLEM: resume reply does not conform to the opaque grammar; "
+               "treat it as a contamination incident and do not record its "
+               "contents")
+
+    def test_non_conforming_never_echoes(self):
+        proc = self.cli("resume-check",
+                        stdin="sealed, and C1 is from ZQX-SENTINEL-7731\n")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, self.PROBLEM + "\n")
+        self.assertNotIn("ZQX", proc.stdout + proc.stderr)
+
+    def test_conforming(self):
+        proc = self.cli("resume-check", stdin="sealed\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "OK: resume reply conforms (sealed)\n")
+
+    def test_dry_run_success(self):
+        proc = self.cli("resume-check",
+                        stdin="dry run ok prompted sandbox=ok\n")
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout,
+                         "OK: resume reply conforms (dry-run-ok)\n")
+
+    def test_blocking_kinds_exit_3(self):
+        for text, kind in (("dry run ok no-prompt", "dry-run-failed"),
+                           ("dry run ok problems=2", "dry-run-failed"),
+                           ("dry run ok prompted", "dry-run-failed"),
+                           ("blocked sandbox", "blocked")):
+            proc = self.cli("resume-check", stdin=text + "\n")
+            self.assertEqual(proc.returncode, 3, text)
+            self.assertEqual(proc.stdout.splitlines(), [
+                "OK: resume reply conforms (%s)" % kind,
+                "PROBLEM: this reply reports a blocking outcome (%s); stop "
+                "and do not proceed" % kind])
+
+    def test_works_under_claudecode(self):
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        proc = self.cli("resume-check", stdin="clean leakscan=0\n", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "OK: resume reply conforms (clean)\n")
+
+    def test_folder_accepted_and_ignored(self):
+        proc = self.cli("--folder", os.path.join(self.tmp, "nowhere"),
+                        "resume-check", stdin="sealed\n")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "nowhere")))
+
+    def test_real_dispatcher_never_2(self):
+        for text in ("sealed", "garbage", "blocked other", ""):
+            rc, out, _ = self.run_inproc(["resume-check"], stdin=text)
+            self.assertIn(rc, (0, 1, 3), text)
+
+    def test_invalid_utf8_is_non_conforming(self):
+        proc = subprocess.run([sys.executable, KIT_PY, "resume-check"],
+                              cwd=self.tmp, env=holdout_fixture.kit_env(),
+                              input=b"sealed \xff\xfe ZQX\n",
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=120)
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn(b"ZQX", proc.stdout + proc.stderr)
+
+
+# ================================================================ CLI refusals
+
+
+class TestCliManifest(SealedCase):
+
+    def test_holdout_commands_refuse_under_claudecode(self):
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        repo = holdout_fixture.make_repo(self.tmp)
+        for argv in (["seal-build"],
+                     ["rehash", "--seal", self.seal_path, "--sealed",
+                      self.sealed],
+                     ["extract", "--part", "cases", "--dest",
+                      os.path.join(self.tmp, "d")],
+                     ["publish", "--repo", repo],
+                     ["retire", "--sync"]):
+            proc = self.cli("--folder", self.folder, *argv, env=env)
+            self.assertEqual(proc.returncode, 1, argv)
+            self.assertEqual(proc.stderr, holdout_kit.REFUSE_MSG + "\n", argv)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "d")))
+
+    def test_isolated_session_config_inside_folder_allowed(self):
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        env["CLAUDE_CONFIG_DIR"] = os.path.join(self.folder, "cfg-finder")
+        proc = self.cli("--folder", self.folder, "rehash", "--seal",
+                        self.seal_path, "--sealed", self.sealed, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_folder_required_for_rehash(self):
+        rc, _, err = self.run_inproc(["rehash", "--seal", self.seal_path,
+                                      "--sealed", self.sealed])
+        self.assertEqual(rc, 2)
+        self.assertIn("--folder", err)
+
+    def test_seal_order_ignores_folder(self):
+        repo = holdout_fixture.make_repo(self.tmp)
+        holdout_fixture.write(repo, "x", "x")
+        holdout_fixture.git(repo, "add", "-A")
+        holdout_fixture.git(repo, "commit", "-q", "-m", "init")
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        proc = self.cli("--folder", os.path.join(self.tmp, "nowhere"),
+                        "seal-order", "--repo", repo, env=env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout.strip(),
+                         "PROBLEM: SEAL.json has no commit")
+
+    def test_module_exports(self):
+        for name in ("rehash_folder", "extract_part", "seal_order_problems",
+                     "leak_ledger_problems", "case_fingerprint",
+                     "retire_case", "sync_retired_revisions",
+                     "retired_problems", "resume_reply_kind",
+                     "resume_reply_outcome", "RESUME_GRAMMAR",
+                     "RESUME_BLOCKING_KINDS", "publish", "LEAKSCAN_RELPATH",
+                     "LEAKSCAN_SCHEMA", "RETIRED_RELPATH", "RETIRED_SCHEMA",
+                     "RETIRED_REVISIONS_RELPATH"):
+            self.assertTrue(hasattr(holdout_manifest, name), name)
+        self.assertEqual(holdout_manifest.LEAKSCAN_RELPATH, "LEAKSCAN.json")
+        self.assertEqual(holdout_manifest.RETIRED_RELPATH, "RETIRED.json")
+        self.assertEqual(holdout_manifest.RETIRED_REVISIONS_RELPATH,
+                         "work/RETIRED-REVISIONS.json")
+        self.assertEqual(holdout_manifest.LEAKSCAN_SCHEMA,
+                         "vibe-check-holdout-leakscan/1")
+        self.assertEqual(holdout_manifest.RETIRED_SCHEMA,
+                         "vibe-check-holdout-retired/1")
+
+    def test_full_history_flags(self):
+        with open(MANIFEST_PY) as fh:
+            src = fh.read()
+        for flag in ("--full-history", "--simplify-merges", "--topo-order",
+                     "--branches", "--tags", "--remotes"):
+            self.assertIn('"%s"' % flag, src)
+
+
 if __name__ == "__main__":
     unittest.main()
