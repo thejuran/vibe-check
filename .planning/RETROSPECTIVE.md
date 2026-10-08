@@ -174,6 +174,43 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 - Model mix: Opus 5.5 orchestrator; Fable planner; Opus executors/reviewers; Sonnet checkers; Codex gpt-6-astra adversarial
 - Notable: per-README-edit re-review cycles (5 agents + Codex each) were the largest Phase 44 cost
 
+## Milestone: v2.11 — Quiet loop
+
+**Shipped:** 2026-10-08 (plugin 2.11.0, tag `v2.11`; patch 2.11.1, tag `v2.11.1`)
+**Phases:** 6 (45-50; 50 = audit gap closure) | **Plans:** 41
+
+### What Was Built
+- Lane gating on evidence (test-sufficiency skipped without coverage, with the reason on the Phase 1d line)
+- Carry-forward integrity: single writer per field family, no expiry, evidence-bound owner decisions
+- Pause batching: one card per fix-loop pass, one at finalize, pending findings folded in
+- Fix-agent verify-before-commit + hunk-isolated commits; read-only git for detection agents (guard + snapshot)
+- B3 ×3 measurement (MISS 5/18 · 15/15, shipped as measured) and 2.11.0; 2.11.1 fixes Close out / `--finalize`
+
+### What Worked
+- The milestone audit's cross-phase integration check caught a shipped, undisclosed defect that every per-phase verification had missed, because the broken file was in no phase's `files_modified`
+- Gates-first release flow (gate stop → orchestrator gates → re-entry → owner go-ahead → atomic push) ran cleanly twice; v2.11 tag immutability was asserted before and after the 2.11.1 push
+- Executable fence tests with mutants (test_scope_args.py) instead of wording locks
+
+### What Was Inefficient
+- A carried defect ("D2") was dropped because Phase 48 reused the same label for something unrelated; carry items need unique IDs, not per-phase letters
+- Phase 46 adversarial review: 4 codex passes each found new criticals in the obligation layer; Phase 48: 4 rewrites past the cap
+- The git guard over-blocked read-only `cd`/`grep`/`sed -n` from every review agent (9 notices on the phase-50 review)
+- A post-measurement review fix (11c8afc) forced a waiver; release-review findings after measurement are a recurring pattern
+
+### Patterns Established
+- Release waiver line generated from `git rev-list` and parity-checked against README and tag bodies
+- Patch release inside the same milestone, with a new tag, never moving the milestone tag
+- Subagent executors refuse relayed approval for irreversible pushes; the orchestrator session runs the publish step on the owner's direct approval
+
+### Key Lessons
+- Run the milestone integration audit BEFORE the release phase publishes, not after: here it found a defect that had already shipped
+- Track carried items by requirement or backlog ID, never by a reusable letter label
+- Prose state machines need one owner per predicate (the finalize trigger is defined in three places)
+
+### Cost Observations
+- Model mix: Opus 5.5 orchestrator; Opus planners and executors (the Fable planner stalled in P47); Sonnet checkers and verifiers; Codex gpt-6-astra adversarial
+- Notable: the B3 ×3 window (36 runs, assistant-driven via tmux) and the Phase-46/48 adversarial loops dominated cost
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Efficacy |

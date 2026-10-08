@@ -1,5 +1,22 @@
 # Milestones
 
+## v2.11 Quiet loop (Shipped: 2026-10-08)
+
+**Phases completed:** 6 phases (45–50), 41 plans · **Releases:** 2.11.0 (tag `v2.11` → 2a420db), 2.11.1 patch (tag `v2.11.1` → 44c7cbf) · **Git:** v2.10..v2.11.1 = 211 commits, 527 files, +56,832/−5,604 · **Timeline:** 2026-10-01 → 2026-10-08
+
+**Key accomplishments:**
+
+- **Lane gating on evidence (P45):** test-sufficiency is not dispatched when no coverage artifact exists, and the reason is printed on the Phase 1d line; the framework-skill trigger is pinned by a test.
+- **Carry-forward integrity (P46):** one writer per state field family; unresolved findings never expire, they close only by verified resolution or an evidence-bound owner decision; a decision snapshot makes "unchanged since pass N" computable.
+- **Pause batching (P47):** one card per fix-loop pass and one card at finalize, with pending findings folded in rather than re-asked.
+- **Fix-agent verification + git safety (P48):** the fix agent verifies before committing, and each fix lands as its own hunk-isolated commit; review agents cannot mutate git (PreToolUse guard plus before/after snapshot).
+- **Measured + released (P49):** B3 ×3 first pass is a MISS on false alarms (5/18 vs ≤3) with catches 15/15. The owner shipped as measured under a disclosed waiver (2.11.0 is not B3-measured because of 11c8afc).
+- **Gap closure (P50):** the milestone audit found Close out and `--finalize` broken in phase and plain mode (shipped undisclosed in 2.11.0). Fixed and published as 2.11.1, also under the not-B3-measured waiver.
+
+**Accepted deviation:** REL-01 (false alarms 5/18 vs ≤3/18). **Known tech debt:** see `milestones/v2.11-MILESTONE-AUDIT.md` (spine finalize trigger reads as a substring test; backlog 999.21 fix-agent/gitguard carries; first-run migration misfire; orchestrator follow-ups).
+
+---
+
 ## v2.10 Opus 5 rebuild + quiet down (Shipped: 2026-10-01)
 
 **Phases completed:** 6 phases (38, 40-44; Phase 39 dissolved), 44 plans
