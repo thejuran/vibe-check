@@ -28,12 +28,21 @@ Output is one plain-language "OK: <check>: ..." or "PROBLEM: <check>: ...
 Fix: ..." line per finding. Messages name slots, opaque ids, field names and
 repo basenames only; no key text, diff line or path is ever printed.
 
-I/O: stdlib only, imports exactly {difflib, os, time} plus holdout_kit. Every
-subprocess goes through holdout_kit.run_argv (argv list, timeout, no shell).
+Proofs run only in the owner's own terminal (the kit refuses inside a
+Claude-spawned shell). Each run gets a fresh export of base.tar under
+<folder>/tmp/owner/validate-<ID>-<base|changed>/ (the change applied with
+`git apply` for the changed tree), executes proof/run by path with that tree
+as cwd and a 300-second timeout, and removes the export afterwards on every
+path.
+
+I/O: stdlib only, imports exactly {difflib, os, shutil, time} plus
+holdout_kit. Every subprocess goes through holdout_kit.run_argv (argv list,
+timeout, no shell).
 """
 
 import difflib
 import os
+import shutil
 import time
 
 import holdout_kit
@@ -800,11 +809,227 @@ def _check_slot_agreement(ctx):
 # ---------------------------------------------------------------- proofs
 
 
+TREES = ("base", "changed")
+PROOF_TIMEOUT = 300
+APPLY_TIMEOUT = 120
+NONRUNNABLE_KEYS = ("runnable", "nonrunnable_reason", "manual_evidence")
+RUNNABLE_KEYS = ("runnable", "base", "changed")
+# First words of a proof line that only inspect text. A C2 proof made only of
+# these never calls the code path, so validate flags it for the cross-check.
+TEXT_ONLY_WORDS = frozenset({"grep", "diff", "test", "cmp", "[", "set",
+                             "exit"})
+
+
+class DiffDoesNotApply(KitError):
+    """The change does not apply to a fresh export of base.tar."""
+
+
+class ProofNotExecutable(KitError):
+    """proof/run exists but is not executable."""
+
+
+def _export_dir(folder, case_id, which):
+    return os.path.join(folder, "tmp", "owner",
+                        "validate-%s-%s" % (case_id, which))
+
+
+def _remove_tree(path):
+    """Remove an export tree, first making every directory in it writable
+    (a proof may have made its tree read-only). Never follows a link."""
+    if not os.path.lexists(path):
+        return
+    if os.path.islink(path) or not os.path.isdir(path):
+        os.remove(path)
+        return
+    os.chmod(path, 0o700)
+    for dirpath, dirnames, _ in os.walk(path):
+        for name in dirnames:
+            full = os.path.join(dirpath, name)
+            if not os.path.islink(full):
+                os.chmod(full, 0o700)
+    shutil.rmtree(path)
+
+
+def _cleanup(path):
+    try:
+        _remove_tree(path)
+    except OSError:
+        raise KitError("could not remove a temporary export under tmp/owner; "
+                       "remove the validate-* folders there by hand")
+
+
+def _apply_diff(tree, diff_path):
+    proc = holdout_kit.run_argv(["git", "apply", "--whitespace=nowarn",
+                                 diff_path], cwd=tree, timeout=APPLY_TIMEOUT)
+    if proc.returncode != 0:
+        raise DiffDoesNotApply("the change does not apply to the base tree")
+
+
+def run_proof(folder, case_id, which):
+    """Re-run sealed/keys/<case_id>/proof/run on a fresh export.
+
+    `which` is "base" (base.tar as is) or "changed" (base.tar plus
+    change.diff applied with git apply). The export lives under
+    <folder>/tmp/owner/ and is removed in every case. Returns
+    (exit_code, sha256 of stdout followed by stderr)."""
+    if which not in TREES:
+        raise KitError("a proof runs on the base or the changed tree")
+    if not holdout_kit.ID_RE.match(case_id or ""):
+        raise KitError("not a case id")
+    sealed = holdout_kit.sealed_dir(folder)
+    tar_path = os.path.join(sealed, "cases", case_id, "base.tar")
+    diff_path = os.path.join(sealed, "cases", case_id, "change.diff")
+    run = os.path.join(sealed, "keys", case_id, "proof", "run")
+    if os.path.islink(run) or not os.path.isfile(run):
+        raise KitError("proof/run is missing")
+    if not os.access(run, os.X_OK):
+        raise ProofNotExecutable("proof/run is not executable")
+    owner = os.path.join(folder, "tmp", "owner")
+    tree = _export_dir(folder, case_id, which)
+    _cleanup(tree)
+    try:
+        try:
+            if not os.path.isdir(owner):
+                os.makedirs(owner, mode=0o700)
+            os.makedirs(tree, mode=0o700)
+        except OSError:
+            raise KitError("cannot create a temporary export under "
+                           "tmp/owner")
+        holdout_kit.safe_extract_tar(tar_path, tree)
+        if which == "changed":
+            _apply_diff(tree, diff_path)
+        proc = holdout_kit.run_argv([run], cwd=tree, timeout=PROOF_TIMEOUT)
+        output = (proc.stdout or b"") + (proc.stderr or b"")
+        return proc.returncode, holdout_kit.sha256_bytes(output)
+    finally:
+        _cleanup(tree)
+
+
+def _run_record_ok(rec):
+    return (isinstance(rec, dict) and set(rec) == set(PROOF_RUN_KEYS)
+            and _is_int(rec.get("exit")) and _is_hex(rec.get("output_sha256"),
+                                                     64)
+            and _is_iso(rec.get("ran_at")))
+
+
+def _slot_pattern_ok(slot, base, changed):
+    if slot in holdout_kit.CATCH_SLOTS:
+        return base == 0 and changed != 0
+    return base == 0 and changed == 0
+
+
 def _check_proofs(ctx, skip_proofs):
     if skip_proofs:
         return [Check("proofs", True, "skipped (--skip-proofs)")]
-    return [Check("proofs", False, "proofs were not re-executed. Fix: use "
-                                   "a kit copy that can run them")]
+    problems, warnings, labels = [], [], []
+    ran = 0
+    for c in ctx.cases:
+        r = c.results
+        if not isinstance(r, dict):
+            problems.append("%s: proof-results.json is missing or "
+                            "unreadable. Fix: run the proof on both trees "
+                            "and record the results" % c.label)
+            continue
+        runnable = r.get("runnable")
+        if runnable is False:
+            evidence = r.get("manual_evidence")
+            if set(r) != set(NONRUNNABLE_KEYS) \
+                    or not _nonempty_str(r.get("nonrunnable_reason")) \
+                    or not _nonempty_str(evidence):
+                problems.append("%s: a non-runnable proof needs exactly "
+                                "runnable, nonrunnable_reason and "
+                                "manual_evidence, none empty. Fix: %s"
+                                % (c.label, RULES_FIX))
+            else:
+                labels.append(Check(c.label, True,
+                                    "non-runnable, labeled (%d chars of "
+                                    "manual evidence)" % len(evidence)))
+            continue
+        if runnable is not True:
+            problems.append("%s: runnable must be true or false in "
+                            "proof-results.json. Fix: %s" % (c.label,
+                                                             RULES_FIX))
+            continue
+        if set(r) != set(RUNNABLE_KEYS) or not _run_record_ok(r["base"]) \
+                or not _run_record_ok(r["changed"]):
+            problems.append("%s: proof-results.json needs base and changed, "
+                            "each with exit, output_sha256 and ran_at. Fix: "
+                            "%s" % (c.label, RULES_FIX))
+            continue
+        if c.slot is None:
+            continue
+        try:
+            got = {w: run_proof(ctx.folder, c.cid, w) for w in TREES}
+        except DiffDoesNotApply:
+            problems.append("%s: diff does not apply to a fresh export of "
+                            "base.tar. Fix: regenerate change.diff against "
+                            "the exact base tree" % c.label)
+            continue
+        except ProofNotExecutable:
+            problems.append("%s: proof not executable. Fix: chmod +x "
+                            "sealed/keys/%s/proof/run" % (c.label, c.cid))
+            continue
+        except KitError as exc:
+            problems.append("%s: the proof could not be re-run (%s). Fix: "
+                            "make proof/run run from the tree root within "
+                            "300 seconds" % (c.label, exc))
+            continue
+        ran += 1
+        recorded = (r["base"]["exit"], r["changed"]["exit"])
+        actual = (got["base"][0], got["changed"][0])
+        if actual != recorded:
+            problems.append("%s: proof reproduced check failed: recorded "
+                            "exits base %d, changed %d; the re-run gave base "
+                            "%d, changed %d. Fix: record the real exits, or "
+                            "fix the proof" % ((c.label,) + recorded + actual))
+        if not _slot_pattern_ok(c.slot, *actual):
+            want = ("pass on base (exit 0) and fail on changed (non-zero)"
+                    if c.slot in holdout_kit.CATCH_SLOTS
+                    else "pass on both trees (exit 0)")
+            problems.append("%s: slot pattern not met: this proof must %s; "
+                            "the re-run gave base %d, changed %d. Fix: make "
+                            "the proof exercise the slot's behavior, or "
+                            "replace the case" % ((c.label, want) + actual))
+        elif actual == recorded and (
+                got["base"][1] != r["base"]["output_sha256"]
+                or got["changed"][1] != r["changed"]["output_sha256"]):
+            warnings.append("%s: output differs from the recorded run; exits "
+                            "match" % c.label)
+    return _result("proofs", problems,
+                   "%d cases re-executed on base and changed exports" % ran,
+                   warnings) + labels
+
+
+def _text_only(text):
+    """True when every command line of a proof (after the shebang) starts
+    with a text-inspection word or is a comment."""
+    lines = text.splitlines()
+    if lines and lines[0].startswith("#!"):
+        lines = lines[1:]
+    words = [ln.split()[0] for ln in (raw.strip() for raw in lines)
+             if ln and not ln.startswith("#")]
+    return bool(words) and all(w in TEXT_ONLY_WORDS for w in words)
+
+
+def _check_c2_behavioral(ctx):
+    name = "C2 proof"
+    c = ctx.by_slot("C2")
+    if c is None:
+        return [Check(name, True, "skipped until C2 exists")]
+    if isinstance(c.results, dict) and c.results.get("runnable") is False:
+        return [Check(name, True, "C2: non-runnable; the cross-check must "
+                                  "confirm the manual evidence")]
+    try:
+        with open(os.path.join(c.key_dir, "proof", "run"), "r",
+                  encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return [Check(name, True, "C2: no proof/run to inspect (see proofs)")]
+    if _text_only(text):
+        return [Check(name, True, "C2: proof looks text-only (grep/diff). The "
+                                  "cross-check must confirm it exercises the "
+                                  "code path.", warning=True)]
+    return [Check(name, True, "C2: proof exercises the code path")]
 
 
 # ---------------------------------------------------------------- entry
@@ -824,7 +1049,8 @@ def validate_folder(folder, skip_proofs=False):
                   _check_eligibility(ctx), _check_c1_q2_eligibility(ctx),
                   _check_c1_q2_distinct(ctx), _check_b3_reuse(ctx),
                   _check_key_shape(ctx), _check_slot_agreement(ctx),
-                  _check_proofs(ctx, skip_proofs)):
+                  _check_proofs(ctx, skip_proofs),
+                  _check_c2_behavioral(ctx)):
         out.extend(found if isinstance(found, list) else [found])
     return out
 
