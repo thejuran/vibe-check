@@ -325,8 +325,9 @@ class TestPopulate(DryrunCase):
             self.assertTrue(prov["source_repo"].startswith(
                 os.path.join(self.folder, holdout_dryrun.REPOS_DIRNAME)))
             key = load(os.path.join(kdir(self.folder, cid), "key.json"))
-            texts = [v for v in key.values() if isinstance(v, str)
-                     and len(v) > 20]
+            texts = [v for k, v in key.items() if isinstance(v, str)
+                     and k not in ("slot", "class",
+                                   "causal_failure_category")]
             self.assertTrue(texts)
             for text in texts:
                 self.assertIn("DRY RUN: synthetic", text)
@@ -462,7 +463,8 @@ class TestPipeline(DryrunCase):
         targets = probe_targets(os.path.join(F, "xcheck-r2",
                                              "sandbox-probe.py"))
         for rel in ("sealed/SANDBOX-SENTINEL", "tmp/finder/SANDBOX-SENTINEL",
-                    "tmp/owner/SANDBOX-SENTINEL", "xcheck/.claude/settings.json",
+                    "tmp/owner/SANDBOX-SENTINEL",
+                    "xcheck/.claude/settings.json",
                     "tmp/crosscheck/xcheck/SANDBOX-SENTINEL", "cfg-xcheck"):
             self.assertIn(os.path.join(F, rel), targets)
         gens = registry(F)["generations"]
