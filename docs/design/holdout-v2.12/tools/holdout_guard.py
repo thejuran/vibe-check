@@ -515,12 +515,34 @@ def _section(parent, key, kind):
     return value
 
 
+def _mode_of(path):
+    """Permission bits of an existing file; 0o600 for a new one. Settings may
+    hold tokens (the user-level file is 0600), so a rewrite or a backup never
+    widens them."""
+    try:
+        return os.stat(path).st_mode & 0o777
+    except OSError:
+        return 0o600
+
+
+def _open_with_mode(path, mode, binary=False):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    try:
+        os.fchmod(fd, mode)
+    except OSError:
+        os.close(fd)
+        raise
+    if binary:
+        return os.fdopen(fd, "wb")
+    return os.fdopen(fd, "w", encoding="utf-8")
+
+
 def _atomic_write(path, data):
     parent = os.path.dirname(os.path.abspath(path))
     tmp = path + ".tmp"
     try:
         os.makedirs(parent, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as fh:
+        with _open_with_mode(tmp, _mode_of(path)) as fh:
             json.dump(data, fh, indent=2)
             fh.write("\n")
         os.replace(tmp, path)
@@ -541,7 +563,7 @@ def _backup_once(path):
     try:
         with open(path, "rb") as src:
             raw = src.read()
-        with open(bak, "wb") as dst:
+        with _open_with_mode(bak, _mode_of(path), binary=True) as dst:
             dst.write(raw)
     except OSError:
         raise GuardError("cannot write the one-time settings backup")

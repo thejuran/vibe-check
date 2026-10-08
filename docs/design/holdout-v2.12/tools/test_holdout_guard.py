@@ -671,6 +671,28 @@ class TestInstall(_TmpCase):
         holdout_guard.install_into(self.path, SCRIPT)
         self.assertEqual(_read_bytes(bak), original)
 
+    def test_private_settings_stay_private(self):
+        """A 0600 settings file (the user-level one) and its backup must not
+        become world-readable through install or uninstall."""
+        _write_json(self.path, _user_shaped())
+        os.chmod(self.path, 0o600)
+        holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+        self.assertEqual(
+            os.stat(self.path + ".pre-holdout.bak").st_mode & 0o777, 0o600)
+        holdout_guard.uninstall_from(self.path, SCRIPT)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+
+    def test_existing_mode_is_kept(self):
+        _write_json(self.path, _user_shaped())
+        os.chmod(self.path, 0o644)
+        holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o644)
+
+    def test_new_settings_file_is_private(self):
+        holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+
     def test_unreadable_settings_refused_and_untouched(self):
         os.makedirs(os.path.dirname(self.path))
         with open(self.path, "w", encoding="utf-8") as fh:
