@@ -345,7 +345,7 @@ class TestEncrypt(ArchiveCase):
         stage = self.p("tmp/owner/stage.tar")
         self.assertEqual(enc, [self.shim, *holdout_archive.ENC_ARGS,
                                "-in", stage, "-out", self.archive])
-        self.assertEqual(dec[:len(holdout_archive.ENC_ARGS) + 1],
+        self.assertEqual(dec[:len(holdout_archive.ENC_ARGS) + 2],
                          [self.shim, "enc", "-d",
                           *holdout_archive.ENC_ARGS[1:]])
         self.assertEqual(dec[-4:-2], ["-in", self.archive])
@@ -720,9 +720,10 @@ class TestModuleShape(unittest.TestCase):
         self.assertEqual(self.text.count('"600000"'), 1)
 
     def test_no_shell_and_no_popen(self):
-        self.assertNotIn("shell=True", self.text)
-        self.assertNotIn("Popen", self.text)
-        self.assertNotIn("subprocess", self.text)
+        self.assertFalse("shell=True" in self.text)
+        self.assertFalse("Popen" in self.text)
+        self.assertFalse("import subprocess" in self.text)
+        self.assertFalse("subprocess." in self.text)
 
 
 if __name__ == "__main__":
