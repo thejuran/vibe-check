@@ -1,0 +1,437 @@
+# v2.12 sealed holdout
+
+The holdout is the one test of v2.12 that tuning never sees. This file explains what protects
+it and what does not, and gives you, the owner, the exact commands to build it, seal it and
+lock it away.
+
+Every command below is one line. Run every one of them from a **new Terminal window that you
+opened yourself** (not one started by Claude). Each kit command prints plain `OK: ...` or
+`PROBLEM: ...` lines. When a line says PROBLEM, fix only what it names.
+
+---
+
+## 1. What this is
+
+- **Six cases, sealed before tuning starts.** Three catch cases (C1 newly reachable exposure,
+  C2 removed protection, C3 ordinary bug) and three quiet cases (Q1, Q2, Q3). They are found
+  in your own repositories by an isolated finder session and checked by an isolated
+  cross-check session. Both are sessions you launch and drive yourself, with their own
+  configuration folders; this repo only supplies the kit (D-04, D-05).
+- **Stored outside every git repo**, at `~/.vibe-check-holdout/v2.12/`. Once sealed, the
+  folder holds one encrypted archive and no plaintext (D-07).
+- **Only `SEAL.json` is committed** (`docs/design/holdout-v2.12/SEAL.json`). It holds opaque
+  case IDs, slots and keyed hashes, nothing else.
+- **The assistant never reads case content.** Not the cases, not the keys, not the finder's or
+  cross-check's notes, not their screens.
+
+**The one rule for every message from you to the assistant about the holdout:** the only
+things that ever cross are opaque IDs, slot names, hashes, counts and the fixed status words
+that `resume-check` accepts (section 7c). Nothing else, ever. No "C1 is the auth one", no repo
+names, no "the proof was flaky".
+
+---
+
+## 2. Barrier, not proof
+
+The tuning side is kept away from the holdout by a PreToolUse hook (`tools/holdout_guard.py`,
+installed in this repo's local settings and in your user-level settings) plus permission deny
+rules. They stop Claude tool calls (every tool, every subagent, every MCP tool) that reach the
+holdout folder. **They are a barrier, not proof: defense in depth, not a complete filesystem
+boundary.**
+
+Residuals (what the hook does not stop):
+
+- **Deliberate obfuscation**: a command that builds the path at run time (variable
+  concatenation, command substitution, a string assembled inside a Python or Node script).
+- **Traversal beyond the listed recursive readers**: `find ~`-style walks are caught only for
+  the readers the hook knows (find, grep -r, rg, du, tar, rsync, cp -r, ls -R, zip -r, tree,
+  fd, Grep, Glob), and a Grep or Glob with no path run from your home folder is not caught.
+- **dotglob**: a bare `~/*` is not treated as reaching a dot-folder, which is wrong when the
+  shell has dotglob switched on.
+- **Codex and every other non-Claude process.** The hook is a Claude Code hook; Codex, editors
+  and scripts you run yourself never pass through it.
+- **Sessions launched without the user-level copy** (another config folder, another machine,
+  or a settings file that lost the entry).
+- **Fail-open**: if `python3` is missing, the script path is wrong, or the hook times out,
+  Claude Code lets the call through. `check-install` (section 9) detects all three, and it
+  runs at every session start.
+- **leakscan's reach**: leakscan matches raw and JSON-decoded text line-by-line, so it cannot
+  see holdout content that was re-wrapped across lines, re-encoded another way, or
+  paraphrased. That is why any described case is replaced even when the scan is clean
+  (section 7c).
+
+What actually covers these residuals: **after `scrub`, no plaintext exists on disk.** The
+archive is encrypted with a passphrase only you hold, typed at openssl's own prompt. It is
+never in a file, an environment variable, a command line or any session.
+
+`RESULTS-v2.12.md` must repeat this wording: the hook and encryption are a barrier, not proof,
+with the residuals above (HOLD-04).
+
+---
+
+## 3. What is public and what is private
+
+**Public (`SEAL.json`, committed once, before tuning):**
+
+| Field | Meaning |
+|-------|---------|
+| `schema`, `milestone`, `status` | fixed values |
+| `mac` | a fixed description of how each case hash is built |
+| `key_commitment_sha256` | SHA-256 of the private HMAC key |
+| `cases` | `{ "<opaque ID>": { "slot": "C1".."Q3", "hmac": "<64 hex>" } }` |
+| `archive_sha256` | SHA-256 of the encrypted archive |
+
+**Why HMAC and not plain SHA-256 (D-12):** commit IDs and diffs from your repos are
+enumerable. Anyone with the repos could hash every commit and diff and match a plain SHA-256.
+Each case hash is therefore HMAC-SHA256 under a fresh, private 256-bit key, over a
+deterministic listing of every file in the case and its answer key. The key is not derived from
+your passphrase.
+
+**Private (inside the encrypted archive only):** the cases, the answer keys, the proofs and
+their recorded results, the provenance and search records, the cross-check verdicts, the HMAC
+key and the per-file inventory. Phase 55 decrypts privately and checks both the per-case
+HMACs and the key commitment (`rehash`).
+
+---
+
+## 4. Considered and declined
+
+- **An OS sandbox in this (tuning) repo** (`sandbox.filesystem.denyRead` on the holdout).
+  Declined: once scrub has run there is no plaintext to protect, and a tuning-side sandbox
+  would break normal development commands.
+- **Other encryption tools.** `hdiutil` encrypted disk images (mountable plaintext that tuning
+  sessions could read while mounted), `gpg` symmetric mode (its agent may cache the
+  passphrase), `zip -e` (weak legacy encryption). The kit uses `/usr/bin/openssl enc
+  -aes-256-cbc -pbkdf2 -iter 600000`, which ships with macOS.
+- **`rm -P` secure delete.** It has no effect on modern macOS file systems. FileVault is the
+  at-rest baseline for anything deleted.
+
+---
+
+## 5. Before you start (once)
+
+1. **Logins.** The finder and the cross-check each run with their own configuration folder,
+   so the first launch of each asks you to log in: type `/login` once in the finder session
+   and once in the cross-check session. A later cross-check generation (`bin/crosscheck-r2`,
+   `-r3`, ...) has its own configuration folder too and asks again.
+2. **Passphrase.** Pick the archive passphrase now and store it in your password manager.
+   Never type it into a Claude session, a file or a command line.
+3. **Pick the eligible repos.** These are the git repos found under your home folder, minus the
+   four exposed during B3 development (triggarr, seedsyncarr, roonseek, dashboard) and the two
+   tuning repos (turingmind-code-review, thejuran-marketplace), which can never be used:
+
+   bridgarr, DVC, efficacy-fixture, Fellow-Call-Schedule, gsd-for-pos, gsdboard, iPlayarr,
+   iviewarr, NephSched, phi-compli, seedsync, shannon, sonoscrub, VisualSchedules, VolvLog,
+   ytfortv
+
+   Two notes: `efficacy-fixture` was built to test vibe-check, so it is a poor source; and
+   `seedsync` may share history with seedsyncarr, so keep it out of C1 and Q2. **C1 and Q2
+   must come from repos that are not triggarr, seedsyncarr, roonseek or dashboard (D-13).**
+   You may still pass the B3 repos to `setup` for the other four slots; setup marks them as
+   previously exposed.
+
+---
+
+## 6. Dry run first (dummy data)
+
+This rehearses the whole pipeline on six fake cases before any real case exists (D-15). It
+checks three things only a real Terminal can show: the cross-check sandbox really blocks
+reads, the finder can read the kit and write `sealed/`, and openssl really prompts for the
+passphrase.
+
+1. `python3 ~/turingmind-code-review/docs/design/holdout-v2.12/tools/holdout_kit.py --folder ~/.vibe-check-holdout/dryrun setup --repo ~/bridgarr`
+   (any eligible repo works; nothing is read from it in the dry run). Expect the last line
+   `OK: holdout folder ready at ...`.
+2. **Cross-check sandbox check.** `~/.vibe-check-holdout/dryrun/bin/crosscheck` (first time:
+   `/login`), then type exactly:
+   `Run python3 sandbox-probe.py and reply with its exact output.`
+   Expect `OK: sandbox denied 6/6 protected reads` (sealed/, work/, cfg-finder/, the finder
+   brief, and the finder and owner scratch roots). Anything else (a PROBLEM line, a permission
+   prompt asking to run without the sandbox, or output that quotes a sentinel) means stop,
+   decline any such prompt, and report `blocked sandbox`. Then `/exit`.
+3. **Finder check.** `~/.vibe-check-holdout/dryrun/bin/finder` (first time: `/login`), then
+   type exactly:
+   `Read ../kit/FINDER-BRIEF.md and reply only with its first heading. Then run: touch ../sealed/WRITE-CHECK && rm ../sealed/WRITE-CHECK && echo finder-write-ok`
+   Expect the heading `# Finder brief` and the line `finder-write-ok`. If the Read is refused,
+   the command fails, or Claude asks to run it without the sandbox, decline and report
+   `blocked sandbox`. Then `/exit`.
+4. `~/.vibe-check-holdout/dryrun/bin/holdout dryrun --populate`
+   Expect `OK: dummy holdout populated with 6 synthetic cases. ...`
+5. `~/.vibe-check-holdout/dryrun/bin/holdout validate`
+   Expect `OK: all 16 checks passed`, `Warnings: 0`, `Non-runnable cases: 0`.
+6. `~/.vibe-check-holdout/dryrun/bin/holdout seal`
+   Expect `OK: sealed 6 cases. Next: bin/holdout encrypt`.
+7. Make sure both dry-run sessions are closed (`/exit`, window closed), then
+   `~/.vibe-check-holdout/dryrun/bin/holdout encrypt`
+   Type a throwaway passphrase (not the real one): openssl asks twice, then once more to
+   verify. Expect `OK: archive written`, `OK: archive decrypts and re-hashes clean (6 cases)`,
+   `OK: archive_sha256 recorded in SEAL.json`. **If openssl does not prompt** (it fails, hangs,
+   or finishes without asking), stop and report it with the reply form
+   `dry run ok no-prompt` (A2).
+8. `~/.vibe-check-holdout/dryrun/bin/holdout rehash --seal ~/.vibe-check-holdout/dryrun/SEAL.json --sealed ~/.vibe-check-holdout/dryrun/sealed`
+   Expect `OK: all 6 cases match the seal; key commitment verified; N files in inventory`.
+9. `~/.vibe-check-holdout/dryrun/bin/holdout leakscan --repo ~/turingmind-code-review`
+   Expect `OK: leak scan: 0 matches across N probes (raw + JSON-decoded)`. (The fake text is
+   random per dry run, so any match is a real problem: report `blocked leakscan`.)
+10. **Do not run `publish` in the dry run.** It would put the dummy SEAL.json into the repo.
+11. `~/.vibe-check-holdout/dryrun/bin/holdout scrub --yes`
+    Expect `OK: plaintext removed (...)`. A `residue:` line names something outside the folder
+    to delete by hand.
+12. `rm -r ~/.vibe-check-holdout/dryrun`
+
+Reply to the assistant with exactly `dry run ok prompted sandbox=ok` only if every step above
+passed (openssl prompted, the probe printed its OK line, the finder check passed). That is the
+only reply that lets the run proceed. Every other form (`dry run ok`, `dry run ok prompted`,
+`dry run ok no-prompt`, `... problems=N`) is recorded as a failed dry run and stops it, and
+`blocked sandbox`, `blocked leakscan` or `blocked other` say what failed.
+
+---
+
+## 7. The real run
+
+Rules for the whole run:
+
+- Open a **new Terminal window** (not one started by Claude) for every command and session.
+- **Never run Codex or any tuning session in this repo between `setup` and `scrub`.** While
+  plaintext exists, the residuals in section 2 are open.
+- **Before `encrypt`, close every isolated session** (finder and cross-check), and start none
+  until `scrub` has finished.
+- If a step prints PROBLEM, fix only what it names.
+
+The run sheet:
+
+1. `python3 ~/turingmind-code-review/docs/design/holdout-v2.12/tools/holdout_kit.py --folder ~/.vibe-check-holdout/v2.12 setup --repo ~/<repo1> --repo ~/<repo2> ...`
+   (one `--repo` per eligible repo you picked in section 5).
+2. `~/.vibe-check-holdout/v2.12/bin/finder`, then in the session type
+   `Read ../kit/FINDER-BRIEF.md and begin.` (the finder starts in the `work/` folder, so the
+   kit is one level up). Answer its questions only inside that session.
+3. When the finder says it is done: `~/.vibe-check-holdout/v2.12/bin/holdout validate`
+4. `~/.vibe-check-holdout/v2.12/bin/holdout crosscheck-prepare`
+5. `~/.vibe-check-holdout/v2.12/bin/crosscheck`, then **before anything else** type
+   `Run python3 sandbox-probe.py and reply with its exact output.`
+   Require `OK: sandbox denied N/N protected reads`. The script names no protected path on its
+   command line, so this proves the OS sandbox, not the hook, is what stops a script from
+   opening `sealed/`. A PROBLEM line means close the session and reply `blocked sandbox`.
+   Only then type `Read CROSSCHECK-BRIEF.md and begin.`
+6. When the cross-check session says the blind verdicts are written, in a second plain
+   Terminal window: `~/.vibe-check-holdout/v2.12/bin/holdout crosscheck-reveal --ready`
+7. Back in the cross-check session type `The owner has revealed. Continue.` and let it write
+   its final verdicts.
+8. `~/.vibe-check-holdout/v2.12/bin/holdout seal` (if it refuses, see 7b).
+9. **Close the sessions:** `/exit` in the finder session and in every cross-check session,
+   close their windows, and wait a few seconds. `encrypt` and `scrub` refuse while any process
+   still has the holdout open (as its working directory, an open file, or on its command
+   line), and they refuse outright if that check cannot run. On
+   `holdout folder is still in use by N process(es)`, close what it names and re-run.
+10. `~/.vibe-check-holdout/v2.12/bin/holdout encrypt` (the real passphrase: openssl asks twice,
+    then once more to verify).
+11. `~/.vibe-check-holdout/v2.12/bin/holdout leakscan --repo ~/turingmind-code-review`
+    (after encrypt, because encrypt rewrites SEAL.json and publish wants a scan of the final
+    seal). Any match: section 7d.
+12. `~/.vibe-check-holdout/v2.12/bin/holdout publish --repo ~/turingmind-code-review`
+13. `~/.vibe-check-holdout/v2.12/bin/holdout scrub --yes` (it walks the folder twice a couple of
+    seconds apart; both walks must be clean).
+14. Reply to the assistant with exactly `sealed` (or `sealed non-runnable=N` when validate
+    reported N non-runnable cases).
+
+### 7b. When seal refuses a case
+
+`seal` checks every case, and each refusal has exactly one way forward.
+
+**(i) `the independent check disagreed (<part>)`.** The cross-check session's blind verdict
+does not match the key: on type (for example it saw an ordinary C3 bug where the key claims a
+C1 newly reachable exposure), defect location, causal-failure category (or either side said
+`other`), quiet confirmation, its own final flags, or `proof exits` (its re-run of the proof
+gave exits that differ from the recorded ones or do not fit the slot pattern, for example a
+catch proof that passes on both trees: the proof or the key is wrong, and `proof_agrees: true`
+does not cover it). Two ways forward:
+
+- **Resolve with evidence.** Write `sealed/keys/<ID>/resolution.md` (what the evidence is; no
+  new verdict), then `~/.vibe-check-holdout/v2.12/bin/holdout crosscheck-reset <ID> --reason resolved`,
+  then `~/.vibe-check-holdout/v2.12/bin/holdout crosscheck-prepare --case <ID>`. Because the
+  first cross-check session has already seen keys, this prints
+  `fresh cross-check workspace xcheck-r2` and names a NEW launcher (`bin/crosscheck-r2`, then
+  `-r3`, ...). Close the old cross-check session, open a new Terminal window and run that
+  launcher (`/login` if asked; the new session has its own configuration folder and cannot
+  read the old workspace, which is the point). Run the probe first
+  (`Run python3 sandbox-probe.py and reply with its exact output.`): its targets now include
+  every earlier workspace, configuration folder and scratch root, so N grows by three per
+  earlier generation (9 for `-r2`, 12 for `-r3`). Then type `Read CROSSCHECK-BRIEF.md and begin.`
+  and say nothing about the previous round or why the case is back. When it says the blind
+  verdict is written, reveal with `crosscheck-reveal --ready` in the second window, let it
+  write its final verdict, and run `seal` again.
+- **Replace the case.** First `~/.vibe-check-holdout/v2.12/bin/holdout retire --slot <S> --reason owner`
+  (so the withdrawn change can never come back under a new name). Then tell the finder session
+  to delete that slot and re-find it as a different change within the same 25-candidate
+  budget, and repeat from `validate`. The replacement's cross-check also lands in a fresh
+  workspace.
+
+Never ask a cross-check session that has seen a reveal to judge anything again. The seal
+refuses a round judged in a workspace that had already seen a key.
+
+**(ii) `sealed inputs changed after the cross-check (<members>)`.** A case or its proof was
+corrected after its packet was prepared. The old verdict is about different bytes and is never
+reused: `bin/holdout crosscheck-reset <ID> --reason inputs-changed`, then the
+prepare/judge/reveal/final steps for that case (a fresh workspace, as above), then `seal`.
+
+**(iii) `final.json is not bound to this reveal` or `blind verdict changed after reveal`.** A
+verdict file was edited or copied from an older round. Reset and redo that case.
+
+**(iv) `validation failed`.** Fix only what `validate` names, then `seal`. If the fix changes a
+case or a proof, (ii) follows and that case's cross-check is redone.
+
+**(v) `round N was judged in cross-check workspace <ws>, which had already seen a revealed key`.**
+A reset case was judged by the old session, or its packet was slipped into a revealed
+workspace. `bin/holdout crosscheck-reset <ID> --reason owner`, then
+`bin/holdout crosscheck-prepare --case <ID>` (it mints the next workspace) and a new session.
+
+Re-running `validate` or the proof never clears (i), (ii), (iii) or (v). Editing `blind.json`,
+`final.json`, the ledger or the workspace registry by hand is always detected. Every refusal
+ends in a fresh blind verdict, by a session that has never seen a key, on the exact bytes that
+will be sealed (D-06).
+
+### 7c. If a checkpoint reply carried case details
+
+The assistant checks every checkpoint reply with
+`python3 docs/design/holdout-v2.12/tools/holdout_kit.py resume-check` (reply on stdin). These
+are the only accepted replies, exactly as written:
+
+| Reply | Meaning |
+|-------|---------|
+| `dry run ok prompted sandbox=ok` | dry run passed (the only passing dry-run reply) |
+| `dry run ok`, `dry run ok prompted`, `dry run ok no-prompt`, `dry run ok no-prompt problems=5` | dry run failed; the run stops |
+| `sealed`, `sealed non-runnable=1` | the holdout is sealed, encrypted, published and scrubbed |
+| `replaced slots=C1,Q2` (optionally `non-runnable=1`) | those slots were replaced and the holdout re-sealed |
+| `clean leakscan=0` | an incident check found nothing and nothing was described |
+| `blocked disagreement`, `blocked validation`, `blocked leakscan`, `blocked residue`, `blocked no-prompt`, `blocked sandbox`, `blocked other` | stopped; the word says where |
+
+Anything else, including a friendly extra word, is treated as a contamination incident,
+because the reply already sits in the tuning session's transcript and cannot be unsaid.
+
+1. The assistant stops and records only `incident: non-conforming checkpoint reply` (never the
+   text). It does not commit SEAL.json and does not mark HOLD-01..04 done.
+2. End that Claude session (`/clear` is not enough: close it) and delete its transcript under
+   `~/.claude/projects/-Users-julianamacbook-turingmind-code-review/`.
+3. In a new Terminal window:
+   `~/.vibe-check-holdout/v2.12/bin/holdout leakscan --from-archive --repo ~/turingmind-code-review`
+   It decrypts the archive into `tmp/owner/`, scans the tuning side including `~/.claude`, and
+   prints the slots whose text leaked. If it retired anything (it prints `retired <slot>`
+   lines), run `~/.vibe-check-holdout/v2.12/bin/holdout scrub --yes` again afterwards: the
+   retirement rewrites the finder's skip list inside the folder.
+4. Replace every slot leakscan names, plus every slot you described in any way, even
+   paraphrased. Leakscan has already retired the named cases by content into `RETIRED.json`.
+   - `~/.vibe-check-holdout/v2.12/bin/holdout decrypt --archive archive/holdout-v2.12.tar.enc --dest ~/.vibe-check-holdout/v2.12`
+   - for each described slot leakscan did not name:
+     `~/.vibe-check-holdout/v2.12/bin/holdout retire --slot <S> --reason owner`
+   - `~/.vibe-check-holdout/v2.12/bin/holdout retire --sync` (the decrypt restored an older
+     finder skip list; this rewrites `work/RETIRED-REVISIONS.json` from `RETIRED.json`)
+   - delete `SEAL.json` in the holdout folder, the published
+     `docs/design/holdout-v2.12/SEAL.json` in the repo (it is not committed yet; if it were,
+     stop and bring it to the orchestrator) and the holdout's `archive/`, deliberately
+   - have the finder session re-find those slots as DIFFERENT changes within the same 25
+     budget (the same commit, diff or key under a new ID is refused by `seal` and `publish`
+     with `reuses material retired`)
+   - then `validate`, `crosscheck-prepare` (fresh workspace), the new cross-check session,
+     reveal, `seal`, close the sessions, `encrypt`, `leakscan`, `publish`, `scrub --yes`.
+5. Start a clean tuning session and reply exactly `replaced slots=<the slots>`. If leakscan
+   reported 0 and you described nothing, reply exactly `clean leakscan=0` in the clean session
+   instead.
+
+The assistant continues to the seal commit only after a conforming `sealed`,
+`replaced slots=...` or `clean leakscan=0` reply in a session that has no incident.
+
+### 7d. If leakscan reports matches
+
+A match means holdout text already sits on the tuning side (a transcript, Codex history, shell
+history, the repo tree or its git history) and may already have shaped a tuning agent.
+Deleting the match removes the evidence, not the influence. So: never delete-and-rerun.
+
+`publish` refuses mechanically. Every scan is appended to `LEAKSCAN.json`, a ledger in the
+holdout folder that scrub keeps. Right after a scan with matches, publish says the last scan
+found holdout text; after a clean re-scan with the same case still sealed it says the case
+`has not been replaced` (deleting the matched files is cleanup, not a remedy). It accepts only
+when every slot any scan named has been REPLACED (a new ID from the finder) and the holdout is
+re-sealed.
+
+Replacement means a DIFFERENT change. The scan retires every named case by content (source
+revision, diff, changed lines, key) into `RETIRED.json`, which is never archived and never
+scrubbed, and rewrites the finder's skip list `work/RETIRED-REVISIONS.json`. The same revision
+or diff re-found under a new ID is refused by `seal` and `publish` with
+`reuses material retired`; without that, the finder's fixed screening order would pick the
+same commit again.
+
+Procedure:
+
+1. Close any tuning session whose transcript was named. Delete the named files or entries, as
+   cleanup only.
+2. Delete `SEAL.json` in the holdout folder and the holdout's `archive/`, deliberately.
+3. Have the finder session delete each named slot's case and re-find it within the same 25
+   budget.
+4. `bin/holdout validate`, then `bin/holdout crosscheck-prepare --case <new ID>` (fresh
+   workspace; run the probe first in the new session), reveal, `bin/holdout seal`.
+5. Close every isolated session, then `bin/holdout encrypt`,
+   `bin/holdout leakscan --repo ~/turingmind-code-review` (expect 0),
+   `bin/holdout publish --repo ~/turingmind-code-review`, `bin/holdout scrub --yes`.
+6. Reply exactly `replaced slots=<slots>` (not `sealed`).
+
+If a match is in the current tuning session's own transcript, it is also a 7c incident: end
+that session first and continue in a clean one.
+
+---
+
+## 8. After the real run (tuning side)
+
+The assistant:
+
+1. commits `docs/design/holdout-v2.12/SEAL.json` as its own commit
+   (`chore(51): seal holdout v2.12 manifest`);
+2. runs `python3 docs/design/holdout-v2.12/tools/holdout_kit.py seal-order --repo .` (expects
+   `OK: SEAL.json has exactly one commit`) and the public-shape test.
+
+The seal commit must come before the first Phase 53 commit (D-08); `seal-order --before
+<first 53- commit>` proves it later.
+
+---
+
+## 9. Checking the barrier is live
+
+- `python3 docs/design/holdout-v2.12/tools/holdout_guard.py check-install` prints
+  `OK: holdout guard installed and live (2 settings file(s))`. It reads both settings files
+  and sends a live probe through the hook.
+- In any normal session, ask Claude to list the holdout folder and expect the line
+  `Blocked: this tool call reaches the sealed holdout folder (v2.12 barrier).`
+- This check runs at every session start (a SessionStart entry) and is the first step of every
+  Phase 52 and Phase 53 plan.
+- Worktrees and disposable copies (the Phase 52 harness) are not covered by this repo's local
+  settings; the user-level copy covers them (D-14).
+
+---
+
+## 10. Phase 55 (built there, decided here)
+
+- Every holdout run happens in a **separate, isolated evaluation session that the owner
+  launches** from a plain Terminal, in a disposable copy with the frozen build installed. The
+  assistant **never drives** it, never reads its screen and never uses tmux for it.
+  Assistant-driven tmux execution is for the B3 runs only.
+- That session runs the holdout detection runs (6 cases x 3) **and** the holdout accepted-fix
+  runs (the 3 catch cases x 2 modes: preservation, and seeded from the answer keys).
+- Only the per-slot verdict table plus result hashes (and completion and timing for the
+  accepted-fix runs) return to the tuning session. No findings text, file names or code.
+- Execution is separated from scoring: review runs get only the cases
+  (`extract --part cases`), and scoring gets the keys (`extract --part keys`) only after the
+  review outputs are saved.
+- A verdict that steers tuning retires that slot; it needs a fresh replacement before the
+  retune.
+- Before any run: `decrypt`, then `rehash`, then `seal-order --before <first 53- commit>`.
+
+STATE.md's v2.12 sequencing note says the same, and Phase 55's plans must repeat it.
+
+---
+
+## 11. Cleanup after v2.12 (explicit step, not now)
+
+The hook stays active for all of v2.12 and is never removed to run the holdout (D-11). After
+v2.12 closes:
+
+- `python3 docs/design/holdout-v2.12/tools/holdout_guard.py uninstall --user`
+- `python3 docs/design/holdout-v2.12/tools/holdout_guard.py uninstall --repo .`
