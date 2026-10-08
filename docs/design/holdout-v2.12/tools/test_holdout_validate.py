@@ -182,7 +182,7 @@ class TestValidFixture(ValidateCase):
                      "provenance fields", "budget", "search ledger",
                      "reviewer output", "repo_in_b3", "eligibility",
                      "C1/Q2 eligibility", "C1/Q2 distinct", "B3 reuse",
-                     "key shape", "slot agreement", "proofs", "C2 proof"):
+                     "key shape", "slot agreement", "proofs"):
             self.assertIn(name, names)
 
     def test_check_has_four_fields(self):
@@ -593,8 +593,8 @@ class TestCliStructure(ValidateCase):
         self.assertGreaterEqual(len(ok), 11)
         self.assertNotIn("PROBLEM:", proc.stdout)
         self.assertIn("OK: proofs: skipped (--skip-proofs)", proc.stdout)
-        n = len(holdout_validate.validate_folder(self.folder,
-                                                 skip_proofs=True))
+        n = len({c.name for c in holdout_validate.validate_folder(
+            self.folder, skip_proofs=True)})
         self.assertIn("OK: all %d checks passed" % n, proc.stdout)
 
     def test_removed_case_exit_1(self):

@@ -41,7 +41,7 @@ KIT_PY = os.path.join(TOOLS_DIR, "holdout_kit.py")
 # Module files under the shape locks. Later plans append their own module
 # filenames here; each later module's exact import set is asserted in its own
 # test file.
-MODULES = ["holdout_kit.py"]
+MODULES = ["holdout_kit.py", "holdout_validate.py"]
 
 
 def _clean_env():
