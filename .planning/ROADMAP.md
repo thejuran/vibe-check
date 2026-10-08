@@ -187,7 +187,7 @@ change anywhere in this milestone — any of those would confound the Phase-49 c
 - [x] **Phase 47: Pause batching** — one combined card per fix-loop pass (apply all and rerun / apply selected… / skip and rerun / close out / abandon), one multi-select card at finalize for all unacknowledged mediums, unchanged-and-pending findings folded into the card and never re-asked; `$TURINGMIND_NONINTERACTIVE` unchanged (completed 2026-10-05)
 - [x] **Phase 48: Fix-agent verification + git safety** — the fix agent verifies the cited condition no longer holds before committing (unverified ⇒ not committed, reported), one fix per hunk-isolated commit (999.15); detection agents cannot run mutating git in the reviewed repo, proven by a test (999.20); `agents/fix.md` description matches its `opus` pin (W2) (completed 2026-10-05)
 - [x] **Phase 49: Measure + release 2.11.0** — full B3 ×3 on the release candidate (catch unchanged 15/15, false alarms ≤3/18), decision cards per firing counted from transcripts / gate log against the 5.5 baseline (or reported unavailable), README `214c7df` disclosure (W1), release gates before the publish plan, plugin 2.11.0 + tag `v2.11` + atomic publish (completed 2026-10-07)
-- [ ] **Phase 50: Finalize entry fix + 2.11.1 patch** — gap closure from the v2.11 milestone audit: `--finalize` (and the fix-loop card's Close out, which re-enters with it) reaches Finalize in GSD phase mode and default diff mode, pinned by a test; ships as plugin 2.11.1 through the standing release gates, disclosed in CHANGELOG/README
+- [x] **Phase 50: Finalize entry fix + 2.11.1 patch** — gap closure from the v2.11 milestone audit: `--finalize` (and the fix-loop card's Close out, which re-enters with it) reaches Finalize in GSD phase mode and default diff mode, pinned by a test; ships as plugin 2.11.1 through the standing release gates, disclosed in CHANGELOG/README (completed 2026-10-08)
 
 ### Phase 45: Lane gating on evidence
 
@@ -395,7 +395,7 @@ Plans:
 | 47. Pause batching | v2.11 | 8/8 | Complete    | 2026-10-05 |
 | 48. Fix-agent verification + git safety | v2.11 | 10/10 | Complete    | 2026-10-05 |
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
-| 50. Finalize entry fix + 2.11.1 patch | v2.11 | 0/? | Not started | - |
+| 50. Finalize entry fix + 2.11.1 patch | v2.11 | 2/2 | Complete    | 2026-10-08 |
 
 > Full per-phase detail for shipped milestones lives in the archives under
 > `.planning/milestones/` (e.g. `v2.4-ROADMAP.md`, `v2.5-ROADMAP.md`, `v2.8-ROADMAP.md`).
