@@ -423,20 +423,299 @@ def hook_main(stdin_text, role="tuning", extra_protect=(), err=None):
 # Settings install / verification
 # --------------------------------------------------------------------------- #
 
+DENY_RULES = [
+    "Read(~/.vibe-check-holdout)",
+    "Read(~/.vibe-check-holdout/**)",
+    "Edit(~/.vibe-check-holdout/**)",
+    "Read(~/.claude/projects/*vibe-check-holdout*/**)",
+]
+SCRIPT_BASENAME = "holdout_guard.py"
+PROBE_PAYLOAD = ('{"tool_name":"Read","tool_input":'
+                 '{"file_path":"~/.vibe-check-holdout/probe"}}')
+MSG_UNREADABLE = "settings JSON unreadable"
+
+
+def HOOK_ENTRY(script_path):  # noqa: N802 — contract name
+    return {"matcher": "*",
+            "hooks": [{"type": "command", "command": "python3",
+                       "args": [script_path, "hook"], "timeout": 10}]}
+
+
+def SESSION_ENTRY(script_path, settings_path):  # noqa: N802 — contract name
+    return {"hooks": [{"type": "command", "command": "python3",
+                       "args": [script_path, "check-install", "--quiet-ok",
+                                "--settings", settings_path]}]}
+
+
+def _hook_list(group):
+    hooks = group.get("hooks") if isinstance(group, dict) else None
+    return [h for h in hooks if isinstance(h, dict)] \
+        if isinstance(hooks, list) else []
+
+
+def _args(hook):
+    args = hook.get("args")
+    return [a for a in args if isinstance(a, str)] \
+        if isinstance(args, list) else []
+
+
+def _is_ours(group, kind, script_path=None):
+    """A hook group this guard owns: python3 <.../holdout_guard.py> <kind>."""
+    for hook in _hook_list(group):
+        args = _args(hook)
+        if hook.get("command") != "python3" or len(args) < 2:
+            continue
+        if args[1] != kind:
+            continue
+        if script_path is not None:
+            if args[0] == script_path:
+                return True
+        elif os.path.basename(args[0]) == SCRIPT_BASENAME:
+            return True
+    return False
+
+
+def _merge_entry(groups, entry, kind):
+    """Replace the first group of ours in place (dropping duplicates), or
+    append. Every other group keeps its position and value."""
+    out, placed = [], False
+    for group in groups:
+        if _is_ours(group, kind):
+            if not placed:
+                out.append(entry)
+                placed = True
+            continue
+        out.append(group)
+    if not placed:
+        out.append(entry)
+    return out
+
+
+def _load_settings(path):
+    """-> (data, existed). Raises GuardError on unreadable JSON."""
+    if not os.path.exists(path):
+        return {}, False
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        raise GuardError(MSG_UNREADABLE)
+    if not isinstance(data, dict):
+        raise GuardError(MSG_UNREADABLE)
+    return data, True
+
+
+def _section(parent, key, kind):
+    value = parent.get(key)
+    if value is None:
+        value = kind()
+        parent[key] = value
+    if not isinstance(value, kind):
+        raise GuardError("settings key %s has an unexpected shape" % key)
+    return value
+
+
+def _atomic_write(path, data):
+    parent = os.path.dirname(os.path.abspath(path))
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(parent, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        raise GuardError("cannot write the settings file")
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def _backup_once(path):
+    bak = path + ".pre-holdout.bak"
+    if os.path.exists(bak):
+        return
+    try:
+        with open(path, "rb") as src:
+            raw = src.read()
+        with open(bak, "wb") as dst:
+            dst.write(raw)
+    except OSError:
+        raise GuardError("cannot write the one-time settings backup")
+
+
 def install_into(settings_path, script_path):
-    raise GuardError("install is not available yet")
+    """Merge the hook, the SessionStart self-check and DENY_RULES into a
+    settings file. -> "installed" | "already-installed"."""
+    data, existed = _load_settings(settings_path)
+    before = json.loads(json.dumps(data))
+    hooks = _section(data, "hooks", dict)
+    pre = _section(hooks, "PreToolUse", list)
+    start = _section(hooks, "SessionStart", list)
+    hooks["PreToolUse"] = _merge_entry(pre, HOOK_ENTRY(script_path), "hook")
+    hooks["SessionStart"] = _merge_entry(
+        start, SESSION_ENTRY(script_path, settings_path), "check-install")
+    perms = _section(data, "permissions", dict)
+    deny = _section(perms, "deny", list)
+    for rule in DENY_RULES:
+        if rule not in deny:
+            deny.append(rule)
+    if existed and data == before:
+        return "already-installed"
+    if existed:
+        _backup_once(settings_path)
+    _atomic_write(settings_path, data)
+    return "installed"
 
 
 def uninstall_from(settings_path, script_path):
-    raise GuardError("uninstall is not available yet")
+    """Remove exactly what install added. -> "removed" | "not-present"."""
+    data, existed = _load_settings(settings_path)
+    if not existed:
+        return "not-present"
+    before = json.loads(json.dumps(data))
+    hooks = data.get("hooks")
+    if isinstance(hooks, dict):
+        for key, kind in (("PreToolUse", "hook"),
+                          ("SessionStart", "check-install")):
+            groups = hooks.get(key)
+            if not isinstance(groups, list):
+                continue
+            kept = [g for g in groups if not _is_ours(g, kind, script_path)]
+            if len(kept) != len(groups):
+                if kept:
+                    hooks[key] = kept
+                else:
+                    del hooks[key]
+        if not hooks:
+            del data["hooks"]
+    perms = data.get("permissions")
+    if isinstance(perms, dict) and isinstance(perms.get("deny"), list):
+        kept = [r for r in perms["deny"] if r not in DENY_RULES]
+        if len(kept) != len(perms["deny"]):
+            if kept:
+                perms["deny"] = kept
+            else:
+                del perms["deny"]
+            if not perms:
+                del data["permissions"]
+    if data == before:
+        return "not-present"
+    _atomic_write(settings_path, data)
+    return "removed"
+
+
+def _find_hook(groups, kind):
+    """First (group, hook) whose args name this script with `kind` at [1],
+    or whose args or command mention the script at all (for diagnosis)."""
+    for group in groups if isinstance(groups, list) else []:
+        for hook in _hook_list(group):
+            args = _args(hook)
+            command = hook.get("command") if isinstance(
+                hook.get("command"), str) else ""
+            if any(a.endswith(SCRIPT_BASENAME) for a in args) \
+                    or SCRIPT_BASENAME in command:
+                if kind is None or kind in args:
+                    return group, hook
+    return None, None
 
 
 def settings_problems(settings_text, script_path):
-    return ["settings check is not available yet"]
+    """Static contract check of one settings file -> list of problems."""
+    try:
+        data = json.loads(settings_text)
+    except (TypeError, ValueError):
+        return [MSG_UNREADABLE]
+    if not isinstance(data, dict):
+        return [MSG_UNREADABLE]
+    problems = []
+    hooks = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
+    group, hook = _find_hook(hooks.get("PreToolUse"), None)
+    if hook is None:
+        problems.append("PreToolUse hook missing")
+    else:
+        args = hook.get("args") if isinstance(hook.get("args"), list) else []
+        if group.get("matcher") != "*":
+            problems.append("matcher is not *")
+        if hook.get("type") != "command" or hook.get("command") != "python3":
+            problems.append("hook command is not python3")
+        if not args or args[0] != script_path:
+            problems.append("hook path is not " + script_path)
+        if len(args) < 2 or args[1] != "hook":
+            problems.append("hook arg is not 'hook'")
+        timeout = hook.get("timeout")
+        if not (isinstance(timeout, (int, float))
+                and not isinstance(timeout, bool) and 0 < timeout <= 10):
+            problems.append("hook timeout missing or > 10")
+    perms = data.get("permissions")
+    deny = perms.get("deny") if isinstance(perms, dict) else None
+    deny = deny if isinstance(deny, list) else []
+    for rule in DENY_RULES:
+        if rule not in deny:
+            problems.append("deny rule missing: " + rule)
+    s_group, s_hook = _find_hook(hooks.get("SessionStart"), "check-install")
+    if s_hook is None or _args(s_hook)[:1] != [script_path] \
+            or s_hook.get("command") != "python3":
+        problems.append("SessionStart check-install missing")
+    return problems
+
+
+class _Sink(object):
+    def write(self, _text):
+        return 0
+
+
+def _python3_on_path():
+    for d in os.get_exec_path():
+        candidate = os.path.join(d, "python3")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return True
+    return False
 
 
 def check_install(settings_paths, script_path):
-    return ["check-install is not available yet"]
+    """Full verification -> list of problems ([] when installed and live)."""
+    problems = []
+    for path in settings_paths:
+        if not os.path.isfile(path):
+            problems.append("settings file missing: " + path)
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            text = None
+        for p in settings_problems(text, script_path):
+            problems.append("%s (in %s)" % (p, path))
+    if not os.path.isfile(script_path):
+        problems.append("script missing: " + script_path)
+    if not _python3_on_path():
+        problems.append("python3 not on PATH")
+    if hook_main(PROBE_PAYLOAD, err=_Sink()) != 2:
+        problems.append("live probe did not deny")
+    return problems
+
+
+def _script_path():
+    return os.path.abspath(__file__)
+
+
+def _repo_settings_path(repo_root):
+    return os.path.join(os.path.abspath(repo_root), ".claude",
+                        "settings.local.json")
+
+
+def _user_settings_path():
+    return os.path.expanduser("~/.claude/settings.json")
+
+
+def _default_settings_paths(script_path):
+    repo_root = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(script_path)), "..", "..", "..", ".."))
+    return [_repo_settings_path(repo_root), _user_settings_path()]
 
 
 # --------------------------------------------------------------------------- #
@@ -476,8 +755,41 @@ def run(argv):
             return 2
         return hook_main(text, role=args.role,
                          extra_protect=tuple(args.protect))
-    sys.stdout.write("%s is not implemented\n" % args.cmd)
-    return 2
+    script = _script_path()
+    if args.cmd in ("install", "uninstall"):
+        target = (_user_settings_path() if args.user
+                  else _repo_settings_path(args.repo))
+        try:
+            if args.cmd == "install":
+                result = install_into(target, script)
+            else:
+                result = uninstall_from(target, script)
+        except GuardError as exc:
+            sys.stderr.write("PROBLEM: %s\n" % exc)
+            return 1
+        lines = {
+            "installed": "Installed the holdout guard into %s\n",
+            "already-installed": "Already installed in %s\n",
+            "removed": "Removed the holdout guard from %s\n",
+            "not-present": "Not installed in %s\n",
+        }
+        sys.stdout.write(lines[result] % target)
+        return 0
+    paths = args.settings or _default_settings_paths(script)
+    problems = check_install(paths, script)
+    if not problems:
+        if not args.quiet_ok:
+            sys.stdout.write("OK: holdout guard installed and live "
+                             "(%d settings file(s))\n" % len(paths))
+        return 0
+    for p in problems:
+        line = "PROBLEM: %s\n" % p
+        sys.stdout.write(line)
+        if args.quiet_ok:
+            # SessionStart mode: also on stderr so a failed self-check is
+            # visible to the person, not only to the session.
+            sys.stderr.write(line)
+    return 1
 
 
 def _main(argv):
