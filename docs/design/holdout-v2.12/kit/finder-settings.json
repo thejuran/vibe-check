@@ -2,7 +2,7 @@
   "autoMemoryEnabled": false,
   "permissions": {
     "blockReadsOutsideWorkingDirectories": true,
-    "additionalDirectories": ["<REPOS>", "<H>/sealed"],
+    "additionalDirectories": ["<REPOS>", "<H>/sealed", "<H>/kit"],
     "deny": [
       "Read(~/turingmind-code-review/**)",
       "Edit(~/turingmind-code-review/**)",
@@ -10,7 +10,8 @@
       "Read(~/.claude/**)",
       "Read(~/.codex/**)",
       "Read(~/.b3/**)",
-      "Read(~/.vibe-check-snapshots/**)"
+      "Read(~/.vibe-check-snapshots/**)",
+      "Edit(<H>/kit/**)"
     ]
   },
   "sandbox": {

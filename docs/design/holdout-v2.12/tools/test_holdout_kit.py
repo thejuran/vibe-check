@@ -41,7 +41,7 @@ KIT_PY = os.path.join(TOOLS_DIR, "holdout_kit.py")
 # Module files under the shape locks. Later plans append their own module
 # filenames here; each later module's exact import set is asserted in its own
 # test file.
-MODULES = ["holdout_kit.py", "holdout_validate.py"]
+MODULES = ["holdout_kit.py", "holdout_validate.py", "holdout_dryrun.py"]
 
 
 def _clean_env():
@@ -955,8 +955,9 @@ class TestTemplates(SetupCase):
         perms = d["permissions"]
         self.assertIs(perms["blockReadsOutsideWorkingDirectories"], True)
         self.assertEqual(perms["additionalDirectories"],
-                         [repo, F + "/sealed"])
-        for rule in ("Read(~/turingmind-code-review/**)",
+                         [repo, F + "/sealed", F + "/kit"])
+        for rule in ("Edit(%s/kit/**)" % F,
+                     "Read(~/turingmind-code-review/**)",
                      "Read(~/thejuran-marketplace/**)", "Read(~/.claude/**)",
                      "Read(~/.codex/**)", "Read(~/.b3/**)",
                      "Read(~/.vibe-check-snapshots/**)",
@@ -1031,6 +1032,43 @@ class TestFinderTmpIsolation(SetupCase):
         self.assertIn("permission deny is missing Read(%s/tmp/crosscheck/**)"
                       % self.F,
                       holdout_kit.finder_settings_problems(d, self.F))
+
+    def test_kit_must_be_readable(self):
+        d = self.finder_settings()
+        d["permissions"]["additionalDirectories"].remove(self.F + "/kit")
+        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
+                         ["additionalDirectories is missing %s/kit" % self.F])
+
+    def test_sealed_must_be_readable(self):
+        d = self.finder_settings()
+        d["permissions"]["additionalDirectories"].remove(self.F + "/sealed")
+        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
+                         ["additionalDirectories is missing %s/sealed"
+                          % self.F])
+
+    def test_kit_must_be_read_only(self):
+        d = self.finder_settings()
+        d["permissions"]["deny"].remove("Edit(%s/kit/**)" % self.F)
+        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
+                         ["permission deny is missing Edit(%s/kit/**)"
+                          % self.F])
+
+    def test_kit_read_mutant_is_caught_by_setup(self):
+        folder = os.path.join(self.tmp, "mk")
+        real = holdout_kit._render_template
+
+        def strip_kit(template, h, repos):
+            out = real(template, h, repos)
+            extra = out.get("permissions", {}).get("additionalDirectories")
+            if isinstance(extra, list):
+                extra[:] = [p for p in extra if not p.endswith("/kit")]
+            return out
+
+        with mock.patch.object(holdout_kit, "_render_template", strip_kit):
+            with self.assertRaises(holdout_kit.KitError) as cm, _quiet():
+                holdout_kit.setup(folder, [self.repo],
+                                  skip_system_exclusions=True)
+        self.assertIn("additionalDirectories is missing", str(cm.exception))
 
     def test_sandbox_flags(self):
         d = self.finder_settings()

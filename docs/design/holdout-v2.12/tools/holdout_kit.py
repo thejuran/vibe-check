@@ -357,6 +357,12 @@ TUNING_DENY_READ = ("~/turingmind-code-review", "~/thejuran-marketplace",
 # parent of every cross-check generation's scratch. The finder's own
 # tmp/finder is never listed.
 FINDER_PROTECTED_TMP = ("tmp/owner", "tmp/crosscheck")
+# Relpaths the finder reads outside its work/ cwd (reads outside the working
+# directories are blocked): sealed/ (it writes the cases there) and kit/
+# (its brief, the case types, the rules and the repo lists). kit/ is
+# read-only for it: an Edit deny rule covers Edit and Write.
+FINDER_READ_DIRS = ("sealed", "kit")
+FINDER_READONLY_DIRS = ("kit",)
 
 # Relpaths under the folder EVERY cross-check generation is denied. A
 # generation's own workspace, config dir and temp root are never protected
@@ -614,7 +620,22 @@ def finder_settings_problems(settings, folder):
     """
     h = os.path.realpath(folder)
     expected = [os.path.join(h, p) for p in FINDER_PROTECTED_TMP]
-    return _settings_gaps(settings, "finder", expected, frozenset())
+    problems = _settings_gaps(settings, "finder", expected, frozenset())
+    perms = settings.get("permissions") if isinstance(settings, dict) else None
+    perms = perms if isinstance(perms, dict) else {}
+    extra = perms.get("additionalDirectories")
+    extra = extra if isinstance(extra, list) else []
+    for rel in FINDER_READ_DIRS:
+        if os.path.join(h, rel) not in extra:
+            problems.append("additionalDirectories is missing %s"
+                            % os.path.join(h, rel))
+    deny = perms.get("deny")
+    deny = deny if isinstance(deny, list) else []
+    for rel in FINDER_READONLY_DIRS:
+        rule = "Edit(%s/**)" % os.path.join(h, rel)
+        if rule not in deny:
+            problems.append("permission deny is missing %s" % rule)
+    return problems
 
 
 # ---------------------------------------------------------------- cross-check
