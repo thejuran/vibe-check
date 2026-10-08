@@ -12,7 +12,7 @@
 - ✅ **v2.8 Tunable, quieter reviews** — Phases 30-34 (shipped 2026-07-01 — early manual close by owner directive; 33-02 wiring + Phase-34 smoke proofs deferred into v2.9)
 - ✅ **v2.9 Prove it** — Phases 35-37 (shipped 2026-07-08 — codex knob live end-to-end + vibe-check's first measured numbers: catch 8/9 · FP 6/9)
 - ✅ **v2.10 Opus 5 rebuild + quiet down** — Phases 38, 40-44 (shipped 2026-10-01 — 2.10.0; untuned MISS 6/18 · 13/15, retuned PASS 3/18 · 15/15; Phase 39 dissolved)
-- 🚧 **v2.11 Quiet loop** — Phases 45-49 (in progress; design `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`, branch `feat/v2.11`)
+- 🚧 **v2.11 Quiet loop** — Phases 45-50 (in progress; design `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`, branch `feat/v2.11`)
 
 ## Phases
 
@@ -173,7 +173,7 @@ Full details: `.planning/milestones/v2.10-ROADMAP.md`.
 
 </details>
 
-## v2.11 Quiet loop (Phases 45-49) — IN PROGRESS
+## v2.11 Quiet loop (Phases 45-50) — IN PROGRESS
 
 **Goal:** A deep-review pass costs the owner one decision card, a finding is asked about once, and a
 lane that has nothing to read does not run — with no catch-rate loss. Design (owner-approved, phase
@@ -187,6 +187,7 @@ change anywhere in this milestone — any of those would confound the Phase-49 c
 - [x] **Phase 47: Pause batching** — one combined card per fix-loop pass (apply all and rerun / apply selected… / skip and rerun / close out / abandon), one multi-select card at finalize for all unacknowledged mediums, unchanged-and-pending findings folded into the card and never re-asked; `$TURINGMIND_NONINTERACTIVE` unchanged (completed 2026-10-05)
 - [x] **Phase 48: Fix-agent verification + git safety** — the fix agent verifies the cited condition no longer holds before committing (unverified ⇒ not committed, reported), one fix per hunk-isolated commit (999.15); detection agents cannot run mutating git in the reviewed repo, proven by a test (999.20); `agents/fix.md` description matches its `opus` pin (W2) (completed 2026-10-05)
 - [x] **Phase 49: Measure + release 2.11.0** — full B3 ×3 on the release candidate (catch unchanged 15/15, false alarms ≤3/18), decision cards per firing counted from transcripts / gate log against the 5.5 baseline (or reported unavailable), README `214c7df` disclosure (W1), release gates before the publish plan, plugin 2.11.0 + tag `v2.11` + atomic publish (completed 2026-10-07)
+- [ ] **Phase 50: Finalize entry fix + 2.11.1 patch** — gap closure from the v2.11 milestone audit: `--finalize` (and the fix-loop card's Close out, which re-enters with it) reaches Finalize in GSD phase mode and default diff mode, pinned by a test; ships as plugin 2.11.1 through the standing release gates, disclosed in CHANGELOG/README
 
 ### Phase 45: Lane gating on evidence
 
@@ -324,6 +325,21 @@ Plans:
 
 **Plans**: TBD
 
+### Phase 50: Finalize entry fix + 2.11.1 patch
+
+**Goal**: The fix-loop card's "Close out" and a typed `--finalize` reach Finalize mode in every scope mode, and the fix ships as plugin 2.11.1
+**Depends on**: Phase 49 (2.11.0 is published; this is a patch on top of tag `v2.11`)
+**Requirements**: BATCH-01, REL-05
+**Gap Closure**: Closes the BATCH-01 / Close-out→Finalize integration gap from `.planning/v2.11-MILESTONE-AUDIT.md` (carried from 47-08 as "D2", dropped in Phase 48)
+**Success Criteria** (what must be TRUE):
+
+  1. `phases/review/00-scope.md`'s `$SCOPE_ARGS` normalizer removes the value-less `--finalize` token, so `<phase> --finalize` resolves GSD phase mode, bare `--finalize` resolves default diff mode, and `--all --finalize` is unchanged; `--finalize` still reaches the spine's finalize trigger from `$ARGUMENTS`
+  2. A test pins all three shapes (and fails if the strip is removed — mutation-checked)
+  3. `plugin.json` is 2.11.1; CHANGELOG/README disclose that 2.11.0 shipped with Close out / `--finalize` broken in phase and diff mode and that 2.11.1 fixes it
+  4. Release gates (test / security / deep-review) pass on the release commits before publish; main + `feat/v2.11` + annotated tag `v2.11.1` are pushed in one atomic, exact-hash-verified publish; tag `v2.11` is not moved
+
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:** phases execute in numeric order; v2.11 runs 45 → 46 → 47 → 48 → 49 (order fixed by the design spec). v2.9 and v2.10 are archived — see `.planning/milestones/v2.9-ROADMAP.md`, `.planning/milestones/v2.10-ROADMAP.md`.
@@ -379,6 +395,7 @@ Plans:
 | 47. Pause batching | v2.11 | 8/8 | Complete    | 2026-10-05 |
 | 48. Fix-agent verification + git safety | v2.11 | 10/10 | Complete    | 2026-10-05 |
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
+| 50. Finalize entry fix + 2.11.1 patch | v2.11 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
 > `.planning/milestones/` (e.g. `v2.4-ROADMAP.md`, `v2.5-ROADMAP.md`, `v2.8-ROADMAP.md`).
