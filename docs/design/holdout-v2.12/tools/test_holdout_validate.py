@@ -182,7 +182,7 @@ class TestValidFixture(ValidateCase):
                      "provenance fields", "budget", "search ledger",
                      "reviewer output", "repo_in_b3", "eligibility",
                      "C1/Q2 eligibility", "C1/Q2 distinct", "B3 reuse",
-                     "key shape", "slot agreement", "proofs"):
+                     "key shape", "slot agreement", "proofs", "C2 proof"):
             self.assertIn(name, names)
 
     def test_check_has_four_fields(self):
@@ -633,6 +633,295 @@ class TestCliStructure(ValidateCase):
             self.assertNotIn(secret, out)
 
 
+# ================================================================ proofs
+
+
+def _owner_tmp(folder):
+    return os.path.join(folder, "tmp", "owner")
+
+
+def _tmp_listing(folder):
+    out = []
+    for dirpath, dirnames, filenames in os.walk(os.path.join(folder, "tmp")):
+        for n in dirnames + filenames:
+            out.append(os.path.relpath(os.path.join(dirpath, n), folder))
+    return sorted(out)
+
+
+class ProofCase(ValidateCase):
+
+    SKIP_PROOFS = False
+
+    def set_script(self, slot, text):
+        run = os.path.join(self.kdir(slot), "proof", "run")
+        with open(run, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(run, 0o755)
+
+    def set_exits(self, slot, base, changed):
+        def fn(r):
+            r["base"]["exit"] = base
+            r["changed"]["exit"] = changed
+        self.edit(slot, "proof-results.json", fn)
+
+    def recorded(self, slot):
+        r = self.load(slot, "proof-results.json")
+        return r["base"]["exit"], r["changed"]["exit"]
+
+
+class TestProofs(ProofCase):
+
+    def test_valid_proofs_reproduce(self):
+        checks = self.checks()
+        proofs = self.named(checks, "proofs")
+        self.assertEqual([(c.ok, c.message, c.warning) for c in proofs],
+                         [(True, "6 cases re-executed on base and changed "
+                                 "exports", False)])
+
+    def test_run_proof_returns_exit_and_hash(self):
+        for slot in ("C1", "Q1"):
+            base = holdout_validate.run_proof(self.folder, self.ids[slot],
+                                              "base")
+            changed = holdout_validate.run_proof(self.folder, self.ids[slot],
+                                                 "changed")
+            r = self.load(slot, "proof-results.json")
+            self.assertEqual(base, (r["base"]["exit"],
+                                    r["base"]["output_sha256"]))
+            self.assertEqual(changed, (r["changed"]["exit"],
+                                       r["changed"]["output_sha256"]))
+
+    def test_run_proof_rejects_unknown_tree(self):
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_validate.run_proof(self.folder, self.ids["C1"], "both")
+
+    def test_export_lives_under_owner_tmp_and_is_removed(self):
+        before = _tmp_listing(self.folder)
+        seen = []
+        real = holdout_kit.run_argv
+
+        def spy(argv, cwd=None, timeout=60, **kw):
+            seen.append((list(argv), cwd, timeout))
+            self.assertTrue(os.path.isdir(cwd))
+            return real(argv, cwd=cwd, timeout=timeout, **kw)
+        with mock.patch.object(holdout_kit, "run_argv", side_effect=spy):
+            holdout_validate.run_proof(self.folder, self.ids["C2"], "changed")
+        run = os.path.join(self.kdir("C2"), "proof", "run")
+        proof_calls = [s for s in seen if s[0] == [run]]
+        self.assertEqual(len(proof_calls), 1)
+        _, cwd, timeout = proof_calls[0]
+        self.assertEqual(timeout, 300)
+        self.assertTrue(cwd.startswith(_owner_tmp(self.folder) + os.sep))
+        self.assertEqual(os.path.basename(cwd),
+                         "validate-%s-changed" % self.ids["C2"])
+        applies = [s for s in seen if s[0][:2] == ["git", "apply"]]
+        self.assertEqual(len(applies), 1)
+        self.assertEqual(applies[0][1], cwd)
+        self.assertFalse(os.path.exists(cwd))
+        self.assertEqual(_tmp_listing(self.folder), before)
+
+    def test_export_removed_after_kit_error(self):
+        before = _tmp_listing(self.folder)
+        os.chmod(os.path.join(self.kdir("Q3"), "proof", "run"), 0o644)
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_validate.run_proof(self.folder, self.ids["Q3"], "base")
+        self.assertEqual(_tmp_listing(self.folder), before)
+
+    def test_export_removed_when_proof_makes_tree_read_only(self):
+        self.set_script("Q1", '#!/bin/sh\nout=$(sh ./mod_q1.sh)\n'
+                              'chmod -R a-w . \n[ "$out" = "safe" ]\n')
+        before = _tmp_listing(self.folder)
+        self.assertEqual(holdout_validate.run_proof(
+            self.folder, self.ids["Q1"], "base")[0], 0)
+        self.assertEqual(_tmp_listing(self.folder), before)
+
+    def test_not_executable(self):
+        os.chmod(os.path.join(self.kdir("Q3"), "proof", "run"), 0o644)
+        self.assertProblem("proofs", "chmod +x")
+
+    def test_missing_run_for_runnable(self):
+        os.remove(os.path.join(self.kdir("Q3"), "proof", "run"))
+        self.assertProblem("proofs", "Q3")
+
+    def test_recorded_exit_not_reproduced(self):
+        self.assertEqual(self.recorded("C1"), (0, 1))
+        self.set_script("C1", "#!/bin/sh\nexit 0\n")
+        self.assertProblem("proofs", "proof reproduced")
+
+    def test_catch_passing_on_both_trees(self):
+        self.set_script("C3", "#!/bin/sh\nout=$(sh ./mod_c3.sh)\nexit 0\n")
+        self.set_exits("C3", 0, 0)
+        bad = self.assertProblem("proofs", "slot pattern")
+        self.assertFalse(any("proof reproduced" in c.message for c in bad))
+
+    def test_quiet_failing_on_changed(self):
+        self.set_script("Q2", '#!/bin/sh\nout=$(sh ./mod_q2.sh)\n'
+                              'grep -q value-Q2-1-old mod_q2.sh\n')
+        self.set_exits("Q2", 0, 1)
+        bad = self.assertProblem("proofs", "slot pattern")
+        self.assertFalse(any("proof reproduced" in c.message for c in bad))
+
+    def test_diff_does_not_apply(self):
+        diff = self.read_bytes("Q3", "change.diff")
+        broken = diff.replace(b'-v_Q3_2="value-Q3-2-old"',
+                              b'-v_Q3_2="value-Q3-2-elsewhere"')
+        self.assertNotEqual(diff, broken)
+        self.write_bytes("Q3", "change.diff", broken)
+        self.assertProblem("proofs", "diff does not apply")
+
+    def test_output_hash_mismatch_is_a_warning(self):
+        def fn(r):
+            r["changed"]["output_sha256"] = "f" * 64
+        self.edit("C2", "proof-results.json", fn)
+        checks = self.checks()
+        proofs = self.named(checks, "proofs")
+        self.assertTrue(all(c.ok for c in proofs))
+        self.assertIn("C2: output differs from the recorded run; exits match",
+                      [c.message for c in proofs if c.warning])
+
+    def test_runnable_results_shape(self):
+        self.edit("Q1", "proof-results.json", lambda r: r.pop("changed"))
+        self.assertProblem("proofs", "Q1")
+        self.edit("Q2", "proof-results.json",
+                  lambda r: r["base"].update(exit="0"))
+        self.assertProblem("proofs", "Q2")
+
+
+class TestNonRunnable(ProofCase):
+
+    EVIDENCE = "line 12 reads the header without a check"
+
+    def make_nonrunnable(self, slot, **over):
+        r = {"runnable": False, "nonrunnable_reason": "needs a live service",
+             "manual_evidence": self.EVIDENCE}
+        r.update(over)
+        self.save(slot, "proof-results.json", r)
+
+    def test_labeled_never_silent(self):
+        self.make_nonrunnable("C2")
+        checks = self.checks()
+        for c in checks:
+            self.assertTrue(c.ok, "%s: %s" % (c.name, c.message))
+        self.assertIn("5 cases re-executed on base and changed exports",
+                      [c.message for c in self.named(checks, "proofs")])
+        labeled = self.named(checks, "C2")
+        self.assertEqual([c.message for c in labeled],
+                         ["non-runnable, labeled (%d chars of manual "
+                          "evidence)" % len(self.EVIDENCE)])
+        self.assertEqual(holdout_validate.nonrunnable_count(self.folder), 1)
+
+    def test_nonrunnable_needs_reason_and_evidence(self):
+        self.make_nonrunnable("Q1", manual_evidence="")
+        self.assertProblem("proofs", "Q1")
+        self.make_nonrunnable("Q1", nonrunnable_reason=None)
+        self.assertProblem("proofs", "Q1")
+
+    def test_runnable_must_be_boolean(self):
+        self.edit("Q1", "proof-results.json", lambda r: r.update(runnable=1))
+        self.assertProblem("proofs", "Q1")
+
+    def test_cli_counts_nonrunnable(self):
+        self.make_nonrunnable("C2")
+        proc = self.run_cli()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("OK: C2: non-runnable, labeled (", proc.stdout)
+        self.assertIn("Non-runnable cases: 1", proc.stdout.splitlines())
+        self.assertNotIn(self.EVIDENCE, proc.stdout)
+
+
+class TestC2Warning(ValidateCase):
+
+    def set_c2(self, text):
+        run = os.path.join(self.kdir("C2"), "proof", "run")
+        with open(run, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(run, 0o755)
+
+    def test_valid_c2_is_behavioral(self):
+        c2 = self.named(self.checks(), "C2 proof")
+        self.assertTrue(all(c.ok and not c.warning for c in c2))
+
+    def test_grep_only_c2_warns(self):
+        self.set_c2("#!/bin/sh\n# check the guard\nset -e\n"
+                    "grep -q 'value-C2-1-old' mod_c2.sh\n"
+                    "test -f mod_c2.sh\n[ -s mod_c2.sh ]\nexit 0\n")
+        c2 = self.named(self.checks(), "C2 proof")
+        self.assertEqual([(c.ok, c.warning, c.message) for c in c2],
+                         [(True, True, "C2: proof looks text-only "
+                                       "(grep/diff). The cross-check must "
+                                       "confirm it exercises the code "
+                                       "path.")])
+
+    def test_one_behavioral_line_clears_warning(self):
+        self.set_c2("#!/bin/sh\ngrep -q x mod_c2.sh\nsh ./mod_c2.sh\n")
+        c2 = self.named(self.checks(), "C2 proof")
+        self.assertFalse(any(c.warning for c in c2))
+
+    def test_c2_text_only_detector(self):
+        f = holdout_validate._text_only
+        self.assertTrue(f("#!/bin/sh\ndiff a b\ncmp a b\n"))
+        self.assertFalse(f("#!/bin/sh\npython3 -m pytest -q t.py\n"))
+        self.assertFalse(f("#!/bin/sh\n"))
+
+
+class TestCliValidate(ProofCase):
+
+    def test_full_validate_exit_0(self):
+        before = _tmp_listing(self.folder)
+        proc = self.run_cli()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        lines = proc.stdout.splitlines()
+        self.assertIn("OK: proofs: 6 cases re-executed on base and changed "
+                      "exports", lines)
+        n = len({c.name for c in holdout_validate.validate_folder(
+            self.folder, skip_proofs=True)})
+        self.assertIn("OK: all %d checks passed" % n, lines)
+        self.assertIn("Warnings: 0", lines)
+        self.assertIn("Non-runnable cases: 0", lines)
+        self.assertEqual(_tmp_listing(self.folder), before)
+        self.assertFalse([n for n in os.listdir(_owner_tmp(self.folder))
+                          if n.startswith("validate-")])
+
+    def test_catch_proof_exit_0_fails(self):
+        self.set_script("C1", "#!/bin/sh\nexit 0\n")
+        proc = self.run_cli()
+        self.assertEqual(proc.returncode, 1)
+        self.assertTrue(any(l.startswith("PROBLEM: proofs: ")
+                            and "slot pattern" in l
+                            for l in proc.stdout.splitlines()),
+                        proc.stdout)
+
+
+class TestProofMutants(ProofCase):
+
+    def test_reexecution_is_load_bearing(self):
+        self.set_script("C1", "#!/bin/sh\nexit 0\n")
+        self.assertProblem("proofs", "proof reproduced")
+        self.assertProblem("proofs", "slot pattern")
+
+        def claimed(folder, case_id, which):
+            r = holdout_kit.load_json(os.path.join(
+                folder, "sealed", "keys", case_id, "proof-results.json"))
+            return r[which]["exit"], r[which]["output_sha256"]
+        with mock.patch.object(holdout_validate, "run_proof",
+                               side_effect=claimed):
+            self.assertCheckOk("proofs")
+
+    def test_comparison_is_load_bearing(self):
+        self.assertCheckOk("proofs")
+        with mock.patch.object(holdout_validate, "run_proof",
+                               return_value=(0, "x")):
+            bad = self.assertProblem("proofs", "proof reproduced")
+            self.assertTrue(any("slot pattern" in c.message for c in bad))
+
+    def test_constant_runner_still_fails_slot_pattern(self):
+        self.set_script("C3", "#!/bin/sh\nexit 0\n")
+        self.set_exits("C3", 0, 0)
+        self.assertProblem("proofs", "slot pattern")
+        with mock.patch.object(holdout_validate, "run_proof",
+                               return_value=(0, "x")):
+            self.assertProblem("proofs", "slot pattern")
+
+
 # ================================================================ shape
 
 
@@ -644,7 +933,7 @@ class TestModuleShape(unittest.TestCase):
 
     def test_import_set_is_exact(self):
         self.assertEqual(_imports(self._tree()),
-                         {"difflib", "os", "time", "holdout_kit"})
+                         {"difflib", "os", "shutil", "time", "holdout_kit"})
 
     def test_no_subprocess(self):
         tree = self._tree()
