@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.11
 milestone_name: Quiet loop
-status: planning
-stopped_at: Phase 48 context gathered
-last_updated: "2026-10-05T16:47:57.466Z"
-last_activity: 2026-10-05
+status: milestone_complete
+stopped_at: Milestone complete (Phase 49 was final phase)
+last_updated: 2026-10-08T00:51:16.560Z
+last_activity: 2026-10-06 -- Phase 49 execution started
 progress:
-  total_phases: 17
-  completed_phases: 3
-  total_plans: 20
-  completed_plans: 20
-  percent: 18
+  total_phases: 18
+  completed_phases: 5
+  total_plans: 39
+  completed_plans: 39
+  percent: 28
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 48 — fix agent verification + git safety
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 48
+Phase: 49
 Plan: Not started
-Status: Ready to plan
+Status: Milestone complete
 Progress: [██████████] 100%
-Last activity: 2026-10-05
+Last activity: 2026-10-08
 
 ## Performance Metrics
 
@@ -55,6 +55,8 @@ Last activity: 2026-10-05
 | 45 | 4 | - | - |
 | 46 | 8 | - | - |
 | 47 | 8 | - | - |
+| 48 | 10 | - | - |
+| 49 | 9 | - | - |
 
 **Recent Trend:**
 
@@ -134,6 +136,24 @@ Last activity: 2026-10-05
 | Phase 47 P05 | 12min | 2 tasks | 2 files |
 | Phase 47 P06 | 25 min | 3 tasks | 5 files |
 | Phase 47 P07 | 12min | 2 tasks | 7 files |
+| Phase 48 P01 | 25m | 2 tasks | 2 files |
+| Phase 48 P02 | 30m | 2 tasks | 3 files |
+| Phase 48 P03 | 10m | 2 tasks | 2 files |
+| Phase 48 P04 | 20m | 2 tasks | 6 files |
+| Phase 48 P05 | 25m | 2 tasks | 3 files |
+| Phase 48 P10 | 20m | 3 tasks | 2 files |
+| Phase 48 P06 | 8min | 3 tasks | 4 files |
+| Phase 48 P07 | 15m | 2 tasks | 6 files |
+| Phase 48 P08 | 20m | 2 tasks | 3 files |
+| Phase 48 P09 | 25m | 2 tasks | 0 files |
+| Phase 49 P01 | 10min | 2 tasks | 2 files |
+| Phase 49 P02 | 3min | 2 tasks | 2 files |
+| Phase 49 P03 | 16 min | 3 tasks | 5 files |
+| Phase 49 P04 | 85min | 6 tasks | 18 files |
+| Phase 49 P06 | 8min | 3 tasks | 4 files |
+| Phase 49 P07 | 5min | 6 tasks | 3 files |
+| Phase 49 P08 | 9min | 3 tasks | 4 files |
+| Phase 49 P09 | multi-session | 6 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -281,6 +301,28 @@ Earlier decisions (v2.8) still on record:
 - [Phase ?]: 47-05: Finalize-routed SUBSETFILE is consumed by one card and cleared before every automatic rerun
 - [Phase ?]: 47-06: absorbed card rows and look N read problem/current_code/fix_hint from the member record, never members[].obligation
 - [Phase 47]: Old fix-loop/finalize phrases banned plugin-wide by a corpus lock; only exact 116f14a byte pins are exempt
+- [Phase ?]: 48-01: review-agent Bash is a read-only command-word allowlist with default deny; trusted plugin scripts refused by basename
+- [Phase ?]: 48-02: fixstage refuses non-normal paths and paths under .git/.turingmind; undo never writes from a snapshot copy failing its sha256
+- [Phase 48]: 48-03: fixcheck after re-validates recorded checks against the allowlist and exits 2 on anything else
+- [Phase ?]: 48-04: gitsnap refs component excludes refs/stash so stash and refs mutants are independent; fix.md title sentence deferred to 48-06 (hash-pinned)
+- [Phase 48]: 48-05: gitguard hook fails closed via _guard_error_verdict(); blocks outside a repo are denied but not recorded; record append uses O_NOFOLLOW
+- [Phase ?]: 48-10: fixstage commit binds to one captured BASE (commit-tree -p BASE) and publishes only by a forward update-ref CAS; success only when HEAD==new and tree==built
+- [Phase ?]: 48-10: owner hooks run via git hook run with a 900s timeout; a timeout is a rejection (exit 4)
+- [Phase 48]: 48-06: fix.md fences each repeat the VC_ROOT/GREPO preamble; attempt id is a substituted placeholder copied from begin
+- [Phase ?]: 48-07: any non-zero gitsnap compare halts the pass at Phase 3 entry (no score/render/persist/fix loop); the halt lives in the gate, not in Phase 5 skip conditions
+- [Phase 48]: 48-08: fix-loop inline fallback runs fixstage/fixcheck with a fresh attempt; blobs rule (iii) excludes applied, applied-uncommitted and unverified files
+- [Phase 48]: 48-09: live smokes approved by owner 2026-10-05 — gitguard blocks a complying review agent's git stash pop and nested Agent spawn; fix flow commits only verified hunk-isolated fixes, leaves mixed edits applied-uncommitted, undoes failing fixes byte-for-byte; hook ~30 ms/call
+- [Phase 49]: gitsnap ignores refs/remotes/* by exact prefix (EXCLUDED_REF_PREFIXES); refs/heads, refs/tags, lookalikes still fingerprinted
+- [Phase 49]: 49-02: gitguard guards only subagent calls (agent_id non-null via is not None) AND vibe-check: prefix AND not exempt; a main session started as a vibe-check agent is never blocked
+- [Phase ?]: 49-03: fixstage exit 9 publication-uncertain added (0-8 unchanged); only ref==base proves non-publication; FIX_MD_SHA256 re-pinned to edd3fb20 (fix.md +2 lines)
+- [Phase 49]: 49-04: pre-S codex review closed after 3 passes (owner-approved third); all findings fixed on test evidence, no HIGH open
+- [Phase 49]: 49-04: a4-check reads the installed-cache hook path from the A4 session's local transcripts and commits its own evidence
+- [Phase 49]: 49-04: batchsnap snapshot suite run uses SUITE_TIMEOUT 900 s; S-candidate e6eafbd
+- [Phase ?]: 49-06: first-pass verdict MISS — quiet 5/18 (bar 3; sq6 3/3 + sq3 1/3 + sq4 1/3), catch 15/15, sealed literal 8/21; FAILED-DIFFS sq3/sq4/sq6 committed 14fded8; 49-07 retune triggered
+- [Phase ?]: 49-07: owner declined the PROMPT-class retune and approved ship-as-measured; verdict of record first/VERDICT.json MISS 5/18 15/15, measured build S=e6eafbd (batch7)
+- [Phase 49]: 49-08: release gate OWNER-APPROVED-MISS ship-as-measured; S_FINAL=e6eafbd (batch7); parity QUIET at 5ea8186
+- [Phase 49]: 49-08: REL-02 shipped build 48/24 (2.00) cards per fix-loop firing vs Phase-43 2.00; gate-log 2.11.0 unavailable at release
+- [Phase ?]: 49-09: 2.11.0 published (main/feat 2a420db, tag v2.11 f708e11) via one atomic explicit-SHA push after owner approval; release not B3-measured (owner waiver 11c8afc); tag v2.11 owned by 49-09, complete-milestone must not re-create/move/push it
 
 ### Pending Todos
 
@@ -325,13 +367,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-05T16:47:57.461Z
+Last session: 2026-10-07T21:37:44.403Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 48 context gathered
+Stopped at: Phase 49 context gathered
 
 v2.11 sequencing notes for whoever plans next (design spec `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`, phase split and order are FIXED):
 

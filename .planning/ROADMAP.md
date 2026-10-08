@@ -185,8 +185,8 @@ change anywhere in this milestone — any of those would confound the Phase-49 c
 - [x] **Phase 45: Lane gating on evidence** — `test-sufficiency` is not dispatched when Phase 1d finds no coverage artifact (announce line states why; dispatch count exactly one fewer there, unchanged everywhere else); `framework-skill`'s `frameworks`-includes-`skill` trigger pinned by a test. Deterministic — no prompt, no scorer change (completed 2026-10-01)
 - [x] **Phase 46: Carry-forward integrity** — 999.8 single writer per field family across Phase 4.5→5; no automatic expiry (an unresolved finding persists until verified against HEAD or closed by an explicit owner decision with reason); per-finding decision snapshot so "unchanged since pass N, decision pending" is computable — all pinned by state-shape tests (completed 2026-10-02)
 - [x] **Phase 47: Pause batching** — one combined card per fix-loop pass (apply all and rerun / apply selected… / skip and rerun / close out / abandon), one multi-select card at finalize for all unacknowledged mediums, unchanged-and-pending findings folded into the card and never re-asked; `$TURINGMIND_NONINTERACTIVE` unchanged (completed 2026-10-05)
-- [ ] **Phase 48: Fix-agent verification + git safety** — the fix agent verifies the cited condition no longer holds before committing (unverified ⇒ not committed, reported), one fix per hunk-isolated commit (999.15); detection agents cannot run mutating git in the reviewed repo, proven by a test (999.20); `agents/fix.md` description matches its `opus` pin (W2)
-- [ ] **Phase 49: Measure + release 2.11.0** — full B3 ×3 on the release candidate (catch unchanged 15/15, false alarms ≤3/18), decision cards per firing counted from transcripts / gate log against the 5.5 baseline (or reported unavailable), README `214c7df` disclosure (W1), release gates before the publish plan, plugin 2.11.0 + tag `v2.11` + atomic publish
+- [x] **Phase 48: Fix-agent verification + git safety** — the fix agent verifies the cited condition no longer holds before committing (unverified ⇒ not committed, reported), one fix per hunk-isolated commit (999.15); detection agents cannot run mutating git in the reviewed repo, proven by a test (999.20); `agents/fix.md` description matches its `opus` pin (W2) (completed 2026-10-05)
+- [x] **Phase 49: Measure + release 2.11.0** — full B3 ×3 on the release candidate (catch unchanged 15/15, false alarms ≤3/18), decision cards per firing counted from transcripts / gate log against the 5.5 baseline (or reported unavailable), README `214c7df` disclosure (W1), release gates before the publish plan, plugin 2.11.0 + tag `v2.11` + atomic publish (completed 2026-10-07)
 
 ### Phase 45: Lane gating on evidence
 
@@ -282,29 +282,33 @@ Plans:
   4. `agents/fix.md`'s description states its actual `opus` pin (no `VIBE_CHECK_TOP_MODEL` claim), with a test that fails if description and frontmatter disagree (W2)
   5. After a fix commit the hand-off to the orchestrator's 999.21 revalidation (build / test / scan marked stale and re-run) is confirmed working — this phase confirms the hand-off, it does not build the orchestrator half
 
-**Plans:** 9 plans
+**Plans:** 10/10 plans complete
 
 Plans:
 **Wave 1**
 
-- [ ] 48-01-PLAN.md — `scripts/gitguard.py` pure fail-closed git classifier + DENY/ALLOW tables + mutants (FIX-03, D-08)
-- [ ] 48-02-PLAN.md — `scripts/fixstage.py` snapshot/commit/undo: hunk-isolated commit via merge-file + temp index, not-separable exit, HEAD hand-off contract; `gitfixture.py` test helper (FIX-02, FIX-01 undo, D-01/02/04/07)
-- [ ] 48-03-PLAN.md — `scripts/fixcheck.py` baseline/after allowlisted check runner with exact labels (FIX-01, D-03/06/15)
+- [x] 48-01-PLAN.md — `scripts/gitguard.py` pure fail-closed git classifier + DENY/ALLOW tables + mutants (FIX-03, D-08)
+- [x] 48-02-PLAN.md — `scripts/fixstage.py` per-attempt lifecycle (begin/snapshot/seal, stale attempts quarantined) + undo that reverses only the fix's own delta (reverse merge; concurrent owner edits survive); `gitfixture.py` test helper (FIX-01 undo, D-04)
+- [x] 48-03-PLAN.md — `scripts/fixcheck.py` baseline/after allowlisted check runner with exact labels (FIX-01, D-03/06/15)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 48-04-PLAN.md — `scripts/gitsnap.py` before/after git-state snapshot (Phase 43 stash shape) + D-16 comma titles in fixcommit
-- [ ] 48-05-PLAN.md — `hooks/hooks.json` PreToolUse hook + gitguard hook/notices/reset, scoped to vibe-check review agents (FIX-03, D-08/09/11/17)
-- [ ] 48-06-PLAN.md — `agents/fix.md` verified, hunk-isolated flow + new statuses + W2 description; existing fix.md locks updated with mutants (FIX-01/02/04)
+- [x] 48-04-PLAN.md — `scripts/gitsnap.py` before/after git-state snapshot (Phase 43 stash shape) + D-16 comma titles in fixcommit
+- [x] 48-05-PLAN.md — `hooks/hooks.json` PreToolUse hook + gitguard hook/notices/reset, scoped to vibe-check review agents (FIX-03, D-08/09/11/17)
+- [x] 48-10-PLAN.md — `fixstage.py commit`: hunk-isolated commit of the sealed delta via merge-file + temp index, committed-tree verification (hook-altered commit withdrawn), CAS real-index sync, not-separable exit, retry-after-rejection fixture, HEAD hand-off contract (FIX-02, D-01/02/07, SC5)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 48-07-PLAN.md — Phase 1 snapshot / Phase 3 entry gate + block notices + D-14 halt; contract paths; prose locks (FIX-03, D-10/11/14)
-- [ ] 48-08-PLAN.md — 50-fix-loop Step B: statuses, check labels, blobs rule, inline fallback via fixstage; locks (FIX-01/02, D-05/13)
+- [x] 48-06-PLAN.md — `agents/fix.md` verified, hunk-isolated flow (begin/snapshot/seal/check/undo|commit with attempt id) + new statuses + W2 description; existing fix.md locks updated with mutants (FIX-01/02/04)
+- [x] 48-07-PLAN.md — Phase 1 snapshot / Phase 3 entry gate + block notices + D-14 halt; contract paths; prose locks (FIX-03, D-10/11/14)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 48-09-PLAN.md — Live smokes (hook block, nested-agent deny, applied / applied-uncommitted / unverified fixes, head_changed_since hand-off, hook latency) + owner checkpoint
+- [x] 48-08-PLAN.md — 50-fix-loop Step B: statuses, check labels, blobs rule, inline fallback via fixstage attempt flow; locks (FIX-01/02, D-05/13)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 48-09-PLAN.md — Live smokes (hook block, nested-agent deny, applied / applied-uncommitted / unverified fixes, no open attempt left, head_changed_since hand-off, hook latency) + owner checkpoint
 
 ### Phase 49: Measure + release 2.11.0
 
@@ -373,8 +377,8 @@ Plans:
 | 45. Lane gating on evidence | v2.11 | 4/4 | Complete    | 2026-10-01 |
 | 46. Carry-forward integrity | v2.11 | 8/8 | Complete    | 2026-10-02 |
 | 47. Pause batching | v2.11 | 8/8 | Complete    | 2026-10-05 |
-| 48. Fix-agent verification + git safety | v2.11 | 0/? | Not started | - |
-| 49. Measure + release 2.11.0 | v2.11 | 0/? | Not started | - |
+| 48. Fix-agent verification + git safety | v2.11 | 10/10 | Complete    | 2026-10-05 |
+| 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
 
 > Full per-phase detail for shipped milestones lives in the archives under
 > `.planning/milestones/` (e.g. `v2.4-ROADMAP.md`, `v2.5-ROADMAP.md`, `v2.8-ROADMAP.md`).
@@ -914,3 +918,42 @@ could not see it (they do not cover the stash list). Recorded in RESULTS-v2.10.m
 Plans:
 
 - [ ] TBD (promote with /gsd:review-backlog when ready)
+
+### Phase 999.21: Fix-agent hardening carry items from v2.11 (BACKLOG)
+
+**Goal:** Close the Phase-48 carry items and the declared Phase-49 residuals that v2.11 deliberately
+did not build (CONTEXT D-02), so the fix agent's commit path and the pass-level safety checks have
+no known open edges.
+
+**Why:** v2.11 shipped only the D-01 fixes inside the measured window. These items were parked so
+the measured tree would not move; they are correctness/hygiene follow-ups, not new features.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Items:**
+
+- git < 2.36 up-front check: fixstage needs `git hook run` (≥ 2.36); today an old git is found only
+  at commit time (exit 1 refused). Detect it once at pass start and say so plainly.
+- `git -C <bare> remote show` / uploadpack: the bare-repo remote probe path flagged in Phase 48.
+- WebFetch/MCP hook coverage: the guard hooks cover Bash/Edit/Write; WebFetch and MCP tools are not
+  covered.
+- Exit-table single source: the fixcommit/fixstage exit table is restated in several docs
+  (agents/fix.md, 50-fix-loop.md, docstrings); generate or lock from one source.
+- Blocked-notice noise allowances: tune which Blocked notices are expected vs. surfaced.
+- fixcommit CLI retirement: fixstage now owns the commit path; retire the standalone fixcommit CLI.
+- refs/tags fetch halting a pass (49-01 residual): gitsnap excludes only `refs/remotes/*`, so a
+  `git fetch --tags` during a pass halts it. Intentional today; decide whether tags get an allowance.
+- 49-03 residual windows: (a) SIGKILL and default-disposition SIGTERM/SIGHUP raise no Python
+  exception; (b) a second BaseException inside the backstop arm; (c) a published candidate rewound to
+  exactly `base` by another writer; (d) unborn-branch interrupt reports exit 9 conservatively.
+
+**Design notes:** Touches the fix agent and guard surface; MUST NOT land inside a measured window.
+
+**Source:** Phase 49 CONTEXT D-02; 49-01 SUMMARY §Residual; 49-03 SUMMARY §Residuals (filed after
+PUBLISH-VERIFIED of 2.11.0, 2026-10-07).
+
+Plans:
+
+- [ ] TBD (promote with /bm:review-backlog when ready)
