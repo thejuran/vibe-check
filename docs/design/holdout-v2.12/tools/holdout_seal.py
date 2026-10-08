@@ -1,4 +1,4 @@
-"""holdout_seal.py — the blind cross-check and the `seal` gate of the holdout kit.
+"""holdout_seal.py — the blind cross-check and the `seal` gate of the kit.
 
 Every case gets a second, independent judgment before it can be sealed. The
 flow, and what binds each step to the next:
@@ -59,10 +59,12 @@ KitError = holdout_kit.KitError
 
 DISAGREE_MSG = ("Case %s: the independent check disagreed (%s). Resolve it "
                 "with evidence (write keys/<ID>/resolution.md, then "
-                "crosscheck-reset <ID> --reason resolved) or replace the case.")
+                "crosscheck-reset <ID> --reason resolved) or replace the "
+                "case.")
 INPUTS_CHANGED_MSG = ("Case %s: sealed inputs changed after the cross-check "
-                      "(%s). Run crosscheck-reset <ID> --reason inputs-changed "
-                      "and redo the cross-check for this case.")
+                      "(%s). Run crosscheck-reset <ID> --reason "
+                      "inputs-changed and redo the cross-check for this "
+                      "case.")
 STALE_WORKSPACE_MSG = ("Case %s: round %d was judged in cross-check workspace "
                        "%s, which had already seen a revealed key. A reset "
                        "case must be judged by a fresh session: run "
@@ -89,7 +91,7 @@ LAUNCH_MSG = ("fresh cross-check workspace %s. Close the previous cross-check "
               "type: Read CROSSCHECK-BRIEF.md and begin.")
 
 
-# ---------------------------------------------------------------- small helpers
+# ---------------------------------------------------------------- helpers
 
 
 def _now():
@@ -530,10 +532,10 @@ def reveal_workspace(folder, gen):
         changed = _changed_members(led.get("inputs"),
                                    _input_hashes(folder, cid), INPUT_MEMBERS)
         if changed:
-            raise KitError("%s: sealed inputs changed since crosscheck-prepare "
-                           "(%s); run crosscheck-reset %s --reason "
-                           "inputs-changed" % (_slot(folder, cid),
-                                               ", ".join(changed), cid))
+            raise KitError("%s: sealed inputs changed since "
+                           "crosscheck-prepare (%s); run crosscheck-reset "
+                           "%s --reason inputs-changed"
+                           % (_slot(folder, cid), ", ".join(changed), cid))
     ts = _now_after(max(led.get("prepared_at") or "" for _, led in packets))
     tokens = {}
     for cid, led in packets:
@@ -665,6 +667,370 @@ def reset_crosscheck(folder, case_id, reason):
     return archived["xid"]
 
 
+# ---------------------------------------------------------------- agreement
+
+
+def _exit_pair(value):
+    """{"base": int, "changed": int} or None (bools are not exits)."""
+    if not isinstance(value, dict):
+        return None
+    base, changed = value.get("base"), value.get("changed")
+    if not _is_int(base) or not _is_int(changed):
+        return None
+    return {"base": base, "changed": changed}
+
+
+def _recorded_exits(proof_results):
+    """The finder's recorded base/changed exits from proof-results.json when
+    it is runnable and well formed; None otherwise. Never raises."""
+    if not isinstance(proof_results, dict) \
+            or proof_results.get("runnable") is not True:
+        return None
+    runs = []
+    for tree in ("base", "changed"):
+        rec = proof_results.get(tree)
+        code = rec.get("exit") if isinstance(rec, dict) else None
+        if not _is_int(code):
+            return None
+        runs.append(code)
+    return {"base": runs[0], "changed": runs[1]}
+
+
+def _slot_pattern_ok(slot, pair):
+    if slot in holdout_kit.CATCH_SLOTS:
+        return pair["base"] == 0 and pair["changed"] != 0
+    return pair["base"] == 0 and pair["changed"] == 0
+
+
+def _norm_file(name):
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    while name.startswith("./"):
+        name = name[2:]
+    return os.path.normpath(name) if name else None
+
+
+def _location_agrees(key_loc, blind_loc):
+    """Same file, and the blind range overlaps the key range widened by
+    LINE_SLACK lines on each side."""
+    if not _location_ok(key_loc) or not _location_ok(blind_loc):
+        return False
+    if _norm_file(key_loc["file"]) != _norm_file(blind_loc["file"]):
+        return False
+    return (blind_loc["line_start"] <= key_loc["line_end"] + LINE_SLACK
+            and blind_loc["line_end"] >= key_loc["line_start"] - LINE_SLACK)
+
+
+def agreement_problems(slot, key, blind, final, runnable=True,
+                       resolution_bound=False, recorded_exits=None):
+    """The failed parts of the AGREEMENT, PROOF EXITS and NON-RUNNABLE
+    rules; [] only when every part holds.
+
+    Type, location and category are recomputed from blind.json against
+    key.json; the session's flags are required too but never override a
+    mechanical mismatch. A runnable proof needs the independent re-run exits
+    (final.proof_rerun_exit) to equal the recorded exits (`recorded_exits`,
+    from proof-results.json; None fails closed) and both to fit the slot
+    pattern. A non-runnable proof needs proof_rerun_exit null, proof_agrees
+    true and an owner resolution bound at reveal (`resolution_bound`)."""
+    parts = []
+
+    def fail(part):
+        if part not in parts:
+            parts.append(part)
+
+    key = key if isinstance(key, dict) else {}
+    blind = blind if isinstance(blind, dict) else {}
+    final_ok = isinstance(final, dict)
+    final = final if final_ok else {}
+    catch = slot in holdout_kit.CATCH_SLOTS
+    want_verdict = "catch" if catch else "quiet"
+
+    if blind.get("verdict") != want_verdict or blind.get("type_guess") != slot:
+        fail("type")
+    if catch and blind.get("verdict") == "catch":
+        if not _location_agrees(key.get("location"), blind.get("location")):
+            fail("defect location")
+        key_cat = key.get("causal_failure_category")
+        blind_cat = blind.get("defect_category")
+        if key_cat not in holdout_validate.CAUSAL_CATEGORIES \
+                or blind_cat != key_cat:
+            fail("causal-failure category")
+        if holdout_validate.OTHER_CATEGORY in (key_cat, blind_cat):
+            fail("category other")
+    if not catch:
+        confirmed = final.get("quiet_confirmed")
+        if not isinstance(confirmed, dict) \
+                or confirmed.get("supported_behavior") is not True \
+                or confirmed.get("exposure_check") is not True:
+            fail("quiet confirmation")
+
+    flags = ["type_agrees", "proof_agrees"]
+    if catch:
+        flags += ["defect_agrees", "causal_failure_agrees"]
+    if not final_ok or any(final.get(f) is not True for f in flags):
+        fail("final flags")
+
+    rerun = final.get("proof_rerun_exit")
+    if runnable:
+        independent = _exit_pair(rerun)
+        recorded = _exit_pair(recorded_exits)
+        if independent is None:
+            fail("final flags")
+        if recorded is None:
+            fail("proof exits")
+        elif not _slot_pattern_ok(slot, recorded):
+            fail("proof exits")
+        if independent is not None and recorded is not None \
+                and independent != recorded:
+            fail("proof exits")
+        if independent is not None and not _slot_pattern_ok(slot,
+                                                             independent):
+            fail("proof exits")
+    else:
+        if rerun is not None:
+            fail("non-runnable proof")
+        if resolution_bound is not True:
+            fail("non-runnable proof")
+    return parts
+
+
+# ---------------------------------------------------------------- seal gate
+
+
+class SealBlocked(KitError):
+    """seal refused; `blockers` holds every plain-language line."""
+
+    def __init__(self, blockers):
+        KitError.__init__(self, "%d blocker(s); nothing was sealed"
+                          % len(blockers))
+        self.blockers = list(blockers)
+
+
+class _CaseView:
+    """What the per-case blockers read, loaded once per case."""
+
+    def __init__(self, folder, cid, registry):
+        self.folder = folder
+        self.cid = cid
+        self.registry = registry
+        try:
+            self.slot = _slot(folder, cid)
+        except KitError:
+            self.slot = cid
+        try:
+            self.ledger = _load_ledger(folder, cid)
+        except KitError:
+            self.ledger = None
+        self.packet = _packet_dir(folder, self.ledger)
+
+    def packet_file(self, name):
+        return os.path.join(self.packet, name) if self.packet else None
+
+    def load_packet_json(self, name):
+        path = self.packet_file(name)
+        if path is None or os.path.islink(path):
+            return None
+        return _load_dict_or_none(path)
+
+
+def _blocker_validate(folder, checks=None):
+    """One line per failed validate check (proofs re-run, never skipped)."""
+    if checks is None:
+        checks = holdout_validate.validate_folder(folder)
+    failed = []
+    for c in checks:
+        if not c.ok and c.name not in failed:
+            failed.append(c.name)
+    return ["validation failed: %s" % name for name in failed]
+
+
+def _blocker_retired(folder):
+    """Every current case whose content matches retired material."""
+    return holdout_manifest.retired_problems(folder)
+
+
+def _blocker_prepared(view):
+    led = view.ledger
+    if not led or not led.get("xid") or view.packet is None:
+        return "cross-check not prepared for %s" % view.slot
+    return None
+
+
+def _blocker_revealed(view):
+    if not (view.ledger or {}).get("blind_sha256"):
+        return "%s: not yet revealed" % view.slot
+    return None
+
+
+def _blocker_workspace_fresh(view):
+    """The round was judged in a registered workspace that had not seen a key
+    when the packet was prepared, in a generation newer than every earlier
+    revealed round of the case."""
+    led = view.ledger or {}
+    unbound = ("%s: cross-check round is not bound to a registered workspace"
+               % view.slot)
+    gen, ws = led.get("generation"), led.get("workspace")
+    entry = _generation(view.registry, gen) if _is_int(gen) else None
+    if entry is None or entry.get("workspace") != ws:
+        return unbound
+    for past in led.get("rounds", []):
+        if not isinstance(past, dict) or past.get("revealed_at") is None:
+            continue
+        past_gen = past.get("generation")
+        if not _is_int(past_gen) or gen <= past_gen:
+            n = led.get("round")
+            return STALE_WORKSPACE_MSG % (view.slot, n if _is_int(n) else 0,
+                                          ws)
+    if view.cid not in entry.get("cases", []):
+        return "%s: packet is not registered in workspace %s" % (view.slot,
+                                                                 ws)
+    revealed_at, prepared_at = entry.get("revealed_at"), led.get("prepared_at")
+    if not isinstance(revealed_at, str) or not revealed_at:
+        return unbound
+    if not isinstance(prepared_at, str) or not prepared_at < revealed_at:
+        return "%s: packet prepared after its workspace was revealed" \
+            % view.slot
+    return None
+
+
+def _blocker_blind_intact(view):
+    path = view.packet_file("blind.json")
+    frozen = view.ledger.get("blind_sha256")
+    if path is None or os.path.islink(path) or not os.path.isfile(path) \
+            or holdout_kit.sha256_file(path) != frozen:
+        return "%s: blind verdict changed after reveal" % view.slot
+    return None
+
+
+def _blocker_blind_shape(view):
+    if _blind_shape_problems(view.load_packet_json("blind.json")):
+        return "%s: blind verdict has the wrong shape" % view.slot
+    return None
+
+
+def _blocker_inputs_bound(view):
+    """Every input recorded at prepare and every file revealed still has the
+    same sha256; re-running validate or the proof never clears this."""
+    led = view.ledger
+    changed = _changed_members(led.get("inputs"),
+                               _input_hashes(view.folder, view.cid),
+                               INPUT_MEMBERS)
+    changed += _changed_members(led.get("revealed"),
+                                _revealed_hashes(view.folder, view.cid),
+                                REVEALED_MEMBERS)
+    if changed:
+        order = ("base.tar", "change.diff", "key.json", "proof-results.json",
+                 "proof", "CASE-TYPES.md")
+        changed.sort(key=order.index)
+        return INPUTS_CHANGED_MSG % (view.slot, ", ".join(changed))
+    return None
+
+
+def _blocker_final_present(view):
+    path = view.packet_file("final.json")
+    if path is None or not os.path.lexists(path):
+        return "%s: final.json missing" % view.slot
+    if view.load_packet_json("final.json") is None:
+        return "%s: final.json is unreadable or not a JSON object" % view.slot
+    return None
+
+
+def _blocker_final_bound(view):
+    final = view.load_packet_json("final.json") or {}
+    token = final.get("reveal_token")
+    if not isinstance(token, str) or token != view.ledger.get("reveal_token"):
+        return ("%s: final.json is not bound to this reveal (reveal_token "
+                "mismatch)" % view.slot)
+    return None
+
+
+def _blocker_agreement(view):
+    """The AGREEMENT, PROOF EXITS and NON-RUNNABLE rules. proof-results.json
+    is read once for `runnable` and the recorded exits; the owner's
+    resolution counts only when its sha256 was bound at reveal (its prose is
+    never read here). A failure is DISAGREE_MSG naming the failed parts; a
+    changed input is INPUTS_CHANGED_MSG from _blocker_inputs_bound instead."""
+    k = _keys(view.folder, view.cid)
+    key = _load_dict_or_none(os.path.join(k, "key.json"))
+    proof_results = _load_dict_or_none(os.path.join(k, "proof-results.json"))
+    runnable = not (isinstance(proof_results, dict)
+                    and proof_results.get("runnable") is False)
+    res = os.path.join(k, "resolution.md")
+    bound = view.ledger.get("resolution_sha256")
+    resolution_bound = bool(
+        os.path.isfile(res) and not os.path.islink(res)
+        and isinstance(bound, str)
+        and bound == holdout_kit.sha256_file(res))
+    parts = agreement_problems(view.slot, key,
+                               view.load_packet_json("blind.json"),
+                               view.load_packet_json("final.json"),
+                               runnable=runnable,
+                               resolution_bound=resolution_bound,
+                               recorded_exits=_recorded_exits(proof_results))
+    if parts:
+        return DISAGREE_MSG % (view.slot, ", ".join(parts))
+    return None
+
+
+# Per-case blockers in order; the first that fails is the case's line. Looked
+# up by name at call time so each one can be patched out by a mutant test.
+CASE_BLOCKERS = ("_blocker_prepared", "_blocker_revealed",
+                 "_blocker_workspace_fresh", "_blocker_blind_intact",
+                 "_blocker_blind_shape", "_blocker_inputs_bound",
+                 "_blocker_final_present", "_blocker_final_bound",
+                 "_blocker_agreement")
+
+
+def seal_blockers(folder, checks=None):
+    """Plain-language blockers, [] when the holdout may be sealed: validation
+    first, retired content second, then one line per case that fails a
+    cross-check blocker."""
+    blockers = list(_blocker_validate(folder, checks) or [])
+    blockers += list(_blocker_retired(folder) or [])
+    try:
+        registry = _load_registry(folder)
+    except KitError:
+        registry = None
+    module = sys.modules[__name__]
+    for cid in holdout_kit.case_ids(folder):
+        view = _CaseView(folder, cid, registry)
+        for name in CASE_BLOCKERS:
+            try:
+                line = getattr(module, name)(view)
+            except KitError as exc:
+                line = "%s: %s" % (view.slot, exc)
+            if line:
+                blockers.append(line)
+                break
+    return blockers
+
+
+def do_seal(folder):
+    """Seal when there is no blocker: copy each final.json to
+    keys/<ID>/crosscheck.json, build the seal and the private inventory, and
+    write SEAL.json last. Returns the seal."""
+    _refuse_if_sealed(folder)
+    blockers = seal_blockers(folder)
+    if blockers:
+        raise SealBlocked(blockers)
+    for cid in holdout_kit.case_ids(folder):
+        led = _load_ledger(folder, cid)
+        src = os.path.join(_packet_dir(folder, led), "final.json")
+        try:
+            shutil.copyfile(src, os.path.join(_keys(folder, cid),
+                                              "crosscheck.json"))
+        except OSError:
+            raise KitError("cannot copy the cross-check verdict of %s"
+                           % _slot(folder, cid))
+    seal = holdout_manifest.build_seal(folder)
+    holdout_manifest.write_inventory(folder)
+    holdout_kit.write_json_atomic(
+        os.path.join(folder, holdout_manifest.SEAL_NAME), seal)
+    return seal
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -717,7 +1083,7 @@ def _cmd_reveal(args):
         return 1
     led = _load_ledger(args.folder, cid)
     entry = _generation(_load_registry(args.folder), led["generation"])
-    for other, oled in _live_packets(args.folder, entry):
+    for _, oled in _live_packets(args.folder, entry):
         holdout_kit.print_ok("revealed %s" % oled["xid"])
     return 0
 
@@ -733,10 +1099,26 @@ def _cmd_reset(args):
     return 0
 
 
+def _cmd_seal(args):
+    try:
+        seal = do_seal(args.folder)
+    except SealBlocked as exc:
+        for line in exc.blockers:
+            holdout_kit.print_problem(line)
+        holdout_kit.print_problem("nothing was sealed (%d blocker(s)); fix "
+                                  "the lines above and run seal again"
+                                  % len(exc.blockers))
+        return 1
+    holdout_kit.print_ok("sealed %d cases. Next: bin/holdout encrypt"
+                         % len(seal["cases"]))
+    return 0
+
+
 _HANDLERS = {
     "crosscheck-prepare": _cmd_prepare,
     "crosscheck-reveal": _cmd_reveal,
     "crosscheck-reset": _cmd_reset,
+    "seal": _cmd_seal,
 }
 
 

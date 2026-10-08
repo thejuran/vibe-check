@@ -365,7 +365,8 @@ class TestPrepare(SealCase):
         self.prepare()
         with self.assertRaises(KitError) as cm:
             self.prepare()
-        self.assertIn("cross-check folder already exists for", str(cm.exception))
+        self.assertIn("cross-check folder already exists for",
+                      str(cm.exception))
         self.assertIn("run crosscheck-reset first", str(cm.exception))
 
     def test_prepare_case_with_live_packet_refused(self):
@@ -990,7 +991,7 @@ class TestCliCrosscheck(SealCase):
         self.assertFalse(os.path.exists(registry_path(self.folder)))
 
 
-# ================================================================ agreement (pure)
+# ================================================================ agreement
 
 CATCH_EXITS = {"base": 0, "changed": 1}
 QUIET_EXITS = {"base": 0, "changed": 0}
@@ -1213,7 +1214,7 @@ class TestProofExits(unittest.TestCase):
         self.assertIsNone(rec([1, 2]))
 
 
-class TestNonRunnableRule(unittest.TestCase):
+class TestPureNonRunnable(unittest.TestCase):
 
     def _nr(self, slot="C2", **kw):
         kw.setdefault("runnable", False)
@@ -1431,8 +1432,10 @@ class TestSealBlockers(CompletedCase):
     def test_every_case_reported(self):
         os.remove(os.path.join(self.pkt("C2"), "final.json"))
         self.append(os.path.join(self.pkt("Q1"), "blind.json"), b" ")
-        self.assertBlocked(["C2: final.json missing",
-                            "Q1: blind verdict changed after reveal"])
+        got = self.assertBlocked()
+        self.assertEqual(sorted(got), ["C2: final.json missing",
+                                       "Q1: blind verdict changed after "
+                                       "reveal"])
 
 
 class TestSealNotRevealed(CompletedCase):
@@ -1713,7 +1716,8 @@ class TestSealAgreement(CompletedCase):
 
     def test_8d_category(self):
         self.disagree("C3", "causal-failure category",
-                      mutate_blind=self.only("C3", defect_category="injection"))
+                      mutate_blind=self.only("C3",
+                                             defect_category="injection"))
 
     def test_8e_key_and_blind_other(self):
         self.edit_json(os.path.join(kdir(self.folder, self.cid("C1")),
@@ -1808,10 +1812,12 @@ class TestSealProofExits(CompletedCase):
     def test_8q_mutants(self):
         self.complete(mutate_final=TestSealAgreement.only(
             "C2", proof_rerun_exit={"base": 0, "changed": 0}))
+        # Recorded exits forged to equal the rerun: equality now holds for
+        # C2, and the slot pattern alone still blocks it.
         with mock.patch.object(holdout_seal, "_recorded_exits",
                                return_value={"base": 0, "changed": 0}):
-            self.assertEqual(self.blockers(), [
-                holdout_seal.DISAGREE_MSG % ("C2", "proof exits")])
+            self.assertIn(holdout_seal.DISAGREE_MSG % ("C2", "proof exits"),
+                          self.blockers())
         with mock.patch.object(holdout_seal, "agreement_problems",
                                return_value=[]):
             self.assertSeals()
