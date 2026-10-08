@@ -990,6 +990,1159 @@ class TestCliCrosscheck(SealCase):
         self.assertFalse(os.path.exists(registry_path(self.folder)))
 
 
+# ================================================================ agreement (pure)
+
+CATCH_EXITS = {"base": 0, "changed": 1}
+QUIET_EXITS = {"base": 0, "changed": 0}
+
+
+def agreeing_args(slot):
+    """(key, blind, final, recorded_exits) that agree for `slot`."""
+    if slot in holdout_kit.CATCH_SLOTS:
+        key = {"slot": slot, "class": "catch", "defect": "d",
+               "location": {"file": "src/a.py", "line_start": 10,
+                            "line_end": 20},
+               "causal_failure": "c", "causal_failure_category": "injection"}
+        blind = {"verdict": "catch", "type_guess": slot,
+                 "location": {"file": "src/a.py", "line_start": 10,
+                              "line_end": 20},
+                 "defect_category": "injection", "reasoning": "r"}
+        exits, quiet_ok = dict(CATCH_EXITS), None
+    else:
+        key = {"slot": slot, "class": "quiet",
+               "expected_quiet_rationale": "r", "supported_behavior": "b",
+               "exposure_check": "e"}
+        blind = {"verdict": "quiet", "type_guess": slot, "location": None,
+                 "defect_category": None, "reasoning": "r"}
+        exits = dict(QUIET_EXITS)
+        quiet_ok = {"supported_behavior": True, "exposure_check": True}
+    final = {"reveal_token": "0" * 16, "type_agrees": True,
+             "defect_agrees": True, "causal_failure_agrees": True,
+             "proof_agrees": True, "proof_rerun_exit": dict(exits),
+             "quiet_confirmed": quiet_ok, "notes": "n"}
+    return key, blind, final, dict(exits)
+
+
+def ap(slot, key_edit=None, blind_edit=None, final_edit=None, **kw):
+    key, blind, final, rec = agreeing_args(slot)
+    for obj, edit in ((key, key_edit), (blind, blind_edit),
+                      (final, final_edit)):
+        if edit is not None:
+            edit(obj)
+    kw.setdefault("recorded_exits", rec)
+    return holdout_seal.agreement_problems(slot, key, blind, final, **kw)
+
+
+def _loc(start, end, file="src/a.py"):
+    return lambda b: b.update(location={"file": file, "line_start": start,
+                                        "line_end": end})
+
+
+class TestAgreementRule(unittest.TestCase):
+
+    def test_agreeing_every_slot(self):
+        for slot in holdout_kit.SLOTS:
+            self.assertEqual(ap(slot), [], slot)
+
+    def test_c3_as_c1(self):
+        self.assertEqual(ap("C1", blind_edit=lambda b: b.update(
+            type_guess="C3")), ["type"])
+
+    def test_different_defect_same_file(self):
+        self.assertEqual(ap("C2", blind_edit=_loc(200, 210)),
+                         ["defect location"])
+
+    def test_overlap_at_upper_slack_edge(self):
+        self.assertEqual(ap("C1", blind_edit=_loc(25, 30)), [])
+        self.assertEqual(ap("C1", blind_edit=_loc(26, 30)),
+                         ["defect location"])
+
+    def test_overlap_at_lower_slack_edge(self):
+        self.assertEqual(ap("C1", blind_edit=_loc(1, 5)), [])
+        self.assertEqual(ap("C1", blind_edit=_loc(1, 4)),
+                         ["defect location"])
+
+    def test_different_file(self):
+        self.assertEqual(ap("C1", blind_edit=_loc(10, 20, "src/b.py")),
+                         ["defect location"])
+
+    def test_category_mismatch(self):
+        self.assertEqual(ap("C3", blind_edit=lambda b: b.update(
+            defect_category="logic-error")), ["causal-failure category"])
+
+    def test_other_never_agrees(self):
+        self.assertEqual(ap("C1", key_edit=lambda k: k.update(
+            causal_failure_category="other"),
+            blind_edit=lambda b: b.update(defect_category="other")),
+            ["category other"])
+
+    def test_other_against_a_real_category(self):
+        self.assertEqual(ap("C1", blind_edit=lambda b: b.update(
+            defect_category="other")),
+            ["causal-failure category", "category other"])
+
+    def test_quiet_slot_with_catch_verdict(self):
+        self.assertEqual(ap("Q2", blind_edit=lambda b: b.update(
+            verdict="catch", type_guess="C1",
+            location={"file": "x", "line_start": 1, "line_end": 2},
+            defect_category="logic-error")), ["type"])
+
+    def test_catch_slot_with_quiet_verdict(self):
+        self.assertEqual(ap("C2", blind_edit=lambda b: b.update(
+            verdict="quiet", type_guess="Q1", location=None,
+            defect_category=None)), ["type"])
+
+    def test_quiet_exposure_check_false(self):
+        self.assertEqual(ap("Q1", final_edit=lambda f: f.update(
+            quiet_confirmed={"supported_behavior": True,
+                             "exposure_check": False})),
+            ["quiet confirmation"])
+
+    def test_quiet_confirmed_null(self):
+        self.assertEqual(ap("Q3", final_edit=lambda f: f.update(
+            quiet_confirmed=None)), ["quiet confirmation"])
+
+    def test_each_flag_false_is_final_flags(self):
+        for flag in ("type_agrees", "defect_agrees", "causal_failure_agrees",
+                     "proof_agrees"):
+            with self.subTest(flag=flag):
+                self.assertIn("final flags", ap("C1", final_edit=lambda f:
+                                                f.update({flag: False})))
+
+    def test_truthy_non_bool_flag_is_final_flags(self):
+        self.assertIn("final flags", ap("C2", final_edit=lambda f: f.update(
+            type_agrees="yes")))
+
+    def test_final_not_an_object(self):
+        key, blind, _, rec = agreeing_args("C1")
+        self.assertIn("final flags", holdout_seal.agreement_problems(
+            "C1", key, blind, None, recorded_exits=rec))
+
+    def test_defect_flag_cannot_override_location(self):
+        self.assertEqual(ap("C1", blind_edit=_loc(200, 210),
+                            final_edit=lambda f: f.update(
+                                defect_agrees=True)),
+                         ["defect location"])
+
+    def test_type_flag_cannot_override_type(self):
+        self.assertEqual(ap("C1", blind_edit=lambda b: b.update(
+            type_guess="C2"), final_edit=lambda f: f.update(
+            type_agrees=True)), ["type"])
+
+    def test_malformed_blind_location_never_agrees(self):
+        self.assertEqual(ap("C1", blind_edit=lambda b: b.update(
+            location={"file": "src/a.py", "line_start": "10",
+                      "line_end": 20})), ["defect location"])
+
+
+class TestProofExits(unittest.TestCase):
+
+    def test_agreeing(self):
+        self.assertEqual(ap("C1"), [])
+        self.assertEqual(ap("Q1"), [])
+
+    def test_catch_rerun_passes_on_both_trees(self):
+        self.assertEqual(ap("C1", final_edit=lambda f: f.update(
+            proof_rerun_exit={"base": 0, "changed": 0}, proof_agrees=True)),
+            ["proof exits"])
+
+    def test_equal_exits_wrong_pattern(self):
+        both = {"base": 1, "changed": 1}
+        self.assertEqual(ap("C2", final_edit=lambda f: f.update(
+            proof_rerun_exit=dict(both)), recorded_exits=dict(both)),
+            ["proof exits"])
+
+    def test_different_nonzero_changed_exit(self):
+        self.assertEqual(ap("C3", final_edit=lambda f: f.update(
+            proof_rerun_exit={"base": 0, "changed": 2})), ["proof exits"])
+
+    def test_quiet_rerun_fails_on_changed(self):
+        self.assertEqual(ap("Q1", final_edit=lambda f: f.update(
+            proof_rerun_exit={"base": 0, "changed": 1})), ["proof exits"])
+
+    def test_quiet_both_zero(self):
+        self.assertEqual(ap("Q2", final_edit=lambda f: f.update(
+            proof_rerun_exit={"base": 0, "changed": 0})), [])
+
+    def test_missing_recorded_exits_fail_closed(self):
+        self.assertEqual(ap("C1", recorded_exits=None), ["proof exits"])
+
+    def test_default_recorded_exits_fail_closed(self):
+        key, blind, final, _ = agreeing_args("Q3")
+        self.assertEqual(holdout_seal.agreement_problems("Q3", key, blind,
+                                                         final),
+                         ["proof exits"])
+
+    def test_recorded_exits_strings_and_bools(self):
+        for rec in ({"base": "0", "changed": 1},
+                    {"base": False, "changed": True}):
+            with self.subTest(rec=rec):
+                self.assertEqual(ap("C1", recorded_exits=rec),
+                                 ["proof exits"])
+
+    def test_final_exit_bools_are_final_flags(self):
+        self.assertEqual(ap("C1", final_edit=lambda f: f.update(
+            proof_rerun_exit={"base": False, "changed": True})),
+            ["final flags"])
+
+    def test_runnable_rerun_null_is_final_flags(self):
+        self.assertIn("final flags", ap("C2", final_edit=lambda f: f.update(
+            proof_rerun_exit=None)))
+
+    def test_proof_agrees_false_with_matching_exits(self):
+        self.assertEqual(ap("C1", final_edit=lambda f: f.update(
+            proof_agrees=False)), ["final flags"])
+
+    def test_proof_agrees_cannot_cover_exits(self):
+        self.assertEqual(ap("Q1", final_edit=lambda f: f.update(
+            proof_agrees=True, proof_rerun_exit={"base": 1, "changed": 0})),
+            ["proof exits"])
+
+    def test_recorded_exits_helper(self):
+        rec = holdout_seal._recorded_exits
+        run = {"runnable": True, "base": {"exit": 0}, "changed": {"exit": 3}}
+        self.assertEqual(rec(run), {"base": 0, "changed": 3})
+        self.assertIsNone(rec({"runnable": False, "nonrunnable_reason": "x",
+                               "manual_evidence": "y"}))
+        self.assertIsNone(rec({"runnable": True, "base": {"exit": True},
+                               "changed": {"exit": 1}}))
+        self.assertIsNone(rec({"runnable": True, "base": {}}))
+        self.assertIsNone(rec({"runnable": "yes", "base": {"exit": 0},
+                               "changed": {"exit": 1}}))
+        self.assertIsNone(rec(None))
+        self.assertIsNone(rec([1, 2]))
+
+
+class TestNonRunnableRule(unittest.TestCase):
+
+    def _nr(self, slot="C2", **kw):
+        kw.setdefault("runnable", False)
+        kw.setdefault("recorded_exits", {"base": 0, "changed": 0})
+        final_edit = kw.pop("final_edit", None)
+
+        def edit(f):
+            f.update(proof_rerun_exit=None, proof_agrees=True)
+            if final_edit:
+                final_edit(f)
+        return ap(slot, final_edit=edit, **kw)
+
+    def test_unresolved_blocks(self):
+        self.assertEqual(self._nr(resolution_bound=False),
+                         ["non-runnable proof"])
+
+    def test_bound_resolution_passes(self):
+        self.assertEqual(self._nr(resolution_bound=True), [])
+
+    def test_invented_exits_block(self):
+        self.assertEqual(self._nr(resolution_bound=True, final_edit=lambda f:
+                                  f.update(proof_rerun_exit={"base": 0,
+                                                             "changed": 1})),
+                         ["non-runnable proof"])
+
+    def test_resolution_does_not_override_disagreement(self):
+        self.assertIn("final flags", self._nr(
+            resolution_bound=True,
+            final_edit=lambda f: f.update(proof_agrees=False)))
+
+    def test_quiet_non_runnable_bound(self):
+        self.assertEqual(self._nr("Q2", resolution_bound=True), [])
+
+    def test_recorded_exits_ignored(self):
+        self.assertEqual(self._nr(resolution_bound=True,
+                                  recorded_exits=None), [])
+
+
+# ================================================================ seal gate
+
+
+class CompletedCase(SealCase):
+    """A holdout whose six cases went through an agreeing cross-check."""
+
+    COMPLETE = True
+
+    def setUp(self):
+        super().setUp()
+        if self.COMPLETE:
+            self.complete()
+
+    def blockers(self, **kw):
+        return holdout_seal.seal_blockers(self.folder, **kw)
+
+    def seal(self):
+        return quiet(holdout_seal.do_seal, self.folder)[0]
+
+    def assertSeals(self):
+        self.assertEqual(self.blockers(), [])
+        self.seal()
+        self.assertTrue(os.path.isfile(os.path.join(self.folder,
+                                                    "SEAL.json")))
+
+    def assertBlocked(self, expected=None, contains=None):
+        got = self.blockers()
+        if expected is not None:
+            self.assertEqual(got, expected)
+        if contains is not None:
+            self.assertTrue(any(contains in b for b in got), got)
+        with self.assertRaises(KitError):
+            self.seal()
+        self.assertFalse(os.path.exists(os.path.join(self.folder,
+                                                     "SEAL.json")))
+        return got
+
+    def pkt(self, slot):
+        return packet(self.folder, self.cid(slot))
+
+    def edit_json(self, path, fn):
+        obj = load(path)
+        fn(obj)
+        dump(path, obj)
+
+    def refreeze_blind(self, slot):
+        c = self.cid(slot)
+        self.edit_json(ledger_path(self.folder, c), lambda d: d.update(
+            blind_sha256=sha(os.path.join(self.pkt(slot), "blind.json"))))
+
+    def append(self, path, data=b"x"):
+        with open(path, "ab") as fh:
+            fh.write(data)
+
+
+class TestSealHappyPath(CompletedCase):
+
+    def test_completed_fixture_has_no_blockers(self):
+        self.assertEqual(self.blockers(), [])
+
+    def test_do_seal_writes_everything(self):
+        seal = self.seal()
+        f = self.folder
+        on_disk = load(os.path.join(f, "SEAL.json"))
+        self.assertEqual(on_disk, seal)
+        self.assertEqual(holdout_manifest.public_shape_problems(on_disk), [])
+        self.assertEqual(sorted(on_disk["cases"]), sorted(self.ids.values()))
+        self.assertTrue(os.path.isfile(os.path.join(f, "sealed",
+                                                    "INVENTORY.json")))
+        self.assertTrue(os.path.isfile(os.path.join(f, "sealed", "HMAC-KEY")))
+        for c in self.ids.values():
+            self.assertEqual(sha(os.path.join(kdir(f, c), "crosscheck.json")),
+                             sha(os.path.join(packet(f, c), "final.json")))
+        inv = load(os.path.join(f, "sealed", "INVENTORY.json"))["files"]
+        self.assertIn("keys/" + holdout_kit.XCHECK_REGISTRY, inv)
+
+    def test_seal_twice_refused(self):
+        self.seal()
+        with self.assertRaises(KitError) as cm:
+            self.seal()
+        self.assertIn("already sealed (SEAL.json exists); delete it "
+                      "deliberately if you must re-seal", str(cm.exception))
+
+    def test_no_partial_seal_when_build_fails(self):
+        with mock.patch.object(holdout_manifest, "build_seal",
+                               side_effect=KitError("boom")):
+            with self.assertRaises(KitError):
+                self.seal()
+        self.assertFalse(os.path.exists(os.path.join(self.folder,
+                                                     "SEAL.json")))
+
+    def test_no_partial_seal_when_inventory_fails(self):
+        with mock.patch.object(holdout_manifest, "write_inventory",
+                               side_effect=KitError("boom")):
+            with self.assertRaises(KitError):
+                self.seal()
+        self.assertFalse(os.path.exists(os.path.join(self.folder,
+                                                     "SEAL.json")))
+
+    def test_seal_prints_no_key_text(self):
+        _, out = quiet(holdout_seal.do_seal, self.folder)
+        for c in self.ids.values():
+            key = key_of(self.folder, c)
+            for field in ("defect", "causal_failure",
+                          "expected_quiet_rationale"):
+                if key.get(field):
+                    self.assertNotIn(key[field], out)
+
+
+class TestSealBlockers(CompletedCase):
+
+    def test_validation_failure_blocks(self):
+        prov = os.path.join(kdir(self.folder, self.cid("Q2")),
+                            "provenance.json")
+        self.edit_json(prov, lambda p: p["search"].update(budget=24))
+        got = self.assertBlocked()
+        self.assertTrue(any(b.startswith("validation failed: ")
+                            for b in got), got)
+
+    def test_validate_runs_with_proofs(self):
+        with mock.patch.object(holdout_validate, "validate_folder",
+                               wraps=holdout_validate.validate_folder) as spy:
+            self.blockers()
+        self.assertEqual(spy.call_count, 1)
+        args, kwargs = spy.call_args
+        self.assertEqual(args, (self.folder,))
+        self.assertFalse(kwargs.get("skip_proofs", False))
+
+    def test_given_checks_are_used(self):
+        bad = [holdout_validate.Check("proofs", False, "x")]
+        with mock.patch.object(holdout_validate, "validate_folder") as spy:
+            got = self.blockers(checks=bad)
+        spy.assert_not_called()
+        self.assertEqual(got, ["validation failed: proofs"])
+
+    def test_case_without_ledger(self):
+        os.remove(ledger_path(self.folder, self.cid("C1")))
+        self.assertBlocked(["cross-check not prepared for C1"])
+
+    def test_blind_edited_after_reveal(self):
+        self.append(os.path.join(self.pkt("C1"), "blind.json"), b" ")
+        self.assertBlocked(["C1: blind verdict changed after reveal"])
+
+    def test_blind_missing_after_reveal(self):
+        os.remove(os.path.join(self.pkt("Q3"), "blind.json"))
+        self.assertBlocked(["Q3: blind verdict changed after reveal"])
+
+    def test_blind_wrong_shape(self):
+        self.edit_json(os.path.join(self.pkt("C2"), "blind.json"),
+                       lambda b: b.update(defect_category="weird"))
+        self.refreeze_blind("C2")
+        self.assertBlocked(["C2: blind verdict has the wrong shape"])
+
+    def test_token_mismatch(self):
+        def flip(f):
+            t = f["reveal_token"]
+            f["reveal_token"] = ("1" if t[0] != "1" else "2") + t[1:]
+        self.edit_json(os.path.join(self.pkt("Q2"), "final.json"), flip)
+        self.assertBlocked(["Q2: final.json is not bound to this reveal "
+                            "(reveal_token mismatch)"])
+
+    def test_token_missing(self):
+        self.edit_json(os.path.join(self.pkt("C3"), "final.json"),
+                       lambda f: f.pop("reveal_token"))
+        self.assertBlocked(["C3: final.json is not bound to this reveal "
+                            "(reveal_token mismatch)"])
+
+    def test_final_missing(self):
+        os.remove(os.path.join(self.pkt("C2"), "final.json"))
+        self.assertBlocked(["C2: final.json missing"])
+
+    def test_final_unreadable(self):
+        with open(os.path.join(self.pkt("C2"), "final.json"), "w") as fh:
+            fh.write("{oops")
+        self.assertBlocked(contains="C2: final.json")
+
+    def test_every_case_reported(self):
+        os.remove(os.path.join(self.pkt("C2"), "final.json"))
+        self.append(os.path.join(self.pkt("Q1"), "blind.json"), b" ")
+        self.assertBlocked(["C2: final.json missing",
+                            "Q1: blind verdict changed after reveal"])
+
+
+class TestSealNotRevealed(CompletedCase):
+
+    COMPLETE = False
+
+    def test_not_yet_revealed(self):
+        self.prepare()
+        self.blinds()
+        got = self.assertBlocked()
+        self.assertEqual(sorted(got), sorted("%s: not yet revealed" % s
+                                             for s in self.ids))
+
+    def test_nothing_prepared(self):
+        got = self.assertBlocked()
+        self.assertEqual(sorted(got), sorted("cross-check not prepared for %s"
+                                             % s for s in self.ids))
+
+
+class TestSealRetired(CompletedCase):
+
+    def relabel(self, slot):
+        """Retire `slot`, then re-file it byte-for-byte under a fresh ID
+        (ledger and verdict included; case.json and the registry updated so
+        every other check still holds)."""
+        f = self.folder
+        old = self.cid(slot)
+        holdout_manifest.retire_case(f, old, "owner")
+        new = holdout_kit.new_case_id()
+        for part in ("cases", "keys"):
+            shutil.copytree(os.path.join(f, "sealed", part, old),
+                            os.path.join(f, "sealed", part, new))
+            shutil.rmtree(os.path.join(f, "sealed", part, old))
+        self.edit_json(os.path.join(cdir(f, new), "case.json"),
+                       lambda d: d.update(id=new))
+
+        def swap(reg):
+            for g in reg["generations"]:
+                g["cases"] = [new if c == old else c for c in g["cases"]]
+        self.edit_json(registry_path(f), swap)
+        self.ids[slot] = new
+        return new
+
+    def test_relabeled_retired_case_blocks(self):
+        new = self.relabel("C2")
+        self.assertEqual([c for c in holdout_validate.validate_folder(
+            self.folder) if not c.ok], [])
+        got = self.assertBlocked()
+        self.assertEqual(got, holdout_manifest.retired_problems(self.folder))
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0].startswith("case C2 (%s) reuses material "
+                                          "retired on " % new), got)
+
+    def test_retired_listed_before_crosscheck_blockers(self):
+        self.relabel("Q1")
+        os.remove(os.path.join(self.pkt("C3"), "final.json"))
+        got = self.assertBlocked()
+        self.assertIn("reuses material retired", got[0])
+        self.assertEqual(got[1:], ["C3: final.json missing"])
+
+    def test_mutant_retired_blocker(self):
+        self.relabel("C2")
+        with mock.patch.object(holdout_seal, "_blocker_retired",
+                               return_value=None):
+            self.assertSeals()
+
+
+class TestSealBinding(CompletedCase):
+
+    def expect(self, slot, members):
+        return [holdout_seal.INPUTS_CHANGED_MSG % (slot, members)]
+
+    def test_change_diff(self):
+        self.append(os.path.join(cdir(self.folder, self.cid("C1")),
+                                 "change.diff"))
+        self.assertBlocked(self.expect("C1", "change.diff"))
+
+    def test_base_tar(self):
+        tar_path = os.path.join(cdir(self.folder, self.cid("Q2")), "base.tar")
+        tree = os.path.join(self.tmp, "retar")
+        holdout_kit.safe_extract_tar(tar_path, tree)
+        with open(os.path.join(tree, "EXTRA.txt"), "w") as fh:
+            fh.write("extra\n")
+        with tarfile.open(tar_path, "w") as tar:
+            for rel in holdout_kit.walk_regular(tree):
+                tar.add(os.path.join(tree, rel), arcname=rel)
+        self.assertBlocked(self.expect("Q2", "base.tar"))
+
+    def test_key_json(self):
+        self.edit_json(os.path.join(kdir(self.folder, self.cid("C2")),
+                                    "key.json"),
+                       lambda k: k["location"].update(line_end=9))
+        self.assertBlocked(self.expect("C2", "key.json"))
+
+    def test_proof_results(self):
+        self.edit_json(os.path.join(kdir(self.folder, self.cid("Q3")),
+                                    "proof-results.json"),
+                       lambda r: r["base"].update(
+                           ran_at="2026-01-02T00:00:00Z"))
+        self.assertBlocked(self.expect("Q3", "proof-results.json"))
+
+    def test_proof_run(self):
+        self.append(os.path.join(kdir(self.folder, self.cid("C3")), "proof",
+                                 "run"), b"# reviewed\n")
+        self.assertBlocked(self.expect("C3", "proof"))
+
+    def test_proof_extra_file(self):
+        with open(os.path.join(kdir(self.folder, self.cid("Q1")), "proof",
+                               "extra.sh"), "w") as fh:
+            fh.write("true\n")
+        self.assertBlocked(self.expect("Q1", "proof"))
+
+    def test_case_types(self):
+        self.append(os.path.join(self.folder, "kit", "CASE-TYPES.md"),
+                    b"\nedited\n")
+        got = self.assertBlocked()
+        self.assertEqual(sorted(got), sorted(
+            holdout_seal.INPUTS_CHANGED_MSG % (s, "CASE-TYPES.md")
+            for s in self.ids))
+
+    def test_several_members_named_together(self):
+        c = self.cid("C1")
+        self.append(os.path.join(cdir(self.folder, c), "change.diff"))
+        self.append(os.path.join(kdir(self.folder, c), "proof", "run"),
+                    b"# x\n")
+        self.edit_json(os.path.join(kdir(self.folder, c),
+                                    "proof-results.json"),
+                       lambda r: r["changed"].update(
+                           ran_at="2026-01-03T00:00:00Z"))
+        self.assertBlocked(self.expect(
+            "C1", "change.diff, proof-results.json, proof"))
+
+    def test_revalidating_does_not_clear(self):
+        self.append(os.path.join(kdir(self.folder, self.cid("C3")), "proof",
+                                 "run"), b"# reviewed\n")
+        self.assertEqual([c for c in holdout_validate.validate_folder(
+            self.folder) if not c.ok], [])
+        self.assertBlocked(self.expect("C3", "proof"))
+
+    def test_reset_and_fresh_round_clears(self):
+        c = self.cid("C1")
+        self.append(os.path.join(cdir(self.folder, c), "change.diff"))
+        self.assertBlocked(self.expect("C1", "change.diff"))
+        self.reset("C1", "inputs-changed")
+        complete_case(self.folder, c)
+        self.assertEqual(ledger(self.folder, c)["generation"], 2)
+        self.assertSeals()
+
+    def test_mutant_inputs_bound(self):
+        self.edit_json(os.path.join(kdir(self.folder, self.cid("Q3")),
+                                    "proof-results.json"),
+                       lambda r: r["base"].update(
+                           ran_at="2026-01-02T00:00:00Z"))
+        with mock.patch.object(holdout_seal, "_blocker_inputs_bound",
+                               return_value=None):
+            self.assertSeals()
+
+
+class TestSealWorkspaceFresh(CompletedCase):
+
+    def setUp(self):
+        super().setUp()
+        self.reset("Q1", "owner")
+        complete_case(self.folder, self.cid("Q1"))
+        self.lp = ledger_path(self.folder, self.cid("Q1"))
+
+    def test_honest_second_generation_seals(self):
+        led = ledger(self.folder, self.cid("Q1"))
+        self.assertEqual((led["generation"], led["workspace"]),
+                         (2, "xcheck-r2"))
+        self.assertSeals()
+
+    def test_ledger_moved_to_burned_workspace(self):
+        self.edit_json(self.lp, lambda d: d.update(generation=1,
+                                                   workspace="xcheck"))
+        self.assertBlocked([holdout_seal.STALE_WORKSPACE_MSG
+                            % ("Q1", 2, "xcheck")])
+
+    def test_packet_prepared_after_reveal(self):
+        def early(reg):
+            reg["generations"][1]["revealed_at"] = \
+                "2000-01-01T00:00:00.000000Z"
+        self.edit_json(registry_path(self.folder), early)
+        self.assertBlocked(["Q1: packet prepared after its workspace was "
+                            "revealed"])
+
+    def test_generation_missing(self):
+        self.edit_json(self.lp, lambda d: d.pop("generation"))
+        self.assertBlocked(["Q1: cross-check round is not bound to a "
+                            "registered workspace"])
+
+    def test_workspace_not_in_registry(self):
+        self.edit_json(self.lp, lambda d: d.update(workspace="xcheck-r7"))
+        self.assertBlocked(["Q1: cross-check round is not bound to a "
+                            "registered workspace"])
+
+    def test_registry_revealed_at_cleared(self):
+        def clear(reg):
+            reg["generations"][1]["revealed_at"] = None
+        self.edit_json(registry_path(self.folder), clear)
+        self.assertBlocked(["Q1: cross-check round is not bound to a "
+                            "registered workspace"])
+
+    def test_registry_missing(self):
+        os.remove(registry_path(self.folder))
+        got = self.assertBlocked()
+        self.assertEqual(sorted(got), sorted(
+            "%s: cross-check round is not bound to a registered workspace"
+            % s for s in self.ids))
+
+    def test_current_generation_not_newer_than_archived_reveal(self):
+        led = ledger(self.folder, self.cid("Q1"))
+        fake = {"xid": "X-00000000", "generation": 2,
+                "workspace": "xcheck-r2", "revealed_at": led["revealed_at"],
+                "reset_reason": "owner"}
+        self.edit_json(self.lp, lambda d: d["rounds"].append(fake))
+        self.assertBlocked([holdout_seal.STALE_WORKSPACE_MSG
+                            % ("Q1", led["round"], "xcheck-r2")])
+
+    def test_case_not_registered_in_its_workspace(self):
+        def drop(reg):
+            reg["generations"][1]["cases"].remove(self.cid("Q1"))
+        self.edit_json(registry_path(self.folder), drop)
+        self.assertBlocked(["Q1: packet is not registered in workspace "
+                            "xcheck-r2"])
+
+    def _move_to_burned_workspace(self):
+        old = self.pkt("Q1")
+        os.rename(old, os.path.join(self.folder, "xcheck",
+                                    os.path.basename(old)))
+        self.edit_json(self.lp, lambda d: d.update(generation=1,
+                                                   workspace="xcheck"))
+
+    def test_stale_packet_really_in_burned_workspace(self):
+        self._move_to_burned_workspace()
+        self.assertBlocked([holdout_seal.STALE_WORKSPACE_MSG
+                            % ("Q1", 2, "xcheck")])
+
+    def test_mutant_workspace_fresh(self):
+        self._move_to_burned_workspace()
+        with mock.patch.object(holdout_seal, "_blocker_workspace_fresh",
+                               return_value=None):
+            self.assertSeals()
+
+
+class TestSealAgreement(CompletedCase):
+
+    COMPLETE = False
+
+    def disagree(self, slot, parts, **kw):
+        self.complete(**kw)
+        return self.assertBlocked([holdout_seal.DISAGREE_MSG
+                                   % (slot, parts)])
+
+    @staticmethod
+    def only(slot, **fields):
+        def mutate(s, d):
+            if s == slot:
+                d.update(fields)
+        return mutate
+
+    def test_8a_c3_as_c1(self):
+        self.disagree("C1", "type",
+                      mutate_blind=self.only("C1", type_guess="C3"))
+
+    def test_8b_different_defect_same_file(self):
+        def far(s, d):
+            if s == "C2":
+                d["location"] = dict(d["location"], line_start=200,
+                                     line_end=210)
+        self.disagree("C2", "defect location", mutate_blind=far)
+
+    def test_8c_different_file(self):
+        def other_file(s, d):
+            if s == "C1":
+                d["location"] = dict(d["location"], file="mod_other.sh")
+        self.disagree("C1", "defect location", mutate_blind=other_file)
+
+    def test_8d_category(self):
+        self.disagree("C3", "causal-failure category",
+                      mutate_blind=self.only("C3", defect_category="injection"))
+
+    def test_8e_key_and_blind_other(self):
+        self.edit_json(os.path.join(kdir(self.folder, self.cid("C1")),
+                                    "key.json"),
+                       lambda k: k.update(causal_failure_category="other"))
+        self.disagree("C1", "category other")
+
+    def test_8f_catch_slot_judged_quiet(self):
+        self.disagree("C1", "type", mutate_blind=self.only(
+            "C1", verdict="quiet", type_guess="Q1", location=None,
+            defect_category=None))
+
+    def test_8g_quiet_slot_judged_catch(self):
+        self.disagree("Q2", "type", mutate_blind=self.only(
+            "Q2", verdict="catch", type_guess="C1",
+            location={"file": "mod_q2.sh", "line_start": 3, "line_end": 5},
+            defect_category="logic-error"))
+
+    def test_8h_quiet_confirmation(self):
+        self.disagree("Q1", "quiet confirmation", mutate_final=self.only(
+            "Q1", quiet_confirmed={"supported_behavior": True,
+                                   "exposure_check": False}))
+
+    def test_8i_proof_agrees_false(self):
+        self.disagree("C3", "final flags",
+                      mutate_final=self.only("C3", proof_agrees=False))
+
+    def test_8j_defect_agrees_false(self):
+        self.disagree("C1", "final flags",
+                      mutate_final=self.only("C1", defect_agrees=False))
+
+    def test_8k_type_flag_cannot_override(self):
+        self.disagree("C1", "type",
+                      mutate_blind=self.only("C1", type_guess="C2"),
+                      mutate_final=self.only("C1", type_agrees=True))
+
+    def test_mutant_agreement(self):
+        self.complete(mutate_blind=self.only("C1", type_guess="C3"))
+        with mock.patch.object(holdout_seal, "agreement_problems",
+                               return_value=[]):
+            self.assertSeals()
+
+
+class TestSealProofExits(CompletedCase):
+
+    COMPLETE = False
+
+    def test_8l_catch_rerun_passed_on_both_trees(self):
+        self.complete(mutate_final=TestSealAgreement.only(
+            "C2", proof_rerun_exit={"base": 0, "changed": 0},
+            proof_agrees=True))
+        self.assertBlocked([holdout_seal.DISAGREE_MSG % ("C2", "proof exits")])
+
+    def test_8m_quiet_rerun_failed_on_changed(self):
+        self.complete(mutate_final=TestSealAgreement.only(
+            "Q1", proof_rerun_exit={"base": 0, "changed": 1}))
+        self.assertBlocked([holdout_seal.DISAGREE_MSG % ("Q1", "proof exits")])
+
+    def test_8n_rerun_differs_from_record(self):
+        self.complete(mutate_final=TestSealAgreement.only(
+            "C3", proof_rerun_exit={"base": 0, "changed": 2}))
+        self.assertBlocked([holdout_seal.DISAGREE_MSG % ("C3", "proof exits")])
+
+    def test_8o_recorded_exits_wrong_is_a_validation_failure(self):
+        path = os.path.join(kdir(self.folder, self.cid("C1")),
+                            "proof-results.json")
+        self.edit_json(path, lambda r: (r["base"].update(exit=1),
+                                        r["changed"].update(exit=1)))
+        self.complete()
+        got = self.assertBlocked()
+        self.assertIn("validation failed: proofs", got)
+
+    def test_8p_wiring_passes_recorded_exits(self):
+        self.complete()
+        with mock.patch.object(holdout_seal, "agreement_problems",
+                               wraps=holdout_seal.agreement_problems) as spy:
+            self.assertEqual(self.blockers(), [])
+        self.assertEqual(spy.call_count, 6)
+        seen = {}
+        for call in spy.call_args_list:
+            slot = call.args[0]
+            seen[slot] = call.kwargs
+        for slot, c in self.ids.items():
+            pr = load(os.path.join(kdir(self.folder, c),
+                                   "proof-results.json"))
+            self.assertEqual(seen[slot]["recorded_exits"],
+                             {"base": pr["base"]["exit"],
+                              "changed": pr["changed"]["exit"]})
+            self.assertIs(seen[slot]["runnable"], True)
+            self.assertIs(seen[slot]["resolution_bound"], False)
+
+    def test_8q_mutants(self):
+        self.complete(mutate_final=TestSealAgreement.only(
+            "C2", proof_rerun_exit={"base": 0, "changed": 0}))
+        with mock.patch.object(holdout_seal, "_recorded_exits",
+                               return_value={"base": 0, "changed": 0}):
+            self.assertEqual(self.blockers(), [
+                holdout_seal.DISAGREE_MSG % ("C2", "proof exits")])
+        with mock.patch.object(holdout_seal, "agreement_problems",
+                               return_value=[]):
+            self.assertSeals()
+
+
+class TestNonRunnable(CompletedCase):
+    """C2's proof recorded as non-runnable before the cross-check."""
+
+    COMPLETE = False
+
+    def setUp(self):
+        super().setUp()
+        self.c = self.cid("C2")
+        dump(os.path.join(kdir(self.folder, self.c), "proof-results.json"),
+             {"runnable": False, "nonrunnable_reason": "needs a live service",
+              "manual_evidence": "fixture manual evidence"})
+        self.res = os.path.join(kdir(self.folder, self.c), "resolution.md")
+
+    def resolve(self):
+        with open(self.res, "w", encoding="utf-8") as fh:
+            fh.write("owner decision with evidence\n")
+        self.reset("C2", "resolved")
+        complete_case(self.folder, self.c)
+
+    def test_validate_still_passes(self):
+        self.assertEqual([c for c in holdout_validate.validate_folder(
+            self.folder) if not c.ok], [])
+
+    def test_blocked_without_resolution(self):
+        self.complete()
+        self.assertIsNone(agreeing_final(self.folder, self.c)
+                          ["proof_rerun_exit"])
+        self.assertBlocked([holdout_seal.DISAGREE_MSG
+                            % ("C2", "non-runnable proof")])
+
+    def test_runnable_flag_wiring(self):
+        self.complete()
+        with mock.patch.object(holdout_seal, "agreement_problems",
+                               wraps=holdout_seal.agreement_problems) as spy:
+            self.blockers()
+        flags = {call.args[0]: call.kwargs for call in spy.call_args_list}
+        self.assertIs(flags["C2"]["runnable"], False)
+        self.assertIsNone(flags["C2"]["recorded_exits"])
+        self.assertEqual(sorted(s for s, kw in flags.items()
+                                if kw["runnable"] is True),
+                         ["C1", "C3", "Q1", "Q2", "Q3"])
+
+    def test_owner_resolution_path_seals(self):
+        self.complete()
+        self.resolve()
+        led = ledger(self.folder, self.c)
+        self.assertEqual(led["resolution_sha256"], sha(self.res))
+        self.assertEqual(led["generation"], 2)
+        self.assertTrue(os.path.isfile(os.path.join(
+            packet(self.folder, self.c), "revealed", "resolution.md")))
+        self.assertSeals()
+
+    def test_resolution_written_after_reveal_is_not_bound(self):
+        self.complete()
+        with open(self.res, "w", encoding="utf-8") as fh:
+            fh.write("late decision\n")
+        self.assertBlocked([holdout_seal.DISAGREE_MSG
+                            % ("C2", "non-runnable proof")])
+
+    def test_resolution_edited_after_reveal_is_not_bound(self):
+        self.complete()
+        self.resolve()
+        with open(self.res, "a", encoding="utf-8") as fh:
+            fh.write("edited afterwards\n")
+        self.assertBlocked([holdout_seal.DISAGREE_MSG
+                            % ("C2", "non-runnable proof")])
+
+    def test_invented_exits_block(self):
+        self.complete()
+        self.resolve()
+        self.edit_json(os.path.join(packet(self.folder, self.c),
+                                    "final.json"),
+                       lambda f: f.update(proof_rerun_exit={"base": 0,
+                                                            "changed": 1}))
+        self.assertBlocked([holdout_seal.DISAGREE_MSG
+                            % ("C2", "non-runnable proof")])
+
+    def test_mutant_non_runnable_clause(self):
+        self.complete()
+        with mock.patch.object(holdout_seal, "agreement_problems",
+                               return_value=[]):
+            self.assertSeals()
+
+
+class TestResolutionPath(CompletedCase):
+
+    COMPLETE = False
+
+    def setUp(self):
+        super().setUp()
+        self.c = self.cid("C3")
+        self.complete(mutate_blind=TestSealAgreement.only(
+            "C3", defect_category="injection"))
+        self.assertBlocked([holdout_seal.DISAGREE_MSG
+                            % ("C3", "causal-failure category")])
+        self.old_xid = ledger(self.folder, self.c)["xid"]
+        self.old_token = ledger(self.folder, self.c)["reveal_token"]
+        self.res = os.path.join(kdir(self.folder, self.c), "resolution.md")
+
+    def write_resolution(self):
+        with open(self.res, "w", encoding="utf-8") as fh:
+            fh.write("owner evidence: the key category is right\n")
+
+    def test_resolution_without_reset_never_auto_passes(self):
+        self.write_resolution()
+        self.assertBlocked([holdout_seal.DISAGREE_MSG
+                            % ("C3", "causal-failure category")])
+
+    def test_resolved_round_in_next_generation_seals(self):
+        self.write_resolution()
+        self.reset("C3", "resolved")
+        mapping, _ = self.prepare(self.c)
+        new_xid = mapping[self.c]
+        self.assertNotEqual(new_xid, self.old_xid)
+        self.assertFalse(os.path.exists(os.path.join(self.folder, "xcheck",
+                                                     self.old_xid)))
+        self.assertNotIn(new_xid, xids_in(self.folder, "xcheck"))
+        self.assertEqual(xids_in(self.folder, "xcheck-r2"), [new_xid])
+        deny = load(os.path.join(self.folder, "xcheck-r2", ".claude",
+                                 "settings.json"))["permissions"]["deny"]
+        self.assertIn("Read(%s/xcheck/**)" % self.folder, deny)
+        write_blind(self.folder, self.c)
+        reveal_all(self.folder)
+        led = ledger(self.folder, self.c)
+        self.assertEqual(led["resolution_sha256"], sha(self.res))
+        self.assertTrue(os.path.isfile(os.path.join(
+            packet(self.folder, self.c), "revealed", "resolution.md")))
+        write_final(self.folder, self.c)
+        self.assertSeals()
+        led = ledger(self.folder, self.c)
+        self.assertEqual(len(led["rounds"]), 1)
+        self.assertEqual(led["rounds"][0]["reset_reason"], "resolved")
+        self.assertEqual(led["rounds"][0]["generation"], 1)
+        self.assertEqual(led["generation"], 2)
+
+    def test_stale_final_with_old_token_blocks(self):
+        self.write_resolution()
+        self.reset("C3", "resolved")
+        complete_case(self.folder, self.c,
+                      mutate_final=lambda s, f: f.update(
+                          reveal_token=self.old_token))
+        self.assertBlocked(["C3: final.json is not bound to this reveal "
+                            "(reveal_token mismatch)"])
+
+
+class TestSealMutants(CompletedCase):
+    """Each remaining blocker patched out: its own message disappears (and,
+    where nothing downstream also catches the fault, the holdout seals)."""
+
+    def test_mutant_validate(self):
+        prov = os.path.join(kdir(self.folder, self.cid("Q2")),
+                            "provenance.json")
+        self.edit_json(prov, lambda p: p["search"].update(budget=24))
+        with mock.patch.object(holdout_seal, "_blocker_validate",
+                               return_value=None):
+            self.assertSeals()
+
+    def test_mutant_prepared(self):
+        os.remove(ledger_path(self.folder, self.cid("C1")))
+        with mock.patch.object(holdout_seal, "_blocker_prepared",
+                               return_value=None):
+            got = self.blockers()
+        self.assertNotIn("cross-check not prepared for C1", got)
+        self.assertTrue(any(b.startswith("C1: ") for b in got), got)
+
+    def test_mutant_revealed(self):
+        led = ledger(self.folder, self.cid("Q3"))
+        led.pop("blind_sha256")
+        dump(ledger_path(self.folder, self.cid("Q3")), led)
+        self.assertEqual(self.blockers(), ["Q3: not yet revealed"])
+        with mock.patch.object(holdout_seal, "_blocker_revealed",
+                               return_value=None):
+            got = self.blockers()
+        self.assertNotIn("Q3: not yet revealed", got)
+        self.assertTrue(got)
+
+    def test_mutant_blind_intact(self):
+        self.append(os.path.join(self.pkt("C1"), "blind.json"), b" ")
+        with mock.patch.object(holdout_seal, "_blocker_blind_intact",
+                               return_value=None):
+            self.assertSeals()
+
+    def test_mutant_blind_shape(self):
+        self.edit_json(os.path.join(self.pkt("C2"), "blind.json"),
+                       lambda b: b.update(reasoning=""))
+        self.refreeze_blind("C2")
+        self.assertEqual(self.blockers(),
+                         ["C2: blind verdict has the wrong shape"])
+        with mock.patch.object(holdout_seal, "_blocker_blind_shape",
+                               return_value=None):
+            self.assertSeals()
+
+    def test_mutant_final_present(self):
+        os.remove(os.path.join(self.pkt("C2"), "final.json"))
+        with mock.patch.object(holdout_seal, "_blocker_final_present",
+                               return_value=None):
+            got = self.blockers()
+        self.assertNotIn("C2: final.json missing", got)
+        self.assertTrue(got)
+
+    def test_mutant_final_bound(self):
+        self.edit_json(os.path.join(self.pkt("Q2"), "final.json"),
+                       lambda f: f.update(reveal_token="f" * 16))
+        with mock.patch.object(holdout_seal, "_blocker_final_bound",
+                               return_value=None):
+            self.assertSeals()
+
+
+# ================================================================ CLI seal
+
+
+class TestCliSeal(CompletedCase):
+
+    def run_seal(self):
+        return self.cli("seal")
+
+    def test_cli_seal(self):
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("OK: sealed 6 cases. Next: bin/holdout encrypt",
+                      proc.stdout)
+        seal = load(os.path.join(self.folder, "SEAL.json"))
+        self.assertEqual(holdout_manifest.public_shape_problems(seal), [])
+        for c in self.ids.values():
+            self.assertNotIn(key_of(self.folder, c).get("defect", "@@"),
+                             proc.stdout)
+        again = self.run_seal()
+        self.assertEqual(again.returncode, 1)
+        self.assertIn("already sealed (SEAL.json exists)", again.stderr)
+
+    def test_cli_blind_changed(self):
+        self.append(os.path.join(self.pkt("C1"), "blind.json"), b" ")
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: C1: blind verdict changed after reveal",
+                      proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.folder,
+                                                     "SEAL.json")))
+
+    def test_cli_inputs_changed_then_redo(self):
+        c = self.cid("Q3")
+        self.append(os.path.join(cdir(self.folder, c), "change.diff"))
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("sealed inputs changed after the cross-check "
+                      "(change.diff)", proc.stdout)
+        self.assertEqual(self.cli("crosscheck-reset", c, "--reason",
+                                  "inputs-changed").returncode, 0)
+        self.assertEqual(self.cli("crosscheck-prepare", "--case",
+                                  c).returncode, 0)
+        write_blind(self.folder, c)
+        self.assertEqual(self.cli("crosscheck-reveal", "--ready").returncode,
+                         0)
+        write_final(self.folder, c)
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+
+    def test_cli_type_disagreement(self):
+        self.edit_json(os.path.join(self.pkt("C1"), "blind.json"),
+                       lambda b: b.update(type_guess="C3"))
+        self.refreeze_blind("C1")
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: Case C1: the independent check disagreed "
+                      "(type)", proc.stdout)
+
+    def test_cli_proof_exits_then_restore(self):
+        path = os.path.join(self.pkt("C2"), "final.json")
+        self.edit_json(path, lambda f: f.update(
+            proof_rerun_exit={"base": 0, "changed": 0}))
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: Case C2: the independent check disagreed "
+                      "(proof exits)", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.folder,
+                                                     "SEAL.json")))
+        self.edit_json(path, lambda f: f.update(
+            proof_rerun_exit={"base": 0, "changed": 1}))
+        self.assertEqual(self.run_seal().returncode, 0)
+
+    def test_cli_stale_workspace_then_restore(self):
+        c = self.cid("C3")
+        self.reset("C3", "owner")
+        complete_case(self.folder, c)
+        lp = ledger_path(self.folder, c)
+        honest = load(lp)
+        self.edit_json(lp, lambda d: d.update(generation=1,
+                                              workspace="xcheck"))
+        proc = self.run_seal()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: Case C3: round 2 was judged in cross-check "
+                      "workspace xcheck, which had already seen a revealed "
+                      "key.", proc.stdout)
+        dump(lp, honest)
+        self.assertEqual(self.run_seal().returncode, 0)
+
+
+class TestCliSealNonRunnable(CompletedCase):
+
+    COMPLETE = False
+
+    def test_cli_non_runnable_then_resolution(self):
+        c = self.cid("C1")
+        dump(os.path.join(kdir(self.folder, c), "proof-results.json"),
+             {"runnable": False, "nonrunnable_reason": "needs hardware",
+              "manual_evidence": "fixture manual evidence"})
+        self.complete()
+        proc = self.cli("seal")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("PROBLEM: Case C1: the independent check disagreed "
+                      "(non-runnable proof)", proc.stdout)
+        with open(os.path.join(kdir(self.folder, c), "resolution.md"),
+                  "w") as fh:
+            fh.write("owner evidence\n")
+        self.assertEqual(self.cli("crosscheck-reset", c, "--reason",
+                                  "resolved").returncode, 0)
+        self.assertEqual(self.cli("crosscheck-prepare", "--case",
+                                  c).returncode, 0)
+        write_blind(self.folder, c)
+        reveal_all(self.folder)
+        write_final(self.folder, c)
+        proc = self.cli("seal")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("resolution_sha256", ledger(self.folder, c))
+
+
 # ================================================================ module shape
 
 
@@ -1033,6 +2186,16 @@ class TestModuleShape(unittest.TestCase):
                      "LINE_SLACK", "WORKSPACES_RELPATH"):
             self.assertTrue(hasattr(holdout_seal, name), name)
         self.assertEqual(holdout_seal.LINE_SLACK, 5)
+
+    def test_seal_exports(self):
+        for name in ("seal_blockers", "agreement_problems", "do_seal",
+                     "_recorded_exits", "_blocker_validate",
+                     "_blocker_retired", "_blocker_prepared",
+                     "_blocker_revealed", "_blocker_blind_intact",
+                     "_blocker_blind_shape", "_blocker_inputs_bound",
+                     "_blocker_workspace_fresh", "_blocker_final_present",
+                     "_blocker_final_bound", "_blocker_agreement"):
+            self.assertTrue(hasattr(holdout_seal, name), name)
         self.assertEqual(holdout_seal.WORKSPACES_RELPATH,
                          "sealed/keys/xcheck-workspaces.json")
 
