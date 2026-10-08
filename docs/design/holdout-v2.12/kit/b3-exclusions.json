@@ -1,0 +1,48 @@
+{
+  "commit_sha256": [
+    "0a7a6361fc340cae8b193de2475275e910cdd1e7494c05709662fe68a14692cd",
+    "1344232101c4be3790be02f44119afde38556073caca1168616a8651a933978f",
+    "2ab1888269b42161415dcb39cc0c084ec45c60a4ec87e0094aa9d30434ddd601",
+    "397ed84db2d7dd798362e409826d8b778c48bad63c4663c3abcf8f146122e65c",
+    "3a8c510e88034c115302064c7b56cc708b4e8e05a3aefdec9ccefc69ab4bb317",
+    "46690688d777970faed8a17710a1b3cb14d74056281d66bc04d38ec739f035e2",
+    "49c5925ea5b8b44f3e92fa3477811460c1ce204ca2ec28e46caef67aed47b9ac",
+    "4c4fd1be48473db141a03f5bd1a6803f5d37d3eaff915f6fa37b9c6246961290",
+    "748c7be249658b12bd31e352a7bb0aef9c31bb1cf7f198b4f8e1c338b7a0765b",
+    "7fc2218545b347f690d3ce9a9f8628e20986e77f5805d208ffcc17792518d275",
+    "9f875def5d3163cf7a7003b05e981b47311b4cbd49ac0cc8e9489dd0e628e200",
+    "c8ba0559abf50ca909a38563bf2940b7f87ca91524946ee23389a34983c8df76",
+    "cce307743ce37811b2930238c982860b9cb754019e406585741a6083ecbd0c43",
+    "d6e4017f30104c3d845cc8b9fd8c7989fb26aa2f19073672b013eae5d7a665b8",
+    "dec7e7c94795490a4e8ef2960ced3d7341a8f675ad5ce441b1d7450dde78a94f",
+    "e0bd2f8a88af48f6d05572bfdf40263c506f88db3444e301260f71ea6215ab96",
+    "e803786518d1908c0d0d659b7081fc5e850c519d7a6794a824d1c2965daa49e4",
+    "ed29890e257dcee4e99aa9db2de635d00fb1c5bf89cf0e1e16610876eee08f8a"
+  ],
+  "exclude_all_slots": [
+    "thejuran-marketplace",
+    "turingmind-code-review"
+  ],
+  "note": "Repo names only. Hashes are SHA-256 of B3 commit ids and patch bytes so the validator can reject a reused B3 commit or patch without the finder ever seeing B3 content. dashboard is listed as previously exposed during B3 development (a replaced candidate), not as part of the final measured benchmark.",
+  "patch_sha256": [
+    "31bad85408ca909aca531e6a55bdbe5033db4a3760074c5dc4a3f68ad7d09b23",
+    "40ae123ce9910d937b8afdf51dcd98de048eec6b86bbdb4be1c0661fbc88cd91",
+    "4fdadb707be17419f294383df421d2fcaad4bb9df6e7536a32029420670bb89a",
+    "58642f18ef2dbe42106010e9e85f48a12b56215fde4d63e709ea54f3c03604ca",
+    "62ea20429723d647e16fb7aabdb5158022eb39f9291010fa05417a65af12d4d6",
+    "79913d5c293f86cf71e52377c1be356069c3825ac1b104e4846734b3fbabc4b1",
+    "81a3b81463c354bcc3e88215c2d2d296f0e6c56bd895ce7fa76af2f89ce3ea69",
+    "b68b2db029f8c09a489e645efff113525ead24dd5cb4d25c596a1d27c7f9df07",
+    "b980f980f873cc28982b17901a86382d565261663792e90243edc8db7afc1035",
+    "d747d8d0dacc7752ae5e41b44810265ba9b88245f41d10ea3f478422f5761663",
+    "d99180365a66f9efef72f7e01afb3c23ad707c6e6f1917d378df75e5b1ad7790",
+    "dfc5c57bce51d32ee7d401d3dd49ff2d93a6b185f391df34dfa349559494bc13"
+  ],
+  "repos": [
+    "dashboard",
+    "roonseek",
+    "seedsyncarr",
+    "triggarr"
+  ],
+  "schema": "vibe-check-holdout-b3-exclusions/1"
+}

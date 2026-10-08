@@ -1,0 +1,45 @@
+{
+  "autoMemoryEnabled": false,
+  "permissions": {
+    "blockReadsOutsideWorkingDirectories": true,
+    "additionalDirectories": ["<REPOS>", "<H>/sealed"],
+    "deny": [
+      "Read(~/turingmind-code-review/**)",
+      "Edit(~/turingmind-code-review/**)",
+      "Read(~/thejuran-marketplace/**)",
+      "Read(~/.claude/**)",
+      "Read(~/.codex/**)",
+      "Read(~/.b3/**)",
+      "Read(~/.vibe-check-snapshots/**)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "filesystem": {
+      "denyRead": [
+        "~/turingmind-code-review",
+        "~/thejuran-marketplace",
+        "~/.claude",
+        "~/.codex",
+        "~/.b3",
+        "~/.vibe-check-snapshots"
+      ]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["<GUARD>", "hook", "--role", "finder"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
