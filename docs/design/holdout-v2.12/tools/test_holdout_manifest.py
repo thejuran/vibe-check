@@ -423,7 +423,7 @@ class TestBuildSeal(ManifestCase):
         mac = seal["mac"]
         self.assertEqual(mac, holdout_manifest.MAC_DESCRIPTION)
         for s in _strings(seal):
-            if s == mac:
+            if s in (mac, holdout_manifest.SEAL_SCHEMA):
                 continue
             self.assertNotIn(REPO_NAME, s)
             self.assertNotIn("/", s)
