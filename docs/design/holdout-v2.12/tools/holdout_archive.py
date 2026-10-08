@@ -394,6 +394,544 @@ def encrypt(folder, openssl=None, tar=None):
     return archive
 
 
+# ---------------------------------------------------------------- leak scan
+
+DECODE_DEPTH = 3
+PROBE_MIN_LEN = 30
+# One JSON string literal: a quote, then any run of non-quote/non-backslash
+# characters or backslash escapes, then a quote. Unambiguous, so linear.
+_LITERAL_RE = re.compile(r'"(?:[^"\\]|\\.)*"', re.S)
+_DIFF_HEADER_RE = re.compile(r"^(---|\+\+\+) (a/|b/|/dev/null)")
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+GIT_BIN = "git"
+GIT_LOG_LOCATION = "git log -p --all"
+NO_SEALED_MSG = "no sealed/ to build probes from; use --from-archive"
+NO_PROBES_MSG = ("no diff or key line of 30+ characters was found; a leak "
+                 "scan would prove nothing")
+LEDGER_MALFORMED_MSG = ("LEAKSCAN.json is malformed; repair it (never delete "
+                        "it) and scan again")
+LEAK_REMEDY_MSG = ("publish will refuse until these slots are replaced "
+                   "through the finder and a fresh cross-check and the "
+                   "holdout is re-sealed; deleting the matched files is "
+                   "cleanup, not a remedy")
+RETIRED_LINE = ("retired %s (%s): its revision and content cannot be "
+                "re-sealed under any ID")
+
+
+def decoded_strings(text, depth=None):
+    """Every JSON string literal in `text`, decoded (escapes undone), plus,
+    recursively up to `depth` levels (default DECODE_DEPTH), the literals
+    inside each decoded value. Literals that do not decode are skipped.
+    Returns the decoded values only, never the raw text."""
+    if depth is None:
+        depth = DECODE_DEPTH
+    out = []
+    frontier = [text]
+    for _ in range(max(depth, 0)):
+        nxt = []
+        for chunk in frontier:
+            if '"' not in chunk:
+                continue
+            for match in _LITERAL_RE.finditer(chunk):
+                try:
+                    value = json.loads(match.group(0), strict=False)
+                except ValueError:
+                    continue
+                if isinstance(value, str):
+                    out.append(value)
+                    nxt.append(value)
+        frontier = nxt
+    return out
+
+
+def _key_strings(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _key_strings(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from _key_strings(value)
+
+
+def _probes(folder):
+    """[(probe, slot, case_id)]: every added/removed diff line (marker and
+    surrounding whitespace dropped) and every key.json string value of at
+    least PROBE_MIN_LEN characters, per sealed case under `folder`."""
+    sealed = os.path.join(folder, "sealed")
+    if os.path.islink(sealed) or not os.path.isdir(sealed):
+        raise KitError(NO_SEALED_MSG)
+    out = []
+    for cid in holdout_kit.case_ids(folder):
+        key = holdout_kit.load_json(
+            os.path.join(sealed, "keys", cid, "key.json"), what="a key.json")
+        slot = key.get("slot")
+        if slot not in holdout_kit.SLOTS:
+            raise KitError("a key.json has no valid slot")
+        diff = os.path.join(sealed, "cases", cid, "change.diff")
+        try:
+            with open(diff, "rb") as fh:
+                text = fh.read().decode("utf-8", "replace")
+        except OSError:
+            raise KitError("a change.diff is missing or unreadable")
+        seen = set()
+        candidates = []
+        for line in text.splitlines():
+            if _DIFF_HEADER_RE.match(line):
+                continue
+            if line[:1] in ("+", "-"):
+                candidates.append(line[1:])
+        candidates.extend(_key_strings(key))
+        for raw in candidates:
+            probe = raw.strip()
+            if len(probe) >= PROBE_MIN_LEN and probe not in seen \
+                    and "\0" not in probe:
+                seen.add(probe)
+                out.append((probe, slot, cid))
+    return out
+
+
+def _index(probes):
+    index = {}
+    for probe, slot, cid in probes:
+        slots, ids = index.setdefault(probe, (set(), set()))
+        slots.add(slot)
+        ids.add(cid)
+    return index
+
+
+def _match(text, index):
+    """(raw-matched probes, decoded-matched probes) for one text."""
+    raw = {p for p in index if p in text}
+    joined = "\0".join(decoded_strings(text))
+    decoded = {p for p in index if p in joined} if joined else set()
+    return raw, decoded
+
+
+def _hit(location, raw, decoded, index):
+    if not raw and not decoded:
+        return None
+    matched = raw | decoded
+    return {"location": location, "count": len(raw) + len(decoded),
+            "decoded": not raw,
+            "slots": sorted({s for p in matched for s in index[p][0]}),
+            "case_ids": sorted({c for p in matched for c in index[p][1]})}
+
+
+def _scan_file(path, index):
+    """The hit for one file (raw pass + JSON-decoded pass), or None."""
+    with open(path, "rb") as fh:
+        text = fh.read().decode("utf-8", "replace")
+    raw, decoded = _match(text, index)
+    return _hit(path, raw, decoded, index)
+
+
+def _under(path, root):
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def _iter_files(root, skip, skip_names=()):
+    """Regular files under `root` (a file or a folder), never following a
+    link and never entering `skip` (the holdout folder)."""
+    try:
+        mode = os.lstat(root).st_mode
+    except OSError:
+        return
+    if stat.S_ISLNK(mode):
+        return
+    if stat.S_ISREG(mode):
+        if not _under(os.path.realpath(root), skip):
+            yield root
+        return
+    if not stat.S_ISDIR(mode) or _under(os.path.realpath(root), skip):
+        return
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = sorted(
+            d for d in dirnames if d not in skip_names
+            and not _under(os.path.realpath(os.path.join(dirpath, d)), skip))
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            try:
+                if not stat.S_ISREG(os.lstat(path).st_mode):
+                    continue
+            except OSError:
+                continue
+            yield path
+
+
+def _git_log(repo):
+    proc = holdout_kit.run_argv(
+        [GIT_BIN, "-C", repo, "log", "-p", "--all", "--no-color",
+         "--no-ext-diff", "--no-textconv"], timeout=600)
+    if proc.returncode != 0:
+        raise KitError("git log could not read the tuning repo")
+    return proc.stdout.decode("utf-8", "replace")
+
+
+def default_scan_roots(home=None):
+    """The owner-side locations a leak could land in (never the holdout)."""
+    home = home or os.path.expanduser("~")
+    return [os.path.join(home, ".claude"),
+            os.path.join(home, ".claude", "history.jsonl"),
+            "/private/tmp/claude-%d" % os.getuid(),
+            os.path.join(home, ".codex"),
+            os.path.join(home, ".zsh_history")]
+
+
+def record_leakscan(folder, result):
+    """Append one entry (counts, hit case IDs and slots; never a location, a
+    probe or any decoded text) to <folder>/LEAKSCAN.json. Existing entries
+    are never modified; a malformed ledger is refused, never replaced."""
+    path = os.path.join(folder, holdout_manifest.LEAKSCAN_RELPATH)
+    if os.path.lexists(path):
+        if os.path.islink(path):
+            raise KitError(LEDGER_MALFORMED_MSG)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                ledger = json.load(fh)
+        except (OSError, ValueError):
+            raise KitError(LEDGER_MALFORMED_MSG)
+        if not isinstance(ledger, dict) \
+                or ledger.get("schema") != holdout_manifest.LEAKSCAN_SCHEMA \
+                or not isinstance(ledger.get("scans"), list):
+            raise KitError(LEDGER_MALFORMED_MSG)
+    else:
+        ledger = {"schema": holdout_manifest.LEAKSCAN_SCHEMA, "scans": []}
+    seal_path = os.path.join(folder, holdout_manifest.SEAL_NAME)
+    entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+             "seal_sha256": (holdout_kit.sha256_file(seal_path)
+                             if os.path.isfile(seal_path) else None),
+             "probes": result["probes"],
+             "hits": len(result["hits"]),
+             "hit_case_ids": list(result["hit_case_ids"]),
+             "hit_slots": list(result["hit_slots"])}
+    ledger["scans"].append(entry)
+    holdout_kit.write_json_atomic(path, ledger)
+    return ledger
+
+
+def _report(result, unreadable):
+    if unreadable:
+        holdout_kit.print_problem("leak scan could not read %d file(s); they "
+                                  "were not checked" % unreadable)
+    hits = result["hits"]
+    if not hits:
+        holdout_kit.print_ok("leak scan: 0 matches across %d probes (raw + "
+                             "JSON-decoded)" % result["probes"])
+        return
+    holdout_kit.print_problem("leak scan: %d location(s) contain holdout "
+                              "text:" % len(hits))
+    for hit in hits:
+        line = "  %s: %d (slots: %s)" % (hit["location"], hit["count"],
+                                         ", ".join(hit["slots"]))
+        if hit["decoded"]:
+            line += " (JSON-decoded)"
+        print(line)
+    holdout_kit.print_problem("slots to replace: %s"
+                              % ", ".join(result["hit_slots"]))
+    holdout_kit.print_problem(LEAK_REMEDY_MSG)
+
+
+def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
+             openssl=None, tar=None):
+    """Search the tuning side for holdout text; record the scan in
+    LEAKSCAN.json and retire every case it names. Prints counts, locations
+    and slots only.
+
+    With from_archive the probes come from the archive, decrypted into
+    tmp/owner/verify and removed in finally (for use after scrub).
+    """
+    _refuse()
+    h = os.path.realpath(folder)
+    roots = list(scan_roots) if scan_roots is not None \
+        else default_scan_roots()
+    verify = None
+    try:
+        if from_archive:
+            archive = archive_path(h)
+            if not os.path.isfile(archive) or os.path.islink(archive):
+                raise KitError("the archive is missing; nothing to build "
+                               "probes from")
+            owner_tmp = _owner_tmp(h)
+            verify = os.path.join(owner_tmp, VERIFY_NAME)
+            _remove(verify)
+            print("Decrypting: openssl will ask for the passphrase")
+            sys.stdout.flush()
+            decrypt_to(archive, verify, openssl=openssl, tar=tar,
+                       stage_dir=owner_tmp)
+            source = verify
+        else:
+            source = h
+        probes = _probes(source)
+        if not probes:
+            raise KitError(NO_PROBES_MSG)
+        index = _index(probes)
+        slot_of = {cid: slot for _, slot, cid in probes}
+        hits, seen, unreadable = [], set(), 0
+        sources = [(root, ()) for root in roots]
+        if repo:
+            sources.append((os.path.realpath(repo), (".git",)))
+        for root, skip_names in sources:
+            for path in _iter_files(root, h, skip_names):
+                real = os.path.realpath(path)
+                if real in seen:
+                    continue
+                seen.add(real)
+                try:
+                    hit = _scan_file(path, index)
+                except OSError:
+                    unreadable += 1
+                    continue
+                if hit:
+                    hits.append(hit)
+        if repo:
+            raw, decoded = _match(_git_log(os.path.realpath(repo)), index)
+            hit = _hit(GIT_LOG_LOCATION, raw, decoded, index)
+            if hit:
+                hits.append(hit)
+        result = {"probes": len(index), "hits": hits,
+                  "hit_case_ids": sorted({c for h_ in hits
+                                          for c in h_["case_ids"]}),
+                  "hit_slots": sorted({s for h_ in hits
+                                       for s in h_["slots"]})}
+        _report(result, unreadable)
+        record_leakscan(h, result)
+        for cid in result["hit_case_ids"]:
+            holdout_manifest.retire_case(h, cid, "leakscan",
+                                         content_folder=source)
+            holdout_kit.print_problem(RETIRED_LINE % (slot_of[cid], cid))
+        return result
+    finally:
+        if verify is not None:
+            _remove(verify)
+
+
+# ---------------------------------------------------------------- scrub
+
+# Files that outlive the plaintext, besides the unmodified kit files listed in
+# kit/KIT-INVENTORY.json. LEAKSCAN.json (counts, opaque IDs, slots) and
+# RETIRED.json (ID-independent fingerprints) must survive so later scans,
+# publish and seal keep seeing every earlier leak and retirement.
+SCRUB_FIXED_SURVIVORS = ("SEAL.json", ".metadata_never_index",
+                         ARCHIVE_RELPATH, "bin/holdout",
+                         "kit/KIT-INVENTORY.json", "LEAKSCAN.json",
+                         "RETIRED.json")
+# Survivors that must be present after scrub; any other may be absent.
+REQUIRED_SURVIVORS = ("SEAL.json", ".metadata_never_index", ARCHIVE_RELPATH,
+                      "bin/holdout")
+KEEP_DIRS = ("archive", "bin", "kit")
+RESIDUE_MARK = "vibe-check-holdout"
+ARCHIVE_UNVERIFIED_MSG = "archive missing or not verified; run encrypt first"
+INVENTORY_MSG = ("kit/KIT-INVENTORY.json is missing or malformed; scrub "
+                 "cannot know what to keep")
+
+
+def _safe_rel(rel):
+    if not isinstance(rel, str) or not rel or rel.startswith("/") \
+            or "\\" in rel:
+        return False
+    return all(part not in ("", ".", "..") for part in rel.split("/"))
+
+
+def survivor_allowlist(folder):
+    """{relpath: required sha256 or None}: SCRUB_FIXED_SURVIVORS plus every
+    kit file listed in kit/KIT-INVENTORY.json with its recorded hash."""
+    path = os.path.join(folder, "kit", holdout_kit.KIT_INVENTORY)
+    if os.path.islink(path):
+        raise KitError(INVENTORY_MSG)
+    try:
+        inventory = holdout_kit.load_json(path, required={"files": dict},
+                                          what="kit/KIT-INVENTORY.json")
+    except KitError:
+        raise KitError(INVENTORY_MSG)
+    allow = {rel: None for rel in SCRUB_FIXED_SURVIVORS}
+    for rel, sha in inventory["files"].items():
+        if not _safe_rel(rel) or not isinstance(sha, str) \
+                or not _HEX64_RE.match(sha):
+            raise KitError(INVENTORY_MSG)
+        allow["kit/" + rel] = sha
+    return allow
+
+
+def _archive_verified(h):
+    archive = archive_path(h)
+    seal_path = os.path.join(h, holdout_manifest.SEAL_NAME)
+    try:
+        seal = holdout_kit.load_json(seal_path, what="SEAL.json")
+    except KitError:
+        raise KitError(ARCHIVE_UNVERIFIED_MSG)
+    recorded = seal.get("archive_sha256")
+    if not isinstance(recorded, str) or os.path.islink(archive) \
+            or not os.path.isfile(archive):
+        raise KitError(ARCHIVE_UNVERIFIED_MSG)
+    if holdout_kit.sha256_file(archive) != recorded:
+        raise KitError(ARCHIVE_UNVERIFIED_MSG)
+
+
+def _is_survivor(h, rel, allowlist):
+    if rel not in allowlist:
+        return False
+    sha = allowlist[rel]
+    return sha is None or holdout_kit.sha256_file(
+        os.path.join(h, *rel.split("/"))) == sha
+
+
+def _top(rel):
+    return rel.split("/")[0]
+
+
+def _planned_removals(h, allowlist):
+    return [rel for rel in holdout_kit.walk_regular(h)
+            if not _is_survivor(h, rel, allowlist)]
+
+
+def _remove_non_survivors(folder, allowlist):
+    """Delete every regular file that is not an allowlisted survivor (or
+    whose bytes differ from its required hash); return (count, sorted
+    top-level names)."""
+    removed = _planned_removals(folder, allowlist)
+    for rel in removed:
+        try:
+            os.remove(os.path.join(folder, *rel.split("/")))
+        except OSError:
+            raise KitError("cannot remove a file under %s" % _top(rel))
+    return len(removed), sorted({_top(rel) for rel in removed})
+
+
+def _prune(h):
+    keep = {os.path.join(h, name) for name in KEEP_DIRS}
+    for dirpath, _, _ in os.walk(h, topdown=False, followlinks=False):
+        if dirpath == h or dirpath in keep:
+            continue
+        try:
+            if not os.listdir(dirpath):
+                os.rmdir(dirpath)
+        except OSError:
+            raise KitError("cannot remove an empty folder under %s"
+                           % _top(os.path.relpath(dirpath, h)))
+
+
+def _rewalk_survivors(folder):
+    return holdout_kit.walk_regular(folder)
+
+
+def _check_survivors(h, walk, allowlist):
+    unexpected = [rel for rel in walk if not _is_survivor(h, rel, allowlist)]
+    if unexpected:
+        raise KitError("scrub incomplete: %d unexpected file(s) remain under "
+                       "%s" % (len(unexpected),
+                               ", ".join(sorted({_top(r)
+                                                 for r in unexpected}))))
+    missing = [rel for rel in REQUIRED_SURVIVORS if rel not in walk]
+    if missing:
+        raise KitError("scrub incomplete: required survivor(s) missing: %s"
+                       % ", ".join(missing))
+
+
+def _default_residue_bases():
+    return {"home": os.path.expanduser("~"),
+            "tmp": "/private/tmp/claude-%d" % os.getuid()}
+
+
+def _listdir(path):
+    try:
+        return sorted(os.listdir(path))
+    except OSError:
+        return []
+
+
+def _history_lines(path, h):
+    count = 0
+    try:
+        with open(path, "rb") as fh:
+            for raw in fh:
+                try:
+                    entry = json.loads(raw.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                project = entry.get("project") if isinstance(entry, dict) \
+                    else None
+                if isinstance(project, str) and h in project:
+                    count += 1
+    except OSError:
+        return 0
+    return count
+
+
+def _residue(h, bases):
+    """[(path, history line count or None)] for owner-side places outside
+    the folder that may still hold holdout text. Never deleted here."""
+    out = []
+    claude = os.path.join(bases["home"], ".claude")
+    projects = os.path.join(claude, "projects")
+    for name in _listdir(projects):
+        if RESIDUE_MARK in name:
+            out.append((os.path.join(projects, name), None))
+    history = os.path.join(claude, "history.jsonl")
+    lines = _history_lines(history, h)
+    if lines:
+        out.append((history, lines))
+    for name in ("file-history", "paste-cache"):
+        path = os.path.join(claude, name)
+        if os.path.lexists(path):
+            out.append((path, None))
+    for name in _listdir(bases["tmp"]):
+        if RESIDUE_MARK in name:
+            out.append((os.path.join(bases["tmp"], name), None))
+    return out
+
+
+def _scrub_checks(h):
+    require_no_writers(h)
+    _archive_verified(h)
+    allowlist = survivor_allowlist(h)
+    holdout_kit.walk_regular(h)
+    for rel in REQUIRED_SURVIVORS:
+        if not os.path.isfile(os.path.join(h, *rel.split("/"))):
+            raise KitError("%s is missing; scrub would leave the folder "
+                           "unusable" % rel)
+    return allowlist
+
+
+def scrub_plan(folder):
+    """(top-level names scrub would remove, file count) without deleting."""
+    _refuse()
+    h = os.path.realpath(folder)
+    allowlist = _scrub_checks(h)
+    removals = _planned_removals(h, allowlist)
+    return sorted({_top(rel) for rel in removals}), len(removals)
+
+
+def scrub(folder, residue_bases=None):
+    """Remove every plaintext copy inside the folder; return residue
+    locations outside it that the owner must delete by hand."""
+    _refuse()
+    h = os.path.realpath(folder)
+    allowlist = _scrub_checks(h)
+    count, tops = _remove_non_survivors(h, allowlist)
+    _prune(h)
+    first = _rewalk_survivors(h)
+    time.sleep(SCRUB_SETTLE_SECONDS)
+    second = _rewalk_survivors(h)
+    _check_survivors(h, first, allowlist)
+    _check_survivors(h, second, allowlist)
+    holdout_kit.print_ok("plaintext removed (%d file(s) under %s); "
+                         "survivors: SEAL.json, the archive, bin/holdout and "
+                         "the unmodified kit"
+                         % (count, ", ".join(tops) or "nothing"))
+    residue = _residue(h, residue_bases or _default_residue_bases())
+    for path, lines in residue:
+        if lines is None:
+            holdout_kit.print_problem("residue: %s — delete it by hand"
+                                      % path)
+        else:
+            holdout_kit.print_problem("residue: %s (%d line(s) name the "
+                                      "holdout) — delete those lines by "
+                                      "hand" % (path, lines))
+    return [path for path, _ in residue]
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -451,9 +989,38 @@ def _cmd_decrypt(args):
     return 0
 
 
+def _cmd_leakscan(args):
+    if not args.repo:
+        holdout_kit.print_ok("tuning repo not scanned (pass --repo)")
+    result = leakscan(args.folder, scan_roots=args.scan_root, repo=args.repo,
+                      from_archive=args.from_archive)
+    return 1 if result["hits"] else 0
+
+
+def _cmd_scrub(args):
+    try:
+        if not args.yes:
+            tops, count = scrub_plan(args.folder)
+            print("Scrub will remove %d file(s) under: %s"
+                  % (count, ", ".join(tops) or "nothing"))
+            print("Survivors: %s, and every unmodified kit file listed in "
+                  "kit/KIT-INVENTORY.json" % ", ".join(SCRUB_FIXED_SURVIVORS))
+            print("Re-run with --yes to remove the plaintext.")
+            return 0
+        scrub(args.folder)
+    except KitError as exc:
+        if str(exc) == ARCHIVE_UNVERIFIED_MSG:
+            holdout_kit.print_problem(ARCHIVE_UNVERIFIED_MSG)
+            return 1
+        raise
+    return 0
+
+
 _HANDLERS = {
     "encrypt": _cmd_encrypt,
     "decrypt": _cmd_decrypt,
+    "leakscan": _cmd_leakscan,
+    "scrub": _cmd_scrub,
 }
 
 
