@@ -298,6 +298,580 @@ def public_shape_problems(seal):
     return problems
 
 
+# ---------------------------------------------------------------- rehash
+
+# Path components rehash may print as they are; anything else is shown as
+# "<file>" so a stray file's name can never carry case details into output.
+_GENERIC_PARTS = (frozenset({"cases", "keys", "proof", "run"})
+                  | holdout_kit.CASE_FILES | holdout_kit.KEY_FILES
+                  | frozenset(holdout_kit.SEALED_PRIVATE))
+
+
+def _generic(rel):
+    parts = []
+    for part in rel.split("/"):
+        if part in _GENERIC_PARTS or holdout_kit.ID_RE.match(part):
+            parts.append(part)
+        else:
+            parts.append("<file>")
+    return "/".join(parts)
+
+
+def _listdir_ids(path):
+    try:
+        names = os.listdir(path)
+    except OSError:
+        return set()
+    return {n for n in names if holdout_kit.ID_RE.match(n)}
+
+
+def rehash_folder(seal_path, sealed_folder):
+    """Verify a decrypted sealed/ folder against SEAL.json.
+
+    Returns {"ok", "commitment_ok", "cases": {ID: bool}, "mismatched",
+    "missing", "extra", "missing_cases", "extra_cases"}; file lists hold
+    generic relpaths (opaque IDs and allowlisted names only). A missing key,
+    a missing inventory, a symlink or a seal without the public shape is a
+    KitError: nothing is verified then.
+    """
+    seal = holdout_kit.load_json(seal_path, what="SEAL.json")
+    shape = public_shape_problems(seal)
+    if shape:
+        raise KitError("SEAL.json does not have the public shape (%s)"
+                       % shape[0])
+    sealed = os.path.abspath(sealed_folder)
+    if os.path.basename(sealed) != "sealed" or not os.path.isdir(sealed) \
+            or os.path.islink(sealed):
+        raise KitError("--sealed must be a folder named sealed")
+    folder = os.path.dirname(sealed)
+    try:
+        holdout_kit.walk_regular(sealed)
+    except KitError:
+        raise KitError("symlink refused: a link or special file is under "
+                       "sealed/; nothing was verified")
+    key = _read_key(sealed)
+    commitment_ok = hmac.compare_digest(holdout_kit.sha256_bytes(key),
+                                        seal["key_commitment_sha256"])
+    results, missing_cases = {}, []
+    for cid in sorted(seal["cases"]):
+        present = all(os.path.isdir(os.path.join(sealed, part, cid))
+                      for part in ("cases", "keys"))
+        if not present:
+            results[cid] = False
+            missing_cases.append(cid)
+            continue
+        got = case_hmac(key, folder, cid)
+        results[cid] = hmac.compare_digest(got, seal["cases"][cid]["hmac"])
+    on_disk = (_listdir_ids(os.path.join(sealed, "cases"))
+               | _listdir_ids(os.path.join(sealed, "keys")))
+    extra_cases = sorted(on_disk - set(seal["cases"]))
+    inventory = holdout_kit.load_json(os.path.join(sealed, _INVENTORY_NAME),
+                                      required={"files": dict},
+                                      what="sealed/INVENTORY.json")
+    recorded = inventory["files"]
+    actual = {rel: holdout_kit.sha256_file(_join_rel(sealed, rel))
+              for rel in _content_files(sealed)}
+    mismatched = sorted(_generic(r) for r in set(recorded) & set(actual)
+                        if recorded[r] != actual[r])
+    missing = sorted(_generic(r) for r in set(recorded) - set(actual))
+    extra = sorted(_generic(r) for r in set(actual) - set(recorded))
+    ok = (commitment_ok and all(results.values()) and not mismatched
+          and not missing and not extra and not missing_cases
+          and not extra_cases)
+    return {"ok": ok, "commitment_ok": commitment_ok, "cases": results,
+            "mismatched": mismatched, "missing": missing, "extra": extra,
+            "missing_cases": missing_cases, "extra_cases": extra_cases,
+            "inventory_files": len(recorded)}
+
+
+# ---------------------------------------------------------------- extract
+
+
+def extract_part(sealed_folder, part, dest):
+    """Copy only sealed/<part>/ to <dest>/<part>/; return the file count.
+
+    Phase 55 gives the review runner cases/ and the scorer keys/, never both.
+    """
+    if part not in ("cases", "keys"):
+        raise KitError("extract copies exactly one part: cases or keys")
+    src = os.path.join(sealed_folder, part)
+    if os.path.islink(src) or not os.path.isdir(src):
+        raise KitError("sealed/%s is missing or not a folder" % part)
+    rels = holdout_kit.walk_regular(src)
+    target = os.path.join(dest, part)
+    if os.path.lexists(target):
+        raise KitError("%s/ already exists under the destination; choose an "
+                       "empty destination" % part)
+    try:
+        for rel in rels:
+            out = _join_rel(target, rel)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            shutil.copy2(_join_rel(src, rel), out, follow_symlinks=False)
+    except OSError:
+        raise KitError("cannot copy %s/ to the destination" % part)
+    return len(rels)
+
+
+# ---------------------------------------------------------------- seal-order
+
+
+def seal_order_problems(repo, before=None):
+    """[] when SEAL.json has exactly one commit across every branch, tag and
+    remote (full history), and that commit is an ancestor of `before`."""
+    proc = holdout_kit.run_argv(
+        ["git", "-C", repo, "log", "--format=%H", "--full-history",
+         "--simplify-merges", "--topo-order", "--branches", "--tags",
+         "--remotes", "--", SEAL_RELPATH], timeout=60)
+    if proc.returncode != 0:
+        return ["cannot read the git history of the repo"]
+    revs = proc.stdout.decode("utf-8", "replace").split()
+    if not revs:
+        return ["SEAL.json has no commit"]
+    if len(revs) != 1:
+        return ["SEAL.json has %d commits; expected exactly 1" % len(revs)]
+    if before is None:
+        return []
+    check = holdout_kit.run_argv(
+        ["git", "-C", repo, "rev-parse", "--verify", "--quiet",
+         str(before) + "^{commit}"], timeout=60)
+    if check.returncode != 0:
+        return ["cannot resolve %s to a commit" % before]
+    anc = holdout_kit.run_argv(
+        ["git", "-C", repo, "merge-base", "--is-ancestor", revs[0],
+         str(before)], timeout=60)
+    if anc.returncode == 0:
+        return []
+    if anc.returncode == 1:
+        return ["seal commit is not an ancestor of %s" % before]
+    return ["cannot check ancestry against %s" % before]
+
+
+# ---------------------------------------------------------------- leak ledger
+
+LEAKSCAN_RELPATH = "LEAKSCAN.json"
+LEAKSCAN_SCHEMA = "vibe-check-holdout-leakscan/1"
+NO_SCAN_MSG = "no leak scan recorded; run leakscan before publish"
+LEAK_FOUND_MSG = ("the last leak scan found holdout text on the tuning side; "
+                  "replace the slots it named, re-seal, and scan again")
+LEAK_STALE_MSG = ("the last leak scan predates the current seal; run leakscan "
+                  "again")
+LEAK_NOT_REPLACED_MSG = ("case %s (%s) was named by a leak scan on %s and has "
+                         "not been replaced; deleting the matched files is "
+                         "cleanup, not a remedy: replace the slot through the "
+                         "finder and a fresh cross-check, then re-seal")
+
+
+def _scan_ok(scan):
+    if not isinstance(scan, dict):
+        return False
+    hits = scan.get("hits")
+    ids = scan.get("hit_case_ids")
+    return (isinstance(hits, int) and not isinstance(hits, bool)
+            and hits >= 0 and isinstance(scan.get("at"), str)
+            and isinstance(ids, list)
+            and all(isinstance(i, str) for i in ids)
+            and (scan.get("seal_sha256") is None
+                 or isinstance(scan.get("seal_sha256"), str)))
+
+
+def leak_ledger_problems(folder, seal):
+    """[] only when the last leak scan was clean, was taken against the
+    current SEAL.json bytes, and no case any scan named is still sealed."""
+    try:
+        with open(os.path.join(folder, LEAKSCAN_RELPATH), "r",
+                  encoding="utf-8") as fh:
+            ledger = json.load(fh)
+    except (OSError, ValueError):
+        return [NO_SCAN_MSG]
+    if not isinstance(ledger, dict) or ledger.get("schema") != LEAKSCAN_SCHEMA:
+        return [NO_SCAN_MSG]
+    scans = ledger.get("scans")
+    if not isinstance(scans, list) or not scans \
+            or not all(_scan_ok(s) for s in scans):
+        return [NO_SCAN_MSG]
+    problems = []
+    last = scans[-1]
+    if last["hits"] != 0:
+        problems.append(LEAK_FOUND_MSG)
+    seal_path = os.path.join(folder, SEAL_NAME)
+    current = (holdout_kit.sha256_file(seal_path)
+               if os.path.isfile(seal_path) else None)
+    if current is None or last.get("seal_sha256") != current:
+        problems.append(LEAK_STALE_MSG)
+    cases = seal.get("cases") if isinstance(seal, dict) else None
+    cases = cases if isinstance(cases, dict) else {}
+    named = {}
+    for scan in scans:
+        for cid in scan["hit_case_ids"]:
+            named.setdefault(cid, scan["at"])
+    for cid in sorted(named):
+        if cid in cases:
+            entry = cases[cid]
+            slot = entry.get("slot", "?") if isinstance(entry, dict) else "?"
+            problems.append(LEAK_NOT_REPLACED_MSG % (slot, cid, named[cid]))
+    return problems
+
+
+# ---------------------------------------------------------------- retirement
+
+RETIRED_RELPATH = "RETIRED.json"
+RETIRED_SCHEMA = "vibe-check-holdout-retired/1"
+RETIRED_REVISIONS_RELPATH = "work/RETIRED-REVISIONS.json"
+RETIRED_REVISIONS_SCHEMA = "vibe-check-holdout-retired-revisions/1"
+RETIRE_REASONS = ("leakscan", "owner")
+_SOURCE_KEYS = ("repo_name", "base_rev", "feature_rev")
+_HASH_FIELDS = (("diff_sha256", "diff"), ("lines_sha256", "lines"),
+                ("key_sha256", "key"))
+# key.json fields that name the case rather than its content.
+_KEY_IDENTITY_FIELDS = ("slot", "id", "case_id")
+RETIRED_MSG = ("case %s (%s) reuses material retired on %s (%s); a retired "
+               "change cannot return under a new ID: replace it with a "
+               "different change (different revision AND different diff)")
+RETIRED_MALFORMED_MSG = ("RETIRED.json is malformed; repair the ledger (never "
+                         "delete it) and run this again")
+_NO_CONTENT_MSG = ("case %s has no sealed content to fingerprint; retire "
+                   "BEFORE deleting it")
+
+
+def _now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _hunk_counts(header):
+    m = re.match(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@", header)
+    if not m:
+        return None
+    old = int(m.group(1)) if m.group(1) is not None else 1
+    new = int(m.group(2)) if m.group(2) is not None else 1
+    return old, new
+
+
+def _diff_lines_sha256(data):
+    """sha256 over the sorted, de-duplicated set of added/removed lines of a
+    unified diff, marker removed and whitespace stripped. Context lines and
+    headers are ignored (hunks are walked by their line counts), so the same
+    change regenerated with a different -U context or re-indented matches.
+    None when the diff has no non-blank changed line."""
+    text = data.decode("utf-8", "replace")
+    changed = set()
+    old = new = 0
+    for line in text.split("\n"):
+        if old > 0 or new > 0:
+            tag = line[:1]
+            if tag == "\\":
+                continue
+            if tag == "-":
+                old -= 1
+            elif tag == "+":
+                new -= 1
+            else:
+                old -= 1
+                new -= 1
+                continue
+            stripped = line[1:].strip()
+            if stripped:
+                changed.add(stripped)
+            continue
+        if line.startswith("@@"):
+            counts = _hunk_counts(line)
+            if counts:
+                old, new = counts
+    if not changed:
+        return None
+    digest = hashlib.sha256()
+    for item in sorted(changed):
+        digest.update(item.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _load_dict_or_none(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def case_fingerprint(folder, case_id):
+    """ID-independent content identity of one case.
+
+    {"source": {repo_name, base_rev, feature_rev} from provenance.json (null
+    when absent), "diff_sha256", "lines_sha256" (see _diff_lines_sha256),
+    "key_sha256" (key.json minus slot/id/case_id, canonical JSON)}. case.json
+    is not hashed because it carries the ID; the ID never enters any field.
+    """
+    sealed = _sealed(folder)
+    cdir = os.path.join(sealed, "cases", case_id)
+    kdir = os.path.join(sealed, "keys", case_id)
+    for root in (cdir, kdir):
+        if os.path.islink(root):
+            raise KitError("a symbolic link was found in a case; remove it "
+                           "and run this again")
+        if os.path.isdir(root):
+            holdout_kit.walk_regular(root)
+    prov = _load_dict_or_none(os.path.join(kdir, "provenance.json")) or {}
+    source = {}
+    for k in _SOURCE_KEYS:
+        v = prov.get(k)
+        source[k] = v if isinstance(v, str) and v else None
+    diff_path = os.path.join(cdir, "change.diff")
+    if os.path.isfile(diff_path):
+        diff_sha = holdout_kit.sha256_file(diff_path)
+        try:
+            with open(diff_path, "rb") as fh:
+                lines_sha = _diff_lines_sha256(fh.read())
+        except OSError:
+            raise KitError("cannot read change.diff of case %s" % case_id)
+    else:
+        diff_sha = lines_sha = None
+    key = _load_dict_or_none(os.path.join(kdir, "key.json"))
+    if key is None:
+        key_sha = None
+    else:
+        body = {k: v for k, v in key.items() if k not in _KEY_IDENTITY_FIELDS}
+        key_sha = holdout_kit.sha256_bytes(json.dumps(
+            body, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    return {"source": source, "diff_sha256": diff_sha,
+            "lines_sha256": lines_sha, "key_sha256": key_sha}
+
+
+def _optional_hex(value):
+    return value is None or _is_hex64(value)
+
+
+def _entry_ok(entry):
+    if not isinstance(entry, dict):
+        return False
+    if not all(isinstance(entry.get(k), str) for k in ("at", "slot",
+                                                        "reason")):
+        return False
+    source = entry.get("source")
+    if not isinstance(source, dict) or set(source) != set(_SOURCE_KEYS):
+        return False
+    if not all(v is None or isinstance(v, str) for v in source.values()):
+        return False
+    return all(f in entry and _optional_hex(entry[f])
+               for f, _ in _HASH_FIELDS)
+
+
+def _load_retired(folder):
+    """The RETIRED.json ledger, strictly; a fresh empty ledger when absent."""
+    path = os.path.join(folder, RETIRED_RELPATH)
+    if not os.path.lexists(path):
+        return {"schema": RETIRED_SCHEMA, "retired": []}
+    if os.path.islink(path):
+        raise KitError(RETIRED_MALFORMED_MSG)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            ledger = json.load(fh)
+    except (OSError, ValueError):
+        raise KitError(RETIRED_MALFORMED_MSG)
+    if not isinstance(ledger, dict) or ledger.get("schema") != RETIRED_SCHEMA \
+            or not isinstance(ledger.get("retired"), list) \
+            or not all(_entry_ok(e) for e in ledger["retired"]):
+        raise KitError(RETIRED_MALFORMED_MSG)
+    return ledger
+
+
+def _content_identity(entry):
+    return (tuple(entry["source"][k] for k in _SOURCE_KEYS),
+            entry["diff_sha256"], entry["lines_sha256"], entry["key_sha256"])
+
+
+def _case_slot_lenient(sealed, case_id):
+    key = _load_dict_or_none(os.path.join(sealed, "keys", case_id,
+                                          "key.json")) or {}
+    slot = key.get("slot")
+    return slot if slot in holdout_kit.SLOTS else "?"
+
+
+def sync_retired_revisions(folder):
+    """Rewrite work/RETIRED-REVISIONS.json (the finder's skip list) from
+    RETIRED.json; return the number of revisions listed."""
+    ledger = _load_retired(folder)
+    revisions = []
+    for entry in ledger["retired"]:
+        source = entry["source"]
+        if not source.get("feature_rev"):
+            continue
+        rev = {k: source[k] for k in _SOURCE_KEYS}
+        if rev not in revisions:
+            revisions.append(rev)
+    holdout_kit.write_json_atomic(
+        os.path.join(folder, *RETIRED_REVISIONS_RELPATH.split("/")),
+        {"schema": RETIRED_REVISIONS_SCHEMA, "revisions": revisions})
+    return len(revisions)
+
+
+def retire_case(folder, case_id, reason, content_folder=None):
+    """Append the case's content fingerprint to <folder>/RETIRED.json.
+
+    The fingerprint is read from `content_folder` (default: `folder`), so a
+    leak scan over a decrypted copy can retire a case whose live plaintext is
+    already scrubbed. Existing entries are never modified or removed; an
+    identical fingerprint is not appended twice. Never writes a path, a line
+    or any case text. Returns the ledger.
+    """
+    if reason not in RETIRE_REASONS:
+        raise KitError("retire reason must be leakscan or owner")
+    if not isinstance(case_id, str) or not holdout_kit.ID_RE.match(case_id):
+        raise KitError("not an opaque case id")
+    src = content_folder or folder
+    sealed = _sealed(src)
+    for part in ("cases", "keys"):
+        root = os.path.join(sealed, part, case_id)
+        if os.path.islink(root) or not os.path.isdir(root):
+            raise KitError(_NO_CONTENT_MSG % case_id)
+    ledger = _load_retired(folder)
+    fp = case_fingerprint(src, case_id)
+    if fp["diff_sha256"] is None or fp["key_sha256"] is None:
+        raise KitError(_NO_CONTENT_MSG % case_id)
+    entry = {"at": _now(), "slot": _case_slot_lenient(sealed, case_id),
+             "reason": reason, "source": dict(fp["source"]),
+             "diff_sha256": fp["diff_sha256"],
+             "lines_sha256": fp["lines_sha256"],
+             "key_sha256": fp["key_sha256"]}
+    if not any(_content_identity(e) == _content_identity(entry)
+               for e in ledger["retired"]):
+        ledger["retired"].append(entry)
+        holdout_kit.write_json_atomic(os.path.join(folder, RETIRED_RELPATH),
+                                      ledger)
+    sync_retired_revisions(folder)
+    return ledger
+
+
+def _matched_fields(fp, entry):
+    matched = []
+    mine, theirs = fp["source"], entry["source"]
+    if all(mine.get(k) and theirs.get(k) for k in _SOURCE_KEYS) \
+            and all(mine[k] == theirs[k] for k in _SOURCE_KEYS):
+        matched.append("source")
+    for field, label in _HASH_FIELDS:
+        if fp[field] and entry[field] and fp[field] == entry[field]:
+            matched.append(label)
+    return matched
+
+
+def retired_problems(folder):
+    """One line per current case whose content matches a retired entry on
+    source revisions, diff bytes, changed-line set or key; IDs are never
+    compared. [] when nothing is retired; a malformed ledger is a KitError."""
+    ledger = _load_retired(folder)
+    if not ledger["retired"]:
+        return []
+    sealed = _sealed(folder)
+    problems = []
+    for cid in holdout_kit.case_ids(folder):
+        fp = case_fingerprint(folder, cid)
+        for entry in ledger["retired"]:
+            matched = _matched_fields(fp, entry)
+            if matched:
+                problems.append(RETIRED_MSG % (
+                    _case_slot_lenient(sealed, cid), cid, entry["at"],
+                    ",".join(matched)))
+                break
+    return problems
+
+
+# ---------------------------------------------------------------- publish
+
+
+def publish(folder, repo):
+    """Copy <folder>/SEAL.json to <repo>/SEAL_RELPATH and nothing else.
+
+    Refuses unless the seal has the public shape, the leak ledger is clean
+    for the current seal, and no current case reuses retired material. Never
+    overwrites a different SEAL.json already in the repo. Returns the path.
+    """
+    if not folder:
+        raise KitError("publish needs --folder PATH (the holdout folder)")
+    seal_path = os.path.join(folder, SEAL_NAME)
+    seal = holdout_kit.load_json(seal_path, what="SEAL.json")
+    shape = public_shape_problems(seal)
+    if shape:
+        raise KitError("SEAL.json does not have the public shape (%s); "
+                       "nothing was published" % shape[0])
+    leaks = leak_ledger_problems(folder, seal)
+    if leaks:
+        raise KitError(leaks[0])
+    retired = retired_problems(folder)
+    if retired:
+        raise KitError(retired[0])
+    if not os.path.isdir(repo):
+        raise KitError("the repo path is not a folder")
+    dest = os.path.join(repo, *SEAL_RELPATH.split("/"))
+    with open(seal_path, "rb") as fh:
+        data = fh.read()
+    if os.path.lexists(dest):
+        if os.path.islink(dest) or not os.path.isfile(dest):
+            raise KitError("the repo's SEAL.json path is not a plain file")
+        with open(dest, "rb") as fh:
+            if fh.read() == data:
+                return dest
+        raise KitError("the repo already holds a different SEAL.json; a "
+                       "published seal is never overwritten")
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(seal_path, dest)
+    except OSError:
+        raise KitError("cannot write SEAL.json into the repo")
+    return dest
+
+
+# ---------------------------------------------------------------- resume grammar
+
+# The ONLY replies the tuning side accepts from the owner at a checkpoint:
+# status words, slot names and small integers. Ordered, first match wins:
+# the clean dry-run success form is tried before the general dry-run form.
+# Syntax and success are separate questions: every entry is a conforming
+# reply, and RESUME_BLOCKING_KINDS says which conforming replies report an
+# outcome that must stop the run. At the dry-run checkpoint only
+# "dry run ok prompted sandbox=ok" (openssl prompted for the passphrase AND
+# the cross-check sandbox probe reported OK) may proceed; every other
+# "dry run ok ..." reply (no-prompt, problems=..., or no explicit
+# sandbox-probe OK) is dry-run-failed.
+RESUME_GRAMMAR = (
+    ("dry-run-ok", re.compile(r"dry run ok prompted sandbox=ok")),
+    ("dry-run-failed", re.compile(
+        r"dry run ok(?: prompted| no-prompt)?(?: sandbox=ok)?"
+        r"(?: problems=[0-9]+(?:,[0-9]+)*)?")),
+    ("sealed", re.compile(r"sealed(?: non-runnable=[0-6])?")),
+    ("replaced", re.compile(
+        r"replaced slots=(?:C[1-3]|Q[1-3])(?:,(?:C[1-3]|Q[1-3]))*"
+        r"(?: non-runnable=[0-6])?")),
+    ("clean", re.compile(r"clean leakscan=0")),
+    ("blocked", re.compile(
+        r"blocked (?:disagreement|validation|leakscan|residue|no-prompt"
+        r"|sandbox|other)")),
+)
+RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked"})
+RESUME_PROBLEM_MSG = ("resume reply does not conform to the opaque grammar; "
+                      "treat it as a contamination incident and do not "
+                      "record its contents")
+
+
+def resume_reply_kind(text):
+    """The grammar kind of a checkpoint reply, or None. Surrounding
+    whitespace is stripped; the rest must fullmatch one entry. Never raises."""
+    if not isinstance(text, str):
+        return None
+    reply = text.strip()
+    for kind, pattern in RESUME_GRAMMAR:
+        if pattern.fullmatch(reply):
+            return kind
+    return None
+
+
+def resume_reply_outcome(text):
+    """"proceed", "blocking" or None (non-conforming)."""
+    kind = resume_reply_kind(text)
+    if kind is None:
+        return None
+    return "blocking" if kind in RESUME_BLOCKING_KINDS else "proceed"
+
+
 # ---------------------------------------------------------------- CLI
 
 
@@ -344,9 +918,131 @@ def _cmd_seal_build(args):
     return 0
 
 
+def _cmd_rehash(args):
+    try:
+        result = rehash_folder(args.seal, args.sealed)
+    except KitError as exc:
+        holdout_kit.print_problem(str(exc))
+        return 1
+    if result["ok"]:
+        holdout_kit.print_ok("all %d cases match the seal; key commitment "
+                             "verified; %d files in inventory"
+                             % (len(result["cases"]),
+                                result["inventory_files"]))
+        return 0
+    if not result["commitment_ok"]:
+        holdout_kit.print_problem("the HMAC key does not match the committed "
+                                  "key")
+    bad = sum(1 for v in result["cases"].values() if not v)
+    if bad:
+        holdout_kit.print_problem("%d case(s) differ from the seal" % bad)
+    for label, key in (("mismatched", "mismatched"), ("missing", "missing"),
+                       ("extra", "extra"), ("missing case", "missing_cases"),
+                       ("extra case", "extra_cases")):
+        for item in result[key]:
+            holdout_kit.print_problem("%s: %s" % (label, item))
+    return 1
+
+
+def _cmd_extract(args):
+    sealed = args.sealed or _sealed(args.folder)
+    n = extract_part(sealed, args.part, args.dest)
+    holdout_kit.print_ok("extracted %s/ only (%d files)" % (args.part, n))
+    return 0
+
+
+def _cmd_seal_order(args):
+    problems = seal_order_problems(args.repo, before=args.before)
+    if problems:
+        for p in problems:
+            holdout_kit.print_problem(p)
+        return 1
+    msg = "SEAL.json has exactly one commit"
+    if args.before:
+        msg += " and it is an ancestor of %s" % args.before
+    holdout_kit.print_ok(msg)
+    return 0
+
+
+def _cmd_publish(args):
+    dest = publish(args.folder, args.repo)
+    holdout_kit.print_ok("SEAL.json published to %s. Commit it on its own."
+                         % dest)
+    return 0
+
+
+def _usage(msg):
+    sys.stderr.write("holdout: error: %s\n" % msg)
+    return 2
+
+
+def _resolve_slot(folder, slot):
+    sealed = _sealed(folder)
+    found = [cid for cid in holdout_kit.case_ids(folder)
+             if _case_slot_lenient(sealed, cid) == slot]
+    if len(found) != 1:
+        raise KitError("no single sealed case holds slot %s" % slot)
+    return found[0]
+
+
+def _cmd_retire(args):
+    if args.sync:
+        if args.reason:
+            return _usage("retire --sync takes no --reason")
+        n = sync_retired_revisions(args.folder)
+        holdout_kit.print_ok("finder skip list rewritten (%d retired "
+                             "revision(s))" % n)
+        return 0
+    if not args.reason:
+        return _usage("retire --case/--slot needs --reason leakscan|owner")
+    if args.slot:
+        case_id = _resolve_slot(args.folder, args.slot)
+    else:
+        case_id = args.case
+        if not holdout_kit.ID_RE.match(case_id or ""):
+            return _usage("--case takes an opaque case id")
+    retire_case(args.folder, case_id, args.reason)
+    slot = _case_slot_lenient(_sealed(args.folder), case_id)
+    holdout_kit.print_ok("retired %s (%s): recorded in RETIRED.json; its "
+                         "revision and content cannot be re-sealed under any "
+                         "ID" % (slot, case_id))
+    return 0
+
+
+def _cmd_resume_check(args):
+    try:
+        reply = sys.stdin.read()
+    except (OSError, UnicodeDecodeError, ValueError):
+        reply = None
+    kind = resume_reply_kind(reply)
+    if kind is None:
+        holdout_kit.print_problem(RESUME_PROBLEM_MSG)
+        return 1
+    holdout_kit.print_ok("resume reply conforms (%s)" % kind)
+    if kind in RESUME_BLOCKING_KINDS:
+        holdout_kit.print_problem("this reply reports a blocking outcome (%s); "
+                                  "stop and do not proceed" % kind)
+        return 3
+    return 0
+
+
+_HANDLERS = {
+    "seal-build": _cmd_seal_build,
+    "rehash": _cmd_rehash,
+    "extract": _cmd_extract,
+    "seal-order": _cmd_seal_order,
+    "publish": _cmd_publish,
+    "retire": _cmd_retire,
+    "resume-check": _cmd_resume_check,
+}
+
+
 def cmd(args):
+    """Exit codes: 0 success, 1 refusal or failure, 2 usage error, and for
+    resume-check 3 when the reply conforms but reports a blocking outcome."""
     if args.cmd not in holdout_kit.NO_REFUSAL_COMMANDS:
         holdout_kit.refuse_if_claude_spawned(args.folder)
-    if args.cmd == "seal-build":
-        return _cmd_seal_build(args)
-    raise KitError("command '%s' is not available yet" % args.cmd)
+    handler = _HANDLERS.get(args.cmd)
+    if handler is None:
+        raise KitError("unknown manifest command")
+    return handler(args)

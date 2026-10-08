@@ -1164,7 +1164,8 @@ class TestLeakLedger(SealedCase):
     def test_predates_current_seal(self):
         write_ledger(self.folder, [scan_entry(self.folder)])
         self.assertEqual(self.problems(), [])
-        _flip_byte(self.p("keys", self.ids["C1"], "key.json"))
+        with open(self.p("keys", self.ids["C1"], "key.json"), "ab") as fh:
+            fh.write(b" ")
         self.seal = self.seal_build()
         self.assertEqual(self.problems(), [PREDATES])
 
@@ -1422,7 +1423,8 @@ class TestRetired(RetiredCase):
         a = holdout_manifest._diff_lines_sha256(default_diff("C1", 1).encode())
         b = holdout_manifest._diff_lines_sha256(default_diff("C1", 3).encode())
         c = holdout_manifest._diff_lines_sha256(
-            default_diff("C1", 1).replace("+    return", "+\treturn  ")
+            default_diff("C1", 1).replace("+    return value_c1",
+                                          "+\t\treturn value_c1   ")
             .encode())
         self.assertEqual(a, b)
         self.assertEqual(a, c)
@@ -1541,6 +1543,10 @@ class TestRetired(RetiredCase):
 
     def test_variant_same_key_except_slot(self):
         holdout_manifest.retire_case(self.folder, self.ids["C1"], "owner")
+        self.replace("C1", key=default_key("C1", tag="b"),
+                     provenance=default_provenance("C1", tag="b"),
+                     diff=make_diff("src/fresh.py", ["f = 1"], ["f = 2"]))
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
         key = dict(default_key("C1"), slot="C2")
         self.replace("C2", key=key,
                      provenance=default_provenance("C2", repo_name="other-repo",
