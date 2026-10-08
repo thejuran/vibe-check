@@ -479,8 +479,18 @@ class TestImportSet(unittest.TestCase):
         self.assertFalse(self._imported() & self.FORBIDDEN)
 
     def test_exports_the_contracted_names(self):
-        for name in self.EXPORTS:
+        for name in self.EXPORTS + ("HOOK_ENTRY", "SESSION_ENTRY"):
             self.assertTrue(callable(getattr(holdout_guard, name, None)), name)
+
+    def test_exports_the_contracted_constants(self):
+        self.assertEqual(holdout_guard.DENY_RULES, [
+            "Read(~/.vibe-check-holdout)", "Read(~/.vibe-check-holdout/**)",
+            "Edit(~/.vibe-check-holdout/**)",
+            "Read(~/.claude/projects/*vibe-check-holdout*/**)"])
+        for name in ("REASON_HOLDOUT", "REASON_INTERNAL", "REASON_PROTECTED"):
+            value = getattr(holdout_guard, name)
+            self.assertTrue(value.startswith("Blocked: ") and
+                            value.endswith("\n"), name)
 
     def test_no_root_override(self):
         src = self._source()
@@ -507,6 +517,473 @@ class TestImportSet(unittest.TestCase):
         self.assertIn("Residuals", doc)
         self.assertIn("barrier, not proof", doc)
 
+
+
+# --------------------------------------------------------------------------- #
+# install / uninstall / settings contract / check-install / CLI
+# --------------------------------------------------------------------------- #
+
+SCRIPT = GUARD_PY
+LINT_HOOK = {"matcher": "Bash",
+             "hooks": [{"type": "command", "command": "/x/lint-bash.sh"}]}
+START_HOOK = {"hooks": [{"type": "command", "command": "/x/session-start.sh"}]}
+
+
+def _user_shaped():
+    """Shaped like the owner's user settings (fake values, no secrets)."""
+    return {
+        "env": {"FAKE_FLAG": "1"},
+        "permissions": {"allow": ["Bash(ls:*)", "Read(/tmp/**)", "Skill(x)"],
+                        "defaultMode": "default"},
+        "hooks": {"PreToolUse": [LINT_HOOK], "SessionStart": [START_HOOK]},
+        "enabledPlugins": {"vibe-check@thejuran": True},
+        "model": "opus",
+    }
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+
+
+def _read_json(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+class _TmpCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="hg-inst-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.path = os.path.join(self.tmp, ".claude", "settings.json")
+
+
+class TestInstall(_TmpCase):
+    def test_install_into_user_shaped_file(self):
+        original = _user_shaped()
+        _write_json(self.path, original)
+        self.assertEqual(holdout_guard.install_into(self.path, SCRIPT),
+                         "installed")
+        d = _read_json(self.path)
+        self.assertEqual(d["hooks"]["PreToolUse"],
+                         [LINT_HOOK, holdout_guard.HOOK_ENTRY(SCRIPT)])
+        self.assertEqual(d["hooks"]["SessionStart"],
+                         [START_HOOK,
+                          holdout_guard.SESSION_ENTRY(SCRIPT, self.path)])
+        self.assertEqual(d["permissions"]["deny"], holdout_guard.DENY_RULES)
+        self.assertEqual(d["permissions"]["allow"],
+                         original["permissions"]["allow"])
+        self.assertEqual(d["permissions"]["defaultMode"], "default")
+        for key in ("env", "enabledPlugins", "model"):
+            self.assertEqual(d[key], original[key], key)
+        self.assertEqual(set(d), set(original))
+        self.assertTrue(_read_bytes(self.path).endswith(b"\n"))
+
+    def test_hook_entry_shape(self):
+        self.assertEqual(holdout_guard.HOOK_ENTRY(SCRIPT), {
+            "matcher": "*",
+            "hooks": [{"type": "command", "command": "python3",
+                       "args": [SCRIPT, "hook"], "timeout": 10}]})
+        entry = holdout_guard.SESSION_ENTRY(SCRIPT, self.path)
+        self.assertNotIn("matcher", entry)
+        self.assertEqual(entry["hooks"][0]["args"],
+                         [SCRIPT, "check-install", "--quiet-ok",
+                          "--settings", self.path])
+
+    def test_existing_deny_kept_first(self):
+        data = _user_shaped()
+        data["permissions"]["deny"] = ["Bash(rm -rf:*)",
+                                       holdout_guard.DENY_RULES[1]]
+        _write_json(self.path, data)
+        holdout_guard.install_into(self.path, SCRIPT)
+        deny = _read_json(self.path)["permissions"]["deny"]
+        self.assertEqual(deny[:2], ["Bash(rm -rf:*)",
+                                    holdout_guard.DENY_RULES[1]])
+        self.assertEqual(sorted(deny[2:]),
+                         sorted(r for r in holdout_guard.DENY_RULES
+                                if r != holdout_guard.DENY_RULES[1]))
+
+    def test_second_install_is_byte_identical(self):
+        _write_json(self.path, _user_shaped())
+        holdout_guard.install_into(self.path, SCRIPT)
+        before = _read_bytes(self.path)
+        self.assertEqual(holdout_guard.install_into(self.path, SCRIPT),
+                         "already-installed")
+        self.assertEqual(_read_bytes(self.path), before)
+
+    def test_repo_shape_gets_hooks_and_deny(self):
+        repo = {"permissions": {"allow": ["Skill(gsd:resume-work)"]}}
+        _write_json(self.path, repo)
+        holdout_guard.install_into(self.path, SCRIPT)
+        d = _read_json(self.path)
+        self.assertEqual(d["permissions"]["allow"], ["Skill(gsd:resume-work)"])
+        self.assertEqual(d["permissions"]["deny"], holdout_guard.DENY_RULES)
+        self.assertEqual(d["hooks"]["PreToolUse"],
+                         [holdout_guard.HOOK_ENTRY(SCRIPT)])
+
+    def test_missing_file_is_created(self):
+        self.assertFalse(os.path.exists(self.path))
+        self.assertEqual(holdout_guard.install_into(self.path, SCRIPT),
+                         "installed")
+        d = _read_json(self.path)
+        self.assertEqual(set(d), {"hooks", "permissions"})
+        self.assertEqual(d["permissions"], {"deny": holdout_guard.DENY_RULES})
+        self.assertFalse(os.path.exists(self.path + ".pre-holdout.bak"))
+
+    def test_stale_entry_from_other_clone_is_replaced(self):
+        data = _user_shaped()
+        stale = holdout_guard.HOOK_ENTRY("/old/clone/docs/holdout_guard.py")
+        data["hooks"]["PreToolUse"].append(stale)
+        _write_json(self.path, data)
+        holdout_guard.install_into(self.path, SCRIPT)
+        pre = _read_json(self.path)["hooks"]["PreToolUse"]
+        self.assertEqual(pre, [LINT_HOOK, holdout_guard.HOOK_ENTRY(SCRIPT)])
+
+    def test_atomic_when_replace_fails(self):
+        _write_json(self.path, _user_shaped())
+        before = _read_bytes(self.path)
+
+        def fail(*a, **k):
+            raise OSError("disk full")
+        with mock.patch.object(holdout_guard.os, "replace", fail):
+            with self.assertRaises(holdout_guard.GuardError):
+                holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(_read_bytes(self.path), before)
+        self.assertFalse(os.path.exists(self.path + ".tmp"))
+
+    def test_backup_written_once(self):
+        _write_json(self.path, _user_shaped())
+        original = _read_bytes(self.path)
+        holdout_guard.install_into(self.path, SCRIPT)
+        bak = self.path + ".pre-holdout.bak"
+        self.assertEqual(_read_bytes(bak), original)
+        holdout_guard.uninstall_from(self.path, SCRIPT)
+        d = _read_json(self.path)
+        d["model"] = "changed"
+        _write_json(self.path, d)
+        holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(_read_bytes(bak), original)
+
+    def test_unreadable_settings_refused_and_untouched(self):
+        os.makedirs(os.path.dirname(self.path))
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        with self.assertRaises(holdout_guard.GuardError):
+            holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(_read_bytes(self.path), b"{not json")
+
+    def test_non_dict_hooks_refused(self):
+        _write_json(self.path, {"hooks": ["x"]})
+        with self.assertRaises(holdout_guard.GuardError):
+            holdout_guard.install_into(self.path, SCRIPT)
+
+    def test_mutant_merge_dropping_user_hook(self):
+        _write_json(self.path, _user_shaped())
+        holdout_guard.install_into(self.path, SCRIPT)
+        self.assertIn(LINT_HOOK, _read_json(self.path)["hooks"]["PreToolUse"])
+        _write_json(self.path, _user_shaped())
+        with mock.patch.object(holdout_guard, "_merge_entry",
+                               lambda groups, entry, kind: [entry]):
+            holdout_guard.install_into(self.path, SCRIPT)
+        self.assertNotIn(LINT_HOOK,
+                         _read_json(self.path)["hooks"]["PreToolUse"])
+
+
+class TestUninstall(_TmpCase):
+    def test_removes_only_ours(self):
+        original = _user_shaped()
+        original["permissions"]["deny"] = ["Bash(rm -rf:*)"]
+        _write_json(self.path, original)
+        holdout_guard.install_into(self.path, SCRIPT)
+        self.assertEqual(holdout_guard.uninstall_from(self.path, SCRIPT),
+                         "removed")
+        self.assertEqual(_read_json(self.path), original)
+
+    def test_second_uninstall_not_present(self):
+        _write_json(self.path, _user_shaped())
+        holdout_guard.install_into(self.path, SCRIPT)
+        holdout_guard.uninstall_from(self.path, SCRIPT)
+        before = _read_bytes(self.path)
+        self.assertEqual(holdout_guard.uninstall_from(self.path, SCRIPT),
+                         "not-present")
+        self.assertEqual(_read_bytes(self.path), before)
+
+    def test_missing_file_not_present(self):
+        self.assertEqual(holdout_guard.uninstall_from(self.path, SCRIPT),
+                         "not-present")
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_empty_lists_removed_other_hook_keys_kept(self):
+        post = {"matcher": "Edit", "hooks": [{"type": "command",
+                                               "command": "/x/fmt.sh"}]}
+        original = {"hooks": {"PostToolUse": [post]},
+                    "permissions": {"allow": ["Skill(x)"]}}
+        _write_json(self.path, original)
+        holdout_guard.install_into(self.path, SCRIPT)
+        holdout_guard.uninstall_from(self.path, SCRIPT)
+        self.assertEqual(_read_json(self.path), original)
+
+    def test_entry_for_other_script_survives(self):
+        data = _user_shaped()
+        other = holdout_guard.HOOK_ENTRY("/other/holdout_guard.py")
+        data["hooks"]["PreToolUse"].append(other)
+        _write_json(self.path, data)
+        self.assertEqual(holdout_guard.uninstall_from(self.path, SCRIPT),
+                         "not-present")
+        self.assertIn(other, _read_json(self.path)["hooks"]["PreToolUse"])
+
+
+class TestSettingsProblems(_TmpCase):
+    def _text(self):
+        _write_json(self.path, _user_shaped())
+        holdout_guard.install_into(self.path, SCRIPT)
+        with open(self.path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def _assert_reports(self, mutated, problem):
+        text = self._text()
+        self.assertNotEqual(mutated, text)
+        self.assertEqual(holdout_guard.settings_problems(text, SCRIPT), [])
+        self.assertIn(problem, holdout_guard.settings_problems(mutated, SCRIPT))
+
+    def _json_mutant(self, fn):
+        d = json.loads(self._text())
+        fn(d)
+        return json.dumps(d, indent=2) + "\n"
+
+    def test_correct_file_has_no_problems(self):
+        self.assertEqual(holdout_guard.settings_problems(self._text(), SCRIPT),
+                         [])
+
+    def test_static_mutant_hook_missing(self):
+        mutated = self._json_mutant(
+            lambda d: d["hooks"]["PreToolUse"].pop())
+        self._assert_reports(mutated, "PreToolUse hook missing")
+
+    def test_static_mutant_matcher(self):
+        mutated = self._text().replace('"matcher": "*"', '"matcher": "Bash"')
+        self._assert_reports(mutated, "matcher is not *")
+
+    def test_static_mutant_command(self):
+        text = self._text()
+        mutated = text.replace('"command": "python3"', '"command": "python"',
+                               1)
+        self._assert_reports(mutated, "hook command is not python3")
+
+    def test_static_mutant_script_path(self):
+        mutated = self._text().replace(
+            json.dumps(SCRIPT), json.dumps("/old/clone/holdout_guard.py"), 1)
+        self._assert_reports(mutated, "hook path is not " + SCRIPT)
+
+    def test_static_mutant_hook_arg(self):
+        mutated = self._text().replace('"hook"', '"nohook"', 1)
+        self._assert_reports(mutated, "hook arg is not 'hook'")
+
+    def test_static_mutant_timeout_too_long(self):
+        mutated = self._text().replace('"timeout": 10', '"timeout": 30', 1)
+        self._assert_reports(mutated, "hook timeout missing or > 10")
+
+    def test_static_mutant_timeout_missing(self):
+        mutated = self._json_mutant(
+            lambda d: d["hooks"]["PreToolUse"][1]["hooks"][0].pop("timeout"))
+        self._assert_reports(mutated, "hook timeout missing or > 10")
+
+    def test_static_mutant_each_deny_rule(self):
+        for rule in holdout_guard.DENY_RULES:
+            with self.subTest(rule=rule):
+                mutated = self._json_mutant(
+                    lambda d: d["permissions"]["deny"].remove(rule))
+                self._assert_reports(mutated, "deny rule missing: " + rule)
+
+    def test_static_mutant_session_start(self):
+        mutated = self._text().replace('"check-install"', '"check-x"', 1)
+        self._assert_reports(mutated, "SessionStart check-install missing")
+
+    def test_static_mutant_unreadable(self):
+        text = self._text()
+        self._assert_reports(text[:-5], "settings JSON unreadable")
+
+    def test_non_dict_json_unreadable(self):
+        self.assertEqual(holdout_guard.settings_problems("[]", SCRIPT),
+                         ["settings JSON unreadable"])
+
+
+class TestCheckInstall(_TmpCase):
+    def _installed(self, script=SCRIPT):
+        _write_json(self.path, _user_shaped())
+        holdout_guard.install_into(self.path, script)
+        return self.path
+
+    def test_good_install_has_no_problems(self):
+        self.assertEqual(holdout_guard.check_install([self._installed()],
+                                                     SCRIPT), [])
+
+    def test_settings_problem_names_the_file(self):
+        path = self._installed()
+        d = _read_json(path)
+        d["hooks"]["PreToolUse"][1]["matcher"] = "Bash"
+        _write_json(path, d)
+        problems = holdout_guard.check_install([path], SCRIPT)
+        self.assertEqual(problems, ["matcher is not * (in %s)" % path])
+
+    def test_missing_settings_file(self):
+        missing = os.path.join(self.tmp, "nope.json")
+        self.assertIn("settings file missing: " + missing,
+                      holdout_guard.check_install([missing], SCRIPT))
+
+    def test_script_missing(self):
+        fake = os.path.join(self.tmp, "gone", "holdout_guard.py")
+        path = self._installed(fake)
+        self.assertEqual(holdout_guard.check_install([path], fake),
+                         ["script missing: " + fake])
+
+    def test_python3_not_on_path(self):
+        path = self._installed()
+        empty = os.path.join(self.tmp, "emptybin")
+        os.makedirs(empty)
+        self.assertEqual(holdout_guard.check_install([path], SCRIPT), [])
+        with mock.patch.object(holdout_guard.os, "get_exec_path",
+                               lambda *a: [empty]):
+            self.assertEqual(holdout_guard.check_install([path], SCRIPT),
+                             ["python3 not on PATH"])
+
+    def test_mutant_live_probe(self):
+        path = self._installed()
+        self.assertEqual(holdout_guard.check_install([path], SCRIPT), [])
+        with mock.patch.object(holdout_guard, "hook_main",
+                               lambda *a, **k: 0):
+            self.assertEqual(holdout_guard.check_install([path], SCRIPT),
+                             ["live probe did not deny"])
+
+    def test_probe_prints_nothing(self):
+        path = self._installed()
+        err = io.StringIO()
+        with mock.patch.object(sys, "stderr", err):
+            holdout_guard.check_install([path], SCRIPT)
+        self.assertEqual(err.getvalue(), "")
+
+
+class TestCli(_TmpCase):
+    def _run(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, "stdout", out), \
+                mock.patch.object(sys, "stderr", err):
+            rc = holdout_guard.run(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def _repo_settings(self):
+        return os.path.join(self.tmp, ".claude", "settings.local.json")
+
+    def test_install_repo_then_already(self):
+        rc, out, _ = self._run(["install", "--repo", self.tmp])
+        self.assertEqual((rc, out), (0, "Installed the holdout guard into %s\n"
+                                     % self._repo_settings()))
+        rc, out, _ = self._run(["install", "--repo", self.tmp])
+        self.assertEqual((rc, out), (0, "Already installed in %s\n"
+                                     % self._repo_settings()))
+        d = _read_json(self._repo_settings())
+        self.assertEqual(d["hooks"]["PreToolUse"][0]["matcher"], "*")
+        self.assertEqual(len(d["permissions"]["deny"]), 4)
+        self.assertEqual(d["hooks"]["SessionStart"][0]["hooks"][0]["args"][-1],
+                         self._repo_settings())
+
+    def test_install_repo_via_subprocess(self):
+        proc = subprocess.run([sys.executable, GUARD_PY, "install", "--repo",
+                               self.tmp], capture_output=True, text=True,
+                              timeout=30)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "Installed the holdout guard into %s\n"
+                         % self._repo_settings())
+
+    def test_check_install_ok_and_quiet(self):
+        self._run(["install", "--repo", self.tmp])
+        rc, out, _ = self._run(["check-install", "--settings",
+                                self._repo_settings()])
+        self.assertEqual((rc, out), (0, "OK: holdout guard installed and live "
+                                     "(1 settings file(s))\n"))
+        rc, out, err = self._run(["check-install", "--quiet-ok", "--settings",
+                                  self._repo_settings()])
+        self.assertEqual((rc, out, err), (0, "", ""))
+
+    def test_check_install_problem_lines(self):
+        self._run(["install", "--repo", self.tmp])
+        d = _read_json(self._repo_settings())
+        d["hooks"]["PreToolUse"][0]["matcher"] = "Bash"
+        _write_json(self._repo_settings(), d)
+        rc, out, _ = self._run(["check-install", "--settings",
+                                self._repo_settings()])
+        self.assertEqual(rc, 1)
+        self.assertEqual(out, "PROBLEM: matcher is not * (in %s)\n"
+                         % self._repo_settings())
+
+    def test_quiet_ok_problems_also_on_stderr(self):
+        rc, out, err = self._run(["check-install", "--quiet-ok", "--settings",
+                                  self._repo_settings()])
+        self.assertEqual(rc, 1)
+        self.assertIn("PROBLEM: settings file missing", out)
+        self.assertIn("PROBLEM: settings file missing", err)
+
+    def test_uninstall_then_check_reports_missing_hook(self):
+        self._run(["install", "--repo", self.tmp])
+        rc, out, _ = self._run(["uninstall", "--repo", self.tmp])
+        self.assertEqual((rc, out), (0, "Removed the holdout guard from %s\n"
+                                     % self._repo_settings()))
+        rc, out, _ = self._run(["check-install", "--settings",
+                                self._repo_settings()])
+        self.assertEqual(rc, 1)
+        self.assertIn("PROBLEM: PreToolUse hook missing (in %s)"
+                      % self._repo_settings(), out)
+
+    def test_uninstall_not_present_line(self):
+        rc, out, _ = self._run(["uninstall", "--repo", self.tmp])
+        self.assertEqual((rc, out), (0, "Not installed in %s\n"
+                                     % self._repo_settings()))
+
+    def test_install_user_uses_patched_home(self):
+        home = os.path.join(self.tmp, "home")
+        real = os.path.expanduser
+
+        def fake(p):
+            return home + p[1:] if p.startswith("~") else real(p)
+        with mock.patch.object(holdout_guard.os.path, "expanduser", fake):
+            rc, out, _ = self._run(["install", "--user"])
+        target = os.path.join(home, ".claude", "settings.json")
+        self.assertEqual((rc, out), (0, "Installed the holdout guard into %s\n"
+                                     % target))
+        self.assertEqual(_read_json(target)["hooks"]["SessionStart"][0]
+                         ["hooks"][0]["args"][-1], target)
+
+    def test_install_unreadable_reports_problem(self):
+        path = self._repo_settings()
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("{bad")
+        rc, out, err = self._run(["install", "--repo", self.tmp])
+        self.assertEqual(rc, 1)
+        self.assertEqual(err, "PROBLEM: settings JSON unreadable\n")
+
+    def test_default_check_paths(self):
+        home = os.path.join(self.tmp, "home")
+        real = os.path.expanduser
+
+        def fake(p):
+            return home + p[1:] if p.startswith("~") else real(p)
+        with mock.patch.object(holdout_guard.os.path, "expanduser", fake):
+            paths = holdout_guard._default_settings_paths(SCRIPT)
+        self.assertEqual(paths, [
+            os.path.join(REPO_ROOT, ".claude", "settings.local.json"),
+            os.path.join(home, ".claude", "settings.json")])
+
+    def test_install_requires_a_target(self):
+        self.assertEqual(self._run(["install"])[0], 2)
+        self.assertEqual(self._run(["install", "--user", "--repo", "x"])[0], 2)
 
 if __name__ == "__main__":
     unittest.main()
