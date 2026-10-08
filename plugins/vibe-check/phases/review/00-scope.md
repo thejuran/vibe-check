@@ -33,7 +33,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    git diff --staged
    git status --short
    ```
-   If empty: print "No changes to review." and stop.
+   If empty and `$ARGUMENTS` does NOT contain the `--finalize` token: print "No changes to review." and stop. On a `--finalize` run (whole token in `$ARGUMENTS`, e.g. Close out after a fix loop that committed every fix), an empty diff is expected: do NOT stop — continue to Phase 0.5, because Finalize reads `$STATE_FILE`, not the diff.
 
 2. **PR mode** — `$SCOPE_ARGS` matches `^[0-9]+$` or contains `/pull/`:
    ```bash

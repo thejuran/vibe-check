@@ -37,6 +37,6 @@ If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/05-state-all.md** with the 
 
 3. Narrow diff to incremental: `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged.
 
-4. If incremental diff empty AND `$CARRYFORWARD` empty: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop.
+4. If incremental diff empty AND `$CARRYFORWARD` empty AND `$ARGUMENTS` does NOT contain the `--finalize` token: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop. A `--finalize` run never stops here: it continues to Phase 0.6 and Finalize (the spine's finalize flow), which reads `$STATE_FILE`, not the diff.
 
 5. If incremental diff empty but `$CARRYFORWARD` non-empty: **run Phase 0.6 (Resolve config) FIRST** — so `$CONFIG_THRESHOLDS`/`$CONFIG_DISABLED`/`$CONFIG_TOP_MODEL`/`$CONFIG_MIN_CONFIDENCE`/`$CONFIG_IDIOM_FLOOR`/`$CONFIG_CODEX`/`$CONFIG_WARNINGS` are bound before Phase 3 sources `$CONFIG_THRESHOLDS` / `$CONFIG_MIN_CONFIDENCE` / `$CONFIG_IDIOM_FLOOR` into the score.py envelope and Phase 4 renders `$CONFIG_WARNINGS` — THEN skip agent dispatch and proceed directly to Phase 3 carry-forward check. (Without this, a repo WITH a valid `.vibe-check.toml` would silently drop its config on this carry-forward-only path, violating "reads config ONCE per run on EVERY mode".)

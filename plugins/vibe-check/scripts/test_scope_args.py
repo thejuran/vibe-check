@@ -222,5 +222,66 @@ class TestBoundary(unittest.TestCase):
         self.assertFalse(finalize_trigger_present(mutant))
 
 
+CARVE_OUT = "`$ARGUMENTS` does NOT contain the `--finalize` token"
+SCOPE_STOP = "No changes to review."
+STATE_STOP = "No new changes since pass"
+SCOPE_STOP_2110 = '   If empty: print "No changes to review." and stop.'
+STATE_STOP_2110 = ('4. If incremental diff empty AND `$CARRYFORWARD` empty: '
+                   'print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop.')
+
+
+def stop_is_conditioned(text, message):
+    """True iff exactly one line holds `message`, and that same line both keeps
+    the stop (`and stop`) and conditions it on --finalize being absent."""
+    lines = [ln for ln in text.splitlines() if message in ln]
+    if len(lines) != 1:
+        return False
+    return CARVE_OUT in lines[0] and "and stop" in lines[0]
+
+
+def stop_line(text, message):
+    lines = [ln for ln in text.splitlines() if message in ln]
+    assert len(lines) == 1, "expected one line holding %r, found %d" % (message, len(lines))
+    return lines[0]
+
+
+class TestEmptyDiffCarveOut(unittest.TestCase):
+    """A Close out after a fix loop that committed everything runs on a clean
+    tree; the two empty-diff stops must let a --finalize run through to
+    Finalize (which reads $STATE_FILE, not the diff) and stay for every other run."""
+
+    def test_scope_mode1_stop_is_conditioned(self):
+        text = read(SCOPE)
+        self.assertTrue(stop_is_conditioned(text, SCOPE_STOP))
+        self.assertIn('print "No changes to review." and stop', stop_line(text, SCOPE_STOP))
+        self.assertIn("`--finalize` run", stop_line(text, SCOPE_STOP))
+
+    def test_state_step4_stop_is_conditioned(self):
+        text = read(STATE)
+        self.assertTrue(stop_is_conditioned(text, STATE_STOP))
+        self.assertIn('print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop',
+                      stop_line(text, STATE_STOP))
+        self.assertIn("`--finalize` run", stop_line(text, STATE_STOP))
+
+    def test_e1_unconditional_scope_stop_fails_lock(self):
+        text = read(SCOPE)
+        line = stop_line(text, SCOPE_STOP)
+        mutant = text.replace(line, SCOPE_STOP_2110)
+        self.assertNotEqual(mutant, text)
+        self.assertFalse(stop_is_conditioned(mutant, SCOPE_STOP))
+
+    def test_e2_unconditional_state_stop_fails_lock(self):
+        text = read(STATE)
+        line = stop_line(text, STATE_STOP)
+        mutant = text.replace(line, STATE_STOP_2110)
+        self.assertNotEqual(mutant, text)
+        self.assertFalse(stop_is_conditioned(mutant, STATE_STOP))
+
+    def test_e3_condition_on_another_line_fails_lock(self):
+        text = ("If " + CARVE_OUT + ", keep going.\n"
+                '   If empty: print "No changes to review." and stop.\n')
+        self.assertFalse(stop_is_conditioned(text, SCOPE_STOP))
+
+
 if __name__ == "__main__":
     unittest.main()
