@@ -653,5 +653,941 @@ class TestModuleShape(unittest.TestCase):
                                      for m in imported), name)
 
 
+# ================================================================ setup
+
+import errno  # noqa: E402
+import glob  # noqa: E402
+import hashlib  # noqa: E402
+import re  # noqa: E402
+import runpy  # noqa: E402
+import shutil  # noqa: E402
+import stat  # noqa: E402
+
+import holdout_guard  # noqa: E402
+
+KIT_DIR = os.path.normpath(os.path.join(TOOLS_DIR, "..", "kit"))
+REPO_ROOT = os.path.normpath(os.path.join(TOOLS_DIR, "..", "..", "..", ".."))
+B3_DIFFS = os.path.join(REPO_ROOT, "docs", "design", "b3-ground-truth",
+                        "diffs")
+TOKENS = ("<H>", "<HOME>", "<REPOS>", "<GUARD>", "<SEALED>")
+REFUSE_LINE = ('[ -z "${CLAUDECODE:-}" ] || { echo "Open a new Terminal '
+               'window (not one started by Claude) and run this again."; '
+               'exit 1; }')
+
+
+def _load(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _mode(path):
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
+def _hook_args(settings):
+    return settings["hooks"]["PreToolUse"][0]["hooks"][0]["args"]
+
+
+def _protects(args):
+    return [args[i + 1] for i, a in enumerate(args[:-1]) if a == "--protect"]
+
+
+def _deny_read(settings):
+    return settings["sandbox"]["filesystem"]["denyRead"]
+
+
+def _strings(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _strings(v)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield k
+            yield from _strings(v)
+
+
+def _quiet():
+    return mock.patch.object(sys, "stdout", io.StringIO())
+
+
+class SetupCase(KitCase):
+    """Base: a holdout built by the real setup CLI at self.F."""
+
+    def setUp(self):
+        super().setUp()
+        self.F = holdout_fixture.make_fake_holdout(self.tmp)
+        self.repo = os.path.join(self.tmp, "src-repo")
+
+    def inproc_setup(self, name):
+        folder = os.path.join(self.tmp, name)
+        with _quiet():
+            holdout_kit.setup(folder, [self.repo],
+                              skip_system_exclusions=True)
+        return os.path.realpath(folder)
+
+    def strip_gen1(self, F):
+        n = holdout_kit.xcheck_names(1)
+        for key in ("workspace", "config_dir", "tmp_dir"):
+            shutil.rmtree(os.path.join(F, n[key]))
+        os.remove(os.path.join(F, n["launcher"]))
+
+    def finder_settings(self, F=None):
+        return _load(os.path.join(F or self.F, "work", ".claude",
+                                  "settings.json"))
+
+    def xcheck_settings(self, ws="xcheck", F=None):
+        return _load(os.path.join(F or self.F, ws, ".claude",
+                                  "settings.json"))
+
+
+class TestSetup(SetupCase):
+
+    def test_layout(self):
+        F = self.F
+        for rel in holdout_kit.SUBDIRS:
+            self.assertTrue(os.path.isdir(os.path.join(F, rel)), rel)
+        self.assertEqual(_mode(F), 0o700)
+        for rel in ("tmp/finder", "tmp/owner"):
+            self.assertEqual(_mode(os.path.join(F, rel)), 0o700, rel)
+            self.assertEqual(_read(os.path.join(F, rel, "SANDBOX-SENTINEL")),
+                             holdout_kit.SANDBOX_SENTINEL_TEXT)
+        self.assertEqual(_read(os.path.join(F, ".metadata_never_index")), "")
+        self.assertEqual(_read(os.path.join(F, "sealed", "SANDBOX-SENTINEL")),
+                         holdout_kit.SANDBOX_SENTINEL_TEXT)
+        self.assertEqual(sorted(os.listdir(os.path.join(F, "sealed"))),
+                         ["SANDBOX-SENTINEL", "cases", "keys"])
+        self.assertEqual(sorted(os.listdir(os.path.join(F, "tmp"))),
+                         ["crosscheck", "finder", "owner"])
+        self.assertEqual(os.listdir(os.path.join(F, "tmp", "crosscheck")),
+                         ["xcheck"])
+        self.assertEqual(sorted(os.listdir(os.path.join(F, "bin"))),
+                         ["crosscheck", "finder", "holdout"])
+        for name in ("crosscheck", "finder", "holdout"):
+            self.assertEqual(_mode(os.path.join(F, "bin", name)), 0o700)
+
+    def test_kit_and_tools_copied(self):
+        kit = os.path.join(self.F, "kit")
+        for name in os.listdir(KIT_DIR):
+            if name.endswith((".md", ".json")):
+                with open(os.path.join(KIT_DIR, name), "rb") as a, \
+                        open(os.path.join(kit, name), "rb") as b:
+                    self.assertEqual(a.read(), b.read(), name)
+        tools = sorted(os.listdir(os.path.join(kit, "tools")))
+        expected = sorted(n for n in os.listdir(TOOLS_DIR)
+                          if n.endswith(".py") and not n.startswith("test_"))
+        self.assertEqual(tools, expected)
+        self.assertIn("holdout_kit.py", tools)
+        self.assertTrue(os.path.isfile(os.path.join(kit, "holdout_guard.py")))
+        self.assertEqual(holdout_kit.sha256_file(
+            os.path.join(kit, "holdout_guard.py")),
+            holdout_kit.sha256_file(os.path.join(TOOLS_DIR,
+                                                 "holdout_guard.py")))
+        holdout_kit.walk_regular(kit)  # raises on any symlink
+
+    def test_eligible_repos_json(self):
+        self.assertEqual(_load(os.path.join(self.F, "kit",
+                                            "eligible-repos.json")),
+                         {"repos": [os.path.realpath(self.repo)]})
+
+    def test_final_line(self):
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            holdout_kit.setup(os.path.join(self.tmp, "h2"), [self.repo],
+                              skip_system_exclusions=True)
+        lines = out.getvalue().splitlines()
+        F2 = os.path.realpath(os.path.join(self.tmp, "h2"))
+        self.assertTrue(all(ln.startswith(("OK: ", "PROBLEM: "))
+                            for ln in lines))
+        self.assertEqual(lines[-1], "OK: holdout folder ready at %s. "
+                                    "Next: %s/bin/finder" % (F2, F2))
+
+    def test_non_empty_folder_refused(self):
+        folder = os.path.join(self.tmp, "busy")
+        write(folder, "x", "x")
+        with self.assertRaises(holdout_kit.KitError) as cm:
+            holdout_kit.setup(folder, [self.repo],
+                              skip_system_exclusions=True)
+        self.assertIn("folder already exists and is not empty",
+                      str(cm.exception))
+
+    def test_existing_empty_folder_accepted(self):
+        folder = os.path.join(self.tmp, "empty")
+        os.makedirs(folder)
+        with _quiet():
+            holdout_kit.setup(folder, [self.repo],
+                              skip_system_exclusions=True)
+        self.assertTrue(os.path.isfile(os.path.join(folder, "bin", "finder")))
+
+    def test_tuning_repo_refused_by_basename(self):
+        for name in ("turingmind-code-review", "thejuran-marketplace"):
+            parent = os.path.join(self.tmp, "p-" + name)
+            os.makedirs(parent)
+            repo = holdout_fixture.make_source_repo(parent, name)
+            with self.assertRaises(holdout_kit.KitError) as cm:
+                holdout_kit.setup(os.path.join(self.tmp, "h-" + name),
+                                  [repo], skip_system_exclusions=True)
+            self.assertIn(name, str(cm.exception))
+            self.assertNotIn(parent, str(cm.exception))
+            self.assertFalse(os.path.exists(os.path.join(self.tmp,
+                                                         "h-" + name)))
+
+    def test_b3_repo_accepted_with_note(self):
+        repo = holdout_fixture.make_source_repo(self.tmp, "triggarr")
+        out = io.StringIO()
+        with mock.patch.object(sys, "stdout", out):
+            holdout_kit.setup(os.path.join(self.tmp, "h3"), [repo],
+                              skip_system_exclusions=True)
+        self.assertIn("OK: triggarr (previously exposed during B3 "
+                      "development; not eligible for C1/Q2)",
+                      out.getvalue().splitlines())
+
+    def test_non_git_repo_refused(self):
+        plain = os.path.join(self.tmp, "plain")
+        os.makedirs(plain)
+        with self.assertRaises(holdout_kit.KitError) as cm:
+            holdout_kit.setup(os.path.join(self.tmp, "h4"), [plain],
+                              skip_system_exclusions=True)
+        self.assertIn("not a git repository", str(cm.exception))
+
+    def test_subdirs_name_no_generation_path(self):
+        sd = holdout_kit.SUBDIRS
+        self.assertNotIn("xcheck", sd)
+        self.assertNotIn("cfg-xcheck", sd)
+        self.assertNotIn("tmp/crosscheck/xcheck", sd)
+        for rel in sd:
+            self.assertFalse(holdout_kit.XCHECK_WS_RE.match(rel), rel)
+            self.assertFalse(rel.startswith("cfg-xcheck"), rel)
+            self.assertFalse(rel.startswith("tmp/crosscheck/xcheck"), rel)
+            self.assertFalse(rel.startswith("bin/crosscheck"), rel)
+
+    def test_fresh_setup_uses_real_workspace_helper(self):
+        with mock.patch.object(holdout_kit, "make_xcheck_workspace",
+                               wraps=holdout_kit.make_xcheck_workspace) as spy:
+            F = self.inproc_setup("h5")
+        self.assertEqual(spy.call_count, 1)
+        args, kwargs = spy.call_args
+        self.assertEqual(os.path.realpath(args[0]), F)
+        self.assertEqual(args[1], 1)
+        self.assertFalse(kwargs.get("prior"))
+        self.assertTrue(os.path.isfile(os.path.join(F, "xcheck", ".claude",
+                                                    "settings.json")))
+        self.assertTrue(os.path.isfile(os.path.join(F, "xcheck",
+                                                    "sandbox-probe.py")))
+        self.assertEqual(os.listdir(os.path.join(F, "cfg-xcheck")), [])
+        self.assertTrue(os.path.isfile(os.path.join(
+            F, "tmp", "crosscheck", "xcheck", "SANDBOX-SENTINEL")))
+        self.assertTrue(os.path.isfile(os.path.join(F, "bin", "crosscheck")))
+
+    def test_mutant_subdirs_precreating_generation_path_breaks_setup(self):
+        for extra in ("xcheck", "tmp/crosscheck/xcheck"):
+            with mock.patch.object(holdout_kit, "SUBDIRS",
+                                   holdout_kit.SUBDIRS + (extra,)):
+                with self.assertRaises(holdout_kit.KitError) as cm, _quiet():
+                    holdout_kit.setup(
+                        os.path.join(self.tmp, "m-" + extra.replace("/", "_")),
+                        [self.repo], skip_system_exclusions=True)
+            self.assertEqual(str(cm.exception),
+                             "cross-check workspace xcheck already exists")
+
+    def test_tmutil_runs_unless_skipped(self):
+        calls = []
+
+        def fake(argv, **kw):
+            calls.append(list(argv))
+            return subprocess.CompletedProcess(argv, 1, b"", b"")
+
+        out = io.StringIO()
+        with mock.patch.object(holdout_kit, "run_argv", side_effect=fake), \
+                mock.patch.object(sys, "stdout", out):
+            holdout_kit.setup(os.path.join(self.tmp, "h6"), [self.repo])
+        F = os.path.realpath(os.path.join(self.tmp, "h6"))
+        self.assertIn(["tmutil", "addexclusion", F], calls)
+        self.assertTrue(any(ln.startswith("PROBLEM: ")
+                            for ln in out.getvalue().splitlines()))
+        self.assertTrue(out.getvalue().rstrip().endswith(
+            "Next: %s/bin/finder" % F))
+
+    def test_make_fake_holdout_layout(self):
+        self.assertTrue(os.path.isdir(os.path.join(self.F, "work", ".claude")))
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git")))
+        self.assertEqual(os.path.basename(self.F), "holdout")
+
+
+class TestTemplates(SetupCase):
+
+    def test_templates_have_placeholders_and_only_tuning_paths(self):
+        text = _read(os.path.join(KIT_DIR, "finder-settings.json"))
+        self.assertIn("<H>/", text)
+        for name in ("finder-settings.json", "crosscheck-settings.json"):
+            t = _load(os.path.join(KIT_DIR, name))
+            self.assertEqual(_deny_read(t), list(holdout_kit.TUNING_DENY_READ))
+            self.assertNotIn("b3-ground-truth", _read(os.path.join(KIT_DIR,
+                                                                   name)))
+            self.assertFalse(any("--protect" == s for s in _strings(t)))
+
+    def test_no_placeholder_survives(self):
+        for path in (os.path.join(self.F, "work", ".claude", "settings.json"),
+                     os.path.join(self.F, "xcheck", ".claude",
+                                  "settings.json")):
+            data = _load(path)
+            for s in _strings(data):
+                for tok in TOKENS:
+                    self.assertNotIn(tok, s, path)
+
+    def test_leftover_placeholder_refused(self):
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_kit._render_template({"a": ["<SEALED>/x"]}, self.F, [])
+        self.assertEqual(holdout_kit._render_template(
+            {"a": ["<REPOS>", "<H>/s"], "g": "<GUARD>"}, "/h", ["/r1", "/r2"]),
+            {"a": ["/r1", "/r2", "/h/s"], "g": "/h/kit/holdout_guard.py"})
+
+    def test_finder_settings(self):
+        F, d = self.F, self.finder_settings()
+        repo = os.path.realpath(self.repo)
+        self.assertIs(d["autoMemoryEnabled"], False)
+        perms = d["permissions"]
+        self.assertIs(perms["blockReadsOutsideWorkingDirectories"], True)
+        self.assertEqual(perms["additionalDirectories"],
+                         [repo, F + "/sealed"])
+        for rule in ("Read(~/turingmind-code-review/**)",
+                     "Read(~/thejuran-marketplace/**)", "Read(~/.claude/**)",
+                     "Read(~/.codex/**)", "Read(~/.b3/**)",
+                     "Read(~/.vibe-check-snapshots/**)",
+                     "Edit(%s/**)" % repo,
+                     "Read(%s/tmp/owner/**)" % F,
+                     "Read(%s/tmp/crosscheck/**)" % F):
+            self.assertIn(rule, perms["deny"])
+        self.assertIs(d["sandbox"]["enabled"], True)
+        self.assertIs(d["sandbox"]["failIfUnavailable"], True)
+        self.assertEqual(set(_deny_read(d)),
+                         set(holdout_kit.TUNING_DENY_READ)
+                         | {F + "/tmp/owner", F + "/tmp/crosscheck"})
+        self.assertNotIn(F + "/tmp/finder", _deny_read(d))
+        self.assertNotIn(F + "/sealed", _deny_read(d))
+        self.assertEqual(d["hooks"]["PreToolUse"][0]["matcher"], "*")
+        self.assertEqual(_hook_args(d),
+                         [F + "/kit/holdout_guard.py", "hook", "--role",
+                          "finder", "--protect", F + "/tmp/owner",
+                          "--protect", F + "/tmp/crosscheck"])
+
+    def test_xcheck_gen1_settings(self):
+        F, d = self.F, self.xcheck_settings()
+        self.assertIs(d["autoMemoryEnabled"], False)
+        self.assertNotIn("additionalDirectories", d["permissions"])
+        for rule in ("Read(%s/sealed/**)" % F, "Read(%s/work/**)" % F,
+                     "Read(%s/cfg-finder/**)" % F,
+                     "Read(%s/kit/FINDER-BRIEF.md)" % F,
+                     "Read(%s/tmp/finder/**)" % F,
+                     "Read(%s/tmp/owner/**)" % F):
+            self.assertIn(rule, d["permissions"]["deny"])
+        args = _hook_args(d)
+        self.assertEqual(args[-14:], [
+            "--role", "xcheck", "--protect", F + "/sealed", "--protect",
+            F + "/work", "--protect", F + "/cfg-finder", "--protect",
+            F + "/kit/FINDER-BRIEF.md", "--protect", F + "/tmp/finder",
+            "--protect", F + "/tmp/owner"])
+        self.assertIs(d["sandbox"]["enabled"], True)
+        self.assertIs(d["sandbox"]["failIfUnavailable"], True)
+        self.assertEqual(set(_deny_read(d)),
+                         set(holdout_kit.TUNING_DENY_READ)
+                         | {F + "/sealed", F + "/work", F + "/cfg-finder",
+                            F + "/kit/FINDER-BRIEF.md", F + "/tmp/finder",
+                            F + "/tmp/owner"})
+        self.assertFalse(any("tmp/crosscheck/xcheck" in s
+                             for s in _strings(d)))
+
+
+class TestFinderTmpIsolation(SetupCase):
+
+    def test_written_settings_pass(self):
+        self.assertEqual(holdout_kit.finder_settings_problems(
+            self.finder_settings(), self.F), [])
+
+    def test_missing_deny_read(self):
+        d = self.finder_settings()
+        _deny_read(d).remove(self.F + "/tmp/crosscheck")
+        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
+                         ["sandbox denyRead is missing %s/tmp/crosscheck"
+                          % self.F])
+
+    def test_missing_protect(self):
+        d = self.finder_settings()
+        args = _hook_args(d)
+        i = args.index(self.F + "/tmp/owner")
+        del args[i - 1:i + 1]
+        self.assertIn("hook --protect is missing %s/tmp/owner" % self.F,
+                      holdout_kit.finder_settings_problems(d, self.F))
+
+    def test_missing_permission_deny(self):
+        d = self.finder_settings()
+        d["permissions"]["deny"].remove("Read(%s/tmp/crosscheck/**)" % self.F)
+        self.assertIn("permission deny is missing Read(%s/tmp/crosscheck/**)"
+                      % self.F,
+                      holdout_kit.finder_settings_problems(d, self.F))
+
+    def test_sandbox_flags(self):
+        d = self.finder_settings()
+        d["sandbox"]["enabled"] = False
+        d["sandbox"]["failIfUnavailable"] = False
+        probs = holdout_kit.finder_settings_problems(d, self.F)
+        self.assertIn("sandbox is not enabled", probs)
+        self.assertIn("sandbox does not fail if unavailable", probs)
+
+    def test_mutant_a_stripped_writer_is_caught(self):
+        folder = os.path.join(self.tmp, "ma")
+        with mock.patch.object(holdout_kit, "_finder_protected_paths",
+                               return_value=[]):
+            with self.assertRaises(holdout_kit.KitError) as cm, _quiet():
+                holdout_kit.setup(folder, [self.repo],
+                                  skip_system_exclusions=True)
+        F = os.path.realpath(folder)
+        self.assertTrue(str(cm.exception).startswith(
+            "finder settings failed their self-check: sandbox denyRead is "
+            "missing %s/tmp/owner" % F))
+        self.assertFalse(os.path.exists(os.path.join(F, "work", ".claude",
+                                                     "settings.json")))
+
+    def test_mutant_b_checker_is_what_blocks(self):
+        folder = os.path.join(self.tmp, "mb")
+        with mock.patch.object(holdout_kit, "_finder_protected_paths",
+                               return_value=[]), \
+                mock.patch.object(holdout_kit, "finder_settings_problems",
+                                  return_value=[]), _quiet():
+            holdout_kit.setup(folder, [self.repo],
+                              skip_system_exclusions=True)
+        F = os.path.realpath(folder)
+        d = self.finder_settings(F)
+        self.assertNotIn(F + "/tmp/owner", _deny_read(d))
+
+    def test_guard_honors_finder_protects(self):
+        F = self.F
+        extra = [F + "/tmp/owner", F + "/tmp/crosscheck"]
+        deny, _ = holdout_guard.classify(
+            "Read", {"file_path": F + "/tmp/crosscheck/xcheck-r2/x"},
+            role="finder", extra_protect=extra)
+        self.assertTrue(deny)
+        deny, _ = holdout_guard.classify(
+            "Read", {"file_path": F + "/tmp/finder/x"}, role="finder",
+            extra_protect=extra)
+        self.assertFalse(deny)
+
+
+class TestLaunchers(SetupCase):
+
+    def _bin(self, name):
+        return _read(os.path.join(self.F, "bin", name))
+
+    def _common(self, text):
+        lines = text.splitlines()
+        self.assertEqual(lines[0], "#!/bin/bash")
+        self.assertEqual(lines[1], "set -euo pipefail")
+        self.assertIn(REFUSE_LINE, lines)
+        self.assertNotIn('"$H/tmp"', text)
+
+    def _tmp_exports(self, text):
+        return (re.findall(r'CLAUDE_CODE_TMPDIR="([^"]*)"', text),
+                re.findall(r'(?<![A-Z_])TMPDIR="([^"]*)"', text))
+
+    def test_finder(self):
+        t = self._bin("finder")
+        self._common(t)
+        for needle in ('export CLAUDE_CONFIG_DIR="$H/cfg-finder"',
+                       "CLAUDE_CODE_PROJECT_DIR_NAME=finder",
+                       "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+                       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+                       'cd "$H/work"'):
+            self.assertIn(needle, t)
+        self.assertEqual(self._tmp_exports(t),
+                         (["$H/tmp/finder"], ["$H/tmp/finder"]))
+        self.assertEqual(t.rstrip().splitlines()[-1], 'exec claude "$@"')
+
+    def test_crosscheck(self):
+        t = self._bin("crosscheck")
+        self._common(t)
+        for needle in ('export CLAUDE_CONFIG_DIR="$H/cfg-xcheck"',
+                       "CLAUDE_CODE_PROJECT_DIR_NAME=xcheck\n",
+                       "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+                       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+                       'cd "$H/xcheck"'):
+            self.assertIn(needle, t)
+        self.assertEqual(self._tmp_exports(t),
+                         (["$H/tmp/crosscheck/xcheck"],
+                          ["$H/tmp/crosscheck/xcheck"]))
+        self.assertEqual(t.rstrip().splitlines()[-1], 'exec claude "$@"')
+
+    def test_holdout(self):
+        t = self._bin("holdout")
+        self._common(t)
+        self.assertEqual(self._tmp_exports(t), ([], ["$H/tmp/owner"]))
+        self.assertEqual(t.rstrip().splitlines()[-1],
+                         'exec python3 "$H/kit/tools/holdout_kit.py" '
+                         '--folder "$H" "$@"')
+
+    def test_h_is_baked_realpath(self):
+        for name in ("finder", "crosscheck", "holdout"):
+            self.assertIn("H='%s'" % self.F, self._bin(name).splitlines())
+
+    def test_minted_generation_launcher(self):
+        holdout_kit.make_xcheck_workspace(
+            self.F, 2, prior=[holdout_kit.xcheck_names(1)])
+        t = self._bin("crosscheck-r2")
+        self._common(t)
+        self.assertEqual(_mode(os.path.join(self.F, "bin", "crosscheck-r2")),
+                         0o700)
+        for needle in ('export CLAUDE_CONFIG_DIR="$H/cfg-xcheck-r2"',
+                       "CLAUDE_CODE_PROJECT_DIR_NAME=xcheck-r2\n",
+                       'cd "$H/xcheck-r2"'):
+            self.assertIn(needle, t)
+        self.assertEqual(self._tmp_exports(t),
+                         (["$H/tmp/crosscheck/xcheck-r2"],
+                          ["$H/tmp/crosscheck/xcheck-r2"]))
+
+    def test_constants_never_export_shared_root(self):
+        for const in (holdout_kit.FINDER_LAUNCHER,
+                      holdout_kit.XCHECK_LAUNCHER,
+                      holdout_kit.HOLDOUT_LAUNCHER):
+            self.assertNotIn('"$H/tmp"', const)
+            self.assertIn(REFUSE_LINE, const)
+        with open(KIT_PY) as fh:
+            src = [ln for ln in fh if not ln.startswith("#")]
+        self.assertFalse(any('"$H/tmp"' in ln for ln in src))
+
+    def test_finder_refuses_under_claudecode(self):
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        proc = subprocess.run([os.path.join(self.F, "bin", "finder")],
+                              env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Open a new Terminal window (not one started by "
+                      "Claude) and run this again.", proc.stdout)
+
+    def test_holdout_launcher_help(self):
+        proc = subprocess.run([os.path.join(self.F, "bin", "holdout"),
+                               "--help"], env=holdout_fixture.kit_env(),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("setup", proc.stdout)
+
+    def test_folder_with_quote_still_launches(self):
+        folder = os.path.join(self.tmp, "it's here")
+        with _quiet():
+            holdout_kit.setup(folder, [self.repo],
+                              skip_system_exclusions=True)
+        proc = subprocess.run([os.path.join(folder, "bin", "holdout"),
+                               "--help"], env=holdout_fixture.kit_env(),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+class TestXcheckWorkspace(SetupCase):
+
+    def test_names(self):
+        self.assertEqual(holdout_kit.xcheck_names(1), {
+            "workspace": "xcheck", "config_dir": "cfg-xcheck",
+            "tmp_dir": "tmp/crosscheck/xcheck", "launcher": "bin/crosscheck"})
+        self.assertEqual(holdout_kit.xcheck_names(3), {
+            "workspace": "xcheck-r3", "config_dir": "cfg-xcheck-r3",
+            "tmp_dir": "tmp/crosscheck/xcheck-r3",
+            "launcher": "bin/crosscheck-r3"})
+        for bad in (0, -1, True, "2"):
+            with self.assertRaises(holdout_kit.KitError):
+                holdout_kit.xcheck_names(bad)
+        self.assertTrue(holdout_kit.XCHECK_WS_RE.match("xcheck"))
+        self.assertTrue(holdout_kit.XCHECK_WS_RE.match("xcheck-r12"))
+        self.assertFalse(holdout_kit.XCHECK_WS_RE.match("xcheck-r1"))
+
+    def test_mint_gen2(self):
+        F = self.F
+        names = holdout_kit.make_xcheck_workspace(
+            F, 2, prior=[holdout_kit.xcheck_names(1)])
+        self.assertEqual(names, holdout_kit.xcheck_names(2))
+        d = self.xcheck_settings("xcheck-r2")
+        self.assertEqual(os.listdir(os.path.join(F, "cfg-xcheck-r2")), [])
+        self.assertEqual(_mode(os.path.join(F, "bin", "crosscheck-r2")),
+                         0o700)
+        tmp2 = os.path.join(F, "tmp", "crosscheck", "xcheck-r2")
+        self.assertEqual(_mode(tmp2), 0o700)
+        self.assertEqual(os.listdir(tmp2), ["SANDBOX-SENTINEL"])
+        expected = holdout_kit._xcheck_protected_paths(
+            F, [holdout_kit.xcheck_names(1)])
+        prior_paths = [F + "/xcheck", F + "/cfg-xcheck",
+                       F + "/tmp/crosscheck/xcheck"]
+        self.assertEqual(expected[-3:], prior_paths)
+        deny = d["permissions"]["deny"]
+        protects = _protects(_hook_args(d))
+        for p in expected:
+            rule = ("Read(%s)" % p if p.endswith("FINDER-BRIEF.md")
+                    else "Read(%s/**)" % p)
+            self.assertIn(rule, deny)
+            self.assertIn(p, protects)
+            self.assertIn(p, _deny_read(d))
+        self.assertEqual(protects, expected)
+        self.assertNotIn(F + "/tmp/crosscheck/xcheck-r2", _deny_read(d))
+
+    def test_mint_gen3_covers_both_earlier_generations(self):
+        F = self.F
+        n1, n2 = holdout_kit.xcheck_names(1), holdout_kit.xcheck_names(2)
+        holdout_kit.make_xcheck_workspace(F, 2, prior=[n1])
+        holdout_kit.make_xcheck_workspace(F, 3, prior=[n1, n2])
+        d = self.xcheck_settings("xcheck-r3")
+        protects = _protects(_hook_args(d))
+        for n in (n1, n2):
+            for key in ("workspace", "config_dir", "tmp_dir"):
+                p = F + "/" + n[key]
+                self.assertIn("Read(%s/**)" % p, d["permissions"]["deny"])
+                self.assertIn(p, protects)
+                self.assertIn(p, _deny_read(d))
+
+    def test_second_mint_refused(self):
+        prior = [holdout_kit.xcheck_names(1)]
+        holdout_kit.make_xcheck_workspace(self.F, 2, prior=prior)
+        with self.assertRaises(holdout_kit.KitError) as cm:
+            holdout_kit.make_xcheck_workspace(self.F, 2, prior=prior)
+        self.assertEqual(str(cm.exception),
+                         "cross-check workspace xcheck-r2 already exists")
+
+    def test_stray_tmp_root_alone_refuses(self):
+        os.makedirs(os.path.join(self.F, "tmp", "crosscheck", "xcheck-r3"))
+        with self.assertRaises(holdout_kit.KitError) as cm:
+            holdout_kit.make_xcheck_workspace(
+                self.F, 3, prior=[holdout_kit.xcheck_names(1),
+                                  holdout_kit.xcheck_names(2)])
+        self.assertEqual(str(cm.exception),
+                         "cross-check workspace xcheck-r3 already exists")
+
+    def test_incomplete_prior_refused(self):
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_kit.make_xcheck_workspace(self.F, 3, prior=[
+                holdout_kit.xcheck_names(1)])
+        self.assertFalse(os.path.exists(os.path.join(self.F, "xcheck-r3")))
+
+    def test_older_generation_never_rewritten(self):
+        path = os.path.join(self.F, "xcheck", ".claude", "settings.json")
+        with open(path, "rb") as fh:
+            before = fh.read()
+        holdout_kit.make_xcheck_workspace(
+            self.F, 2, prior=[holdout_kit.xcheck_names(1)])
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), before)
+
+    def test_guard_honors_xcheck_protects(self):
+        F = self.F
+        deny, _ = holdout_guard.classify(
+            "Read", {"file_path": F + "/xcheck/X-1/blind.json"},
+            role="xcheck", extra_protect=[F + "/xcheck", F + "/cfg-xcheck",
+                                          F + "/tmp/crosscheck/xcheck"])
+        self.assertTrue(deny)
+        deny, _ = holdout_guard.classify(
+            "Read", {"file_path": F + "/tmp/finder/scratch.txt"},
+            role="xcheck", extra_protect=[F + "/tmp/finder"])
+        self.assertTrue(deny)
+
+
+class TestXcheckSandbox(SetupCase):
+
+    def _gen3(self):
+        n1, n2 = holdout_kit.xcheck_names(1), holdout_kit.xcheck_names(2)
+        holdout_kit.make_xcheck_workspace(self.F, 2, prior=[n1])
+        holdout_kit.make_xcheck_workspace(self.F, 3, prior=[n1, n2])
+        return [n1, n2]
+
+    def test_written_settings_pass(self):
+        self.assertEqual(holdout_kit.xcheck_settings_problems(
+            self.xcheck_settings(), self.F), [])
+        prior = self._gen3()
+        self.assertEqual(holdout_kit.xcheck_settings_problems(
+            self.xcheck_settings("xcheck-r3"), self.F, prior), [])
+
+    def test_missing_sealed(self):
+        d = self.xcheck_settings()
+        _deny_read(d).remove(self.F + "/sealed")
+        self.assertEqual(holdout_kit.xcheck_settings_problems(d, self.F),
+                         ["sandbox denyRead is missing %s/sealed" % self.F])
+
+    def test_missing_prior_workspace(self):
+        prior = self._gen3()
+        d = self.xcheck_settings("xcheck-r3")
+        _deny_read(d).remove(self.F + "/xcheck-r2")
+        self.assertIn("sandbox denyRead is missing %s/xcheck-r2" % self.F,
+                      holdout_kit.xcheck_settings_problems(d, self.F, prior))
+
+    def test_sandbox_flags(self):
+        d = self.xcheck_settings()
+        d["sandbox"]["enabled"] = False
+        self.assertIn("sandbox is not enabled",
+                      holdout_kit.xcheck_settings_problems(d, self.F))
+        d = self.xcheck_settings()
+        d["sandbox"]["failIfUnavailable"] = False
+        self.assertIn("sandbox does not fail if unavailable",
+                      holdout_kit.xcheck_settings_problems(d, self.F))
+
+    def test_missing_protect_and_deny(self):
+        prior = [holdout_kit.xcheck_names(1)]
+        holdout_kit.make_xcheck_workspace(self.F, 2, prior=prior)
+        d = self.xcheck_settings("xcheck-r2")
+        args = _hook_args(d)
+        i = args.index(self.F + "/cfg-xcheck")
+        del args[i - 1:i + 1]
+        self.assertIn("hook --protect is missing %s/cfg-xcheck" % self.F,
+                      holdout_kit.xcheck_settings_problems(d, self.F, prior))
+        d = self.xcheck_settings()
+        d["permissions"]["deny"].remove("Read(%s/work/**)" % self.F)
+        self.assertIn("permission deny is missing Read(%s/work/**)" % self.F,
+                      holdout_kit.xcheck_settings_problems(d, self.F))
+
+    def test_tmp_roots(self):
+        d = self.xcheck_settings()
+        _deny_read(d).remove(self.F + "/tmp/owner")
+        self.assertEqual(holdout_kit.xcheck_settings_problems(d, self.F),
+                         ["sandbox denyRead is missing %s/tmp/owner" % self.F])
+        prior = [holdout_kit.xcheck_names(1)]
+        holdout_kit.make_xcheck_workspace(self.F, 2, prior=prior)
+        d = self.xcheck_settings("xcheck-r2")
+        args = _hook_args(d)
+        i = args.index(self.F + "/tmp/crosscheck/xcheck")
+        del args[i - 1:i + 1]
+        self.assertIn("hook --protect is missing %s/tmp/crosscheck/xcheck"
+                      % self.F,
+                      holdout_kit.xcheck_settings_problems(d, self.F, prior))
+        d = self.xcheck_settings()
+        d["permissions"]["deny"].remove("Read(%s/tmp/finder/**)" % self.F)
+        self.assertIn("permission deny is missing Read(%s/tmp/finder/**)"
+                      % self.F,
+                      holdout_kit.xcheck_settings_problems(d, self.F))
+
+    def _gone(self, F, names):
+        for key in ("workspace", "config_dir", "tmp_dir", "launcher"):
+            self.assertFalse(os.path.lexists(os.path.join(F, names[key])),
+                             names[key])
+
+    def test_mutant_1_stripped_writer_fails_closed(self):
+        F2 = self.inproc_setup("h2")
+        self.strip_gen1(F2)
+        with mock.patch.object(holdout_kit, "_xcheck_protected_paths",
+                               return_value=[]):
+            with self.assertRaises(holdout_kit.KitError) as cm:
+                holdout_kit.make_xcheck_workspace(F2, 1)
+        self.assertTrue(str(cm.exception).startswith(
+            "cross-check settings failed their self-check: sandbox denyRead "
+            "is missing"))
+        self._gone(F2, holdout_kit.xcheck_names(1))
+
+    def test_mutant_3_tmp_roots_in_checker_expectation(self):
+        F4 = self.inproc_setup("h4")
+        self.strip_gen1(F4)
+        real = holdout_kit._xcheck_protected_paths
+
+        def stripped(folder, prior=()):
+            return [p for p in real(folder, prior)
+                    if not p.startswith(F4 + "/tmp/")]
+
+        with mock.patch.object(holdout_kit, "_xcheck_protected_paths",
+                               side_effect=stripped):
+            with self.assertRaises(holdout_kit.KitError) as cm:
+                holdout_kit.make_xcheck_workspace(F4, 1)
+            self.assertEqual(
+                str(cm.exception),
+                "cross-check settings failed their self-check: sandbox "
+                "denyRead is missing %s/tmp/finder" % F4)
+            self._gone(F4, holdout_kit.xcheck_names(1))
+        # Restore a real generation 1, then mint generation 2 stripped.
+        holdout_kit.make_xcheck_workspace(F4, 1)
+        with mock.patch.object(holdout_kit, "_xcheck_protected_paths",
+                               side_effect=stripped), \
+                mock.patch.object(holdout_kit, "xcheck_settings_problems",
+                                  wraps=holdout_kit.xcheck_settings_problems
+                                  ) as spy:
+            with self.assertRaises(holdout_kit.KitError):
+                holdout_kit.make_xcheck_workspace(
+                    F4, 2, prior=[holdout_kit.xcheck_names(1)])
+        settings, folder, prior = spy.call_args[0]
+        problems = holdout_kit.xcheck_settings_problems(settings, folder,
+                                                        prior)
+        self.assertIn("sandbox denyRead is missing %s/tmp/crosscheck/xcheck"
+                      % F4, problems)
+        self._gone(F4, holdout_kit.xcheck_names(2))
+
+    def test_mutant_2_checker_is_what_blocks(self):
+        F3 = self.inproc_setup("h3")
+        self.strip_gen1(F3)
+        with mock.patch.object(holdout_kit, "_xcheck_protected_paths",
+                               return_value=[]), \
+                mock.patch.object(holdout_kit, "xcheck_settings_problems",
+                                  return_value=[]):
+            holdout_kit.make_xcheck_workspace(F3, 1)
+        d = self.xcheck_settings(F=F3)
+        self.assertNotIn(F3 + "/sealed", _deny_read(d))
+
+
+class TestSandboxProbe(SetupCase):
+
+    def _probe(self, ws="xcheck"):
+        return os.path.join(self.F, ws, "sandbox-probe.py")
+
+    def _targets(self, ws="xcheck"):
+        tree = ast.parse(_read(self._probe(ws)))
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                    getattr(t, "id", None) == "TARGETS" for t in node.targets):
+                return ast.literal_eval(node.value)
+        self.fail("no TARGETS")
+
+    def test_gen1_targets(self):
+        F = self.F
+        self.assertEqual(_mode(self._probe()), 0o700)
+        self.assertEqual(self._targets(), [
+            F + "/sealed/SANDBOX-SENTINEL", F + "/work", F + "/cfg-finder",
+            F + "/kit/FINDER-BRIEF.md", F + "/tmp/finder/SANDBOX-SENTINEL",
+            F + "/tmp/owner/SANDBOX-SENTINEL"])
+
+    def test_gen3_targets(self):
+        F = self.F
+        n1, n2 = holdout_kit.xcheck_names(1), holdout_kit.xcheck_names(2)
+        holdout_kit.make_xcheck_workspace(F, 2, prior=[n1])
+        holdout_kit.make_xcheck_workspace(F, 3, prior=[n1, n2])
+        t = self._targets("xcheck-r3")
+        self.assertEqual(len(t), 12)
+        self.assertEqual(t[6:], [
+            F + "/xcheck/.claude/settings.json", F + "/cfg-xcheck",
+            F + "/tmp/crosscheck/xcheck/SANDBOX-SENTINEL",
+            F + "/xcheck-r2/.claude/settings.json", F + "/cfg-xcheck-r2",
+            F + "/tmp/crosscheck/xcheck-r2/SANDBOX-SENTINEL"])
+        self.assertFalse(any("xcheck-r3" in p for p in t))
+
+    def test_prints_only_fixed_lines(self):
+        tree = ast.parse(_read(self._probe()))
+        prints = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                  and getattr(n.func, "id", None) == "print"]
+        self.assertEqual(len(prints), 2)
+        for call in prints:
+            for arg in call.args:
+                self.assertNotIsInstance(arg, ast.Name)
+        self.assertEqual(_imports(tree), {"errno", "os", "sys"})
+
+    def test_unsandboxed_run_reports_problem(self):
+        proc = subprocess.run([sys.executable, self._probe()],
+                              cwd=os.path.join(self.F, "xcheck"),
+                              env=holdout_fixture.kit_env(),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout,
+                         "PROBLEM: sandbox did not deny 6 of 6 protected "
+                         "reads. Stop. Do not type begin. Close this session "
+                         "and reply: blocked sandbox\n")
+        self.assertEqual(proc.stderr, "")
+        self.assertNotIn(holdout_kit.SANDBOX_SENTINEL_TEXT.strip(),
+                         proc.stdout + proc.stderr)
+        self.assertNotIn("sentinel", (proc.stdout + proc.stderr).lower())
+
+    def _inproc(self, exc):
+        out = io.StringIO()
+        with mock.patch("os.open", side_effect=exc), \
+                mock.patch.object(sys, "stdout", out):
+            with self.assertRaises(SystemExit) as cm:
+                runpy.run_path(self._probe(), run_name="__main__")
+        return cm.exception.code, out.getvalue()
+
+    def test_denied_reads_pass(self):
+        code, out = self._inproc(PermissionError(errno.EACCES, "x"))
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "OK: sandbox denied 6/6 protected reads\n")
+        code, out = self._inproc(PermissionError(errno.EPERM, "x"))
+        self.assertEqual(code, 0)
+
+    def test_missing_target_is_not_a_pass(self):
+        code, out = self._inproc(FileNotFoundError(errno.ENOENT, "x"))
+        self.assertEqual(code, 1)
+        self.assertTrue(out.startswith("PROBLEM: sandbox did not deny 6 of 6"))
+        self.assertNotIn(self.F, out)
+
+
+class TestKitInventory(SetupCase):
+
+    def test_inventory(self):
+        kit = os.path.join(self.F, "kit")
+        inv = _load(os.path.join(kit, "KIT-INVENTORY.json"))
+        self.assertEqual(inv["schema"], "vibe-check-holdout-kit-inventory/1")
+        expected = set(holdout_kit.walk_regular(kit)) - {
+            "KIT-INVENTORY.json", "eligible-repos.json"}
+        self.assertEqual(set(inv["files"]), expected)
+        self.assertIn("tools/holdout_kit.py", inv["files"])
+        self.assertIn("holdout_guard.py", inv["files"])
+        self.assertNotIn("eligible-repos.json", inv["files"])
+        for rel, digest in inv["files"].items():
+            self.assertEqual(holdout_kit.sha256_file(os.path.join(kit, rel)),
+                             digest, rel)
+        target = os.path.join(kit, "tools", "holdout_kit.py")
+        with open(target, "ab") as fh:
+            fh.write(b"#")
+        self.assertNotEqual(holdout_kit.sha256_file(target),
+                            inv["files"]["tools/holdout_kit.py"])
+
+
+class TestB3Exclusions(unittest.TestCase):
+    """D-13: the B3-exposed repo set plus dashboard (owner decision), the
+    tuning repo and its mirror excluded from every slot, and content hashes
+    of every B3 commit id and patch. Only the source_repo/base_sha/feature_sha
+    lines of the provenance files are read; nothing is printed."""
+
+    def setUp(self):
+        self.data = _load(os.path.join(KIT_DIR, "b3-exclusions.json"))
+        self.prov = sorted(glob.glob(os.path.join(B3_DIFFS, "*.provenance")))
+        self.patches = sorted(glob.glob(os.path.join(B3_DIFFS, "*.patch")))
+        self.assertTrue(self.prov)
+        self.assertTrue(self.patches)
+
+    def _fields(self, prefix):
+        out = []
+        for path in self.prov:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith(prefix):
+                        out.append(line.split(":", 1)[1].strip())
+        return out
+
+    def test_shape(self):
+        self.assertEqual(set(self.data), {
+            "schema", "repos", "exclude_all_slots", "commit_sha256",
+            "patch_sha256", "note"})
+        self.assertEqual(self.data["schema"],
+                         "vibe-check-holdout-b3-exclusions/1")
+
+    def test_repos_cover_provenance_plus_dashboard(self):
+        derived = {os.path.basename(os.path.expanduser(v).rstrip("/"))
+                   for v in self._fields("source_repo:")}
+        self.assertTrue(derived)
+        self.assertTrue(set(self.data["repos"]) >= derived | {"dashboard"})
+        self.assertEqual(self.data["exclude_all_slots"],
+                         ["thejuran-marketplace", "turingmind-code-review"])
+        self.assertIn("previously exposed during B3 development",
+                      self.data["note"])
+
+    def test_commit_hashes(self):
+        shas = self._fields("base_sha:") + self._fields("feature_sha:")
+        self.assertTrue(shas)
+        expected = sorted({hashlib.sha256(s.encode()).hexdigest()
+                           for s in shas})
+        self.assertEqual(self.data["commit_sha256"], expected)
+
+    def test_patch_hashes(self):
+        expected = []
+        for p in self.patches:
+            with open(p, "rb") as fh:
+                expected.append(hashlib.sha256(fh.read()).hexdigest())
+        self.assertEqual(self.data["patch_sha256"], sorted(set(expected)))
+        self.assertEqual(len(self.data["patch_sha256"]), len(self.patches))
+
+
 if __name__ == "__main__":
     unittest.main()
