@@ -963,36 +963,55 @@ class TestLeakscan(LeakCase):
 
 
 class TestLeakDiag(LeakCase):
-    """leakdiag re-runs the scan read-only and sorts each slot's matches into
-    fixed words: where (kind of place), probe (diff/key), when (relative to
-    setup), and a cause. No path, probe text or ID is printed; nothing is
-    recorded or retired."""
+    """leakdiag re-runs the scan read-only and sorts each slot's matches in
+    fixed words. Owner rule (2026-10-09): a case's own source code in the AI
+    history of that same repo is not a leak. A probe is `source` when its
+    text is in the case's source repo history (git log -p --all), else
+    `holdout` (the finder's own words, a constructed line). Nothing is
+    printed but fixed words; nothing is recorded or retired."""
 
-    SETUP = 1_800_000_000  # the holdout's setup time in these tests
+    SETUP = 1_800_000_000
 
     def setUp(self):
         super().setUp()
         self.home = os.path.join(self.tmp, "home")
-        self.tuning = os.path.join(self.home, "tuning-repo")
-        os.makedirs(self.tuning)
-        subprocess.run(["git", "init", "-q", self.tuning], check=True,
-                       timeout=60)
-        self.src = {slot: os.path.join(self.home, "repo-" + slot.lower())
-                    for slot in holdout_kit.SLOTS}
+        self.tuning = self.git_repo(os.path.join(self.home, "tuning-repo"))
+        self.src = {}
         for slot, cid in self.ids.items():
+            repo = os.path.join(self.home, "repo-" + slot.lower())
+            self.src[slot] = self.git_repo(
+                repo, legacy_line(slot) + "\n" + normalized_line(slot) + "\n")
             path = self.p("sealed/keys/%s/provenance.json" % cid)
             with open(path, encoding="utf-8") as fh:
                 prov = json.load(fh)
-            prov["source_repo"] = self.src[slot]
+            prov["source_repo"] = repo
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(prov, fh)
+
+    @staticmethod
+    def git_repo(path, text=None):
+        os.makedirs(path, exist_ok=True)
+        subprocess.run(["git", "init", "-q", path], check=True, timeout=60)
+        if text is not None:
+            TestLeakDiag.commit(path, text)
+        return path
+
+    @staticmethod
+    def commit(repo, text, name="code.py"):
+        with open(os.path.join(repo, name), "a", encoding="utf-8") as fh:
+            fh.write(text)
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        subprocess.run(["git", "-C", repo, "add", "-A"], check=True,
+                       timeout=60, env=env)
+        subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "c"],
+                       check=True, timeout=60, env=env)
 
     @staticmethod
     def enc(path):
         return re.sub(r"[^A-Za-z0-9]", "-", path)
 
     def transcript(self, project, rel, lines):
-        """A ~/.claude/projects jsonl: (text, epoch) per line."""
         body = "".join(json.dumps({
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z",
                                        time.gmtime(t)),
@@ -1000,9 +1019,16 @@ class TestLeakDiag(LeakCase):
         return plant(os.path.join(self.home, ".claude", "projects",
                                   self.enc(project)), rel, body)
 
+    def codex_session(self, cwd, text, sid="S1"):
+        meta = {"type": "session_meta", "timestamp": "2026-01-01T00:00:00Z",
+                "payload": {"id": sid, "session_id": sid, "cwd": cwd}}
+        msg = {"type": "response_item", "timestamp": "2026-01-01T00:00:01Z",
+               "payload": {"content": text}}
+        return plant(os.path.join(self.home, ".codex", "sessions", "2026"),
+                     "rollout-%s.jsonl" % sid,
+                     json.dumps(meta) + "\n" + json.dumps(msg) + "\n")
+
     def roots(self):
-        """default_scan_roots under the test home, minus the real shared
-        temp directory."""
         return [r for r in holdout_archive.default_scan_roots(self.home)
                 if r.startswith(self.home)]
 
@@ -1018,65 +1044,122 @@ class TestLeakDiag(LeakCase):
                 for rel in ("RETIRED.json", "LEAKSCAN.json")
                 if os.path.exists(os.path.join(self.folder, rel))}
 
-    def test_own_source_history_before_setup(self):
-        self.transcript(self.src["C1"], "s.jsonl",
+    def test_own_source_history_is_origin_at_any_time(self):
+        self.transcript(self.src["C1"], "a.jsonl",
                         [(legacy_line("C1"), self.SETUP - 86400)])
-        result, _ = self.diag()
-        self.assertEqual(result["C1"]["cause"], "origin-history")
-        self.assertEqual(result["C1"]["where"], ["own-transcript"])
-        self.assertEqual(result["C1"]["when"], ["before"])
-        self.assertEqual(result["C2"]["cause"], "none")
+        self.transcript(self.src["C1"], "b.jsonl",
+                        [(normalized_line("C1"), self.SETUP + 86400)])
+        r = self.diag()[0]["C1"]
+        self.assertEqual((r["cause"], r["where"], r["probe"], r["when"]),
+                         ("origin-history", ["own-transcript"], ["source"],
+                          ["after", "before"]))
+        self.assertEqual(self.diag()[0]["C2"]["cause"], "none")
 
     def test_subdir_session_of_own_repo_is_own(self):
         self.transcript(self.src["C1"] + "/pkg", "s.jsonl",
                         [(legacy_line("C1"), self.SETUP - 5)])
         self.assertEqual(self.diag()[0]["C1"]["where"], ["own-transcript"])
 
-    def test_after_setup_is_exposed(self):
-        self.transcript(self.src["C1"], "s.jsonl",
-                        [(legacy_line("C1"), self.SETUP + 60)])
-        result, _ = self.diag()
-        self.assertEqual(result["C1"]["cause"], "exposed")
-        self.assertEqual(result["C1"]["when"], ["after"])
-
-    def test_key_text_is_exposed_even_before_setup(self):
+    def test_finder_words_are_exposed_even_in_own_history(self):
         self.transcript(self.src["Q2"], "s.jsonl",
                         [(key_detail("Q2"), self.SETUP - 60)])
-        result, _ = self.diag()
-        self.assertEqual(result["Q2"]["cause"], "exposed")
-        self.assertEqual(result["Q2"]["probe"], ["key"])
+        r = self.diag()[0]["Q2"]
+        self.assertEqual((r["cause"], r["probe"]), ("exposed", ["holdout"]))
 
-    def test_tuning_transcript_is_exposed(self):
+    def test_key_text_quoting_the_repo_is_source(self):
+        self.commit(self.src["Q2"], key_detail("Q2") + "\n", "notes.txt")
+        self.transcript(self.src["Q2"], "s.jsonl",
+                        [(key_detail("Q2"), self.SETUP + 60)])
+        r = self.diag()[0]["Q2"]
+        self.assertEqual((r["cause"], r["probe"]),
+                         ("origin-history", ["source"]))
+
+    def test_missing_source_repo_makes_every_probe_holdout(self):
+        shutil.rmtree(self.src["C3"])
+        self.transcript(self.src["C3"], "s.jsonl",
+                        [(legacy_line("C3"), self.SETUP - 60)])
+        r = self.diag()[0]["C3"]
+        self.assertEqual((r["cause"], r["probe"]), ("exposed", ["holdout"]))
+
+    def test_tuning_session_is_exposed(self):
         self.transcript(self.tuning, "s.jsonl",
                         [(legacy_line("C3"), self.SETUP - 60)])
-        result, _ = self.diag()
-        self.assertEqual(result["C3"]["cause"], "exposed")
-        self.assertEqual(result["C3"]["where"], ["tuning-transcript"])
+        r = self.diag()[0]["C3"]
+        self.assertEqual((r["cause"], r["where"]),
+                         ("exposed", ["tuning-transcript"]))
 
-    def test_other_project_before_setup(self):
+    def test_other_project_is_prior_elsewhere(self):
         self.transcript(os.path.join(self.home, "elsewhere"), "s.jsonl",
                         [(legacy_line("Q1"), self.SETUP - 60)])
-        result, _ = self.diag()
-        self.assertEqual(result["Q1"]["cause"], "prior-elsewhere")
-        self.assertEqual(result["Q1"]["where"], ["other-transcript"])
+        r = self.diag()[0]["Q1"]
+        self.assertEqual((r["cause"], r["where"]),
+                         ("prior-elsewhere", ["other-transcript"]))
 
-    def test_tuning_tree_and_codex_are_exposed(self):
-        plant(self.tuning, "notes.md", legacy_line("C2") + "\n")
-        plant(os.path.join(self.home, ".codex"), "h.jsonl",
+    def test_codex_sessions_are_attributed_by_cwd(self):
+        self.codex_session(self.src["C1"] + "/sub", legacy_line("C1"), "S1")
+        self.codex_session(self.tuning, legacy_line("C2"), "S2")
+        self.codex_session(os.path.join(self.home, "x"), legacy_line("C3"),
+                           "S3")
+        r = self.diag()[0]
+        self.assertEqual((r["C1"]["cause"], r["C1"]["where"]),
+                         ("origin-history", ["codex-own"]))
+        self.assertEqual((r["C2"]["cause"], r["C2"]["where"]),
+                         ("exposed", ["codex-tuning"]))
+        self.assertEqual((r["C3"]["cause"], r["C3"]["where"]),
+                         ("prior-elsewhere", ["codex-other"]))
+
+    def test_codex_history_follows_its_session(self):
+        self.codex_session(self.src["Q3"], "nothing", "S9")
+        plant(os.path.join(self.home, ".codex"), "history.jsonl",
+              json.dumps({"session_id": "S9", "ts": 1, "text":
+                          legacy_line("Q3")}) + "\n" +
+              json.dumps({"session_id": "S0", "ts": 1, "text":
+                          normalized_line("Q1")}) + "\n")
+        r = self.diag()[0]
+        self.assertEqual(r["Q3"]["where"], ["codex-own"])
+        self.assertEqual((r["Q1"]["cause"], r["Q1"]["where"]),
+                         ("prior-elsewhere", ["codex"]))
+
+    def test_plugin_caches(self):
+        plant(os.path.join(self.home, ".claude", "plugins", "cache",
+                           "thejuran", "vibe-check", "2.11.0"), "f.md",
+              legacy_line("C2") + "\n")
+        plant(os.path.join(self.home, ".claude", "plugins", "cache",
+                           "other", "thing"), "f.md",
+              legacy_line("Q1") + "\n")
+        plant(os.path.join(self.home, ".claude", "debug"), "d.txt",
               legacy_line("Q3") + "\n")
-        result, _ = self.diag()
-        self.assertEqual(result["C2"]["cause"], "exposed")
-        self.assertIn("tuning-tree", result["C2"]["where"])
-        self.assertEqual(result["Q3"]["where"], ["codex"])
+        r = self.diag()[0]
+        self.assertEqual((r["C2"]["cause"], r["C2"]["where"]),
+                         ("exposed", ["tuning-plugin"]))
+        self.assertEqual((r["Q1"]["cause"], r["Q1"]["where"]),
+                         ("prior-elsewhere", ["claude-plugins"]))
+        self.assertEqual((r["Q3"]["cause"], r["Q3"]["where"]),
+                         ("prior-elsewhere", ["claude-debug"]))
+
+    def test_tuning_tree_is_exposed(self):
+        plant(self.tuning, "notes.md", legacy_line("C2") + "\n")
+        r = self.diag()[0]["C2"]
+        self.assertEqual((r["cause"], r["where"]), ("exposed", ["tuning-tree"]))
 
     def test_history_jsonl_of_own_project(self):
         plant(os.path.join(self.home, ".claude"), "history.jsonl",
               json.dumps({"display": legacy_line("C1"),
                           "timestamp": (self.SETUP - 60) * 1000,
                           "project": self.src["C1"]}) + "\n")
-        result, _ = self.diag()
-        self.assertEqual(result["C1"]["where"], ["own-history"])
-        self.assertEqual(result["C1"]["cause"], "origin-history")
+        r = self.diag()[0]["C1"]
+        self.assertEqual((r["cause"], r["where"]),
+                         ("origin-history", ["own-history"]))
+
+    def test_mixed_is_worst(self):
+        self.transcript(self.src["C1"], "a.jsonl",
+                        [(legacy_line("C1"), self.SETUP - 60)])
+        self.transcript(os.path.join(self.home, "elsewhere"), "b.jsonl",
+                        [(normalized_line("C1"), self.SETUP - 60)])
+        self.assertEqual(self.diag()[0]["C1"]["cause"], "prior-elsewhere")
+        self.transcript(self.tuning, "c.jsonl",
+                        [(normalized_line("C1"), self.SETUP - 60)])
+        self.assertEqual(self.diag()[0]["C1"]["cause"], "exposed")
 
     def test_timestamps_are_utc_in_summer_and_winter(self):
         for text, want in (("2026-07-01T12:00:00.000Z", 1782907200.0),
@@ -1086,24 +1169,7 @@ class TestLeakDiag(LeakCase):
         self.assertEqual(holdout_archive._epoch(1782907200000), 1782907200.0)
         self.assertIsNone(holdout_archive._epoch("not a time"))
 
-    def test_line_without_timestamp_uses_mtime(self):
-        path = self.transcript(self.src["C1"], "s.jsonl", [])
-        with open(path, "w") as fh:
-            fh.write(legacy_line("C1") + "\n")
-        os.utime(path, (self.SETUP + 10, self.SETUP + 10))
-        self.assertEqual(self.diag()[0]["C1"]["when"], ["after"])
-
-    def test_mixed_is_worst(self):
-        self.transcript(self.src["C1"], "a.jsonl",
-                        [(legacy_line("C1"), self.SETUP - 60)])
-        self.transcript(self.tuning, "b.jsonl",
-                        [(normalized_line("C1"), self.SETUP - 60)])
-        result, _ = self.diag()
-        self.assertEqual(result["C1"]["cause"], "exposed")
-        self.assertEqual(result["C1"]["where"],
-                         ["own-transcript", "tuning-transcript"])
-
-    def test_line_is_opaque_and_conforms(self):
+    def test_line_is_opaque_read_only_and_conforms(self):
         self.transcript(self.src["C1"], "s.jsonl",
                         [(legacy_line("C1"), self.SETUP - 60)])
         self.transcript(self.tuning, "t.jsonl",
@@ -1121,6 +1187,10 @@ class TestLeakDiag(LeakCase):
             self.assertNotIn(cid, out + line)
         self.assertNotIn(self.home, out + line)
         self.assertEqual(self.snapshot(), before)
+
+    def test_every_where_word_is_in_the_grammar(self):
+        for w in holdout_archive._ALL_WHERE:
+            self.assertIn(w, holdout_manifest.LEAKDIAG_WHERE)
 
     def test_cli(self):
         self.transcript(self.src["C1"], "s.jsonl",
@@ -1144,12 +1214,6 @@ class TestLeakDiag(LeakCase):
                 "--folder", self.folder, "leakdiag"])
         self.assertNotEqual(rc, 0)
         self.assertNotIn("leakdiag C1", out)
-
-    def test_mutant_ignoring_time_calls_after_setup_origin(self):
-        self.transcript(self.src["C1"], "s.jsonl",
-                        [(legacy_line("C1"), self.SETUP + 60)])
-        result, _ = self.diag(setup_time=self.SETUP + 3600)
-        self.assertEqual(result["C1"]["cause"], "origin-history")
 
 
 class TestLeakLedger(LeakCase):

@@ -390,16 +390,18 @@ Deleting the match removes the evidence, not the influence. So: never delete-and
 
 **Diagnose before any cleanup or replacement.** `bin/holdout leakdiag --repo
 ~/turingmind-code-review` re-runs the same scan read-only (it never records a scan, retires or
-deletes anything) and sorts each slot's matches in fixed words: where (`own-transcript` /
-`own-history`: the case's own source repo's Claude sessions or prompts; `tuning-transcript`,
-`tuning-tree`, `tuning-gitlog`, `codex`, `shared-tmp`, `zsh-history`, `other-transcript`,
-`claude-history`, `claude-other`, `other`), probe (`diff` line or finder-written `key` text) and
-when (before or after the holdout's setup). Per slot: `origin-history` = only diff lines, only
-in its own source repo's history, all from before setup (the change's own development, not a
-copy of the holdout); `prior-elsewhere` = only diff lines from before setup, but also in other
-places; `exposed` = key text, a tuning-side place, or anything written after setup. Its last
-line, `leakdiag C1=... Q3=... where=...`, is the only line to send to the tuning session.
-Note that leakscan itself already retired every slot it named.
+deletes anything) and sorts each slot's matches in fixed words. Owner rule (2026-10-09): a
+case's own source code in the AI history of that same repo is not a leak. So each matched text
+is `source` (it is in the case's source repo history, `git log -p --all`, even when a key quotes
+it) or `holdout` (the finder's own words, a constructed line, or a repo that cannot be read),
+and each match is placed: the case's own repo (`own-transcript`, `own-history`, `codex-own`),
+tuning-side (`tuning-transcript`, `tuning-tree`, `tuning-gitlog`, `tuning-plugin`,
+`codex-tuning`, `shared-tmp`, `zsh-history`, `other`) or elsewhere (`other-transcript`,
+`claude-history`, `claude-plugins`, `claude-debug`, `claude-other`, `codex-other`, `codex`).
+Per slot: `exposed` = any holdout text, or any match tuning-side; `origin-history` = only source
+text, only in its own repo's places; `prior-elsewhere` = only source text, some in other or
+unattributed stores. Its last line, `leakdiag C1=... Q3=... where=...`, is the only line to
+send to the tuning session. Note that leakscan itself already retired every slot it named.
 
 `publish` refuses mechanically. Every scan is appended to `LEAKSCAN.json`, a ledger in the
 holdout folder that scrub keeps. Right after a scan with matches, publish says the last scan

@@ -1120,10 +1120,12 @@ DENIAL_WHERE = ("workspace", "holdout", "home", "temp", "system", "none")
 # The closed vocabulary of `leakdiag` (holdout_archive.leakdiag): per slot,
 # a cause for its leak-scan matches, and the kinds of place they were in.
 LEAKDIAG_CAUSES = ("none", "origin-history", "prior-elsewhere", "exposed")
-LEAKDIAG_WHERE = ("own-transcript", "own-history", "tuning-transcript",
-                  "other-transcript", "claude-history", "claude-other",
-                  "shared-tmp", "codex", "zsh-history", "tuning-tree",
-                  "tuning-gitlog", "other")
+LEAKDIAG_WHERE = ("own-transcript", "own-history", "codex-own",
+                  "tuning-transcript", "tuning-tree", "tuning-gitlog",
+                  "tuning-plugin", "codex-tuning", "shared-tmp", "zsh-history",
+                  "other", "other-transcript", "claude-history",
+                  "claude-plugins", "claude-debug", "claude-other",
+                  "codex-other", "codex")
 
 
 def _alt(words):

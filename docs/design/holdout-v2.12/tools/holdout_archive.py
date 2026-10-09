@@ -725,18 +725,27 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
 # ---------------------------------------------------------------- leakdiag
 #
 # Read-only: the same probes and places as leakscan, but nothing is recorded
-# or retired, and each slot's matches are sorted in fixed words: the kind of
-# place (its own source repo's Claude transcripts or prompt history, a
-# tuning-repo session, another project, Codex, ...), the probe kind (a diff
-# line, or key text the finder wrote), and when the matching lines were
-# written relative to the holdout's setup. A slot is "origin-history" only
-# when every match is a diff line in its own source repo's history from
-# before setup: the change's own development, not a copy of the holdout.
+# or retired, and each slot's matches are sorted in fixed words.
+#
+# Owner rule (2026-10-09): a case's own source code in the AI history of
+# that same repo is not a leak. So each probe is `source` when its text is in
+# the case's source repo history (git log -p --all; the repo's own code,
+# even when a key quotes it) and `holdout` otherwise (the finder's own
+# words, a constructed line, or a repo that cannot be read). Each match is
+# placed: the case's own repo (Claude transcripts or prompts, Codex sessions
+# run there), a tuning-side place, or elsewhere. Per slot:
+#   exposed          any holdout probe matched, or any match tuning-side
+#   origin-history   only source probes, only in the slot's own repo places
+#   prior-elsewhere  only source probes, some in other or unattributed stores
 
-_ORIGIN_WHERE = frozenset({"own-transcript", "own-history"})
-_EXPOSED_WHERE = frozenset({"tuning-transcript", "shared-tmp", "codex",
-                            "zsh-history", "tuning-tree", "tuning-gitlog",
-                            "other"})
+_OWN_WHERE = frozenset({"own-transcript", "own-history", "codex-own"})
+_TUNING_WHERE = frozenset({"tuning-transcript", "tuning-tree",
+                           "tuning-gitlog", "tuning-plugin", "codex-tuning",
+                           "shared-tmp", "zsh-history", "other"})
+_ALL_WHERE = tuple(sorted(_OWN_WHERE | _TUNING_WHERE | {
+    "other-transcript", "claude-history", "claude-plugins", "claude-debug",
+    "claude-other", "codex-other", "codex"}))
+TUNING_PLUGIN = "vibe-check"
 
 
 def _setup_time(folder):
@@ -778,40 +787,6 @@ def _epoch(value):
     return None
 
 
-def _place(path, slot_repo, home, tuning, entry):
-    """The kind of place a matching file (or jsonl entry) is."""
-    claude = os.path.join(home, ".claude")
-    projects = os.path.join(claude, "projects")
-    if _under(path, projects):
-        name = os.path.relpath(path, projects).split(os.sep)[0]
-        if slot_repo and _same_project(name, slot_repo):
-            return "own-transcript"
-        if tuning and _same_project(name, tuning):
-            return "tuning-transcript"
-        return "other-transcript"
-    if path == os.path.join(claude, "history.jsonl"):
-        project = (entry or {}).get("project")
-        if isinstance(project, str) and slot_repo \
-                and _same_project(_project_dir(project), slot_repo):
-            return "own-history"
-        if isinstance(project, str) and tuning \
-                and _same_project(_project_dir(project), tuning):
-            return "tuning-transcript"
-        return "claude-history"
-    if _under(path, claude):
-        return "claude-other"
-    if any(_under(path, t) for t in ("/private/tmp/claude-%d" % os.getuid(),
-                                     "/tmp/claude-%d" % os.getuid())):
-        return "shared-tmp"
-    if _under(path, os.path.join(home, ".codex")):
-        return "codex"
-    if path == os.path.join(home, ".zsh_history"):
-        return "zsh-history"
-    if tuning and _under(os.path.realpath(path), os.path.realpath(tuning)):
-        return "tuning-tree"
-    return "other"
-
-
 def _line_matches(text, probes):
     if any(p in text for p in probes):
         return True
@@ -819,56 +794,171 @@ def _line_matches(text, probes):
     return bool(joined) and any(p in joined for p in probes)
 
 
-def _file_findings(path, text, by_slot, slot_repo, home, tuning, setup):
-    """[(slot, place, kind, when)] for one file. jsonl files are read line
-    by line so each matching entry carries its own place and timestamp."""
-    out = []
-    mtime = os.lstat(path).st_mtime
-    units = text.splitlines() if path.endswith(".jsonl") else [text]
-    for unit in units:
-        for slot, kinds in by_slot.items():
-            hit_kinds = [k for k, probes in kinds.items()
-                         if probes and _line_matches(unit, probes)]
-            if not hit_kinds:
-                continue
-            entry = None
-            if len(units) > 1 or path.endswith(".jsonl"):
-                try:
-                    entry = json.loads(unit)
-                except ValueError:
-                    entry = None
-            stamp = _epoch(entry.get("timestamp")) \
-                if isinstance(entry, dict) else None
-            when = "after" if (stamp if stamp is not None else mtime) \
-                >= setup else "before"
-            place = _place(path, slot_repo.get(slot), home, tuning,
-                           entry if isinstance(entry, dict) else None)
-            for kind in hit_kinds:
-                out.append((slot, place, kind, when))
+def _json_or_none(text):
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _codex_cwds(home):
+    """{codex session id: cwd} from each session file's first line."""
+    out = {}
+    root = os.path.join(home, ".codex", "sessions")
+    for path in _iter_files(root, "\0"):
+        try:
+            with open(path, "rb") as fh:
+                first = fh.readline().decode("utf-8", "replace")
+        except OSError:
+            continue
+        payload = (_json_or_none(first) or {}).get("payload")
+        if isinstance(payload, dict) and isinstance(payload.get("cwd"), str):
+            for key in ("id", "session_id"):
+                if isinstance(payload.get(key), str):
+                    out[payload[key]] = payload["cwd"]
     return out
 
 
+def _attribute(cwd, slot_repo, tuning, own, tune, other):
+    if isinstance(cwd, str) and cwd:
+        real = os.path.realpath(cwd)
+        if slot_repo and _under(real, os.path.realpath(slot_repo)):
+            return own
+        if tuning and _under(real, tuning):
+            return tune
+        return other
+    return None
+
+
+class _Places:
+    """Where a matching file or entry is, relative to one slot's repo."""
+
+    def __init__(self, home, tuning):
+        self.home = home
+        self.tuning = tuning
+        self.claude = os.path.join(home, ".claude")
+        self.codex = os.path.join(home, ".codex")
+        self._cwds = None
+
+    def codex_cwds(self):
+        if self._cwds is None:
+            self._cwds = _codex_cwds(self.home)
+        return self._cwds
+
+    def place(self, path, slot_repo, entry, file_cwd):
+        projects = os.path.join(self.claude, "projects")
+        if _under(path, projects):
+            name = os.path.relpath(path, projects).split(os.sep)[0]
+            if slot_repo and _same_project(name, slot_repo):
+                return "own-transcript"
+            if self.tuning and _same_project(name, self.tuning):
+                return "tuning-transcript"
+            return "other-transcript"
+        if path == os.path.join(self.claude, "history.jsonl"):
+            got = _attribute((entry or {}).get("project"), slot_repo,
+                             self.tuning, "own-history", "tuning-transcript",
+                             "claude-history")
+            return got or "claude-history"
+        if _under(path, os.path.join(self.claude, "plugins")):
+            parts = os.path.relpath(path, self.claude).split(os.sep)
+            return "tuning-plugin" if TUNING_PLUGIN in parts \
+                else "claude-plugins"
+        if _under(path, os.path.join(self.claude, "debug")):
+            return "claude-debug"
+        if _under(path, self.claude):
+            return "claude-other"
+        if _under(path, self.codex):
+            cwd = file_cwd
+            if cwd is None and isinstance(entry, dict):
+                cwd = self.codex_cwds().get(entry.get("session_id"))
+            got = _attribute(cwd, slot_repo, self.tuning, "codex-own",
+                             "codex-tuning", "codex-other")
+            return got or "codex"
+        if any(_under(path, t) for t in ("/private/tmp/claude-%d"
+                                         % os.getuid(),
+                                         "/tmp/claude-%d" % os.getuid())):
+            return "shared-tmp"
+        if path == os.path.join(self.home, ".zsh_history"):
+            return "zsh-history"
+        if self.tuning and _under(os.path.realpath(path), self.tuning):
+            return "tuning-tree"
+        return "other"
+
+
+def _file_cwd(path, text, places):
+    """The cwd a Codex session file records on its first line, if any."""
+    if not _under(path, os.path.join(places.codex, "sessions")):
+        return None
+    payload = (_json_or_none(text.split("\n", 1)[0]) or {}).get("payload")
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+    return cwd if isinstance(cwd, str) else None
+
+
+def _file_findings(path, text, by_slot, slot_repo, places, setup):
+    """[(slot, place, origin, when)] for one file. jsonl files are read line
+    by line so each matching entry carries its own place and timestamp."""
+    out = []
+    mtime = os.lstat(path).st_mtime
+    jsonl = path.endswith(".jsonl")
+    file_cwd = _file_cwd(path, text, places)
+    for unit in (text.splitlines() if jsonl else [text]):
+        entry = _json_or_none(unit) if jsonl else None
+        for slot, origins in by_slot.items():
+            hit = [o for o, probes in origins.items()
+                   if probes and _line_matches(unit, probes)]
+            if not hit:
+                continue
+            stamp = None
+            if entry is not None:
+                stamp = _epoch(entry.get("timestamp", entry.get("ts")))
+            when = "after" if (stamp if stamp is not None else mtime) \
+                >= setup else "before"
+            place = places.place(path, slot_repo.get(slot), entry, file_cwd)
+            out.extend((slot, place, o, when) for o in hit)
+    return out
+
+
+def _repo_history(repo):
+    """The repo's whole history as text (git log -p --all), or None when it
+    cannot be read: then no probe of that case counts as the repo's own."""
+    if not repo or not os.path.isdir(repo):
+        return None
+    try:
+        proc = holdout_kit.run_argv(
+            [GIT_BIN, "-C", repo, "log", "-p", "--all", "--no-color",
+             "--no-ext-diff", "--no-textconv"], timeout=600)
+    except KitError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace")
+
+
 def _slot_probes(source):
-    """{slot: {"diff": set, "key": set}} and {slot: source repo or None}."""
-    by_slot, repos = {}, {}
-    key_texts = {}
+    """{slot: {"source": set, "holdout": set}} and {slot: source repo}."""
+    repos, history = {}, {}
     for cid in holdout_kit.case_ids(source):
         key = holdout_kit.load_json(
             os.path.join(source, "sealed", "keys", cid, "key.json"),
             what="a key.json")
-        key_texts[cid] = {s.strip() for s in _key_strings(key)}
         try:
             prov = holdout_kit.load_json(
                 os.path.join(source, "sealed", "keys", cid,
                              "provenance.json"), what="a provenance.json")
         except KitError:
             prov = {}
-        repos[key.get("slot")] = prov.get("source_repo") \
-            if isinstance(prov.get("source_repo"), str) else None
+        repo = prov.get("source_repo")
+        repo = repo if isinstance(repo, str) else None
+        repos[key.get("slot")] = repo
+        history[cid] = _repo_history(repo)
+    by_slot = {}
     for probe, slot, cid in _probes(source):
-        kind = "key" if probe in key_texts.get(cid, ()) else "diff"
-        by_slot.setdefault(slot, {"diff": set(), "key": set()})[kind].add(
-            probe)
+        hist = history.get(cid)
+        origin = "source" if hist is not None and probe in hist \
+            else "holdout"
+        by_slot.setdefault(slot, {"source": set(), "holdout": set()})[
+            origin].add(probe)
     return by_slot, repos
 
 
@@ -876,11 +966,10 @@ def _slot_cause(found):
     if not found:
         return "none"
     places = {f[1] for f in found}
-    kinds = {f[2] for f in found}
-    whens = {f[3] for f in found}
-    if "key" in kinds or places & _EXPOSED_WHERE or "after" in whens:
+    origins = {f[2] for f in found}
+    if "holdout" in origins or places & _TUNING_WHERE:
         return "exposed"
-    if places <= _ORIGIN_WHERE:
+    if places <= _OWN_WHERE:
         return "origin-history"
     return "prior-elsewhere"
 
@@ -913,9 +1002,10 @@ def leakdiag(folder, scan_roots=None, repo=None, from_archive=False,
             source = verify
         by_slot, slot_repo = _slot_probes(source)
         index = _index(_probes(source))
+        tuning = os.path.realpath(repo) if repo else None
+        places = _Places(home, tuning)
         found = {slot: [] for slot in by_slot}
         sources = [(root, ()) for root in roots]
-        tuning = os.path.realpath(repo) if repo else None
         if tuning:
             sources.append((tuning, (".git",)))
         seen = set()
@@ -934,14 +1024,14 @@ def leakdiag(folder, scan_roots=None, repo=None, from_archive=False,
                 if not raw and not decoded:
                     continue
                 for f in _file_findings(path, text, by_slot, slot_repo,
-                                        home, tuning, setup):
+                                        places, setup):
                     found[f[0]].append(f)
         if tuning:
             log = _git_log(tuning)
-            for slot, kinds in by_slot.items():
-                for kind, probes in kinds.items():
+            for slot, origins in by_slot.items():
+                for origin, probes in origins.items():
                     if probes and _line_matches(log, probes):
-                        found[slot].append((slot, "tuning-gitlog", kind,
+                        found[slot].append((slot, "tuning-gitlog", origin,
                                             "unknown"))
         order = list(holdout_kit.SLOTS)
         return {slot: {"cause": _slot_cause(f),
