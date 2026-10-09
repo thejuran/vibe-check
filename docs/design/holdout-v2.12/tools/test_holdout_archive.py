@@ -1285,33 +1285,46 @@ class TestLeakRule(OwnRepoCase):
                           repo=self.tuning, scan_roots=self.roots(),
                           home=self.home)
 
-    def test_leak_clear_clears_all_but_exposed(self):
+    def test_leak_clear_clears_only_on_positive_evidence(self):
+        # C3 matched only its own source history (origin-history): cleared.
+        # Q1 is exposed; C1, C2, Q2, Q3 have no copy found (cause none):
+        # all kept, never cleared without positive evidence.
         self.name_all()
         (cleared, kept), out = self.clear()
-        self.assertEqual(kept, ["Q1"])
-        self.assertEqual(cleared, ["C1", "C2", "C3", "Q2", "Q3"])
+        self.assertEqual(kept, ["C1", "C2", "Q1", "Q2", "Q3"])
+        self.assertEqual(cleared, ["C3"])
         line = out.strip().splitlines()[-1]
-        self.assertEqual(line, "leak-clear cleared=C1,C2,C3,Q2,Q3 kept=Q1")
+        self.assertEqual(line, "leak-clear cleared=C3 kept=C1,C2,Q1,Q2,Q3")
         self.assertEqual(holdout_manifest.resume_reply_kind(line),
                          "leak-clear")
         self.assertEqual(holdout_manifest.cleared_slots(self.folder),
                          cleared)
         problems = holdout_manifest.retired_problems(self.folder)
-        self.assertEqual(len(problems), 1)
-        self.assertIn("Q1", problems[0])
+        self.assertEqual(len(problems), 5)
+        joined = "\n".join(problems)
+        for slot in kept:
+            self.assertIn("case %s " % slot, joined)
+        self.assertNotIn("case C3 ", joined)
         self.assert_no_probe_text(out)
         for cid in self.ids.values():
             self.assertNotIn(cid, out)
 
-    def test_then_a_clean_rescan_settles_the_ledger(self):
+    def test_a_deleted_exposing_copy_is_kept_not_cleared(self):
+        # Deleting the exposing transcript leaves Q1 with cause none; that is
+        # cleanup, not a remedy (rule 7d): Q1 stays blocked after a rescan.
         self.name_all()
         os.remove(os.path.join(self.home, ".claude", "projects",
                                self.enc(self.tuning), "t.jsonl"))
-        self.clear()
+        (cleared, kept), _ = self.clear()
+        self.assertEqual(cleared, ["C3"])
+        self.assertIn("Q1", kept)
         self.scan_home()
-        self.assertEqual(holdout_manifest.leak_ledger_problems(
-            self.folder, self.seal()), [])
-        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+        ledger = holdout_manifest.leak_ledger_problems(self.folder,
+                                                       self.seal())
+        self.assertTrue(any("case Q1 " in p for p in ledger))
+        self.assertFalse(any("case C3 " in p for p in ledger))
+        retired = "\n".join(holdout_manifest.retired_problems(self.folder))
+        self.assertIn("Q1", retired)
 
     def test_leak_clear_with_nothing_named(self):
         (cleared, kept), out = self.clear()

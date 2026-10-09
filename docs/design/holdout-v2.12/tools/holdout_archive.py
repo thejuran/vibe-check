@@ -1104,14 +1104,20 @@ def _apply_owner_rule(hits, found, slot_of):
 
 LEAK_CLEAR_NEEDS_MSG = ("leak-clear needs SEAL.json and the live sealed/ "
                         "(run it before scrub)")
+# The only causes that clear a case: positive evidence that the matched text
+# is the case's own source code. `none` (no copy found, e.g. the exposing
+# copy was deleted), `exposed`, a missing slot or any other value is KEPT:
+# deleting a leak is never a remedy (README rule 7d, never delete-and-rerun).
+CLEARING_CAUSES = ("origin-history", "prior-elsewhere")
 
 
 def leak_clear(folder, repo=None, scan_roots=None, home=None,
                setup_time=None):
     """Owner rule (2026-10-09): append a clearance for every current case a
-    leak scan named or a leakscan retirement covers whose slot leakdiag does
-    not call exposed. Returns (cleared slots, kept slots), each sorted. The
-    classification is recomputed here; nothing the owner types is trusted."""
+    leak scan named or a leakscan retirement covers whose slot leakdiag
+    calls origin-history or prior-elsewhere; every other named case is kept.
+    Returns (cleared slots, kept slots), each sorted. The classification is
+    recomputed here; nothing the owner types is trusted."""
     _refuse()
     h = os.path.realpath(folder)
     if not os.path.isfile(os.path.join(h, holdout_manifest.SEAL_NAME)) \
@@ -1128,8 +1134,8 @@ def leak_clear(folder, repo=None, scan_roots=None, home=None,
         if cid not in named:
             continue
         slot = _case_slot(h, cid)
-        cause = diag.get(slot, {}).get("cause", "exposed")
-        if cause == "exposed":
+        cause = diag.get(slot, {}).get("cause")
+        if cause not in CLEARING_CAUSES:
             kept.append(slot)
             continue
         cases[cid] = {"slot": slot, "cause": cause,
