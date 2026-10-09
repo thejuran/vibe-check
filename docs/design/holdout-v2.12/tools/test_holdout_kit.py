@@ -1597,7 +1597,8 @@ class TestRoleEnv(SetupCase):
             path = os.path.join(F, *rel.split("/"))
             good = _read(path)
             with open(path, "w") as fh:
-                fh.write(good.replace(holdout_kit.ROLE_ENV_LINE + "\n", ""))
+                fh.write(good.replace(
+                    'export CLAUDE_ENV_FILE="$H/bin/role-env.sh"\n', ""))
             self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)),
                              ["%s does not set CLAUDE_ENV_FILE to "
                               "bin/role-env.sh" % rel])
@@ -1611,6 +1612,72 @@ class TestRoleEnv(SetupCase):
         os.remove(env)
         self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)),
                          ["bin/role-env.sh is missing or not the kit's"])
+
+
+class TestRolePath(SetupCase):
+    """A role session's Bash commands keep the PATH of the owner's Terminal:
+    the judge re-runs proofs whose exits validate recorded there, so a tool
+    found in that Terminal must be found by the judge too."""
+
+    def _fake_claude(self, path_inside):
+        """A fake `claude` that, like Claude Code's Bash tool, runs a command
+        with a reduced PATH after sourcing $CLAUDE_ENV_FILE, then prints the
+        PATH the command saw."""
+        bindir = os.path.join(self.tmp, "fakebin")
+        os.makedirs(bindir, exist_ok=True)
+        fake = os.path.join(bindir, "claude")
+        with open(fake, "w") as fh:
+            fh.write('#!/bin/sh\nPATH=%s /bin/sh -c \'. "$CLAUDE_ENV_FILE"; '
+                     'printf "%%s" "$PATH"\'\n' % path_inside)
+        os.chmod(fake, 0o755)
+        return bindir
+
+    def _launch(self, rel, owner_path):
+        env = dict(holdout_fixture.kit_env(), PATH=owner_path)
+        return subprocess.run([os.path.join(self.F, *rel.split("/"))],
+                              env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=30)
+
+    def test_launchers_carry_the_owner_path_into_bash(self):
+        bindir = self._fake_claude("/usr/bin:/bin")
+        owner_path = "%s:/opt/homebrew/bin:/usr/bin:/bin" % bindir
+        for rel in ("bin/finder", "bin/crosscheck"):
+            proc = self._launch(rel, owner_path)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(proc.stdout, owner_path, rel)
+
+    def test_env_file_alone_keeps_path_when_unset(self):
+        script = ('. "%s"; printf "%%s" "$PATH"'
+                  % os.path.join(self.F, "bin", "role-env.sh"))
+        env = dict(holdout_fixture.kit_env(), PATH="/usr/bin:/bin")
+        env.pop("HOLDOUT_ROLE_PATH", None)
+        out = subprocess.run(["/bin/sh", "-c", script], env=env,
+                             stdout=subprocess.PIPE, text=True,
+                             timeout=30).stdout
+        self.assertEqual(out, "/usr/bin:/bin")
+
+    def test_check_names_a_launcher_without_the_path_line(self):
+        path = os.path.join(self.F, "bin", "crosscheck")
+        good = _read(path)
+        with open(path, "w") as fh:
+            fh.write(good.replace(holdout_kit.ROLE_PATH_LINE + "\n", ""))
+        self.assertEqual(holdout_kit.role_env_problems(self.F, (1,)),
+                         ["bin/crosscheck does not keep the owner's PATH"])
+        with open(path, "w") as fh:
+            fh.write(good)
+        self.assertEqual(holdout_kit.role_env_problems(self.F, (1,)), [])
+
+    def test_mutant_env_file_without_path_restore(self):
+        bindir = self._fake_claude("/usr/bin:/bin")
+        with mock.patch.object(holdout_kit, "ROLE_ENV_TEXT",
+                               holdout_kit.ROLE_ENV_TEXT.split(
+                                   "# The judge")[0]):
+            holdout_kit._write_text(os.path.join(self.F, "bin",
+                                                 "role-env.sh"),
+                                    holdout_kit.ROLE_ENV_TEXT, 0o600)
+        proc = self._launch("bin/crosscheck",
+                            "%s:/opt/homebrew/bin:/usr/bin:/bin" % bindir)
+        self.assertEqual(proc.stdout, "/usr/bin:/bin")
 
 
 class TestXcheckSandbox(SetupCase):

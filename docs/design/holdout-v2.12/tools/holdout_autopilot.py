@@ -338,6 +338,12 @@ DRY_FOLDER_REAL_MSG = ("this folder is a dry-run folder (it carries "
                       "run needs its own freshly set-up folder")
 REPO_MSG = ("autopilot needs --repo PATH (the tuning repo) for leakscan and "
             "publish")
+REJUDGE_REFUSED_MSG = (
+    "--rejudge %s refused: only a round whose judge agreed on type, defect "
+    "and category but recorded no proof re-run exits may be judged again "
+    "(bin/holdout diagnose says cause=proof-mismatch with only "
+    "proof-rerun-missing). Follow README 7b for anything else.")
+REJUDGE_DRY_MSG = "--rejudge is for the real run only"
 RESTART_MSG = ("nothing to restart: the finder session was not lost; run "
                "bin/holdout autopilot without --restart-finder")
 NOTHING_TO_REPLACE_MSG = "nothing to replace: no retired case is still sealed"
@@ -1969,12 +1975,45 @@ def _drive(run, steps, handlers):
     raise KitError("the step list has no result step")
 
 
+# The only diagnosis a re-judge may answer: the judge read the key and
+# agreed on substance, but its sandbox recorded no proof re-run exits. A
+# re-judge never answers a disagreement, so it cannot shop for agreement.
+REJUDGE_CHECKS = frozenset({"proof-rerun-missing", "judge-proof-false"})
+
+
+def rejudge_allowed(folder, slot):
+    got = holdout_seal.diagnose(folder, slot=slot)
+    if len(got) != 1:
+        return False
+    _, cause, checks = got[0]
+    return (cause == "proof-mismatch" and "proof-rerun-missing" in checks
+            and set(checks) <= REJUDGE_CHECKS)
+
+
+def _rejudge(run, slot):
+    """Archive the slot's round (reason owner) and prepare it again; the
+    crosscheck step then judges it blind in a fresh generation."""
+    h = run.h
+    if _seal_exists(h):
+        raise KitError(REJUDGE_REFUSED_MSG % slot)
+    cid = _slots_present(h).get(slot)
+    if cid is None or not rejudge_allowed(h, slot):
+        raise KitError(REJUDGE_REFUSED_MSG % slot)
+    _quiet(h, "crosscheck", holdout_seal.reset_crosscheck, h, cid, "owner")
+    _quiet(h, "crosscheck", holdout_seal.prepare_crosscheck, h, cid)
+    _step("crosscheck", "case %s sent to a fresh generation (re-judge)"
+          % slot)
+
+
 def autopilot(folder, repo, replace_retired=False, restart_finder=False,
               max_turns=DEFAULT_MAX_TURNS, budget_usd=DEFAULT_BUDGET_USD,
-              session_timeout=DEFAULT_SESSION_TIMEOUT):
-    """The real run; returns the exit code (0 proceed, 3 blocking)."""
+              session_timeout=DEFAULT_SESSION_TIMEOUT, rejudge=None):
+    """The real run; returns the exit code (0 proceed, 3 blocking).
+    rejudge=SLOT first re-judges that slot (see _rejudge)."""
     run = _start(folder, "real", repo, replace_retired, restart_finder,
                  max_turns, budget_usd, session_timeout)
+    if rejudge is not None:
+        _rejudge(run, rejudge)
     return _drive(run, STEPS, _real_handlers())
 
 
@@ -2087,6 +2126,10 @@ def add_parser(sub, name):
     p.add_argument("--restart-finder", action="store_true",
                    help="start a fresh finder session after its recorded "
                         "session was lost (finished cases are kept)")
+    p.add_argument("--rejudge", choices=holdout_kit.SLOTS, metavar="SLOT",
+                   help="judge SLOT again in a fresh generation; only when "
+                        "bin/holdout diagnose says its judge recorded no "
+                        "proof re-run exits")
     p.add_argument("--budget-usd", type=float, default=DEFAULT_BUDGET_USD,
                    metavar="USD", help="spend cap per headless prompt")
     p.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS,
@@ -2102,6 +2145,8 @@ def cmd(args):
     opts = {"max_turns": args.max_turns, "budget_usd": args.budget_usd,
             "session_timeout": args.session_timeout}
     try:
+        if args.dry_run and args.rejudge:
+            raise KitError(REJUDGE_DRY_MSG)
         if args.dry_run:
             return dry_run(args.folder, repo=args.repo,
                            replace_retired=args.replace_retired, **opts)
@@ -2109,7 +2154,8 @@ def cmd(args):
             raise KitError(REPO_MSG)
         return autopilot(args.folder, args.repo,
                          replace_retired=args.replace_retired,
-                         restart_finder=args.restart_finder, **opts)
+                         restart_finder=args.restart_finder,
+                         rejudge=args.rejudge, **opts)
     except Precondition as exc:
         holdout_kit.print_problem(for_mode(
             str(exc), "dry-run" if args.dry_run else "real"))

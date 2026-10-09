@@ -253,8 +253,14 @@ def write_finals():
         final = os.path.join(packet, "final.json")
         if os.path.isdir(os.path.join(packet, "revealed")) \
                 and not os.path.exists(final):
+            data = holdout_dryrun._final(packet)
+            with open(os.path.join(packet, "revealed", "key.json"),
+                      encoding="utf-8") as fh:
+                slot = json.load(fh)["slot"]
+            if control.get("no_rerun_slot") == slot:
+                data.update(proof_agrees=False, proof_rerun_exit=None)
             with open(final, "w", encoding="utf-8") as fh:
-                json.dump(holdout_dryrun._final(packet), fh)
+                json.dump(data, fh)
             _keep_copy(xid, "final.json", final)
 
 
@@ -1460,6 +1466,67 @@ class TestDisagreement(PipelineCase):
             _, out, _ = self.cli()
         self.assertNotEqual(self.last_line(out), "blocked disagreement")
         self.assertTrue(os.path.exists(os.path.join(self.F, "SEAL.json")))
+
+
+class TestRejudge(PipelineCase):
+    """--rejudge SLOT re-judges, in a fresh generation, ONLY a round whose
+    judge agreed on substance but recorded no proof re-run exits."""
+
+    def stop_without_rerun(self):
+        self.control(no_rerun_slot="C3")
+        rc, out, _ = self.cli()
+        self.assertEqual((rc, self.last_line(out)), (3, "blocked disagreement"))
+        cid = slot_ids(self.F)["C3"]
+        self.assertEqual(holdout_seal.diagnose(self.F, slot="C3"),
+                         [("C3", "proof-mismatch",
+                           ["judge-proof-false", "proof-rerun-missing"])])
+        return cid
+
+    def gens(self):
+        """Distinct cross-check generations a judge session began in (the
+        registry itself is gone once scrub has run)."""
+        return len({self.cfg(c) for c in self.p_calls()
+                    if self.prompt(c) == ap.XCHECK_BEGIN_PROMPT})
+
+    def test_rejudge_finishes_in_a_fresh_generation(self):
+        self.stop_without_rerun()
+        self.control()
+        rc, out, _ = self.cli("--rejudge", "C3")
+        self.assertEqual(self.last_line(out), "sealed", out)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.gens(), 2)
+        self.assertIn("step crosscheck: case C3 sent to a fresh generation "
+                      "(re-judge)", out)
+        self.assert_opaque(out)
+
+    def test_rejudge_refuses_a_real_disagreement(self):
+        self.control(disagree_slot="C3")
+        self.cli()
+        cid = slot_ids(self.F)["C3"]
+        before = load(os.path.join(self.F, "sealed", "keys", cid,
+                                   "xcheck-ledger.json"))
+        self.control()
+        rc, out, err = self.cli("--rejudge", "C3")
+        self.assertNotEqual(rc, 0)
+        self.assertIn(ap.REJUDGE_REFUSED_MSG % "C3", out + err)
+        self.assertEqual(load(os.path.join(self.F, "sealed", "keys", cid,
+                                           "xcheck-ledger.json")), before)
+        self.assertEqual(self.gens(), 1)
+
+    def test_rejudge_refuses_an_agreeing_slot(self):
+        self.stop_without_rerun()
+        self.control()
+        rc, out, err = self.cli("--rejudge", "C1")
+        self.assertNotEqual(rc, 0)
+        self.assertIn(ap.REJUDGE_REFUSED_MSG % "C1", out + err)
+
+    def test_mutant_rejudge_guard(self):
+        self.control(disagree_slot="C3")
+        self.cli()
+        self.control()
+        with mock.patch.object(ap, "rejudge_allowed", return_value=True):
+            _, out, _ = self.cli("--rejudge", "C3")
+        self.assertEqual(self.gens(), 2)
 
 
 class TestFinderResume(PipelineCase):

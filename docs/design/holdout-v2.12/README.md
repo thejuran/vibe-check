@@ -277,6 +277,15 @@ be sent to the tuning session. The cause sorts the failure:
 
 The agreement rule itself never changes because of a diagnosis: a suspect is fixed in the
 tuning repo, then `refresh-kit` and the autopilot re-check the same, untouched verdicts.
+
+**Re-judge (`proof-mismatch` with only `proof-rerun-missing`).** The judge agreed on type,
+defect and category but its sandbox could not run the proof, so it recorded no exits. Once the
+cause is fixed in the kit, `refresh-kit`, then `bin/holdout autopilot --repo
+~/turingmind-code-review --rejudge <S>` archives that round and judges the case again, blind, in
+a fresh generation. It refuses every other diagnosis, so it can never answer a disagreement.
+Role sessions keep the owner Terminal's PATH (the launchers save it as `HOLDOUT_ROLE_PATH`, and
+`bin/role-env.sh` restores it in every Bash command): proofs run with the PATH their recorded
+exits came from.
 Otherwise, two ways forward:
 
 - **Resolve with evidence.** Write `sealed/keys/<ID>/resolution.md` (what the evidence is; no

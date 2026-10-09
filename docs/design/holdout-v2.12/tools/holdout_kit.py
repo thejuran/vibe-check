@@ -514,8 +514,16 @@ ROLE_ENV_TEXT = """\
 if [ -n "${CLAUDE_CODE_TMPDIR:-}" ]; then
   export TMPDIR="$CLAUDE_CODE_TMPDIR" TMPPREFIX="$CLAUDE_CODE_TMPDIR/zsh"
 fi
+# The judge re-runs proofs whose exits validate recorded in the owner's
+# Terminal: keep that Terminal's PATH (the launcher saved it), whatever
+# PATH the session's shell set up.
+if [ -n "${HOLDOUT_ROLE_PATH:-}" ]; then
+  export PATH="$HOLDOUT_ROLE_PATH"
+fi
 """
-ROLE_ENV_LINE = 'export CLAUDE_ENV_FILE="$H/%s"' % ROLE_ENV_REL
+ROLE_PATH_LINE = 'export HOLDOUT_ROLE_PATH="$PATH"'
+ROLE_ENV_LINE = '%s\nexport CLAUDE_ENV_FILE="$H/%s"' % (ROLE_PATH_LINE,
+                                                       ROLE_ENV_REL)
 
 LAUNCHER_REFUSAL = ('[ -z "${CLAUDECODE:-}" ] || { echo "Open a new Terminal '
                     'window (not one started by Claude) and run this again."; '
@@ -922,6 +930,8 @@ def role_env_problems(folder, gens=()):
         if line not in lines:
             problems.append("%s does not set CLAUDE_ENV_FILE to "
                             "bin/role-env.sh" % rel)
+        if ROLE_PATH_LINE not in lines:
+            problems.append("%s does not keep the owner's PATH" % rel)
         if "export " + tmp_line not in lines:
             problems.append("%s does not set its own temp root" % rel)
     return problems
