@@ -614,6 +614,8 @@ def record_leakscan(folder, result):
              "hits": len(result["hits"]),
              "hit_case_ids": list(result["hit_case_ids"]),
              "hit_slots": list(result["hit_slots"])}
+    if result.get("rule") is not None:
+        entry["rule"] = result["rule"]
     ledger["scans"].append(entry)
     holdout_kit.write_json_atomic(path, ledger)
     return ledger
@@ -720,7 +722,8 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
                   "hit_case_ids": sorted({c for h_ in hits
                                           for c in h_["case_ids"]}),
                   "hit_slots": sorted({s for h_ in hits
-                                       for s in h_["slots"]})}
+                                       for s in h_["slots"]}),
+                  "rule": SCAN_RULE}
         _report(result, unreadable)
         record_leakscan(h, result)
         for cid in result["hit_case_ids"]:
@@ -1109,14 +1112,26 @@ LEAK_CLEAR_NEEDS_MSG = ("leak-clear needs SEAL.json and the live sealed/ "
 # copy was deleted), `exposed`, a missing slot or any other value is KEPT:
 # deleting a leak is never a remedy (README rule 7d, never delete-and-rerun).
 CLEARING_CAUSES = ("origin-history", "prior-elsewhere")
+# A scan recorded under the owner rule carries this marker. Such a scan names
+# only slots leakdiag called `exposed` at that time, so its cases are never
+# cleared: a later classification that no longer sees the exposure (for
+# example after only the tuning-side copy was deleted) is not evidence.
+SCAN_RULE = holdout_manifest.LEAK_CLEAR_RULE
+
+
+def _exposed_when_recorded(scans):
+    """Case IDs named by a scan recorded under the owner rule."""
+    return {cid for scan in scans if scan.get("rule") == SCAN_RULE
+            for cid in scan["hit_case_ids"]}
 
 
 def leak_clear(folder, repo=None, scan_roots=None, home=None,
                setup_time=None):
     """Owner rule (2026-10-09): append a clearance for every current case a
     leak scan named or a leakscan retirement covers whose slot leakdiag
-    calls origin-history or prior-elsewhere; every other named case is kept.
-    Returns (cleared slots, kept slots), each sorted. The classification is
+    calls origin-history or prior-elsewhere; every other named case is kept,
+    and so is every case a scan recorded under the owner rule named (it was
+    exposed when recorded). Returns (cleared slots, kept slots), each sorted. The classification is
     recomputed here; nothing the owner types is trusted."""
     _refuse()
     h = os.path.realpath(folder)
@@ -1129,13 +1144,14 @@ def leak_clear(folder, repo=None, scan_roots=None, home=None,
     named = {cid for scan in scans for cid in scan["hit_case_ids"]}
     named |= {cid for cid, _, reasons in holdout_manifest.retired_matches(h)
               if any(r.startswith("leakscan:") for r in reasons)}
+    exposed = _exposed_when_recorded(scans)
     cases, cleared, kept = {}, [], []
     for cid in holdout_kit.case_ids(h):
         if cid not in named:
             continue
         slot = _case_slot(h, cid)
         cause = diag.get(slot, {}).get("cause")
-        if cause not in CLEARING_CAUSES:
+        if cid in exposed or cause not in CLEARING_CAUSES:
             kept.append(slot)
             continue
         cases[cid] = {"slot": slot, "cause": cause,

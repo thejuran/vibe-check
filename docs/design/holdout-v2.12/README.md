@@ -412,7 +412,9 @@ classification itself and appends a clearance to `LEAK-CLEARED.json` only for a 
 positive evidence that the match was its own source code: cause `origin-history` or
 `prior-elsewhere`. Every other case is kept: `exposed`, and also `none` (no copy found, for
 example because the exposing copy was deleted; deleting is never a remedy, rule 7d), a missing
-slot or any other value. It prints `leak-clear cleared=<slots> kept=<slots>`; that line may be sent to
+slot or any other value. A case named by a scan recorded under the owner rule (its
+`LEAKSCAN.json` entry carries `"rule"`) was `exposed` when recorded and is always kept, even
+if deleting only the tuning-side copy now makes it look like `origin-history`. It prints `leak-clear cleared=<slots> kept=<slots>`; that line may be sent to
 the tuning session. `LEAK-CLEARED.json` is append-only like the other ledgers and survives
 scrub; a clearance holds only for the `SEAL.json` it was made against, voids only `leakscan`
 retirements of exactly the cleared content (never an `owner` one), and publish and seal still

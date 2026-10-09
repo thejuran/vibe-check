@@ -1326,6 +1326,27 @@ class TestLeakRule(OwnRepoCase):
         retired = "\n".join(holdout_manifest.retired_problems(self.folder))
         self.assertIn("Q1", retired)
 
+    def test_a_partial_deletion_after_an_owner_rule_scan_is_kept(self):
+        # Q1 has its own source in its own repo transcript AND a tuning-side
+        # copy: the owner-rule scan records it exposed. Deleting only the
+        # tuning-side copy makes leakdiag call it origin-history, but that
+        # is deletion, not evidence (rule 7d): Q1 stays kept.
+        self.transcript(self.src["Q1"], "own.jsonl",
+                        [(legacy_line("Q1"), self.SETUP)])
+        self.transcript(self.tuning, "t.jsonl",
+                        [(legacy_line("Q1"), self.SETUP)])
+        result, _ = self.scan_home()
+        self.assertEqual(result["hit_slots"], ["Q1"])
+        os.remove(os.path.join(self.home, ".claude", "projects",
+                               self.enc(self.tuning), "t.jsonl"))
+        diag = self.quiet(holdout_archive.leakdiag, self.folder,
+                          scan_roots=self.roots(), repo=self.tuning,
+                          home=self.home)[0]
+        self.assertEqual(diag["Q1"]["cause"], "origin-history")
+        (cleared, kept), _ = self.clear()
+        self.assertEqual((cleared, kept), ([], ["Q1"]))
+        self.assertFalse(os.path.exists(self.p("LEAK-CLEARED.json")))
+
     def test_leak_clear_with_nothing_named(self):
         (cleared, kept), out = self.clear()
         self.assertEqual((cleared, kept), ([], []))
@@ -1362,7 +1383,8 @@ class TestLeakLedger(LeakCase):
         self.assertEqual(len(led["scans"]), 1)
         entry = led["scans"][0]
         self.assertEqual(set(entry), {"at", "seal_sha256", "probes", "hits",
-                                      "hit_case_ids", "hit_slots"})
+                                      "hit_case_ids", "hit_slots", "rule"})
+        self.assertEqual(entry["rule"], holdout_archive.SCAN_RULE)
         self.assertEqual((entry["hits"], entry["hit_case_ids"],
                           entry["hit_slots"], entry["probes"]),
                          (0, [], [], len(all_probes())))
