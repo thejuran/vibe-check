@@ -210,6 +210,10 @@ STOP_INSTRUCTIONS = {
     "encrypt": (
         "encrypt failed; run <H>/bin/holdout encrypt in a Terminal to see "
         "why"),
+    "reveal": (
+        "crosscheck-reveal refused. In a new Terminal window run "
+        "<H>/bin/holdout crosscheck-reveal --ready to read why, fix what it "
+        "names (README 7b), then run bin/holdout autopilot again."),
     "seal-other": (
         "seal refused for a reason the autopilot does not classify. In a new "
         "Terminal window run <H>/bin/holdout seal to read it, fix what it "
@@ -302,11 +306,14 @@ class Stop(Exception):
     """The run stops: `instruction` (fixed text) is printed, then `line`
     (default `blocked <kind>`) as the last line."""
 
-    def __init__(self, kind, instruction=None, line=None):
+    def __init__(self, kind, instruction=None, line=None, status="blocked"):
         Exception.__init__(self, kind)
         self.kind = kind
         self.instruction = instruction
         self.line = line or ("blocked %s" % kind)
+        # "pending" for a resumable stop (a session failed or was lost): the
+        # re-run continues the same step with the same session id.
+        self.status = status
 
 
 class Precondition(KitError):
@@ -390,7 +397,8 @@ def _fresh_journal():
             "replace": {"pending": [], "removed": [], "seal_cleared": False,
                         "prompt_sent": False},
             "input_resets": {},
-            "replaced_slots": [], "nonrunnable": 0, "result_line": None}
+            "replaced_slots": [], "nonrunnable": 0, "prompted": False,
+            "result_line": None}
 
 
 def journal_path(folder):
@@ -536,6 +544,12 @@ def _last_json(data):
     return obj if isinstance(obj, dict) else None
 
 
+def _identity_args(session_id, resume):
+    if session_id is not None:
+        return ["--session-id", session_id]
+    return ["--resume", resume]
+
+
 def _ids_match(got, expected):
     return isinstance(got, str) and got == expected
 
@@ -559,8 +573,7 @@ def run_session(folder, role, prompt, gen=None, session_id=None, resume=None,
     h = os.path.realpath(folder)
     label, launcher = _launcher(h, role, gen)
     expected = session_id if session_id is not None else resume
-    ident = (["--session-id", session_id] if session_id is not None
-             else ["--resume", resume])
+    ident = _identity_args(session_id, resume)
     argv = [launcher, "-p", prompt] + print_args(max_turns, budget_usd) \
         + ident
     check_argv(argv)
@@ -750,24 +763,46 @@ def _probe_generation(reg):
 
 
 def _session_failed(res):
-    """Stop for a failed session (its fixed line is already printed)."""
-    raise Stop("other", STOP_INSTRUCTIONS["session"])
+    """Stop for a failed session (its fixed line is already printed); the
+    step stays pending so a re-run resumes the same session."""
+    raise Stop("other", STOP_INSTRUCTIONS["session"], status="pending")
+
+
+def _lost(res):
+    """The CLI answered that it has no conversation under the id."""
+    return res.is_error and res.not_found and not res.timed_out
+
+
+def _lost_unrevealed(h, j, x):
+    """An unrevealed generation's session was lost. That session has seen no
+    key, so a fresh session in the same generation is still blind: forget
+    the old id (kept in lost_session_ids) and start over from the probe."""
+    x["lost_session_ids"] = list(x.get("lost_session_ids") or []) \
+        + [x["session_id"]]
+    x.update(session_id=None, probe_started=False, probe_ok=False,
+             begun=False)
+    journal_save(h, j)
 
 
 def _probe(h, j, gen, opts, step="preflight"):
     """Generation `gen`'s first prompt: the sandbox probe, under the id that
     generation keeps for its whole judging round."""
     x = _xentry(j, gen)
-    if x["session_id"] is None:
-        _allocate(h, j, x)
-    if x["probe_started"]:
-        res = _launch(h, j, "xcheck", PROBE_PROMPT, gen=gen,
-                      resume=x["session_id"], **opts)
-    else:
-        x["probe_started"] = True
-        journal_save(h, j)
-        res = _launch(h, j, "xcheck", PROBE_PROMPT, gen=gen,
-                      session_id=x["session_id"], **opts)
+    for attempt in range(2):
+        if x["session_id"] is None:
+            _allocate(h, j, x)
+        if x["probe_started"]:
+            res = _launch(h, j, "xcheck", PROBE_PROMPT, gen=gen,
+                          resume=x["session_id"], **opts)
+            if _lost(res) and attempt == 0:
+                _lost_unrevealed(h, j, x)
+                continue
+        else:
+            x["probe_started"] = True
+            journal_save(h, j)
+            res = _launch(h, j, "xcheck", PROBE_PROMPT, gen=gen,
+                          session_id=x["session_id"], **opts)
+        break
     if res.is_error:
         _session_failed(res)
     match = PROBE_OK_RE.search(res.text)
@@ -886,6 +921,753 @@ def result_line(folder, j, line, scrub_result=None):
     return 3 if blocking else 0
 
 
+# ---------------------------------------------------------------- kit calls
+
+
+def _quiet(h, log_name, fn, *args, **kwargs):
+    """Run an in-process kit call with its stdout appended to
+    <H>/tmp/owner/autopilot/<log_name>.log. Child processes it starts
+    (openssl) keep the real terminal, so openssl still prompts there."""
+    path = os.path.join(_log_dir(h), log_name + ".log")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
+        with contextlib.redirect_stdout(fh):
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                fh.flush()
+
+
+def _log_lines(h, log_name, lines):
+    """Append lines to a step log (never the terminal)."""
+    def write():
+        for line in lines:
+            print(line)
+    _quiet(h, log_name, write)
+
+
+def _seal_exists(h):
+    return os.path.lexists(os.path.join(h, holdout_manifest.SEAL_NAME))
+
+
+def _sealed_present(h):
+    """True while any plaintext case file exists (an interrupted scrub can
+    leave empty case folders behind)."""
+    cases = os.path.join(h, "sealed", "cases")
+    if os.path.islink(cases) or not os.path.isdir(cases):
+        return False
+    try:
+        return bool(holdout_kit.walk_regular(cases))
+    except KitError:
+        return True
+
+
+def _slots_present(h):
+    """{slot: ID} of the cases on disk; a case whose key names no slot is
+    left out (validate reports it)."""
+    out = {}
+    try:
+        ids = holdout_kit.case_ids(h)
+    except KitError:
+        return out
+    for cid in ids:
+        try:
+            out.setdefault(holdout_validate.slot_of(h, cid), cid)
+        except KitError:
+            continue
+    return out
+
+
+def _done(run, step, msg):
+    _step(step, msg)
+    mark(run.j, step, "done")
+    journal_save(run.h, run.j)
+
+
+def _skip(run, step, why):
+    _done(run, step, "skipped (%s)" % why)
+
+
+def _begin(run, step):
+    mark(run.j, step, "pending")
+    journal_save(run.h, run.j)
+
+
+# ---------------------------------------------------------------- replace
+
+RETIRED_LINE_RE = re.compile(r"^case (C[1-3]|Q[1-3]) \((H-[0-9a-f]{8})\) "
+                             r"reuses material retired")
+
+
+def _retired_present(h):
+    """[(ID, slot)] of the current cases whose content matches RETIRED.json
+    (holdout_manifest.retired_problems is the one matcher)."""
+    if not _sealed_present(h):
+        return []
+    out = []
+    for line in holdout_manifest.retired_problems(h):
+        match = RETIRED_LINE_RE.match(line)
+        if not match:
+            raise KitError("a retired case could not be matched to a slot; "
+                           "run bin/holdout seal in a Terminal to see it")
+        out.append((match.group(2), match.group(1)))
+    return out
+
+
+def _record_replace_intent(run, present):
+    """Journal what will be replaced BEFORE anything is deleted."""
+    r = run.j["replace"]
+    r["pending"] = [{"id": cid, "slot": slot} for cid, slot in present]
+    r["removed"] = []
+    r["seal_cleared"] = False
+    r["prompt_sent"] = False
+    run.j["replaced_slots"] = sorted(set(run.j["replaced_slots"])
+                                     | {slot for _, slot in present})
+    journal_save(run.h, run.j)
+
+
+def _remove_case_trees(h, cid):
+    for part in ("cases", "keys"):
+        path = os.path.join(h, "sealed", part, cid)
+        if os.path.islink(path):
+            raise KitError("a retired case folder is a symbolic link; "
+                           "remove it by hand and run this again")
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+
+
+def _finder_replace_slots(run):
+    """The slots the finder must re-find: always from the journal's intent
+    record, never from a disk scan after the deletion."""
+    return sorted({e["slot"] for e in run.j["replace"]["pending"]})
+
+
+def _replace_step(run):
+    """Start or continue a replacement; True when one is in progress."""
+    h, j = run.h, run.j
+    r = j["replace"]
+    if not _replacement_active(j, run.replace_retired):
+        return False
+    if not r["pending"]:
+        present = _retired_present(h)
+        if not present:
+            if j["replaced_slots"] and j["finder"]["done"]:
+                _step("replace", "nothing left to replace")
+                return False
+            raise KitError(NOTHING_TO_REPLACE_MSG)
+        _record_replace_intent(run, present)
+    for entry in r["pending"]:
+        if entry["id"] in r["removed"]:
+            continue
+        _remove_case_trees(h, entry["id"])
+        r["removed"].append(entry["id"])
+        journal_save(h, j)
+    if not r["seal_cleared"]:
+        seal = os.path.join(h, holdout_manifest.SEAL_NAME)
+        if os.path.lexists(seal):
+            os.remove(seal)
+        archive_dir = os.path.dirname(holdout_archive.archive_path(h))
+        if os.path.isdir(archive_dir) and not os.path.islink(archive_dir):
+            shutil.rmtree(archive_dir)
+        r["seal_cleared"] = True
+        journal_save(h, j)
+    _step("replace", "removed %d retired case(s), slots %s"
+          % (len(r["pending"]), ",".join(_finder_replace_slots(run))))
+    j["finder"]["done"] = False
+    _begin(run, "finder")
+    return True
+
+
+def _clear_replacement_if_done(run, present):
+    pending = run.j["replace"]["pending"]
+    if pending and all(present.get(e["slot"]) not in (None, e["id"])
+                       for e in pending):
+        run.j["replace"]["pending"] = []
+        run.j["replace"]["prompt_sent"] = False
+        journal_save(run.h, run.j)
+
+
+# ---------------------------------------------------------------- finder
+
+
+def _finder_after(run, res):
+    if res.is_error:
+        _session_failed(res)
+    present = _slots_present(run.h)
+    _clear_replacement_if_done(run, present)
+    run.j["finder"]["done"] = True
+    _done(run, "finder", "done (%d of 6 slots on disk)" % len(present))
+
+
+def _restart_finder(run):
+    """Only under --restart-finder: a NEW session (id journaled first) told
+    to finish the missing slots; finished cases stay as they are."""
+    h, j = run.h, run.j
+    f = j["finder"]
+    if f["session_id"] is not None:
+        f["lost_session_ids"].append(f["session_id"])
+    f["restarts"] += 1
+    f["resume_failed"] = False
+    f["started_at"] = _now()
+    _begin(run, "finder")
+    sid = _allocate(h, j, f)
+    _step("finder", "starting a fresh session (restart %d)" % f["restarts"])
+    res = _launch(h, j, "finder", FINDER_RESTART_PROMPT, session_id=sid,
+                  **run.opts)
+    _finder_after(run, res)
+
+
+def _lost_finder(run):
+    """The CLI could not find the finder session by its id. Never a silent
+    restart: stop, unless the owner passed --restart-finder."""
+    if not run.restart_finder:
+        raise Stop("other", STOP_INSTRUCTIONS["resume-lost"],
+                   status="pending")
+    _restart_finder(run)
+
+
+def _resume_finder(run, prompt):
+    """--resume the recorded finder session; returns the result, or handles
+    a lost session."""
+    h, j = run.h, run.j
+    f = j["finder"]
+    res = _launch(h, j, "finder", prompt, resume=f["session_id"], **run.opts)
+    if _lost(res):
+        f["resume_failed"] = True
+        journal_save(h, j)
+        _lost_finder(run)
+        return None
+    return res
+
+
+def _step_finder(run):
+    h, j = run.h, run.j
+    f = j["finder"]
+    replacing = _replace_step(run)
+    pending = j["replace"]["pending"]
+    if not replacing and _seal_exists(h):
+        return _skip(run, "finder", "sealed")
+    if f["done"] and not pending:
+        return _skip(run, "finder", "done")
+    if f["session_id"] is None and not pending \
+            and len(_slots_present(h)) == len(holdout_kit.SLOTS):
+        f["done"] = True
+        return _done(run, "finder", "done (six cases on disk)")
+    if run.restart_finder and f["resume_failed"]:
+        return _restart_finder(run)
+    if f["session_id"] is None:
+        prompt = FINDER_BEGIN_PROMPT
+        if pending:
+            prompt = FINDER_REPLACE_PROMPT % ",".join(
+                _finder_replace_slots(run))
+            j["replace"]["prompt_sent"] = True
+        f["started_at"] = _now()
+        mark(j, "finder", "pending")
+        sid = _allocate(h, j, f)
+        _step("finder", "session started")
+        res = _launch(h, j, "finder", prompt, session_id=sid, **run.opts)
+        return _finder_after(run, res)
+    if pending and not j["replace"]["prompt_sent"]:
+        prompt = FINDER_REPLACE_PROMPT % ",".join(_finder_replace_slots(run))
+        j["replace"]["prompt_sent"] = True
+    else:
+        prompt = FINDER_RESUME_PROMPT
+    _begin(run, "finder")
+    _step("finder", "resuming the recorded session")
+    res = _resume_finder(run, prompt)
+    if res is not None:
+        _finder_after(run, res)
+
+
+# ---------------------------------------------------------------- validate
+
+
+def _step_validate(run):
+    h, j = run.h, run.j
+    if _seal_exists(h):
+        return _skip(run, "validate", "sealed")
+    _begin(run, "validate")
+    f = j["finder"]
+    while True:
+        checks = _quiet(h, "validate", holdout_validate.validate_folder, h)
+        names = []
+        for c in checks:
+            if c.name not in names:
+                names.append(c.name)
+        failed = [c for c in checks if not c.ok]
+        if not failed:
+            _step("validate", "OK (%d checks)" % len(names))
+            break
+        failed_names = {c.name for c in failed}
+        _step("validate", "PROBLEM (%d of %d checks failed)"
+              % (len(failed_names), len(names)))
+        _log_lines(h, "validate", ["%s: %s" % (c.name, c.message)
+                                   for c in failed])
+        if run.mode != "real" or f["session_id"] is None \
+                or f["fix_rounds"] >= MAX_FIX_ROUNDS:
+            raise Stop("validation", STOP_INSTRUCTIONS["validation"]
+                       % f["fix_rounds"])
+        f["fix_rounds"] += 1
+        journal_save(h, j)
+        _step("validate", "fix round %d: resuming the finder"
+              % f["fix_rounds"])
+        prompt = FINDER_FIX_PROMPT + "\n".join(
+            "%s: %s" % (c.name, c.message) for c in failed)
+        res = _resume_finder(run, prompt)
+        if res is not None and res.is_error:
+            _session_failed(res)
+    j["nonrunnable"] = _quiet(h, "validate",
+                              holdout_validate.nonrunnable_count, h)
+    _clear_replacement_if_done(run, _slots_present(h))
+    _done(run, "validate", "non-runnable cases: %d" % j["nonrunnable"])
+
+
+# ---------------------------------------------------------------- crosscheck
+
+
+def _generation_revealed(entry):
+    return entry.get("revealed_at") is not None
+
+
+def _ensure_login(run, gen):
+    """A generation minted during the run has a fresh config dir: it needs
+    its own login before its first prompt."""
+    if gen < 2:
+        return
+    problem = _auth_problem(run.h, "cross-check",
+                            holdout_kit.xcheck_names(gen)["launcher"])
+    if problem:
+        raise Precondition(problem)
+
+
+def _prepare_missing(run):
+    h = run.h
+    need = [cid for cid in holdout_kit.case_ids(h)
+            if not (holdout_seal._load_ledger(h, cid) or {}).get("xid")]
+    if need:
+        mapping = _quiet(h, "crosscheck", holdout_seal.prepare_crosscheck, h)
+        _step("crosscheck", "prepared %d blind packet(s)" % len(mapping))
+
+
+def _xcheck_failed(res):
+    if res.is_error:
+        _session_failed(res)
+
+
+class _LostSession(Exception):
+    """An unrevealed generation's --resume found no conversation."""
+
+
+def _blind_call(run, gen, x, prompt):
+    res = _launch(run.h, run.j, "xcheck", prompt, gen=gen,
+                  resume=x["session_id"], **run.opts)
+    if _lost(res):
+        raise _LostSession()
+    _xcheck_failed(res)
+
+
+def _blind_round(run, gen, x, missing):
+    """Probe (once per session), begin, and one retry for missing blind
+    verdicts, all in a generation that has not been revealed."""
+    h, j = run.h, run.j
+    if x["session_id"] is None or not x["probe_ok"]:
+        _ensure_login(run, gen)
+    if x["session_id"] is None:
+        _allocate(h, j, x)
+    if not x["probe_ok"]:
+        _probe(h, j, gen, run.opts, step="crosscheck")
+    if not x["begun"]:
+        x["begun"] = True
+        journal_save(h, j)
+        _blind_call(run, gen, x, XCHECK_BEGIN_PROMPT)
+    tries = 0
+    while missing("blind.json"):
+        if tries >= 1:
+            raise Stop("other", STOP_INSTRUCTIONS["session"],
+                       status="pending")
+        tries += 1
+        _blind_call(run, gen, x, XCHECK_BLIND_RETRY_PROMPT)
+
+
+def _judge_generation(run, entry, packets):
+    h, j = run.h, run.j
+    gen, ws = entry["gen"], entry["workspace"]
+    x = _xentry(j, gen)
+
+    def missing(name):
+        return [led["xid"] for _, led in packets
+                if not os.path.lexists(os.path.join(h, ws, led["xid"],
+                                                    name))]
+
+    if not _generation_revealed(entry):
+        for attempt in range(2):
+            try:
+                _blind_round(run, gen, x, missing)
+                break
+            except _LostSession:
+                if attempt:
+                    raise Stop("other", STOP_INSTRUCTIONS["session"],
+                               status="pending")
+                _lost_unrevealed(h, j, x)
+        _step("crosscheck", "generation %d blind verdicts written (%d)"
+              % (gen, len(packets)))
+        try:
+            ids = _quiet(h, "crosscheck", holdout_seal.reveal_workspace, h,
+                         gen)
+        except KitError as exc:
+            _log_lines(h, "crosscheck", [str(exc)])
+            _step("crosscheck", "reveal refused (see the log inside the "
+                                "holdout folder)")
+            raise Stop("other", STOP_INSTRUCTIONS["reveal"])
+        x["revealed"] = True
+        journal_save(h, j)
+        _step("crosscheck", "generation %d revealed (%d packet(s))"
+              % (gen, len(ids)))
+    need = missing("final.json")
+    if need:
+        burned = STOP_INSTRUCTIONS["burned"] % (gen, packets[0][0])
+        if x["session_id"] is None:
+            raise Stop("other", burned)
+        for attempt in range(2):
+            prompt = (XCHECK_FINAL_RETRY_PROMPT if x["continued"]
+                      else XCHECK_CONTINUE_PROMPT)
+            x["continued"] = True
+            journal_save(h, j)
+            res = _launch(h, j, "xcheck", prompt, gen=gen,
+                          resume=x["session_id"], **run.opts)
+            if _lost(res):
+                raise Stop("other", burned)
+            _xcheck_failed(res)
+            if not missing("final.json"):
+                break
+        if missing("final.json"):
+            raise Stop("other", STOP_INSTRUCTIONS["session"],
+                       status="pending")
+        _step("crosscheck", "generation %d final verdicts written (%d)"
+              % (gen, len(packets)))
+    x["final_done"] = True
+    journal_save(h, j)
+
+
+def _judge_all(run):
+    _prepare_missing(run)
+    reg = _registry(run.h)
+    for entry in (reg or {}).get("generations", []):
+        packets = holdout_seal._live_packets(run.h, entry)
+        if packets:
+            _judge_generation(run, entry, packets)
+
+
+def _dry_regenerate(run):
+    """Dry run only: send case C1 through a fresh generation so one real
+    headless judging round runs on dummy data."""
+    h = run.h
+    reg = _registry(h)
+    gens = (reg or {}).get("generations", [])
+    if len(gens) != 1 or not _generation_revealed(gens[0]):
+        return
+    cid = _slots_present(h).get("C1")
+    if cid is None:
+        raise KitError("the dummy holdout has no C1 case")
+    _quiet(h, "crosscheck", holdout_seal.reset_crosscheck, h, cid, "owner")
+    _quiet(h, "crosscheck", holdout_seal.prepare_crosscheck, h, cid)
+    _step("crosscheck", "case %s sent to a fresh generation" % cid)
+
+
+def _step_crosscheck(run):
+    if _seal_exists(run.h):
+        return _skip(run, "crosscheck", "sealed")
+    _begin(run, "crosscheck")
+    if run.mode == "dry-run":
+        _dry_regenerate(run)
+    _judge_all(run)
+    _done(run, "crosscheck", "every case has a final verdict")
+
+
+# ---------------------------------------------------------------- seal
+
+STALE_RE = re.compile(r"workspace xcheck(?:-r([0-9]+))?, which had already")
+
+
+def _classify_blocker(line):
+    """(kind, slot) of a seal blocker line. The line itself is only ever
+    logged."""
+    slot = None
+    match = re.match(r"^Case (C[1-3]|Q[1-3]):", line)
+    if match:
+        slot = match.group(1)
+    if "the independent check disagreed" in line:
+        return "disagreement", slot
+    if "sealed inputs changed after the cross-check" in line:
+        return "inputs-changed", slot
+    if line.startswith("validation failed"):
+        return "validation", None
+    if "had already seen a revealed key" in line:
+        return "burned", slot
+    if "reuses material retired" in line:
+        return "retired", None
+    return "other", None
+
+
+def _step_seal(run):
+    h, j = run.h, run.j
+    if _seal_exists(h):
+        return _skip(run, "seal", "SEAL.json exists")
+    _begin(run, "seal")
+    revalidated = False
+    while True:
+        blockers = _quiet(h, "seal", holdout_seal.seal_blockers, h)
+        if not blockers:
+            seal = _quiet(h, "seal", holdout_seal.do_seal, h)
+            return _done(run, "seal", "sealed %d cases" % len(seal["cases"]))
+        _log_lines(h, "seal", blockers)
+        kind, slot = _classify_blocker(blockers[0])
+        ids = _slots_present(h)
+        cid = ids.get(slot) if slot else None
+        if kind == "disagreement" and cid:
+            raise Stop("disagreement", STOP_INSTRUCTIONS["disagreement"]
+                       % (cid, slot, cid, cid, slot))
+        if kind == "inputs-changed" and cid:
+            n = j["input_resets"].get(cid, 0)
+            if n >= MAX_INPUT_RESETS:
+                raise Stop("other", STOP_INSTRUCTIONS["inputs-reset"] % cid)
+            j["input_resets"][cid] = n + 1
+            journal_save(h, j)
+            _quiet(h, "seal", holdout_seal.reset_crosscheck, h, cid,
+                   "inputs-changed")
+            _quiet(h, "seal", holdout_seal.prepare_crosscheck, h, cid)
+            _step("seal", "case %s changed after its cross-check: judging it "
+                          "again in a fresh generation" % cid)
+            _judge_all(run)
+            continue
+        if kind == "validation" and not revalidated:
+            revalidated = True
+            j["steps"].pop("validate", None)
+            _step_validate(run)
+            _begin(run, "seal")
+            continue
+        if kind == "validation":
+            raise Stop("validation", STOP_INSTRUCTIONS["validation"]
+                       % j["finder"]["fix_rounds"])
+        if kind == "burned" and cid:
+            match = STALE_RE.search(blockers[0])
+            gen = int(match.group(1)) if match and match.group(1) else 1
+            raise Stop("other", STOP_INSTRUCTIONS["burned"] % (gen, cid))
+        if kind == "retired":
+            raise Stop("other", STOP_INSTRUCTIONS["retired"])
+        _step("seal", "refused (see the log inside the holdout folder)")
+        raise Stop("other", STOP_INSTRUCTIONS["seal-other"])
+
+
+# ---------------------------------------------------------------- archive
+
+
+def _step_close(run):
+    if run.journal_missing:
+        return _skip(run, "close-sessions", "journal missing")
+    if _archive_verified(run.h):
+        return _skip(run, "close-sessions", "archive verified")
+    _begin(run, "close-sessions")
+    _step("close-sessions", "no session running")
+    try:
+        _quiet(run.h, "close-sessions", holdout_archive.require_no_writers,
+               run.h)
+    except KitError as exc:
+        holdout_kit.print_problem(str(exc))
+        raise Stop("other", STOP_INSTRUCTIONS["writers"])
+    _done(run, "close-sessions", "no other process holds the folder")
+
+
+def _encrypt_evidence(run):
+    return _archive_verified(run.h)
+
+
+def _step_encrypt(run):
+    if run.journal_missing:
+        return _skip(run, "encrypt", "journal missing")
+    if _encrypt_evidence(run):
+        return _skip(run, "encrypt", "archive verified")
+    _begin(run, "encrypt")
+    _step("encrypt", "openssl will ask for the passphrase (twice, then once "
+                     "to verify)")
+    try:
+        _quiet(run.h, "encrypt", holdout_archive.encrypt, run.h)
+    except KitError as exc:
+        _log_lines(run.h, "encrypt", [str(exc)])
+        if run.mode == "dry-run":
+            raise Stop("dry-run-failed", STOP_INSTRUCTIONS["encrypt"],
+                       line="dry run ok no-prompt")
+        raise Stop("other", STOP_INSTRUCTIONS["encrypt"])
+    run.j["prompted"] = True
+    _done(run, "encrypt", "archive written and verified")
+
+
+def _step_rehash(run):
+    h = run.h
+    if not _sealed_present(h):
+        return _skip(run, "rehash", "plaintext already removed")
+    result = _quiet(h, "rehash", holdout_manifest.rehash_folder,
+                    os.path.join(h, holdout_manifest.SEAL_NAME),
+                    os.path.join(h, "sealed"))
+    if not result.get("ok"):
+        raise Stop("other", STOP_INSTRUCTIONS["rehash"])
+    _done(run, "rehash", "all %d cases match the seal" % len(result["cases"]))
+
+
+def _leak_hits(result):
+    return result["hits"]
+
+
+def _unreplaced_slots(h):
+    """Slots of every case some leak scan named that is still in the seal."""
+    seal = _load_seal_or_none(h) or {}
+    cases = seal.get("cases") if isinstance(seal.get("cases"), dict) else {}
+    path = os.path.join(h, holdout_manifest.LEAKSCAN_RELPATH)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            ledger = json.load(fh)
+        scans = ledger["scans"]
+        named = {cid for scan in scans for cid in scan["hit_case_ids"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    return sorted({cases[cid].get("slot") for cid in named
+                   if cid in cases and isinstance(cases[cid], dict)}
+                  - {None})
+
+
+def _step_leakscan(run):
+    h, j = run.h, run.j
+    if run.journal_missing:
+        return _skip(run, "leakscan", "journal missing")
+    seal = _load_seal_or_none(h)
+    if seal is not None and not holdout_manifest.leak_ledger_problems(h,
+                                                                      seal):
+        return _skip(run, "leakscan", "recorded for this seal")
+    _begin(run, "leakscan")
+    from_archive = not _sealed_present(h)
+    if from_archive:
+        _step("leakscan", "openssl will ask for the passphrase (to read the "
+                          "archive)")
+    try:
+        result = _quiet(h, "leakscan", holdout_archive.leakscan, h,
+                        repo=run.repo, from_archive=from_archive)
+    except KitError as exc:
+        _log_lines(h, "leakscan", [str(exc)])
+        raise Stop("other", STOP_INSTRUCTIONS["leakscan-failed"])
+    hits = _leak_hits(result)
+    _step("leakscan", "%d match(es) across %d probes"
+          % (len(hits), result["probes"]))
+    if hits:
+        slots = sorted(set(result["hit_slots"]))
+        j["replaced_slots"] = sorted(set(j["replaced_slots"]) | set(slots))
+        journal_save(h, j)
+        raise Stop("leakscan", STOP_INSTRUCTIONS["leakscan"]
+                   % ",".join(slots))
+    unreplaced = _unreplaced_slots(h)
+    if unreplaced:
+        raise Stop("leakscan", STOP_INSTRUCTIONS["leakscan"]
+                   % ",".join(unreplaced))
+    _done(run, "leakscan", "clean")
+
+
+def _published(run):
+    dest = os.path.join(run.repo or "",
+                        *holdout_manifest.SEAL_RELPATH.split("/"))
+    src = os.path.join(run.h, holdout_manifest.SEAL_NAME)
+    if not run.repo or os.path.islink(dest) or not os.path.isfile(dest) \
+            or not os.path.isfile(src):
+        return False
+    with open(dest, "rb") as a, open(src, "rb") as b:
+        return a.read() == b.read()
+
+
+def _step_publish(run):
+    h = run.h
+    if run.journal_missing:
+        return _skip(run, "publish", "journal missing")
+    if _published(run):
+        return _skip(run, "publish", "already published")
+    _begin(run, "publish")
+    try:
+        _quiet(h, "publish", holdout_manifest.publish, h, run.repo)
+    except KitError as exc:
+        msg = str(exc)
+        _log_lines(h, "publish", [msg])
+        if "has not been replaced" in msg or "leak" in msg \
+                or "reuses material retired" in msg:
+            slots = _unreplaced_slots(h) or run.j["replaced_slots"]
+            raise Stop("leakscan", STOP_INSTRUCTIONS["leakscan"]
+                       % (",".join(slots) or "named in LEAKSCAN.json"))
+        raise Stop("other", STOP_INSTRUCTIONS["publish"])
+    _done(run, "publish", "SEAL.json published")
+
+
+def _scrub_residue(residue):
+    return list(residue)
+
+
+def _step_scrub(run):
+    """Never skipped: every run that gets here calls holdout_archive.scrub,
+    which re-verifies the archive, removes whatever non-survivor remains,
+    re-walks the survivors and checks the residue outside the folder. An
+    absent sealed/ proves only that a deletion ran, not that it finished."""
+    h = run.h
+    _begin(run, "scrub")
+    try:
+        raw = _quiet(h, "scrub", holdout_archive.scrub, h)
+    except KitError as exc:
+        if "still in use" in str(exc):
+            holdout_kit.print_problem(str(exc))
+            raise Stop("other", STOP_INSTRUCTIONS["writers"])
+        _step("scrub", "refused (see the log inside the holdout folder)")
+        raise Stop("other", STOP_INSTRUCTIONS["scrub"])
+    residue = _scrub_residue(raw)
+    if residue:
+        for path in residue:
+            holdout_kit.print_problem("residue: %s — delete it by hand"
+                                      % path)
+        raise Stop("residue", STOP_INSTRUCTIONS["residue"])
+    run.scrub_result = raw
+    _done(run, "scrub", "plaintext removed")
+
+
+# ---------------------------------------------------------------- result
+
+
+def _retired_empty(h):
+    try:
+        return holdout_manifest.load_retired(h)["retired"] == []
+    except KitError:
+        return False
+
+
+def _proven_complete(run):
+    """Without a journal the status word is never guessed: `sealed` only
+    when the repo holds this exact SEAL.json and nothing was ever retired
+    (so no replacement can be hidden)."""
+    return _published(run) and _retired_empty(run.h)
+
+
+def _result_step(run):
+    h, j = run.h, run.j
+    if run.journal_missing:
+        if not _proven_complete(run):
+            print(STOP_INSTRUCTIONS["journal-missing"])
+            sys.stdout.flush()
+            return 1
+        line = "sealed"
+    elif run.mode == "dry-run":
+        line = ("dry run ok prompted sandbox=ok" if j.get("prompted")
+                else "dry run ok no-prompt")
+    else:
+        slots = sorted(set(j["replaced_slots"]))
+        line = ("replaced slots=" + ",".join(slots)) if slots else "sealed"
+        if j["nonrunnable"]:
+            line += " non-runnable=%d" % j["nonrunnable"]
+    mark(j, "result", "done")
+    return result_line(h, j, line, run.scrub_result)
+
+
 # ---------------------------------------------------------------- driver
 
 
@@ -917,6 +1699,8 @@ def _start(folder, mode, repo, replace_retired, restart_finder, max_turns,
     j = journal_load(h)
     if j["mode"] not in (None, mode):
         raise KitError(JOURNAL_MODE_MSG % j["mode"])
+    if restart_finder and not j["finder"]["resume_failed"]:
+        raise KitError(RESTART_MSG)
     j["mode"] = mode
     j["started_at"] = j["started_at"] or _now()
     opts = {"max_turns": max_turns, "budget_usd": budget_usd,
@@ -935,32 +1719,49 @@ def _step_preflight(run):
     journal_save(run.h, run.j)
 
 
-def _not_installed(run):
-    raise KitError("the autopilot pipeline is not installed in this kit copy")
+def _step_populate(run):
+    h = run.h
+    if _seal_exists(h) or holdout_kit.case_ids(h):
+        return _skip(run, "populate", "cases exist")
+    _quiet(h, "populate", holdout_dryrun.populate, h)
+    _done(run, "populate", "6 synthetic cases written")
 
 
-_HANDLERS = {"preflight": _step_preflight}
+def _real_handlers():
+    """Step name -> handler function name (looked up at call time)."""
+    return {"preflight": "_step_preflight", "finder": "_step_finder",
+            "validate": "_step_validate", "crosscheck": "_step_crosscheck",
+            "seal": "_step_seal", "close-sessions": "_step_close",
+            "encrypt": "_step_encrypt", "leakscan": "_step_leakscan",
+            "publish": "_step_publish", "scrub": "_step_scrub"}
 
 
-def _drive(run, steps):
+def _dry_handlers():
+    """The dry run's steps: the real ones minus the finder, plus populate
+    and rehash. Nothing here copies SEAL.json into the tuning repo."""
+    return {"preflight": "_step_preflight", "populate": "_step_populate",
+            "validate": "_step_validate", "crosscheck": "_step_crosscheck",
+            "seal": "_step_seal", "close-sessions": "_step_close",
+            "encrypt": "_step_encrypt", "rehash": "_step_rehash",
+            "leakscan": "_step_leakscan", "scrub": "_step_scrub"}
+
+
+def _drive(run, steps, handlers):
+    module = sys.modules[__name__]
     current = None
     try:
         for step in steps:
             current = step
             if step == "result":
                 return _result_step(run)
-            _HANDLERS.get(step, _not_installed)(run)
+            getattr(module, handlers[step])(run)
     except Stop as stop:
         if stop.instruction:
             print(_render(stop.instruction, run.h))
-        mark(run.j, current, "blocked")
+        mark(run.j, current, stop.status)
         journal_save(run.h, run.j)
         return result_line(run.h, run.j, stop.line)
-    return None
-
-
-def _result_step(run):
-    raise KitError("the autopilot pipeline is not installed in this kit copy")
+    raise KitError("the step list has no result step")
 
 
 def autopilot(folder, repo, replace_retired=False, restart_finder=False,
@@ -969,16 +1770,18 @@ def autopilot(folder, repo, replace_retired=False, restart_finder=False,
     """The real run; returns the exit code (0 proceed, 3 blocking)."""
     run = _start(folder, "real", repo, replace_retired, restart_finder,
                  max_turns, budget_usd, session_timeout)
-    return _drive(run, STEPS)
+    return _drive(run, STEPS, _real_handlers())
 
 
 def dry_run(folder, repo=None, max_turns=DEFAULT_MAX_TURNS,
             budget_usd=DEFAULT_BUDGET_USD,
             session_timeout=DEFAULT_SESSION_TIMEOUT):
-    """The same flow on dummy data; never publishes."""
+    """The same flow on dummy data (six synthetic cases, one real headless
+    judging round in a fresh generation); SEAL.json never leaves the
+    folder."""
     run = _start(folder, "dry-run", repo, False, False, max_turns,
                  budget_usd, session_timeout)
-    return _drive(run, DRY_RUN_STEPS)
+    return _drive(run, DRY_RUN_STEPS, _dry_handlers())
 
 
 # ---------------------------------------------------------------- CLI

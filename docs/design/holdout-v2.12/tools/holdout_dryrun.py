@@ -333,10 +333,14 @@ def complete_case_crosscheck(folder, case_id):
 # ---------------------------------------------------------------- populate
 
 
-def populate(folder, repos_parent=None):
+def populate(folder, repos_parent=None, complete_crosscheck=True):
     """Fill a freshly set-up holdout with six synthetic cases and a completed
     cross-check; return {slot: ID}. The folder is then ready for validate and
-    seal."""
+    seal.
+
+    With complete_crosscheck=False only the cases, keys, proofs and eligible
+    repos are written (what a finder leaves behind); the cross-check is left
+    to its sessions."""
     holdout_kit.refuse_if_claude_spawned(folder)
     if not folder or not os.path.isdir(folder):
         raise KitError("the holdout folder does not exist; run setup first")
@@ -359,7 +363,8 @@ def populate(folder, repos_parent=None):
         cid = _new_id(h)
         ids[slot] = cid
         _write_case(h, repos[LAYOUT[slot][0]], slot, 0, cid)
-    _complete(h, [ids[s] for s in holdout_kit.SLOTS], prepare_all=True)
+    if complete_crosscheck:
+        _complete(h, [ids[s] for s in holdout_kit.SLOTS], prepare_all=True)
     return ids
 
 

@@ -680,6 +680,11 @@ def _load_retired(folder):
     return ledger
 
 
+# Public name for the strict RETIRED.json loader (the autopilot reads it to
+# decide whether a finished run can be proven from evidence alone).
+load_retired = _load_retired
+
+
 def _content_identity(entry):
     return (tuple(entry["source"][k] for k in _SOURCE_KEYS),
             entry["diff_sha256"], entry["lines_sha256"], entry["key_sha256"])

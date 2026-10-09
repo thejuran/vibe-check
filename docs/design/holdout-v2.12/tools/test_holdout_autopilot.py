@@ -177,6 +177,10 @@ def drop_slot(slot):
 
 
 def recreate(only=None, limit=None):
+    if not os.path.isdir(os.path.join(H, holdout_dryrun.REPOS_DIRNAME)):
+        # The earlier turn died before it wrote anything: do it now.
+        holdout_dryrun.populate(H, complete_crosscheck=False)
+        return
     made = 0
     for slot in holdout_kit.SLOTS:
         if (only and slot not in only) or slot in present_slots():
@@ -1065,7 +1069,8 @@ class PipelineCase(AutopilotCase):
         real_scrub = holdout_archive.scrub
 
         def capture_then_scrub(folder, *a, **kw):
-            if os.path.isdir(os.path.join(folder, "sealed", "cases")):
+            sealed = os.path.join(folder, "sealed")
+            if os.path.isdir(sealed) and holdout_kit.walk_regular(sealed):
                 self.probes |= all_probes(folder)
                 reg = os.path.join(folder, *holdout_seal.WORKSPACES_RELPATH
                                    .split("/"))
@@ -1095,7 +1100,8 @@ class PipelineCase(AutopilotCase):
 
     def assert_opaque(self, *texts):
         probes = set(self.probes)
-        if os.path.isdir(os.path.join(self.F, "sealed", "cases")):
+        sealed = os.path.join(self.F, "sealed")
+        if os.path.isdir(sealed) and holdout_kit.walk_regular(sealed):
             probes |= all_probes(self.F)
         for text in texts:
             self.assertNotIn(RESULT_MARK, text)
@@ -1760,12 +1766,19 @@ class TestLeakAndReplace(PipelineCase):
         self.assertEqual(self.last_line(out), "sealed")
         self.assertTrue(os.path.exists(self.published()))
 
-    def test_mutant_ignored_hits_do_not_stop_at_leakscan(self):
+    def test_mutant_ignored_hits_fall_to_publish(self):
+        # With the leakscan step's two guards patched out (the hit list and
+        # the still-sealed check) the run gets past leakscan; only publish's
+        # own refusal is left, so the guards are what stop it at leakscan.
         patcher, _ = self.plant_leak(["C2"])
-        with patcher, mock.patch.object(ap, "_leak_hits", return_value=[]):
-            self.cli()
-        self.assertEqual(self.journal()["steps"]["leakscan"]["status"],
-                         "done")
+        with patcher, mock.patch.object(ap, "_leak_hits", return_value=[]), \
+                mock.patch.object(ap, "_unreplaced_slots", return_value=[]):
+            _, out, _ = self.cli()
+        steps = self.journal()["steps"]
+        self.assertEqual(steps["leakscan"]["status"], "done")
+        self.assertEqual(steps["publish"]["status"], "blocked")
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+        self.assertFalse(os.path.exists(self.published()))
 
     def test_mutant_kept_case_tree_never_replaces(self):
         patcher, planted = self.plant_leak(["C2"])
@@ -1865,6 +1878,27 @@ class TestReplacementInterrupted(PipelineCase):
             _, out, err = self.cli()
         self.assertNotEqual(self.last_line(out), "replaced slots=C2,Q1")
 
+    def crash_on_first_tree(self, ids):
+        real = shutil.rmtree
+        retired = {ids["C2"], ids["Q1"]}
+
+        def rmtree_never(path, *a, **kw):
+            if os.path.basename(os.path.normpath(path)) in retired:
+                raise RuntimeError("synthetic crash")
+            return real(path, *a, **kw)
+
+        with mock.patch.object(shutil, "rmtree", side_effect=rmtree_never):
+            with self.assertRaises(RuntimeError):
+                self.cli("--replace-retired")
+
+    def test_intent_is_on_disk_before_the_first_delete(self):
+        ids, _, _ = self.leak_two()
+        self.crash_on_first_tree(ids)
+        j = self.journal()
+        self.assertEqual(sorted(e["slot"] for e in j["replace"]["pending"]),
+                         ["C2", "Q1"])
+        self.assertEqual(j["replace"]["removed"], [])
+
     def test_mutant_intent_after_first_delete(self):
         ids, _, _ = self.leak_two()
         real = ap._record_replace_intent
@@ -1875,7 +1909,7 @@ class TestReplacementInterrupted(PipelineCase):
 
         with mock.patch.object(ap, "_record_replace_intent",
                                side_effect=unsaved):
-            self.crash_on_second_tree(ids)
+            self.crash_on_first_tree(ids)
         self.assertEqual(self.journal()["replace"]["pending"], [])
 
     def test_mutant_flag_required_on_rerun(self):
@@ -2017,6 +2051,10 @@ class TestResultGrammar(AutopilotCase):
 class TestResidue(PipelineCase):
 
     def plant_residue(self):
+        # Residue is injected the way test_holdout_archive does it: through
+        # holdout_archive._default_residue_bases, patched in setUp to temp
+        # roots, so scrub never looks at the owner's real home.
+        self.assertEqual(holdout_archive._default_residue_bases(), self.bases)
         proj = os.path.join(self.home, ".claude", "projects",
                             "-Users-x--" + holdout_archive.RESIDUE_MARK
                             + "-work")
@@ -2075,13 +2113,18 @@ class TestResidue(PipelineCase):
         self.assertEqual(self.last_line(out), "sealed")
 
     def interrupted_scrub(self):
+        # Same residue hook (_default_residue_bases) as plant_residue; the
+        # crash is injected into holdout_archive._prune, after the plaintext
+        # files were deleted but before the survivor and residue checks.
         proj = self.plant_residue()
         with mock.patch.object(holdout_archive, "_prune",
                                side_effect=RuntimeError("synthetic crash")):
             with self.assertRaises(RuntimeError):
                 self.cli()
-        self.assertFalse(os.path.exists(os.path.join(self.F, "sealed",
-                                                     "cases")))
+        # The deletion ran (no plaintext file is left) but its folders,
+        # the survivor checks and the residue check never did.
+        self.assertEqual(holdout_kit.walk_regular(
+            os.path.join(self.F, "sealed")), [])
         self.assertNotEqual(self.journal()["steps"]["scrub"].get("status"),
                             "done")
         stray = os.path.join(self.F, "work", "left.txt")
@@ -2098,7 +2141,7 @@ class TestResidue(PipelineCase):
             rc, out, _ = self.cli()
         self.assertEqual(spy.call_count, 1)
         self.assertEqual(rc, 3)
-        self.assertFalse(os.path.exists(stray))
+        self.assertFalse(os.path.exists(stray), out)
         self.assert_blocked_residue(out, proj)
         self.assertEqual(self.since(n), [])
         shutil.rmtree(proj)
@@ -2113,7 +2156,8 @@ class TestResidue(PipelineCase):
         real = ap._step_scrub
 
         def shortcut(run):
-            if not os.path.isdir(os.path.join(run.h, "sealed", "cases")) \
+            sealed = os.path.join(run.h, "sealed")
+            if not holdout_kit.walk_regular(sealed) \
                     and ap._archive_verified(run.h):
                 run.scrub_result = []
                 return None
