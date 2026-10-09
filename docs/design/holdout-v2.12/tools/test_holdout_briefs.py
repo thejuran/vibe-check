@@ -304,6 +304,27 @@ class TestCrosscheckFields(unittest.TestCase):
                             r"expected verdict (is|for [a-z0-9-]+ is)")
 
 
+class TestProofRerunForm(unittest.TestCase):
+    """The judge runs headless in dontAsk mode, where Claude Code refuses
+    `cd <dir> && sh|bash <relative script>` (51-09 C3: no exits recorded).
+    The brief gives the one form that is allowed: the proof file itself, by
+    absolute path, after a cd to the tree's absolute path."""
+
+    FORM = ('cd <absolute tree path> && <absolute packet path>/revealed/'
+            'proof/run; echo "rc=$?"')
+
+    def test_after_reveal_gives_the_exact_form(self):
+        after = sections(read(XCHECK))["After reveal"]
+        self.assertIn(self.FORM, after)
+
+    def test_forbids_an_interpreter_and_giving_up(self):
+        after = sections(read(XCHECK))["After reveal"]
+        for s in ("`bash`", "`sh`", "Permission to use Bash has been denied",
+                  "never invent exits", "do not give up"):
+            with self.subTest(s=s):
+                self.assertIn(s, after)
+
+
 class TestResetBlindness(unittest.TestCase):
 
     def test_reset_section(self):

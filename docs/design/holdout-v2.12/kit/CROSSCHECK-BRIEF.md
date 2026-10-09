@@ -77,6 +77,19 @@ root of each tree: once in a fresh copy of `base/` made inside the packet folder
 (`xcheck/<XID>/base-run/`, never under `/tmp`) and once in your changed tree. Note the two
 exit codes.
 
+Run it in exactly this form, once per tree, with both paths absolute:
+
+```
+cd <absolute tree path> && <absolute packet path>/revealed/proof/run; echo "rc=$?"
+```
+
+Run the file itself: never through an interpreter such as `bash`, `sh` or `python3`, and
+never by a relative path. This session cannot ask for approval, so a command the permission
+system will not allow is refused with "Permission to use Bash has been denied". If that
+happens, run the command again in exactly the form above; do not give up. The `rc=` line is
+the exit code to record. Only if it still cannot run: set `proof_rerun_exit` to `null` and
+`proof_agrees` to false, and say in `notes` what refused it; never invent exits.
+
 Then write `xcheck/<XID>/final.json`:
 
 - `reveal_token`: copied exactly from `revealed/REVEAL-TOKEN`.
