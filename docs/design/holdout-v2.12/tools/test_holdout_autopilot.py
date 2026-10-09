@@ -1045,5 +1045,1188 @@ class TestRegistration(AutopilotCase):
                       holdout_archive.survivor_allowlist(self.F))
 
 
+# ================================================================ pipeline
+
+ALLOWED_LINE = re.compile(
+    r"^(step [a-z-]+: .+|OK: .+|PROBLEM: .+|session [a-z0-9-]+: .+"
+    r"|sealed( non-runnable=[0-6])?|replaced slots=[A-Z0-9,]+"
+    r"( non-runnable=[0-6])?|dry run ok.*|blocked [a-z-]+)$")
+
+
+class PipelineCase(AutopilotCase):
+    """Helpers for full runs: probe capture before scrub, opacity checks,
+    run boundaries in calls.jsonl."""
+
+    def setUp(self):
+        AutopilotCase.setUp(self)
+        self.probes = set()
+        self.registry_before_scrub = None
+        self.hashes_before_scrub = {}
+        real_scrub = holdout_archive.scrub
+
+        def capture_then_scrub(folder, *a, **kw):
+            if os.path.isdir(os.path.join(folder, "sealed", "cases")):
+                self.probes |= all_probes(folder)
+                reg = os.path.join(folder, *holdout_seal.WORKSPACES_RELPATH
+                                   .split("/"))
+                if os.path.exists(reg):
+                    self.registry_before_scrub = load(reg)
+                self.hashes_before_scrub = tree_hashes(
+                    folder, holdout_kit.case_ids(folder))
+            return real_scrub(folder, *a, **kw)
+
+        patcher = mock.patch.object(holdout_archive, "scrub",
+                                    side_effect=capture_then_scrub)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def assert_trees_kept(self, before):
+        """Every file hashed in `before` was byte-identical when the last
+        scrub began."""
+        self.assertTrue(before)
+        for key, sha in before.items():
+            self.assertEqual(self.hashes_before_scrub.get(key), sha, key)
+
+    def mark_calls(self):
+        return len(self.calls())
+
+    def since(self, n):
+        return self.calls()[n:]
+
+    def assert_opaque(self, *texts):
+        probes = set(self.probes)
+        if os.path.isdir(os.path.join(self.F, "sealed", "cases")):
+            probes |= all_probes(self.F)
+        for text in texts:
+            self.assertNotIn(RESULT_MARK, text)
+            for probe in probes:
+                self.assertNotIn(probe, text)
+            for rel in ("sealed", "work", "xcheck"):
+                self.assertNotIn(os.path.join(self.F, rel) + os.sep, text)
+        if os.path.exists(ap.journal_path(self.F)):
+            with open(ap.journal_path(self.F), encoding="utf-8") as fh:
+                jtext = fh.read()
+            self.assertNotIn(RESULT_MARK, jtext)
+            self.assertNotIn("sealed/", jtext)
+            for probe in probes:
+                self.assertNotIn(probe, jtext)
+
+    def published(self):
+        return os.path.join(self.R, *holdout_manifest.SEAL_RELPATH.split("/"))
+
+    def run_ok(self, *extra):
+        rc, out, err = self.cli(*extra)
+        self.assertEqual(rc, 0, out + err)
+        return out
+
+    def ids_in(self, cfgname, flag, calls=None):
+        return [self.flag(c, flag) for c in self.p_calls(calls)
+                if self.cfg(c) == cfgname and flag in c["argv"]]
+
+    def plant_leak(self, slots):
+        """A wrapper around leakscan that, on its first call, writes one
+        probe of each named slot into the tuning repo's tree."""
+        real = holdout_archive.leakscan
+        planted = os.path.join(self.R, "notes", "pasted.txt")
+        state = {"done": False}
+
+        def plant_then_scan(folder, *a, **kw):
+            if not state["done"]:
+                state["done"] = True
+                by_slot = {}
+                for probe, slot, _ in holdout_archive._probes(folder):
+                    by_slot.setdefault(slot, probe)
+                os.makedirs(os.path.dirname(planted), exist_ok=True)
+                with open(planted, "w", encoding="utf-8") as fh:
+                    for slot in slots:
+                        fh.write(by_slot[slot] + "\n")
+            return real(folder, *a, **kw)
+
+        return mock.patch.object(holdout_archive, "leakscan",
+                                 side_effect=plant_then_scan), planted
+
+
+class TestHappyPath(PipelineCase):
+
+    def test_sealed_end_to_end(self):
+        enc_at = {}
+        real_encrypt = holdout_archive.encrypt
+
+        def spy_encrypt(folder, *a, **kw):
+            enc_at["n"] = len(self.p_calls())
+            return real_encrypt(folder, *a, **kw)
+
+        with mock.patch.object(holdout_archive, "encrypt",
+                               side_effect=spy_encrypt):
+            rc, out, err = self.cli()
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertEqual(holdout_manifest.resume_reply_kind("sealed"),
+                         "sealed")
+        with open(self.published(), "rb") as a, \
+                open(os.path.join(self.F, "SEAL.json"), "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        self.assertFalse(os.path.exists(os.path.join(self.F, "sealed")))
+        self.assertTrue(os.path.isfile(holdout_archive.archive_path(self.F)))
+        self.assertFalse(os.path.exists(os.path.join(
+            self.F, *ap.LOG_RELDIR.split("/"))))
+        j = self.journal()
+        self.assertEqual(j["result_line"], "sealed")
+        for step in ap.STEPS[:-1]:
+            self.assertEqual(j["steps"][step]["status"], "done", step)
+
+        calls = self.calls()
+        pcalls = self.p_calls()
+        first_p = calls.index(pcalls[0])
+        auth = {self.cfg(c) for c in calls[:first_p]
+                if c["argv"][:3] == ["auth", "status", "--json"]}
+        self.assertEqual(auth, {"cfg-finder", "cfg-xcheck"})
+        prompts = [self.prompt(c) for c in pcalls]
+        self.assertLess(prompts.index(ap.PROBE_PROMPT),
+                        prompts.index(ap.XCHECK_BEGIN_PROMPT))
+        self.assertLess(prompts.index(ap.RESUME_CHECK_PROMPT_2),
+                        prompts.index(ap.FINDER_CHECK_PROMPT))
+        self.assertLess(prompts.index(ap.FINDER_CHECK_PROMPT),
+                        prompts.index(ap.FINDER_BEGIN_PROMPT))
+        conts = [c for c in pcalls
+                 if self.prompt(c) == ap.XCHECK_CONTINUE_PROMPT]
+        self.assertEqual(len(conts), 1)
+        revealed_at = self.registry_before_scrub["generations"][0][
+            "revealed_at"]
+        self.assertGreater(conts[0]["at"], revealed_at)
+        self.assertEqual(len(pcalls), enc_at["n"])
+        ids = ap._journaled_ids(j)
+        seen = {}
+        for c in pcalls:
+            fresh, resumed = (self.flag(c, "--session-id"),
+                              self.flag(c, "--resume"))
+            self.assertEqual((fresh is None) + (resumed is None), 1)
+            if fresh:
+                self.assertIn(fresh, ids)
+                seen.setdefault(self.cfg(c), set()).add(fresh)
+            else:
+                self.assertIn(resumed, seen.get(self.cfg(c), set()))
+        for line in out.splitlines():
+            self.assertRegex(line, ALLOWED_LINE)
+        self.assertTrue(self.probes)
+        self.assert_opaque(out, err)
+        with open(self.published(), encoding="utf-8") as fh:
+            self.assert_opaque(fh.read())
+
+    def test_mutant_printing_session_text_breaks_opacity(self):
+        real = ap.run_session
+
+        def leaky(*a, **kw):
+            res = real(*a, **kw)
+            print(res.text)
+            return res
+
+        with mock.patch.object(ap, "run_session", side_effect=leaky):
+            _, out, _ = self.cli()
+        self.assertIn(RESULT_MARK, out)
+
+
+class TestSessionTimeout(PipelineCase):
+
+    def test_timeout_is_a_resumable_stop(self):
+        self.control(sleep_seconds=3, sleep_on=ap.FINDER_BEGIN_PROMPT)
+        rc, out, _ = self.cli("--session-timeout", "1")
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertIn("session finder: timed out after 1 s (see the log "
+                      "inside the holdout folder)", lines)
+        j = self.journal()
+        self.assertEqual(j["steps"]["finder"]["status"], "pending")
+        sid = j["finder"]["session_id"]
+        self.assertIsNotNone(sid)
+        self.assertIsNotNone(j["finder"]["started_at"])
+        begin = [c for c in self.p_calls()
+                 if self.prompt(c) == ap.FINDER_BEGIN_PROMPT]
+        self.assertEqual(self.flag(begin[0], "--session-id"), sid)
+
+        # A timeout on the --resume keeps the same id again.
+        self.control(sleep_seconds=3, sleep_on="previous turn was")
+        n = self.mark_calls()
+        rc, out, _ = self.cli("--session-timeout", "1")
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.journal()["finder"]["session_id"], sid)
+        self.assertEqual(self.ids_in("cfg-finder", "--resume", self.since(n)),
+                         [sid])
+
+        self.control()
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        run2 = self.since(n)
+        finder = [c for c in self.p_calls(run2) if self.cfg(c) == "cfg-finder"]
+        self.assertEqual(self.prompt(finder[0]), ap.FINDER_RESUME_PROMPT)
+        self.assertEqual(self.flag(finder[0], "--resume"), sid)
+        self.assertEqual(self.ids_in("cfg-finder", "--session-id", run2), [])
+        self.assertNotIn(ap.FINDER_BEGIN_PROMPT,
+                         [self.prompt(c) for c in self.p_calls(run2)])
+        self.assert_opaque(out)
+
+    def test_mutant_uncaught_timeout_breaks_the_grammar(self):
+        self.control(sleep_seconds=3, sleep_on=ap.FINDER_BEGIN_PROMPT)
+        with mock.patch.object(ap, "_is_timeout", return_value=False):
+            rc, out, err = self.cli("--session-timeout", "1")
+        self.assertEqual(rc, 1)
+        self.assertIsNone(holdout_manifest.resume_reply_kind(
+            self.last_line(out)))
+        self.assertIn("could not run", err)
+
+
+class TestValidateLoop(PipelineCase):
+
+    def test_fix_round_then_sealed(self):
+        self.control(finder_short=True)
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        fixes = [c for c in self.p_calls()
+                 if self.prompt(c).startswith(ap.FINDER_FIX_PROMPT)]
+        self.assertTrue(1 <= len(fixes) <= ap.MAX_FIX_ROUNDS)
+        sid = self.journal()["finder"]["session_id"]
+        for c in fixes:
+            self.assertEqual(self.flag(c, "--resume"), sid)
+        self.assertIn("step validate: PROBLEM", out)
+        self.assert_opaque(out)
+
+    def test_never_fixed_stops_blocked_validation(self):
+        self.control(finder_short=True, never_fix=True)
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked validation")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["validation"].replace(
+            "<H>", self.F) % ap.MAX_FIX_ROUNDS)
+        self.assertEqual(self.journal()["steps"]["validate"]["status"],
+                         "blocked")
+        fixes = [c for c in self.p_calls()
+                 if self.prompt(c).startswith(ap.FINDER_FIX_PROMPT)]
+        self.assertEqual(len(fixes), ap.MAX_FIX_ROUNDS)
+        self.assertNotIn(ap.XCHECK_BEGIN_PROMPT,
+                         [self.prompt(c) for c in self.p_calls()])
+        self.assert_opaque(out)
+
+    def test_mutant_zero_fix_rounds(self):
+        self.control(finder_short=True)
+        with mock.patch.object(ap, "MAX_FIX_ROUNDS", 0):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked validation")
+
+
+class TestDisagreement(PipelineCase):
+
+    def test_disagreement_stops_and_is_never_resolved(self):
+        self.control(disagree_slot="C3")
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        cid = slot_ids(self.F)["C3"]
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked disagreement")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["disagreement"]
+                         % (cid, "C3", cid, cid, "C3"))
+        led = load(os.path.join(self.F, "sealed", "keys", cid,
+                                "xcheck-ledger.json"))
+        self.assertEqual(led["rounds"], [])
+        self.assertFalse(os.path.exists(os.path.join(
+            self.F, "sealed", "keys", cid, "resolution.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.F, "SEAL.json")))
+        self.assertFalse(os.path.exists(holdout_archive.archive_path(self.F)))
+        begins = [c for c in self.p_calls()
+                  if self.prompt(c) == ap.XCHECK_BEGIN_PROMPT]
+        self.assertEqual(len(begins), 1)
+        self.assertEqual(len(load(os.path.join(
+            self.F, *holdout_seal.WORKSPACES_RELPATH.split("/")))
+            ["generations"]), 1)
+        self.assert_opaque(out)
+
+    def test_mutant_no_blockers_seals_a_disagreement(self):
+        self.control(disagree_slot="C3")
+        with mock.patch.object(holdout_seal, "seal_blockers",
+                               return_value=[]):
+            _, out, _ = self.cli()
+        self.assertNotEqual(self.last_line(out), "blocked disagreement")
+        self.assertTrue(os.path.exists(os.path.join(self.F, "SEAL.json")))
+
+
+class TestFinderResume(PipelineCase):
+
+    def crash_with_three_cases(self):
+        self.control(finder_partial=3)
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        self.assertIn("session finder: failed (see the log inside the "
+                      "holdout folder)", out)
+        self.assertEqual(self.last_line(out), "blocked other")
+        j = self.journal()
+        sid = j["finder"]["session_id"]
+        begin = [c for c in self.p_calls()
+                 if self.prompt(c) == ap.FINDER_BEGIN_PROMPT]
+        self.assertEqual(len(begin), 1)
+        self.assertEqual(self.flag(begin[0], "--session-id"), sid)
+        self.assertEqual(j["steps"]["finder"]["status"], "pending")
+        survivors = holdout_kit.case_ids(self.F)
+        self.assertEqual(len(survivors), 3)
+        return sid, tree_hashes(self.F, survivors)
+
+    def test_crash_after_partial_writes_resumes_same_session(self):
+        sid, before = self.crash_with_three_cases()
+        self.control()
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        run2 = self.p_calls(self.since(n))
+        prompts = [self.prompt(c) for c in run2]
+        for once in (ap.PROBE_PROMPT, ap.FINDER_CHECK_PROMPT,
+                     ap.RESUME_CHECK_PROMPT_1, ap.FINDER_BEGIN_PROMPT):
+            self.assertNotIn(once, prompts)
+        self.assertEqual([c for c in run2 if "--session-id" in c["argv"]],
+                         [])
+        resumed = [c for c in run2
+                   if self.prompt(c) == ap.FINDER_RESUME_PROMPT]
+        self.assertEqual(len(resumed), 1)
+        self.assertEqual(self.flag(resumed[0], "--resume"), sid)
+        self.assertIn("never re-screen a recorded candidate",
+                      self.prompt(resumed[0]))
+        self.assert_trees_kept(before)
+        self.assert_opaque(out)
+
+    def test_crash_again_on_resume_keeps_the_id(self):
+        sid, before = self.crash_with_three_cases()
+        self.control(finder_crash_on_resume=True)
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked other")
+        self.assertEqual(self.journal()["finder"]["session_id"], sid)
+        self.control()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+
+    def test_mutant_fresh_call_without_id_cannot_resume(self):
+        with mock.patch.object(ap, "_identity_args",
+                               side_effect=lambda sid, resume:
+                               [] if sid else ["--resume", resume]), \
+                mock.patch.object(ap, "check_argv"):
+            self.control(finder_partial=3)
+            self.cli()
+            self.control()
+            _, out, _ = self.cli()
+        self.assertNotEqual(self.last_line(out), "sealed")
+
+    def kill_during_begin(self):
+        real = ap.run_session
+
+        def killed(folder, role, prompt, **kw):
+            res = real(folder, role, prompt, **kw)
+            if prompt == ap.FINDER_BEGIN_PROMPT:
+                raise RuntimeError("synthetic kill of the autopilot")
+            return res
+
+        with mock.patch.object(ap, "run_session", side_effect=killed):
+            with self.assertRaises(RuntimeError):
+                self.cli()
+
+    def test_uuid_is_on_disk_before_the_launch(self):
+        self.kill_during_begin()
+        sid = self.journal()["finder"]["session_id"]
+        begin = [c for c in self.p_calls()
+                 if self.prompt(c) == ap.FINDER_BEGIN_PROMPT]
+        self.assertEqual(self.flag(begin[0], "--session-id"), sid)
+
+    def test_mutant_late_journaling_loses_the_uuid(self):
+        def no_save(folder, j, holder, key="session_id"):
+            holder[key] = ap.new_session_id()
+            return holder[key]
+
+        with mock.patch.object(ap, "_allocate", side_effect=no_save), \
+                mock.patch.object(ap, "_assert_journaled"):
+            self.kill_during_begin()
+        self.assertIsNone(self.journal()["finder"]["session_id"])
+
+
+class TestLostSession(PipelineCase):
+
+    def test_lost_session_never_restarts_silently(self):
+        self.control(finder_partial=3)
+        self.cli()
+        sid = self.journal()["finder"]["session_id"]
+        survivors = holdout_kit.case_ids(self.F)
+        before = tree_hashes(self.F, survivors)
+        for _ in range(2):
+            self.control(forget_sessions=True)
+            n = self.mark_calls()
+            rc, out, _ = self.cli()
+            self.assertEqual(rc, 3)
+            lines = out.strip().splitlines()
+            self.assertEqual(lines[-1], "blocked other")
+            self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS[
+                "resume-lost"].replace("<H>", self.F))
+            run = self.p_calls(self.since(n))
+            self.assertNotIn(ap.FINDER_BEGIN_PROMPT,
+                             [self.prompt(c) for c in run])
+            self.assertEqual([c for c in run if "--session-id" in c["argv"]],
+                             [])
+            self.assertEqual(self.journal()["finder"]["session_id"], sid)
+            self.assertEqual(tree_hashes(self.F, survivors), before)
+
+        self.control()
+        n = self.mark_calls()
+        out = self.run_ok("--restart-finder")
+        self.assertEqual(self.last_line(out), "sealed")
+        j = self.journal()
+        self.assertEqual(j["finder"]["lost_session_ids"], [sid])
+        self.assertEqual(j["finder"]["restarts"], 1)
+        new = j["finder"]["session_id"]
+        self.assertNotEqual(new, sid)
+        run = self.p_calls(self.since(n))
+        restart = [c for c in run if self.prompt(c) == ap.FINDER_RESTART_PROMPT]
+        self.assertEqual(len(restart), 1)
+        self.assertEqual(self.flag(restart[0], "--session-id"), new)
+        self.assertNotIn(ap.FINDER_BEGIN_PROMPT,
+                         [self.prompt(c) for c in run])
+        self.assert_trees_kept(before)
+        self.assert_opaque(out)
+
+    def test_restart_without_a_lost_session_is_refused(self):
+        n = self.mark_calls()
+        rc, _, err = self.cli("--restart-finder")
+        self.assertEqual(rc, 1)
+        self.assertIn(ap.RESTART_MSG, err)
+        self.assertEqual(self.p_calls(self.since(n)), [])
+
+    def test_mutant_lost_branch_falling_through_begins_again(self):
+        self.control(finder_partial=3)
+        self.cli()
+        self.control(forget_sessions=True)
+
+        def fall_through(run):
+            run.j["finder"]["session_id"] = None
+            return ap._step_finder(run)
+
+        n = self.mark_calls()
+        with mock.patch.object(ap, "_lost_finder", side_effect=fall_through):
+            self.cli()
+        self.assertIn(ap.FINDER_BEGIN_PROMPT,
+                      [self.prompt(c) for c in self.p_calls(self.since(n))])
+
+
+class TestCrosscheckResume(PipelineCase):
+
+    def test_crash_mid_blinds_resumes_same_generation_session(self):
+        self.control(xcheck_crash_after_blind=3)
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked other")
+        sid = self.journal()["xcheck"]["1"]["session_id"]
+        self.assertEqual(self.ids_in("cfg-xcheck", "--session-id"), [sid])
+        begin = [c for c in self.p_calls()
+                 if self.prompt(c) == ap.XCHECK_BEGIN_PROMPT]
+        self.assertEqual(self.flag(begin[0], "--resume"), sid)
+        self.control()
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        run2 = self.since(n)
+        self.assertEqual(self.ids_in("cfg-xcheck", "--session-id", run2), [])
+        self.assertIn(sid, self.ids_in("cfg-xcheck", "--resume", run2))
+        self.assert_opaque(out)
+
+    def crash_after_reveal(self):
+        self.control(xcheck_crash_on_continue="before")
+        rc, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked other")
+        reg = load(os.path.join(self.F,
+                                *holdout_seal.WORKSPACES_RELPATH.split("/")))
+        self.assertIsNotNone(reg["generations"][0]["revealed_at"])
+        return reg["generations"][0]["cases"][0]
+
+    def assert_burned_stop(self, first, n):
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["burned"].replace(
+            "<H>", self.F) % (1, first))
+        run = self.p_calls(self.since(n))
+        xc = [c for c in run if self.cfg(c) == "cfg-xcheck"]
+        for c in xc:
+            self.assertNotEqual(self.prompt(c), ap.XCHECK_BEGIN_PROMPT)
+            self.assertNotIn("--session-id", c["argv"])
+
+    def test_burned_generation_without_session_id(self):
+        first = self.crash_after_reveal()
+        j = self.journal()
+        del j["xcheck"]["1"]
+        dump(ap.journal_path(self.F), j)
+        self.control()
+        self.assert_burned_stop(first, self.mark_calls())
+
+    def test_burned_generation_whose_session_is_gone(self):
+        first = self.crash_after_reveal()
+        self.control(forget_sessions=True)
+        self.assert_burned_stop(first, self.mark_calls())
+
+    def test_mutant_ignoring_reveal_judges_in_a_burned_workspace(self):
+        self.crash_after_reveal()
+        j = self.journal()
+        del j["xcheck"]["1"]
+        dump(ap.journal_path(self.F), j)
+        self.control()
+        n = self.mark_calls()
+        with mock.patch.object(ap, "_generation_revealed",
+                               return_value=False):
+            self.cli()
+        fresh = self.ids_in("cfg-xcheck", "--session-id", self.since(n))
+        self.assertTrue(fresh)
+
+
+class TestEvidence(PipelineCase):
+
+    def test_missing_journal_after_completion(self):
+        self.run_ok()
+        os.remove(ap.journal_path(self.F))
+        n = self.mark_calls()
+        with mock.patch.object(holdout_archive, "scrub",
+                               wraps=holdout_archive.scrub) as spy:
+            out = self.run_ok()
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertEqual(self.since(n), [])
+
+    def test_missing_journal_cannot_prove_a_changed_repo_copy(self):
+        self.run_ok()
+        os.remove(ap.journal_path(self.F))
+        with open(self.published(), "a", encoding="utf-8") as fh:
+            fh.write(" ")
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.last_line(out),
+                         ap.STOP_INSTRUCTIONS["journal-missing"])
+        self.assertNotIn("\nsealed\n", "\n" + out)
+
+    def test_missing_journal_with_retired_cases(self):
+        self.run_ok()
+        os.remove(ap.journal_path(self.F))
+        holdout_kit.write_json_atomic(
+            os.path.join(self.F, "RETIRED.json"),
+            {"schema": holdout_manifest.RETIRED_SCHEMA, "retired": [
+                {"at": "2026-01-01T00:00:00Z", "slot": "C1",
+                 "reason": "owner",
+                 "source": {"repo_name": None, "base_rev": None,
+                            "feature_rev": None},
+                 "diff_sha256": None, "lines_sha256": None,
+                 "key_sha256": None}]})
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.last_line(out),
+                         ap.STOP_INSTRUCTIONS["journal-missing"])
+
+    def test_mutant_missing_journal_trusts_the_seal(self):
+        self.run_ok()
+        os.remove(ap.journal_path(self.F))
+        with open(self.published(), "a", encoding="utf-8") as fh:
+            fh.write(" ")
+        with mock.patch.object(ap, "_proven_complete", return_value=True):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "sealed")
+
+    def stop_at_leakscan(self):
+        with mock.patch.object(holdout_archive, "leakscan",
+                               side_effect=KitError("synthetic failure")):
+            rc, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked other")
+        self.assertEqual(self.journal()["steps"]["encrypt"]["status"], "done")
+        os.remove(holdout_archive.archive_path(self.F))
+
+    def shim_count(self):
+        log = os.path.join(os.path.dirname(self.shim), "argv.jsonl")
+        with open(log, encoding="utf-8") as fh:
+            return sum(1 for line in fh if line.strip())
+
+    def test_archive_evidence_beats_the_journal(self):
+        self.stop_at_leakscan()
+        before = self.shim_count()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertGreater(self.shim_count(), before)
+
+    def test_mutant_journal_over_evidence_skips_encrypt(self):
+        self.stop_at_leakscan()
+        before = self.shim_count()
+        with mock.patch.object(ap, "_encrypt_evidence",
+                               side_effect=lambda run: ap._status(
+                                   run.j, "encrypt") == "done"):
+            _, out, _ = self.cli()
+        self.assertNotEqual(self.last_line(out), "sealed")
+        self.assertEqual(self.shim_count(), before)
+
+
+class TestInputsChanged(PipelineCase):
+
+    def touch_proof_after_finals(self):
+        self.control(xcheck_crash_on_continue="after")
+        _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked other")
+        cid = slot_ids(self.F)["C1"]
+        run = os.path.join(self.F, "sealed", "keys", cid, "proof", "run")
+        with open(run, "a", encoding="utf-8") as fh:
+            fh.write("# trailing comment added after the cross-check\n")
+        time.sleep(1.1)
+        holdout_dryrun.record_proof_results(self.F, cid)
+        self.control()
+        return cid
+
+    def test_inputs_changed_is_a_mechanical_reset(self):
+        cid = self.touch_proof_after_finals()
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        run = self.p_calls(self.since(n))
+        probes = [c for c in run if self.prompt(c) == ap.PROBE_PROMPT]
+        self.assertEqual([self.cfg(c) for c in probes], ["cfg-xcheck-r2"])
+        self.assertIn("step crosscheck: generation 2 probe ok (9/9)", out)
+        gens = self.registry_before_scrub["generations"]
+        self.assertEqual(len(gens), 2)
+        self.assertIn(cid, gens[1]["cases"])
+        self.assertEqual(self.journal()["input_resets"], {cid: 1})
+        self.assert_opaque(out)
+
+    def test_reset_cap(self):
+        cid = self.touch_proof_after_finals()
+        with mock.patch.object(ap, "MAX_INPUT_RESETS", 0):
+            rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["inputs-reset"]
+                         .replace("<H>", self.F) % cid)
+
+
+class TestLeakAndReplace(PipelineCase):
+
+    def test_leak_stops_then_replace_retired_continues(self):
+        patcher, planted = self.plant_leak(["C2"])
+        with patcher:
+            rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked leakscan")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["leakscan"] % "C2")
+        self.assertEqual(self.journal()["replaced_slots"], ["C2"])
+        scans = load(os.path.join(self.F, "LEAKSCAN.json"))["scans"]
+        self.assertGreater(scans[-1]["hits"], 0)
+        retired = load(os.path.join(self.F, "RETIRED.json"))["retired"]
+        self.assertEqual([e["slot"] for e in retired], ["C2"])
+        self.assertFalse(os.path.exists(self.published()))
+        old = slot_ids(self.F)["C2"]
+        self.assert_opaque(out)
+
+        os.remove(planted)
+        rc, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+        self.assertFalse(os.path.exists(self.published()))
+
+        n = self.mark_calls()
+        out = self.run_ok("--replace-retired")
+        self.assertEqual(self.last_line(out), "replaced slots=C2")
+        self.assertEqual(holdout_manifest.resume_reply_kind(
+            self.last_line(out)), "replaced")
+        run = self.p_calls(self.since(n))
+        replace = [c for c in run if self.prompt(c) ==
+                   ap.FINDER_REPLACE_PROMPT % "C2"]
+        self.assertEqual(len(replace), 1)
+        self.assertEqual(self.flag(replace[0], "--resume"),
+                         self.journal()["finder"]["session_id"])
+        self.assertNotIn(old, load(self.published())["cases"])
+        self.assertIn("step crosscheck: generation 2 probe ok (9/9)", out)
+        self.assert_opaque(out)
+
+    def test_mutant_blind_leakscan_publishes(self):
+        patcher, planted = self.plant_leak(["C2"])
+        real = holdout_archive.leakscan
+        empty = os.path.join(self.tmp, "empty-root")
+        os.makedirs(empty)
+
+        def blind_scan(folder, *a, **kw):
+            kw.pop("repo", None)
+            kw.pop("scan_roots", None)
+            return real(folder, *a, scan_roots=[empty], **kw)
+
+        with patcher, mock.patch.object(holdout_archive, "leakscan",
+                                        side_effect=blind_scan):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertTrue(os.path.exists(self.published()))
+
+    def test_mutant_ignored_hits_do_not_stop_at_leakscan(self):
+        patcher, _ = self.plant_leak(["C2"])
+        with patcher, mock.patch.object(ap, "_leak_hits", return_value=[]):
+            self.cli()
+        self.assertEqual(self.journal()["steps"]["leakscan"]["status"],
+                         "done")
+
+    def test_mutant_kept_case_tree_never_replaces(self):
+        patcher, planted = self.plant_leak(["C2"])
+        with patcher:
+            self.cli()
+        os.remove(planted)
+        with mock.patch.object(ap, "_remove_case_trees"):
+            _, out, _ = self.cli("--replace-retired")
+        self.assertNotEqual(self.last_line(out), "replaced slots=C2")
+
+    def test_nothing_to_replace(self):
+        rc, _, err = self.cli("--replace-retired")
+        self.assertEqual(rc, 1)
+        self.assertIn(ap.NOTHING_TO_REPLACE_MSG, err)
+
+
+class TestReplacementInterrupted(PipelineCase):
+
+    def leak_two(self):
+        patcher, planted = self.plant_leak(["C2", "Q1"])
+        with patcher:
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+        os.remove(planted)
+        ids = slot_ids(self.F)
+        keep = [ids[s] for s in ("C1", "C3", "Q2", "Q3")]
+        return ids, keep, tree_hashes(self.F, keep)
+
+    def crash_on_second_tree(self, ids):
+        real = shutil.rmtree
+        state = {"first": None}
+        retired = {ids["C2"], ids["Q1"]}
+
+        def rmtree_once(path, *a, **kw):
+            cid = os.path.basename(os.path.normpath(path))
+            if cid in retired:
+                if state["first"] is None:
+                    state["first"] = cid
+                elif cid != state["first"]:
+                    raise RuntimeError("synthetic crash")
+            return real(path, *a, **kw)
+
+        n = self.mark_calls()
+        with mock.patch.object(shutil, "rmtree", side_effect=rmtree_once):
+            with self.assertRaises(RuntimeError):
+                self.cli("--replace-retired")
+        return state["first"], n
+
+    def test_two_crashes_then_replaced(self):
+        ids, keep, before = self.leak_two()
+        first, n = self.crash_on_second_tree(ids)
+        j = self.journal()
+        pending = j["replace"]["pending"]
+        self.assertEqual(sorted((e["slot"], e["id"]) for e in pending),
+                         [("C2", ids["C2"]), ("Q1", ids["Q1"])])
+        self.assertEqual(j["replace"]["removed"], [first])
+        self.assertIs(j["replace"]["seal_cleared"], False)
+        other = ids["Q1"] if first == ids["C2"] else ids["C2"]
+        self.assertIn(other, holdout_kit.case_ids(self.F))
+        self.assertEqual(tree_hashes(self.F, keep), before)
+        self.assertEqual(self.p_calls(self.since(n)), [])
+
+        self.control(finder_crash_after_replace_slots=1)
+        n = self.mark_calls()
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked other")
+        prompts = [self.prompt(c) for c in self.p_calls(self.since(n))]
+        self.assertIn(ap.FINDER_REPLACE_PROMPT % "C2,Q1", prompts)
+        self.assertNotIn(other, holdout_kit.case_ids(self.F))
+        self.assertFalse(os.path.exists(os.path.join(self.F, "SEAL.json")))
+        self.assertIs(self.journal()["replace"]["seal_cleared"], True)
+        sid = self.journal()["finder"]["session_id"]
+
+        self.control()
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "replaced slots=C2,Q1")
+        self.assertEqual(holdout_manifest.resume_reply_kind(
+            self.last_line(out)), "replaced")
+        resumed = [c for c in self.p_calls(self.since(n))
+                   if self.prompt(c) == ap.FINDER_RESUME_PROMPT]
+        self.assertEqual([self.flag(c, "--resume") for c in resumed], [sid])
+        self.assertEqual(self.journal()["replace"]["pending"], [])
+        self.assert_trees_kept(before)
+        self.assert_opaque(out)
+
+    def test_mutant_slots_from_disk_lose_a_slot(self):
+        ids, _, _ = self.leak_two()
+        self.crash_on_second_tree(ids)
+
+        def from_disk(run):
+            return sorted(slot for _, slot in ap._retired_present(run.h))
+
+        with mock.patch.object(ap, "_finder_replace_slots",
+                               side_effect=from_disk):
+            _, out, err = self.cli()
+        self.assertNotEqual(self.last_line(out), "replaced slots=C2,Q1")
+
+    def test_mutant_intent_after_first_delete(self):
+        ids, _, _ = self.leak_two()
+        real = ap._record_replace_intent
+
+        def unsaved(run, present):
+            with mock.patch.object(ap, "journal_save"):
+                real(run, present)
+
+        with mock.patch.object(ap, "_record_replace_intent",
+                               side_effect=unsaved):
+            self.crash_on_second_tree(ids)
+        self.assertEqual(self.journal()["replace"]["pending"], [])
+
+    def test_mutant_flag_required_on_rerun(self):
+        ids, _, _ = self.leak_two()
+        self.crash_on_second_tree(ids)
+        with mock.patch.object(ap, "_replacement_active",
+                               side_effect=lambda j, flag: bool(flag)):
+            _, out, _ = self.cli()
+        self.assertNotEqual(self.last_line(out), "replaced slots=C2,Q1")
+
+
+class TestWriterBarrier(PipelineCase):
+
+    def test_open_process_stops_close_sessions(self):
+        holder = subprocess.Popen(["sleep", "30"],
+                                  cwd=os.path.join(self.F, "xcheck"))
+        try:
+            rc, out, _ = self.cli()
+            self.assertEqual(rc, 3)
+            lines = out.strip().splitlines()
+            self.assertEqual(lines[-1], "blocked other")
+            self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["writers"])
+            self.assertTrue(lines[-3].startswith(
+                "PROBLEM: holdout folder is still in use by 1 process(es): "
+                "%d sleep" % holder.pid), lines[-3])
+            self.assertEqual(self.journal()["steps"]["close-sessions"]
+                             ["status"], "blocked")
+            self.assertFalse(os.path.exists(
+                holdout_archive.archive_path(self.F)))
+        finally:
+            holder.terminate()
+            holder.wait()
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertEqual(self.p_calls(self.since(n)), [])
+
+    def test_mutant_no_writer_check_encrypts_under_a_holder(self):
+        holder = subprocess.Popen(["sleep", "30"],
+                                  cwd=os.path.join(self.F, "xcheck"))
+        try:
+            with mock.patch.object(holdout_archive, "require_no_writers"):
+                _, out, _ = self.cli()
+            self.assertTrue(os.path.exists(
+                holdout_archive.archive_path(self.F)))
+        finally:
+            holder.terminate()
+            holder.wait()
+
+
+class TestDryRun(PipelineCase):
+
+    def test_dry_run_ok(self):
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), "dry run ok prompted sandbox=ok")
+        self.assertEqual(holdout_manifest.resume_reply_kind(
+            self.last_line(out)), "dry-run-ok")
+        probes = [(self.cfg(c)) for c in self.p_calls()
+                  if self.prompt(c) == ap.PROBE_PROMPT]
+        self.assertEqual(probes, ["cfg-xcheck", "cfg-xcheck-r2"])
+        self.assertIn("step preflight: sandbox probe ok (6/6)", out)
+        self.assertIn("step crosscheck: generation 2 probe ok (9/9)", out)
+        prompts = [(self.cfg(c), self.prompt(c)) for c in self.p_calls()]
+        self.assertIn(("cfg-xcheck-r2", ap.XCHECK_BEGIN_PROMPT), prompts)
+        self.assertIn(("cfg-xcheck-r2", ap.XCHECK_CONTINUE_PROMPT), prompts)
+        self.assertNotIn(ap.FINDER_BEGIN_PROMPT, [p for _, p in prompts])
+        self.assertFalse(os.path.exists(os.path.join(self.F, "sealed")))
+        self.assertEqual(self.journal()["mode"], "dry-run")
+        for line in out.splitlines():
+            self.assertRegex(line, ALLOWED_LINE)
+        self.assert_opaque(out, err)
+
+    def test_dry_run_never_publishes(self):
+        rc, out, _ = self.cli("--dry-run")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.last_line(out), "dry run ok prompted sandbox=ok")
+        self.assertFalse(os.path.exists(self.published()))
+        self.assertNotIn("publish", ap.DRY_RUN_STEPS)
+        tree = ast.parse(open(AUTOPILOT_PY, encoding="utf-8").read())
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in (
+                    "dry_run", "_dry_handlers"):
+                self.assertNotIn("publish", ast.unparse(node))
+
+    def test_dry_run_probe_failure(self):
+        self.control(probe_fail=True)
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked sandbox")
+
+    def test_dry_run_openssl_failure_is_no_prompt(self):
+        os.environ["FAKE_OPENSSL_FAIL"] = "1"
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "dry run ok no-prompt")
+        self.assertEqual(holdout_manifest.resume_reply_kind(
+            self.last_line(out)), "dry-run-failed")
+
+
+class TestResultGrammar(AutopilotCase):
+
+    LINES = ("sealed", "sealed non-runnable=2", "replaced slots=C2",
+             "replaced slots=C1,Q2 non-runnable=1",
+             "dry run ok prompted sandbox=ok", "dry run ok no-prompt",
+             "blocked sandbox", "blocked disagreement", "blocked validation",
+             "blocked leakscan", "blocked residue", "blocked other")
+
+    def test_every_line_conforms(self):
+        j = ap.journal_load(self.F)
+        for line in self.LINES:
+            kind = holdout_manifest.resume_reply_kind(line)
+            self.assertIsNotNone(kind, line)
+            rc, out, _ = self.capture(ap.result_line, self.F, j, line, [])
+            self.assertEqual(out, line + "\n")
+            blocking = kind in holdout_manifest.RESUME_BLOCKING_KINDS
+            self.assertEqual(rc, 3 if blocking else 0, line)
+            self.assertEqual(self.journal()["result_line"], line)
+
+    def test_success_needs_a_clean_scrub_in_this_run(self):
+        j = ap.journal_load(self.F)
+        for residue in (None, ["/x"]):
+            with self.assertRaises(KitError):
+                self.capture(ap.result_line, self.F, j, "sealed", residue)
+        rc, _, _ = self.capture(ap.result_line, self.F, j, "blocked other")
+        self.assertEqual(rc, 3)
+
+    def test_synthetic_non_conforming_line(self):
+        j = ap.journal_load(self.F)
+        for bad in ("sealed, C1 is from repo", "sealed ", "done"):
+            with self.assertRaises(KitError):
+                self.capture(ap.result_line, self.F, j, bad, [])
+        with mock.patch.object(holdout_manifest, "resume_reply_kind",
+                               return_value=None):
+            with self.assertRaises(KitError):
+                self.capture(ap.result_line, self.F, j, "sealed", [])
+
+
+class TestResidue(PipelineCase):
+
+    def plant_residue(self):
+        proj = os.path.join(self.home, ".claude", "projects",
+                            "-Users-x--" + holdout_archive.RESIDUE_MARK
+                            + "-work")
+        os.makedirs(proj)
+        with open(os.path.join(proj, "s.jsonl"), "w") as fh:
+            fh.write("{}\n")
+        return proj
+
+    def assert_blocked_residue(self, out, proj):
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked residue")
+        self.assertEqual(holdout_manifest.resume_reply_kind(lines[-1]),
+                         "blocked")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["residue"])
+        self.assertIn("PROBLEM: residue: %s — delete it by hand" % proj,
+                      lines)
+        self.assertEqual(self.journal()["steps"]["scrub"]["status"],
+                         "blocked")
+
+    def test_residue_blocks_then_clears(self):
+        proj = self.plant_residue()
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        self.assert_blocked_residue(out, proj)
+        j = self.journal()
+        for step in ap.STEPS[:ap.STEPS.index("scrub")]:
+            self.assertEqual(j["steps"][step]["status"], "done", step)
+        self.assertTrue(os.path.exists(self.published()))
+        archive = holdout_archive.archive_path(self.F)
+        sha = holdout_kit.sha256_file(archive)
+        self.assertFalse(os.path.exists(os.path.join(self.F, "sealed")))
+        shutil.rmtree(proj)
+        n = self.mark_calls()
+        with mock.patch.object(holdout_archive, "scrub",
+                               wraps=holdout_archive.scrub) as spy:
+            out = self.run_ok()
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertEqual(self.since(n), [])
+        self.assertEqual(holdout_kit.sha256_file(archive), sha)
+
+    def test_mutant_ignored_residue(self):
+        self.plant_residue()
+        with mock.patch.object(ap, "_scrub_residue", return_value=[]):
+            rc, out, err = self.cli()
+        self.assertEqual(rc, 1)
+        self.assertIn(ap.RESULT_UNPROVEN_MSG, err)
+        self.assertNotEqual(self.last_line(out), "blocked residue")
+
+        def ignore_all(run):
+            run.scrub_result = []
+
+        with mock.patch.object(ap, "_scrub_residue", return_value=[]), \
+                mock.patch.object(ap, "_step_scrub", side_effect=ignore_all):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "sealed")
+
+    def interrupted_scrub(self):
+        proj = self.plant_residue()
+        with mock.patch.object(holdout_archive, "_prune",
+                               side_effect=RuntimeError("synthetic crash")):
+            with self.assertRaises(RuntimeError):
+                self.cli()
+        self.assertFalse(os.path.exists(os.path.join(self.F, "sealed",
+                                                     "cases")))
+        self.assertNotEqual(self.journal()["steps"]["scrub"].get("status"),
+                            "done")
+        stray = os.path.join(self.F, "work", "left.txt")
+        os.makedirs(os.path.dirname(stray), exist_ok=True)
+        with open(stray, "w") as fh:
+            fh.write("missed\n")
+        return proj, stray
+
+    def test_interrupted_deletion_still_checks_everything(self):
+        proj, stray = self.interrupted_scrub()
+        n = self.mark_calls()
+        with mock.patch.object(holdout_archive, "scrub",
+                               wraps=holdout_archive.scrub) as spy:
+            rc, out, _ = self.cli()
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(rc, 3)
+        self.assertFalse(os.path.exists(stray))
+        self.assert_blocked_residue(out, proj)
+        self.assertEqual(self.since(n), [])
+        shutil.rmtree(proj)
+        with mock.patch.object(holdout_archive, "scrub",
+                               wraps=holdout_archive.scrub) as spy:
+            out = self.run_ok()
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(self.last_line(out), "sealed")
+
+    def test_mutant_absent_sealed_shortcut(self):
+        _, stray = self.interrupted_scrub()
+        real = ap._step_scrub
+
+        def shortcut(run):
+            if not os.path.isdir(os.path.join(run.h, "sealed", "cases")) \
+                    and ap._archive_verified(run.h):
+                run.scrub_result = []
+                return None
+            return real(run)
+
+        with mock.patch.object(ap, "_step_scrub", side_effect=shortcut):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertTrue(os.path.exists(stray))
+
+    def test_mutant_preflight_requiring_sealed(self):
+        self.interrupted_scrub()
+        with mock.patch.object(ap, "POST_ENCRYPT_LAYOUT", ap.FULL_LAYOUT):
+            rc, out, _ = self.cli()
+        self.assertEqual(rc, 1)
+        self.assertIn(ap.SETUP_MSG, out)
+
+    def test_rerun_with_residue_still_present(self):
+        proj = self.plant_residue()
+        self.cli()
+        with mock.patch.object(holdout_archive, "scrub",
+                               wraps=holdout_archive.scrub) as spy:
+            rc, out, _ = self.cli()
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(rc, 3)
+        self.assert_blocked_residue(out, proj)
+        shutil.rmtree(proj)
+        self.assertEqual(self.last_line(self.run_ok()), "sealed")
+
+    def test_mutant_trusting_blocked_scrub(self):
+        self.plant_residue()
+        self.cli()
+        real = ap._step_scrub
+
+        def trust(run):
+            if ap._status(run.j, "scrub") == "blocked":
+                run.scrub_result = []
+                return None
+            return real(run)
+
+        with mock.patch.object(ap, "_step_scrub", side_effect=trust):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "sealed")
+
+
+
+class TestEncryptAndSealFallback(PipelineCase):
+
+    def test_encrypt_failure_then_resume(self):
+        os.environ["FAKE_OPENSSL_FAIL"] = "5"
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["encrypt"].replace(
+            "<H>", self.F))
+        self.assertIn("step encrypt: openssl will ask for the passphrase "
+                      "(twice, then once to verify)", lines)
+        self.assertEqual(self.journal()["steps"]["encrypt"]["status"],
+                         "blocked")
+        self.assertFalse(os.path.exists(holdout_archive.archive_path(self.F)))
+        self.assertFalse(os.path.exists(os.path.join(self.F, "LEAKSCAN.json")))
+        self.assertFalse(os.path.exists(self.published()))
+        del os.environ["FAKE_OPENSSL_FAIL"]
+        n = self.mark_calls()
+        out = self.run_ok()
+        self.assertEqual(self.last_line(out), "sealed")
+        self.assertEqual(self.p_calls(self.since(n)), [])
+
+    def test_unclassified_seal_blocker(self):
+        with mock.patch.object(holdout_seal, "seal_blockers",
+                               return_value=["something unclassified"]):
+            rc, out, err = self.cli()
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["seal-other"]
+                         .replace("<H>", self.F))
+        self.assertIn("step seal: refused (see the log inside the holdout "
+                      "folder)", lines)
+        self.assertNotIn("something unclassified", out + err)
+        self.assertEqual(self.journal()["steps"]["seal"]["status"], "blocked")
+        self.assertFalse(os.path.exists(holdout_archive.archive_path(self.F)))
+
+    def test_mutant_unclassified_as_disagreement(self):
+        with mock.patch.object(holdout_seal, "seal_blockers",
+                               return_value=["something unclassified"]), \
+                mock.patch.object(ap, "_classify_blocker",
+                                  return_value=("disagreement", "C1")):
+            _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked disagreement")
+
+
+class TestKitAdditions(unittest.TestCase):
+
+    def test_populate_without_crosscheck(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = setup_folder(os.path.realpath(tmp.name))
+        with mock.patch.dict(os.environ, holdout_fixture.kit_env(),
+                             clear=True):
+            ids = holdout_dryrun.populate(folder, complete_crosscheck=False)
+        self.assertEqual(sorted(ids), list(holdout_kit.SLOTS))
+        for cid in ids.values():
+            self.assertFalse(os.path.exists(os.path.join(
+                folder, "sealed", "keys", cid, "xcheck-ledger.json")))
+        self.assertFalse(os.path.exists(os.path.join(
+            folder, *holdout_seal.WORKSPACES_RELPATH.split("/"))))
+
+    def test_load_retired_is_public(self):
+        self.assertIs(holdout_manifest.load_retired,
+                      holdout_manifest._load_retired)
+
+
 if __name__ == "__main__":
     unittest.main()
