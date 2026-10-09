@@ -202,11 +202,11 @@ STOP_INSTRUCTIONS = {
         "Terminal window run <H>/bin/holdout validate, fix only what it "
         "names (README 7b iv), then run bin/holdout autopilot again."),
     "disagreement": (
-        "Case %s (%s): the independent check disagreed. Follow README 7b: "
-        "either write sealed/keys/%s/resolution.md and run crosscheck-reset "
-        "%s --reason resolved, or run retire --slot %s --reason owner. Then "
-        "run bin/holdout autopilot again (after a retire: bin/holdout "
-        "autopilot --replace-retired)."),
+        "Case %s (%s): the independent check disagreed. Do not retire, "
+        "reset or replace anything yet. In a new Terminal window run "
+        "<H>/bin/holdout diagnose --slot %s and do what its action line "
+        "says (README 7b); when it says to reply, send the tuning session "
+        "only its last line, diagnosis ..."),
     "disagreement-dry": (
         "Case %s (%s): a dummy case failed the agreement rule and no real "
         "judge verdict was recorded for it. Do not retire or replace it. "
@@ -1603,7 +1603,7 @@ def _step_seal(run):
                        % (cid, slot))
         if kind == "disagreement" and cid:
             raise Stop("disagreement", STOP_INSTRUCTIONS["disagreement"]
-                       % (cid, slot, cid, cid, slot))
+                       % (cid, slot, slot))
         if kind == "inputs-changed" and cid:
             n = j["input_resets"].get(cid, 0)
             if n >= MAX_INPUT_RESETS:

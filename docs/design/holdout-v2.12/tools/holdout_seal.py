@@ -1204,6 +1204,223 @@ def do_seal(folder, dry_run=False):
     return seal
 
 
+# ---------------------------------------------------------------- diagnose
+#
+# Why a case failed the agreement rule, in holdout_manifest's closed
+# vocabulary, sorted into a case/key problem or a tuning-side suspect. Read
+# only: it recomputes agreement_problems and never changes what agrees, and
+# it prints no field value (no file, line, category, prose or case ID), so
+# its line may cross to the tuning session.
+
+_JUDGE_FLAG_CHECKS = (("type_agrees", "judge-type-false"),
+                      ("defect_agrees", "judge-defect-false"),
+                      ("causal_failure_agrees", "judge-category-false"),
+                      ("proof_agrees", "judge-proof-false"))
+_KEY_CHECKS = frozenset({"category-key-other", "proof-recorded-bad"})
+_JUDGE_CHECKS = frozenset({
+    "type-judged-quiet", "type-judged-catch", "type-other-slot",
+    "category-differs", "category-judge-other", "quiet-unconfirmed",
+    "judge-type-false", "judge-defect-false", "judge-category-false",
+    "final-malformed", "nonrunnable-rerun-set", "nonrunnable-unresolved"})
+_PROOF_CHECKS = frozenset({"proof-rerun-differs", "proof-rerun-base-failed",
+                           "proof-rerun-changed-passed"})
+
+DIAG_ACTIONS = {
+    "agrees": "this case agrees; nothing to fix for it.",
+    "incomplete": ("this case's cross-check round is not complete; run "
+                   "bin/holdout autopilot again (it finishes the round)."),
+    "key-unsealable": (
+        "the case's own key or recorded proof can never pass the agreement "
+        "rule (a case/key problem). Replace it: bin/holdout retire --slot "
+        "%s --reason owner, then bin/holdout autopilot --replace-retired."),
+    "judge-disagrees": (
+        "the independent judge, after reading the key, still disagrees (a "
+        "case/key problem). Resolve it with evidence (README 7b) or replace "
+        "it. Before a second replacement of the same slot, reply in the "
+        "tuning session with the diagnosis line below."),
+    "checker-suspect": (
+        "the judge accepted the key but the mechanical check did not: the "
+        "agreement check is suspect. Do NOT retire, reset or replace. Reply "
+        "in the tuning session with the diagnosis line below, nothing "
+        "else."),
+    "proof-mismatch": (
+        "the judge's re-run of the proof did not reproduce the recorded "
+        "exits: the proof or the judge's environment. Do NOT retire, reset "
+        "or replace. Reply in the tuning session with the diagnosis line "
+        "below, nothing else."),
+}
+
+
+def _path_form(key_file, blind_file):
+    """True when the two names are the same file written in a different
+    form: one is the other with leading directories (a tree prefix such as
+    changed/, or an absolute path), compared on whole path components."""
+    k, b = _norm_file(key_file), _norm_file(blind_file)
+    if not k or not b or k == b:
+        return False
+    kp, bp = k.split("/"), b.split("/")
+    short, long_ = (kp, bp) if len(kp) < len(bp) else (bp, kp)
+    return len(short) < len(long_) and long_[-len(short):] == short
+
+
+def diagnose_parts(slot, key, blind, final, runnable=True,
+                   resolution_bound=False, recorded_exits=None):
+    """(cause, checks) for one case's round: ("agrees", []) exactly when
+    agreement_problems is []. Same inputs as agreement_problems."""
+    parts = agreement_problems(slot, key, blind, final, runnable=runnable,
+                               resolution_bound=resolution_bound,
+                               recorded_exits=recorded_exits)
+    if not parts:
+        return "agrees", []
+    checks = []
+
+    def add(check):
+        if check not in checks:
+            checks.append(check)
+
+    final_ok = isinstance(final, dict)
+    key = key if isinstance(key, dict) else {}
+    blind = blind if isinstance(blind, dict) else {}
+    final = final if final_ok else {}
+    catch = slot in holdout_kit.CATCH_SLOTS
+
+    if "type" in parts:
+        verdict = blind.get("verdict")
+        if catch and verdict != "catch":
+            add("type-judged-quiet")
+        elif not catch and verdict != "quiet":
+            add("type-judged-catch")
+        else:
+            add("type-other-slot")
+        add("judge-type-false" if final.get("type_agrees") is not True
+            else "judge-flag-contradicts")
+    if "defect location" in parts:
+        kl, bl = key.get("location"), blind.get("location")
+        both = _location_ok(kl) and _location_ok(bl)
+        if both and _path_form(kl["file"], bl["file"]):
+            add("location-path-form")
+        elif not both or _norm_file(kl["file"]) != _norm_file(bl["file"]):
+            add("location-file-differs")
+        else:
+            add("location-lines-apart")
+        if final.get("defect_agrees") is not True:
+            add("judge-defect-false")
+    if "causal-failure category" in parts or "category other" in parts:
+        key_cat = key.get("causal_failure_category")
+        blind_cat = blind.get("defect_category")
+        key_bad = key_cat not in holdout_validate.CAUSAL_CATEGORIES \
+            or key_cat == holdout_validate.OTHER_CATEGORY
+        if key_bad:
+            add("category-key-other")
+        if blind_cat == holdout_validate.OTHER_CATEGORY:
+            add("category-judge-other")
+        if not key_bad and blind_cat != holdout_validate.OTHER_CATEGORY:
+            add("category-differs")
+        add("judge-category-false"
+            if final.get("causal_failure_agrees") is not True
+            else "judge-flag-contradicts")
+    if "quiet confirmation" in parts:
+        add("quiet-unconfirmed")
+    if "final flags" in parts:
+        if not final_ok:
+            add("final-malformed")
+        flags = _JUDGE_FLAG_CHECKS if catch else (_JUDGE_FLAG_CHECKS[0],
+                                                  _JUDGE_FLAG_CHECKS[3])
+        for flag, check in flags:
+            if final.get(flag) is not True:
+                add(check)
+        if runnable and _exit_pair(final.get("proof_rerun_exit")) is None:
+            add("final-malformed")
+    if "proof exits" in parts:
+        recorded = _exit_pair(recorded_exits)
+        independent = _exit_pair(final.get("proof_rerun_exit"))
+        if recorded is None or not _slot_pattern_ok(slot, recorded):
+            add("proof-recorded-bad")
+        if independent is not None and recorded is not None \
+                and independent != recorded:
+            add("proof-rerun-differs")
+        if independent is not None \
+                and not _slot_pattern_ok(slot, independent):
+            if independent["base"] != 0:
+                add("proof-rerun-base-failed")
+            elif catch:
+                add("proof-rerun-changed-passed")
+    if "non-runnable proof" in parts:
+        if final.get("proof_rerun_exit") is not None:
+            add("nonrunnable-rerun-set")
+        if resolution_bound is not True:
+            add("nonrunnable-unresolved")
+
+    found = set(checks)
+    defect_accepted = final.get("defect_agrees") is True
+    if found & _KEY_CHECKS:
+        cause = "key-unsealable"
+    elif found & _JUDGE_CHECKS:
+        cause = "judge-disagrees"
+    elif "location-path-form" in found or (
+            defect_accepted and found & {"location-lines-apart",
+                                         "location-file-differs"}):
+        cause = "checker-suspect"
+    elif found & _PROOF_CHECKS:
+        cause = "proof-mismatch"
+    else:
+        cause = "judge-disagrees"
+    return cause, checks
+
+
+def _diagnose_view(view):
+    module = sys.modules[__name__]
+    for name in CASE_BLOCKERS:
+        if name == "_blocker_agreement":
+            continue
+        try:
+            line = getattr(module, name)(view)
+        except KitError:
+            line = "error"
+        if line:
+            return "incomplete", ["round-incomplete"]
+    k = _keys(view.folder, view.cid)
+    proof_results = _load_dict_or_none(os.path.join(k, "proof-results.json"))
+    res = os.path.join(k, "resolution.md")
+    bound = view.ledger.get("resolution_sha256")
+    return diagnose_parts(
+        view.slot, _load_dict_or_none(os.path.join(k, "key.json")),
+        view.load_packet_json("blind.json"),
+        view.load_packet_json("final.json"),
+        runnable=_runnable(view),
+        resolution_bound=bool(
+            os.path.isfile(res) and not os.path.islink(res)
+            and isinstance(bound, str)
+            and bound == holdout_kit.sha256_file(res)),
+        recorded_exits=_recorded_exits(proof_results))
+
+
+def diagnose(folder, slot=None):
+    """[(slot, cause, checks)] in slot order: every case that does not agree,
+    or exactly the named slot whatever its cause. Reads only; real and dry
+    runs alike (the synthetic-agreement record is never consulted)."""
+    try:
+        registry = _load_registry(folder)
+    except KitError:
+        registry = None
+    order = list(holdout_kit.SLOTS)
+    out = []
+    for cid in holdout_kit.case_ids(folder):
+        view = _CaseView(folder, cid, registry)
+        if slot is not None and view.slot != slot:
+            continue
+        cause, checks = _diagnose_view(view)
+        if slot is not None or cause != "agrees":
+            out.append((view.slot, cause, checks))
+    return sorted(out, key=lambda o: order.index(o[0])
+                  if o[0] in order else len(order))
+
+
+def diagnosis_line(slot, cause, checks):
+    return "diagnosis %s cause=%s checks=%s" % (
+        slot, cause, ",".join(checks) if checks else "none")
+
+
 # ---------------------------------------------------------------- dry run
 
 
@@ -1288,6 +1505,12 @@ def add_parser(sub, name):
                                       "and remove its packet")
         p.add_argument("case", metavar="ID")
         p.add_argument("--reason", required=True, choices=RESET_REASONS)
+    elif name == "diagnose":
+        p = sub.add_parser(name, help="say, in fixed words only, why a case "
+                                      "failed the agreement rule (reads "
+                                      "only)")
+        p.add_argument("--slot", choices=holdout_kit.SLOTS,
+                       help="diagnose only this slot")
     elif name == "seal":
         p = sub.add_parser(name, help="check every blocker, then write "
                                       "SEAL.json")
@@ -1354,7 +1577,23 @@ def _cmd_seal(args):
     return 0
 
 
+def _cmd_diagnose(args):
+    got = diagnose(args.folder, slot=args.slot)
+    if not got:
+        print("action: %s" % DIAG_ACTIONS["agrees"])
+        print(diagnosis_line("all", "agrees", []))
+        return 0
+    for slot, cause, _ in got:
+        action = DIAG_ACTIONS[cause]
+        print("action %s: %s" % (slot, action % slot if "%s" in action
+                                 else action))
+    for slot, cause, checks in got:
+        print(diagnosis_line(slot, cause, checks))
+    return 0
+
+
 _HANDLERS = {
+    "diagnose": _cmd_diagnose,
     "crosscheck-prepare": _cmd_prepare,
     "crosscheck-reveal": _cmd_reveal,
     "crosscheck-reset": _cmd_reset,

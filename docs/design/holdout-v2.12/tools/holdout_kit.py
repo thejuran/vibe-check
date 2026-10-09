@@ -1668,6 +1668,7 @@ COMMANDS = {
     "crosscheck-reveal": "holdout_seal",
     "crosscheck-reset": "holdout_seal",
     "seal": "holdout_seal",
+    "diagnose": "holdout_seal",
     "encrypt": "holdout_archive",
     "decrypt": "holdout_archive",
     "leakscan": "holdout_archive",

@@ -2152,6 +2152,279 @@ class TestCliSealNonRunnable(CompletedCase):
 # ================================================================ module shape
 
 
+# ================================================================ diagnose
+
+
+def dg(slot, key_edit=None, blind_edit=None, final_edit=None, **kw):
+    key, blind, final, rec = agreeing_args(slot)
+    for obj, edit in ((key, key_edit), (blind, blind_edit),
+                      (final, final_edit)):
+        if edit is not None:
+            edit(obj)
+    kw.setdefault("recorded_exits", rec)
+    return holdout_seal.diagnose_parts(slot, key, blind, final, **kw)
+
+
+def _flags(**flags):
+    return lambda f: f.update(flags)
+
+
+class TestDiagnoseParts(unittest.TestCase):
+    """The diagnosis names WHY the agreement rule failed, in a closed
+    vocabulary, and sorts it into a case/key problem or a checker suspect.
+    It never changes what agrees."""
+
+    def test_agreeing_every_slot(self):
+        for slot in holdout_kit.SLOTS:
+            self.assertEqual(dg(slot), ("agrees", []), slot)
+
+    def test_c3_judged_other_catch_slot(self):
+        self.assertEqual(
+            dg("C3", blind_edit=lambda b: b.update(type_guess="C1"),
+               final_edit=_flags(type_agrees=False)),
+            ("judge-disagrees", ["type-other-slot", "judge-type-false"]))
+
+    def test_c3_judged_quiet(self):
+        cause, checks = dg("C3", blind_edit=lambda b: b.update(
+            verdict="quiet", type_guess="Q1", location=None,
+            defect_category=None), final_edit=_flags(type_agrees=False,
+                                                     defect_agrees=False))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("type-judged-quiet", checks)
+
+    def test_quiet_judged_catch(self):
+        cause, checks = dg("Q2", blind_edit=lambda b: b.update(
+            verdict="catch", type_guess="C1",
+            location={"file": "a", "line_start": 1, "line_end": 2},
+            defect_category="logic-error"))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("type-judged-catch", checks)
+
+    def test_type_flag_contradicting_the_blind_is_still_the_judge(self):
+        cause, checks = dg("C3", blind_edit=lambda b: b.update(
+            type_guess="C2"))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("judge-flag-contradicts", checks)
+
+    def test_key_other_is_unsealable(self):
+        cause, checks = dg("C3", key_edit=lambda k: k.update(
+            causal_failure_category="other"), blind_edit=lambda b: b.update(
+            defect_category="other"))
+        self.assertEqual(cause, "key-unsealable")
+        self.assertIn("category-key-other", checks)
+
+    def test_judge_other(self):
+        cause, checks = dg("C3", blind_edit=lambda b: b.update(
+            defect_category="other"), final_edit=_flags(
+            causal_failure_agrees=False))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("category-judge-other", checks)
+
+    def test_recorded_pattern_wrong_is_unsealable(self):
+        cause, checks = dg("C3", recorded_exits={"base": 1, "changed": 1},
+                           final_edit=lambda f: f.update(
+                               proof_rerun_exit={"base": 1, "changed": 1}))
+        self.assertEqual(cause, "key-unsealable")
+        self.assertIn("proof-recorded-bad", checks)
+
+    def test_recorded_missing_is_unsealable(self):
+        cause, checks = dg("C3", recorded_exits=None)
+        self.assertEqual(cause, "key-unsealable")
+        self.assertIn("proof-recorded-bad", checks)
+
+    def test_category_differs_judge_says_no(self):
+        self.assertEqual(
+            dg("C3", blind_edit=lambda b: b.update(
+                defect_category="logic-error"),
+               final_edit=_flags(causal_failure_agrees=False)),
+            ("judge-disagrees", ["category-differs", "judge-category-false"]))
+
+    def test_category_differs_judge_says_yes(self):
+        cause, checks = dg("C3", blind_edit=lambda b: b.update(
+            defect_category="logic-error"))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertEqual(checks, ["category-differs",
+                                  "judge-flag-contradicts"])
+
+    def test_location_path_form_is_checker_suspect(self):
+        for form in ("changed/src/a.py", "/x/xcheck/X-1/changed/src/a.py",
+                     "base/src/a.py"):
+            cause, checks = dg("C3", blind_edit=_loc(10, 20, form))
+            self.assertEqual(cause, "checker-suspect", form)
+            self.assertIn("location-path-form", checks, form)
+
+    def test_judge_disagreement_outranks_checker_suspect(self):
+        # Fixing the checker would not seal a case the judge rejects.
+        cause, checks = dg("C3", blind_edit=lambda b: b.update(
+            type_guess="C1", location={"file": "changed/src/a.py",
+                                       "line_start": 10, "line_end": 20}),
+            final_edit=_flags(type_agrees=False))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("location-path-form", checks)
+
+    def test_location_suffix_of_a_different_name_is_not_path_form(self):
+        cause, checks = dg("C3", blind_edit=_loc(10, 20, "src/xa.py"),
+                           final_edit=_flags(defect_agrees=False))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("location-file-differs", checks)
+
+    def test_location_apart_judge_says_same_defect(self):
+        cause, checks = dg("C3", blind_edit=_loc(200, 210))
+        self.assertEqual(cause, "checker-suspect")
+        self.assertIn("location-lines-apart", checks)
+
+    def test_location_apart_judge_says_different_defect(self):
+        cause, checks = dg("C3", blind_edit=_loc(200, 210),
+                           final_edit=_flags(defect_agrees=False))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertEqual(checks, ["location-lines-apart",
+                                  "judge-defect-false"])
+
+    def test_rerun_base_failed(self):
+        cause, checks = dg("C3", final_edit=lambda f: f.update(
+            proof_agrees=False, proof_rerun_exit={"base": 1, "changed": 1}))
+        self.assertEqual(cause, "proof-mismatch")
+        self.assertIn("proof-rerun-base-failed", checks)
+        self.assertIn("proof-rerun-differs", checks)
+
+    def test_rerun_changed_passed(self):
+        cause, checks = dg("C3", final_edit=lambda f: f.update(
+            proof_agrees=False, proof_rerun_exit={"base": 0, "changed": 0}))
+        self.assertEqual(cause, "proof-mismatch")
+        self.assertIn("proof-rerun-changed-passed", checks)
+
+    def test_rerun_missing(self):
+        cause, checks = dg("C3", final_edit=lambda f: f.update(
+            proof_rerun_exit=None))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("final-malformed", checks)
+
+    def test_quiet_unconfirmed(self):
+        cause, checks = dg("Q1", final_edit=lambda f: f.update(
+            quiet_confirmed={"supported_behavior": True,
+                             "exposure_check": False}))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("quiet-unconfirmed", checks)
+
+    def test_non_runnable_unresolved(self):
+        cause, checks = dg("C3", runnable=False, final_edit=lambda f: f.update(
+            proof_rerun_exit=None))
+        self.assertEqual(cause, "judge-disagrees")
+        self.assertIn("nonrunnable-unresolved", checks)
+
+    def test_judge_proof_flag_false_alone(self):
+        self.assertEqual(dg("C3", final_edit=_flags(proof_agrees=False)),
+                         ("judge-disagrees", ["judge-proof-false"]))
+
+    def test_vocabulary_closed_and_consistent_with_rule(self):
+        edits = [
+            dict(blind_edit=lambda b: b.update(type_guess="C1")),
+            dict(blind_edit=_loc(200, 210)),
+            dict(blind_edit=_loc(10, 20, "changed/src/a.py")),
+            dict(blind_edit=lambda b: b.update(defect_category="other")),
+            dict(key_edit=lambda k: k.update(causal_failure_category="other")),
+            dict(final_edit=_flags(defect_agrees=False)),
+            dict(final_edit=lambda f: f.update(
+                proof_rerun_exit={"base": 0, "changed": 0})),
+            dict(recorded_exits={"base": 0, "changed": 0}),
+            dict(final_edit=lambda f: f.clear()),
+            dict(blind_edit=lambda b: b.clear()),
+            dict(key_edit=lambda k: k.clear()),
+            dict(),
+        ]
+        for slot in holdout_kit.SLOTS:
+            for kw in edits:
+                cause, checks = dg(slot, **kw)
+                rule = ap(slot, **kw)
+                self.assertIn(cause, holdout_manifest.DIAG_CAUSES)
+                for c in checks:
+                    self.assertIn(c, holdout_manifest.DIAG_CHECKS)
+                self.assertEqual(cause == "agrees", rule == [], (slot, kw))
+                if rule:
+                    self.assertTrue(checks, (slot, kw))
+
+    def test_mutant_rule_drives_agrees(self):
+        with mock.patch.object(holdout_seal, "agreement_problems",
+                               return_value=[]):
+            self.assertEqual(dg("C3", blind_edit=lambda b: b.update(
+                type_guess="C1"))[0], "agrees")
+
+
+class TestDiagnoseFolder(CompletedCase):
+
+    COMPLETE = False
+
+    def snapshot(self):
+        return file_hashes(self.folder)
+
+    def test_all_agree(self):
+        self.complete()
+        self.assertEqual(holdout_seal.diagnose(self.folder), [])
+        self.assertEqual(holdout_seal.diagnose(self.folder, slot="C3"),
+                         [("C3", "agrees", [])])
+
+    def test_c3_disagreement_line_is_opaque(self):
+        def c1(s, d):
+            if s == "C3":
+                d["type_guess"] = "C1"
+        self.complete(mutate_blind=c1)
+        self.refreeze_blind("C3")
+        got = holdout_seal.diagnose(self.folder)
+        self.assertEqual(len(got), 1)
+        slot, cause, checks = got[0]
+        line = holdout_seal.diagnosis_line(slot, cause, checks)
+        self.assertEqual(holdout_manifest.resume_reply_kind(line),
+                         "diagnosis")
+        key = key_of(self.folder, self.cid("C3"))
+        for secret in (key["defect"], key["location"]["file"],
+                       key["causal_failure"], self.cid("C3")):
+            self.assertNotIn(secret, line)
+
+    def test_incomplete_round(self):
+        self.prepare()
+        self.assertEqual(holdout_seal.diagnose(self.folder, slot="C3"),
+                         [("C3", "incomplete", ["round-incomplete"])])
+
+    def test_read_only(self):
+        self.complete(mutate_blind=lambda s, d: d.update(type_guess="C1")
+                      if s == "C3" else None)
+        before = self.snapshot()
+        holdout_seal.diagnose(self.folder)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_cli(self):
+        self.complete(mutate_blind=lambda s, d: d.update(type_guess="C1")
+                      if s == "C3" else None)
+        before = self.snapshot()
+        proc = self.cli("diagnose", "--slot", "C3")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        last = proc.stdout.strip().splitlines()[-1]
+        self.assertTrue(last.startswith("diagnosis C3 cause=judge-disagrees "
+                                        "checks=type-other-slot"), last)
+        self.assertEqual(holdout_manifest.resume_reply_kind(last),
+                         "diagnosis")
+        self.assertIn("action C3:", proc.stdout)
+        key = key_of(self.folder, self.cid("C3"))
+        self.assertNotIn(key["defect"], proc.stdout + proc.stderr)
+        self.assertNotIn(self.cid("C3"), proc.stdout + proc.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_cli_all_agree(self):
+        self.complete()
+        proc = self.cli("diagnose")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.strip().splitlines()[-1],
+                         "diagnosis all cause=agrees checks=none")
+
+    def test_cli_refuses_inside_claude(self):
+        self.complete()
+        env = holdout_fixture.kit_env()
+        env["CLAUDECODE"] = "1"
+        proc = self.cli("diagnose", env=env)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotIn("diagnosis", proc.stdout)
+
+
 def _imports(tree):
     names = set()
     for node in ast.walk(tree):
@@ -2182,7 +2455,7 @@ class TestModuleShape(unittest.TestCase):
 
     def test_commands_registered(self):
         for name in ("crosscheck-prepare", "crosscheck-reveal",
-                     "crosscheck-reset", "seal"):
+                     "crosscheck-reset", "seal", "diagnose"):
             self.assertEqual(holdout_kit.COMMANDS[name], "holdout_seal")
 
     def test_exports(self):

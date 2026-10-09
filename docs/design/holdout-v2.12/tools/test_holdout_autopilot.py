@@ -1433,8 +1433,11 @@ class TestDisagreement(PipelineCase):
         cid = slot_ids(self.F)["C3"]
         lines = out.strip().splitlines()
         self.assertEqual(lines[-1], "blocked disagreement")
-        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["disagreement"]
-                         % (cid, "C3", cid, cid, "C3"))
+        self.assertEqual(lines[-2], ap._render(
+            ap.STOP_INSTRUCTIONS["disagreement"] % (cid, "C3", "C3"),
+            os.path.realpath(self.F)))
+        self.assertIn("bin/holdout diagnose --slot C3", lines[-2])
+        self.assertNotIn("retire --slot", lines[-2])
         led = load(os.path.join(self.F, "sealed", "keys", cid,
                                 "xcheck-ledger.json"))
         self.assertEqual(led["rounds"], [])

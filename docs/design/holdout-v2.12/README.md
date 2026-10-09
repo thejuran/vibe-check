@@ -259,7 +259,25 @@ C1 newly reachable exposure), defect location, causal-failure category (or eithe
 `other`), quiet confirmation, its own final flags, or `proof exits` (its re-run of the proof
 gave exits that differ from the recorded ones or do not fit the slot pattern, for example a
 catch proof that passes on both trees: the proof or the key is wrong, and `proof_agrees: true`
-does not cover it). Two ways forward:
+does not cover it).
+
+**Diagnose first.** Before retiring or resetting anything, run `bin/holdout diagnose --slot <S>`
+(the holdout folder's `bin/`) in a new Terminal window. It reads only, prints an `action <S>:`
+line for you and, last, one line in fixed words: `diagnosis <S> cause=<cause> checks=<checks>`.
+It never prints a file, line, category, prose or case ID, so that line (and only that line) may
+be sent to the tuning session. The cause sorts the failure:
+
+| cause | meaning | way forward |
+|---|---|---|
+| `key-unsealable` | the key says `other`, or the recorded proof exits are missing or do not fit the slot | case/key problem: retire and replace |
+| `judge-disagrees` | the judge, having read the key, still disagrees | case/key problem: resolve with evidence or replace; before a second replacement of the same slot, send the diagnosis line |
+| `checker-suspect` | the judge accepted the key's defect but the mechanical location check did not | do not retire, reset or replace; send the diagnosis line |
+| `proof-mismatch` | the judge's proof re-run did not reproduce the recorded exits | do not retire, reset or replace; send the diagnosis line |
+| `incomplete` | the round is not finished | run the autopilot again |
+
+The agreement rule itself never changes because of a diagnosis: a suspect is fixed in the
+tuning repo, then `refresh-kit` and the autopilot re-check the same, untouched verdicts.
+Otherwise, two ways forward:
 
 - **Resolve with evidence.** Write `sealed/keys/<ID>/resolution.md` (what the evidence is; no
   new verdict), then `~/.vibe-check-holdout/v2.12/bin/holdout crosscheck-reset <ID> --reason resolved`,
@@ -508,7 +526,7 @@ verify (the autopilot prints a line just before).
 
 | Last line | What happened | What to do |
 |-----------|---------------|------------|
-| `blocked disagreement` | real run only (a dry run records the judge's outcome instead): the independent check disagreed on a case (named by ID and slot) | README 7b (i): resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
+| `blocked disagreement` | real run only (a dry run records the judge's outcome instead): the independent check disagreed on a case (named by ID and slot) | README 7b (i): run `bin/holdout diagnose --slot <S>` first and follow its action; then, when it is a case/key problem, resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
 | `blocked validation` | `validate` still failed after three fix rounds with the finder | README 7b (iv), then `bin/holdout autopilot` again |
 | `blocked sandbox` | the sandbox probe or the finder check failed (for the finder check, the line above it says whether the kit read, the `sealed/` write, or both failed) | README 6 step 2/3, then `bin/holdout autopilot` again |
 | `blocked leakscan` | the leak scan named slots | README 7d steps 1-2 (cleanup only), then `bin/holdout autopilot --replace-retired`. In a dry run: close the named session, delete the named copy, then `bin/holdout autopilot --dry-run` (7d, dry run only): a clean fresh scan finishes without replacement |

@@ -1089,6 +1089,31 @@ def publish(folder, repo):
 # the cross-check sandbox probe reported OK) may proceed; every other
 # "dry run ok ..." reply (no-prompt, problems=..., or no explicit
 # sandbox-probe OK) is dry-run-failed.
+# The closed vocabulary of `diagnose` (holdout_seal.diagnose_parts): a cause
+# that sorts a failed agreement into a case/key problem (key-unsealable,
+# judge-disagrees) or a tuning-side suspect (checker-suspect,
+# proof-mismatch), and the checks behind it. Fixed words only, so the line
+# can cross to the tuning session without carrying case content.
+DIAG_CAUSES = ("agrees", "incomplete", "key-unsealable", "judge-disagrees",
+               "checker-suspect", "proof-mismatch")
+DIAG_CHECKS = ("none", "round-incomplete", "type-judged-quiet",
+               "type-judged-catch", "type-other-slot", "location-file-differs",
+               "location-path-form", "location-lines-apart",
+               "category-key-other", "category-judge-other",
+               "category-differs", "quiet-unconfirmed", "judge-type-false",
+               "judge-defect-false", "judge-category-false",
+               "judge-proof-false", "judge-flag-contradicts",
+               "final-malformed", "proof-recorded-bad", "proof-rerun-differs",
+               "proof-rerun-base-failed", "proof-rerun-changed-passed",
+               "nonrunnable-rerun-set", "nonrunnable-unresolved")
+
+
+def _alt(words):
+    return "(?:%s)" % "|".join(re.escape(w) for w in words)
+
+
+_DIAG_CHECK_RE = _alt(w for w in DIAG_CHECKS if w != "none")
+
 RESUME_GRAMMAR = (
     ("dry-run-ok", re.compile(r"dry run ok prompted sandbox=ok")),
     ("dry-run-failed", re.compile(
@@ -1102,8 +1127,12 @@ RESUME_GRAMMAR = (
     ("blocked", re.compile(
         r"blocked (?:disagreement|validation|leakscan|residue|no-prompt"
         r"|sandbox|other)")),
+    ("diagnosis", re.compile(
+        r"diagnosis (?:C[1-3]|Q[1-3]|all) cause=" + _alt(DIAG_CAUSES)
+        + r" checks=(?:none|" + _DIAG_CHECK_RE + r"(?:," + _DIAG_CHECK_RE
+        + r")*)")),
 )
-RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked"})
+RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked", "diagnosis"})
 RESUME_PROBLEM_MSG = ("resume reply does not conform to the opaque grammar; "
                       "treat it as a contamination incident and do not "
                       "record its contents")

@@ -1791,6 +1791,11 @@ CONFORMING = [
     ("  sealed  ", "sealed"),
     ("sealed\n", "sealed"),
     ("dry run ok prompted sandbox=ok\n", "dry-run-ok"),
+    ("diagnosis C3 cause=judge-disagrees checks=type-other-slot,"
+     "judge-type-false", "diagnosis"),
+    ("diagnosis Q1 cause=agrees checks=none", "diagnosis"),
+    ("diagnosis C2 cause=checker-suspect checks=location-path-form",
+     "diagnosis"),
 ]
 
 NON_CONFORMING = [
@@ -1800,6 +1805,11 @@ NON_CONFORMING = [
     "sealed non-runnable=7", "dry run ok prompted sandbox=OK",
     "dry run ok sandbox=ok prompted", "dry run ok prompted sandbox=ok\nfine",
     "dry run ok prompted sandbox=failed", "dry run ok prompted  sandbox=ok",
+    "diagnosis C3 cause=judge-disagrees checks=sql-injection-in-login",
+    "diagnosis C3 cause=judge-disagrees checks=none,type-other-slot",
+    "diagnosis C3 cause=bad-key checks=none", "diagnosis C4 cause=agrees "
+    "checks=none", "diagnosis C3 cause=agrees", "diagnosis C3 cause=agrees "
+    "checks=none the handler in auth.py",
 ]
 
 # The dry-run checkpoint (51-09 Task 1): only the clean success form may
@@ -1855,13 +1865,33 @@ class TestResumeGrammar(unittest.TestCase):
     def test_kinds_partition(self):
         kinds = {k for k, _ in holdout_manifest.RESUME_GRAMMAR}
         self.assertEqual(kinds, {"dry-run-ok", "dry-run-failed", "sealed",
-                                 "replaced", "clean", "blocked"})
+                                 "replaced", "clean", "blocked",
+                                 "diagnosis"})
         self.assertEqual(holdout_manifest.RESUME_BLOCKING_KINDS,
-                         frozenset({"dry-run-failed", "blocked"}))
+                         frozenset({"dry-run-failed", "blocked",
+                                    "diagnosis"}))
         self.assertTrue(holdout_manifest.RESUME_BLOCKING_KINDS <= kinds)
         order = [k for k, _ in holdout_manifest.RESUME_GRAMMAR]
         self.assertLess(order.index("dry-run-ok"),
                         order.index("dry-run-failed"))
+
+
+class TestDiagnosisGrammar(unittest.TestCase):
+
+    def test_every_vocabulary_word_conforms(self):
+        for cause in holdout_manifest.DIAG_CAUSES:
+            for check in holdout_manifest.DIAG_CHECKS:
+                line = "diagnosis C3 cause=%s checks=%s" % (cause, check)
+                self.assertEqual(holdout_manifest.resume_reply_kind(line),
+                                 "diagnosis", line)
+
+    def test_diagnosis_reply_blocks(self):
+        self.assertEqual(holdout_manifest.resume_reply_outcome(
+            "diagnosis C3 cause=agrees checks=none"), "blocking")
+
+    def test_vocabulary_is_closed(self):
+        for word in holdout_manifest.DIAG_CAUSES + holdout_manifest.DIAG_CHECKS:
+            self.assertRegex(word, r"^[a-z]+(?:-[a-z]+)*$")
 
 
 class TestDryRunTransitions(unittest.TestCase):
