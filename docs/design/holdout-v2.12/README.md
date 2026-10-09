@@ -472,6 +472,41 @@ it stops and names `bin/holdout autopilot --restart-finder`, the only way to sta
 finder session; that keeps every finished case and tells the new session to finish only the
 missing slots in the brief's fixed order.
 
+**Dry-run recovery (a retired dummy case).** In a dry run every command a stop message names
+carries `--dry-run` (for example `bin/holdout autopilot --dry-run --replace-retired`), and the
+same flags work. When a dummy case was retired (you followed a `blocked disagreement` stop with
+`retire --slot <S> --reason owner`, or the leak scan named it), a plain `--dry-run` re-run
+stops with one line naming `--dry-run --replace-retired` instead of trying the same case
+again. With that flag the autopilot records which cases it will delete before deleting any,
+removes each retired case (and `SEAL.json` and the archive, if they exist), writes different
+dummy material for that slot under a new ID (new commits in the dry-run repo, a new module
+variant and a fresh random tag, so the revisions, the diff, the changed lines and the key all
+differ from what was retired; it refuses and starts again if any of them still matched), and
+judges the new case blind in a fresh cross-check generation (`bin/crosscheck-r3` after the
+dry run's `-r2`). Every other case, the journal, earlier generations and every login are left
+as they are. A fresh generation has its own config folder, so the first time it stops with
+the usual login line for it: `/login` there, then run
+`~/.vibe-check-holdout/dryrun/bin/holdout autopilot --dry-run` again. A finished dry-run
+replacement ends with `dry run ok prompted sandbox=ok` like any dry run (openssl prompts
+again, because the seal and the archive are rebuilt). An interrupted replacement is finished
+by a plain `--dry-run` re-run.
+
+**Bringing an existing folder's kit up to date (`refresh-kit`).** `bin/holdout` runs the kit
+copy inside the folder (`kit/tools/`), so a fix in the repo does not reach a folder that was
+set up before it. In a plain Terminal window run, from the repo's tools (never the folder's
+copy, which refuses):
+`python3 ~/turingmind-code-review/docs/design/holdout-v2.12/tools/holdout_kit.py --folder <the holdout folder> refresh-kit`
+It re-copies the kit docs, templates and tools whose bytes differ, rewrites
+`kit/KIT-INVENTORY.json` (scrub's keep list) when it changed, rewrites `bin/holdout`,
+`bin/finder` and each existing `bin/crosscheck*` only when setup's text for it changed, and the
+finder settings only where setup's output changed (in `cfg-finder/` it touches only the
+`settings.json` grant, never the login). It then re-runs the finder and cross-check settings
+self-checks (cross-check workspaces are checked, never written) and confirms that nothing else
+changed: `sealed/`, `work/`, every login, `archive/`, `AUTOPILOT.json`, `LEAKSCAN.json`,
+`RETIRED.json` and the dry-run repos keep their exact files. It prints `OK:` lines only when
+all of that holds; running it twice changes nothing the second time. Close every session of
+that folder first.
+
 ---
 
 ## 8. After the real run (tuning side)

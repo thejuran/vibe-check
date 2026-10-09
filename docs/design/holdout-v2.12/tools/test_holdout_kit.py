@@ -1670,6 +1670,220 @@ class TestKitInventory(SetupCase):
                             inv["files"]["tools/holdout_kit.py"])
 
 
+class TestRefreshKit(SetupCase):
+    """51-09: `refresh-kit` brings an existing (populated, mid-run) holdout
+    folder's kit up to the repo's current one without touching its state,
+    its logins or its sealed content. Run only from the repo's tools; every
+    Claude-spawned shell is refused."""
+
+    STATE = ("AUTOPILOT.json", "LEAKSCAN.json", "RETIRED.json", "SEAL.json",
+             "archive/holdout.tar.enc", "cfg-finder/fake-login",
+             "cfg-finder/.claude.json", "cfg-xcheck/fake-login",
+             "cfg-xcheck-r2/fake-login", "tmp/owner/autopilot/run.log",
+             "work/notes.txt")
+
+    def setUp(self):
+        super().setUp()
+        import holdout_dryrun
+        self.ids = holdout_dryrun.populate(self.F)
+        holdout_kit.make_xcheck_workspace(
+            self.F, 2, prior=[holdout_kit.xcheck_names(1)])
+        for rel in self.STATE:
+            path = os.path.join(self.F, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("state %s\n" % rel)
+
+    def refresh(self):
+        return self.run_inproc(["--folder", self.F, "refresh-kit"])
+
+    def snapshot(self, writable=False):
+        """{relpath: (sha256, inode, mtime_ns)} of every file under the
+        folder; outside refresh-kit's write set unless `writable`."""
+        out = {}
+        for rel in holdout_kit.walk_regular(self.F):
+            if not writable and holdout_kit._refresh_writable(rel):
+                continue
+            path = os.path.join(self.F, *rel.split("/"))
+            st = os.lstat(path)
+            out[rel] = (holdout_kit.sha256_file(path), st.st_ino,
+                        st.st_mtime_ns)
+        return out
+
+    def make_stale(self):
+        kit = os.path.join(self.F, "kit")
+        with open(os.path.join(kit, "tools", "holdout_autopilot.py"),
+                  "w") as fh:
+            fh.write("# an older autopilot\n")
+        os.remove(os.path.join(kit, "CASE-TYPES.md"))
+        with open(os.path.join(kit, "holdout_guard.py"), "a") as fh:
+            fh.write("# older guard\n")
+        with open(os.path.join(self.F, "bin", "holdout"), "w") as fh:
+            fh.write("#!/bin/bash\necho an older launcher\n")
+
+    def assert_kit_current(self):
+        for src, dst in holdout_kit._kit_sources(self.F):
+            self.assertEqual(_read(dst), _read(src), dst)
+        inv = _load(os.path.join(self.F, "kit", "KIT-INVENTORY.json"))
+        self.assertEqual(inv, holdout_kit.kit_inventory(self.F))
+        import holdout_archive
+        allow = holdout_archive.survivor_allowlist(self.F)
+        for rel, sha in inv["files"].items():
+            self.assertEqual(allow["kit/" + rel], sha)
+            self.assertEqual(holdout_kit.sha256_file(
+                os.path.join(self.F, "kit", *rel.split("/"))), sha, rel)
+
+    def assert_settings_pass(self):
+        self.assertEqual(self.fsp(), [])
+        for gen in (1, 2):
+            names = holdout_kit.xcheck_names(gen)
+            prior = [holdout_kit.xcheck_names(k) for k in range(1, gen)]
+            self.assertEqual(holdout_kit.xcheck_settings_problems(
+                self.xcheck_settings(names["workspace"]), self.F, prior), [])
+
+    def test_refresh_updates_kit_and_keeps_state(self):
+        self.make_stale()
+        before = self.snapshot()
+        self.assertIn("sealed/keys/%s/key.json" % self.ids["C1"], before)
+        self.assertIn("sealed/cases/%s/change.diff" % self.ids["Q3"], before)
+        self.assertIn("cfg-finder/fake-login", before)
+        self.assertIn("kit/eligible-repos.json", before)
+        self.assertIn("xcheck-r2/sandbox-probe.py", before)
+        rc, out, err = self.refresh()
+        self.assertEqual(rc, 0, out + err)
+        lines = out.strip().splitlines()
+        self.assertTrue(all(line.startswith("OK: ") for line in lines), out)
+        self.assertIn("OK: kit: 3 file(s) updated", out)
+        self.assertIn("OK: launchers: 1 rewritten", out)
+        self.assertIn("OK: finder settings unchanged; self-check passed", out)
+        self.assertIn("cross-check settings checked (2 generation(s)", out)
+        self.assertEqual(self.snapshot(), before)
+        self.assert_kit_current()
+        self.assertEqual(_read(os.path.join(self.F, "bin", "holdout")),
+                         holdout_kit.HOLDOUT_LAUNCHER.replace(
+                             "@@H@@", holdout_kit._sh_quote(self.F)))
+        self.assertEqual(_mode(os.path.join(self.F, "bin", "holdout")),
+                         0o700)
+        self.assert_settings_pass()
+
+    def test_idempotent(self):
+        self.make_stale()
+        self.assertEqual(self.refresh()[0], 0)
+        first = self.snapshot(writable=True)
+        rc, out, _ = self.refresh()
+        self.assertEqual(rc, 0)
+        self.assertIn("OK: kit: 0 file(s) updated", out)
+        self.assertIn("OK: kit inventory already current", out)
+        self.assertIn("OK: launchers: 0 rewritten", out)
+        self.assertIn("OK: finder settings unchanged", out)
+        self.assertEqual(self.snapshot(writable=True), first)
+
+    def test_mutant_unconditional_launcher_write_breaks_idempotence(self):
+        self.assertEqual(self.refresh()[0], 0)
+        first = self.snapshot(writable=True)
+
+        def always(path, text, mode):
+            os.remove(path)
+            holdout_kit._write_text(path, text, mode)
+            return True
+
+        with mock.patch.object(holdout_kit, "_write_text_if_changed",
+                               side_effect=always):
+            self.assertEqual(self.refresh()[0], 0)
+        self.assertNotEqual(self.snapshot(writable=True), first)
+
+    def test_pre_grant_folder_gets_the_user_scope_grant(self):
+        # A folder set up before the finder's grant moved to user scope:
+        # the grant sits in the project settings, denyWrite is empty and
+        # cfg-finder/settings.json has none (but other keys).
+        proj = os.path.join(self.F, "work", ".claude", "settings.json")
+        user = os.path.join(self.F, "cfg-finder", "settings.json")
+        settings = self.finder_settings()
+        grant = self.finder_user_settings()["permissions"][
+            "additionalDirectories"]
+        settings["permissions"]["additionalDirectories"] = grant
+        settings["sandbox"]["filesystem"]["denyWrite"] = []
+        holdout_kit.write_json_atomic(proj, settings)
+        holdout_kit.write_json_atomic(user, {"kept": {"by": "claude"}})
+        self.assertNotEqual(self.fsp(), [])
+        before = self.snapshot()
+        rc, out, err = self.refresh()
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("OK: finder settings rewritten; self-check passed", out)
+        self.assertEqual(self.finder_user_settings(), {
+            "kept": {"by": "claude"},
+            "permissions": {"additionalDirectories": grant}})
+        self.assertEqual(grant[0], os.path.join(self.tmp, "src-repo"))
+        self.assert_settings_pass()
+        self.assertEqual(self.snapshot(), before)
+
+    def test_failed_self_check_restores_the_settings(self):
+        proj = os.path.join(self.F, "work", ".claude", "settings.json")
+        user = os.path.join(self.F, "cfg-finder", "settings.json")
+        holdout_kit.write_json_atomic(user, {"permissions": {}})
+        old = (_read(proj), _read(user))
+        with mock.patch.object(holdout_kit, "finder_settings_problems",
+                               return_value=["synthetic gap"]):
+            rc, out, err = self.refresh()
+        self.assertEqual(rc, 1)
+        self.assertIn("self-check after refresh-kit (synthetic gap)", err)
+        self.assertEqual((_read(proj), _read(user)), old)
+
+    def test_state_check_trips_on_a_stray_write(self):
+        # Synthetic violation: a refresh that also copied a file over the
+        # retirement ledger is caught by its own untouched-state check.
+        real = holdout_kit._kit_sources
+        stray = os.path.join(self.tmp, "stray.json")
+        with open(stray, "w") as fh:
+            fh.write("{}\n")
+
+        def plus_stray(h):
+            return real(h) + [(stray, os.path.join(h, "RETIRED.json"))]
+
+        with mock.patch.object(holdout_kit, "_kit_sources",
+                               side_effect=plus_stray):
+            rc, out, _ = self.refresh()
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_kit.REFRESH_TOUCHED_MSG % 1, out)
+
+    def test_refuses_any_claude_spawned_shell(self):
+        before = self.snapshot(writable=True)
+        for cfg in (os.path.join(self.F, "cfg-finder"),
+                    os.path.join(self.tmp, "elsewhere")):
+            env = dict(os.environ, CLAUDECODE="1", CLAUDE_CONFIG_DIR=cfg)
+            with mock.patch.dict(os.environ, env, clear=True):
+                rc, _, err = self.refresh()
+            self.assertEqual(rc, 1)
+            self.assertIn(holdout_kit.REFUSE_MSG, err)
+        self.assertEqual(self.snapshot(writable=True), before)
+
+    def test_refuses_to_run_from_the_kit_copy(self):
+        before = self.snapshot(writable=True)
+        proc = subprocess.run(
+            [sys.executable, os.path.join(self.F, "kit", "tools",
+                                          "holdout_kit.py"),
+             "--folder", self.F, "refresh-kit"], cwd=self.tmp,
+            env=dict(holdout_fixture.kit_env(), PYTHONDONTWRITEBYTECODE="1"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(holdout_kit.REFRESH_SOURCE_MSG, proc.stderr)
+        self.assertEqual(self.snapshot(writable=True), before)
+
+    def test_refuses_a_folder_that_is_not_set_up(self):
+        bare = os.path.join(self.tmp, "bare")
+        os.makedirs(os.path.join(bare, "kit"))
+        rc, _, err = self.run_inproc(["--folder", bare, "refresh-kit"])
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_kit.REFRESH_SETUP_MSG, err)
+        self.assertEqual(os.listdir(bare), ["kit"])
+
+    def test_registered(self):
+        self.assertEqual(holdout_kit.COMMANDS["refresh-kit"], "holdout_kit")
+        self.assertNotIn("refresh-kit", holdout_kit.NO_FOLDER_COMMANDS)
+        self.assertNotIn("refresh-kit", holdout_kit.NO_REFUSAL_COMMANDS)
+
+
 class TestB3Exclusions(unittest.TestCase):
     """D-13: the B3-exposed repo set plus dashboard (owner decision), the
     tuning repo and its mirror excluded from every slot, and content hashes

@@ -822,17 +822,24 @@ def make_xcheck_workspace(folder, gen, prior=()):
     return names
 
 
-def write_kit_inventory(folder):
-    """kit/KIT-INVENTORY.json: sha256 of every file under kit/ that setup
-    copied from the repo (everything but eligible-repos.json and itself)."""
+def kit_inventory(folder):
+    """The KIT-INVENTORY.json object for kit/ as it is now: sha256 of every
+    file under kit/ but eligible-repos.json and the inventory itself."""
     kit = os.path.join(os.path.realpath(folder), "kit")
     files = {}
     for rel in walk_regular(kit):
         if rel in (KIT_INVENTORY, ELIGIBLE_REPOS):
             continue
         files[rel] = sha256_file(os.path.join(kit, rel))
-    inventory = {"schema": KIT_INVENTORY_SCHEMA, "files": files}
-    write_json_atomic(os.path.join(kit, KIT_INVENTORY), inventory)
+    return {"schema": KIT_INVENTORY_SCHEMA, "files": files}
+
+
+def write_kit_inventory(folder):
+    """kit/KIT-INVENTORY.json: sha256 of every file under kit/ that setup
+    copied from the repo (everything but eligible-repos.json and itself)."""
+    inventory = kit_inventory(folder)
+    write_json_atomic(os.path.join(os.path.realpath(folder), "kit",
+                                   KIT_INVENTORY), inventory)
     return inventory
 
 
@@ -840,6 +847,13 @@ def write_kit_inventory(folder):
 
 
 def add_parser(sub, name):
+    if name == "refresh-kit":
+        sub.add_parser(
+            "refresh-kit", help="re-copy the repo's current kit and tools "
+                                "into an existing holdout folder (run it "
+                                "from the repo's tools; state, logins and "
+                                "sealed content are never touched)")
+        return
     if name == "setup":
         p = sub.add_parser(
             "setup", help="create the isolated holdout folder, launchers "
@@ -852,6 +866,11 @@ def add_parser(sub, name):
 
 
 def cmd(args):
+    if args.cmd == "refresh-kit":
+        # Every Claude-spawned shell is refused, isolated holdout sessions
+        # included: only the owner changes the kit a session runs under.
+        refuse_if_claude_spawned(None)
+        return refresh_kit(args.folder)
     if args.cmd == "setup":
         refuse_if_claude_spawned(args.folder)
         setup(args.folder, args.repo,
@@ -888,21 +907,34 @@ def _copy(src, dst):
         raise KitError("cannot copy %s" % os.path.basename(src))
 
 
-def _copy_kit(h):
+def _kit_sources(h):
+    """[(source path, destination path)] of every file setup copies into
+    the folder's kit/: the kit docs and templates, the non-test tools, and
+    the guard."""
     src_kit = _source_kit_dir()
     kit = os.path.join(h, "kit")
+    pairs = []
     for name in sorted(os.listdir(src_kit)):
         if name.endswith((".md", ".json")) \
                 and name not in (KIT_INVENTORY, ELIGIBLE_REPOS):
-            _copy(os.path.join(src_kit, name), os.path.join(kit, name))
+            pairs.append((os.path.join(src_kit, name),
+                          os.path.join(kit, name)))
     for name in sorted(os.listdir(TOOLS_DIR)):
         if name.endswith(".py") and not name.startswith("test_"):
-            _copy(os.path.join(TOOLS_DIR, name),
-                  os.path.join(kit, "tools", name))
-    _copy(os.path.join(TOOLS_DIR, GUARD_NAME), os.path.join(h, GUARD_REL))
+            pairs.append((os.path.join(TOOLS_DIR, name),
+                          os.path.join(kit, "tools", name)))
+    pairs.append((os.path.join(TOOLS_DIR, GUARD_NAME),
+                  os.path.join(h, GUARD_REL)))
+    return pairs
 
 
-def _write_finder_settings(h, eligible):
+def _copy_kit(h):
+    for src, dst in _kit_sources(h):
+        _copy(src, dst)
+
+
+def _finder_settings_objects(h, eligible):
+    """(project settings, user settings) setup writes for the finder."""
     template = load_json(os.path.join(h, "kit", FINDER_TEMPLATE),
                          what="the finder settings template")
     settings = _render_template(template, h, eligible)
@@ -915,11 +947,16 @@ def _write_finder_settings(h, eligible):
         deny.append("Edit(%s/**)" % repo)
     deny_write.extend(_finder_write_denied(h, eligible))
     _add_controls(settings, _finder_protected_paths(h))
+    return settings, {"permissions": {
+        "additionalDirectories": _finder_working_dirs(h, eligible)}}
+
+
+def _write_finder_settings(h, eligible):
+    settings, user = _finder_settings_objects(h, eligible)
     path = os.path.join(h, "work", ".claude", "settings.json")
     user_path = os.path.join(h, *FINDER_USER_SETTINGS.split("/"))
     write_json_atomic(path, settings)
-    write_json_atomic(user_path, {"permissions": {
-        "additionalDirectories": _finder_working_dirs(h, eligible)}})
+    write_json_atomic(user_path, user)
     problems = finder_settings_problems(
         load_json(path, what="the finder settings"), h,
         load_json(user_path, what="the finder user settings"))
@@ -993,10 +1030,270 @@ def setup(folder, repos, skip_system_exclusions=False):
     print_ok("holdout folder ready at %s. Next: %s/bin/finder" % (h, h))
 
 
+# ---------------------------------------------------------------- refresh
+
+REFRESH_SOURCE_MSG = (
+    "refresh-kit copies the repo's kit into the folder, so it must run from "
+    "the repo's own tools: python3 ~/turingmind-code-review/docs/design/"
+    "holdout-v2.12/tools/holdout_kit.py --folder <the holdout folder> "
+    "refresh-kit")
+REFRESH_SETUP_MSG = ("the holdout folder is not set up (kit/, kit/tools/, "
+                     "bin/holdout and kit/KIT-INVENTORY.json must exist); "
+                     "nothing was changed")
+REFRESH_USER_SETTINGS_MSG = ("cfg-finder/settings.json is not a JSON object; "
+                             "nothing was changed in the finder settings")
+REFRESH_TOUCHED_MSG = ("refresh-kit changed a file outside kit/, the "
+                       "launchers and the finder settings (%d file(s)); "
+                       "stop and report it")
+# What refresh-kit may write, as folder relpaths. Everything else under the
+# folder (sealed/, work/ but its settings, every cfg-*/ but the finder's
+# settings file, archive/, tmp/, the xcheck workspaces, the journal, the
+# LEAKSCAN/RETIRED ledgers, SEAL.json, the dry-run repos) must keep its
+# exact lstat identity, which refresh_kit checks before it returns.
+REFRESH_WRITABLE_FILES = ("bin/finder", "bin/holdout",
+                          "work/.claude/settings.json",
+                          FINDER_USER_SETTINGS)
+REFRESH_WRITABLE_RE = re.compile(
+    r"^(kit/(?!%s$).+|bin/crosscheck(-r[0-9]+)?)$" % re.escape(ELIGIBLE_REPOS))
+
+
+def _refresh_writable(rel):
+    return rel in REFRESH_WRITABLE_FILES or bool(REFRESH_WRITABLE_RE.match(rel))
+
+
+def _identity_snapshot(h):
+    """{relpath: lstat identity} of every entry under the folder that
+    refresh-kit must not write (symlinks included, never followed)."""
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(h, followlinks=False):
+        for name in list(dirnames) + list(filenames):
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, h).replace(os.sep, "/")
+            try:
+                st = os.lstat(full)
+            except OSError:
+                continue
+            if stat.S_ISDIR(st.st_mode) or _refresh_writable(rel):
+                continue
+            out[rel] = (st.st_mode, st.st_size, st.st_mtime_ns, st.st_ino)
+    return out
+
+
+def _read_bytes_or_none(path):
+    if os.path.islink(path) or not os.path.isfile(path):
+        return None
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def _write_text_if_changed(path, text, mode):
+    """Write `text` (mode `mode`) only when the file differs; True when it
+    was written."""
+    if os.path.islink(path):
+        raise KitError("%s is a symbolic link; remove it and run this again"
+                       % os.path.basename(path))
+    if _read_bytes_or_none(path) == text.encode("utf-8"):
+        if stat.S_IMODE(os.stat(path).st_mode) != mode:
+            os.chmod(path, mode)
+            return True
+        return False
+    _write_text(path, text, mode)
+    return True
+
+
+def _json_or_none(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _refresh_eligible(h):
+    """The eligible repos setup wrote the finder settings for: the finder's
+    current grant minus sealed/ and kit/ (user settings, or the project
+    settings of a folder set up before the grant moved), else
+    kit/eligible-repos.json."""
+    inside = {os.path.join(h, p) for p in FINDER_READ_DIRS}
+    for rel in (FINDER_USER_SETTINGS, "work/.claude/settings.json"):
+        dirs = _list_at(_json_or_none(os.path.join(h, *rel.split("/"))),
+                        "permissions", "additionalDirectories")
+        if dirs:
+            return [d for d in dirs if isinstance(d, str) and d not in inside]
+    return list(load_json(os.path.join(h, "kit", ELIGIBLE_REPOS),
+                          required={"repos": list},
+                          what="kit/eligible-repos.json")["repos"])
+
+
+def _refresh_finder_settings(h):
+    """Rewrite the finder's settings only where setup's output differs, then
+    self-check both files; restore both on a failed self-check. Returns
+    "rewritten" or "unchanged"."""
+    path = os.path.join(h, "work", ".claude", "settings.json")
+    user_path = os.path.join(h, *FINDER_USER_SETTINGS.split("/"))
+    want, want_user = _finder_settings_objects(h, _refresh_eligible(h))
+    old, old_user = _read_bytes_or_none(path), _read_bytes_or_none(user_path)
+    user = {} if old_user is None else _json_or_none(user_path)
+    if not isinstance(user, dict):
+        raise KitError(REFRESH_USER_SETTINGS_MSG)
+    changed = False
+    if _json_or_none(path) != want:
+        write_json_atomic(path, want)
+        changed = True
+    dirs = want_user["permissions"]["additionalDirectories"]
+    perms = user.get("permissions")
+    if not isinstance(perms, dict) \
+            or perms.get("additionalDirectories") != dirs:
+        # Only the grant is set; every other key Claude Code or the owner
+        # keeps in this file stays as it is.
+        user = dict(user)
+        user["permissions"] = dict(perms) if isinstance(perms, dict) else {}
+        user["permissions"]["additionalDirectories"] = dirs
+        write_json_atomic(user_path, user)
+        changed = True
+    problems = finder_settings_problems(_json_or_none(path), h,
+                                        _json_or_none(user_path))
+    if problems:
+        for target, data in ((path, old), (user_path, old_user)):
+            if data is None:
+                if os.path.lexists(target):
+                    os.remove(target)
+            else:
+                with open(target, "wb") as fh:
+                    fh.write(data)
+        raise KitError("the finder settings failed their self-check after "
+                       "refresh-kit (%s); the previous files were restored"
+                       % problems[0])
+    return "rewritten" if changed else "unchanged"
+
+
+def _generations_present(h):
+    gens = []
+    for name in sorted(os.listdir(h)):
+        m = XCHECK_WS_RE.match(name)
+        if m and os.path.isdir(os.path.join(h, name)) \
+                and not os.path.islink(os.path.join(h, name)):
+            gens.append(1 if m.group(2) is None else int(m.group(2)))
+    return sorted(gens)
+
+
+def refresh_kit(folder):
+    """Bring an existing holdout folder's kit up to the repo's current one.
+
+    Re-copies the kit docs, templates and tools (only files whose bytes
+    differ), rewrites kit/KIT-INVENTORY.json when it changed, rewrites
+    bin/finder, bin/holdout and each existing bin/crosscheck[-rN] only when
+    setup's text for it changed, and the finder settings only where setup's
+    output changed (cfg-finder/settings.json: only its grant key). Then runs
+    the finder and every existing cross-check generation's settings
+    self-check (cross-check settings are checked, never written), and
+    verifies nothing else under the folder changed. Idempotent. Returns the
+    exit code: 0 when every line is OK, 1 when any is a PROBLEM."""
+    refuse_if_claude_spawned(None)
+    if not folder:
+        raise KitError("the holdout folder must be given explicitly")
+    repo_kit = os.path.normpath(os.path.join(TOOLS_DIR, "..", "kit"))
+    if not os.path.isdir(repo_kit):
+        raise KitError(REFRESH_SOURCE_MSG)
+    h = os.path.realpath(folder)
+    for rel in ("kit", "kit/tools", "bin"):
+        path = os.path.join(h, *rel.split("/"))
+        if os.path.islink(path) or not os.path.isdir(path):
+            raise KitError(REFRESH_SETUP_MSG)
+    for rel in ("bin/holdout", "kit/" + KIT_INVENTORY):
+        if not os.path.isfile(os.path.join(h, *rel.split("/"))):
+            raise KitError(REFRESH_SETUP_MSG)
+    if os.path.realpath(TOOLS_DIR) == os.path.join(h, "kit", "tools") \
+            or os.path.realpath(repo_kit) == os.path.join(h, "kit"):
+        raise KitError(REFRESH_SOURCE_MSG)
+    before = _identity_snapshot(h)
+    ok = True
+
+    updated = kept = 0
+    for src, dst in _kit_sources(h):
+        if os.path.islink(dst):
+            raise KitError("kit file %s is a symbolic link; remove it and run "
+                           "this again" % os.path.basename(dst))
+        if os.path.islink(src) or not os.path.isfile(src):
+            raise KitError("kit file %s is missing or not a regular file"
+                           % os.path.basename(src))
+        if _read_bytes_or_none(dst) == _read_bytes_or_none(src):
+            kept += 1
+            continue
+        _copy(src, dst)
+        updated += 1
+    print_ok("kit: %d file(s) updated, %d already current" % (updated, kept))
+
+    inventory = kit_inventory(h)
+    inv_path = os.path.join(h, "kit", KIT_INVENTORY)
+    if _json_or_none(inv_path) != inventory:
+        write_json_atomic(inv_path, inventory)
+        print_ok("kit inventory rewritten (%d file(s))"
+                 % len(inventory["files"]))
+    else:
+        print_ok("kit inventory already current (%d file(s))"
+                 % len(inventory["files"]))
+
+    # Only launchers that exist are refreshed: scrub removes all but
+    # bin/holdout, and refresh-kit never recreates what scrub removed.
+    quoted = _sh_quote(h)
+    launchers = [(os.path.join(h, "bin", "holdout"),
+                  HOLDOUT_LAUNCHER.replace("@@H@@", quoted))]
+    if os.path.isfile(os.path.join(h, "bin", "finder")):
+        launchers.append((os.path.join(h, "bin", "finder"),
+                          FINDER_LAUNCHER.replace("@@H@@", quoted)))
+    gens = _generations_present(h)
+    for gen in gens:
+        names = xcheck_names(gen)
+        path = os.path.join(h, *names["launcher"].split("/"))
+        if os.path.isfile(path):
+            launchers.append((path, XCHECK_LAUNCHER
+                              .replace("@@H@@", quoted)
+                              .replace("@@WS@@", names["workspace"])
+                              .replace("@@CFG@@", names["config_dir"])
+                              .replace("@@TMP@@", names["tmp_dir"])))
+    rewritten = sum(1 for path, text in launchers
+                    if _write_text_if_changed(path, text, 0o700))
+    print_ok("launchers: %d rewritten, %d already current"
+             % (rewritten, len(launchers) - rewritten))
+
+    if os.path.isfile(os.path.join(h, "work", ".claude", "settings.json")):
+        state = _refresh_finder_settings(h)
+        print_ok("finder settings %s; self-check passed" % state)
+    else:
+        print_ok("finder settings absent (folder already scrubbed); skipped")
+
+    for gen in gens:
+        names = xcheck_names(gen)
+        settings = _json_or_none(os.path.join(h, names["workspace"],
+                                              ".claude", "settings.json"))
+        prior = [xcheck_names(k) for k in range(1, gen)]
+        if settings is None or xcheck_settings_problems(settings, h, prior):
+            print_problem("cross-check settings of %s failed their "
+                          "self-check (not modified); run setup again in a "
+                          "fresh folder" % names["workspace"])
+            ok = False
+    if gens:
+        print_ok("cross-check settings checked (%d generation(s), not "
+                 "modified)" % len(gens))
+
+    after = _identity_snapshot(h)
+    touched = sorted(set(before) ^ set(after)
+                     | {r for r in before if after.get(r) != before[r]})
+    if touched:
+        print_problem(REFRESH_TOUCHED_MSG % len(touched))
+        return 1
+    print_ok("state untouched: sealed/, work/, logins, archive/, journal, "
+             "ledgers and cross-check workspaces (%d file(s) checked)"
+             % len(before))
+    return 0 if ok else 1
+
+
 # ---------------------------------------------------------------- CLI
 
 COMMANDS = {
     "setup": "holdout_kit",
+    "refresh-kit": "holdout_kit",
     "validate": "holdout_validate",
     "seal-build": "holdout_manifest",
     "rehash": "holdout_manifest",

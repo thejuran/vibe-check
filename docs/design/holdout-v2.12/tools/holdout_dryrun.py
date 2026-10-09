@@ -27,6 +27,14 @@ it retires the old case by content first (holdout_manifest.retire_case),
 removes it, writes a different change for the same slot under a fresh ID and
 completes its cross-check in whatever generation prepare opens.
 
+`replace_dummy_slot` is what `autopilot --dry-run --replace-retired` uses
+after it has removed a retired case: it writes genuinely different dummy
+material for the slot (new commits, so new revisions; a new module variant
+and a fresh 16-hex-digit random tag, so different diff lines and key) and
+refuses, removing what it wrote, if the new case still matches any
+RETIRED.json entry on any field. The cross-check is left to the autopilot's
+blind judging round in a fresh generation.
+
 Imports: {os, shutil, sys, time} plus the kit modules. Test helpers are
 never imported here.
 """
@@ -74,6 +82,9 @@ POPULATED_MSG = ("dummy holdout populated with 6 synthetic cases. Next: "
                  "leakscan, scrub.")
 SEALED_REFUSAL = ("already sealed (SEAL.json exists); delete SEAL.json and "
                   "archive/ deliberately first")
+SAME_MATERIAL_MSG = ("the new dummy material for slot %s still matches retired "
+                     "material, so it was removed again; run the same command "
+                     "again (it draws a fresh random tag)")
 
 
 def _now_iso():
@@ -159,14 +170,15 @@ def _write_json(path, obj):
     holdout_kit.write_json_atomic(path, obj)
 
 
-def _write_case(h, repo, slot, variant, cid):
+def _write_case(h, repo, slot, variant, cid, nonce=None):
     """Commit a base and a feature revision of this slot's module in `repo`
     and write the sealed case `cid` from them, proof results included."""
     category = LAYOUT[slot][1]
     catch = category is not None
     # A fresh random tag per case: no probe built from this case can already
     # sit in any transcript, history or source file on the tuning side.
-    nonce = holdout_kit.new_xcheck_id()[2:]
+    if nonce is None:
+        nonce = holdout_kit.new_xcheck_id()[2:]
     name = _module_name(slot, variant)
     module = os.path.join(repo, name)
     with open(module, "w", encoding="utf-8") as fh:
@@ -421,6 +433,87 @@ def replace_case(folder, slot):
     _write_case(h, repo, slot, _next_variant(repo, slot), new)
     _complete(h, [new])
     return old, new
+
+
+def _replacement_nonce():
+    """A fresh 16-hex-digit tag drawn from the kit's secrets-backed id
+    generator (never a seed): twice the entropy of a populate tag."""
+    return holdout_kit.new_xcheck_id()[2:] + holdout_kit.new_xcheck_id()[2:]
+
+
+def _retired_matches(folder, case_id):
+    """The fields on which case `case_id` matches any RETIRED.json entry:
+    the ones retired_problems checks (all three source revisions together,
+    diff bytes, changed-line set, key) plus either revision on its own."""
+    fp = holdout_manifest.case_fingerprint(folder, case_id)
+    mine = {fp["source"].get("base_rev"), fp["source"].get("feature_rev")}
+    mine.discard(None)
+    found = []
+    for entry in holdout_manifest.load_retired(folder)["retired"]:
+        found += holdout_manifest._matched_fields(fp, entry)
+        theirs = {entry["source"].get("base_rev"),
+                  entry["source"].get("feature_rev")}
+        if mine & theirs:
+            found.append("revision")
+    return found
+
+
+def _slot_repo(h, slot):
+    """The slot's dry-run repo; re-created (and listed as eligible) if it is
+    gone."""
+    path = os.path.join(h, REPOS_DIRNAME, LAYOUT[slot][0])
+    if os.path.isdir(os.path.join(path, ".git")):
+        return os.path.realpath(path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    repo = _make_repo(path)
+    _add_eligible(h, [repo])
+    return repo
+
+
+def _remove_trees(h, case_id):
+    sealed = holdout_kit.sealed_dir(h)
+    for part in ("cases", "keys"):
+        path = os.path.join(sealed, part, case_id)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+
+
+def replace_dummy_slot(folder, slot, case_id):
+    """Write genuinely different dummy material for `slot` as the new case
+    `case_id`; return case_id.
+
+    The slot's retired case must already be gone. New commits give new
+    revisions; the next module variant and a fresh random tag change every
+    diff line and the key. If the new case still matches retired material on
+    any field it is removed again and KitError(SAME_MATERIAL_MSG) is raised.
+    No cross-check is written: the autopilot judges the case blind in a
+    fresh generation."""
+    holdout_kit.refuse_if_claude_spawned(folder)
+    h = os.path.realpath(folder)
+    if os.path.lexists(os.path.join(h, holdout_manifest.SEAL_NAME)):
+        raise KitError(SEALED_REFUSAL)
+    if slot not in holdout_kit.SLOTS:
+        raise KitError("slot must be one of C1..Q3")
+    if not isinstance(case_id, str) or not holdout_kit.ID_RE.match(case_id):
+        raise KitError("not an opaque case id")
+    ids = holdout_kit.case_ids(h)
+    if case_id in ids:
+        raise KitError("case %s already exists" % case_id)
+    for cid in ids:
+        try:
+            held = holdout_validate.slot_of(h, cid)
+        except KitError:
+            continue
+        if held == slot:
+            raise KitError("slot %s still holds a case; remove the retired "
+                           "case first" % slot)
+    repo = _slot_repo(h, slot)
+    _write_case(h, repo, slot, _next_variant(repo, slot), case_id,
+                nonce=_replacement_nonce())
+    if _retired_matches(h, case_id):
+        _remove_trees(h, case_id)
+        raise KitError(SAME_MATERIAL_MSG % slot)
+    return case_id
 
 
 # ---------------------------------------------------------------- CLI

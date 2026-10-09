@@ -2056,6 +2056,282 @@ class TestDryRun(PipelineCase):
             self.last_line(out)), "dry-run-failed")
 
 
+DRY_OK = "dry run ok prompted sandbox=ok"
+
+
+class TestDryRunReplace(PipelineCase):
+    """51-09 dry-run recovery: a retired dummy case is replaced with
+    genuinely different dummy material and judged blind in a fresh
+    generation; --replace-retired is honoured under --dry-run."""
+
+    def login_marks(self):
+        """A stand-in login file in every config dir that exists now; the
+        fake claude never writes there, so any change is the autopilot's."""
+        marks = {}
+        for name in sorted(os.listdir(self.F)):
+            if name.startswith("cfg-"):
+                path = os.path.join(self.F, name, "fake-login")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write("logged in: %s\n" % name)
+                marks[path] = holdout_kit.sha256_file(path)
+        return marks
+
+    def disagree_then_retire(self):
+        """Dry run -> the generation-2 judge disagrees on C1 -> the owner
+        follows the stop and retires C1 (the owner's 51-09 path)."""
+        self.control(disagree_slot="C1")
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked disagreement")
+        self.control()
+        old = slot_ids(self.F)
+        rc, _, err = self.capture(holdout_kit.run, [
+            "--folder", self.F, "retire", "--slot", "C1", "--reason",
+            "owner"])
+        self.assertEqual(rc, 0, err)
+        keep = [old[s] for s in holdout_kit.SLOTS if s != "C1"]
+        return old, keep, tree_hashes(self.F, keep)
+
+    def assert_differs_on_every_field(self, cid):
+        fp = holdout_manifest.case_fingerprint(self.F, cid)
+        retired = holdout_manifest.load_retired(self.F)["retired"]
+        self.assertTrue(retired)
+        for entry in retired:
+            self.assertEqual(holdout_manifest._matched_fields(fp, entry), [])
+            for k in ("base_rev", "feature_rev"):
+                self.assertNotEqual(fp["source"][k], entry["source"][k])
+            for k in ("diff_sha256", "lines_sha256", "key_sha256"):
+                self.assertNotEqual(fp[k], entry[k], k)
+
+    def test_plain_rerun_names_the_dry_run_flag(self):
+        self.disagree_then_retire()
+        for _ in range(2):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+            self.assertEqual(rc, 3)
+            lines = out.strip().splitlines()
+            self.assertEqual(lines[-1], "blocked other")
+            self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["retired-dry"])
+            self.assertIn("bin/holdout autopilot --dry-run --replace-retired",
+                          lines[-2])
+
+    def test_replace_retired_under_dry_run(self):
+        old, keep, before = self.disagree_then_retire()
+        marks = self.login_marks()
+        j0 = self.journal()
+        g1, g2 = (j0["xcheck"]["1"]["session_id"],
+                  j0["xcheck"]["2"]["session_id"])
+        n = self.mark_calls()
+        scrub = holdout_archive.scrub
+        kept = {}
+
+        def check_then_scrub(folder, *a, **kw):
+            # A finished dry run scrubs the folder, config dirs included;
+            # every login must still be intact when scrub begins.
+            kept.update({p: holdout_kit.sha256_file(p) for p in marks})
+            return scrub(folder, *a, **kw)
+
+        with mock.patch.object(holdout_archive, "scrub",
+                               side_effect=check_then_scrub):
+            rc, out, err = self.cli("--dry-run", "--replace-retired",
+                                    repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assertEqual(holdout_manifest.resume_reply_kind(
+            self.last_line(out)), "dry-run-ok")
+        self.assertIn("step populate: replaced 1 retired dummy case(s), "
+                      "slots C1", out)
+        self.assertIn("step crosscheck: generation 3 probe ok (12/12)", out)
+        # A fresh blind judging round in generation 3 (never a burned one).
+        prompts = [(self.cfg(c), self.prompt(c))
+                   for c in self.p_calls(self.since(n))]
+        self.assertIn(("cfg-xcheck-r3", ap.XCHECK_BEGIN_PROMPT), prompts)
+        self.assertNotIn(ap.XCHECK_BEGIN_PROMPT,
+                         [p for c, p in prompts if c != "cfg-xcheck-r3"])
+        reg = self.registry_before_scrub
+        self.assertEqual([g["gen"] for g in reg["generations"]], [1, 2, 3])
+        # Different dummy material on every fingerprint field.
+        new = [cid for (part, cid, rel) in self.hashes_before_scrub
+               if cid not in old.values()]
+        self.assertEqual(len(set(new)), 1)
+        self.assertNotIn(old["C1"], {c for (_, c, _) in
+                                     self.hashes_before_scrub})
+        # Completed work, the journal's sessions and the logins are kept.
+        self.assert_trees_kept(before)
+        self.assertEqual(kept, marks)
+        j = self.journal()
+        self.assertEqual(j["xcheck"]["1"]["session_id"], g1)
+        self.assertEqual(j["xcheck"]["2"]["session_id"], g2)
+        self.assertEqual(j["replace"]["pending"], [])
+        self.assertEqual(j["replaced_slots"], ["C1"])
+        for line in out.splitlines():
+            self.assertRegex(line, ALLOWED_LINE)
+        self.assert_opaque(out, err)
+
+        # A plain dry-run re-run after success launches nothing and repeats
+        # the dry-run ok line.
+        n = self.mark_calls()
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assertEqual(self.p_calls(self.since(n)), [])
+
+    def test_new_material_differs_on_every_field(self):
+        old, _, _ = self.disagree_then_retire()
+        real = holdout_seal.prepare_crosscheck
+        seen = {}
+
+        def capture(folder, *a, **kw):
+            new = slot_ids(folder).get("C1")
+            if new and new != old["C1"]:
+                seen["C1"] = new
+                self.assert_differs_on_every_field(new)
+            return real(folder, *a, **kw)
+
+        with mock.patch.object(holdout_seal, "prepare_crosscheck",
+                               side_effect=capture):
+            rc, out, err = self.cli("--dry-run", "--replace-retired",
+                                    repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("C1", seen)
+
+    def test_new_generation_needs_its_own_login(self):
+        self.disagree_then_retire()
+        self.control(logged_in={"cfg-xcheck-r3": False})
+        rc, out, err = self.cli("--dry-run", "--replace-retired", repo=False)
+        self.assertEqual(rc, 1)
+        problem = [line for line in (out + err).splitlines()
+                   if line.startswith("PROBLEM: ")]
+        self.assertEqual(len(problem), 1, out + err)
+        self.assertIn(os.path.join(self.F, "bin", "crosscheck-r3"), problem[0])
+        self.assertIn("/login", problem[0])
+        self.assertIn("bin/holdout autopilot --dry-run again", problem[0])
+        self.assertEqual(self.journal()["replace"]["pending"], [])
+        # After the login a plain dry-run rerun finishes.
+        self.control()
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+
+    def test_leak_during_dry_run_then_replace(self):
+        real = holdout_archive.leakscan
+        planted = os.path.join(self.scan, "pasted.txt")
+        state = {"done": False}
+
+        def plant_then_scan(folder, *a, **kw):
+            if not state["done"]:
+                state["done"] = True
+                by_slot = {}
+                for probe, slot, _ in holdout_archive._probes(folder):
+                    by_slot.setdefault(slot, probe)
+                with open(planted, "w", encoding="utf-8") as fh:
+                    fh.write(by_slot["Q2"] + "\n")
+            return real(folder, *a, **kw)
+
+        with mock.patch.object(holdout_archive, "leakscan",
+                               side_effect=plant_then_scan):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked leakscan")
+        self.assertIn("bin/holdout autopilot --dry-run --replace-retired",
+                      lines[-2])
+        self.assertTrue(os.path.exists(os.path.join(self.F, "SEAL.json")))
+        os.remove(planted)
+        old = slot_ids(self.F)
+        keep = [old[s] for s in holdout_kit.SLOTS if s != "Q2"]
+        before = tree_hashes(self.F, keep)
+        rc, out, err = self.cli("--dry-run", "--replace-retired", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assert_trees_kept(before)
+        self.assertIn("step crosscheck: generation 3 probe ok (12/12)", out)
+
+    def test_interrupted_write_resumes_without_the_flag(self):
+        old, keep, before = self.disagree_then_retire()
+        real = holdout_dryrun.record_proof_results
+
+        def crash(*a, **kw):
+            raise RuntimeError("synthetic crash")
+
+        with mock.patch.object(holdout_dryrun, "record_proof_results",
+                               side_effect=crash):
+            with self.assertRaises(RuntimeError):
+                self.cli("--dry-run", "--replace-retired", repo=False)
+        j = self.journal()
+        self.assertEqual([e["slot"] for e in j["replace"]["pending"]], ["C1"])
+        self.assertEqual(j["replace"]["removed"], [old["C1"]])
+        partial = j["replace"]["pending"][0]["new_id"]
+        self.assertIn(partial, holdout_kit.case_ids(self.F))
+        self.assertIs(real, holdout_dryrun.record_proof_results)
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assert_trees_kept(before)
+
+    def test_intent_is_on_disk_before_the_delete(self):
+        old, _, _ = self.disagree_then_retire()
+        real = shutil.rmtree
+
+        def never(path, *a, **kw):
+            if os.path.basename(os.path.normpath(path)) == old["C1"]:
+                raise RuntimeError("synthetic crash")
+            return real(path, *a, **kw)
+
+        with mock.patch.object(shutil, "rmtree", side_effect=never):
+            with self.assertRaises(RuntimeError):
+                self.cli("--dry-run", "--replace-retired", repo=False)
+        j = self.journal()
+        self.assertEqual(j["replace"]["pending"],
+                         [{"id": old["C1"], "slot": "C1"}])
+        self.assertEqual(j["replace"]["removed"], [])
+
+    def test_mutant_flag_dropped_under_dry_run_loops(self):
+        # The pre-fix behaviour: cmd() never handed the flag to dry_run.
+        self.disagree_then_retire()
+        real = ap.dry_run
+
+        def dropped(folder, repo=None, replace_retired=False, **kw):
+            return real(folder, repo=repo, **kw)
+
+        with mock.patch.object(ap, "dry_run", side_effect=dropped):
+            for _ in range(2):
+                rc, out, _ = self.cli("--dry-run", "--replace-retired",
+                                      repo=False)
+                self.assertEqual(rc, 3)
+                self.assertEqual(self.last_line(out), "blocked other")
+
+    def test_mutant_same_material_is_refused(self):
+        # Regenerating the retired material (same nonce, same variant) must
+        # never reach the seal: the fingerprint guard refuses it.
+        old, _, _ = self.disagree_then_retire()
+        key = load(os.path.join(self.F, "sealed", "keys", old["C1"],
+                                "key.json"))
+        nonce = re.search(r"variant 0, ([0-9a-f]+)\)", key["defect"]).group(1)
+        with mock.patch.object(holdout_dryrun, "_replacement_nonce",
+                               return_value=nonce), \
+                mock.patch.object(holdout_dryrun, "_next_variant",
+                                  return_value=0):
+            rc, _, err = self.cli("--dry-run", "--replace-retired",
+                                  repo=False)
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_dryrun.SAME_MATERIAL_MSG % "C1", err)
+
+    def test_mutant_unguarded_same_material_blocks_seal(self):
+        old, _, _ = self.disagree_then_retire()
+        key = load(os.path.join(self.F, "sealed", "keys", old["C1"],
+                                "key.json"))
+        nonce = re.search(r"variant 0, ([0-9a-f]+)\)", key["defect"]).group(1)
+        with mock.patch.object(holdout_dryrun, "_replacement_nonce",
+                               return_value=nonce), \
+                mock.patch.object(holdout_dryrun, "_next_variant",
+                                  return_value=0), \
+                mock.patch.object(holdout_dryrun, "_retired_matches",
+                                  return_value=[]):
+            _, out, _ = self.cli("--dry-run", "--replace-retired",
+                                 repo=False)
+        self.assertNotEqual(self.last_line(out), DRY_OK)
+
+
 class TestResultGrammar(AutopilotCase):
 
     LINES = ("sealed", "sealed non-runnable=2", "replaced slots=C2",

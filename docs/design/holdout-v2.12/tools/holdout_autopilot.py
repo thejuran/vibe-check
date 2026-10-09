@@ -205,6 +205,10 @@ STOP_INSTRUCTIONS = {
     "retired": (
         "A sealed case reuses retired material. Run bin/holdout autopilot "
         "--replace-retired to replace it through the finder."),
+    "retired-dry": (
+        "A dummy case reuses retired material. Run bin/holdout autopilot "
+        "--dry-run --replace-retired: it writes different dummy material for "
+        "that slot and judges it blind in a fresh cross-check generation."),
     "burned": (
         "Cross-check generation %d has already seen a revealed key and its "
         "session cannot be resumed. Run <H>/bin/holdout crosscheck-reset %s "
@@ -361,6 +365,19 @@ def _now():
 
 def _render(text, h):
     return text.replace("<H>", h)
+
+
+# Every "run bin/holdout autopilot ..." in a fixed instruction names the
+# kind of run that printed it: a dry run's re-run needs --dry-run too.
+_AUTOPILOT_CMD_RE = re.compile(r"bin/holdout autopilot(?! --dry-run)")
+
+
+def for_mode(text, mode):
+    """`text` with --dry-run added to every autopilot re-run it names, when
+    `mode` is "dry-run"; unchanged otherwise."""
+    if mode != "dry-run":
+        return text
+    return _AUTOPILOT_CMD_RE.sub("bin/holdout autopilot --dry-run", text)
 
 
 def _step(name, msg):
@@ -1059,20 +1076,29 @@ def _finder_replace_slots(run):
     return sorted({e["slot"] for e in run.j["replace"]["pending"]})
 
 
-def _replace_step(run):
-    """Start or continue a replacement; True when one is in progress."""
+def _start_replacement(run, finished):
+    """True when a replacement is to run now: its intent is (or already was)
+    journaled. False when none is active, or when nothing is left and
+    `finished` says an earlier replacement already completed."""
     h, j = run.h, run.j
-    r = j["replace"]
     if not _replacement_active(j, run.replace_retired):
         return False
-    if not r["pending"]:
+    if not j["replace"]["pending"]:
         present = _retired_present(h)
         if not present:
-            if j["replaced_slots"] and j["finder"]["done"]:
+            if j["replaced_slots"] and finished:
                 _step("replace", "nothing left to replace")
                 return False
             raise KitError(NOTHING_TO_REPLACE_MSG)
         _record_replace_intent(run, present)
+    return True
+
+
+def _remove_retired(run):
+    """Delete every journaled retired case, then SEAL.json and the archive,
+    each deletion recorded as it completes."""
+    h, j = run.h, run.j
+    r = j["replace"]
     for entry in r["pending"]:
         if entry["id"] in r["removed"]:
             continue
@@ -1088,10 +1114,57 @@ def _replace_step(run):
             shutil.rmtree(archive_dir)
         r["seal_cleared"] = True
         journal_save(h, j)
+
+
+def _replace_step(run):
+    """Start or continue a replacement; True when one is in progress."""
+    h, j = run.h, run.j
+    r = j["replace"]
+    if not _start_replacement(run, j["finder"]["done"]):
+        return False
+    _remove_retired(run)
     _step("replace", "removed %d retired case(s), slots %s"
           % (len(r["pending"]), ",".join(_finder_replace_slots(run))))
     j["finder"]["done"] = False
     _begin(run, "finder")
+    return True
+
+
+def _dummy_case_complete(h, cid):
+    """A dummy case is complete once its proof results are written (the
+    last file holdout_dryrun writes for a case)."""
+    return os.path.isfile(os.path.join(h, "sealed", "keys", cid,
+                                       "proof-results.json"))
+
+
+def _dry_replace_step(run):
+    """Dry run only, the dummy form of _replace_step: journal the intent,
+    remove each retired case (then SEAL.json and the archive), and write
+    genuinely different dummy material for its slot under a new ID that is
+    journaled before it is written. The new cases are judged blind by the
+    crosscheck step in a fresh generation. True when it ran."""
+    h, j = run.h, run.j
+    r = j["replace"]
+    if not _start_replacement(run, _status(j, "populate") == "done"):
+        return False
+    _begin(run, "populate")
+    _remove_retired(run)
+    for entry in r["pending"]:
+        new = entry.get("new_id")
+        if new and new in holdout_kit.case_ids(h) \
+                and _dummy_case_complete(h, new):
+            continue
+        if new:
+            # An interrupted write left a partial case: start it again.
+            _remove_case_trees(h, new)
+        entry["new_id"] = holdout_dryrun._new_id(h)
+        journal_save(h, j)
+        _quiet(h, "populate", holdout_dryrun.replace_dummy_slot, h,
+               entry["slot"], entry["new_id"])
+    slots = _finder_replace_slots(run)
+    _clear_replacement_if_done(run, _slots_present(h))
+    _done(run, "populate", "replaced %d retired dummy case(s), slots %s"
+          % (len(slots), ",".join(slots)))
     return True
 
 
@@ -1471,7 +1544,8 @@ def _step_seal(run):
             gen = int(match.group(1)) if match and match.group(1) else 1
             raise Stop("other", STOP_INSTRUCTIONS["burned"] % (gen, cid))
         if kind == "retired":
-            raise Stop("other", STOP_INSTRUCTIONS["retired"])
+            raise Stop("other", STOP_INSTRUCTIONS[
+                "retired-dry" if run.mode == "dry-run" else "retired"])
         _step("seal", "refused (see the log inside the holdout folder)")
         raise Stop("other", STOP_INSTRUCTIONS["seal-other"])
 
@@ -1738,6 +1812,8 @@ def _step_preflight(run):
 
 def _step_populate(run):
     h = run.h
+    if _dry_replace_step(run):
+        return
     if _seal_exists(h) or holdout_kit.case_ids(h):
         return _skip(run, "populate", "cases exist")
     _quiet(h, "populate", holdout_dryrun.populate, h)
@@ -1774,7 +1850,7 @@ def _drive(run, steps, handlers):
             getattr(module, handlers[step])(run)
     except Stop as stop:
         if stop.instruction:
-            print(_render(stop.instruction, run.h))
+            print(_render(for_mode(stop.instruction, run.mode), run.h))
         mark(run.j, current, stop.status)
         journal_save(run.h, run.j)
         return result_line(run.h, run.j, stop.line)
@@ -1790,13 +1866,16 @@ def autopilot(folder, repo, replace_retired=False, restart_finder=False,
     return _drive(run, STEPS, _real_handlers())
 
 
-def dry_run(folder, repo=None, max_turns=DEFAULT_MAX_TURNS,
-            budget_usd=DEFAULT_BUDGET_USD,
+def dry_run(folder, repo=None, replace_retired=False,
+            max_turns=DEFAULT_MAX_TURNS, budget_usd=DEFAULT_BUDGET_USD,
             session_timeout=DEFAULT_SESSION_TIMEOUT):
     """The same flow on dummy data (six synthetic cases, one real headless
     judging round in a fresh generation); SEAL.json never leaves the
-    folder."""
-    run = _start(folder, "dry-run", repo, False, False, max_turns,
+    folder. With replace_retired, every retired dummy case still on disk is
+    replaced by different dummy material and judged blind in a fresh
+    generation (the populate step); the success line stays the dry-run
+    line."""
+    run = _start(folder, "dry-run", repo, replace_retired, False, max_turns,
                  budget_usd, session_timeout)
     return _drive(run, DRY_RUN_STEPS, _dry_handlers())
 
@@ -1818,7 +1897,8 @@ def add_parser(sub, name):
                         "unless --dry-run")
     p.add_argument("--replace-retired", action="store_true",
                    help="replace every retired case that is still sealed "
-                        "(after a leak hit or a retire)")
+                        "(after a leak hit or a retire); with --dry-run the "
+                        "replacement is different dummy material")
     p.add_argument("--restart-finder", action="store_true",
                    help="start a fresh finder session after its recorded "
                         "session was lost (finished cases are kept)")
@@ -1838,12 +1918,14 @@ def cmd(args):
             "session_timeout": args.session_timeout}
     try:
         if args.dry_run:
-            return dry_run(args.folder, repo=args.repo, **opts)
+            return dry_run(args.folder, repo=args.repo,
+                           replace_retired=args.replace_retired, **opts)
         if not args.repo:
             raise KitError(REPO_MSG)
         return autopilot(args.folder, args.repo,
                          replace_retired=args.replace_retired,
                          restart_finder=args.restart_finder, **opts)
     except Precondition as exc:
-        holdout_kit.print_problem(str(exc))
+        holdout_kit.print_problem(for_mode(
+            str(exc), "dry-run" if args.dry_run else "real"))
         return 1
