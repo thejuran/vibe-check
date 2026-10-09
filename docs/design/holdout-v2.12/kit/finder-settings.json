@@ -2,7 +2,6 @@
   "autoMemoryEnabled": false,
   "permissions": {
     "blockReadsOutsideWorkingDirectories": true,
-    "additionalDirectories": ["<REPOS>", "<H>/sealed", "<H>/kit"],
     "deny": [
       "Read(~/turingmind-code-review/**)",
       "Edit(~/turingmind-code-review/**)",
@@ -25,7 +24,8 @@
         "~/.codex",
         "~/.b3",
         "~/.vibe-check-snapshots"
-      ]
+      ],
+      "denyWrite": []
     }
   },
   "hooks": {

@@ -359,10 +359,21 @@ TUNING_DENY_READ = ("~/turingmind-code-review", "~/thejuran-marketplace",
 FINDER_PROTECTED_TMP = ("tmp/owner", "tmp/crosscheck")
 # Relpaths the finder reads outside its work/ cwd (reads outside the working
 # directories are blocked): sealed/ (it writes the cases there) and kit/
-# (its brief, the case types, the rules and the repo lists). kit/ is
-# read-only for it: an Edit deny rule covers Edit and Write.
+# (its brief, the case types, the rules and the repo lists). With the
+# eligible repos they are the finder's extra working directories.
+#
+# Claude Code ignores permissions.additionalDirectories that come from a
+# workspace's own .claude/settings.json for the read block and for the
+# sandbox, so the grant lives in the finder's USER settings: the launcher
+# sets CLAUDE_CONFIG_DIR=<H>/cfg-finder, which makes
+# <H>/cfg-finder/settings.json that file. A working directory is writable
+# by sandboxed commands, so kit/ and every repo are write-denied in
+# sandbox.filesystem.denyWrite: in a real session (CLI 2.1.281) the
+# workspace's Edit deny rules stopped Claude's Edit and Write tools but not a
+# sandboxed `touch`.
 FINDER_READ_DIRS = ("sealed", "kit")
 FINDER_READONLY_DIRS = ("kit",)
+FINDER_USER_SETTINGS = "cfg-finder/settings.json"
 
 # Relpaths under the folder EVERY cross-check generation is denied. A
 # generation's own workspace, config dir and temp root are never protected
@@ -612,29 +623,62 @@ def _finder_protected_paths(folder):
     return [os.path.join(h, p) for p in FINDER_PROTECTED_TMP]
 
 
-def finder_settings_problems(settings, folder):
-    """Check finder settings; [] when every control is in place.
+def _finder_working_dirs(folder, eligible):
+    """The finder's extra working directories (user-scope
+    additionalDirectories): the eligible repos, then FINDER_READ_DIRS. The
+    one source the writer uses."""
+    h = os.path.realpath(folder)
+    return list(eligible) + [os.path.join(h, p) for p in FINDER_READ_DIRS]
 
-    Recomputes its expectation from FINDER_PROTECTED_TMP itself (never from
-    _finder_protected_paths), so it stays an independent oracle.
+
+def _finder_write_denied(folder, eligible):
+    """Working directories sandboxed finder commands may read but never
+    write (sandbox.filesystem.denyWrite): FINDER_READONLY_DIRS, then the
+    eligible repos. The one source the writer uses."""
+    h = os.path.realpath(folder)
+    return [os.path.join(h, p) for p in FINDER_READONLY_DIRS] + list(eligible)
+
+
+def _list_at(d, *keys):
+    for k in keys:
+        d = d.get(k) if isinstance(d, dict) else None
+    return d if isinstance(d, list) else []
+
+
+def finder_settings_problems(settings, folder, user_settings):
+    """Check the finder's project settings (work/.claude/settings.json) and
+    user settings (cfg-finder/settings.json); [] when every control is in
+    place.
+
+    Recomputes its expectation from FINDER_PROTECTED_TMP, FINDER_READ_DIRS
+    and FINDER_READONLY_DIRS itself (never from _finder_protected_paths,
+    _finder_working_dirs or _finder_write_denied), so it stays an
+    independent oracle. The invariant: sealed/ and kit/ are granted, every
+    granted directory except sealed/ (kit/ and each repo) is write-denied to
+    sandboxed commands, and nothing write-denies sealed/.
     """
     h = os.path.realpath(folder)
     expected = [os.path.join(h, p) for p in FINDER_PROTECTED_TMP]
     problems = _settings_gaps(settings, "finder", expected, frozenset())
-    perms = settings.get("permissions") if isinstance(settings, dict) else None
-    perms = perms if isinstance(perms, dict) else {}
-    extra = perms.get("additionalDirectories")
-    extra = extra if isinstance(extra, list) else []
-    for rel in FINDER_READ_DIRS:
-        if os.path.join(h, rel) not in extra:
-            problems.append("additionalDirectories is missing %s"
-                            % os.path.join(h, rel))
-    deny = perms.get("deny")
-    deny = deny if isinstance(deny, list) else []
+    deny = _list_at(settings, "permissions", "deny")
     for rel in FINDER_READONLY_DIRS:
         rule = "Edit(%s/**)" % os.path.join(h, rel)
         if rule not in deny:
             problems.append("permission deny is missing %s" % rule)
+    sealed = os.path.join(h, "sealed")
+    extra = _list_at(user_settings, "permissions", "additionalDirectories")
+    for rel in FINDER_READ_DIRS:
+        if os.path.join(h, rel) not in extra:
+            problems.append("finder user settings additionalDirectories is "
+                            "missing %s" % os.path.join(h, rel))
+    deny_write = _list_at(settings, "sandbox", "filesystem", "denyWrite")
+    must_deny = [os.path.join(h, rel) for rel in FINDER_READONLY_DIRS]
+    must_deny += [p for p in extra if p != sealed and p not in must_deny]
+    for p in must_deny:
+        if p not in deny_write:
+            problems.append("sandbox denyWrite is missing %s" % p)
+    if any(_inside(sealed, p) for p in deny_write if isinstance(p, str)):
+        problems.append("sandbox denyWrite blocks %s" % sealed)
     return problems
 
 
@@ -864,17 +908,24 @@ def _write_finder_settings(h, eligible):
     settings = _render_template(template, h, eligible)
     try:
         deny = settings["permissions"]["deny"]
+        deny_write = settings["sandbox"]["filesystem"]["denyWrite"]
     except (KeyError, TypeError):
         raise KitError("the finder settings template has the wrong shape")
     for repo in eligible:
         deny.append("Edit(%s/**)" % repo)
+    deny_write.extend(_finder_write_denied(h, eligible))
     _add_controls(settings, _finder_protected_paths(h))
     path = os.path.join(h, "work", ".claude", "settings.json")
+    user_path = os.path.join(h, *FINDER_USER_SETTINGS.split("/"))
     write_json_atomic(path, settings)
+    write_json_atomic(user_path, {"permissions": {
+        "additionalDirectories": _finder_working_dirs(h, eligible)}})
     problems = finder_settings_problems(
-        load_json(path, what="the finder settings"), h)
+        load_json(path, what="the finder settings"), h,
+        load_json(user_path, what="the finder user settings"))
     if problems:
         os.remove(path)
+        os.remove(user_path)
         raise KitError("finder settings failed their self-check: %s"
                        % problems[0])
 

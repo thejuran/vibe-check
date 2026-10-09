@@ -256,8 +256,12 @@ if "sandbox-probe.py" in prompt:
     else:
         text = "OK: sandbox denied %d/%d protected reads" % (total, total)
 elif "reply only with its first heading" in prompt:
-    text = ("nothing to see" if control.get("finder_check_bad")
-            else "# Finder brief\nfinder-write-ok")
+    text = {"bad": "nothing to see",
+            "no-read": "The Read was refused.\nfinder-write-ok",
+            "no-write": "# Finder brief\nOperation not permitted"}.get(
+        "bad" if control.get("finder_check_bad")
+        else control.get("finder_check_half"),
+        "# Finder brief\nfinder-write-ok")
 elif prompt.startswith("Reply with the single word ready"):
     text = "ready"
 elif role == "finder" and prompt.startswith("Read ../kit/FINDER-BRIEF.md "
@@ -794,6 +798,48 @@ class TestPreflight(AutopilotCase):
         self.assertEqual(len(checks), 1)
         self.assertEqual(self.flag(checks[0], "--session-id"),
                          self.journal()["preflight"]["check_session_id"])
+
+    def finder_check_stop(self, **control):
+        self.control(**control)
+        with self.assertRaises(ap.Stop) as cm:
+            self.capture(ap.preflight, self.F, "real")
+        self.assertEqual(cm.exception.kind, "sandbox")
+        self.assertEqual(cm.exception.line, "blocked sandbox")
+        self.assertIs(self.journal()["finder"]["check_ok"], False)
+        text = cm.exception.instruction
+        self.assertIn("README section 6 step 3", text)
+        self.assertNotIn(self.F, text)
+        return text
+
+    def test_finder_check_both_halves_failed(self):
+        text = self.finder_check_stop(finder_check_bad=True)
+        self.assertEqual(text, ap.STOP_INSTRUCTIONS["finder-check"])
+        self.assertIn("could neither read the kit nor write sealed/", text)
+
+    def test_finder_check_read_half_failed(self):
+        text = self.finder_check_stop(finder_check_half="no-read")
+        self.assertEqual(text, ap.STOP_INSTRUCTIONS["finder-check-read"])
+        self.assertIn("could not read the kit", text)
+        self.assertNotIn("could not write", text)
+
+    def test_finder_check_write_half_failed(self):
+        text = self.finder_check_stop(finder_check_half="no-write")
+        self.assertEqual(text, ap.STOP_INSTRUCTIONS["finder-check-write"])
+        self.assertIn("could not write sealed/", text)
+        self.assertNotIn("could not read", text)
+
+    def test_finder_check_stops_cover_every_failure(self):
+        self.assertEqual(set(ap.FINDER_CHECK_STOPS),
+                         {(False, False), (False, True), (True, False)})
+        keys = list(ap.FINDER_CHECK_STOPS.values())
+        self.assertEqual(len(set(ap.STOP_INSTRUCTIONS[k] for k in keys)), 3)
+
+    def test_requires_finder_user_settings(self):
+        os.remove(os.path.join(self.F, "cfg-finder", "settings.json"))
+        with self.assertRaises(ap.Precondition) as cm:
+            self.capture(ap.preflight, self.F, "real")
+        self.assertIn("finder settings", str(cm.exception))
+        self.assertEqual(self.p_calls(), [])
 
     def test_order_of_preflight_sessions(self):
         self.capture(ap.preflight, self.F, "real")

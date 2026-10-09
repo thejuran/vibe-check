@@ -742,6 +742,16 @@ class SetupCase(KitCase):
         return _load(os.path.join(F or self.F, "work", ".claude",
                                   "settings.json"))
 
+    def finder_user_settings(self, F=None):
+        return _load(os.path.join(F or self.F, "cfg-finder",
+                                  "settings.json"))
+
+    def fsp(self, d=None, u=None):
+        """finder_settings_problems on the written (or given) pair."""
+        return holdout_kit.finder_settings_problems(
+            self.finder_settings() if d is None else d, self.F,
+            self.finder_user_settings() if u is None else u)
+
     def xcheck_settings(self, ws="xcheck", F=None):
         return _load(os.path.join(F or self.F, ws, ".claude",
                                   "settings.json"))
@@ -954,8 +964,17 @@ class TestTemplates(SetupCase):
         self.assertIs(d["autoMemoryEnabled"], False)
         perms = d["permissions"]
         self.assertIs(perms["blockReadsOutsideWorkingDirectories"], True)
-        self.assertEqual(perms["additionalDirectories"],
-                         [repo, F + "/sealed", F + "/kit"])
+        # Workspace-level additionalDirectories are ignored by Claude Code
+        # for the read block and the sandbox: the grant is user-scope.
+        self.assertNotIn("additionalDirectories", perms)
+        self.assertEqual(
+            self.finder_user_settings(),
+            {"permissions": {"additionalDirectories":
+                             [repo, F + "/sealed", F + "/kit"]}})
+        self.assertEqual(d["sandbox"]["filesystem"]["denyWrite"],
+                         [F + "/kit", repo])
+        self.assertNotIn("allowWrite", d["sandbox"]["filesystem"])
+        self.assertNotIn("allowRead", d["sandbox"]["filesystem"])
         for rule in ("Edit(%s/kit/**)" % F,
                      "Read(~/turingmind-code-review/**)",
                      "Read(~/thejuran-marketplace/**)", "Read(~/.claude/**)",
@@ -1008,13 +1027,12 @@ class TestTemplates(SetupCase):
 class TestFinderTmpIsolation(SetupCase):
 
     def test_written_settings_pass(self):
-        self.assertEqual(holdout_kit.finder_settings_problems(
-            self.finder_settings(), self.F), [])
+        self.assertEqual(self.fsp(), [])
 
     def test_missing_deny_read(self):
         d = self.finder_settings()
         _deny_read(d).remove(self.F + "/tmp/crosscheck")
-        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
+        self.assertEqual(self.fsp(d),
                          ["sandbox denyRead is missing %s/tmp/crosscheck"
                           % self.F])
 
@@ -1024,57 +1042,137 @@ class TestFinderTmpIsolation(SetupCase):
         i = args.index(self.F + "/tmp/owner")
         del args[i - 1:i + 1]
         self.assertIn("hook --protect is missing %s/tmp/owner" % self.F,
-                      holdout_kit.finder_settings_problems(d, self.F))
+                      self.fsp(d))
 
     def test_missing_permission_deny(self):
         d = self.finder_settings()
         d["permissions"]["deny"].remove("Read(%s/tmp/crosscheck/**)" % self.F)
         self.assertIn("permission deny is missing Read(%s/tmp/crosscheck/**)"
                       % self.F,
-                      holdout_kit.finder_settings_problems(d, self.F))
+                      self.fsp(d))
 
     def test_kit_must_be_readable(self):
-        d = self.finder_settings()
-        d["permissions"]["additionalDirectories"].remove(self.F + "/kit")
-        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
-                         ["additionalDirectories is missing %s/kit" % self.F])
+        u = self.finder_user_settings()
+        u["permissions"]["additionalDirectories"].remove(self.F + "/kit")
+        self.assertEqual(self.fsp(u=u),
+                         ["finder user settings additionalDirectories is "
+                          "missing %s/kit" % self.F])
 
     def test_sealed_must_be_readable(self):
+        u = self.finder_user_settings()
+        u["permissions"]["additionalDirectories"].remove(self.F + "/sealed")
+        self.assertEqual(self.fsp(u=u),
+                         ["finder user settings additionalDirectories is "
+                          "missing %s/sealed" % self.F])
+
+    def test_workspace_grant_does_not_count(self):
+        # The pre-fix layout: the grant only in work/.claude/settings.json,
+        # which Claude Code ignores for the read block and the sandbox.
         d = self.finder_settings()
-        d["permissions"]["additionalDirectories"].remove(self.F + "/sealed")
-        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
-                         ["additionalDirectories is missing %s/sealed"
+        d["permissions"]["additionalDirectories"] = list(
+            self.finder_user_settings()["permissions"]["additionalDirectories"])
+        self.assertEqual(self.fsp(d, u={}),
+                         ["finder user settings additionalDirectories is "
+                          "missing %s/sealed" % self.F,
+                          "finder user settings additionalDirectories is "
+                          "missing %s/kit" % self.F])
+
+    def test_every_granted_dir_but_sealed_is_write_denied(self):
+        # A grant that is not write-denied would let sandboxed commands
+        # write there (a working directory is writable by default).
+        extra_dir = self.F + "/tmp/finder"
+        u = self.finder_user_settings()
+        u["permissions"]["additionalDirectories"].append(extra_dir)
+        self.assertEqual(self.fsp(u=u),
+                         ["sandbox denyWrite is missing %s" % extra_dir])
+        d = self.finder_settings()
+        d["sandbox"]["filesystem"]["denyWrite"].append(extra_dir)
+        self.assertEqual(self.fsp(d, u), [])
+
+    def test_kit_must_be_write_denied_in_sandbox(self):
+        d = self.finder_settings()
+        d["sandbox"]["filesystem"]["denyWrite"].remove(self.F + "/kit")
+        self.assertEqual(self.fsp(d),
+                         ["sandbox denyWrite is missing %s/kit" % self.F])
+
+    def test_repo_must_be_write_denied_in_sandbox(self):
+        repo = os.path.realpath(self.repo)
+        d = self.finder_settings()
+        del d["sandbox"]["filesystem"]["denyWrite"]
+        self.assertEqual(self.fsp(d),
+                         ["sandbox denyWrite is missing %s/kit" % self.F,
+                          "sandbox denyWrite is missing %s" % repo])
+
+    def test_sealed_must_stay_writable(self):
+        for p in (self.F + "/sealed", self.F):
+            d = self.finder_settings()
+            d["sandbox"]["filesystem"]["denyWrite"].append(p)
+            self.assertEqual(self.fsp(d),
+                             ["sandbox denyWrite blocks %s/sealed" % self.F],
+                             p)
+
+    def test_denies_still_required_with_grant(self):
+        # Widening never drops a deny: the tuning and protected denies stay
+        # required next to the new grant.
+        d = self.finder_settings()
+        _deny_read(d).remove("~/.claude")
+        _deny_read(d).remove(self.F + "/tmp/owner")
+        d["permissions"]["deny"].remove("Edit(%s/kit/**)" % self.F)
+        self.assertEqual(self.fsp(d),
+                         ["sandbox denyRead is missing ~/.claude",
+                          "sandbox denyRead is missing %s/tmp/owner" % self.F,
+                          "permission deny is missing Edit(%s/kit/**)"
                           % self.F])
+
+    def test_grant_mutant_is_caught_by_setup(self):
+        folder = os.path.join(self.tmp, "mg")
+        with mock.patch.object(holdout_kit, "_finder_working_dirs",
+                               return_value=[]):
+            with self.assertRaises(holdout_kit.KitError) as cm, _quiet():
+                holdout_kit.setup(folder, [self.repo],
+                                  skip_system_exclusions=True)
+        F = os.path.realpath(folder)
+        self.assertIn("finder user settings additionalDirectories is missing",
+                      str(cm.exception))
+        for rel in ("work/.claude/settings.json", "cfg-finder/settings.json"):
+            self.assertFalse(os.path.exists(os.path.join(F, rel)), rel)
+
+    def test_deny_write_mutant_is_caught_by_setup(self):
+        folder = os.path.join(self.tmp, "mw")
+        with mock.patch.object(holdout_kit, "_finder_write_denied",
+                               return_value=[]):
+            with self.assertRaises(holdout_kit.KitError) as cm, _quiet():
+                holdout_kit.setup(folder, [self.repo],
+                                  skip_system_exclusions=True)
+        self.assertIn("sandbox denyWrite is missing", str(cm.exception))
 
     def test_kit_must_be_read_only(self):
         d = self.finder_settings()
         d["permissions"]["deny"].remove("Edit(%s/kit/**)" % self.F)
-        self.assertEqual(holdout_kit.finder_settings_problems(d, self.F),
+        self.assertEqual(self.fsp(d),
                          ["permission deny is missing Edit(%s/kit/**)"
                           % self.F])
 
     def test_kit_read_mutant_is_caught_by_setup(self):
         folder = os.path.join(self.tmp, "mk")
-        real = holdout_kit._render_template
+        real = holdout_kit._finder_working_dirs
 
-        def strip_kit(template, h, repos):
-            out = real(template, h, repos)
-            extra = out.get("permissions", {}).get("additionalDirectories")
-            if isinstance(extra, list):
-                extra[:] = [p for p in extra if not p.endswith("/kit")]
-            return out
+        def strip_kit(h, repos):
+            return [p for p in real(h, repos) if not p.endswith("/kit")]
 
-        with mock.patch.object(holdout_kit, "_render_template", strip_kit):
+        with mock.patch.object(holdout_kit, "_finder_working_dirs",
+                               strip_kit):
             with self.assertRaises(holdout_kit.KitError) as cm, _quiet():
                 holdout_kit.setup(folder, [self.repo],
                                   skip_system_exclusions=True)
         self.assertIn("additionalDirectories is missing", str(cm.exception))
+        self.assertTrue(str(cm.exception).endswith("/kit"))
 
     def test_sandbox_flags(self):
         d = self.finder_settings()
         d["sandbox"]["enabled"] = False
         d["sandbox"]["failIfUnavailable"] = False
-        probs = holdout_kit.finder_settings_problems(d, self.F)
+        probs = self.fsp(d)
         self.assertIn("sandbox is not enabled", probs)
         self.assertIn("sandbox does not fail if unavailable", probs)
 

@@ -157,6 +157,13 @@ passphrase.
    Expect the heading `# Finder brief` and the line `finder-write-ok`. If the Read is refused,
    the command fails, or Claude asks to run it without the sandbox, decline and report
    `blocked sandbox`. Then `/exit`.
+   Setup writes the finder's settings as two files: `work/.claude/settings.json` (the denies
+   and the sandbox, including the write ban on `kit/` and the repos) and
+   `cfg-finder/settings.json` (the directories the finder may use: the repos, `sealed/` and
+   `kit/`). The second file must stay in `cfg-finder/`: Claude Code ignores those directories
+   when a workspace's own settings name them, so the Read and the write above would both be
+   refused. "Fix the finder settings" means run setup again in a fresh folder; do not edit
+   either file by hand.
 4. `~/.vibe-check-holdout/dryrun/bin/holdout dryrun --populate`
    Expect `OK: dummy holdout populated with 6 synthetic cases. ...`
 5. `~/.vibe-check-holdout/dryrun/bin/holdout validate`
@@ -447,7 +454,7 @@ verify (the autopilot prints a line just before).
 |-----------|---------------|------------|
 | `blocked disagreement` | the independent check disagreed on a case (named by ID and slot) | README 7b (i): resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
 | `blocked validation` | `validate` still failed after three fix rounds with the finder | README 7b (iv), then `bin/holdout autopilot` again |
-| `blocked sandbox` | the sandbox probe or the finder check failed | README 6 step 2/3, then `bin/holdout autopilot` again |
+| `blocked sandbox` | the sandbox probe or the finder check failed (for the finder check, the line above it says whether the kit read, the `sealed/` write, or both failed) | README 6 step 2/3, then `bin/holdout autopilot` again |
 | `blocked leakscan` | the leak scan named slots | README 7d steps 1-2 (cleanup only), then `bin/holdout autopilot --replace-retired` |
 | `blocked residue` | scrub found plaintext residue outside the folder | delete what it names, then `bin/holdout autopilot` again |
 | `blocked other` | a session failed or timed out, a process still holds the folder, encrypt failed, or seal refused for another reason | follow the line printed just above it, then `bin/holdout autopilot` again |

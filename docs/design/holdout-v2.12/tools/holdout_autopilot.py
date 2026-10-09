@@ -120,6 +120,11 @@ FINDER_CHECK_PROMPT = ("Read ../kit/FINDER-BRIEF.md and reply only with its "
                        "first heading. Then run: touch ../sealed/WRITE-CHECK "
                        "&& rm ../sealed/WRITE-CHECK && echo finder-write-ok")
 FINDER_CHECK_MARKS = ("# Finder brief", "finder-write-ok")
+# The stop for each missing-marks pattern of the finder check: which half
+# (read the kit, write sealed/) failed. Fixed text only.
+FINDER_CHECK_STOPS = {(False, False): "finder-check",
+                      (False, True): "finder-check-read",
+                      (True, False): "finder-check-write"}
 FINDER_BEGIN_PROMPT = "Read ../kit/FINDER-BRIEF.md and begin."
 FINDER_RESUME_PROMPT = (
     "Your previous turn was interrupted. Continue from what is already on "
@@ -172,9 +177,17 @@ STOP_INSTRUCTIONS = {
         "cross-check settings or the sandbox, then run bin/holdout autopilot "
         "again."),
     "finder-check": (
-        "The finder session could not read the kit or write sealed/. Do not "
-        "continue. README section 6 step 3: fix the finder settings, then "
-        "run bin/holdout autopilot again."),
+        "The finder session could neither read the kit nor write sealed/. Do "
+        "not continue. README section 6 step 3: fix the finder settings, "
+        "then run bin/holdout autopilot again."),
+    "finder-check-read": (
+        "The finder session could not read the kit (it could write "
+        "sealed/). Do not continue. README section 6 step 3: fix the finder "
+        "settings, then run bin/holdout autopilot again."),
+    "finder-check-write": (
+        "The finder session could not write sealed/ (it could read the "
+        "kit). Do not continue. README section 6 step 3: fix the finder "
+        "settings, then run bin/holdout autopilot again."),
     "validation": (
         "validate still reports problems after %d fix rounds. In a new "
         "Terminal window run <H>/bin/holdout validate, fix only what it "
@@ -687,9 +700,12 @@ def _check_settings(h, reg):
         settings = holdout_kit.load_json(
             os.path.join(h, "work", ".claude", "settings.json"),
             what="the finder settings")
+        user_settings = holdout_kit.load_json(
+            os.path.join(h, *holdout_kit.FINDER_USER_SETTINGS.split("/")),
+            what="the finder user settings")
     except KitError:
         raise Precondition(SETTINGS_MSG % "finder")
-    if holdout_kit.finder_settings_problems(settings, h):
+    if holdout_kit.finder_settings_problems(settings, h, user_settings):
         raise Precondition(SETTINGS_MSG % "finder")
     gens = [g["gen"] for g in reg["generations"]] if reg else [1]
     for gen in gens:
@@ -846,8 +862,9 @@ def _finder_check(h, j, opts):
     res = _launch(h, j, "finder", FINDER_CHECK_PROMPT, session_id=sid, **opts)
     if res.is_error:
         _session_failed(res)
-    if not all(m in res.text for m in FINDER_CHECK_MARKS):
-        raise Stop("sandbox", STOP_INSTRUCTIONS["finder-check"])
+    seen = tuple(m in res.text for m in FINDER_CHECK_MARKS)
+    if seen in FINDER_CHECK_STOPS:
+        raise Stop("sandbox", STOP_INSTRUCTIONS[FINDER_CHECK_STOPS[seen]])
     j["finder"]["check_ok"] = True
     journal_save(h, j)
     _step("preflight", "finder check ok")
