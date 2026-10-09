@@ -1103,7 +1103,8 @@ DIAG_CHECKS = ("none", "round-incomplete", "type-judged-quiet",
                "category-differs", "quiet-unconfirmed", "judge-type-false",
                "judge-defect-false", "judge-category-false",
                "judge-proof-false", "judge-flag-contradicts",
-               "final-malformed", "proof-recorded-bad", "proof-rerun-differs",
+               "final-malformed", "proof-recorded-bad", "proof-rerun-missing",
+               "proof-rerun-differs",
                "proof-rerun-base-failed", "proof-rerun-changed-passed",
                "nonrunnable-rerun-set", "nonrunnable-unresolved")
 

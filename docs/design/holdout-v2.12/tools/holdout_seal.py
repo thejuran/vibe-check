@@ -1222,7 +1222,8 @@ _JUDGE_CHECKS = frozenset({
     "category-differs", "category-judge-other", "quiet-unconfirmed",
     "judge-type-false", "judge-defect-false", "judge-category-false",
     "final-malformed", "nonrunnable-rerun-set", "nonrunnable-unresolved"})
-_PROOF_CHECKS = frozenset({"proof-rerun-differs", "proof-rerun-base-failed",
+_PROOF_CHECKS = frozenset({"proof-rerun-missing", "proof-rerun-differs",
+                           "proof-rerun-base-failed",
                            "proof-rerun-changed-passed"})
 
 DIAG_ACTIONS = {
@@ -1245,7 +1246,7 @@ DIAG_ACTIONS = {
         "else."),
     "proof-mismatch": (
         "the judge's re-run of the proof did not reproduce the recorded "
-        "exits: the proof or the judge's environment. Do NOT retire, reset "
+        "exits, or recorded none: the proof or the judge's environment. Do NOT retire, reset "
         "or replace. Reply in the tuning session with the diagnosis line "
         "below, nothing else."),
 }
@@ -1330,7 +1331,9 @@ def diagnose_parts(slot, key, blind, final, runnable=True,
             if final.get(flag) is not True:
                 add(check)
         if runnable and _exit_pair(final.get("proof_rerun_exit")) is None:
-            add("final-malformed")
+            # The judge saw the key but recorded no usable re-run exits:
+            # the proof did not run in its sandbox, not a verdict on it.
+            add("proof-rerun-missing" if final_ok else "final-malformed")
     if "proof exits" in parts:
         recorded = _exit_pair(recorded_exits)
         independent = _exit_pair(final.get("proof_rerun_exit"))

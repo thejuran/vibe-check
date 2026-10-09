@@ -2294,8 +2294,20 @@ class TestDiagnoseParts(unittest.TestCase):
         self.assertIn("proof-rerun-changed-passed", checks)
 
     def test_rerun_missing(self):
-        cause, checks = dg("C3", final_edit=lambda f: f.update(
-            proof_rerun_exit=None))
+        # The gen-4 C3 shape: substance agreed, no usable re-run exits.
+        self.assertEqual(dg("C3", final_edit=lambda f: f.update(
+            proof_agrees=False, proof_rerun_exit=None)),
+            ("proof-mismatch", ["judge-proof-false", "proof-rerun-missing"]))
+        self.assertEqual(dg("C3", final_edit=lambda f: f.update(
+            proof_rerun_exit={"base": "0", "changed": "1"}))[0],
+            "proof-mismatch")
+
+    def test_final_not_an_object_is_malformed(self):
+        cause, checks = dg("C3", final_edit=None)
+        self.assertEqual(cause, "agrees")
+        key, blind, _, rec = agreeing_args("C3")
+        cause, checks = holdout_seal.diagnose_parts(
+            "C3", key, blind, ["not", "a", "dict"], recorded_exits=rec)
         self.assertEqual(cause, "judge-disagrees")
         self.assertIn("final-malformed", checks)
 
