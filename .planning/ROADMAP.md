@@ -13,6 +13,7 @@
 - ✅ **v2.9 Prove it** — Phases 35-37 (shipped 2026-07-08 — codex knob live end-to-end + vibe-check's first measured numbers: catch 8/9 · FP 6/9)
 - ✅ **v2.10 Opus 5 rebuild + quiet down** — Phases 38, 40-44 (shipped 2026-10-01 — 2.10.0; untuned MISS 6/18 · 13/15, retuned PASS 3/18 · 15/15; Phase 39 dissolved)
 - ✅ **v2.11 Quiet loop** — Phases 45-50 (shipped 2026-10-08 — 2.11.0 + 2.11.1 patch; B3 MISS 5/18 · 15/15 shipped as measured under owner waiver)
+- 🚧 **v2.12 Quiet without hiding** — Phases 51-55 (in progress; design `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-design.md`, branch `feat/v2.12`)
 
 ## Phases
 
@@ -192,9 +193,127 @@ Full details: `.planning/milestones/v2.11-ROADMAP.md`.
 
 </details>
 
+### v2.12 Quiet without hiding (Phases 51-55) — IN PROGRESS
+
+Design spec: `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-design.md` (owner-approved; phase order is FIXED). Branch `feat/v2.12`. Release intent: 2.12.0.
+
+- [x] **Phase 51: Seal the holdout** — six owner-selected real cases (C1/C2/C3 catch, Q1/Q2/Q3 quiet) with sealed keys living outside the repo; only content hashes committed, before any tuning; access split by role and a PreToolUse hook denies the holdout path during tuning phases (completed 2026-10-09)
+- [ ] **Phase 52: Hardening + accepted-fix harness** — close the 999.21 fix-agent edges (old git, tag fetch, bare-repo probe, WebFetch/MCP boundary, one exit table, retire fixcommit CLI), stop guard over-blocking of read-only `cd`/`grep`/`sed -n`, whole-token `--finalize`, first-run card misfire; build the accept → apply → rerun → Close out → finalize harness (sentinel preservation + clean-tree, default-diff + GSD) on disposable copies
+- [ ] **Phase 53: False-alarm reduction** — three-outcome reachability replaces Rule 2; evidence-based conditional suppression for the 999.19 noise classes; H-LANE site representation decided; a never-filtered **Needs verification** group with mechanical admission that counts as an alarm; generic rule wording enforced by leakage scanner + prose locks; replay guard + live non-holdout dev runs before freeze
+- [ ] **Phase 54: Freeze + release gates + integration audit** — test/security/deep-review gates and the milestone integration audit pass on the candidate BEFORE measurement; freeze by artifact identity (committed manifest of SHA + per-file content hashes + model config + harness version); pre-window identity check that never accepts a version string; post-freeze change policy
+- [ ] **Phase 55: Measure + ship 2.12.0** — B3 ×3 (≤3/18 · 15/15), holdout ×3 judged per case, 16 preservation + 2 clean-tree accepted-fix runs; `RESULTS-v2.12.md` with honest limitations; outcome recorded MET/UNMET separately from shipping (a waiver never converts UNMET); publish 2.12.0 (main + tag + branch, atomic, hash-verified)
+
+### Phase 51: Seal the holdout
+
+**Goal**: An independent six-case holdout exists before any tuning work — sealed by content hash, stored outside the repo, and unreadable by tuning work — so Phase 55 can judge the false-alarm fix on evidence the tuning never saw
+**Depends on**: Phase 50 (v2.11 shipped as 2.11.1; nothing in v2.12 may lean on the holdout, so this phase is first)
+**Requirements**: HOLD-01, HOLD-02, HOLD-03, HOLD-04
+**Success Criteria** (what must be TRUE):
+
+  1. Six owner-selected real changes from the owner's repos exist, exactly one per case type — C1 (unchanged-helper flaw made newly reachable), C2 (protection removed with no equivalent), C3 (unrelated ordinary bug), Q1 (equivalent protection moved), Q2 (unchanged-helper weakness with no new exposure), Q3 (valid validation tightening) — each catch case with an answer key naming the defect, its location and the causal failure, and each quiet case with an expected-quiet rationale
+  2. The cases and keys live outside the repo; only their content hashes are committed, and `git log` shows that seal commit landing before the first Phase 53 commit
+  3. While Phases 52–53 run, any tool call that reaches for the holdout path is denied by a PreToolUse hook (mutation-tested: disable the hook and the test fails); the evaluation runner can read cases and the scoring step can read keys only in Phase 55, and no tuning artifact references the holdout content
+  4. The holdout's own documentation (and later `RESULTS-v2.12.md`) describes the hook as a barrier, not as proof that no agent ever read a file
+
+**Plans:** 10/10 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 51-01-PLAN.md — Deny hook `holdout_guard.py`: fail-closed PreToolUse classifier, install/uninstall/check-install, mutation tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 51-02-PLAN.md — Kit core `holdout_kit.py`: shared helpers, CLAUDECODE refusal, `setup` (layout, launchers, isolated-session settings), b3-exclusions.json
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 51-03-PLAN.md — Kit briefs: CASE-TYPES, VALIDITY-RULES (schemas), FINDER-BRIEF, CROSSCHECK-BRIEF + no-B3-leak test
+- [x] 51-05-PLAN.md — Manifest `holdout_manifest.py`: HMAC-keyed per-case hashes, SEAL.json public shape, rehash, extract --part, seal-order, publish
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 51-04-PLAN.md — Validator `holdout_validate.py`: six slots, provenance/budget ledger, C1/Q2 non-B3 + distinct, B3 hash reuse, key shape, proof re-execution on both trees
+- [x] 51-07-PLAN.md — Archive `holdout_archive.py`: openssl encrypt + verify, decrypt, leakscan (counts only), scrub
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 51-06-PLAN.md — Cross-check + seal `holdout_seal.py`: blind packets, frozen blind hash on reveal, seal gate with mutation-tested blockers
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [x] 51-08-PLAN.md — Dummy-data pipeline test + `dryrun --populate`, README (barrier, not proof; run sheet; cleanup), .gitignore line, hook installed repo-local + user-level
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [x] 51-10-PLAN.md — Owner autopilot `holdout_autopilot.py`: one-command headless finder + cross-check through the existing launchers (print mode, prompts denied, strict sandbox), auth preflight per config dir, resume journal, encrypt -> leakscan -> publish -> scrub, opaque result line, `--dry-run`, `--replace-retired`; mutation-tested with a fake claude
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [x] 51-09-PLAN.md — Owner-run: `bin/holdout autopilot --dry-run` checkpoint, `bin/holdout autopilot` checkpoint, then single-commit SEAL.json + seal-order
+
+### Phase 52: Hardening + accepted-fix harness
+
+**Goal**: The known fix-agent and guard edges are closed and the accepted-fix workflow (accept → apply → rerun → Close out → finalize) is exercised end to end by a harness on disposable copies — all of it landing before the measured build so no fix arrives after measurement (the 2.11.0 `11c8afc` lesson)
+**Depends on**: Phase 51 (holdout sealed and hook active; the harness never touches B3 or holdout inputs)
+**Requirements**: HARD-01, HARD-02, HARD-03, HARD-04, HARD-05, HARD-06, HARD-07, HARD-08, HARD-09, FLOW-01, FLOW-02, FLOW-03, FLOW-04, FLOW-05
+**Success Criteria** (what must be TRUE):
+
+  1. A fix pass on git older than 2.36 says so plainly at pass start rather than failing at commit time; a `git fetch --tags` mid-pass no longer halts the pass under the explicit tag allowance; the Phase-48 bare-repo `remote show` / upload-pack probe path is closed; WebFetch/MCP guard coverage is either implemented or recorded as a documented boundary decision
+  2. The fixstage/fixcommit exit table has one source, every other copy is generated from it or locked against it by a test, and the standalone fixcommit CLI is gone with fixstage owning the commit path
+  3. A review agent running read-only `cd`, `grep` and `sed -n` produces no Blocked notice, while mutating git commands stay blocked — each proven by a mutation test (break the guard, the test fails); `foo--finalize` and `--finalize=1` no longer reach the spine's finalize trigger; the first-run migration card does not appear when `.turingmind/` already exists
+  4. The accepted-fix harness runs accept → apply → rerun → Close out → finalize on disposable copies in both default-diff and GSD modes, starting from a seeded answer-key finding (never detection output), planting one staged and one unstaged sentinel in an untouched file plus one unstaged sentinel in the fixed file outside the hunk, and checking all three byte-for-byte afterwards; a run is reported complete only when the defect is verified fixed with tests passing, commits contain only the accepted repair, and rerun → Close out → finalize succeeds without manual repair, without silently dropping unresolved findings and without a false success report
+  5. Two sentinel-free clean-tree runs (one default-diff, one GSD) assert the tree is clean after fixes commit and before Close out; every harness run records the owner-decision count and elapsed time split into waiting-on-owner vs execution
+
+**Plans**: TBD
+
+### Phase 53: False-alarm reduction
+
+**Goal**: Bogus findings drop because a reviewer must show positive evidence of harmlessness before it suppresses anything, and whatever it cannot resolve is shown to the owner as a Needs-verification item that counts as an alarm — fewer false alarms without hiding uncertain findings
+**Depends on**: Phase 52 (all fix-path changes landed first so tuning is measured on the complete candidate; Phase 51's holdout hook stays active throughout)
+**Requirements**: QUIET-01, QUIET-02, QUIET-03, QUIET-04, QUIET-05, QUIET-06, QUIET-07, QUIET-08, QUIET-09
+**Success Criteria** (what must be TRUE):
+
+  1. For a flaw in unchanged code that the change touches or calls, the report lands on exactly one of three outcomes — a normal-band finding when the change demonstrably creates new exposure, a pre-existing cap when exposure is demonstrably unchanged, or an explicit unresolved assessment on insufficient evidence — and Rule 2's blanket "unchanged helper = pre-existing" cap no longer exists in any lane prompt
+  2. A declared-but-unconsumed value and a stricter validator rejecting a legacy value are each suppressed only on positive evidence (requirement-based / outside any supported contract), surface as findings when evidence shows harm, and land in Needs verification when neither can be established — a comment promising future wiring never counts as evidence; a lane that judged a replacement adequate but missed a bypass has that judgment and its evidence visible in the report; the H-LANE site representation (row lead, band, identity, per-member second-opinion semantics) is decided and implemented with the default config byte-identical unless the owner accepted a change on the record
+  3. The rendered report has a **Needs verification** group that is never filtered, folds into the one existing batch decision card, and persists each item until it is verified, dismissed or deferred with a recorded reason; admission is mechanical at render time (a file+line or symbol location AND a concrete failure), every rendered item counts as actionable, and the count of items dropped at render time is published
+  4. No rule or reachability wording names a B3 or holdout identifier — the leakage scanner and the mutation-tested prose locks in `scripts/test_agent_prompts.py` fail when one is introduced
+  5. Before the freeze, every scorer change passes the archived replay guard (`scripts/replay.py`, no protected catch lost) and every prompt change passes live development runs on non-holdout cases that include new reachability regression cases of both the demonstrated-new-exposure and demonstrated-unchanged shapes
+
+**Plans**: TBD
+
+### Phase 54: Freeze + release gates + integration audit
+
+**Goal**: The release candidate passes the standing release gates and the milestone integration audit, then is frozen by artifact identity so every measurement window provably runs on exactly that build — never on a version string
+**Depends on**: Phase 53 (the candidate includes every hardening and false-alarm change)
+**Requirements**: FRZ-01, FRZ-02, FRZ-03, FRZ-04
+**Success Criteria** (what must be TRUE):
+
+  1. The test, security and deep-review gates and the milestone integration audit all pass on the release-candidate commit, with the record showing they completed before any measurement window opened
+  2. A committed freeze manifest records the candidate commit SHA, a content hash of every loaded plugin file (commands, agents, scripts, hooks, config defaults), the model configuration (each agent's pin, `<TOP>`, the Codex model and effort) and the measurement-harness version (B3 kit + accepted-fix harness commit)
+  3. A pre-window check hashes the installed plugin files and compares them, the model configuration and the harness version against the manifest; any mismatch stops the window, and a matching `2.12.0` string with a differing file hash is rejected (mutation-tested: alter one installed file and the check stops)
+  4. The post-freeze change policy is written and in force: any change reruns the affected engineering checks and issues a new manifest before measurement resumes; a prompt, scorer, routing or guard change reruns all detection gates (B3 ×3 and holdout ×3); a fix-path change reruns the workflow gate; any holdout case that guided a repair becomes a regression case and a fresh replacement is sealed before the repair
+
+**Plans**: TBD
+
+### Phase 55: Measure + ship 2.12.0
+
+**Goal**: The frozen candidate is measured on B3, the sealed holdout and the accepted-fix path; the milestone outcome is recorded as MET or UNMET on its own terms, separately from the shipping decision; and plugin 2.12.0 is published through the standing gates
+**Depends on**: Phase 54 (freeze manifest + passed gates; holdout access released by role — runner reads cases, scoring reads keys)
+**Requirements**: MEAS-01, MEAS-02, MEAS-03, MEAS-04, MEAS-05, MEAS-06
+**Success Criteria** (what must be TRUE):
+
+  1. B3 ×3 (36 runs) on the frozen candidate — assistant-driven via tmux, clone auto-memory parked, manifest identity check before every window — shows false alarms ≤3/18 and catches 15/15, where catch credit requires the keyed defect, its location and the causal failure, and any actionable Needs-verification item makes a should-quiet run count as fired
+  2. Holdout ×3 (18 runs) shows each catch case caught in ≥2/3 runs and each quiet case firing in ≤1/3 runs, judged and reported per case (never aggregated) and labeled a release smoke-test bar
+  3. All 16 preservation runs (5 B3 should-catch + 3 holdout catch, × default-diff and GSD) and both clean-tree runs complete under the three FLOW-02 conditions, with owner-decision count and waiting-vs-execution time recorded on all 18
+  4. `plugins/vibe-check/docs/efficacy/RESULTS-v2.12.md` reports B3 per diff, the holdout per case, Needs-verification counts and the accepted-fix baseline, plus an honest-limitations section (small N, three owner repos, B3 not held out, holdout is a smoke test, isolation is a barrier not proof); the milestone outcome is recorded MET only when every gate passes with independent holdout evidence, otherwise UNMET — a waiver never converts UNMET to MET, and the pre-registered miss policy (one retune, "tuned on the same set" label, fresh holdout cases sealed before the retune) is followed
+  5. `plugin.json` is 2.12.0 with annotated tag `v2.12`, published after the gates as one atomic, exact-hash-verified push of main, the tag and `feat/v2.12`; if the outcome is UNMET the ship carries an explicit owner waiver naming each unmet gate, disclosed in the README, the tag body and RESULTS, and the milestone record reads "UNMET — shipped under waiver"
+
+**Plans**: TBD
+
 ## Progress
 
-**Execution Order:** phases execute in numeric order. v2.9, v2.10 and v2.11 are archived — see `.planning/milestones/v2.9-ROADMAP.md`, `.planning/milestones/v2.10-ROADMAP.md`, `.planning/milestones/v2.11-ROADMAP.md`. No milestone is in progress.
+**Execution Order:** phases execute in numeric order. v2.9, v2.10 and v2.11 are archived — see `.planning/milestones/v2.9-ROADMAP.md`, `.planning/milestones/v2.10-ROADMAP.md`, `.planning/milestones/v2.11-ROADMAP.md`. **v2.12 is in progress: Phases 51 → 52 → 53 → 54 → 55, strictly in order** (the holdout seals before any tuning; every fix lands before the measured build).
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -248,6 +367,11 @@ Full details: `.planning/milestones/v2.11-ROADMAP.md`.
 | 48. Fix-agent verification + git safety | v2.11 | 10/10 | Complete    | 2026-10-05 |
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
 | 50. Finalize entry fix + 2.11.1 patch | v2.11 | 2/2 | Complete    | 2026-10-08 |
+| 51. Seal the holdout | v2.12 | 10/10 | Complete    | 2026-10-09 |
+| 52. Hardening + accepted-fix harness | v2.12 | 0/? | Not started | - |
+| 53. False-alarm reduction | v2.12 | 0/? | Not started | - |
+| 54. Freeze + release gates + integration audit | v2.12 | 0/? | Not started | - |
+| 55. Measure + ship 2.12.0 | v2.12 | 0/? | Not started | - |
 
 > Full per-phase detail for shipped milestones lives in the archives under
 > `.planning/milestones/` (e.g. `v2.4-ROADMAP.md`, `v2.5-ROADMAP.md`, `v2.8-ROADMAP.md`).
@@ -805,15 +929,19 @@ the measured tree would not move; they are correctness/hygiene follow-ups, not n
 
 - git < 2.36 up-front check: fixstage needs `git hook run` (≥ 2.36); today an old git is found only
   at commit time (exit 1 refused). Detect it once at pass start and say so plainly.
+
 - `git -C <bare> remote show` / uploadpack: the bare-repo remote probe path flagged in Phase 48.
 - WebFetch/MCP hook coverage: the guard hooks cover Bash/Edit/Write; WebFetch and MCP tools are not
   covered.
+
 - Exit-table single source: the fixcommit/fixstage exit table is restated in several docs
   (agents/fix.md, 50-fix-loop.md, docstrings); generate or lock from one source.
+
 - Blocked-notice noise allowances: tune which Blocked notices are expected vs. surfaced.
 - fixcommit CLI retirement: fixstage now owns the commit path; retire the standalone fixcommit CLI.
 - refs/tags fetch halting a pass (49-01 residual): gitsnap excludes only `refs/remotes/*`, so a
   `git fetch --tags` during a pass halts it. Intentional today; decide whether tags get an allowance.
+
 - 49-03 residual windows: (a) SIGKILL and default-disposition SIGTERM/SIGHUP raise no Python
   exception; (b) a second BaseException inside the backstop arm; (c) a published candidate rewound to
   exactly `base` by another writer; (d) unborn-branch interrupt reports exit 9 conservatively.
@@ -822,6 +950,42 @@ the measured tree would not move; they are correctness/hygiene follow-ups, not n
 
 **Source:** Phase 49 CONTEXT D-02; 49-01 SUMMARY §Residual; 49-03 SUMMARY §Residuals (filed after
 PUBLISH-VERIFIED of 2.11.0, 2026-10-07).
+
+Plans:
+
+- [ ] TBD (promote with /bm:review-backlog when ready)
+
+### Phase 999.22: Codex-led carried findings can never close on recheck (BACKLOG)
+
+**Goal:** A carried finding whose lead agent is `codex-adversarial` can be resolved on a later pass
+when its defect is fixed, instead of staying `needs-recheck` (often Critical) forever.
+
+**Why:** Recheck hints (`20-dispatch.md` § Recheck hints, rule 3) go only to the agent that raised a
+carried record, and `codex-adversarial` is not a Task agent, so a Codex-led row gets no hint and no
+verdict — "the record simply stays carried". Seen on triggarr Phase 78 (2026-10-09, deep pass 2):
+the cutoff-fault defect was reported at :698 (codex lead + impact member) and :704 (bugs). The fix
+landed; bugs' R1 recheck resolved :704 and Codex's own pass-2 verdict was `approve` with 0 findings,
+yet :698 stayed Critical `needs-recheck` because nobody was asked about it. The only closure paths
+left are a fix-agent `obsolete` round-trip or an owner decision at Finalize — pure bookkeeping for
+an already-fixed defect, and it can block Finalize's outstanding-C/W gate.
+
+**Requirements:** TBD
+
+**Plans:** 0 plans
+
+**Candidate approaches (pick at planning):**
+
+- Route a Codex-led record's hint to a native member of the same row (e.g. `impact` here), or to
+  `bugs` as the default verifier, when the row has no native lead.
+- Ask Codex itself: include carried Codex-led records in the next Codex launch's focus as recheck
+  tokens and translate its verdicts through `codex_translate.py`.
+- Let a same-site native `resolved` verdict (a different record within ±2 lines, same defect class)
+  resolve a co-located Codex-led record — weakest; needs a guard against over-closing.
+
+**Design notes:** Touches the `score.py` verdict guard (token/agent/carried checks) and Phase 2
+dispatch; MUST NOT land inside a measured window. Pairs with 999.19 (H-LANE site representation).
+
+**Source:** triggarr v2.12 Phase 78 deep-review, pass 2 (2026-10-09).
 
 Plans:
 

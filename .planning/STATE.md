@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.11
-milestone_name: Quiet loop
-status: Awaiting next milestone
-stopped_at: v2.11 milestone complete (2.11.0 + 2.11.1 shipped)
-last_updated: "2026-10-08T15:10:34.370Z"
-last_activity: 2026-10-08 — Milestone v2.11 completed and archived
+milestone: v2.12
+milestone_name: Quiet without hiding
+status: ready_to_plan
+stopped_at: Phase 51 complete (10/10) — ready to discuss Phase 52
+last_updated: 2026-10-09T21:43:31.270Z
+last_activity: 2026-10-08 -- Phase 51 execution started
 progress:
   total_phases: 19
-  completed_phases: 6
-  total_plans: 41
-  completed_plans: 41
-  percent: 32
+  completed_phases: 0
+  total_plans: 10
+  completed_plans: 10
+  percent: 0
 ---
 
 # Project State
@@ -21,14 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Milestone complete
+**Current focus:** Phase 52 — hardening + accepted fix harness
 
 ## Current Position
 
-Phase: Milestone v2.11 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-10-08 — Milestone v2.11 completed and archived
+Phase: 52
+Plan: Not started
+Status: Ready to plan
+Progress: [█████████░] 90%
+Last activity: 2026-10-09
 
 ## Performance Metrics
 
@@ -57,6 +58,7 @@ Last activity: 2026-10-08 — Milestone v2.11 completed and archived
 | 48 | 10 | - | - |
 | 49 | 9 | - | - |
 | 50 | 2 | - | - |
+| 51 | 10 | - | - |
 
 **Recent Trend:**
 
@@ -154,6 +156,15 @@ Last activity: 2026-10-08 — Milestone v2.11 completed and archived
 | Phase 49 P07 | 5min | 6 tasks | 3 files |
 | Phase 49 P08 | 9min | 3 tasks | 4 files |
 | Phase 49 P09 | multi-session | 6 tasks | 4 files |
+| Phase 51 P01 | 14 min | 2 tasks | 2 files |
+| Phase 51 P02 | 35 min | 2 tasks | 6 files |
+| Phase 51 P03 | 12min | 2 tasks | 5 files |
+| Phase 51 P05 | 18 min | 2 tasks | 2 files |
+| Phase 51 P04 | 25min | 2 tasks | 4 files |
+| Phase 51 P07 | 75 min | 2 tasks | 2 files |
+| Phase 51 P06 | 35min | 2 tasks | 7 files |
+| Phase 51 P08 | 30 min | 3 tasks | 10 files |
+| Phase 51 P10 | 51 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -323,6 +334,27 @@ Earlier decisions (v2.8) still on record:
 - [Phase 49]: 49-08: release gate OWNER-APPROVED-MISS ship-as-measured; S_FINAL=e6eafbd (batch7); parity QUIET at 5ea8186
 - [Phase 49]: 49-08: REL-02 shipped build 48/24 (2.00) cards per fix-loop firing vs Phase-43 2.00; gate-log 2.11.0 unavailable at release
 - [Phase ?]: 49-09: 2.11.0 published (main/feat 2a420db, tag v2.11 f708e11) via one atomic explicit-SHA push after owner approval; release not B3-measured (owner waiver 11c8afc); tag v2.11 owned by 49-09, complete-milestone must not re-create/move/push it
+- [Phase 51]: Holdout guard check-install uses os.get_exec_path() for the python3 lookup (no env-mapping access in the module)
+- [Phase 51]: Holdout guard check-install --quiet-ok (SessionStart) writes PROBLEM lines to stdout and stderr so a failed self-check is visible
+- [Phase 51]: Holdout guard compares abspath and realpath forms of each root so a symlinked holdout root stays covered
+- [Phase 51]: 51-02: --folder is gated by a pre-parse before subcommand parsing; NO_FOLDER_COMMANDS is the only opt-out
+- [Phase 51]: 51-02: decrypt -> holdout_archive registered in COMMANDS (folder command, refuses under CLAUDECODE)
+- [Phase 51]: 51-02: make_xcheck_workspace requires prior == xcheck_names(1..gen-1); XCHECK_WS_RE accepts xcheck-r10+
+- [Phase ?]: 51-03: kit docs carry the schema block verbatim plus per-file JSON examples; test_holdout_briefs locks examples against the verbatim block and the briefs
+- [Phase 51]: 51-05: dry-run checkpoint passes only on 'dry run ok prompted sandbox=ok'; other dry-run forms are the blocking kind dry-run-failed (resume-check exits 3)
+- [Phase 51]: 51-04: validate prints one PROBLEM line per finding under a shared check name; summary counts distinct checks then Warnings/Non-runnable lines
+- [Phase 51]: 51-04: repo_in_b3 recomputed from repo_name AND basename(source_repo); constructed cases need screened==25; source_repo must be in kit/eligible-repos.json
+- [Phase 51]: 51-07: archive commands refuse in ANY Claude-spawned shell (isolated sessions included); writer barrier excludes only the kit's own process tree and fails closed without lsof/pgrep
+- [Phase 51]: 51-07: decrypt CLI resolves relative --archive/--dest against the holdout folder and may decrypt back into it (recovery); plaintext stage lives under tmp/owner
+- [Phase ?]: 51-06: cross-check workspace registry stays at sealed/keys/xcheck-workspaces.json; validate and build_seal skip exactly that file (holdout_kit.XCHECK_REGISTRY)
+- [Phase ?]: 51-06: seal's per-case blocker chain runs workspace freshness right after 'revealed', so a ledger re-pointed at a burned workspace reports STALE_WORKSPACE_MSG
+- [Phase 51]: Holdout dry-run cases are organic-shaped from throwaway repos populate adds to kit/eligible-repos.json; every synthetic string carries a per-case random tag
+- [Phase 51]: Finder reads kit/ via additionalDirectories with Edit(<H>/kit/**) denied; run sheet uses Read ../kit/FINDER-BRIEF.md
+- [Phase 51]: Holdout guard settings rewrites keep the file mode (0600 for new files)
+- [Phase ?]: 51-10: autopilot refuses in ANY Claude-spawned shell (stricter than the per-folder rule)
+- [Phase ?]: 51-10: every headless session id is journaled before launch; continuation only via --resume
+- [Phase ?]: 51-10: a lost UNREVEALED cross-check session is replaced by a fresh session in the same generation; a revealed one stops (burned)
+- [Phase ?]: 51-10: generations minted mid-run are login-checked before their first prompt (dry run asks once for bin/crosscheck-r2)
 
 ### Pending Todos
 
@@ -367,13 +399,21 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-08T15:10:34.366Z
+Last session: 2026-10-09T15:35:10.204Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: v2.11 milestone complete (2.11.0 + 2.11.1 shipped)
+Stopped at: Phase 51 plan 51-09 Task 1 (owner dry run checkpoint); fixes 34df1e1 135b26b 3ddda45 49cf844 landed during dry run
+
+v2.12 sequencing notes for whoever plans next (design spec `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-design.md`, phase order 51 → 52 → 53 → 54 → 55 is FIXED by the owner):
+
+- **Phase 51 seals the holdout before any tuning.** The seal commit (content hashes only; cases + keys live outside the repo) must be provably ordered before the first Phase 53 commit. The PreToolUse hook that denies the holdout path must be mutation-tested and stay active through Phases 52–53; it is a barrier, not proof, and the results must say so.
+- **Phase 52 lands every fix before the measured build** (the 2.11.0 `11c8afc` waiver lesson). The accepted-fix harness runs only on disposable copies, seeds the accepted finding from the answer-key record (never detection output), and never touches B3 or holdout inputs.
+- **Phase 53 is the first lane-prompt change since v2.10**: Rule 2 is replaced by three-outcome reachability; suppression needs positive evidence; Needs-verification admission is mechanical at render time and the drop count is published. Rule wording stays generic (leakage scanner + mutation-tested prose locks in `scripts/test_agent_prompts.py`). Validate with the archived replay guard (scorer) AND live non-holdout dev runs (prompts) before freeze.
+- **Phase 54 freezes by artifact identity.** Release gates (test / security / deep-review) + the integration audit run BEFORE measurement; the manifest hashes every loaded plugin file; the pre-window check never accepts a version string. Any post-freeze change → new manifest; prompt/scorer/routing/guard change → rerun ALL detection gates.
+- **Phase 55 measurement runtime**: B3 ×3 (36) + holdout ×3 (18) + 16 preservation + 2 clean-tree accepted-fix runs, clone auto-memory parked, manifest identity check before every window. **Who drives what (51-CONTEXT D-04/D-05 + "Carried forward to Phase 55"; corrected 2026-10-08 after codex pass 2):** assistant-driven tmux execution applies to the **B3 runs only**. Every run that touches holdout content — the holdout detection runs (6 cases ×3) and the holdout accepted-fix runs (3 catch cases × 2 modes) — is **owner-launched in the isolated evaluation session** (plain Terminal, own config dir, disposable copy with the frozen build; the kit and launchers refuse under CLAUDECODE); the assistant never drives, observes or reads those sessions, and the only things that return are the per-slot verdict table, result hashes, and completion/timing for the accepted-fix runs. Case execution is separated from scoring (`extract --part cases|keys`); a verdict that steers tuning retires that slot. MET requires every gate to pass with independent holdout evidence; a waiver never converts UNMET. One retune allowed ("tuned on the same set"; fresh holdout cases sealed before the retune). A completed milestone always publishes (standing directive).
 
 v2.11 sequencing notes for whoever plans next (design spec `docs/superpowers/specs/2026-10-01-quiet-loop-v2.11-design.md`, phase split and order are FIXED):
 
@@ -410,4 +450,4 @@ Load-bearing sequencing notes for whoever plans next:
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- `/bm:plan-phase 51` — Seal the holdout (owner selects the six real cases; keys sealed outside the repo)
