@@ -594,6 +594,98 @@ def _log_base(h, label):
         label, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()), _SEQ[0]))
 
 
+# ---------------------------------------------------------------- denials
+#
+# What Claude Code's permission system refused in a cross-check generation,
+# read from the session results the autopilot logged (`permission_denials`
+# in each --output-format json result). Only fixed words leave: the tool
+# and the kind of place its input named.
+
+# An absolute or ~ path starts a word: "./x" and "a/b" are relative.
+_PATH_RE = re.compile(r"""(?<![\w.~/-])(?:~|/)[^\s'"`;|&<>()]*""")
+_DENIAL_TOOL_NAMES = {"Bash": "bash", "Read": "read", "Write": "write",
+                      "Edit": "edit", "MultiEdit": "edit", "Glob": "glob",
+                      "Grep": "grep", "WebFetch": "webfetch",
+                      "WebSearch": "websearch", "Agent": "agent",
+                      "Task": "agent"}
+_TEMP_ROOTS = ("/tmp", "/private/tmp", "/var/folders", "/private/var/folders")
+
+
+def _under(path, root):
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _where(path, h, ws):
+    if path.startswith("~"):
+        path = os.path.expanduser(path)
+    path = os.path.normpath(path)
+    if path == "/dev/null":
+        return None
+    if _under(path, ws):
+        return "workspace"
+    if _under(path, h):
+        return "holdout"
+    if any(_under(path, t) for t in _TEMP_ROOTS):
+        return "temp"
+    if _under(path, os.path.expanduser("~")):
+        return "home"
+    return "system"
+
+
+def _denial_places(tool_input, h, ws):
+    places = set()
+    if not isinstance(tool_input, dict):
+        return places
+    for key, value in tool_input.items():
+        if not isinstance(value, str):
+            continue
+        if key == "command":
+            found = [_where(p, h, ws) for p in _PATH_RE.findall(value)]
+        elif key in ("file_path", "path", "notebook_path"):
+            found = [_where(value, h, ws) if value.startswith(("/", "~"))
+                     else "workspace"]
+        else:
+            continue
+        places.update(f for f in found if f)
+    return places
+
+
+def denials_line(folder, gen):
+    """`denials gen=N count=C <tool>-<where>,...` for generation `gen`:
+    every permission denial its sessions' results list, deduplicated and
+    sorted; `none` when they list none, `unknown` when no logged result of
+    that generation carries the field."""
+    h = os.path.realpath(folder)
+    names = holdout_kit.xcheck_names(gen)
+    label = os.path.basename(names["launcher"])
+    ws = os.path.join(h, names["workspace"])
+    log_re = re.compile(r"^%s-[0-9]{8}T[0-9]{6}Z-[0-9]+\.json$"
+                        % re.escape(label))
+    d = os.path.join(h, "tmp", "owner", "autopilot")
+    tokens, count, seen = set(), 0, False
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        path = os.path.join(d, name)
+        if not log_re.match(name) or os.path.islink(path) \
+                or not os.path.isfile(path):
+            continue
+        with open(path, "rb") as fh:
+            result = _last_json(fh.read())
+        denials = (result or {}).get("permission_denials")
+        if not isinstance(denials, list):
+            continue
+        seen = True
+        for entry in denials:
+            entry = entry if isinstance(entry, dict) else {}
+            tool = _DENIAL_TOOL_NAMES.get(entry.get("tool_name"), "other")
+            places = _denial_places(entry.get("tool_input"), h, ws) \
+                or {"none"}
+            count += 1
+            tokens.update("%s-%s" % (tool, p) for p in places)
+    body = ",".join(sorted(tokens)) if tokens else (
+        "none" if seen else "unknown")
+    return "denials gen=%d count=%d %s" % (gen, count, body)
+
+
 def _launcher(h, role, gen):
     if role == "finder":
         return "finder", os.path.join(h, "bin", "finder")
@@ -2108,6 +2200,14 @@ def dry_run_folder_problems(folder):
 
 
 def add_parser(sub, name):
+    if name == "denials":
+        p = sub.add_parser(
+            name, help="name, in fixed words only, what the permission "
+                       "system refused in a cross-check generation (reads "
+                       "only)")
+        p.add_argument("--gen", type=int, required=True, metavar="N",
+                       help="the cross-check generation (xcheck-rN)")
+        return
     if name != "autopilot":
         raise KitError("unknown autopilot command")
     p = sub.add_parser(
@@ -2142,6 +2242,9 @@ def add_parser(sub, name):
 def cmd(args):
     strip_credentials()
     holdout_kit.refuse_if_claude_spawned(None)
+    if args.cmd == "denials":
+        print(denials_line(args.folder, args.gen))
+        return 0
     opts = {"max_turns": args.max_turns, "budget_usd": args.budget_usd,
             "session_timeout": args.session_timeout}
     try:

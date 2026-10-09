@@ -1468,6 +1468,90 @@ class TestDisagreement(PipelineCase):
         self.assertTrue(os.path.exists(os.path.join(self.F, "SEAL.json")))
 
 
+class TestDenials(AutopilotCase):
+    """`denials --gen N` reads the generation's headless session results and
+    names each permission denial by tool and by the kind of place it
+    touched, in fixed words; never a command, a path or a file name."""
+
+    SECRET = "secret_case_marker"
+
+    def log(self, gen, denials, name="001"):
+        label = os.path.basename(holdout_kit.xcheck_names(gen)["launcher"])
+        d = os.path.join(self.F, "tmp", "owner", "autopilot")
+        os.makedirs(d, exist_ok=True)
+        result = {"type": "result", "result": "x",
+                  "permission_denials": denials}
+        with open(os.path.join(d, "%s-20261009T000000Z-%s.json"
+                               % (label, name)), "w") as fh:
+            fh.write(json.dumps(result))
+
+    def ws(self, gen, *parts):
+        return os.path.join(self.F, holdout_kit.xcheck_names(gen)
+                            ["workspace"], *parts)
+
+    def test_classifies_without_leaking(self):
+        self.log(2, [
+            {"tool_name": "Bash", "tool_input": {
+                "command": "cd %s && ./run_%s.sh 2>/dev/null"
+                           % (self.ws(2, "X-1", "base-run"), self.SECRET)}},
+            {"tool_name": "Bash", "tool_input": {
+                "command": "%s/bin/%s --x" % (self.home_dir(), self.SECRET)}},
+            {"tool_name": "Read", "tool_input": {
+                "file_path": os.path.join(self.F, "sealed", self.SECRET)}},
+            {"tool_name": "Write", "tool_input": {
+                "file_path": "/private/tmp/%s" % self.SECRET}},
+            {"tool_name": "mcp__x__%s" % self.SECRET, "tool_input": {}},
+            {"tool_name": "Bash", "tool_input": {"command": "true"}},
+        ])
+        line = ap.denials_line(self.F, 2)
+        self.assertEqual(line, "denials gen=2 count=6 bash-home,"
+                               "bash-none,bash-workspace,other-none,"
+                               "read-holdout,write-temp")
+        self.assertNotIn(self.SECRET, line)
+        self.assertEqual(holdout_manifest.resume_reply_kind(line), "denials")
+
+    def home_dir(self):
+        return os.path.expanduser("~")
+
+    def test_only_that_generation(self):
+        self.log(1, [{"tool_name": "Bash", "tool_input": {"command": "x"}}])
+        self.log(2, [])
+        self.assertEqual(ap.denials_line(self.F, 2),
+                         "denials gen=2 count=0 none")
+
+    def test_no_result_field_is_unknown(self):
+        label = os.path.basename(holdout_kit.xcheck_names(3)["launcher"])
+        d = os.path.join(self.F, "tmp", "owner", "autopilot")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, label + "-20261009T000000Z-009.json"),
+                  "w") as fh:
+            fh.write("not json")
+        self.assertEqual(ap.denials_line(self.F, 3),
+                         "denials gen=3 count=0 unknown")
+        self.assertEqual(ap.denials_line(self.F, 4),
+                         "denials gen=4 count=0 unknown")
+
+    def test_r2_logs_are_not_r20(self):
+        self.log(20, [{"tool_name": "Bash", "tool_input": {"command": "x"}}])
+        self.assertEqual(ap.denials_line(self.F, 2),
+                         "denials gen=2 count=0 unknown")
+
+    def test_cli(self):
+        self.log(2, [{"tool_name": "Bash", "tool_input": {
+            "command": "ls %s" % self.ws(2)}}])
+        _, out, err = self.capture(holdout_kit.run, [
+            "--folder", self.F, "denials", "--gen", "2"])
+        self.assertEqual(out.strip().splitlines()[-1],
+                         "denials gen=2 count=1 bash-workspace", out + err)
+
+    def test_cli_refuses_inside_claude(self):
+        with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
+            rc, out, err = self.capture(holdout_kit.run, [
+                "--folder", self.F, "denials", "--gen", "2"])
+        self.assertNotEqual(rc, 0)
+        self.assertNotIn("denials gen", out)
+
+
 class TestRejudge(PipelineCase):
     """--rejudge SLOT re-judges, in a fresh generation, ONLY a round whose
     judge agreed on substance but recorded no proof re-run exits."""

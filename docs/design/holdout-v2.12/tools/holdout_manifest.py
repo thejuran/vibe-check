@@ -1109,6 +1109,14 @@ DIAG_CHECKS = ("none", "round-incomplete", "type-judged-quiet",
                "nonrunnable-rerun-set", "nonrunnable-unresolved")
 
 
+# The closed vocabulary of `denials` (holdout_autopilot.denials_line): a
+# permission denial in a cross-check session, named by tool and by the kind
+# of place its input touched, never by its command or path.
+DENIAL_TOOLS = ("bash", "read", "write", "edit", "glob", "grep", "webfetch",
+                "websearch", "agent", "other")
+DENIAL_WHERE = ("workspace", "holdout", "home", "temp", "system", "none")
+
+
 def _alt(words):
     return "(?:%s)" % "|".join(re.escape(w) for w in words)
 
@@ -1133,7 +1141,15 @@ RESUME_GRAMMAR = (
         + r" checks=(?:none|" + _DIAG_CHECK_RE + r"(?:," + _DIAG_CHECK_RE
         + r")*)")),
 )
-RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked", "diagnosis"})
+_DENIAL_RE = _alt("%s-%s" % (t, w) for t in DENIAL_TOOLS
+                  for w in DENIAL_WHERE)
+RESUME_GRAMMAR += (
+    ("denials", re.compile(
+        r"denials gen=[1-9][0-9]? count=[0-9]{1,4} (?:none|unknown|"
+        + _DENIAL_RE + r"(?:," + _DENIAL_RE + r")*)")),
+)
+RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked", "diagnosis",
+                                   "denials"})
 RESUME_PROBLEM_MSG = ("resume reply does not conform to the opaque grammar; "
                       "treat it as a contamination incident and do not "
                       "record its contents")
