@@ -1,0 +1,34 @@
+{
+  "archive_sha256": "9bd81214d12bd82ae603d0eb29d8931e13bd5b1af4afc4aadc55944de4234511",
+  "cases": {
+    "H-128aabf2": {
+      "hmac": "f54db8a15240fbcd4747bd0d90814736074aa81f3ab2381aa041a710025f09dc",
+      "slot": "C1"
+    },
+    "H-31b4bf10": {
+      "hmac": "1f20e28c12a91bbe9ad2c8f3c511fa5302806bafe66e3c265cab7a4a1c08a414",
+      "slot": "Q3"
+    },
+    "H-7d9f10ef": {
+      "hmac": "8e05686ad8fc197a18bf69232bac6a50f3fa8a75b144ab851e13a452bcecc74a",
+      "slot": "Q2"
+    },
+    "H-7ea8f86b": {
+      "hmac": "cb7babddb0511db80281907040634c19f5cf57fede2d7552828348da44823dc0",
+      "slot": "C2"
+    },
+    "H-82f987b5": {
+      "hmac": "cb1d07c8f2da909bd75e62c5a2a2ddec19b84d0b49687220295784abde6c5491",
+      "slot": "Q1"
+    },
+    "H-c8d07ba4": {
+      "hmac": "33962cc037154d8418d3436d4f05594721466d1d2496c677ba782312d6bdfd0a",
+      "slot": "C3"
+    }
+  },
+  "key_commitment_sha256": "808c5cae71530c72035057e587ccb3c67918fa87825db06a23e20cbfec868428",
+  "mac": "HMAC-SHA256(key, sorted lines of '<relpath>\\0<sha256(file)>\\n' over sealed/cases/<id>/** and sealed/keys/<id>/**); key committed as SHA-256(key)",
+  "milestone": "v2.12",
+  "schema": "vibe-check-holdout-seal/2",
+  "status": "sealed"
+}
