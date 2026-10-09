@@ -389,7 +389,8 @@ class TestEncrypt(ArchiveCase):
                      "SEAL.json", ".metadata_never_index"):
             self.assertIn(name, names)
         self.assertEqual(holdout_archive.ARCHIVE_EXCLUDES,
-                         ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json"))
+                         ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json",
+                          "AUTOPILOT.json"))
 
     def test_archive_members_refuses_top_level_symlink(self):
         os.symlink(self.p("notes.txt"), self.p("link.txt"))
@@ -439,6 +440,64 @@ class TestEncrypt(ArchiveCase):
             self.encrypt()
         self.assertIn("already encrypted; delete archive/ deliberately to "
                       "redo", str(ctx.exception))
+
+    def test_stale_hash_without_archive_is_cleared(self):
+        # A crash after SEAL.json recorded archive_sha256 but before encrypt
+        # finished leaves a hash whose archive the finally block deleted.
+        seal = self.seal()
+        seal["archive_sha256"] = "0" * 64
+        holdout_kit.write_json_atomic(self.p("SEAL.json"), seal)
+        self.assertFalse(os.path.exists(self.archive))
+        self.encrypt()
+        self.assertTrue(os.path.isfile(self.archive))
+        self.assertEqual(self.seal()["archive_sha256"],
+                         holdout_kit.sha256_file(self.archive))
+        # The archived SEAL.json carries no stale hash either.
+        dest = os.path.join(self.tmp, "out")
+        self.quiet(holdout_archive.decrypt_to, self.archive, dest,
+                   openssl=self.shim)
+        with open(os.path.join(dest, "SEAL.json"), encoding="utf-8") as fh:
+            self.assertNotIn("archive_sha256", json.load(fh))
+
+    def test_crash_after_hash_recorded_keeps_archive(self):
+        # Once SEAL.json names the archive, the archive is kept: an error in
+        # the last progress line must not delete it behind the hash.
+        real = holdout_kit.print_ok
+
+        def boom(msg):
+            if "archive_sha256 recorded" in msg:
+                raise RuntimeError("synthetic crash")
+            real(msg)
+
+        with mock.patch.object(holdout_archive.holdout_kit, "print_ok",
+                               side_effect=boom):
+            with self.assertRaises(RuntimeError):
+                self.encrypt()
+        self.assertTrue(os.path.isfile(self.archive))
+        self.assertEqual(self.seal()["archive_sha256"],
+                         holdout_kit.sha256_file(self.archive))
+
+    def test_crash_between_hash_write_and_ok_recovers(self):
+        # The one remaining window: SEAL.json is written, ok is not yet set,
+        # so finally deletes the archive. The stale-hash rule lets the next
+        # encrypt redo it instead of refusing with "already encrypted".
+        real_write = holdout_kit.write_json_atomic
+
+        def write_then_crash(path, obj):
+            real_write(path, obj)
+            if "archive_sha256" in obj:
+                raise RuntimeError("synthetic crash")
+
+        with mock.patch.object(holdout_archive.holdout_kit,
+                               "write_json_atomic",
+                               side_effect=write_then_crash):
+            with self.assertRaises(RuntimeError):
+                self.encrypt()
+        self.assertFalse(os.path.exists(self.archive))
+        self.assertIn("archive_sha256", self.seal())
+        self.encrypt()
+        self.assertEqual(self.seal()["archive_sha256"],
+                         holdout_kit.sha256_file(self.archive))
 
     def test_refuses_existing_archive_file(self):
         plant(self.folder, ARCHIVE_REL, b"old")
@@ -1009,7 +1068,8 @@ class TestLeakRetire(LeakCase):
 # ================================================================ scrub
 
 FIXED = ("SEAL.json", ".metadata_never_index", ARCHIVE_REL, "bin/holdout",
-         "kit/KIT-INVENTORY.json", "LEAKSCAN.json", "RETIRED.json")
+         "kit/KIT-INVENTORY.json", "LEAKSCAN.json", "RETIRED.json",
+         "AUTOPILOT.json")
 
 SCRUB_PLANTS = {
     "xcheck/X-1/blind.json": "{}\n",

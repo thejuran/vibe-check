@@ -58,11 +58,13 @@ ENC_ARGS = ["enc", "-aes-256-cbc", "-md", "sha256", "-pbkdf2", "-iter",
 ARCHIVE_RELPATH = "archive/holdout-v2.12.tar.enc"
 # Top-level names never put into the archive: the archive itself, the whole
 # per-role scratch tree (tmp/finder, tmp/owner, tmp/crosscheck/*; scrub
-# deletes it instead), and the two live process ledgers, which must never be
-# overwritten by a later decrypt into the folder. Everything else at the top
+# deletes it instead), the two live process ledgers and the autopilot's
+# resume journal, which must never be overwritten by a later decrypt into the
+# folder. Everything else at the top
 # level is archived, including logs, stray files and every cross-check
 # generation.
-ARCHIVE_EXCLUDES = ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json")
+ARCHIVE_EXCLUDES = ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json",
+                    "AUTOPILOT.json")
 
 OWNER_TMP = "tmp/owner"
 STAGE_NAME = "stage.tar"
@@ -335,6 +337,14 @@ def encrypt(folder, openssl=None, tar=None):
     require_no_writers(h)
     seal = _load_seal(h)
     archive = archive_path(h)
+    if "archive_sha256" in seal and not os.path.lexists(archive):
+        # A run interrupted after SEAL.json recorded the hash but before it
+        # finished deletes the archive in finally: the hash names nothing.
+        # Drop it (on disk too, so the archived SEAL.json never carries it)
+        # and encrypt again.
+        del seal["archive_sha256"]
+        holdout_kit.write_json_atomic(
+            os.path.join(h, holdout_manifest.SEAL_NAME), seal)
     if "archive_sha256" in seal or os.path.lexists(archive):
         raise KitError("already encrypted; delete archive/ deliberately to "
                        "redo")
@@ -380,8 +390,10 @@ def encrypt(folder, openssl=None, tar=None):
         seal["archive_sha256"] = holdout_kit.sha256_file(archive)
         holdout_kit.write_json_atomic(
             os.path.join(h, holdout_manifest.SEAL_NAME), seal)
-        holdout_kit.print_ok("archive_sha256 recorded in SEAL.json")
+        # Set at once: from here SEAL.json names this archive, so finally
+        # must keep it.
         ok = True
+        holdout_kit.print_ok("archive_sha256 recorded in SEAL.json")
     except KitError as exc:
         if written and str(exc) == DECRYPT_FAILED_MSG:
             raise KitError(VERIFY_FAILED_MSG)
@@ -713,10 +725,12 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
 # kit/KIT-INVENTORY.json. LEAKSCAN.json (counts, opaque IDs, slots) and
 # RETIRED.json (ID-independent fingerprints) must survive so later scans,
 # publish and seal keep seeing every earlier leak and retirement.
+# AUTOPILOT.json (step names, opaque IDs, session ids, slots) survives so a
+# re-run of the autopilot after scrub still knows how the run ended.
 SCRUB_FIXED_SURVIVORS = ("SEAL.json", ".metadata_never_index",
                          ARCHIVE_RELPATH, "bin/holdout",
                          "kit/KIT-INVENTORY.json", "LEAKSCAN.json",
-                         "RETIRED.json")
+                         "RETIRED.json", "AUTOPILOT.json")
 # Survivors that must be present after scrub; any other may be absent.
 REQUIRED_SURVIVORS = ("SEAL.json", ".metadata_never_index", ARCHIVE_RELPATH,
                       "bin/holdout")
