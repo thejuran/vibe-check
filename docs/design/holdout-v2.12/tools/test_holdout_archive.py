@@ -1069,7 +1069,7 @@ class TestLeakRetire(LeakCase):
 
 FIXED = ("SEAL.json", ".metadata_never_index", ARCHIVE_REL, "bin/holdout",
          "kit/KIT-INVENTORY.json", "LEAKSCAN.json", "RETIRED.json",
-         "AUTOPILOT.json")
+         "DRY-RUN.json", "SYNTHETIC-AGREEMENT.json", "AUTOPILOT.json")
 
 SCRUB_PLANTS = {
     "xcheck/X-1/blind.json": "{}\n",

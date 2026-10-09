@@ -380,9 +380,12 @@ def encrypt(folder, openssl=None, tar=None):
         sys.stdout.flush()
         decrypt_to(archive, verify, openssl=openssl, tar=tar,
                    stage_dir=owner_tmp)
+        # A dry-run folder verifies its own dry-run seal; any other folder
+        # gets the real-run check, which refuses every dry-run mark.
         result = holdout_manifest.rehash_folder(
             os.path.join(h, holdout_manifest.SEAL_NAME),
-            os.path.join(verify, "sealed"))
+            os.path.join(verify, "sealed"),
+            dry_run=holdout_kit.dry_run_marker_ok(h))
         if not result.get("ok"):
             raise KitError(VERIFY_FAILED_MSG)
         holdout_kit.print_ok("archive decrypts and re-hashes clean (%d cases)"
@@ -725,12 +728,16 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
 # kit/KIT-INVENTORY.json. LEAKSCAN.json (counts, opaque IDs, slots) and
 # RETIRED.json (ID-independent fingerprints) must survive so later scans,
 # publish and seal keep seeing every earlier leak and retirement.
-# AUTOPILOT.json (step names, opaque IDs, session ids, slots) survives so a
-# re-run of the autopilot after scrub still knows how the run ended.
+# DRY-RUN.json and SYNTHETIC-AGREEMENT.json (fixed fields, opaque IDs and
+# hashes) survive so a scrubbed dry-run folder stays marked: publish and
+# rehash keep refusing its seal. AUTOPILOT.json (step names, opaque IDs,
+# session ids, slots) survives so a re-run of the autopilot after scrub
+# still knows how the run ended.
 SCRUB_FIXED_SURVIVORS = ("SEAL.json", ".metadata_never_index",
                          ARCHIVE_RELPATH, "bin/holdout",
                          "kit/KIT-INVENTORY.json", "LEAKSCAN.json",
-                         "RETIRED.json", "AUTOPILOT.json")
+                         "RETIRED.json", holdout_kit.DRYRUN_MARKER,
+                         holdout_kit.SYNTHETIC_AGREEMENT, "AUTOPILOT.json")
 # Survivors that must be present after scrub; any other may be absent.
 REQUIRED_SURVIVORS = ("SEAL.json", ".metadata_never_index", ARCHIVE_RELPATH,
                       "bin/holdout")

@@ -26,6 +26,14 @@ flow, and what binds each step to the next:
      key.json and proof-results.json rather than taken from the session's
      flags. Only then does it write SEAL.json.
 
+Dry run: `seal --dry-run` works only in a folder carrying a valid
+DRY-RUN.json and writes a SEAL.json marked "dry-run" (rejected by publish and
+the Phase-55 rehash). Only there may SYNTHETIC-AGREEMENT.json, written by
+`autopilot --dry-run` (record_synthetic_agreement), stand in for the
+agreement rule on a real judge's well-formed, hash-bound disagreement; the
+judge's verdict files are never written. A real seal refuses any folder
+holding either file.
+
 crosscheck-reset is the only regeneration path. It archives the current round
 in the ledger and removes the packet; the next crosscheck-prepare gives the
 case a new XID. When the open workspace has already seen a reveal, prepare
@@ -86,6 +94,17 @@ BLIND_KEYS = frozenset({"verdict", "type_guess", "location",
 ROUND_FIELDS = ("xid", "round", "generation", "workspace", "prepared_at",
                 "inputs", "blind_sha256", "revealed_at", "reveal_token",
                 "revealed", "resolution_sha256")
+NOT_DRY_RUN_FOLDER_MSG = ("seal --dry-run needs a dry-run folder (a valid "
+                          "DRY-RUN.json, written by dryrun --populate or by "
+                          "refresh-kit for a provable dry run); nothing was "
+                          "sealed")
+SYNTHETIC_REFUSED_MSG = ("synthetic agreement is recorded only by autopilot "
+                         "--dry-run in a dry-run folder; nothing was written")
+JUDGE_VERDICT_BAD_MSG = ("%s: the cross-check session's verdict is not "
+                         "well-formed (%s)")
+FINAL_REQUIRED = {"reveal_token": str, "type_agrees": bool,
+                  "defect_agrees": bool, "causal_failure_agrees": bool,
+                  "proof_agrees": bool, "notes": str}
 LAUNCH_MSG = ("fresh cross-check workspace %s. Close the previous cross-check "
               "session, then launch %s (a new session; /login if asked) and "
               "type: Read CROSSCHECK-BRIEF.md and begin.")
@@ -463,6 +482,33 @@ def _read_blind(packet, xid):
     return path
 
 
+def _final_shape_problems(final, slot, runnable=True):
+    """[] when final.json has the VALIDITY-RULES shape for this slot;
+    otherwise the names of the offending fields. Field values are checked
+    for type only: what the session concluded is never judged here."""
+    if not isinstance(final, dict):
+        return ["not an object"]
+    problems = []
+    for name, typ in sorted(FINAL_REQUIRED.items()):
+        value = final.get(name)
+        if not isinstance(value, typ) or (typ is str and not value.strip()):
+            problems.append(name)
+    rerun = final.get("proof_rerun_exit")
+    if runnable and _exit_pair(rerun) is None:
+        problems.append("proof_rerun_exit")
+    if not runnable and rerun is not None:
+        problems.append("proof_rerun_exit")
+    confirmed = final.get("quiet_confirmed", "missing")
+    if confirmed is None:
+        if slot in holdout_kit.QUIET_SLOTS:
+            problems.append("quiet_confirmed")
+    elif not (isinstance(confirmed, dict)
+              and set(confirmed) == {"supported_behavior", "exposure_check"}
+              and all(isinstance(v, bool) for v in confirmed.values())):
+        problems.append("quiet_confirmed")
+    return problems
+
+
 # ---------------------------------------------------------------- reveal
 
 
@@ -811,10 +857,12 @@ class SealBlocked(KitError):
 class _CaseView:
     """What the per-case blockers read, loaded once per case."""
 
-    def __init__(self, folder, cid, registry):
+    def __init__(self, folder, cid, registry, synthetic=None):
         self.folder = folder
         self.cid = cid
         self.registry = registry
+        self.synthetic = synthetic
+        self.used_synthetic = False
         try:
             self.slot = _slot(folder, cid)
         except KitError:
@@ -946,12 +994,18 @@ def _blocker_final_bound(view):
     return None
 
 
-def _blocker_agreement(view):
-    """The AGREEMENT, PROOF EXITS and NON-RUNNABLE rules. proof-results.json
-    is read once for `runnable` and the recorded exits; the owner's
-    resolution counts only when its sha256 was bound at reveal (its prose is
-    never read here). A failure is DISAGREE_MSG naming the failed parts; a
-    changed input is INPUTS_CHANGED_MSG from _blocker_inputs_bound instead."""
+def _runnable(view):
+    proof_results = _load_dict_or_none(os.path.join(
+        _keys(view.folder, view.cid), "proof-results.json"))
+    return not (isinstance(proof_results, dict)
+                and proof_results.get("runnable") is False)
+
+
+def _agreement_parts(view):
+    """The failed parts of the agreement rules for this case ([] = agrees).
+    proof-results.json is read once for `runnable` and the recorded exits;
+    the owner's resolution counts only when its sha256 was bound at reveal
+    (its prose is never read here)."""
     k = _keys(view.folder, view.cid)
     key = _load_dict_or_none(os.path.join(k, "key.json"))
     proof_results = _load_dict_or_none(os.path.join(k, "proof-results.json"))
@@ -963,12 +1017,52 @@ def _blocker_agreement(view):
         os.path.isfile(res) and not os.path.islink(res)
         and isinstance(bound, str)
         and bound == holdout_kit.sha256_file(res))
-    parts = agreement_problems(view.slot, key,
-                               view.load_packet_json("blind.json"),
-                               view.load_packet_json("final.json"),
-                               runnable=runnable,
-                               resolution_bound=resolution_bound,
-                               recorded_exits=_recorded_exits(proof_results))
+    return agreement_problems(view.slot, key,
+                              view.load_packet_json("blind.json"),
+                              view.load_packet_json("final.json"),
+                              runnable=runnable,
+                              resolution_bound=resolution_bound,
+                              recorded_exits=_recorded_exits(proof_results))
+
+
+def _synthetic_covers(view):
+    """True when the dry run's synthetic-agreement record (view.synthetic,
+    loaded only in dry-run mode in a marked folder) covers exactly this
+    case's current, well-formed real-judge round: same XID and generation,
+    the frozen blind hash, and the final.json bytes on disk."""
+    rec = view.synthetic
+    if not isinstance(rec, dict):
+        return False
+    entry = rec["cases"].get(view.cid)
+    led = view.ledger or {}
+    final = view.packet_file("final.json")
+    if not isinstance(entry, dict) or entry.get("agreement") != "synthetic" \
+            or entry.get("judge_outcome") != "disagreed" \
+            or entry.get("mode") != "dry-run":
+        return False
+    if entry.get("xid") != led.get("xid") \
+            or entry.get("generation") != led.get("generation") \
+            or entry.get("blind_sha256") != led.get("blind_sha256"):
+        return False
+    if final is None or os.path.islink(final) or not os.path.isfile(final) \
+            or holdout_kit.sha256_file(final) != entry.get("final_sha256"):
+        return False
+    return not _final_shape_problems(view.load_packet_json("final.json"),
+                                     view.slot, _runnable(view))
+
+
+def _blocker_agreement(view):
+    """The AGREEMENT, PROOF EXITS and NON-RUNNABLE rules. A failure is
+    DISAGREE_MSG naming the failed parts; a changed input is
+    INPUTS_CHANGED_MSG from _blocker_inputs_bound instead.
+
+    Dry run only: a real-judge disagreement covered by the synthetic-
+    agreement record is let through (and noted on the view); the judge's
+    files are never touched, so the disagreement stays on the record."""
+    parts = _agreement_parts(view)
+    if parts and _synthetic_covers(view):
+        view.used_synthetic = True
+        return None
     if parts:
         return DISAGREE_MSG % (view.slot, ", ".join(parts))
     return None
@@ -983,19 +1077,72 @@ CASE_BLOCKERS = ("_blocker_prepared", "_blocker_revealed",
                  "_blocker_agreement")
 
 
-def seal_blockers(folder, checks=None):
-    """Plain-language blockers, [] when the holdout may be sealed: validation
-    first, retired content second, then one line per case that fails a
-    cross-check blocker."""
+def _dry_run_refusal(folder, dry_run):
+    """None when sealing in this mode may proceed in this folder. A real
+    seal refuses any dry-run marker (any content); a dry-run seal needs a
+    valid DRY-RUN.json for this folder."""
+    if dry_run:
+        return None if holdout_kit.dry_run_marker_ok(folder) \
+            else NOT_DRY_RUN_FOLDER_MSG
+    if holdout_kit.dry_run_markers_present(folder):
+        return holdout_kit.DRY_RUN_REFUSED_MSG
+    return None
+
+
+def load_synthetic(folder):
+    """The synthetic-agreement record of a dry run, strictly; None when it
+    is absent or is not this kit's record for this folder."""
+    path = os.path.join(folder, holdout_kit.SYNTHETIC_AGREEMENT)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return None
+    rec = _load_dict_or_none(path)
+    if not isinstance(rec, dict) \
+            or set(rec) != {"schema", "mode", "folder", "judged", "cases"} \
+            or rec["schema"] != holdout_kit.SYNTHETIC_AGREEMENT_SCHEMA \
+            or rec["mode"] != "dry-run" \
+            or rec["folder"] != os.path.realpath(folder) \
+            or not isinstance(rec["judged"], dict) \
+            or not isinstance(rec["cases"], dict):
+        return None
+    return rec
+
+
+def _synthetic_for(folder, dry_run):
+    """The record the agreement blocker may use: only in dry-run mode, only
+    in a folder with a valid dry-run marker."""
+    if not dry_run or not holdout_kit.dry_run_marker_ok(folder):
+        return None
+    return load_synthetic(folder)
+
+
+def _gate(folder, checks=None, dry_run=False):
+    """(blockers, IDs sealed on synthetic agreement, IDs whose owner
+    retirement the dry run waives)."""
+    refusal = _dry_run_refusal(folder, dry_run)
+    if refusal:
+        return [refusal], set(), set()
     blockers = list(_blocker_validate(folder, checks) or [])
-    blockers += list(_blocker_retired(folder) or [])
+    waived = set()
+    if dry_run:
+        # A dummy case the owner retired as itself (the old 7b loop) is not
+        # replaced just to seal a dry run. A leak-scan retirement, or a new
+        # case that reuses retired material, still blocks.
+        for cid, line, reasons in holdout_manifest.retired_matches(folder):
+            if reasons == {"owner:exact"}:
+                waived.add(cid)
+            else:
+                blockers.append(line)
+    else:
+        blockers += list(_blocker_retired(folder) or [])
     try:
         registry = _load_registry(folder)
     except KitError:
         registry = None
+    synthetic = _synthetic_for(folder, dry_run)
+    used = set()
     module = sys.modules[__name__]
     for cid in holdout_kit.case_ids(folder):
-        view = _CaseView(folder, cid, registry)
+        view = _CaseView(folder, cid, registry, synthetic)
         for name in CASE_BLOCKERS:
             try:
                 line = getattr(module, name)(view)
@@ -1004,17 +1151,38 @@ def seal_blockers(folder, checks=None):
             if line:
                 blockers.append(line)
                 break
-    return blockers
+        if view.used_synthetic:
+            used.add(cid)
+    return blockers, used, waived
 
 
-def do_seal(folder):
+def seal_blockers(folder, checks=None, dry_run=False):
+    """Plain-language blockers, [] when the holdout may be sealed: the
+    dry-run gate first (a real seal refuses any dry-run marker; a dry-run
+    seal needs a marked folder), validation, retired content, then one line
+    per case that fails a cross-check blocker."""
+    return _gate(folder, checks, dry_run)[0]
+
+
+def do_seal(folder, dry_run=False):
     """Seal when there is no blocker: copy each final.json to
     keys/<ID>/crosscheck.json, build the seal and the private inventory, and
-    write SEAL.json last. Returns the seal."""
+    write SEAL.json last. Returns the seal.
+
+    dry_run=True (a marked dry-run folder only) writes a dry-run seal:
+    status "dry-run", the real judge's outcome per judged case, `agreement:
+    synthetic` on every case the synthetic record let through, and
+    `retired_material: waived` on a waived retirement. public_shape_problems
+    rejects it, so publish and the Phase-55 rehash never accept it."""
     _refuse_if_sealed(folder)
-    blockers = seal_blockers(folder)
+    blockers = seal_blockers(folder, dry_run=dry_run)
     if blockers:
         raise SealBlocked(blockers)
+    used, waived = set(), set()
+    if dry_run:
+        blockers, used, waived = _gate(folder, dry_run=True)
+        if blockers:
+            raise SealBlocked(blockers)
     for cid in holdout_kit.case_ids(folder):
         led = _load_ledger(folder, cid)
         src = os.path.join(_packet_dir(folder, led), "final.json")
@@ -1025,10 +1193,77 @@ def do_seal(folder):
             raise KitError("cannot copy the cross-check verdict of %s"
                            % _slot(folder, cid))
     seal = holdout_manifest.build_seal(folder)
+    if dry_run:
+        rec = load_synthetic(folder) or {}
+        holdout_manifest.mark_dry_run_seal(
+            seal, judged=rec.get("judged") or {}, synthetic=used,
+            waived=waived)
     holdout_manifest.write_inventory(folder)
     holdout_kit.write_json_atomic(
         os.path.join(folder, holdout_manifest.SEAL_NAME), seal)
     return seal
+
+
+# ---------------------------------------------------------------- dry run
+
+
+def _real_judge_problems(view):
+    """[] when a real-judge round is complete and well formed: revealed,
+    blind.json intact and of the brief's shape, final.json present, bound to
+    this reveal and of the VALIDITY-RULES shape."""
+    for name in ("_blocker_prepared", "_blocker_revealed",
+                 "_blocker_blind_intact", "_blocker_blind_shape",
+                 "_blocker_final_present", "_blocker_final_bound"):
+        if getattr(sys.modules[__name__], name)(view):
+            return [name[len("_blocker_"):]]
+    return _final_shape_problems(view.load_packet_json("final.json"),
+                                 view.slot, _runnable(view))
+
+
+def record_synthetic_agreement(folder, generations, dry_run=False):
+    """Dry run only: record what the real judge decided for every case
+    whose current round was judged by a headless session in one of
+    `generations`, and write SYNTHETIC-AGREEMENT.json covering each case it
+    disagreed on. Returns [(slot, "agreed"|"disagreed")] in slot order.
+
+    The judge's blind.json and final.json are read, never written; the
+    record binds their hashes, so a later change voids it. A round that is
+    not well formed is a KitError (JUDGE_VERDICT_BAD_MSG): the dry run then
+    cannot show the judging machinery works. Refuses (SYNTHETIC_REFUSED_MSG)
+    unless dry_run is set and the folder carries a valid dry-run marker."""
+    holdout_kit.refuse_if_claude_spawned(folder)
+    h = os.path.realpath(folder)
+    if not dry_run or not holdout_kit.dry_run_marker_ok(h):
+        raise KitError(SYNTHETIC_REFUSED_MSG)
+    registry = _load_registry(h)
+    gens = set(generations)
+    judged, covered, outcomes = {}, {}, []
+    for cid in holdout_kit.case_ids(h):
+        view = _CaseView(h, cid, registry)
+        led = view.ledger or {}
+        if led.get("generation") not in gens:
+            continue
+        bad = _real_judge_problems(view)
+        if bad:
+            raise KitError(JUDGE_VERDICT_BAD_MSG % (view.slot,
+                                                    ", ".join(bad)))
+        outcome = "disagreed" if _agreement_parts(view) else "agreed"
+        judged[cid] = outcome
+        outcomes.append((view.slot, outcome))
+        if outcome == "disagreed":
+            covered[cid] = {
+                "mode": "dry-run", "agreement": "synthetic",
+                "judge_outcome": "disagreed", "xid": led["xid"], "generation": led["generation"],
+                "blind_sha256": led["blind_sha256"],
+                "final_sha256": holdout_kit.sha256_file(
+                    view.packet_file("final.json"))}
+    holdout_kit.write_json_atomic(
+        os.path.join(h, holdout_kit.SYNTHETIC_AGREEMENT),
+        {"schema": holdout_kit.SYNTHETIC_AGREEMENT_SCHEMA, "mode": "dry-run",
+         "folder": h, "judged": judged, "cases": covered})
+    order = list(holdout_kit.SLOTS)
+    return sorted(outcomes, key=lambda o: order.index(o[0])
+                  if o[0] in order else len(order))
 
 
 # ---------------------------------------------------------------- CLI
@@ -1054,7 +1289,11 @@ def add_parser(sub, name):
         p.add_argument("case", metavar="ID")
         p.add_argument("--reason", required=True, choices=RESET_REASONS)
     elif name == "seal":
-        sub.add_parser(name, help="check every blocker, then write SEAL.json")
+        p = sub.add_parser(name, help="check every blocker, then write "
+                                      "SEAL.json")
+        p.add_argument("--dry-run", action="store_true",
+                       help="seal a dry-run folder (writes a dry-run seal "
+                            "that publish and rehash refuse)")
     else:
         raise KitError("unknown seal command")
 
@@ -1101,7 +1340,8 @@ def _cmd_reset(args):
 
 def _cmd_seal(args):
     try:
-        seal = do_seal(args.folder)
+        seal = do_seal(args.folder,
+                       dry_run=bool(getattr(args, "dry_run", False)))
     except SealBlocked as exc:
         for line in exc.blockers:
             holdout_kit.print_problem(line)

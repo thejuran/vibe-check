@@ -37,6 +37,15 @@ login stops with one instruction naming the launcher to run /login in.
 The autopilot refuses in every Claude-spawned shell (isolated sessions
 included): only the owner starts it.
 
+Dry run (--dry-run): the machinery is what is proven. The real headless
+judge must still run and write well-formed verdicts, but its agreement with
+a dummy label is recorded (holdout_seal.record_synthetic_agreement), never
+required and never rewritten; a disagreement is sealed on the explicitly
+marked synthetic-agreement record, which only a dry-run seal in a folder
+carrying DRY-RUN.json accepts. A dry run never takes the 7b stop, never
+retires or replaces to obtain agreement and never opens a generation for it.
+The real run refuses any folder carrying a dry-run marker.
+
 I/O: stdlib only, imports exactly {contextlib, json, os, re, shutil, sys,
 time, uuid} plus the kit modules. Every process goes through
 holdout_kit.run_argv (argv list, timeout, never a shell).
@@ -198,6 +207,20 @@ STOP_INSTRUCTIONS = {
         "%s --reason resolved, or run retire --slot %s --reason owner. Then "
         "run bin/holdout autopilot again (after a retire: bin/holdout "
         "autopilot --replace-retired)."),
+    "disagreement-dry": (
+        "Case %s (%s): a dummy case failed the agreement rule and no real "
+        "judge verdict was recorded for it. Do not retire or replace it. "
+        "Run <H>/bin/holdout seal --dry-run in a new Terminal window to read "
+        "why, then report blocked other."),
+    "not-dry-folder": (
+        "This folder has no valid dry-run marker, so the dry run cannot "
+        "seal it. Bring its kit up to date with refresh-kit (README 7e), "
+        "then run bin/holdout autopilot again."),
+    "judge-malformed": (
+        "The headless cross-check session wrote a verdict that is not well "
+        "formed, so the dry run cannot show the judging machinery works. Do "
+        "not retire or replace anything. Read the log inside the holdout "
+        "folder (tmp/owner/autopilot) and report blocked other."),
     "leakscan": (
         "Leak scan named slots %s. Follow README 7d steps 1-2 (close the "
         "named tuning session, delete the named matches as cleanup), then "
@@ -294,6 +317,9 @@ SETTINGS_MSG = ("the %s settings failed their self-check; run setup again in "
 AUTH_MSG = ("the %s session is not logged in. In a new Terminal window run "
             "%s, type /login, finish the browser login, type /exit, then run "
             "bin/holdout autopilot again.")
+DRY_FOLDER_REAL_MSG = ("this folder is a dry-run folder (it carries "
+                      "DRY-RUN.json or SYNTHETIC-AGREEMENT.json); the real "
+                      "run needs its own freshly set-up folder")
 REPO_MSG = ("autopilot needs --repo PATH (the tuning repo) for leakscan and "
             "publish")
 RESTART_MSG = ("nothing to restart: the finder session was not lost; run "
@@ -1464,6 +1490,35 @@ def _dry_regenerate(run):
     _step("crosscheck", "case %s sent to a fresh generation" % cid)
 
 
+def _judged_generations(j):
+    """The generations whose blind round a headless session ran in this
+    folder (begun), as ints."""
+    out = []
+    for gen, entry in j["xcheck"].items():
+        if isinstance(entry, dict) and entry.get("begun") and gen.isdigit():
+            out.append(int(gen))
+    return sorted(out)
+
+
+def _record_outcomes(run):
+    """Dry run only: record the real judge's outcome for each case it
+    judged, never requiring agreement and never touching its verdict files.
+    A disagreement is covered by the explicitly marked synthetic-agreement
+    record, which only a dry-run seal in a dry-run folder accepts."""
+    h = run.h
+    if not holdout_kit.dry_run_marker_ok(h):
+        raise Stop("other", STOP_INSTRUCTIONS["not-dry-folder"])
+    try:
+        outcomes = _quiet(h, "crosscheck",
+                          holdout_seal.record_synthetic_agreement, h,
+                          _judged_generations(run.j), dry_run=True)
+    except KitError as exc:
+        _log_lines(h, "crosscheck", [str(exc)])
+        raise Stop("other", STOP_INSTRUCTIONS["judge-malformed"])
+    for _, outcome in outcomes:
+        _step("crosscheck", "real judge verdict recorded (%s)" % outcome)
+
+
 def _step_crosscheck(run):
     if _seal_exists(run.h):
         return _skip(run, "crosscheck", "sealed")
@@ -1471,6 +1526,8 @@ def _step_crosscheck(run):
     if run.mode == "dry-run":
         _dry_regenerate(run)
     _judge_all(run)
+    if run.mode == "dry-run":
+        _record_outcomes(run)
     _done(run, "crosscheck", "every case has a final verdict")
 
 
@@ -1492,6 +1549,8 @@ def _classify_blocker(line):
         return "inputs-changed", slot
     if line.startswith("validation failed"):
         return "validation", None
+    if line == holdout_seal.NOT_DRY_RUN_FOLDER_MSG:
+        return "not-dry-folder", None
     if "had already seen a revealed key" in line:
         return "burned", slot
     if "reuses material retired" in line:
@@ -1504,16 +1563,25 @@ def _step_seal(run):
     if _seal_exists(h):
         return _skip(run, "seal", "SEAL.json exists")
     _begin(run, "seal")
+    dry = run.mode == "dry-run"
     revalidated = False
     while True:
-        blockers = _quiet(h, "seal", holdout_seal.seal_blockers, h)
+        blockers = _quiet(h, "seal", holdout_seal.seal_blockers, h,
+                          dry_run=dry)
         if not blockers:
-            seal = _quiet(h, "seal", holdout_seal.do_seal, h)
+            seal = _quiet(h, "seal", holdout_seal.do_seal, h, dry_run=dry)
             return _done(run, "seal", "sealed %d cases" % len(seal["cases"]))
         _log_lines(h, "seal", blockers)
         kind, slot = _classify_blocker(blockers[0])
         ids = _slots_present(h)
         cid = ids.get(slot) if slot else None
+        if kind == "not-dry-folder":
+            raise Stop("other", STOP_INSTRUCTIONS["not-dry-folder"])
+        if kind == "disagreement" and cid and dry:
+            # Never the 7b loop in a dry run: no retire, no replacement, no
+            # new generation to obtain agreement.
+            raise Stop("other", STOP_INSTRUCTIONS["disagreement-dry"]
+                       % (cid, slot))
         if kind == "disagreement" and cid:
             raise Stop("disagreement", STOP_INSTRUCTIONS["disagreement"]
                        % (cid, slot, cid, cid, slot))
@@ -1529,6 +1597,8 @@ def _step_seal(run):
             _step("seal", "case %s changed after its cross-check: judging it "
                           "again in a fresh generation" % cid)
             _judge_all(run)
+            if dry:
+                _record_outcomes(run)
             continue
         if kind == "validation" and not revalidated:
             revalidated = True
@@ -1599,7 +1669,7 @@ def _step_rehash(run):
         return _skip(run, "rehash", "plaintext already removed")
     result = _quiet(h, "rehash", holdout_manifest.rehash_folder,
                     os.path.join(h, holdout_manifest.SEAL_NAME),
-                    os.path.join(h, "sealed"))
+                    os.path.join(h, "sealed"), dry_run=True)
     if not result.get("ok"):
         raise Stop("other", STOP_INSTRUCTIONS["rehash"])
     _done(run, "rehash", "all %d cases match the seal" % len(result["cases"]))
@@ -1786,6 +1856,8 @@ def _start(folder, mode, repo, replace_retired, restart_finder, max_turns,
     h = os.path.realpath(folder)
     if not os.path.isdir(h):
         raise Precondition(SETUP_MSG)
+    if mode == "real" and holdout_kit.dry_run_markers_present(h):
+        raise Precondition(DRY_FOLDER_REAL_MSG)
     missing = not os.path.lexists(journal_path(h))
     j = journal_load(h)
     if j["mode"] not in (None, mode):
@@ -1878,6 +1950,79 @@ def dry_run(folder, repo=None, replace_retired=False,
     run = _start(folder, "dry-run", repo, replace_retired, False, max_turns,
                  budget_usd, session_timeout)
     return _drive(run, DRY_RUN_STEPS, _dry_handlers())
+
+
+# ---------------------------------------------------------------- dry-run proof
+
+
+def dry_run_folder_problems(folder):
+    """[] only when the folder is MECHANICALLY a dry run; else the first
+    reason it is not. refresh-kit adds DRY-RUN.json to an existing folder
+    only on []. Every one of these must hold:
+      * AUTOPILOT.json is this kit's journal and its mode is "dry-run" (a
+        real run's journal says "real"; a journal-less folder is never
+        proven);
+      * both dry-run repos exist under <H>/dryrun-repos as git repos and are
+        listed in kit/eligible-repos.json;
+      * the folder holds at least one case, and every case's provenance
+        names one of those repos (by name and by a source path inside
+        <H>/dryrun-repos) with the dry run's fixed order rule, and its
+        key.json carries the synthetic tag.
+    Reads only the folder's own files; never prints case text."""
+    h = os.path.realpath(folder)
+    path = journal_path(h)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return ["no autopilot journal"]
+    try:
+        j = journal_load(h)
+    except KitError:
+        return ["the autopilot journal is not this kit's"]
+    if j.get("mode") != "dry-run":
+        return ["the autopilot journal is not a dry run's"]
+    root = os.path.join(h, holdout_dryrun.REPOS_DIRNAME)
+    try:
+        eligible = holdout_kit.load_json(
+            os.path.join(h, "kit", holdout_kit.ELIGIBLE_REPOS),
+            required={"repos": list}, what="kit/eligible-repos.json")["repos"]
+    except KitError:
+        return ["kit/eligible-repos.json is unreadable"]
+    for name in holdout_dryrun.REPO_NAMES:
+        repo = os.path.join(root, name)
+        if os.path.islink(repo) or not os.path.isdir(os.path.join(repo,
+                                                                  ".git")):
+            return ["a dry-run repo is missing"]
+        if os.path.realpath(repo) not in eligible:
+            return ["a dry-run repo is not listed as eligible"]
+    try:
+        ids = holdout_kit.case_ids(h)
+    except KitError:
+        return ["sealed/cases is unreadable"]
+    if not ids:
+        return ["no case to prove"]
+    real_root = os.path.realpath(root) + os.sep
+    for cid in ids:
+        kdir = os.path.join(h, "sealed", "keys", cid)
+        try:
+            prov = holdout_kit.load_json(os.path.join(kdir,
+                                                      "provenance.json"),
+                                         what="a provenance.json")
+            key = holdout_kit.load_json(os.path.join(kdir, "key.json"),
+                                        what="a key.json")
+        except KitError:
+            return ["a case has no readable provenance or key"]
+        src = prov.get("source_repo")
+        search = prov.get("search")
+        if prov.get("repo_name") not in holdout_dryrun.REPO_NAMES \
+                or not isinstance(src, str) \
+                or not os.path.realpath(src).startswith(real_root) \
+                or not isinstance(search, dict) \
+                or search.get("order_rule") != holdout_dryrun.ORDER_RULE:
+            return ["a case does not come from the dry-run repos"]
+        texts = [v for v in key.values() if isinstance(v, str)]
+        if not any(t.startswith(holdout_dryrun.SYNTHETIC_TAG)
+                   for t in texts):
+            return ["a case key is not synthetic"]
+    return []
 
 
 # ---------------------------------------------------------------- CLI

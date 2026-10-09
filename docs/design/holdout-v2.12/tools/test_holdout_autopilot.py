@@ -179,7 +179,7 @@ def drop_slot(slot):
 def recreate(only=None, limit=None):
     if not os.path.isdir(os.path.join(H, holdout_dryrun.REPOS_DIRNAME)):
         # The earlier turn died before it wrote anything: do it now.
-        holdout_dryrun.populate(H, complete_crosscheck=False)
+        holdout_dryrun.populate(H, complete_crosscheck=False, mark_dry_run=False)
         return
     made = 0
     for slot in holdout_kit.SLOTS:
@@ -194,6 +194,14 @@ def recreate(only=None, limit=None):
         made += 1
         if limit is not None and made >= limit:
             os._exit(143)
+
+
+def _keep_copy(xid, name, path):
+    """What the judge wrote, kept outside the holdout so a test can prove
+    the autopilot never rewrote it."""
+    keep = os.path.join(HERE, "written")
+    os.makedirs(keep, exist_ok=True)
+    shutil.copyfile(path, os.path.join(keep, "%s-%s" % (xid, name)))
 
 
 def ledgers():
@@ -232,6 +240,7 @@ def write_blinds(limit=None):
             data["type_guess"] = [s for s in same if s != key["slot"]][0]
         with open(blind, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
+        _keep_copy(xid, "blind.json", blind)
         made += 1
         if limit is not None and made >= limit:
             os._exit(143)
@@ -245,6 +254,7 @@ def write_finals():
                 and not os.path.exists(final):
             with open(final, "w", encoding="utf-8") as fh:
                 json.dump(holdout_dryrun._final(packet), fh)
+            _keep_copy(xid, "final.json", final)
 
 
 text = "ok"
@@ -266,7 +276,7 @@ elif prompt.startswith("Reply with the single word ready"):
     text = "ready"
 elif role == "finder" and prompt.startswith("Read ../kit/FINDER-BRIEF.md "
                                             "and begin"):
-    holdout_dryrun.populate(H, complete_crosscheck=False)
+    holdout_dryrun.populate(H, complete_crosscheck=False, mark_dry_run=False)
     if control.get("finder_short"):
         drop_slot("Q3")
     if control.get("finder_crash_after") == "begin":
@@ -340,6 +350,22 @@ def tree_hashes(folder, cids):
             for rel in holdout_kit.walk_regular(root):
                 out[(part, cid, rel)] = holdout_kit.sha256_file(
                     os.path.join(root, rel))
+    return out
+
+
+def packet_files(folder):
+    """{(XID, name): bytes} of every blind.json / final.json in every
+    cross-check workspace."""
+    out = {}
+    for ws in os.listdir(folder):
+        if not re.match(r"^xcheck(-r[0-9]+)?$", ws):
+            continue
+        for xid in os.listdir(os.path.join(folder, ws)):
+            for name in ("blind.json", "final.json"):
+                path = os.path.join(folder, ws, xid, name)
+                if os.path.isfile(path):
+                    with open(path, "rb") as fh:
+                        out[(xid, name)] = fh.read()
     return out
 
 
@@ -1112,6 +1138,9 @@ class PipelineCase(AutopilotCase):
         self.probes = set()
         self.registry_before_scrub = None
         self.hashes_before_scrub = {}
+        self.packets_before_scrub = {}
+        self.synthetic_before_scrub = None
+        self.marker_before_scrub = None
         real_scrub = holdout_archive.scrub
 
         def capture_then_scrub(folder, *a, **kw):
@@ -1124,6 +1153,12 @@ class PipelineCase(AutopilotCase):
                     self.registry_before_scrub = load(reg)
                 self.hashes_before_scrub = tree_hashes(
                     folder, holdout_kit.case_ids(folder))
+                self.packets_before_scrub = packet_files(folder)
+                syn = os.path.join(folder, holdout_kit.SYNTHETIC_AGREEMENT)
+                self.synthetic_before_scrub = (load(syn) if os.path.exists(
+                    syn) else None)
+                self.marker_before_scrub = holdout_kit.dry_run_marker_ok(
+                    folder)
             return real_scrub(folder, *a, **kw)
 
         patcher = mock.patch.object(holdout_archive, "scrub",
@@ -2077,12 +2112,19 @@ class TestDryRunReplace(PipelineCase):
         return marks
 
     def disagree_then_retire(self):
-        """Dry run -> the generation-2 judge disagrees on C1 -> the owner
-        follows the stop and retires C1 (the owner's 51-09 path)."""
+        """Dry run -> the generation-2 judge disagrees on C1 (recorded, never
+        a stop) -> openssl fails at encrypt, so the run stops with the dummy
+        seal written -> the owner retires C1 by hand (reason owner)."""
         self.control(disagree_slot="C1")
-        rc, out, _ = self.cli("--dry-run", repo=False)
+        os.environ["FAKE_OPENSSL_FAIL"] = "1"
+        try:
+            rc, out, _ = self.cli("--dry-run", repo=False)
+        finally:
+            os.environ.pop("FAKE_OPENSSL_FAIL", None)
         self.assertEqual(rc, 3)
-        self.assertEqual(self.last_line(out), "blocked disagreement")
+        self.assertEqual(self.last_line(out), "dry run ok no-prompt")
+        self.assertIn("step crosscheck: real judge verdict recorded "
+                      "(disagreed)", out)
         self.control()
         old = slot_ids(self.F)
         rc, _, err = self.capture(holdout_kit.run, [
@@ -2091,6 +2133,32 @@ class TestDryRunReplace(PipelineCase):
         self.assertEqual(rc, 0, err)
         keep = [old[s] for s in holdout_kit.SLOTS if s != "C1"]
         return old, keep, tree_hashes(self.F, keep)
+
+    def leak_stop(self, slot="Q2"):
+        """Dry run -> leakscan finds one probe of `slot` planted in a scan
+        root -> blocked leakscan (leakscan retired the case); the planted
+        file is removed again."""
+        real = holdout_archive.leakscan
+        planted = os.path.join(self.scan, "pasted.txt")
+        state = {"done": False}
+
+        def plant_then_scan(folder, *a, **kw):
+            if not state["done"]:
+                state["done"] = True
+                by_slot = {}
+                for probe, s, _ in holdout_archive._probes(folder):
+                    by_slot.setdefault(s, probe)
+                with open(planted, "w", encoding="utf-8") as fh:
+                    fh.write(by_slot[slot] + "\n")
+            return real(folder, *a, **kw)
+
+        with mock.patch.object(holdout_archive, "leakscan",
+                               side_effect=plant_then_scan):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+        os.remove(planted)
+        return out
 
     def assert_differs_on_every_field(self, cid):
         fp = holdout_manifest.case_fingerprint(self.F, cid)
@@ -2103,14 +2171,35 @@ class TestDryRunReplace(PipelineCase):
             for k in ("diff_sha256", "lines_sha256", "key_sha256"):
                 self.assertNotEqual(fp[k], entry[k], k)
 
-    def test_plain_rerun_names_the_dry_run_flag(self):
-        self.disagree_then_retire()
+    def test_plain_rerun_after_an_owner_retire_replaces_nothing(self):
+        # Owner decision (51-09): no retirement or new generation just to
+        # obtain agreement. A dummy case the owner already retired is kept
+        # (its retirement is waived in the dry-run seal), nothing is judged
+        # again and no new generation or login is needed.
+        old, _, _ = self.disagree_then_retire()
+        n = self.mark_calls()
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        since = self.p_calls(self.since(n))
+        self.assertNotIn(ap.XCHECK_BEGIN_PROMPT,
+                         [self.prompt(c) for c in since])
+        self.assertFalse([c for c in since
+                          if self.cfg(c).startswith("cfg-xcheck-r3")])
+        self.assertEqual([g["gen"] for g in
+                          self.registry_before_scrub["generations"]], [1, 2])
+        self.assertEqual(self.journal()["replace"]["pending"], [])
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        self.assertEqual(seal["status"], "dry-run")
+        self.assertIn(old["C1"], seal["cases"])
+
+    def test_plain_rerun_after_a_leak_names_the_dry_run_flag(self):
+        self.leak_stop()
         for _ in range(2):
             rc, out, _ = self.cli("--dry-run", repo=False)
             self.assertEqual(rc, 3)
             lines = out.strip().splitlines()
-            self.assertEqual(lines[-1], "blocked other")
-            self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["retired-dry"])
+            self.assertEqual(lines[-1], "blocked leakscan")
             self.assertIn("bin/holdout autopilot --dry-run --replace-retired",
                           lines[-2])
 
@@ -2286,8 +2375,9 @@ class TestDryRunReplace(PipelineCase):
         self.assertEqual(j["replace"]["removed"], [])
 
     def test_mutant_flag_dropped_under_dry_run_loops(self):
-        # The pre-fix behaviour: cmd() never handed the flag to dry_run.
-        self.disagree_then_retire()
+        # The pre-fix behaviour: cmd() never handed the flag to dry_run, so
+        # a leak-retired dummy case was never replaced.
+        self.leak_stop()
         real = ap.dry_run
 
         def dropped(folder, repo=None, replace_retired=False, **kw):
@@ -2298,7 +2388,10 @@ class TestDryRunReplace(PipelineCase):
                 rc, out, _ = self.cli("--dry-run", "--replace-retired",
                                       repo=False)
                 self.assertEqual(rc, 3)
-                self.assertEqual(self.last_line(out), "blocked other")
+                self.assertEqual(self.last_line(out), "blocked leakscan")
+        rc, out, err = self.cli("--dry-run", "--replace-retired", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
 
     def test_mutant_same_material_is_refused(self):
         # Regenerating the retired material (same nonce, same variant) must
@@ -2330,6 +2423,587 @@ class TestDryRunReplace(PipelineCase):
             _, out, _ = self.cli("--dry-run", "--replace-retired",
                                  repo=False)
         self.assertNotEqual(self.last_line(out), DRY_OK)
+
+
+class TestDryRunPassRule(PipelineCase):
+    """51-09 owner decision: the dry run proves the machinery works. The real
+    headless judge still runs (probe, sandbox, blind verdict, reveal, final)
+    and must write well-formed verdicts; its agreement is RECORDED, never
+    required and never rewritten. A disagreement is sealed on an explicitly
+    marked synthetic-agreement record that only a dry-run seal in a dry-run
+    folder accepts; no 7b stop, retire, replacement or new generation."""
+
+    def written(self):
+        """{(XID, name): bytes} the fake judge wrote (X-xxxxxxxx-<name>)."""
+        keep = os.path.join(self.fakebin, "written")
+        out = {}
+        for name in sorted(os.listdir(keep)) if os.path.isdir(keep) else []:
+            with open(os.path.join(keep, name), "rb") as fh:
+                out[(name[:10], name[11:])] = fh.read()
+        return out
+
+    def assert_verdicts_preserved(self, cid):
+        """Every verdict the real judge wrote is byte-identical in its packet
+        when scrub begins, and the sealed crosscheck.json of `cid` is its
+        final.json."""
+        written = self.written()
+        self.assertTrue(written)
+        for key, data in written.items():
+            self.assertEqual(self.packets_before_scrub.get(key), data, key)
+        finals = [d for (x, n), d in written.items() if n == "final.json"]
+        self.assertEqual(len(finals), 1)
+        self.assertEqual(self.hashes_before_scrub[
+            ("keys", cid, "crosscheck.json")],
+            holdout_kit.sha256_bytes(finals[0]))
+
+    def test_disagreement_is_recorded_not_required(self):
+        self.control(disagree_slot="C1")
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assertIn("step crosscheck: real judge verdict recorded "
+                      "(disagreed)", out)
+        self.assertNotIn("7b", out)
+        cid = sealed_slot(self.F, "C1")
+        # One real judging round, in generation 2; no further generation.
+        begins = [self.cfg(c) for c in self.p_calls()
+                  if self.prompt(c) == ap.XCHECK_BEGIN_PROMPT]
+        self.assertEqual(begins, ["cfg-xcheck-r2"])
+        self.assertEqual([g["gen"] for g in
+                          self.registry_before_scrub["generations"]], [1, 2])
+        # The judge's verdict is kept as written (lock c).
+        self.assert_verdicts_preserved(cid)
+        # The synthetic record is explicit, dry-run only, covers C1 alone
+        # and binds the judge's final.json bytes.
+        rec = self.synthetic_before_scrub
+        self.assertEqual(rec["mode"], "dry-run")
+        self.assertEqual(rec["judged"], {cid: "disagreed"})
+        self.assertEqual(sorted(rec["cases"]), [cid])
+        entry = rec["cases"][cid]
+        self.assertEqual((entry["agreement"], entry["judge_outcome"],
+                          entry["mode"]), ("synthetic", "disagreed",
+                                           "dry-run"))
+        final = [d for (x, n), d in self.written().items()
+                 if n == "final.json"][0]
+        self.assertEqual(entry["final_sha256"],
+                         holdout_kit.sha256_bytes(final))
+        # The seal says so, and can never pass for the real one.
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        self.assertEqual(seal["status"], "dry-run")
+        self.assertEqual(seal["mode"], "dry-run")
+        self.assertEqual(seal["cases"][cid]["agreement"], "synthetic")
+        self.assertEqual(seal["cases"][cid]["judge_outcome"], "disagreed")
+        for other, e in seal["cases"].items():
+            if other != cid:
+                self.assertEqual(set(e), {"slot", "hmac"})
+        self.assertTrue(holdout_manifest.is_dry_run_seal(seal))
+        self.assertIn("status is not sealed",
+                      holdout_manifest.public_shape_problems(seal))
+        for line in out.splitlines():
+            self.assertRegex(line, ALLOWED_LINE)
+        self.assert_opaque(out, err)
+
+    def test_agreement_is_recorded_too(self):
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("step crosscheck: real judge verdict recorded "
+                      "(agreed)", out)
+        cid = sealed_slot(self.F, "C1")
+        self.assertEqual(self.synthetic_before_scrub["cases"], {})
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        self.assertEqual(seal["cases"][cid], {
+            "slot": "C1", "hmac": seal["cases"][cid]["hmac"],
+            "judge_outcome": "agreed"})
+        self.assert_verdicts_preserved(cid)
+
+    def test_mutant_overwritten_verdict_is_caught(self):
+        # Lock c: an autopilot that "fixed" the judge's final.json into an
+        # agreeing one would still finish; the preservation check catches it.
+        self.control(disagree_slot="C1")
+        real = holdout_seal.record_synthetic_agreement
+
+        def overwrite_then_record(folder, *a, **kw):
+            for ws in os.listdir(folder):
+                if ws == "xcheck-r2":
+                    for xid in os.listdir(os.path.join(folder, ws)):
+                        packet = os.path.join(folder, ws, xid)
+                        if os.path.isdir(os.path.join(packet, "revealed")):
+                            holdout_kit.write_json_atomic(
+                                os.path.join(packet, "final.json"),
+                                dict(holdout_dryrun._final(packet),
+                                     notes="rewritten"))
+            return real(folder, *a, **kw)
+
+        with mock.patch.object(holdout_seal, "record_synthetic_agreement",
+                               side_effect=overwrite_then_record):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        with self.assertRaises(AssertionError):
+            self.assert_verdicts_preserved(sealed_slot(self.F, "C1"))
+
+    def test_malformed_final_stops_without_retire(self):
+        self.control(disagree_slot="C1")
+        real = holdout_seal.record_synthetic_agreement
+
+        def break_then_record(folder, *a, **kw):
+            for xid in os.listdir(os.path.join(folder, "xcheck-r2")):
+                final = os.path.join(folder, "xcheck-r2", xid, "final.json")
+                if os.path.isfile(final):
+                    data = load(final)
+                    data.pop("notes")
+                    dump(final, data)
+            return real(folder, *a, **kw)
+
+        with mock.patch.object(holdout_seal, "record_synthetic_agreement",
+                               side_effect=break_then_record):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["judge-malformed"])
+        self.assertFalse(os.path.exists(os.path.join(self.F, "SEAL.json")))
+        self.assertFalse(os.path.exists(os.path.join(
+            self.F, holdout_kit.SYNTHETIC_AGREEMENT)))
+
+    def test_mutant_unrecorded_disagreement_never_takes_the_7b_path(self):
+        # Without the recorded synthetic agreement the dry-run seal refuses;
+        # the stop names neither README 7b nor a retire/replace command.
+        self.control(disagree_slot="C1")
+        with mock.patch.object(ap, "_record_outcomes", return_value=None):
+            for _ in range(2):
+                rc, out, _ = self.cli("--dry-run", repo=False)
+                self.assertEqual(rc, 3)
+                lines = out.strip().splitlines()
+                self.assertEqual(lines[-1], "blocked other")
+                cid = slot_ids(self.F)["C1"]
+                self.assertEqual(lines[-2], _render_h(
+                    ap.STOP_INSTRUCTIONS["disagreement-dry"] % (cid, "C1"),
+                    self.F))
+                self.assertNotIn("7b", out)
+                self.assertNotIn("--replace-retired", out)
+        self.assertEqual(len(load(os.path.join(
+            self.F, *holdout_seal.WORKSPACES_RELPATH.split("/")))
+            ["generations"]), 2)
+
+    def test_real_run_disagreement_path_unchanged(self):
+        # The 7b stop of the real run is untouched (TestDisagreement holds
+        # the full lock); a real folder never gets synthetic agreement.
+        self.control(disagree_slot="C3")
+        rc, out, _ = self.cli()
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked disagreement")
+        self.assertFalse(holdout_kit.dry_run_markers_present(self.F))
+        with self.assertRaises(KitError):
+            holdout_seal.record_synthetic_agreement(self.F, [1],
+                                                    dry_run=True)
+        self.assertFalse(holdout_kit.dry_run_markers_present(self.F))
+
+
+def sealed_slot(folder, slot):
+    """The ID the folder's SEAL.json gives `slot` (works after scrub)."""
+    seal = load(os.path.join(folder, "SEAL.json"))
+    return [c for c, e in seal["cases"].items() if e["slot"] == slot][0]
+
+
+def _render_h(text, h):
+    return text.replace("<H>", h)
+
+
+class TestDryRunLegacyResume(PipelineCase):
+    """An existing dry-run folder left by the old retire/replace loop
+    (extra generations, a retired case, no marker): refresh-kit adds the
+    marker only on mechanical proof, then ONE plain dry run finishes from
+    the current state with no retirement, replacement or new generation."""
+
+    def legacy(self, retire=False, extra_generation=False):
+        self.control(disagree_slot="C1")
+        with mock.patch.object(ap, "_record_outcomes", return_value=None):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+            self.assertEqual(self.last_line(out), "blocked other")
+            if extra_generation:
+                self.retire("C1")
+                rc, out, _ = self.cli("--dry-run", "--replace-retired",
+                                      repo=False)
+                self.assertEqual(self.last_line(out), "blocked other")
+        if retire:
+            self.retire("C1")
+        # A folder from before this fix carries neither file.
+        for name in holdout_kit.DRY_RUN_MARKERS:
+            path = os.path.join(self.F, name)
+            if os.path.exists(path):
+                os.remove(path)
+        self.control()
+        return self.generations()
+
+    def retire(self, slot):
+        rc, _, err = self.capture(holdout_kit.run, [
+            "--folder", self.F, "retire", "--slot", slot, "--reason",
+            "owner"])
+        self.assertEqual(rc, 0, err)
+
+    def generations(self):
+        return [g["gen"] for g in load(os.path.join(
+            self.F, *holdout_seal.WORKSPACES_RELPATH.split("/")))
+            ["generations"]]
+
+    def refresh(self):
+        rc, out, err = self.capture(holdout_kit.run,
+                                    ["--folder", self.F, "refresh-kit"])
+        self.assertEqual(rc, 0, out + err)
+        return out
+
+    def resume_once(self, gens):
+        n = self.mark_calls()
+        cfgs = sorted(n for n in os.listdir(self.F) if n.startswith("cfg-"))
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assertIn("step crosscheck: real judge verdict recorded "
+                      "(disagreed)", out)
+        since = self.p_calls(self.since(n))
+        self.assertNotIn(ap.XCHECK_BEGIN_PROMPT,
+                         [self.prompt(c) for c in since])
+        self.assertEqual([g["gen"] for g in
+                          self.registry_before_scrub["generations"]], gens)
+        # No new generation, so no new config dir and no new login.
+        self.assertEqual({self.cfg(c) for c in self.calls()[n:]}
+                         - set(cfgs), set())
+        self.assertEqual(self.journal()["replace"]["pending"], [])
+        self.assertNotIn("replace", out)
+        for line in out.splitlines():
+            self.assertRegex(line, ALLOWED_LINE)
+        self.assert_opaque(out, err)
+        return out, load(os.path.join(self.F, "SEAL.json"))
+
+    def test_stopped_at_disagreement(self):
+        gens = self.legacy()
+        self.assertEqual(gens, [1, 2])
+        out = self.refresh()
+        self.assertIn("OK: dry-run marker added", out)
+        self.assertTrue(holdout_kit.dry_run_marker_ok(self.F))
+        _, seal = self.resume_once([1, 2])
+        cid = sealed_slot(self.F, "C1")
+        self.assertEqual(seal["cases"][cid]["agreement"], "synthetic")
+        self.assertEqual(seal["cases"][cid]["judge_outcome"], "disagreed")
+
+    def test_retired_and_not_replaced(self):
+        gens = self.legacy(retire=True)
+        self.assertEqual(gens, [1, 2])
+        self.refresh()
+        _, seal = self.resume_once([1, 2])
+        cid = sealed_slot(self.F, "C1")
+        self.assertEqual(seal["cases"][cid]["retired_material"], "waived")
+        self.assertEqual(seal["cases"][cid]["agreement"], "synthetic")
+
+    def test_extra_generation_then_retired_again(self):
+        gens = self.legacy(retire=True, extra_generation=True)
+        self.assertEqual(gens, [1, 2, 3])
+        self.refresh()
+        _, seal = self.resume_once([1, 2, 3])
+        cid = sealed_slot(self.F, "C1")
+        self.assertEqual(seal["cases"][cid]["judge_outcome"], "disagreed")
+        self.assertEqual(seal["cases"][cid]["retired_material"], "waived")
+
+    def test_without_refresh_names_refresh_kit(self):
+        self.legacy()
+        n = self.mark_calls()
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[-1], "blocked other")
+        self.assertEqual(lines[-2], ap.for_mode(
+            ap.STOP_INSTRUCTIONS["not-dry-folder"], "dry-run"))
+        self.assertNotIn(ap.XCHECK_BEGIN_PROMPT,
+                         [self.prompt(c) for c in self.p_calls(self.since(n))])
+        self.assertFalse(holdout_kit.dry_run_markers_present(self.F))
+
+    def test_refresh_is_idempotent(self):
+        self.legacy()
+        self.refresh()
+        marker = os.path.join(self.F, holdout_kit.DRYRUN_MARKER)
+        before = holdout_kit.sha256_file(marker)
+        out = self.refresh()
+        self.assertIn("OK: dry-run marker present", out)
+        self.assertEqual(holdout_kit.sha256_file(marker), before)
+
+
+class TestDryRunMarkerProof(PipelineCase):
+    """refresh-kit adds DRY-RUN.json only when the folder is provably a dry
+    run, and never to a real folder."""
+
+    def refresh(self):
+        return self.capture(holdout_kit.run,
+                            ["--folder", self.F, "refresh-kit"])
+
+    def real_folder_mid_run(self):
+        # The hardest real case: a real autopilot run whose (fake) finder
+        # wrote dummy-shaped cases from the dry-run repos. Only the journal
+        # says it is real.
+        self.control(disagree_slot="C3")
+        rc, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked disagreement")
+        self.control()
+        self.assertEqual(self.journal()["mode"], "real")
+
+    def test_real_folder_is_never_marked(self):
+        self.real_folder_mid_run()
+        self.assertEqual(ap.dry_run_folder_problems(self.F),
+                         ["the autopilot journal is not a dry run's"])
+        rc, out, err = self.refresh()
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("OK: dry-run marker: not added", out)
+        self.assertFalse(holdout_kit.dry_run_markers_present(self.F))
+
+    def test_mutant_unproven_marker_marks_a_real_folder(self):
+        self.real_folder_mid_run()
+        with mock.patch.object(ap, "dry_run_folder_problems",
+                               return_value=[]):
+            self.refresh()
+        self.assertTrue(holdout_kit.dry_run_marker_ok(self.F))
+
+    def test_journal_less_folder_is_not_proven(self):
+        with mock.patch.dict(os.environ, holdout_fixture.kit_env()):
+            holdout_dryrun.populate(self.F, mark_dry_run=False)
+        self.assertEqual(ap.dry_run_folder_problems(self.F),
+                         ["no autopilot journal"])
+
+    def dry_folder_without_marker(self):
+        with mock.patch.object(ap, "_record_outcomes", return_value=None):
+            self.control(disagree_slot="C1")
+            self.cli("--dry-run", repo=False)
+        os.remove(os.path.join(self.F, holdout_kit.DRYRUN_MARKER))
+        self.control()
+        self.assertEqual(ap.dry_run_folder_problems(self.F), [])
+
+    def test_foreign_case_blocks_the_proof(self):
+        self.dry_folder_without_marker()
+        cid = slot_ids(self.F)["Q3"]
+        prov = os.path.join(self.F, "sealed", "keys", cid, "provenance.json")
+        data = load(prov)
+        data["source_repo"] = self.R
+        dump(prov, data)
+        self.assertEqual(ap.dry_run_folder_problems(self.F),
+                         ["a case does not come from the dry-run repos"])
+        rc, out, _ = self.refresh()
+        self.assertEqual(rc, 0)
+        self.assertFalse(holdout_kit.dry_run_markers_present(self.F))
+
+    def test_non_synthetic_key_blocks_the_proof(self):
+        self.dry_folder_without_marker()
+        cid = slot_ids(self.F)["Q1"]
+        key = os.path.join(self.F, "sealed", "keys", cid, "key.json")
+        data = load(key)
+        for k, v in list(data.items()):
+            if isinstance(v, str):
+                data[k] = v.replace(holdout_dryrun.SYNTHETIC_TAG, "real")
+        dump(key, data)
+        self.assertEqual(ap.dry_run_folder_problems(self.F),
+                         ["a case key is not synthetic"])
+
+    def test_missing_dry_run_repo_blocks_the_proof(self):
+        self.dry_folder_without_marker()
+        shutil.rmtree(os.path.join(self.F, holdout_dryrun.REPOS_DIRNAME,
+                                   "dryrun-beta"))
+        self.assertEqual(ap.dry_run_folder_problems(self.F),
+                         ["a dry-run repo is missing"])
+
+    def test_invalid_marker_is_a_problem_and_kept(self):
+        self.dry_folder_without_marker()
+        path = os.path.join(self.F, holdout_kit.DRYRUN_MARKER)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("{}\n")
+        rc, out, _ = self.refresh()
+        self.assertEqual(rc, 1)
+        self.assertIn("DRY-RUN.json exists but is not a valid marker", out)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "{}\n")
+
+    def test_copied_marker_is_not_valid_elsewhere(self):
+        self.dry_folder_without_marker()
+        other = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(other)
+        holdout_kit.write_dry_run_marker(self.F, "2026-10-08T00:00:00Z")
+        shutil.copy(os.path.join(self.F, holdout_kit.DRYRUN_MARKER), other)
+        self.assertTrue(holdout_kit.dry_run_marker_ok(self.F))
+        self.assertFalse(holdout_kit.dry_run_marker_ok(other))
+        self.assertEqual(holdout_kit.dry_run_markers_present(other),
+                         [holdout_kit.DRYRUN_MARKER])
+
+
+class TestDryRunRejectedOutsideDryRun(PipelineCase):
+    """Synthetic agreement and dry-run marks are refused by real sealing,
+    publish, seal-build and the Phase-55 rehash (locks a and b)."""
+
+    def recorded_folder(self):
+        """A dry-run folder stopped before seal with the real judge's C1
+        disagreement recorded as synthetic agreement."""
+        self.control(disagree_slot="C1")
+        with mock.patch.object(ap, "_step_seal", side_effect=ap.Stop(
+                "other", "stopped by the test")):
+            rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(self.last_line(out), "blocked other")
+        self.assertIn("real judge verdict recorded (disagreed)", out)
+        self.control()
+        return slot_ids(self.F)["C1"]
+
+    def test_lock_a_synthetic_only_in_dry_run_mode(self):
+        cid = self.recorded_folder()
+        self.assertEqual(holdout_seal.seal_blockers(self.F, dry_run=True), [])
+        self.assertEqual(holdout_seal.seal_blockers(self.F),
+                         [holdout_kit.DRY_RUN_REFUSED_MSG])
+        rc, out, _ = self.capture(holdout_kit.run,
+                                  ["--folder", self.F, "seal"])
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, out)
+        self.assertFalse(os.path.exists(os.path.join(self.F, "SEAL.json")))
+        # Without the folder marker neither mode accepts the record.
+        os.remove(os.path.join(self.F, holdout_kit.DRYRUN_MARKER))
+        self.assertEqual(holdout_seal.seal_blockers(self.F),
+                         [holdout_kit.DRY_RUN_REFUSED_MSG])
+        self.assertEqual(holdout_seal.seal_blockers(self.F, dry_run=True),
+                         [holdout_seal.NOT_DRY_RUN_FOLDER_MSG])
+        self.assertIn(cid, holdout_kit.case_ids(self.F))
+
+    def test_mutant_a_synthetic_accepted_in_real_mode_seals(self):
+        cid = self.recorded_folder()
+        # One guard out: the mode-gated record still does not apply.
+        with mock.patch.object(holdout_seal, "_dry_run_refusal",
+                               return_value=None):
+            blockers = holdout_seal.seal_blockers(self.F)
+        self.assertEqual(len(blockers), 1)
+        self.assertIn("Case C1: the independent check disagreed", blockers[0])
+        # Both guards out: a real seal accepts synthetic agreement.
+        with mock.patch.object(holdout_seal, "_dry_run_refusal",
+                               return_value=None), \
+                mock.patch.object(holdout_seal, "_synthetic_for",
+                                  side_effect=lambda f, d:
+                                  holdout_seal.load_synthetic(f)):
+            seal = holdout_seal.do_seal(self.F)
+        self.assertEqual(seal["status"], "sealed")
+        self.assertIn(cid, seal["cases"])
+
+    def test_record_is_bound_to_the_judges_final_bytes(self):
+        self.recorded_folder()
+        led = holdout_seal._load_ledger(self.F, slot_ids(self.F)["C1"])
+        final = os.path.join(holdout_seal._packet_dir(self.F, led),
+                             "final.json")
+        with open(final, "a", encoding="utf-8") as fh:
+            fh.write(" ")
+        blockers = holdout_seal.seal_blockers(self.F, dry_run=True)
+        self.assertEqual(len(blockers), 1)
+        self.assertIn("Case C1: the independent check disagreed", blockers[0])
+
+    def test_record_needs_dry_run_mode_and_marker(self):
+        self.recorded_folder()
+        with self.assertRaises(KitError) as ctx:
+            holdout_seal.record_synthetic_agreement(self.F, [2])
+        self.assertEqual(str(ctx.exception),
+                         holdout_seal.SYNTHETIC_REFUSED_MSG)
+        os.remove(os.path.join(self.F, holdout_kit.DRYRUN_MARKER))
+        with self.assertRaises(KitError):
+            holdout_seal.record_synthetic_agreement(self.F, [2],
+                                                    dry_run=True)
+
+    def test_real_autopilot_refuses_a_dry_folder(self):
+        self.recorded_folder()
+        for name in (holdout_kit.DRYRUN_MARKER,
+                     holdout_kit.SYNTHETIC_AGREEMENT):
+            rc, out, err = self.cli()
+            self.assertEqual(rc, 1)
+            self.assertIn(ap.DRY_FOLDER_REAL_MSG, out + err)
+            os.remove(os.path.join(self.F, name))
+
+    def finished_dry_run(self):
+        self.control(disagree_slot="C1")
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.control()
+        return load(os.path.join(self.F, "SEAL.json"))
+
+    def test_lock_b_dry_seal_is_never_published(self):
+        seal = self.finished_dry_run()
+        # Scrub keeps the folder markers, and the seal itself says so.
+        self.assertEqual(holdout_kit.dry_run_markers_present(self.F),
+                         list(holdout_kit.DRY_RUN_MARKERS))
+        self.assertTrue(holdout_manifest.is_dry_run_seal(seal))
+        rc, out, err = self.capture(holdout_kit.run, [
+            "--folder", self.F, "publish", "--repo", self.R])
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, err)
+        self.assertFalse(os.path.exists(self.published()))
+        # 51-09 Task 3's public-shape check rejects it too.
+        self.assertTrue(holdout_manifest.public_shape_problems(seal))
+
+    def test_scrubbed_old_format_seal_still_refused(self):
+        # A dry-run folder whose seal lost its dry-run marks (an older kit's
+        # seal): the surviving folder marker alone still refuses publish.
+        self.finished_dry_run()
+        path = os.path.join(self.F, "SEAL.json")
+        dump(path, holdout_manifest._dry_seal_public_view(load(path)))
+        self.assertEqual(holdout_manifest.public_shape_problems(load(path)),
+                         [])
+        with self.assertRaises(KitError) as ctx:
+            holdout_manifest.publish(self.F, self.R)
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, str(ctx.exception))
+        self.assertFalse(os.path.exists(self.published()))
+
+    def test_mutant_b_dry_seal_publishable(self):
+        self.finished_dry_run()
+        # One guard out: the public-shape check still refuses.
+        with mock.patch.object(holdout_manifest, "dry_run_problems",
+                               return_value=[]):
+            with self.assertRaises(KitError):
+                holdout_manifest.publish(self.F, self.R)
+        self.assertFalse(os.path.exists(self.published()))
+        # Both out: the dummy seal lands in the repo.
+        with mock.patch.object(holdout_manifest, "dry_run_problems",
+                               return_value=[]), \
+                mock.patch.object(holdout_manifest, "public_shape_problems",
+                                  return_value=[]):
+            holdout_manifest.publish(self.F, self.R)
+        self.assertTrue(os.path.exists(self.published()))
+
+    def test_public_shaped_seal_in_a_marked_folder_is_refused(self):
+        self.recorded_folder()
+        self.assertEqual(holdout_seal.do_seal(self.F, dry_run=True)["status"],
+                         "dry-run")
+        path = os.path.join(self.F, "SEAL.json")
+        dump(path, holdout_manifest._dry_seal_public_view(load(path)))
+        self.assertFalse(holdout_manifest.is_dry_run_seal(load(path)))
+        with self.assertRaises(KitError) as ctx:
+            holdout_manifest.publish(self.F, self.R)
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, str(ctx.exception))
+        rc, _, _ = self.capture(holdout_kit.run, [
+            "--folder", self.F, "seal-build"])
+        self.assertEqual(rc, 1)
+
+    def test_phase55_rehash_refuses_dry_marks(self):
+        self.recorded_folder()
+        holdout_seal.do_seal(self.F, dry_run=True)
+        seal_path = os.path.join(self.F, "SEAL.json")
+        sealed = os.path.join(self.F, "sealed")
+        rc, out, _ = self.capture(holdout_kit.run, [
+            "--folder", self.F, "rehash", "--seal", seal_path, "--sealed",
+            sealed])
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, out)
+        rc, out, _ = self.capture(holdout_kit.run, [
+            "--folder", self.F, "rehash", "--dry-run", "--seal", seal_path,
+            "--sealed", sealed])
+        self.assertEqual(rc, 0, out)
+        # A public-shaped copy of the seal is still refused beside a marker.
+        public = os.path.join(self.tmp, "public-seal.json")
+        dump(public, holdout_manifest._dry_seal_public_view(load(seal_path)))
+        with self.assertRaises(KitError) as ctx:
+            holdout_manifest.rehash_folder(public, sealed)
+        self.assertEqual(str(ctx.exception), holdout_kit.DRY_RUN_REFUSED_MSG)
+        # --dry-run outside a marked folder is refused.
+        os.remove(os.path.join(self.F, holdout_kit.DRYRUN_MARKER))
+        rc, out, _ = self.capture(holdout_kit.run, [
+            "--folder", self.F, "rehash", "--dry-run", "--seal", seal_path,
+            "--sealed", sealed])
+        self.assertEqual(rc, 1)
+        self.assertIn(holdout_manifest.NOT_A_DRY_FOLDER_MSG, out)
 
 
 class TestResultGrammar(AutopilotCase):

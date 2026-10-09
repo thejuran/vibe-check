@@ -6,6 +6,9 @@ prompts) -> rehash -> leakscan -> scrub before any real case exists. The same
 functions drive the automated end-to-end test.
 
 What populate writes:
+  * DRY-RUN.json at the top of the folder (holdout_kit.write_dry_run_marker),
+    first: real seal, seal-build, publish and rehash refuse the folder from
+    then on, and `seal --dry-run` / `rehash --dry-run` work only here;
   * two tiny git repos, <folder>/dryrun-repos/dryrun-alpha and dryrun-beta,
     made with synthetic commits only (never the owner's repos), and their
     paths appended to kit/eligible-repos.json so validate accepts them;
@@ -78,8 +81,8 @@ out=$(sh ./%s)
 [ "$out" = "safe" ]
 """
 POPULATED_MSG = ("dummy holdout populated with 6 synthetic cases. Next: "
-                 "bin/holdout validate, then seal, encrypt, rehash, "
-                 "leakscan, scrub.")
+                 "bin/holdout validate, then seal --dry-run, encrypt, "
+                 "rehash --dry-run, leakscan, scrub.")
 SEALED_REFUSAL = ("already sealed (SEAL.json exists); delete SEAL.json and "
                   "archive/ deliberately first")
 SAME_MATERIAL_MSG = ("the new dummy material for slot %s still matches retired "
@@ -345,10 +348,15 @@ def complete_case_crosscheck(folder, case_id):
 # ---------------------------------------------------------------- populate
 
 
-def populate(folder, repos_parent=None, complete_crosscheck=True):
+def populate(folder, repos_parent=None, complete_crosscheck=True,
+             mark_dry_run=True):
     """Fill a freshly set-up holdout with six synthetic cases and a completed
     cross-check; return {slot: ID}. The folder is then ready for validate and
-    seal.
+    `seal --dry-run`.
+
+    The folder is marked as a dry run first (holdout_kit.DRYRUN_MARKER), so
+    real sealing, publish and rehash refuse it from then on. Only tests that
+    rehearse the real-run machinery on dummy data pass mark_dry_run=False.
 
     With complete_crosscheck=False only the cases, keys, proofs and eligible
     repos are written (what a finder leaves behind); the cross-check is left
@@ -366,6 +374,8 @@ def populate(folder, repos_parent=None, complete_crosscheck=True):
     if holdout_kit.case_ids(h):
         raise KitError("folder already has cases; populate needs a freshly "
                        "set-up folder")
+    if mark_dry_run:
+        holdout_kit.write_dry_run_marker(h, _now_iso())
     parent = os.path.realpath(repos_parent or os.path.join(h, REPOS_DIRNAME))
     repos = {name: _make_repo(os.path.join(parent, name))
              for name in REPO_NAMES}

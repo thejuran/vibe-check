@@ -172,10 +172,14 @@ def setup_folder(tmp):
     return os.path.realpath(folder)
 
 
-def populated(tmp):
+def populated(tmp, mark_dry_run=False):
+    """A populated dummy folder. Unmarked by default: these tests rehearse
+    the REAL seal/publish/rehash machinery on dummy data, which refuses a
+    folder carrying the dry-run marker (TestDryRunMarker covers that)."""
     folder = setup_folder(tmp)
     with plain_terminal():
-        ids, _ = quiet(holdout_dryrun.populate, folder)
+        ids, _ = quiet(holdout_dryrun.populate, folder,
+                       mark_dry_run=mark_dry_run)
     return folder, ids
 
 
@@ -388,6 +392,37 @@ class TestPopulateCli(DryrunCase):
         self.assertEqual(len(holdout_kit.case_ids(folder)), 6)
         again = self.refused(self.cli(folder, "dryrun", "--populate"))
         self.assertIn("folder already has cases", again.stderr)
+        self.assertTrue(holdout_kit.dry_run_marker_ok(folder))
+
+    def test_manual_dry_run_is_marked_end_to_end(self):
+        # README section 6: the populated folder is a dry run. Real seal,
+        # seal-build, rehash and publish refuse it; the --dry-run forms work
+        # and write a seal that can never pass for the real one.
+        folder = setup_folder(self.tmp)
+        self.ok(self.cli(folder, "dryrun", "--populate"))
+        self.ok(self.cli(folder, "validate"))
+        refused = self.refused(self.cli(folder, "seal"))
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, refused.stdout)
+        self.refused(self.cli(folder, "seal-build"))
+        self.assertFalse(os.path.exists(os.path.join(folder, "SEAL.json")))
+        self.ok(self.cli(folder, "seal", "--dry-run"))
+        seal = load(os.path.join(folder, "SEAL.json"))
+        self.assertEqual(seal["status"], "dry-run")
+        self.assertTrue(holdout_manifest.public_shape_problems(seal))
+        # No real judge ran here, so nothing is synthetic.
+        self.assertFalse(any("agreement" in e for e in seal["cases"].values()))
+        seal_path = os.path.join(folder, "SEAL.json")
+        sealed = os.path.join(folder, "sealed")
+        proc = self.refused(self.cli(folder, "rehash", "--seal", seal_path,
+                                     "--sealed", sealed))
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, proc.stdout)
+        self.ok(self.cli(folder, "rehash", "--dry-run", "--seal", seal_path,
+                         "--sealed", sealed))
+        repo = self.git_repo("tuning")
+        proc = self.refused(self.cli(folder, "publish", "--repo", repo))
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, proc.stderr)
+        self.assertFalse(os.path.exists(os.path.join(
+            repo, *holdout_manifest.SEAL_RELPATH.split("/"))))
 
     def test_cli_refuses_under_claudecode(self):
         folder = setup_folder(self.tmp)

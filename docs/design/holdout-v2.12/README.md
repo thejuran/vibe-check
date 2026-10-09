@@ -165,11 +165,14 @@ passphrase.
    refused. "Fix the finder settings" means run setup again in a fresh folder; do not edit
    either file by hand.
 4. `~/.vibe-check-holdout/dryrun/bin/holdout dryrun --populate`
-   Expect `OK: dummy holdout populated with 6 synthetic cases. ...`
+   Expect `OK: dummy holdout populated with 6 synthetic cases. ...`. It also writes
+   `DRY-RUN.json` at the top of the folder: from now on the real `seal`, `seal-build`,
+   `rehash` and `publish` refuse this folder, and only the `--dry-run` forms below work.
 5. `~/.vibe-check-holdout/dryrun/bin/holdout validate`
    Expect `OK: all 16 checks passed`, `Warnings: 0`, `Non-runnable cases: 0`.
-6. `~/.vibe-check-holdout/dryrun/bin/holdout seal`
-   Expect `OK: sealed 6 cases. Next: bin/holdout encrypt`.
+6. `~/.vibe-check-holdout/dryrun/bin/holdout seal --dry-run`
+   Expect `OK: sealed 6 cases. Next: bin/holdout encrypt`. The SEAL.json it writes says
+   `"status": "dry-run"`, which publish and the Phase-55 rehash always refuse.
 7. Make sure both dry-run sessions are closed (`/exit`, window closed), then
    `~/.vibe-check-holdout/dryrun/bin/holdout encrypt`
    Type a throwaway passphrase (not the real one): openssl asks twice, then once more to
@@ -177,7 +180,7 @@ passphrase.
    `OK: archive_sha256 recorded in SEAL.json`. **If openssl does not prompt** (it fails, hangs,
    or finishes without asking), stop and report it with the reply form
    `dry run ok no-prompt` (A2).
-8. `~/.vibe-check-holdout/dryrun/bin/holdout rehash --seal ~/.vibe-check-holdout/dryrun/SEAL.json --sealed ~/.vibe-check-holdout/dryrun/sealed`
+8. `~/.vibe-check-holdout/dryrun/bin/holdout rehash --dry-run --seal ~/.vibe-check-holdout/dryrun/SEAL.json --sealed ~/.vibe-check-holdout/dryrun/sealed`
    Expect `OK: all 6 cases match the seal; key commitment verified; N files in inventory`.
 9. `~/.vibe-check-holdout/dryrun/bin/holdout leakscan --repo ~/turingmind-code-review`
    Expect `OK: leak scan: 0 matches across N probes (raw + JSON-decoded)`. (The fake text is
@@ -415,6 +418,22 @@ after a reveal is judged by a fresh generation, as in 7b. The dry run does the s
 fake cases and also judges one of them headless in a fresh generation (`bin/crosscheck-r2`), so
 expect one short real session there; it never runs `publish`.
 
+**The dry run's pass rule (owner decision, 51-09).** The dry run proves the machinery works;
+agreement on real cases belongs to the real run. The headless judging session still has to run
+in full (sandbox probe, blind verdict, reveal, final verdict) and write a well-formed
+`blind.json` and `final.json`; if it does not, the run stops with `blocked other`. Whether that
+judge agreed with the fake case's label is recorded, never required: the terminal shows
+`step crosscheck: real judge verdict recorded (agreed)` or `(disagreed)`, and the judge's files
+are kept exactly as written (their hashes stay bound in the ledger). A disagreement is sealed
+on an explicitly marked `SYNTHETIC-AGREEMENT.json` (`"mode": "dry-run"`, the case IDs it
+covers, bound to the judge's exact verdict files), which only `seal --dry-run` in a folder
+carrying `DRY-RUN.json` accepts. The dry-run SEAL.json says `"status": "dry-run"` and, per
+judged case, `judge_outcome` (and `"agreement": "synthetic"` where it disagreed). The real
+`seal`, `seal-build`, `publish`, `rehash` (Phase 55) and the real autopilot refuse any folder
+or seal carrying either marker or a dry-run status. A dry-run disagreement never stops at
+`blocked disagreement`, never asks for `retire` or `--replace-retired` and never opens another
+generation.
+
 **Preflight** (before any case-finding): the Terminal is a real terminal (openssl must be able
 to prompt), `claude` is on PATH, `/usr/bin/openssl`, `/usr/bin/tar`, `/usr/sbin/lsof` and
 `/usr/bin/pgrep` exist, the finder and cross-check settings pass their self-checks, each role is
@@ -452,7 +471,7 @@ verify (the autopilot prints a line just before).
 
 | Last line | What happened | What to do |
 |-----------|---------------|------------|
-| `blocked disagreement` | the independent check disagreed on a case (named by ID and slot) | README 7b (i): resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
+| `blocked disagreement` | real run only (a dry run records the judge's outcome instead): the independent check disagreed on a case (named by ID and slot) | README 7b (i): resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
 | `blocked validation` | `validate` still failed after three fix rounds with the finder | README 7b (iv), then `bin/holdout autopilot` again |
 | `blocked sandbox` | the sandbox probe or the finder check failed (for the finder check, the line above it says whether the kit read, the `sealed/` write, or both failed) | README 6 step 2/3, then `bin/holdout autopilot` again |
 | `blocked leakscan` | the leak scan named slots | README 7d steps 1-2 (cleanup only), then `bin/holdout autopilot --replace-retired` |
@@ -472,12 +491,20 @@ it stops and names `bin/holdout autopilot --restart-finder`, the only way to sta
 finder session; that keeps every finished case and tells the new session to finish only the
 missing slots in the brief's fixed order.
 
-**Dry-run recovery (a retired dummy case).** In a dry run every command a stop message names
-carries `--dry-run` (for example `bin/holdout autopilot --dry-run --replace-retired`), and the
-same flags work. When a dummy case was retired (you followed a `blocked disagreement` stop with
-`retire --slot <S> --reason owner`, or the leak scan named it), a plain `--dry-run` re-run
-stops with one line naming `--dry-run --replace-retired` instead of trying the same case
-again. With that flag the autopilot records which cases it will delete before deleting any,
+**A dryrun folder from the old retire/replace loop.** A folder an earlier kit left stopped at
+`blocked disagreement`, perhaps with extra generations or a case you retired with
+`retire --slot <S> --reason owner`, needs no more retirements, replacements or logins: run
+`refresh-kit` on it (below; it adds `DRY-RUN.json` only when it can prove the folder is a dry
+run), then the plain dry-run command once. It keeps the latest well-formed verdict of each
+judged case, seals a case you retired as itself as it stands (the dry-run seal marks it
+`"retired_material": "waived"`), and finishes with `dry run ok prompted sandbox=ok`. Without
+`refresh-kit` the dry run stops before sealing with one line naming it.
+
+**Dry-run recovery (a leak-retired dummy case).** In a dry run every command a stop message
+names carries `--dry-run` (for example `bin/holdout autopilot --dry-run --replace-retired`), and
+the same flags work. When the leak scan named a dummy case (or a new case reuses retired
+material), a plain `--dry-run` re-run stops with one line naming `--dry-run --replace-retired`
+instead of trying the same case again. With that flag the autopilot records which cases it will delete before deleting any,
 removes each retired case (and `SEAL.json` and the archive, if they exist), writes different
 dummy material for that slot under a new ID (new commits in the dry-run repo, a new module
 variant and a fresh random tag, so the revisions, the diff, the changed lines and the key all
@@ -503,9 +530,14 @@ finder settings only where setup's output changed (in `cfg-finder/` it touches o
 `settings.json` grant, never the login). It then re-runs the finder and cross-check settings
 self-checks (cross-check workspaces are checked, never written) and confirms that nothing else
 changed: `sealed/`, `work/`, every login, `archive/`, `AUTOPILOT.json`, `LEAKSCAN.json`,
-`RETIRED.json` and the dry-run repos keep their exact files. It prints `OK:` lines only when
-all of that holds; running it twice changes nothing the second time. Close every session of
-that folder first.
+`RETIRED.json` and the dry-run repos keep their exact files. The one file it may add is
+`DRY-RUN.json`, and only when it can prove mechanically that the folder is a dry run: the
+autopilot journal says `dry-run`, both dry-run repos exist and are listed as eligible, and every
+case comes from them with the dry run's synthetic key text. It never adds it to the real
+folder (whose journal says `real`, or which has none yet); it prints `OK: dry-run marker added`,
+`OK: dry-run marker present` or `OK: dry-run marker: not added (...)`. It prints `OK:` lines
+only when all of that holds; running it twice changes nothing the second time. Close every
+session of that folder first.
 
 ---
 

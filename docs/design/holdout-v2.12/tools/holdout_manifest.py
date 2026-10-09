@@ -302,6 +302,75 @@ def public_shape_problems(seal):
     return problems
 
 
+# ---------------------------------------------------------------- dry run
+
+DRY_SEAL_STATUS = "dry-run"
+# Keys only a dry-run seal carries: at the top, "mode"; per case, the
+# synthetic-agreement record, the real judge's outcome and a waived
+# owner retirement. public_shape_problems rejects every one of them.
+DRY_SEAL_TOP_KEYS = frozenset({"mode"})
+DRY_SEAL_CASE_KEYS = frozenset({"agreement", "judge_outcome",
+                                "retired_material"})
+NOT_A_DRY_FOLDER_MSG = ("rehash --dry-run needs a dry-run folder (a valid "
+                        "DRY-RUN.json beside sealed/); nothing was verified")
+
+
+def is_dry_run_seal(seal):
+    """True when `seal` carries any dry-run mark (status, mode or a per-case
+    dry-run key). Never raises."""
+    if not isinstance(seal, dict):
+        return False
+    if seal.get("status") == DRY_SEAL_STATUS or "mode" in seal:
+        return True
+    cases = seal.get("cases")
+    if isinstance(cases, dict):
+        for entry in cases.values():
+            if isinstance(entry, dict) and set(entry) & DRY_SEAL_CASE_KEYS:
+                return True
+    return False
+
+
+def mark_dry_run_seal(seal, judged=None, synthetic=(), waived=()):
+    """Mark a freshly built seal as a dry-run seal, in place; return it.
+    `judged` maps case IDs to the real judge's outcome ("agreed" or
+    "disagreed"), `synthetic` lists the IDs sealed on synthetic agreement and
+    `waived` the IDs whose owner retirement the dry run did not replace."""
+    seal["status"] = DRY_SEAL_STATUS
+    seal["mode"] = "dry-run"
+    for cid, entry in seal["cases"].items():
+        if cid in (judged or {}):
+            entry["judge_outcome"] = judged[cid]
+        if cid in synthetic:
+            entry["agreement"] = "synthetic"
+        if cid in waived:
+            entry["retired_material"] = "waived"
+    return seal
+
+
+def _dry_seal_public_view(seal):
+    """The seal with its dry-run marks removed, for the shape check a
+    dry-run rehash still runs."""
+    view = {k: v for k, v in seal.items() if k not in DRY_SEAL_TOP_KEYS}
+    if view.get("status") == DRY_SEAL_STATUS:
+        view["status"] = "sealed"
+    cases = view.get("cases")
+    if isinstance(cases, dict):
+        view["cases"] = {
+            cid: ({k: v for k, v in e.items() if k not in DRY_SEAL_CASE_KEYS}
+                  if isinstance(e, dict) else e)
+            for cid, e in cases.items()}
+    return view
+
+
+def dry_run_problems(folder, seal):
+    """[DRY_RUN_REFUSED_MSG] when the folder holds a dry-run marker or the
+    seal is a dry-run seal; [] otherwise. The real-run gate of publish,
+    rehash and seal-build."""
+    if holdout_kit.dry_run_markers_present(folder) or is_dry_run_seal(seal):
+        return [holdout_kit.DRY_RUN_REFUSED_MSG]
+    return []
+
+
 # ---------------------------------------------------------------- rehash
 
 # Path components rehash may print as they are; anything else is shown as
@@ -330,7 +399,7 @@ def _listdir_ids(path):
     return {n for n in names if holdout_kit.ID_RE.match(n)}
 
 
-def rehash_folder(seal_path, sealed_folder):
+def rehash_folder(seal_path, sealed_folder, dry_run=False):
     """Verify a decrypted sealed/ folder against SEAL.json.
 
     Returns {"ok", "commitment_ok", "cases": {ID: bool}, "mismatched",
@@ -338,17 +407,26 @@ def rehash_folder(seal_path, sealed_folder):
     generic relpaths (opaque IDs and allowlisted names only). A missing key,
     a missing inventory, a symlink or a seal without the public shape is a
     KitError: nothing is verified then.
+
+    Without dry_run (Phase 55, the real run's encrypt) a dry-run seal, or a
+    dry-run marker beside sealed/, is refused with DRY_RUN_REFUSED_MSG.
+    dry_run=True is for the dry run verifying itself (the caller has checked
+    the folder's marker): a dry-run seal is shape-checked without its marks.
     """
     seal = holdout_kit.load_json(seal_path, what="SEAL.json")
-    shape = public_shape_problems(seal)
+    sealed = os.path.abspath(sealed_folder)
+    folder = os.path.dirname(sealed)
+    if not dry_run and dry_run_problems(folder, seal):
+        raise KitError(holdout_kit.DRY_RUN_REFUSED_MSG)
+    shape = public_shape_problems(
+        _dry_seal_public_view(seal) if dry_run and is_dry_run_seal(seal)
+        else seal)
     if shape:
         raise KitError("SEAL.json does not have the public shape (%s)"
                        % shape[0])
-    sealed = os.path.abspath(sealed_folder)
     if os.path.basename(sealed) != "sealed" or not os.path.isdir(sealed) \
             or os.path.islink(sealed):
         raise KitError("--sealed must be a folder named sealed")
-    folder = os.path.dirname(sealed)
     try:
         holdout_kit.walk_regular(sealed)
     except KitError:
@@ -764,25 +842,46 @@ def _matched_fields(fp, entry):
     return matched
 
 
-def retired_problems(folder):
-    """One line per current case whose content matches a retired entry on
-    source revisions, diff bytes, changed-line set or key; IDs are never
-    compared. [] when nothing is retired; a malformed ledger is a KitError."""
+def retired_matches(folder):
+    """[(ID, line, reasons)] for every current case whose content matches a
+    retired entry: `line` is the case's RETIRED_MSG (from its first matching
+    entry), `reasons` the set of retire reasons of every matching entry,
+    each tagged ":exact" when that entry is this very case (every source
+    revision, the diff, the changed lines and the key identical) and
+    ":reused" when the case only reuses some of the entry's material."""
     ledger = _load_retired(folder)
     if not ledger["retired"]:
         return []
     sealed = _sealed(folder)
-    problems = []
+    out = []
     for cid in holdout_kit.case_ids(folder):
         fp = case_fingerprint(folder, cid)
+        line, reasons = None, set()
         for entry in ledger["retired"]:
             matched = _matched_fields(fp, entry)
-            if matched:
-                problems.append(RETIRED_MSG % (
-                    _case_slot_lenient(sealed, cid), cid, entry["at"],
-                    ",".join(matched)))
-                break
-    return problems
+            if not matched:
+                continue
+            ident = ({"source": dict(fp["source"]),
+                      "diff_sha256": fp["diff_sha256"],
+                      "lines_sha256": fp["lines_sha256"],
+                      "key_sha256": fp["key_sha256"]})
+            exact = (all(fp["source"].get(k) for k in _SOURCE_KEYS)
+                     and _content_identity(entry) == _content_identity(ident))
+            reasons.add("%s:%s" % (entry["reason"],
+                                   "exact" if exact else "reused"))
+            if line is None:
+                line = RETIRED_MSG % (_case_slot_lenient(sealed, cid), cid,
+                                      entry["at"], ",".join(matched))
+        if line is not None:
+            out.append((cid, line, reasons))
+    return out
+
+
+def retired_problems(folder):
+    """One line per current case whose content matches a retired entry on
+    source revisions, diff bytes, changed-line set or key; IDs are never
+    compared. [] when nothing is retired; a malformed ledger is a KitError."""
+    return [line for _, line, _ in retired_matches(folder)]
 
 
 # ---------------------------------------------------------------- publish
@@ -791,14 +890,18 @@ def retired_problems(folder):
 def publish(folder, repo):
     """Copy <folder>/SEAL.json to <repo>/SEAL_RELPATH and nothing else.
 
-    Refuses unless the seal has the public shape, the leak ledger is clean
-    for the current seal, and no current case reuses retired material. Never
+    Refuses a dry-run folder or a dry-run seal (DRY_RUN_REFUSED_MSG), and
+    unless the seal has the public shape, the leak ledger is clean for the
+    current seal, and no current case reuses retired material. Never
     overwrites a different SEAL.json already in the repo. Returns the path.
     """
     if not folder:
         raise KitError("publish needs --folder PATH (the holdout folder)")
     seal_path = os.path.join(folder, SEAL_NAME)
     seal = holdout_kit.load_json(seal_path, what="SEAL.json")
+    if dry_run_problems(folder, seal):
+        raise KitError(holdout_kit.DRY_RUN_REFUSED_MSG + "; nothing was "
+                       "published")
     shape = public_shape_problems(seal)
     if shape:
         raise KitError("SEAL.json does not have the public shape (%s); "
@@ -893,6 +996,9 @@ def add_parser(sub, name):
                                       "SEAL.json")
         p.add_argument("--seal", required=True, metavar="PATH")
         p.add_argument("--sealed", required=True, metavar="PATH")
+        p.add_argument("--dry-run", action="store_true",
+                       help="verify a dry run's own seal (a dry-run folder "
+                            "only; never for Phase 55)")
     elif name == "extract":
         p = sub.add_parser(name, help="copy only cases/ or only keys/")
         p.add_argument("--part", required=True, choices=("cases", "keys"))
@@ -920,6 +1026,9 @@ def add_parser(sub, name):
 
 
 def _cmd_seal_build(args):
+    if holdout_kit.dry_run_markers_present(args.folder):
+        raise KitError(holdout_kit.DRY_RUN_REFUSED_MSG + "; use seal "
+                       "--dry-run")
     seal = build_seal(args.folder)
     write_inventory(args.folder)
     holdout_kit.write_json_atomic(os.path.join(args.folder, SEAL_NAME), seal)
@@ -929,8 +1038,13 @@ def _cmd_seal_build(args):
 
 
 def _cmd_rehash(args):
+    dry = bool(getattr(args, "dry_run", False))
+    if dry and not holdout_kit.dry_run_marker_ok(
+            os.path.dirname(os.path.abspath(args.sealed))):
+        holdout_kit.print_problem(NOT_A_DRY_FOLDER_MSG)
+        return 1
     try:
-        result = rehash_folder(args.seal, args.sealed)
+        result = rehash_folder(args.seal, args.sealed, dry_run=dry)
     except KitError as exc:
         holdout_kit.print_problem(str(exc))
         return 1

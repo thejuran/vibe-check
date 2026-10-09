@@ -313,6 +313,71 @@ def case_ids(folder):
     return sorted(names)
 
 
+# ---------------------------------------------------------------- dry run
+
+# A dry-run folder carries DRY-RUN.json at its top level, written by
+# `dryrun --populate` (and by refresh-kit only when the folder is provably a
+# dry run). Its content binds it to that folder's real path, so a copy in
+# another folder is not a valid marker. SYNTHETIC-AGREEMENT.json is written
+# only by `autopilot --dry-run` in a marked folder. Either file's mere
+# presence (any content) makes real sealing, publish and rehash refuse; only
+# a valid marker plus an explicit dry-run mode lets the dry run seal.
+# Schema strings are built from two literals, as elsewhere in the kit.
+DRYRUN_MARKER = "DRY-RUN.json"
+DRYRUN_MARKER_SCHEMA = "vibe-check-" "holdout-dryrun-folder/1"
+SYNTHETIC_AGREEMENT = "SYNTHETIC-AGREEMENT.json"
+SYNTHETIC_AGREEMENT_SCHEMA = "vibe-check-" "holdout-synthetic-agreement/1"
+DRY_RUN_MARKERS = (DRYRUN_MARKER, SYNTHETIC_AGREEMENT)
+DRY_RUN_REFUSED_MSG = ("this is a dry-run folder or a dry-run seal "
+                       "(DRY-RUN.json, SYNTHETIC-AGREEMENT.json or a SEAL.json "
+                       "marked dry-run); it is never sealed, published or "
+                       "verified as the real holdout")
+
+
+def dry_run_markers_present(folder):
+    """The dry-run marker names present at the top of `folder` (any content,
+    symlinks included)."""
+    if not folder:
+        return []
+    return [name for name in DRY_RUN_MARKERS
+            if os.path.lexists(os.path.join(folder, name))]
+
+
+def dry_run_marker_ok(folder):
+    """True only when <folder>/DRY-RUN.json is a regular file holding exactly
+    this kit's marker for this folder's real path."""
+    if not folder:
+        return False
+    path = os.path.join(folder, DRYRUN_MARKER)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    return (isinstance(data, dict)
+            and set(data) == {"schema", "mode", "folder", "created_at"}
+            and data["schema"] == DRYRUN_MARKER_SCHEMA
+            and data["mode"] == "dry-run"
+            and data["folder"] == os.path.realpath(folder)
+            and isinstance(data["created_at"], str))
+
+
+def write_dry_run_marker(folder, created_at):
+    """Write DRY-RUN.json for `folder` (`created_at`: an ISO timestamp
+    string); return its path."""
+    h = os.path.realpath(folder)
+    path = os.path.join(h, DRYRUN_MARKER)
+    if os.path.islink(path):
+        raise KitError("DRY-RUN.json is a symbolic link; remove it and run "
+                       "this again")
+    write_json_atomic(path, {
+        "schema": DRYRUN_MARKER_SCHEMA, "mode": "dry-run", "folder": h,
+        "created_at": str(created_at)})
+    return path
+
+
 def print_ok(msg):
     print("OK: %s" % msg)
 
@@ -1052,7 +1117,7 @@ REFRESH_TOUCHED_MSG = ("refresh-kit changed a file outside kit/, the "
 # exact lstat identity, which refresh_kit checks before it returns.
 REFRESH_WRITABLE_FILES = ("bin/finder", "bin/holdout",
                           "work/.claude/settings.json",
-                          FINDER_USER_SETTINGS)
+                          FINDER_USER_SETTINGS, DRYRUN_MARKER)
 REFRESH_WRITABLE_RE = re.compile(
     r"^(kit/(?!%s$).+|bin/crosscheck(-r[0-9]+)?)$" % re.escape(ELIGIBLE_REPOS))
 
@@ -1177,6 +1242,35 @@ def _generations_present(h):
     return sorted(gens)
 
 
+def _refresh_dry_run_marker(h):
+    """Add DRY-RUN.json to an existing folder only when the autopilot's
+    mechanical proof (holdout_autopilot.dry_run_folder_problems) says it is
+    a dry run; never to any other folder. Returns True (never a PROBLEM:
+    a folder that is not a provable dry run is simply left unmarked)."""
+    if dry_run_marker_ok(h):
+        print_ok("dry-run marker present")
+        return True
+    if os.path.lexists(os.path.join(h, DRYRUN_MARKER)):
+        print_problem("DRY-RUN.json exists but is not a valid marker for "
+                      "this folder; it was not changed")
+        return False
+    autopilot = _load_module("holdout_autopilot")
+    dryrun = _load_module("holdout_dryrun")
+    if autopilot is None or dryrun is None:
+        print_ok("dry-run marker: not added (autopilot or dryrun not "
+                 "installed)")
+        return True
+    problems = autopilot.dry_run_folder_problems(h)
+    if problems:
+        print_ok("dry-run marker: not added (not a provable dry run: %s)"
+                 % problems[0])
+        return True
+    write_dry_run_marker(h, dryrun._now_iso())
+    print_ok("dry-run marker added (journal, dry-run repos and every case "
+             "prove this folder is a dry run)")
+    return True
+
+
 def refresh_kit(folder):
     """Bring an existing holdout folder's kit up to the repo's current one.
 
@@ -1186,9 +1280,11 @@ def refresh_kit(folder):
     setup's text for it changed, and the finder settings only where setup's
     output changed (cfg-finder/settings.json: only its grant key). Then runs
     the finder and every existing cross-check generation's settings
-    self-check (cross-check settings are checked, never written), and
-    verifies nothing else under the folder changed. Idempotent. Returns the
-    exit code: 0 when every line is OK, 1 when any is a PROBLEM."""
+    self-check (cross-check settings are checked, never written), adds
+    DRY-RUN.json only to a folder the autopilot's mechanical proof shows is
+    a dry run, and verifies nothing else under the folder changed.
+    Idempotent. Returns the exit code: 0 when every line is OK, 1 when any
+    is a PROBLEM."""
     refuse_if_claude_spawned(None)
     if not folder:
         raise KitError("the holdout folder must be given explicitly")
@@ -1276,6 +1372,8 @@ def refresh_kit(folder):
     if gens:
         print_ok("cross-check settings checked (%d generation(s), not "
                  "modified)" % len(gens))
+
+    ok = _refresh_dry_run_marker(h) and ok
 
     after = _identity_snapshot(h)
     touched = sorted(set(before) ^ set(after)
