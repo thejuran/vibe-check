@@ -1796,6 +1796,10 @@ CONFORMING = [
     ("diagnosis Q1 cause=agrees checks=none", "diagnosis"),
     ("denials gen=5 count=3 bash-home,read-holdout", "denials"),
     ("denials gen=12 count=0 none", "denials"),
+    ("leakdiag C1=origin-history C2=none C3=exposed Q1=prior-elsewhere "
+     "Q2=none Q3=none where=own-transcript,tuning-transcript", "leakdiag"),
+    ("leakdiag C1=none C2=none C3=none Q1=none Q2=none Q3=none where=none",
+     "leakdiag"),
     ("denials gen=2 count=0 unknown", "denials"),
     ("diagnosis C2 cause=checker-suspect checks=location-path-form",
      "diagnosis"),
@@ -1811,6 +1815,9 @@ NON_CONFORMING = [
     "diagnosis C3 cause=judge-disagrees checks=sql-injection-in-login",
     "diagnosis C3 cause=judge-disagrees checks=none,type-other-slot",
     "diagnosis C3 cause=bad-key checks=none",
+    "leakdiag C1=fine C2=none C3=none Q1=none Q2=none Q3=none where=none",
+    "leakdiag C1=none where=none", "leakdiag C1=none C2=none C3=none Q1=none "
+    "Q2=none Q3=none where=/Users/x",
     "denials gen=5 count=1 bash-/opt/thing", "denials gen=5 count=1 "
     "pytest-home", "denials gen=5 none", "denials gen=5 count=1 "
     "bash-home and more", "diagnosis C4 cause=agrees "
@@ -1872,10 +1879,10 @@ class TestResumeGrammar(unittest.TestCase):
         kinds = {k for k, _ in holdout_manifest.RESUME_GRAMMAR}
         self.assertEqual(kinds, {"dry-run-ok", "dry-run-failed", "sealed",
                                  "replaced", "clean", "blocked",
-                                 "diagnosis", "denials"})
+                                 "diagnosis", "denials", "leakdiag"})
         self.assertEqual(holdout_manifest.RESUME_BLOCKING_KINDS,
                          frozenset({"dry-run-failed", "blocked",
-                                    "diagnosis", "denials"}))
+                                    "diagnosis", "denials", "leakdiag"}))
         self.assertTrue(holdout_manifest.RESUME_BLOCKING_KINDS <= kinds)
         order = [k for k, _ in holdout_manifest.RESUME_GRAMMAR]
         self.assertLess(order.index("dry-run-ok"),

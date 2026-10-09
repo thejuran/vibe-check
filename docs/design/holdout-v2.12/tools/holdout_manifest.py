@@ -1117,6 +1117,15 @@ DENIAL_TOOLS = ("bash", "read", "write", "edit", "glob", "grep", "webfetch",
 DENIAL_WHERE = ("workspace", "holdout", "home", "temp", "system", "none")
 
 
+# The closed vocabulary of `leakdiag` (holdout_archive.leakdiag): per slot,
+# a cause for its leak-scan matches, and the kinds of place they were in.
+LEAKDIAG_CAUSES = ("none", "origin-history", "prior-elsewhere", "exposed")
+LEAKDIAG_WHERE = ("own-transcript", "own-history", "tuning-transcript",
+                  "other-transcript", "claude-history", "claude-other",
+                  "shared-tmp", "codex", "zsh-history", "tuning-tree",
+                  "tuning-gitlog", "other")
+
+
 def _alt(words):
     return "(?:%s)" % "|".join(re.escape(w) for w in words)
 
@@ -1148,8 +1157,16 @@ RESUME_GRAMMAR += (
         r"denials gen=[1-9][0-9]? count=[0-9]{1,4} (?:none|unknown|"
         + _DENIAL_RE + r"(?:," + _DENIAL_RE + r")*)")),
 )
+_LEAKDIAG_WHERE_RE = _alt(LEAKDIAG_WHERE)
+RESUME_GRAMMAR += (
+    ("leakdiag", re.compile(
+        r"leakdiag " + " ".join(r"%s=%s" % (s, _alt(LEAKDIAG_CAUSES))
+                                for s in ("C1", "C2", "C3", "Q1", "Q2", "Q3"))
+        + r" where=(?:none|" + _LEAKDIAG_WHERE_RE + r"(?:,"
+        + _LEAKDIAG_WHERE_RE + r")*)")),
+)
 RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked", "diagnosis",
-                                   "denials"})
+                                   "denials", "leakdiag"})
 RESUME_PROBLEM_MSG = ("resume reply does not conform to the opaque grammar; "
                       "treat it as a contamination incident and do not "
                       "record its contents")

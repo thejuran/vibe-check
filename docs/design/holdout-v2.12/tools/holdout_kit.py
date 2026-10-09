@@ -1682,6 +1682,7 @@ COMMANDS = {
     "encrypt": "holdout_archive",
     "decrypt": "holdout_archive",
     "leakscan": "holdout_archive",
+    "leakdiag": "holdout_archive",
     "scrub": "holdout_archive",
     "dryrun": "holdout_dryrun",
     "autopilot": "holdout_autopilot",

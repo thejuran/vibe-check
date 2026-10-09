@@ -722,6 +722,248 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
             _remove(verify)
 
 
+# ---------------------------------------------------------------- leakdiag
+#
+# Read-only: the same probes and places as leakscan, but nothing is recorded
+# or retired, and each slot's matches are sorted in fixed words: the kind of
+# place (its own source repo's Claude transcripts or prompt history, a
+# tuning-repo session, another project, Codex, ...), the probe kind (a diff
+# line, or key text the finder wrote), and when the matching lines were
+# written relative to the holdout's setup. A slot is "origin-history" only
+# when every match is a diff line in its own source repo's history from
+# before setup: the change's own development, not a copy of the holdout.
+
+_ORIGIN_WHERE = frozenset({"own-transcript", "own-history"})
+_EXPOSED_WHERE = frozenset({"tuning-transcript", "shared-tmp", "codex",
+                            "zsh-history", "tuning-tree", "tuning-gitlog",
+                            "other"})
+
+
+def _setup_time(folder):
+    st = os.stat(folder)
+    return getattr(st, "st_birthtime", st.st_ctime)
+
+
+def _project_dir(path):
+    """Claude Code's ~/.claude/projects folder name for a project path."""
+    return re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(path))
+
+
+def _same_project(name, repo):
+    want = _project_dir(repo)
+    return name == want or name.startswith(want + "-")
+
+
+def _utc_epoch(t):
+    """Seconds since 1970 for a struct_time read as UTC (no local zone, so
+    no daylight-saving shift)."""
+    y, m = t.tm_year, t.tm_mon
+    y -= m <= 2
+    era = y // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (-3 if m > 2 else 9)) + 2) // 5 + t.tm_mday - 1
+    days = era * 146097 + yoe * 365 + yoe // 4 - yoe // 100 + doy - 719468
+    return float(days * 86400 + t.tm_hour * 3600 + t.tm_min * 60 + t.tm_sec)
+
+
+def _epoch(value):
+    """A transcript timestamp (ISO UTC text, or epoch s/ms) as epoch s."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value / 1000.0 if value > 1e11 else float(value)
+    if isinstance(value, str):
+        try:
+            return _utc_epoch(time.strptime(value[:19], "%Y-%m-%dT%H:%M:%S"))
+        except ValueError:
+            return None
+    return None
+
+
+def _place(path, slot_repo, home, tuning, entry):
+    """The kind of place a matching file (or jsonl entry) is."""
+    claude = os.path.join(home, ".claude")
+    projects = os.path.join(claude, "projects")
+    if _under(path, projects):
+        name = os.path.relpath(path, projects).split(os.sep)[0]
+        if slot_repo and _same_project(name, slot_repo):
+            return "own-transcript"
+        if tuning and _same_project(name, tuning):
+            return "tuning-transcript"
+        return "other-transcript"
+    if path == os.path.join(claude, "history.jsonl"):
+        project = (entry or {}).get("project")
+        if isinstance(project, str) and slot_repo \
+                and _same_project(_project_dir(project), slot_repo):
+            return "own-history"
+        if isinstance(project, str) and tuning \
+                and _same_project(_project_dir(project), tuning):
+            return "tuning-transcript"
+        return "claude-history"
+    if _under(path, claude):
+        return "claude-other"
+    if any(_under(path, t) for t in ("/private/tmp/claude-%d" % os.getuid(),
+                                     "/tmp/claude-%d" % os.getuid())):
+        return "shared-tmp"
+    if _under(path, os.path.join(home, ".codex")):
+        return "codex"
+    if path == os.path.join(home, ".zsh_history"):
+        return "zsh-history"
+    if tuning and _under(os.path.realpath(path), os.path.realpath(tuning)):
+        return "tuning-tree"
+    return "other"
+
+
+def _line_matches(text, probes):
+    if any(p in text for p in probes):
+        return True
+    joined = "\0".join(decoded_strings(text))
+    return bool(joined) and any(p in joined for p in probes)
+
+
+def _file_findings(path, text, by_slot, slot_repo, home, tuning, setup):
+    """[(slot, place, kind, when)] for one file. jsonl files are read line
+    by line so each matching entry carries its own place and timestamp."""
+    out = []
+    mtime = os.lstat(path).st_mtime
+    units = text.splitlines() if path.endswith(".jsonl") else [text]
+    for unit in units:
+        for slot, kinds in by_slot.items():
+            hit_kinds = [k for k, probes in kinds.items()
+                         if probes and _line_matches(unit, probes)]
+            if not hit_kinds:
+                continue
+            entry = None
+            if len(units) > 1 or path.endswith(".jsonl"):
+                try:
+                    entry = json.loads(unit)
+                except ValueError:
+                    entry = None
+            stamp = _epoch(entry.get("timestamp")) \
+                if isinstance(entry, dict) else None
+            when = "after" if (stamp if stamp is not None else mtime) \
+                >= setup else "before"
+            place = _place(path, slot_repo.get(slot), home, tuning,
+                           entry if isinstance(entry, dict) else None)
+            for kind in hit_kinds:
+                out.append((slot, place, kind, when))
+    return out
+
+
+def _slot_probes(source):
+    """{slot: {"diff": set, "key": set}} and {slot: source repo or None}."""
+    by_slot, repos = {}, {}
+    key_texts = {}
+    for cid in holdout_kit.case_ids(source):
+        key = holdout_kit.load_json(
+            os.path.join(source, "sealed", "keys", cid, "key.json"),
+            what="a key.json")
+        key_texts[cid] = {s.strip() for s in _key_strings(key)}
+        try:
+            prov = holdout_kit.load_json(
+                os.path.join(source, "sealed", "keys", cid,
+                             "provenance.json"), what="a provenance.json")
+        except KitError:
+            prov = {}
+        repos[key.get("slot")] = prov.get("source_repo") \
+            if isinstance(prov.get("source_repo"), str) else None
+    for probe, slot, cid in _probes(source):
+        kind = "key" if probe in key_texts.get(cid, ()) else "diff"
+        by_slot.setdefault(slot, {"diff": set(), "key": set()})[kind].add(
+            probe)
+    return by_slot, repos
+
+
+def _slot_cause(found):
+    if not found:
+        return "none"
+    places = {f[1] for f in found}
+    kinds = {f[2] for f in found}
+    whens = {f[3] for f in found}
+    if "key" in kinds or places & _EXPOSED_WHERE or "after" in whens:
+        return "exposed"
+    if places <= _ORIGIN_WHERE:
+        return "origin-history"
+    return "prior-elsewhere"
+
+
+def leakdiag(folder, scan_roots=None, repo=None, from_archive=False,
+             home=None, setup_time=None, openssl=None, tar=None):
+    """{slot: {"cause", "where", "probe", "when"}} for every slot present,
+    lists sorted. Reads only: never records a scan or retires a case."""
+    _refuse()
+    h = os.path.realpath(folder)
+    home = home or os.path.expanduser("~")
+    roots = list(scan_roots) if scan_roots is not None \
+        else default_scan_roots(home)
+    setup = _setup_time(h) if setup_time is None else setup_time
+    verify = None
+    try:
+        source = h
+        if from_archive:
+            archive = archive_path(h)
+            if not os.path.isfile(archive) or os.path.islink(archive):
+                raise KitError("the archive is missing; nothing to build "
+                               "probes from")
+            owner_tmp = _owner_tmp(h)
+            verify = os.path.join(owner_tmp, VERIFY_NAME)
+            _remove(verify)
+            print("Decrypting: openssl will ask for the passphrase")
+            sys.stdout.flush()
+            decrypt_to(archive, verify, openssl=openssl, tar=tar,
+                       stage_dir=owner_tmp)
+            source = verify
+        by_slot, slot_repo = _slot_probes(source)
+        index = _index(_probes(source))
+        found = {slot: [] for slot in by_slot}
+        sources = [(root, ()) for root in roots]
+        tuning = os.path.realpath(repo) if repo else None
+        if tuning:
+            sources.append((tuning, (".git",)))
+        seen = set()
+        for root, skip_names in sources:
+            for path in _iter_files(root, h, skip_names):
+                real = os.path.realpath(path)
+                if real in seen:
+                    continue
+                seen.add(real)
+                try:
+                    with open(path, "rb") as fh:
+                        text = fh.read().decode("utf-8", "replace")
+                except OSError:
+                    continue
+                raw, decoded = _match(text, index)
+                if not raw and not decoded:
+                    continue
+                for f in _file_findings(path, text, by_slot, slot_repo,
+                                        home, tuning, setup):
+                    found[f[0]].append(f)
+        if tuning:
+            log = _git_log(tuning)
+            for slot, kinds in by_slot.items():
+                for kind, probes in kinds.items():
+                    if probes and _line_matches(log, probes):
+                        found[slot].append((slot, "tuning-gitlog", kind,
+                                            "unknown"))
+        order = list(holdout_kit.SLOTS)
+        return {slot: {"cause": _slot_cause(f),
+                       "where": sorted({x[1] for x in f}),
+                       "probe": sorted({x[2] for x in f}),
+                       "when": sorted({x[3] for x in f})}
+                for slot, f in sorted(found.items(),
+                                      key=lambda kv: order.index(kv[0]))}
+    finally:
+        if verify is not None:
+            _remove(verify)
+
+
+def leakdiag_line(result):
+    """The one line the owner may send to the tuning session."""
+    where = sorted({w for r in result.values() for w in r["where"]})
+    parts = ["%s=%s" % (slot, result[slot]["cause"] if slot in result
+                        else "none") for slot in holdout_kit.SLOTS]
+    return "leakdiag %s where=%s" % (" ".join(parts),
+                                     ",".join(where) if where else "none")
+
+
 # ---------------------------------------------------------------- scrub
 
 # Files that outlive the plaintext, besides the unmodified kit files listed in
@@ -987,6 +1229,15 @@ def add_parser(sub, name):
         p.add_argument("--from-archive", action="store_true",
                        help="build the probes from the decrypted archive "
                             "(after scrub)")
+    elif name == "leakdiag":
+        p = sub.add_parser(name, help="sort leak-scan matches per slot in "
+                                      "fixed words (reads only; never "
+                                      "records or retires)")
+        p.add_argument("--repo", metavar="PATH",
+                       help="the tuning repo (tree and git log -p --all)")
+        p.add_argument("--from-archive", action="store_true",
+                       help="build the probes from the decrypted archive "
+                            "(after scrub)")
     elif name == "scrub":
         p = sub.add_parser(name, help="remove every plaintext copy, keeping "
                                       "only the survivor allowlist")
@@ -1019,6 +1270,17 @@ def _cmd_leakscan(args):
     return 1 if result["hits"] else 0
 
 
+def _cmd_leakdiag(args):
+    result = leakdiag(args.folder, repo=args.repo,
+                      from_archive=args.from_archive)
+    for slot, r in result.items():
+        print("slot %s: cause=%s where=%s probe=%s when=%s" % (
+            slot, r["cause"], ",".join(r["where"]) or "none",
+            ",".join(r["probe"]) or "none", ",".join(r["when"]) or "none"))
+    print(leakdiag_line(result))
+    return 0
+
+
 def _cmd_scrub(args):
     try:
         if not args.yes:
@@ -1042,6 +1304,7 @@ _HANDLERS = {
     "encrypt": _cmd_encrypt,
     "decrypt": _cmd_decrypt,
     "leakscan": _cmd_leakscan,
+    "leakdiag": _cmd_leakdiag,
     "scrub": _cmd_scrub,
 }
 

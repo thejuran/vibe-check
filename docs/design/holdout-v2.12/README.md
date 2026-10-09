@@ -388,6 +388,19 @@ A match means holdout text already sits on the tuning side (a transcript, Codex 
 history, the repo tree or its git history) and may already have shaped a tuning agent.
 Deleting the match removes the evidence, not the influence. So: never delete-and-rerun.
 
+**Diagnose before any cleanup or replacement.** `bin/holdout leakdiag --repo
+~/turingmind-code-review` re-runs the same scan read-only (it never records a scan, retires or
+deletes anything) and sorts each slot's matches in fixed words: where (`own-transcript` /
+`own-history`: the case's own source repo's Claude sessions or prompts; `tuning-transcript`,
+`tuning-tree`, `tuning-gitlog`, `codex`, `shared-tmp`, `zsh-history`, `other-transcript`,
+`claude-history`, `claude-other`, `other`), probe (`diff` line or finder-written `key` text) and
+when (before or after the holdout's setup). Per slot: `origin-history` = only diff lines, only
+in its own source repo's history, all from before setup (the change's own development, not a
+copy of the holdout); `prior-elsewhere` = only diff lines from before setup, but also in other
+places; `exposed` = key text, a tuning-side place, or anything written after setup. Its last
+line, `leakdiag C1=... Q3=... where=...`, is the only line to send to the tuning session.
+Note that leakscan itself already retired every slot it named.
+
 `publish` refuses mechanically. Every scan is appended to `LEAKSCAN.json`, a ledger in the
 holdout folder that scrub keeps. Right after a scan with matches, publish says the last scan
 found holdout text; after a clean re-scan with the same case still sealed it says the case
