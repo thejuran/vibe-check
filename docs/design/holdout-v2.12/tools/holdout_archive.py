@@ -861,10 +861,24 @@ class _Places:
         projects = os.path.join(self.claude, "projects")
         if _under(path, projects):
             name = os.path.relpath(path, projects).split(os.sep)[0]
-            if slot_repo and _same_project(name, slot_repo):
-                return "own-transcript"
-            if self.tuning and _same_project(name, self.tuning):
+            own = bool(slot_repo) and _same_project(name, slot_repo)
+            tune = bool(self.tuning) and _same_project(name, self.tuning)
+            if own and tune:
+                # The dash-joined folder name cannot tell a subfolder from a
+                # sibling repo with a longer name: the more specific project
+                # wins, and a tie is tuning-side.
+                own = len(_project_dir(slot_repo)) \
+                    > len(_project_dir(self.tuning))
+                tune = not own
+            # The entry's own cwd, when it records one, places it by real
+            # path; a tuning-side cwd is never read as the case's own repo.
+            by_cwd = _attribute((entry or {}).get("cwd"), slot_repo,
+                                self.tuning, "own-transcript",
+                                "tuning-transcript", "other-transcript")
+            if tune or by_cwd == "tuning-transcript":
                 return "tuning-transcript"
+            if own:
+                return "own-transcript"
             return "other-transcript"
         if path == os.path.join(self.claude, "history.jsonl"):
             got = _attribute((entry or {}).get("project"), slot_repo,
