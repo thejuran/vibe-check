@@ -134,6 +134,8 @@ HMACs and the key commitment (`rehash`).
 
 ## 6. Dry run first (dummy data)
 
+Preferred: run the autopilot (section 7e) after step 1; the steps below are the manual fallback and the reference the autopilot's stop messages point to.
+
 This rehearses the whole pipeline on six fake cases before any real case exists (D-15). It
 checks three things only a real Terminal can show: the cross-check sandbox really blocks
 reads, the finder can read the kit and write `sealed/`, and openssl really prompts for the
@@ -188,6 +190,8 @@ only reply that lets the run proceed. Every other form (`dry run ok`, `dry run o
 ---
 
 ## 7. The real run
+
+Preferred: run the autopilot (section 7e) after step 1; the steps below are the manual fallback and the reference the autopilot's stop messages point to.
 
 Rules for the whole run:
 
@@ -376,6 +380,90 @@ Procedure:
 
 If a match is in the current tuning session's own transcript, it is also a 7c incident: end
 that session first and continue in a clean one.
+
+## 7e. Autopilot: the one-command run
+
+The autopilot runs everything in sections 6 and 7 after `setup` from one command in a plain
+Terminal window (not one started by Claude: it refuses there, like every kit command). You do
+not drive any session by hand and you paste nothing but its last line.
+
+**The two commands.**
+
+- Dry run, after section 6 step 1 (`setup` into the dryrun folder):
+  `~/.vibe-check-holdout/dryrun/bin/holdout autopilot --dry-run`
+  Reply `dry run ok prompted sandbox=ok` only when that is the line it printed last. Then
+  `rm -r ~/.vibe-check-holdout/dryrun` as before (section 6 step 12).
+- Real run, after section 7 step 1 (`setup` into the v2.12 folder):
+  `~/.vibe-check-holdout/v2.12/bin/holdout autopilot --repo ~/turingmind-code-review`
+  Reply with exactly the last line it printed (`sealed`, `sealed non-runnable=N`,
+  `replaced slots=...`, or a `blocked ...` line).
+
+**What it does.** In order: preflight, the finder, `validate`, the cross-check (one generation
+at a time: sandbox probe, blind verdicts, reveal, final verdicts), `seal`, close-sessions (the
+writer check), `encrypt`, `leakscan`, `publish`, `scrub`. The finder and every cross-check
+session run headless in Claude Code's print mode, through the same launchers
+(`bin/finder`, `bin/crosscheck`, `bin/crosscheck-rN`), so they keep the same config folders,
+scratch roots, settings, guard hook and sandbox as when you open them yourself. Every reset
+after a reveal is judged by a fresh generation, as in 7b. The dry run does the same on the six
+fake cases and also judges one of them headless in a fresh generation (`bin/crosscheck-r2`), so
+expect one short real session there; it never runs `publish`.
+
+**Preflight** (before any case-finding): the Terminal is a real terminal (openssl must be able
+to prompt), `claude` is on PATH, `/usr/bin/openssl`, `/usr/bin/tar`, `/usr/sbin/lsof` and
+`/usr/bin/pgrep` exist, the finder and cross-check settings pass their self-checks, each role is
+logged in (`auth status` through its own launcher), the cross-check sandbox probe reports N/N,
+the finder can read the kit and write `sealed/`, and a headless session can be resumed by its
+id. It removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
+`ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_ORGANIZATION_ID` from its own
+environment first, so each session uses only the login of its own config folder; it never
+writes a credential anywhere.
+
+**Logins.** The first time, a role is not logged in: the autopilot stops with one line naming
+the launcher, for example `run ~/.vibe-check-holdout/v2.12/bin/crosscheck, type /login, ...`.
+Do exactly that (`/login`, finish in the browser, `/exit`) and run the same autopilot command
+again. A fresh generation (`bin/crosscheck-r2`, ...) has its own config folder, so it asks for
+its own login the first time the autopilot reaches it; the dry run asks for one for
+`bin/crosscheck-r2`.
+
+**Flags it passes, and never passes.** Each headless prompt runs as
+`<launcher> -p <prompt> --output-format json --max-turns 400 --max-budget-usd 40.00
+--permission-mode dontAsk --permission-prompts none --allowedTools Bash,Read,Edit,Write,Glob,Grep
+--settings '{"sandbox":{"allowUnsandboxedCommands":false}}'` plus either `--session-id <id>`
+(a new session) or `--resume <id>` (continuing one). The last two controls are added on top of
+the sandbox: no unsandboxed retry can be offered, and nothing can be approved by prompt. It never
+passes a flag that skips settings or hooks, bypasses permissions, runs in the background or
+turns off session persistence. `--max-turns`, `--budget-usd` and `--session-timeout` change the
+caps.
+
+**What the terminal shows.** Step names, counts, slot labels, opaque IDs and fixed lines, then
+one result line. Every session's output and every kit command's output go to
+`tmp/owner/autopilot/` inside the holdout folder, which is never archived and which scrub
+removes. openssl still asks you for the passphrase at the terminal: twice, then once more to
+verify (the autopilot prints a line just before).
+
+**When it stops.** Only for these, each with a fixed instruction and the command that continues:
+
+| Last line | What happened | What to do |
+|-----------|---------------|------------|
+| `blocked disagreement` | the independent check disagreed on a case (named by ID and slot) | README 7b (i): resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
+| `blocked validation` | `validate` still failed after three fix rounds with the finder | README 7b (iv), then `bin/holdout autopilot` again |
+| `blocked sandbox` | the sandbox probe or the finder check failed | README 6 step 2/3, then `bin/holdout autopilot` again |
+| `blocked leakscan` | the leak scan named slots | README 7d steps 1-2 (cleanup only), then `bin/holdout autopilot --replace-retired` |
+| `blocked residue` | scrub found plaintext residue outside the folder | delete what it names, then `bin/holdout autopilot` again |
+| `blocked other` | a session failed or timed out, a process still holds the folder, encrypt failed, or seal refused for another reason | follow the line printed just above it, then `bin/holdout autopilot` again |
+
+**Resume.** After any interruption (a closed window, a crash, a timeout) run the same command
+again. It continues from `AUTOPILOT.json` (inside the holdout folder; never archived, kept by
+scrub) plus what is on disk, and the evidence on disk wins when the two disagree. It resumes each
+headless session by the id it recorded before launching it; the finder is told to continue from
+the cases and search records it already wrote and never to re-screen. It never asks a
+cross-check session that has seen a revealed key to judge again (it stops and names
+`crosscheck-reset` instead). A replacement it had started (it records which cases it will delete
+before deleting any) is finished by a plain re-run. Scrub's survivor and residue checks run
+again on every run before it prints `sealed`. If the finder's session cannot be resumed at all,
+it stops and names `bin/holdout autopilot --restart-finder`, the only way to start a fresh
+finder session; that keeps every finished case and tells the new session to finish only the
+missing slots in the brief's fixed order.
 
 ---
 
