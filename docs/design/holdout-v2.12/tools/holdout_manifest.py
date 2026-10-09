@@ -607,10 +607,12 @@ def leak_ledger_problems(folder, seal, dry_run=False):
         problems.append(LEAK_STALE_MSG)
     cases = seal.get("cases") if isinstance(seal, dict) else None
     cases = cases if isinstance(cases, dict) else {}
+    # The LATEST scan that named each case: a clearance made before a later
+    # scan named the case again does not cover that later exposure.
     named = {}
     for scan in scans:
         for cid in scan["hit_case_ids"]:
-            named.setdefault(cid, scan["at"])
+            named[cid] = max(named.get(cid, scan["at"]), scan["at"])
     for cid in sorted(named):
         if cid in cases and cid not in waived \
                 and not _cleared_for_seal(folder, cid, named[cid], current):
@@ -944,8 +946,10 @@ def retire_case(folder, case_id, reason, content_folder=None):
     The fingerprint is read from `content_folder` (default: `folder`), so a
     leak scan over a decrypted copy can retire a case whose live plaintext is
     already scrubbed. Existing entries are never modified or removed; an
-    identical fingerprint is not appended twice. Never writes a path, a line
-    or any case text. Returns the ledger.
+    identical fingerprint is not appended twice while an earlier entry for
+    it is still in force; one a clearance voided is retired again with a
+    fresh entry. Never writes a path, a line or any case text. Returns the
+    ledger.
     """
     if reason not in RETIRE_REASONS:
         raise KitError("retire reason must be leakscan or owner")
@@ -966,7 +970,10 @@ def retire_case(folder, case_id, reason, content_folder=None):
              "diff_sha256": fp["diff_sha256"],
              "lines_sha256": fp["lines_sha256"],
              "key_sha256": fp["key_sha256"]}
+    cleared = load_clearances(folder)
+    seal_sha = _current_seal_sha(folder)
     if not any(_content_identity(e) == _content_identity(entry)
+               and not _retirement_cleared(e, cleared, seal_sha)
                for e in ledger["retired"]):
         ledger["retired"].append(entry)
         holdout_kit.write_json_atomic(os.path.join(folder, RETIRED_RELPATH),
@@ -998,6 +1005,7 @@ def retired_matches(folder):
     if not ledger["retired"]:
         return []
     cleared = load_clearances(folder)
+    seal_sha = _current_seal_sha(folder)
     sealed = _sealed(folder)
     out = []
     for cid in holdout_kit.case_ids(folder):
@@ -1005,7 +1013,7 @@ def retired_matches(folder):
         line, reasons = None, set()
         for entry in ledger["retired"]:
             matched = _matched_fields(fp, entry)
-            if not matched or _retirement_cleared(entry, cleared):
+            if not matched or _retirement_cleared(entry, cleared, seal_sha):
                 continue
             ident = ({"source": dict(fp["source"]),
                       "diff_sha256": fp["diff_sha256"],
@@ -1113,13 +1121,20 @@ def _cleared_for_seal(folder, cid, named_at, seal_sha):
                and e["at"] >= named_at for e in load_clearances(folder))
 
 
-def _retirement_cleared(entry, clearances):
+def _current_seal_sha(folder):
+    """sha256 of <folder>/SEAL.json, or None when there is none."""
+    path = os.path.join(folder, SEAL_NAME)
+    return holdout_kit.sha256_file(path) if os.path.isfile(path) else None
+
+
+def _retirement_cleared(entry, clearances, seal_sha):
     """A `leakscan` retirement voided by a later clearance of exactly the same
-    content."""
-    if entry.get("reason") != "leakscan":
+    content, made against the current SEAL.json (seal_sha); a clearance
+    holds only for the seal it was made against."""
+    if entry.get("reason") != "leakscan" or seal_sha is None:
         return False
     ident = _content_identity(entry)
-    return any(c["at"] >= entry["at"]
+    return any(c["seal_sha256"] == seal_sha and c["at"] >= entry["at"]
                and _content_identity(case["identity"]) == ident
                for c in clearances for case in c["cases"].values())
 
