@@ -670,6 +670,15 @@ REPO_ROOT = os.path.normpath(os.path.join(TOOLS_DIR, "..", "..", "..", ".."))
 B3_DIFFS = os.path.join(REPO_ROOT, "docs", "design", "b3-ground-truth",
                         "diffs")
 TOKENS = ("<H>", "<HOME>", "<REPOS>", "<GUARD>", "<SEALED>")
+# Claude Code's shared per-user temp directories (real paths), and the
+# //-anchored Read/Edit rules every role session must carry for them in both
+# the real and the /tmp spelling. Computed here, not from the kit.
+SHARED = [os.path.realpath("/tmp") + "/claude-%d" % os.getuid(),
+          os.path.realpath("/tmp") + "/claude"]
+SHARED_RULES = ["%s(//%s/**)" % (tool, p.lstrip("/"))
+                for p in SHARED + ["/tmp/claude-%d" % os.getuid(),
+                                   "/tmp/claude"]
+                for tool in ("Read", "Edit")]
 REFUSE_LINE = ('[ -z "${CLAUDECODE:-}" ] || { echo "Open a new Terminal '
                'window (not one started by Claude) and run this again."; '
                'exit 1; }')
@@ -778,7 +787,7 @@ class TestSetup(SetupCase):
         self.assertEqual(os.listdir(os.path.join(F, "tmp", "crosscheck")),
                          ["xcheck"])
         self.assertEqual(sorted(os.listdir(os.path.join(F, "bin"))),
-                         ["crosscheck", "finder", "holdout"])
+                         ["crosscheck", "finder", "holdout", "role-env.sh"])
         for name in ("crosscheck", "finder", "holdout"):
             self.assertEqual(_mode(os.path.join(F, "bin", name)), 0o700)
 
@@ -972,7 +981,7 @@ class TestTemplates(SetupCase):
             {"permissions": {"additionalDirectories":
                              [repo, F + "/sealed", F + "/kit"]}})
         self.assertEqual(d["sandbox"]["filesystem"]["denyWrite"],
-                         [F + "/kit", repo])
+                         [F + "/kit", repo] + SHARED)
         self.assertNotIn("allowWrite", d["sandbox"]["filesystem"])
         self.assertNotIn("allowRead", d["sandbox"]["filesystem"])
         for rule in ("Edit(%s/kit/**)" % F,
@@ -988,14 +997,18 @@ class TestTemplates(SetupCase):
         self.assertIs(d["sandbox"]["failIfUnavailable"], True)
         self.assertEqual(set(_deny_read(d)),
                          set(holdout_kit.TUNING_DENY_READ)
-                         | {F + "/tmp/owner", F + "/tmp/crosscheck"})
+                         | {F + "/tmp/owner", F + "/tmp/crosscheck"}
+                         | set(SHARED))
         self.assertNotIn(F + "/tmp/finder", _deny_read(d))
         self.assertNotIn(F + "/sealed", _deny_read(d))
         self.assertEqual(d["hooks"]["PreToolUse"][0]["matcher"], "*")
         self.assertEqual(_hook_args(d),
                          [F + "/kit/holdout_guard.py", "hook", "--role",
                           "finder", "--protect", F + "/tmp/owner",
-                          "--protect", F + "/tmp/crosscheck"])
+                          "--protect", F + "/tmp/crosscheck",
+                          "--protect", SHARED[0], "--protect", SHARED[1]])
+        for rule in SHARED_RULES:
+            self.assertIn(rule, perms["deny"])
 
     def test_xcheck_gen1_settings(self):
         F, d = self.F, self.xcheck_settings()
@@ -1008,18 +1021,22 @@ class TestTemplates(SetupCase):
                      "Read(%s/tmp/owner/**)" % F):
             self.assertIn(rule, d["permissions"]["deny"])
         args = _hook_args(d)
-        self.assertEqual(args[-14:], [
+        self.assertEqual(args[-18:], [
             "--role", "xcheck", "--protect", F + "/sealed", "--protect",
             F + "/work", "--protect", F + "/cfg-finder", "--protect",
             F + "/kit/FINDER-BRIEF.md", "--protect", F + "/tmp/finder",
-            "--protect", F + "/tmp/owner"])
+            "--protect", F + "/tmp/owner",
+            "--protect", SHARED[0], "--protect", SHARED[1]])
+        self.assertEqual(d["sandbox"]["filesystem"]["denyWrite"], SHARED)
+        for rule in SHARED_RULES:
+            self.assertIn(rule, d["permissions"]["deny"])
         self.assertIs(d["sandbox"]["enabled"], True)
         self.assertIs(d["sandbox"]["failIfUnavailable"], True)
         self.assertEqual(set(_deny_read(d)),
                          set(holdout_kit.TUNING_DENY_READ)
                          | {F + "/sealed", F + "/work", F + "/cfg-finder",
                             F + "/kit/FINDER-BRIEF.md", F + "/tmp/finder",
-                            F + "/tmp/owner"})
+                            F + "/tmp/owner"} | set(SHARED))
         self.assertFalse(any("tmp/crosscheck/xcheck" in s
                              for s in _strings(d)))
 
@@ -1100,8 +1117,10 @@ class TestFinderTmpIsolation(SetupCase):
         d = self.finder_settings()
         del d["sandbox"]["filesystem"]["denyWrite"]
         self.assertEqual(self.fsp(d),
-                         ["sandbox denyWrite is missing %s/kit" % self.F,
-                          "sandbox denyWrite is missing %s" % repo])
+                         ["sandbox denyWrite is missing the shared temp "
+                          "directory %s" % p for p in SHARED]
+                         + ["sandbox denyWrite is missing %s/kit" % self.F,
+                            "sandbox denyWrite is missing %s" % repo])
 
     def test_sealed_must_stay_writable(self):
         for p in (self.F + "/sealed", self.F):
@@ -1367,7 +1386,7 @@ class TestXcheckWorkspace(SetupCase):
             self.assertIn(rule, deny)
             self.assertIn(p, protects)
             self.assertIn(p, _deny_read(d))
-        self.assertEqual(protects, expected)
+        self.assertEqual(protects, expected + SHARED)
         self.assertNotIn(F + "/tmp/crosscheck/xcheck-r2", _deny_read(d))
 
     def test_mint_gen3_covers_both_earlier_generations(self):
@@ -1427,6 +1446,171 @@ class TestXcheckWorkspace(SetupCase):
             "Read", {"file_path": F + "/tmp/finder/scratch.txt"},
             role="xcheck", extra_protect=[F + "/tmp/finder"])
         self.assertTrue(deny)
+
+
+class TestSharedTmpIsolation(SetupCase):
+    """51-09: a role session's sandboxed $TMPDIR falls back to Claude Code's
+    shared /tmp/claude-<uid> (its own temp root under the folder is too long
+    a path), and a judge's proof export landed there. Every role's settings
+    deny the shared temp directories in every control, and each dropped
+    entry is caught by the role's self-check."""
+
+    def roles(self):
+        """(label, settings, self-check) for the finder and generations 1
+        and 2."""
+        prior = [holdout_kit.xcheck_names(1)]
+        holdout_kit.make_xcheck_workspace(self.F, 2, prior=prior)
+        return [
+            ("finder", self.finder_settings, lambda d: self.fsp(d)),
+            ("xcheck", self.xcheck_settings,
+             lambda d: holdout_kit.xcheck_settings_problems(d, self.F)),
+            ("xcheck-r2", lambda: self.xcheck_settings("xcheck-r2"),
+             lambda d: holdout_kit.xcheck_settings_problems(d, self.F,
+                                                            prior))]
+
+    def test_written_settings_deny_the_shared_tmp(self):
+        self.assertEqual(holdout_kit.shared_tmp_dirs(), SHARED)
+        for label, load, check in self.roles():
+            d = load()
+            self.assertEqual(check(d), [], label)
+            fs = d["sandbox"]["filesystem"]
+            for p in SHARED:
+                self.assertIn(p, fs["denyRead"], label)
+                self.assertIn(p, fs["denyWrite"], label)
+                self.assertIn(p, _protects(_hook_args(d)), label)
+            for rule in SHARED_RULES:
+                self.assertIn(rule, d["permissions"]["deny"], label)
+            self.assertNotIn("allowWrite", fs, label)
+
+    def test_each_dropped_control_is_caught(self):
+        def drop_list(key, p):
+            def f(d):
+                d["sandbox"]["filesystem"][key].remove(p)
+            return f
+
+        def drop_protect(p):
+            def f(d):
+                args = _hook_args(d)
+                i = args.index(p)
+                del args[i - 1:i + 1]
+            return f
+
+        def drop_rule(rule):
+            def f(d):
+                d["permissions"]["deny"].remove(rule)
+            return f
+
+        mutants = []
+        for p in SHARED:
+            mutants += [
+                (drop_list("denyRead", p), "sandbox denyRead is missing the "
+                 "shared temp directory %s" % p),
+                (drop_list("denyWrite", p), "sandbox denyWrite is missing the "
+                 "shared temp directory %s" % p),
+                (drop_protect(p), "hook --protect is missing the shared temp "
+                 "directory %s" % p)]
+        for rule in SHARED_RULES:
+            mutants.append((drop_rule(rule),
+                            "permission deny is missing %s" % rule))
+        self.assertEqual(len(mutants), 14)
+        for label, load, check in self.roles():
+            for mutate, want in mutants:
+                d = load()
+                mutate(d)
+                self.assertEqual(check(d), [want], (label, want))
+
+    def test_single_slash_rule_is_not_accepted(self):
+        # `Read(/private/...)` anchors at the settings file, not the root:
+        # only the //-anchored rule counts.
+        for label, load, check in self.roles():
+            d = load()
+            deny = d["permissions"]["deny"]
+            i = deny.index(SHARED_RULES[0])
+            deny[i] = SHARED_RULES[0].replace("(//", "(/")
+            self.assertEqual(check(d), ["permission deny is missing %s"
+                                        % SHARED_RULES[0]], label)
+
+    def test_writer_mutant_without_shared_tmp_fails_setup(self):
+        folder = os.path.join(self.tmp, "no-shared")
+        with mock.patch.object(holdout_kit, "_add_shared_tmp_controls"):
+            with self.assertRaises(holdout_kit.KitError) as cm:
+                self.inproc_setup("no-shared")
+        self.assertIn("finder settings failed their self-check",
+                      str(cm.exception))
+        self.assertFalse(os.path.exists(os.path.join(folder, "work",
+                                                     ".claude",
+                                                     "settings.json")))
+
+    def test_role_temp_roots_stay_writable(self):
+        F = self.F
+        for label, load, _ in self.roles():
+            fs = load()["sandbox"]["filesystem"]
+            own = (F + "/tmp/finder" if label == "finder"
+                   else F + "/tmp/crosscheck/" + label)
+            for p in fs.get("denyWrite", []) + fs["denyRead"]:
+                self.assertFalse(own == p or own.startswith(p + "/"),
+                                 (label, p))
+
+
+class TestRoleEnv(SetupCase):
+    """Every role launcher names bin/role-env.sh in CLAUDE_ENV_FILE; that
+    file puts $TMPDIR back in the session's own temp root inside each
+    sandboxed command."""
+
+    def test_setup_writes_it_and_the_check_passes(self):
+        self.assertEqual(_read(os.path.join(self.F, "bin", "role-env.sh")),
+                         holdout_kit.ROLE_ENV_TEXT)
+        self.assertEqual(_mode(os.path.join(self.F, "bin", "role-env.sh")),
+                         0o600)
+        self.assertEqual(holdout_kit.role_env_problems(self.F, (1,)), [])
+        for rel in ("bin/finder", "bin/crosscheck"):
+            self.assertIn('export CLAUDE_ENV_FILE="$H/bin/role-env.sh"\n',
+                          _read(os.path.join(self.F, *rel.split("/"))))
+
+    def test_env_file_points_tmpdir_at_the_role_root(self):
+        root = os.path.join(self.tmp, "role-root")
+        script = ('. "%s"; printf "%%s|%%s" "$TMPDIR" "$TMPPREFIX"'
+                  % os.path.join(self.F, "bin", "role-env.sh"))
+        env = dict(holdout_fixture.kit_env(), TMPDIR="/tmp/claude-1",
+                   CLAUDE_CODE_TMPDIR=root)
+        out = subprocess.run(["/bin/sh", "-c", script], env=env,
+                             stdout=subprocess.PIPE, text=True,
+                             timeout=30).stdout
+        self.assertEqual(out, "%s|%s/zsh" % (root, root))
+        env.pop("CLAUDE_CODE_TMPDIR")
+        out = subprocess.run(["/bin/sh", "-c", script], env=env,
+                             stdout=subprocess.PIPE, text=True,
+                             timeout=30).stdout
+        self.assertEqual(out.split("|")[0], "/tmp/claude-1")
+
+    def test_mutants_are_caught(self):
+        F = self.F
+        holdout_kit.make_xcheck_workspace(F, 2,
+                                          prior=[holdout_kit.xcheck_names(1)])
+        env = os.path.join(F, "bin", "role-env.sh")
+        with open(env, "a") as fh:
+            fh.write("export TMPDIR=/tmp/claude-501\n")
+        self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)),
+                         ["bin/role-env.sh is missing or not the kit's"])
+        holdout_kit._write_text(env, holdout_kit.ROLE_ENV_TEXT, 0o600)
+        for rel in ("bin/finder", "bin/crosscheck-r2"):
+            path = os.path.join(F, *rel.split("/"))
+            good = _read(path)
+            with open(path, "w") as fh:
+                fh.write(good.replace(holdout_kit.ROLE_ENV_LINE + "\n", ""))
+            self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)),
+                             ["%s does not set CLAUDE_ENV_FILE to "
+                              "bin/role-env.sh" % rel])
+            with open(path, "w") as fh:
+                fh.write(good.replace("tmp/", "tmp/other-"))
+            self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)),
+                             ["%s does not set its own temp root" % rel])
+            with open(path, "w") as fh:
+                fh.write(good)
+        self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)), [])
+        os.remove(env)
+        self.assertEqual(holdout_kit.role_env_problems(F, (1, 2)),
+                         ["bin/role-env.sh is missing or not the kit's"])
 
 
 class TestXcheckSandbox(SetupCase):
@@ -1570,13 +1754,13 @@ class TestSandboxProbe(SetupCase):
     def _probe(self, ws="xcheck"):
         return os.path.join(self.F, ws, "sandbox-probe.py")
 
-    def _targets(self, ws="xcheck"):
+    def _targets(self, ws="xcheck", name="TARGETS"):
         tree = ast.parse(_read(self._probe(ws)))
         for node in tree.body:
             if isinstance(node, ast.Assign) and any(
-                    getattr(t, "id", None) == "TARGETS" for t in node.targets):
+                    getattr(t, "id", None) == name for t in node.targets):
                 return ast.literal_eval(node.value)
-        self.fail("no TARGETS")
+        self.fail("no %s" % name)
 
     def test_gen1_targets(self):
         F = self.F
@@ -1584,7 +1768,8 @@ class TestSandboxProbe(SetupCase):
         self.assertEqual(self._targets(), [
             F + "/sealed/SANDBOX-SENTINEL", F + "/work", F + "/cfg-finder",
             F + "/kit/FINDER-BRIEF.md", F + "/tmp/finder/SANDBOX-SENTINEL",
-            F + "/tmp/owner/SANDBOX-SENTINEL"])
+            F + "/tmp/owner/SANDBOX-SENTINEL", SHARED[0]])
+        self.assertEqual(self._targets(name="WRITE_TARGETS"), [SHARED[0]])
 
     def test_gen3_targets(self):
         F = self.F
@@ -1592,8 +1777,9 @@ class TestSandboxProbe(SetupCase):
         holdout_kit.make_xcheck_workspace(F, 2, prior=[n1])
         holdout_kit.make_xcheck_workspace(F, 3, prior=[n1, n2])
         t = self._targets("xcheck-r3")
-        self.assertEqual(len(t), 12)
-        self.assertEqual(t[6:], [
+        self.assertEqual(len(t), 13)
+        self.assertEqual(t[-1], SHARED[0])
+        self.assertEqual(t[6:-1], [
             F + "/xcheck/.claude/settings.json", F + "/cfg-xcheck",
             F + "/tmp/crosscheck/xcheck/SANDBOX-SENTINEL",
             F + "/xcheck-r2/.claude/settings.json", F + "/cfg-xcheck-r2",
@@ -1611,6 +1797,16 @@ class TestSandboxProbe(SetupCase):
         self.assertEqual(_imports(tree), {"errno", "os", "sys"})
 
     def test_unsandboxed_run_reports_problem(self):
+        # Point the write target at a scratch folder: an unsandboxed run
+        # creates (and removes) its probe directory there, never in the
+        # real shared temp directory.
+        scratch = os.path.join(self.tmp, "shared-tmp")
+        os.makedirs(scratch)
+        text = _read(self._probe()).replace(json.dumps([SHARED[0]], indent=4),
+                                            json.dumps([scratch]))
+        self.assertIn(scratch, text)
+        with open(self._probe(), "w", encoding="utf-8") as fh:
+            fh.write(text)
         proc = subprocess.run([sys.executable, self._probe()],
                               cwd=os.path.join(self.F, "xcheck"),
                               env=holdout_fixture.kit_env(),
@@ -1618,9 +1814,10 @@ class TestSandboxProbe(SetupCase):
                               text=True, timeout=60)
         self.assertEqual(proc.returncode, 1)
         self.assertEqual(proc.stdout,
-                         "PROBLEM: sandbox did not deny 6 of 6 protected "
-                         "reads. Stop. Do not type begin. Close this session "
-                         "and reply: blocked sandbox\n")
+                         "PROBLEM: sandbox did not deny 8 of 8 protected "
+                         "reads and writes. Stop. Do not type begin. Close "
+                         "this session and reply: blocked sandbox\n")
+        self.assertEqual(os.listdir(scratch), [])
         self.assertEqual(proc.stderr, "")
         self.assertNotIn(holdout_kit.SANDBOX_SENTINEL_TEXT.strip(),
                          proc.stdout + proc.stderr)
@@ -1629,6 +1826,7 @@ class TestSandboxProbe(SetupCase):
     def _inproc(self, exc):
         out = io.StringIO()
         with mock.patch("os.open", side_effect=exc), \
+                mock.patch("os.mkdir", side_effect=exc), \
                 mock.patch.object(sys, "stdout", out):
             with self.assertRaises(SystemExit) as cm:
                 runpy.run_path(self._probe(), run_name="__main__")
@@ -1637,14 +1835,15 @@ class TestSandboxProbe(SetupCase):
     def test_denied_reads_pass(self):
         code, out = self._inproc(PermissionError(errno.EACCES, "x"))
         self.assertEqual(code, 0)
-        self.assertEqual(out, "OK: sandbox denied 6/6 protected reads\n")
+        self.assertEqual(out, "OK: sandbox denied 8/8 protected reads and "
+                              "writes\n")
         code, out = self._inproc(PermissionError(errno.EPERM, "x"))
         self.assertEqual(code, 0)
 
     def test_missing_target_is_not_a_pass(self):
         code, out = self._inproc(FileNotFoundError(errno.ENOENT, "x"))
         self.assertEqual(code, 1)
-        self.assertTrue(out.startswith("PROBLEM: sandbox did not deny 6 of 6"))
+        self.assertTrue(out.startswith("PROBLEM: sandbox did not deny 8 of 8"))
         self.assertNotIn(self.F, out)
 
 
@@ -1680,7 +1879,8 @@ class TestRefreshKit(SetupCase):
              "archive/holdout.tar.enc", "cfg-finder/fake-login",
              "cfg-finder/.claude.json", "cfg-xcheck/fake-login",
              "cfg-xcheck-r2/fake-login", "tmp/owner/autopilot/run.log",
-             "work/notes.txt")
+             "work/notes.txt", "xcheck/X-packet/blind.json",
+             "xcheck-r2/X-packet/final.json")
 
     def setUp(self):
         super().setUp()
@@ -1748,7 +1948,8 @@ class TestRefreshKit(SetupCase):
         self.assertIn("sealed/cases/%s/change.diff" % self.ids["Q3"], before)
         self.assertIn("cfg-finder/fake-login", before)
         self.assertIn("kit/eligible-repos.json", before)
-        self.assertIn("xcheck-r2/sandbox-probe.py", before)
+        self.assertIn("xcheck-r2/X-packet/final.json", before)
+        self.assertNotIn("xcheck-r2/sandbox-probe.py", before)
         rc, out, err = self.refresh()
         self.assertEqual(rc, 0, out + err)
         lines = out.strip().splitlines()
@@ -1756,7 +1957,11 @@ class TestRefreshKit(SetupCase):
         self.assertIn("OK: kit: 3 file(s) updated", out)
         self.assertIn("OK: launchers: 1 rewritten", out)
         self.assertIn("OK: finder settings unchanged; self-check passed", out)
-        self.assertIn("cross-check settings checked (2 generation(s)", out)
+        self.assertIn("OK: cross-check settings and sandbox probes: 0 "
+                      "generation(s) rewritten, 2 already current; "
+                      "self-check run on each", out)
+        self.assertIn("OK: role session environment (bin/role-env.sh) "
+                      "already current", out)
         self.assertEqual(self.snapshot(), before)
         self.assert_kit_current()
         self.assertEqual(_read(os.path.join(self.F, "bin", "holdout")),
@@ -1765,6 +1970,102 @@ class TestRefreshKit(SetupCase):
         self.assertEqual(_mode(os.path.join(self.F, "bin", "holdout")),
                          0o700)
         self.assert_settings_pass()
+
+    def make_pre_tmp_fix(self):
+        """The folder as setup wrote it before the 51-09 shared-temp fix:
+        no shared-temp controls in any settings file, the old probe, no
+        bin/role-env.sh and launchers without CLAUDE_ENV_FILE."""
+        def strip(d):
+            shared = set(SHARED)
+            fs = d["sandbox"]["filesystem"]
+            fs["denyRead"] = [p for p in fs["denyRead"] if p not in shared]
+            if "denyWrite" in fs:
+                fs["denyWrite"] = [p for p in fs["denyWrite"]
+                                   if p not in shared]
+            d["permissions"]["deny"] = [r for r in d["permissions"]["deny"]
+                                        if r not in SHARED_RULES]
+            args = _hook_args(d)
+            for p in SHARED:
+                i = args.index(p)
+                del args[i - 1:i + 1]
+            return d
+        proj = os.path.join(self.F, "work", ".claude", "settings.json")
+        holdout_kit.write_json_atomic(proj, strip(self.finder_settings()))
+        for ws in ("xcheck", "xcheck-r2"):
+            path = os.path.join(self.F, ws, ".claude", "settings.json")
+            holdout_kit.write_json_atomic(path, strip(_load(path)))
+            probe = os.path.join(self.F, ws, "sandbox-probe.py")
+            with open(probe, "w") as fh:
+                fh.write("# the probe before the shared-temp targets\n")
+        os.remove(os.path.join(self.F, "bin", "role-env.sh"))
+        for rel in ("bin/finder", "bin/crosscheck", "bin/crosscheck-r2"):
+            path = os.path.join(self.F, *rel.split("/"))
+            text = _read(path).replace(holdout_kit.ROLE_ENV_LINE + "\n", "")
+            with open(path, "w") as fh:
+                fh.write(text)
+
+    def test_refresh_carries_the_shared_tmp_controls_into_every_session(self):
+        self.make_pre_tmp_fix()
+        self.assertTrue(any("shared temp" in p for p in self.fsp()))
+        self.assertTrue(holdout_kit.xcheck_settings_problems(
+            self.xcheck_settings("xcheck-r2"), self.F,
+            [holdout_kit.xcheck_names(1)]))
+        self.assertEqual(len(holdout_kit.role_env_problems(self.F, (1, 2))),
+                         4)
+        before = self.snapshot()
+        rc, out, err = self.refresh()
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("OK: launchers: 3 rewritten", out)
+        self.assertIn("OK: finder settings rewritten; self-check passed", out)
+        self.assertIn("OK: role session environment (bin/role-env.sh) "
+                      "rewritten", out)
+        self.assertIn("OK: cross-check settings and sandbox probes: 2 "
+                      "generation(s) rewritten, 0 already current", out)
+        self.assert_settings_pass()
+        self.assertEqual(holdout_kit.role_env_problems(self.F, (1, 2)), [])
+        for gen in (1, 2):
+            names = holdout_kit.xcheck_names(gen)
+            prior = [holdout_kit.xcheck_names(k) for k in range(1, gen)]
+            self.assertEqual(
+                _read(os.path.join(self.F, names["workspace"],
+                                   "sandbox-probe.py")),
+                holdout_kit._xcheck_probe_text(self.F, prior))
+            self.assertEqual(self.xcheck_settings(names["workspace"]),
+                             holdout_kit._xcheck_settings_object(self.F,
+                                                                 prior))
+        # Packets, logins, ledgers and sealed content are untouched.
+        self.assertEqual(self.snapshot(), before)
+
+    def test_mutant_refresh_that_skips_the_generations_leaves_them_open(self):
+        self.make_pre_tmp_fix()
+        with mock.patch.object(holdout_kit, "_refresh_xcheck_generation",
+                               return_value="unchanged"):
+            self.assertEqual(self.refresh()[0], 0)
+        self.assertTrue(any(
+            "shared temp" in p for p in holdout_kit.xcheck_settings_problems(
+                self.xcheck_settings("xcheck"), self.F, [])))
+
+    def test_failed_xcheck_self_check_restores_its_files(self):
+        self.make_pre_tmp_fix()
+        path = os.path.join(self.F, "xcheck-r2", ".claude", "settings.json")
+        probe = os.path.join(self.F, "xcheck-r2", "sandbox-probe.py")
+        old = (_read(path), _read(probe))
+        real = holdout_kit.xcheck_settings_problems
+
+        def gap_for_r2(settings, folder, prior=()):
+            return ["synthetic gap"] if prior else real(settings, folder,
+                                                        prior)
+
+        with mock.patch.object(holdout_kit, "xcheck_settings_problems",
+                               side_effect=gap_for_r2):
+            rc, out, err = self.refresh()
+        self.assertEqual(rc, 1)
+        self.assertIn("cross-check settings of xcheck-r2 failed their "
+                      "self-check after refresh-kit; the previous files were "
+                      "restored", out)
+        self.assertEqual((_read(path), _read(probe)), old)
+        self.assertEqual(holdout_kit.xcheck_settings_problems(
+            self.xcheck_settings("xcheck"), self.F, []), [])
 
     def test_idempotent(self):
         self.make_stale()

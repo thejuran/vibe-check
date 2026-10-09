@@ -21,6 +21,7 @@ guard out and shows the wrong outcome happens.
 import ast
 import contextlib
 import io
+import functools
 import json
 import os
 import re
@@ -259,7 +260,7 @@ def write_finals():
 
 text = "ok"
 if "sandbox-probe.py" in prompt:
-    total = control.get("probe_total") or 6 + 3 * (gen - 1)
+    total = control.get("probe_total") or 8 + 3 * (gen - 1)
     if control.get("probe_fail"):
         text = ("PROBLEM: sandbox did not deny 1 of %d protected reads."
                 % total)
@@ -592,8 +593,8 @@ class TestModuleShape(unittest.TestCase):
             "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
             "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_PROFILE",
             "ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID")))
-        self.assertEqual(ap.expected_probe_total(1), 6)
-        self.assertEqual(ap.expected_probe_total(3), 12)
+        self.assertEqual(ap.expected_probe_total(1), 8)
+        self.assertEqual(ap.expected_probe_total(3), 14)
         self.assertEqual(ap.JOURNAL_RELPATH, "AUTOPILOT.json")
         self.assertEqual(ap.LOG_RELDIR, "tmp/owner/autopilot")
         self.assertEqual(ap.MAX_FIX_ROUNDS, 3)
@@ -730,6 +731,26 @@ class TestPreflight(AutopilotCase):
             b = self.assert_precondition("cross-check settings")
         self.assertNotEqual(a, b)
 
+    def test_requires_the_role_env(self):
+        # A folder whose launchers predate CLAUDE_ENV_FILE (or whose
+        # bin/role-env.sh is gone) stops before any session, naming
+        # refresh-kit.
+        env = os.path.join(self.F, "bin", "role-env.sh")
+        os.remove(env)
+        self.assertIn("refresh-kit", self.assert_precondition(
+            "bin/role-env.sh predate"))
+        holdout_kit._write_text(env, holdout_kit.ROLE_ENV_TEXT, 0o600)
+        finder = os.path.join(self.F, "bin", "finder")
+        with open(finder, encoding="utf-8") as fh:
+            good = fh.read()
+        with open(finder, "w", encoding="utf-8") as fh:
+            fh.write(good.replace(holdout_kit.ROLE_ENV_LINE + "\n", ""))
+        self.assert_precondition("bin/role-env.sh predate")
+        self.assertEqual(self.p_calls(), [])
+        with mock.patch.object(holdout_kit, "role_env_problems",
+                               return_value=[]):
+            self.capture(ap.preflight, self.F, "real")
+
     def post_encrypt_folder(self, archive=True, match=True):
         folder = os.path.join(self.tmp, "post")
         for rel in ("bin", "kit", "archive"):
@@ -785,7 +806,7 @@ class TestPreflight(AutopilotCase):
 
     def test_probe_ok_passes(self):
         _, out, _ = self.capture(ap.preflight, self.F, "real")
-        self.assertIn("step preflight: sandbox probe ok (6/6)", out)
+        self.assertIn("step preflight: sandbox probe ok (8/8)", out)
         self.assertIs(self.journal()["xcheck"]["1"]["probe_ok"], True)
         self.assertNotIn(RESULT_MARK, out)
 
@@ -1773,7 +1794,7 @@ class TestInputsChanged(PipelineCase):
         run = self.p_calls(self.since(n))
         probes = [c for c in run if self.prompt(c) == ap.PROBE_PROMPT]
         self.assertEqual([self.cfg(c) for c in probes], ["cfg-xcheck-r2"])
-        self.assertIn("step crosscheck: generation 2 probe ok (9/9)", out)
+        self.assertIn("step crosscheck: generation 2 probe ok (11/11)", out)
         gens = self.registry_before_scrub["generations"]
         self.assertEqual(len(gens), 2)
         self.assertIn(cid, gens[1]["cases"])
@@ -1813,6 +1834,12 @@ class TestLeakAndReplace(PipelineCase):
         os.remove(planted)
         rc, out, _ = self.cli()
         self.assertEqual(self.last_line(out), "blocked leakscan")
+        # The real run's leak path is unchanged by the dry-run rule: a clean
+        # re-scan still names the slot, and nothing is ever waived.
+        self.assertEqual(out.strip().splitlines()[-2],
+                         ap.STOP_INSTRUCTIONS["leakscan"] % "C2")
+        self.assertFalse(os.path.exists(
+            os.path.join(self.F, holdout_kit.LEAK_WAIVER)))
         self.assertFalse(os.path.exists(self.published()))
 
         n = self.mark_calls()
@@ -1827,7 +1854,7 @@ class TestLeakAndReplace(PipelineCase):
         self.assertEqual(self.flag(replace[0], "--resume"),
                          self.journal()["finder"]["session_id"])
         self.assertNotIn(old, load(self.published())["cases"])
-        self.assertIn("step crosscheck: generation 2 probe ok (9/9)", out)
+        self.assertIn("step crosscheck: generation 2 probe ok (11/11)", out)
         self.assert_opaque(out)
 
     def test_mutant_blind_leakscan_publishes(self):
@@ -2052,8 +2079,8 @@ class TestDryRun(PipelineCase):
         probes = [(self.cfg(c)) for c in self.p_calls()
                   if self.prompt(c) == ap.PROBE_PROMPT]
         self.assertEqual(probes, ["cfg-xcheck", "cfg-xcheck-r2"])
-        self.assertIn("step preflight: sandbox probe ok (6/6)", out)
-        self.assertIn("step crosscheck: generation 2 probe ok (9/9)", out)
+        self.assertIn("step preflight: sandbox probe ok (8/8)", out)
+        self.assertIn("step crosscheck: generation 2 probe ok (11/11)", out)
         prompts = [(self.cfg(c), self.prompt(c)) for c in self.p_calls()]
         self.assertIn(("cfg-xcheck-r2", ap.XCHECK_BEGIN_PROMPT), prompts)
         self.assertIn(("cfg-xcheck-r2", ap.XCHECK_CONTINUE_PROMPT), prompts)
@@ -2193,15 +2220,231 @@ class TestDryRunReplace(PipelineCase):
         self.assertEqual(seal["status"], "dry-run")
         self.assertIn(old["C1"], seal["cases"])
 
-    def test_plain_rerun_after_a_leak_names_the_dry_run_flag(self):
+    def test_plain_rerun_after_a_leak_finishes_on_a_clean_rescan(self):
+        # Owner-approved dry-run rule: the hit is recorded and the dummy
+        # case retired; once the leaked copy is gone, plain --dry-run scans
+        # afresh and, on a clean scan, finishes without replacement.
+        out = self.leak_stop()
+        self.assertIn(ap.STOP_INSTRUCTIONS["leakscan-dry"] % "Q2", out)
+        self.assertIn("bin/holdout autopilot --dry-run: a fresh scan", out)
+        old = slot_ids(self.F)
+        before = tree_hashes(self.F, list(old.values()))
+        reg = load(os.path.join(self.F, *holdout_seal.WORKSPACES_RELPATH
+                                .split("/")))
+        retired = load(os.path.join(self.F, "RETIRED.json"))["retired"]
+        self.assertEqual([e["slot"] for e in retired], ["Q2"])
+        n = self.mark_calls()
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+        self.assertIn("step leakscan: 0 match(es)", out)
+        self.assertIn("step leakscan: clean; leak waived (dry-run) for dummy "
+                      "slots Q2, kept without replacement", out)
+        self.assertNotIn("recorded for this seal", out)
+        # No replacement, no new generation, no session of any kind.
+        self.assertEqual(self.p_calls(self.since(n)), [])
+        self.assert_trees_kept(before)
+        self.assertEqual(self.registry_before_scrub["generations"],
+                         reg["generations"])
+        # The hit and the retirement stay on record; the waiver keeps the
+        # same dummy case, marked.
+        scans = load(os.path.join(self.F, "LEAKSCAN.json"))["scans"]
+        self.assertGreater(scans[0]["hits"], 0)
+        self.assertEqual(scans[-1]["hits"], 0)
+        self.assertEqual(load(os.path.join(self.F, "RETIRED.json"))["retired"],
+                         retired)
+        waiver = load(os.path.join(self.F, holdout_kit.LEAK_WAIVER))
+        self.assertEqual(waiver["mode"], "dry-run")
+        self.assertEqual(waiver["cases"], {old["Q2"]: {
+            "slot": "Q2", "leak": "waived (dry-run)",
+            "named_at": scans[0]["at"]}})
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        self.assertEqual(holdout_manifest.leak_waiver_problems(self.F, seal),
+                         [])
+        # A second plain re-run finds the scan recorded for this seal.
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0)
+        self.assertIn("step leakscan: skipped (recorded for this seal)", out)
+
+    def test_rerun_with_the_leak_still_present_scans_again(self):
+        # A recorded scan with hits never counts as "recorded for this
+        # seal": the resume scans afresh, and a hit stops it again.
         self.leak_stop()
-        for _ in range(2):
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        by_slot = {}
+        for probe, s_, _ in holdout_archive._probes(self.F):
+            by_slot.setdefault(s_, probe)
+        planted = os.path.join(self.scan, "still-there.txt")
+        with open(planted, "w", encoding="utf-8") as fh:
+            fh.write(by_slot["Q2"] + "\n")
+        n_scans = len(load(os.path.join(self.F, "LEAKSCAN.json"))["scans"])
+        rc, out, _ = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+        self.assertIn(ap.STOP_INSTRUCTIONS["leakscan-dry"] % "Q2", out)
+        self.assertEqual(len(load(os.path.join(self.F, "LEAKSCAN.json"))
+                             ["scans"]), n_scans + 1)
+        self.assertFalse(os.path.exists(
+            os.path.join(self.F, holdout_kit.LEAK_WAIVER)))
+        with self.assertRaises(KitError) as cm:
+            holdout_manifest.write_leak_waiver(self.F, seal)
+        self.assertEqual(str(cm.exception),
+                         holdout_manifest.WAIVER_NOT_CLEAN_MSG)
+        os.remove(planted)
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(self.last_line(out), DRY_OK)
+
+    def test_mutant_recorded_hits_skip_the_rescan(self):
+        # If a recorded scan with hits counted as "recorded for this seal",
+        # the resume would skip the scan and finish the dry run on the hit:
+        # no fresh scan, no clean result, nothing waived.
+        self.leak_stop()
+        with mock.patch.object(holdout_manifest, "leak_ledger_problems",
+                               return_value=[]):
             rc, out, _ = self.cli("--dry-run", repo=False)
-            self.assertEqual(rc, 3)
-            lines = out.strip().splitlines()
-            self.assertEqual(lines[-1], "blocked leakscan")
-            self.assertIn("bin/holdout autopilot --dry-run --replace-retired",
-                          lines[-2])
+        self.assertEqual(rc, 0)
+        self.assertIn("step leakscan: skipped (recorded for this seal)", out)
+        self.assertFalse(os.path.exists(
+            os.path.join(self.F, holdout_kit.LEAK_WAIVER)))
+        scans = load(os.path.join(self.F, "LEAKSCAN.json"))["scans"]
+        self.assertGreater(scans[-1]["hits"], 0)
+
+    def waived_folder(self):
+        """leak_stop, then a plain --dry-run that finishes on a clean
+        re-scan (the folder is scrubbed; the seal, ledgers, markers and
+        waiver survive). Returns the waived case's ID."""
+        self.leak_stop()
+        cid = slot_ids(self.F)["Q2"]
+        rc, out, err = self.cli("--dry-run", repo=False)
+        self.assertEqual(rc, 0, out + err)
+        self.assertTrue(os.path.exists(
+            os.path.join(self.F, holdout_kit.LEAK_WAIVER)))
+        return cid
+
+    def test_waiver_never_counts_outside_dry_run(self):
+        cid = self.waived_folder()
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        real_check = holdout_manifest.leak_ledger_problems
+        self.assertEqual(real_check(self.F, seal, dry_run=True), [])
+        problems = real_check(self.F, seal)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("case Q2 (%s) was named by a leak scan" % cid,
+                      problems[0])
+        # Mutant: a real-mode check that honoured the waiver (dry_run
+        # forced on) clears the gate, so the assertion above is what
+        # catches a waiver accepted outside the dry run.
+        mutant = functools.partial(real_check, dry_run=True)
+        self.assertEqual(mutant(self.F, seal), [])
+        self.assertNotEqual(mutant(self.F, seal), problems)
+        # The waiver alone is a dry-run marker: with DRY-RUN.json and
+        # SYNTHETIC-AGREEMENT.json gone and a public-shaped seal, real
+        # publish and rehash still refuse.
+        for name in (holdout_kit.DRYRUN_MARKER,
+                     holdout_kit.SYNTHETIC_AGREEMENT):
+            path = os.path.join(self.F, name)
+            if os.path.exists(path):
+                os.remove(path)
+        path = os.path.join(self.F, "SEAL.json")
+        dump(path, holdout_manifest._dry_seal_public_view(load(path)))
+        self.assertEqual(holdout_kit.dry_run_markers_present(self.F),
+                         [holdout_kit.LEAK_WAIVER])
+        with self.assertRaises(KitError) as ctx:
+            holdout_manifest.publish(self.F, self.R)
+        self.assertIn(holdout_kit.DRY_RUN_REFUSED_MSG, str(ctx.exception))
+        self.assertEqual(holdout_manifest.dry_run_problems(
+            self.F, load(path)), [holdout_kit.DRY_RUN_REFUSED_MSG])
+        self.assertFalse(os.path.exists(self.published()))
+        # Outside a marked dry-run folder the waiver is never valid.
+        self.assertEqual(holdout_manifest.leak_waiver_problems(
+            self.F, load(path)), [holdout_manifest.WAIVER_NOT_DRY_MSG])
+        with self.assertRaises(KitError) as ctx:
+            holdout_manifest.write_leak_waiver(self.F, load(path))
+        self.assertEqual(str(ctx.exception),
+                         holdout_manifest.WAIVER_NOT_DRY_MSG)
+
+    def test_mutant_waiver_dropped_from_the_markers_reaches_the_leak_gate(
+            self):
+        # One lock out (the waiver is no dry-run marker): publish gets past
+        # the dry-run gate, and the real leak gate (which never reads the
+        # waiver) still refuses the unreplaced case.
+        self.waived_folder()
+        for name in (holdout_kit.DRYRUN_MARKER,
+                     holdout_kit.SYNTHETIC_AGREEMENT):
+            path = os.path.join(self.F, name)
+            if os.path.exists(path):
+                os.remove(path)
+        path = os.path.join(self.F, "SEAL.json")
+        dump(path, holdout_manifest._dry_seal_public_view(load(path)))
+        with mock.patch.object(holdout_kit, "DRY_RUN_MARKERS",
+                               (holdout_kit.DRYRUN_MARKER,
+                                holdout_kit.SYNTHETIC_AGREEMENT)):
+            self.assertEqual(holdout_manifest.dry_run_problems(
+                self.F, load(path)), [])
+            self.assertTrue(holdout_manifest.leak_ledger_problems(
+                self.F, load(path)))
+        self.assertFalse(os.path.exists(self.published()))
+
+    def test_waiver_without_a_clean_rescan_is_refused(self):
+        self.leak_stop()
+        seal = load(os.path.join(self.F, "SEAL.json"))
+        cid = slot_ids(self.F)["Q2"]
+        with self.assertRaises(KitError) as ctx:
+            holdout_manifest.write_leak_waiver(self.F, seal)
+        self.assertEqual(str(ctx.exception),
+                         holdout_manifest.WAIVER_NOT_CLEAN_MSG)
+        # A hand-made waiver (as the writer would make it, minus the clean
+        # re-scan) is not valid and waives nothing.
+        scans = load(os.path.join(self.F, "LEAKSCAN.json"))["scans"]
+        dump(os.path.join(self.F, holdout_kit.LEAK_WAIVER), {
+            "schema": holdout_kit.LEAK_WAIVER_SCHEMA, "mode": "dry-run",
+            "folder": self.F,
+            "seal_sha256": holdout_kit.sha256_file(
+                os.path.join(self.F, "SEAL.json")),
+            "clean_scan_at": scans[-1]["at"],
+            "cases": {cid: {"slot": "Q2", "leak": "waived (dry-run)",
+                            "named_at": scans[0]["at"]}}})
+        self.assertEqual(holdout_manifest.leak_waiver_problems(self.F, seal),
+                         [holdout_manifest.WAIVER_NOT_CLEAN_MSG])
+        problems = holdout_manifest.leak_ledger_problems(self.F, seal,
+                                                         dry_run=True)
+        self.assertIn(holdout_manifest.LEAK_FOUND_MSG, problems)
+        self.assertTrue(any("was named by a leak scan" in p
+                            for p in problems))
+        # Mutant: accepting that waiver still leaves the hit as the last
+        # scan, so the dry run never counts the scan as settled.
+        with mock.patch.object(holdout_manifest, "leak_waiver_problems",
+                               return_value=[]):
+            self.assertEqual(holdout_manifest.leak_ledger_problems(
+                self.F, seal, dry_run=True),
+                [holdout_manifest.LEAK_FOUND_MSG])
+
+    def test_waiver_is_bound_to_the_seal_and_the_scan(self):
+        self.waived_folder()
+        path = os.path.join(self.F, "SEAL.json")
+        seal = load(path)
+        self.assertEqual(holdout_manifest.leak_waiver_problems(self.F, seal),
+                         [])
+        wpath = os.path.join(self.F, holdout_kit.LEAK_WAIVER)
+        good = load(wpath)
+        for key, value in (("folder", "/elsewhere"),
+                           ("clean_scan_at", "1999-01-01T00:00:00Z"),
+                           ("seal_sha256", "0" * 64), ("mode", "real")):
+            dump(wpath, dict(good, **{key: value}))
+            self.assertEqual(holdout_manifest.leak_waiver_problems(
+                self.F, seal), [holdout_manifest.WAIVER_INVALID_MSG], key)
+        bad = json.loads(json.dumps(good))
+        next(iter(bad["cases"].values()))["leak"] = "waived"
+        dump(wpath, bad)
+        self.assertEqual(holdout_manifest.leak_waiver_problems(self.F, seal),
+                         [holdout_manifest.WAIVER_INVALID_MSG])
+        dump(wpath, good)
+        # Another seal (a re-seal changes its bytes): the last scan is no
+        # longer against the current seal, so nothing is waived.
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write("\n")
+        self.assertEqual(holdout_manifest.leak_waiver_problems(self.F, seal),
+                         [holdout_manifest.WAIVER_NOT_CLEAN_MSG])
 
     def test_replace_retired_under_dry_run(self):
         old, keep, before = self.disagree_then_retire()
@@ -2229,7 +2472,7 @@ class TestDryRunReplace(PipelineCase):
             self.last_line(out)), "dry-run-ok")
         self.assertIn("step populate: replaced 1 retired dummy case(s), "
                       "slots C1", out)
-        self.assertIn("step crosscheck: generation 3 probe ok (12/12)", out)
+        self.assertIn("step crosscheck: generation 3 probe ok (14/14)", out)
         # A fresh blind judging round in generation 3 (never a burned one).
         prompts = [(self.cfg(c), self.prompt(c))
                    for c in self.p_calls(self.since(n))]
@@ -2322,8 +2565,8 @@ class TestDryRunReplace(PipelineCase):
         self.assertEqual(rc, 3)
         lines = out.strip().splitlines()
         self.assertEqual(lines[-1], "blocked leakscan")
-        self.assertIn("bin/holdout autopilot --dry-run --replace-retired",
-                      lines[-2])
+        self.assertEqual(lines[-2], ap.STOP_INSTRUCTIONS["leakscan-dry"]
+                         % "Q2")
         self.assertTrue(os.path.exists(os.path.join(self.F, "SEAL.json")))
         os.remove(planted)
         old = slot_ids(self.F)
@@ -2333,7 +2576,7 @@ class TestDryRunReplace(PipelineCase):
         self.assertEqual(rc, 0, out + err)
         self.assertEqual(self.last_line(out), DRY_OK)
         self.assert_trees_kept(before)
-        self.assertIn("step crosscheck: generation 3 probe ok (12/12)", out)
+        self.assertIn("step crosscheck: generation 3 probe ok (14/14)", out)
 
     def test_interrupted_write_resumes_without_the_flag(self):
         old, keep, before = self.disagree_then_retire()
@@ -2383,15 +2626,29 @@ class TestDryRunReplace(PipelineCase):
         def dropped(folder, repo=None, replace_retired=False, **kw):
             return real(folder, repo=repo, **kw)
 
+        old = slot_ids(self.F)["Q2"]
         with mock.patch.object(ap, "dry_run", side_effect=dropped):
-            for _ in range(2):
-                rc, out, _ = self.cli("--dry-run", "--replace-retired",
-                                      repo=False)
-                self.assertEqual(rc, 3)
-                self.assertEqual(self.last_line(out), "blocked leakscan")
+            rc, out, _ = self.cli("--dry-run", "--replace-retired",
+                                  repo=False)
+        # The owner asked for a replacement and silently got the plain
+        # path: the leak-named case is kept (waived), nothing replaced.
+        self.assertEqual(rc, 0)
+        self.assertNotIn("step populate: replaced", out)
+        self.assertIn("leak waived (dry-run)", out)
+        self.assertIn(old, load(os.path.join(
+            self.F, holdout_kit.LEAK_WAIVER))["cases"])
+
+    def test_flag_honoured_replaces_instead_of_waiving(self):
+        self.leak_stop()
+        old = slot_ids(self.F)["Q2"]
         rc, out, err = self.cli("--dry-run", "--replace-retired", repo=False)
         self.assertEqual(rc, 0, out + err)
         self.assertEqual(self.last_line(out), DRY_OK)
+        self.assertIn("step populate: replaced 1 retired dummy case(s), "
+                      "slots Q2", out)
+        self.assertNotIn(old, load(os.path.join(self.F, "SEAL.json"))["cases"])
+        self.assertFalse(os.path.exists(
+            os.path.join(self.F, holdout_kit.LEAK_WAIVER)))
 
     def test_mutant_same_material_is_refused(self):
         # Regenerating the retired material (same nonce, same variant) must
@@ -2463,7 +2720,7 @@ class TestDryRunPassRule(PipelineCase):
         self.assertEqual(self.last_line(out), DRY_OK)
         self.assertIn("step crosscheck: real judge verdict recorded "
                       "(disagreed)", out)
-        self.assertNotIn("7b", out)
+        self.assertNotRegex(out, r"(?<![0-9a-f])7b(?![0-9a-f])")
         cid = sealed_slot(self.F, "C1")
         # One real judging round, in generation 2; no further generation.
         begins = [self.cfg(c) for c in self.p_calls()
@@ -2579,7 +2836,7 @@ class TestDryRunPassRule(PipelineCase):
                 self.assertEqual(lines[-2], _render_h(
                     ap.STOP_INSTRUCTIONS["disagreement-dry"] % (cid, "C1"),
                     self.F))
-                self.assertNotIn("7b", out)
+                self.assertNotRegex(out, r"(?<![0-9a-f])7b(?![0-9a-f])")
                 self.assertNotIn("--replace-retired", out)
         self.assertEqual(len(load(os.path.join(
             self.F, *holdout_seal.WORKSPACES_RELPATH.split("/")))
@@ -2924,7 +3181,8 @@ class TestDryRunRejectedOutsideDryRun(PipelineCase):
         seal = self.finished_dry_run()
         # Scrub keeps the folder markers, and the seal itself says so.
         self.assertEqual(holdout_kit.dry_run_markers_present(self.F),
-                         list(holdout_kit.DRY_RUN_MARKERS))
+                         [holdout_kit.DRYRUN_MARKER,
+                          holdout_kit.SYNTHETIC_AGREEMENT])
         self.assertTrue(holdout_manifest.is_dry_run_seal(seal))
         rc, out, err = self.capture(holdout_kit.run, [
             "--folder", self.F, "publish", "--repo", self.R])

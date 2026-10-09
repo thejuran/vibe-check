@@ -64,7 +64,7 @@ ARCHIVE_RELPATH = "archive/holdout-v2.12.tar.enc"
 # level is archived, including logs, stray files and every cross-check
 # generation.
 ARCHIVE_EXCLUDES = ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json",
-                    "AUTOPILOT.json")
+                    holdout_kit.LEAK_WAIVER, "AUTOPILOT.json")
 
 OWNER_TMP = "tmp/owner"
 STAGE_NAME = "stage.tar"
@@ -728,16 +728,17 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
 # kit/KIT-INVENTORY.json. LEAKSCAN.json (counts, opaque IDs, slots) and
 # RETIRED.json (ID-independent fingerprints) must survive so later scans,
 # publish and seal keep seeing every earlier leak and retirement.
-# DRY-RUN.json and SYNTHETIC-AGREEMENT.json (fixed fields, opaque IDs and
-# hashes) survive so a scrubbed dry-run folder stays marked: publish and
-# rehash keep refusing its seal. AUTOPILOT.json (step names, opaque IDs,
+# DRY-RUN.json, SYNTHETIC-AGREEMENT.json and LEAK-WAIVER.json (fixed fields,
+# opaque IDs, slots and hashes) survive so a scrubbed dry-run folder stays
+# marked: publish and rehash keep refusing its seal. AUTOPILOT.json (step names, opaque IDs,
 # session ids, slots) survives so a re-run of the autopilot after scrub
 # still knows how the run ended.
 SCRUB_FIXED_SURVIVORS = ("SEAL.json", ".metadata_never_index",
                          ARCHIVE_RELPATH, "bin/holdout",
                          "kit/KIT-INVENTORY.json", "LEAKSCAN.json",
                          "RETIRED.json", holdout_kit.DRYRUN_MARKER,
-                         holdout_kit.SYNTHETIC_AGREEMENT, "AUTOPILOT.json")
+                         holdout_kit.SYNTHETIC_AGREEMENT,
+                         holdout_kit.LEAK_WAIVER, "AUTOPILOT.json")
 # Survivors that must be present after scrub; any other may be absent.
 REQUIRED_SURVIVORS = ("SEAL.json", ".metadata_never_index", ARCHIVE_RELPATH,
                       "bin/holdout")

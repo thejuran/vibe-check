@@ -36,6 +36,12 @@ Ledgers that live in the holdout folder (never archived, never public):
     scan named or the owner withdrew. publish (and seal) refuse any current
     case that matches one, so a retired change cannot come back under a new
     opaque ID.
+  * LEAK-WAIVER.json — dry run only (owner decision, 51-09): written by
+    `autopilot --dry-run` after a scan named dummy cases and a later fresh
+    scan against the same seal came back clean; it keeps those cases,
+    marked `leak: waived (dry-run)`. It is a dry-run marker, so every real
+    path refuses the folder, and only leak_ledger_problems(dry_run=True)
+    reads it.
 
 Commands registered in holdout_kit.COMMANDS: seal-build, rehash, extract,
 seal-order, publish, retire, resume-check. Every one refuses inside a
@@ -557,21 +563,39 @@ def _scan_ok(scan):
                  or isinstance(scan.get("seal_sha256"), str)))
 
 
-def leak_ledger_problems(folder, seal):
-    """[] only when the last leak scan was clean, was taken against the
-    current SEAL.json bytes, and no case any scan named is still sealed."""
+def _load_scans(folder):
+    """The LEAKSCAN.json scan list, or None when it is missing or
+    malformed."""
     try:
         with open(os.path.join(folder, LEAKSCAN_RELPATH), "r",
                   encoding="utf-8") as fh:
             ledger = json.load(fh)
     except (OSError, ValueError):
-        return [NO_SCAN_MSG]
+        return None
     if not isinstance(ledger, dict) or ledger.get("schema") != LEAKSCAN_SCHEMA:
-        return [NO_SCAN_MSG]
+        return None
     scans = ledger.get("scans")
     if not isinstance(scans, list) or not scans \
             or not all(_scan_ok(s) for s in scans):
+        return None
+    return scans
+
+
+def leak_ledger_problems(folder, seal, dry_run=False):
+    """[] only when the last leak scan was clean, was taken against the
+    current SEAL.json bytes, and no case any scan named is still sealed.
+
+    dry_run=True is for the dry run checking itself (the caller runs in
+    dry-run mode): a case named by an earlier scan that a valid
+    LEAK-WAIVER.json (leak_waiver_problems == []) keeps is not reported.
+    Without dry_run the waiver is never read; the real run's leak path is
+    unchanged."""
+    scans = _load_scans(folder)
+    if scans is None:
         return [NO_SCAN_MSG]
+    waived = set()
+    if dry_run and not leak_waiver_problems(folder, seal):
+        waived = set(_load_waiver(folder)["cases"])
     problems = []
     last = scans[-1]
     if last["hits"] != 0:
@@ -588,11 +612,131 @@ def leak_ledger_problems(folder, seal):
         for cid in scan["hit_case_ids"]:
             named.setdefault(cid, scan["at"])
     for cid in sorted(named):
-        if cid in cases:
+        if cid in cases and cid not in waived:
             entry = cases[cid]
             slot = entry.get("slot", "?") if isinstance(entry, dict) else "?"
             problems.append(LEAK_NOT_REPLACED_MSG % (slot, cid, named[cid]))
     return problems
+
+
+# ---------------------------------------------------------------- dry-run leak waiver
+
+# Owner-approved dry-run rule (51-09): a leak scan that names dummy cases is
+# recorded as usual (LEAKSCAN.json keeps the hit, RETIRED.json keeps the
+# fingerprints). Once the owner has removed the leaked copy and a FRESH scan
+# against the same seal comes back clean, the dry run may finish without
+# replacing those cases: LEAK-WAIVER.json keeps them, each marked
+# `leak: waived (dry-run)`. It is a dry-run marker (holdout_kit
+# DRY_RUN_MARKERS), so real seal, seal-build, publish and rehash refuse any
+# folder that holds it, and only leak_ledger_problems(dry_run=True) reads it.
+LEAK_WAIVED = "waived (dry-run)"
+WAIVER_KEYS = frozenset({"schema", "mode", "folder", "seal_sha256",
+                         "clean_scan_at", "cases"})
+WAIVER_CASE_KEYS = frozenset({"slot", "leak", "named_at"})
+WAIVER_NOT_DRY_MSG = ("a leak waiver is for a dry run only (a valid "
+                      "DRY-RUN.json and a dry-run SEAL.json); nothing was "
+                      "waived")
+WAIVER_NOT_CLEAN_MSG = ("the last leak scan was not clean against the current "
+                        "seal; remove the leaked copy and scan again before a "
+                        "dry-run leak can be waived")
+WAIVER_NOTHING_MSG = "no sealed case was named by a leak scan; nothing to waive"
+WAIVER_INVALID_MSG = "LEAK-WAIVER.json does not match this folder, seal or ledger"
+
+
+def _load_waiver(folder):
+    path = os.path.join(folder, holdout_kit.LEAK_WAIVER)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _waiver_basis(folder, seal):
+    """(clean last scan, {named-and-still-sealed ID: (slot, first named at)})
+    or a problem line. Shared by the writer and the checker."""
+    h = os.path.realpath(folder)
+    if not holdout_kit.dry_run_marker_ok(h) or not is_dry_run_seal(seal):
+        return WAIVER_NOT_DRY_MSG
+    scans = _load_scans(h)
+    seal_path = os.path.join(h, SEAL_NAME)
+    current = (holdout_kit.sha256_file(seal_path)
+               if os.path.isfile(seal_path) else None)
+    if scans is None or current is None:
+        return WAIVER_NOT_CLEAN_MSG
+    last = scans[-1]
+    if last["hits"] != 0 or last.get("seal_sha256") != current \
+            or last["hit_case_ids"]:
+        return WAIVER_NOT_CLEAN_MSG
+    cases = seal.get("cases") if isinstance(seal.get("cases"), dict) else {}
+    named = {}
+    for scan in scans:
+        for cid in scan["hit_case_ids"]:
+            if cid in cases and cid not in named:
+                entry = cases[cid]
+                slot = entry.get("slot") if isinstance(entry, dict) else None
+                named[cid] = (slot if isinstance(slot, str) else "?",
+                              scan["at"])
+    if not named:
+        return WAIVER_NOTHING_MSG
+    return last, named, current
+
+
+def write_leak_waiver(folder, seal):
+    """Dry run only: write LEAK-WAIVER.json keeping every sealed case a leak
+    scan named, once the LAST scan (against the current SEAL.json bytes) is
+    clean. Refuses (KitError, nothing written) outside a marked dry-run
+    folder with a dry-run seal, without a clean last scan, or when no sealed
+    case was named. Returns {ID: slot} of the waived cases."""
+    basis = _waiver_basis(folder, seal)
+    if isinstance(basis, str):
+        raise KitError(basis)
+    last, named, current = basis
+    h = os.path.realpath(folder)
+    path = os.path.join(h, holdout_kit.LEAK_WAIVER)
+    if os.path.islink(path):
+        raise KitError("LEAK-WAIVER.json is a symbolic link; remove it and "
+                       "run this again")
+    holdout_kit.write_json_atomic(path, {
+        "schema": holdout_kit.LEAK_WAIVER_SCHEMA, "mode": "dry-run",
+        "folder": h, "seal_sha256": current, "clean_scan_at": last["at"],
+        "cases": {cid: {"slot": slot, "leak": LEAK_WAIVED, "named_at": at}
+                  for cid, (slot, at) in sorted(named.items())}})
+    return {cid: slot for cid, (slot, _) in named.items()}
+
+
+def leak_waiver_problems(folder, seal):
+    """[] only when LEAK-WAIVER.json is exactly what write_leak_waiver would
+    write now: a marked dry-run folder and a dry-run seal, the last scan
+    clean against the current SEAL.json bytes (and the one the waiver
+    names), and the waived cases exactly the sealed cases a scan named, each
+    marked `leak: waived (dry-run)`."""
+    data = _load_waiver(folder)
+    if data is None:
+        return ["no LEAK-WAIVER.json"]
+    basis = _waiver_basis(folder, seal)
+    if isinstance(basis, str):
+        return [basis]
+    last, named, current = basis
+    cases = data.get("cases")
+    if set(data) != WAIVER_KEYS \
+            or data.get("schema") != holdout_kit.LEAK_WAIVER_SCHEMA \
+            or data.get("mode") != "dry-run" \
+            or data.get("folder") != os.path.realpath(folder) \
+            or data.get("seal_sha256") != current \
+            or data.get("clean_scan_at") != last["at"] \
+            or not isinstance(cases, dict) or set(cases) != set(named):
+        return [WAIVER_INVALID_MSG]
+    for cid, entry in cases.items():
+        if not isinstance(entry, dict) or set(entry) != WAIVER_CASE_KEYS \
+                or entry["leak"] != LEAK_WAIVED \
+                or entry["slot"] != named[cid][0] \
+                or entry["named_at"] != named[cid][1]:
+            return [WAIVER_INVALID_MSG]
+    return []
 
 
 # ---------------------------------------------------------------- retirement

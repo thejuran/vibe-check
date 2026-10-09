@@ -390,7 +390,7 @@ class TestEncrypt(ArchiveCase):
             self.assertIn(name, names)
         self.assertEqual(holdout_archive.ARCHIVE_EXCLUDES,
                          ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json",
-                          "AUTOPILOT.json"))
+                          "LEAK-WAIVER.json", "AUTOPILOT.json"))
 
     def test_archive_members_refuses_top_level_symlink(self):
         os.symlink(self.p("notes.txt"), self.p("link.txt"))
@@ -1069,7 +1069,8 @@ class TestLeakRetire(LeakCase):
 
 FIXED = ("SEAL.json", ".metadata_never_index", ARCHIVE_REL, "bin/holdout",
          "kit/KIT-INVENTORY.json", "LEAKSCAN.json", "RETIRED.json",
-         "DRY-RUN.json", "SYNTHETIC-AGREEMENT.json", "AUTOPILOT.json")
+         "DRY-RUN.json", "SYNTHETIC-AGREEMENT.json", "LEAK-WAIVER.json",
+         "AUTOPILOT.json")
 
 SCRUB_PLANTS = {
     "xcheck/X-1/blind.json": "{}\n",

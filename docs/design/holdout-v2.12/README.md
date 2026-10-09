@@ -147,8 +147,9 @@ passphrase.
 2. **Cross-check sandbox check.** `~/.vibe-check-holdout/dryrun/bin/crosscheck` (first time:
    `/login`), then type exactly:
    `Run python3 sandbox-probe.py and reply with its exact output.`
-   Expect `OK: sandbox denied 6/6 protected reads` (sealed/, work/, cfg-finder/, the finder
-   brief, and the finder and owner scratch roots). Anything else (a PROBLEM line, a permission
+   Expect `OK: sandbox denied 8/8 protected reads and writes` (sealed/, work/, cfg-finder/,
+   the finder brief, the finder and owner scratch roots, and a read of and a write into
+   Claude Code's shared temp directory `/tmp/claude-<uid>`). Anything else (a PROBLEM line, a permission
    prompt asking to run without the sandbox, or output that quotes a sentinel) means stop,
    decline any such prompt, and report `blocked sandbox`. Then `/exit`.
 3. **Finder check.** `~/.vibe-check-holdout/dryrun/bin/finder` (first time: `/login`), then
@@ -223,7 +224,7 @@ The run sheet:
 4. `~/.vibe-check-holdout/v2.12/bin/holdout crosscheck-prepare`
 5. `~/.vibe-check-holdout/v2.12/bin/crosscheck`, then **before anything else** type
    `Run python3 sandbox-probe.py and reply with its exact output.`
-   Require `OK: sandbox denied N/N protected reads`. The script names no protected path on its
+   Require `OK: sandbox denied N/N protected reads and writes`. The script names no protected path on its
    command line, so this proves the OS sandbox, not the hook, is what stops a script from
    opening `sealed/`. A PROBLEM line means close the session and reply `blocked sandbox`.
    Only then type `Read CROSSCHECK-BRIEF.md and begin.`
@@ -391,6 +392,20 @@ Procedure:
 If a match is in the current tuning session's own transcript, it is also a 7c incident: end
 that session first and continue in a clean one.
 
+**Dry run only: re-scan clean, then finish without replacement (owner decision, 51-09).** The
+dry run's cases are dummy material, so a match there proves the scan works rather than
+contaminating anything. The hit is still recorded exactly as above (`LEAKSCAN.json` keeps it,
+the named cases stay retired in `RETIRED.json`). Do step 1 (close the named session, delete
+the named copy), then run the dry-run autopilot again with plain `--dry-run`. It always scans
+afresh after a scan with matches; if that fresh scan, against the same dry-run seal, is clean,
+it writes `LEAK-WAIVER.json` (each named dummy case kept under its ID, marked
+`"leak": "waived (dry-run)"`, bound to the folder, the seal bytes and the clean scan) and
+finishes without any replacement or new cross-check generation. If the scan still matches, it
+stops again. `LEAK-WAIVER.json` is a dry-run marker like `DRY-RUN.json`: the real `seal`,
+`seal-build`, `publish`, `rehash` and the real autopilot refuse any folder holding it, and the
+real leak gate never reads it. In the real run nothing here applies: a clean re-scan still
+requires the replacement above.
+
 ## 7e. Autopilot: the one-command run
 
 The autopilot runs everything in sections 6 and 7 after `setup` from one command in a plain
@@ -436,13 +451,35 @@ generation.
 
 **Preflight** (before any case-finding): the Terminal is a real terminal (openssl must be able
 to prompt), `claude` is on PATH, `/usr/bin/openssl`, `/usr/bin/tar`, `/usr/sbin/lsof` and
-`/usr/bin/pgrep` exist, the finder and cross-check settings pass their self-checks, each role is
+`/usr/bin/pgrep` exist, the finder and cross-check settings pass their self-checks, the role
+launchers and `bin/role-env.sh` are current (otherwise it names `refresh-kit`), each role is
 logged in (`auth status` through its own launcher), the cross-check sandbox probe reports N/N,
 the finder can read the kit and write `sealed/`, and a headless session can be resumed by its
 id. It removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
 `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_ORGANIZATION_ID` from its own
 environment first, so each session uses only the login of its own config folder; it never
 writes a credential anywhere.
+
+**Role sessions keep their temp files in the folder (51-09).** Claude Code gives a sandboxed
+command `$TMPDIR=<CLAUDE_CODE_TMPDIR>/claude-<uid>` only while that path is at most 44 bytes;
+every role's temp root under the holdout folder is longer, so Claude Code falls back to the
+shared `/tmp/claude-<uid>`, which the sandbox lets commands write by default and which holds
+every other Claude session's scratch, the tuning side's included. In the 51-09 dry run the
+cross-check judge re-ran a proof in "a fresh export" there, and the leak scan found dummy case
+code in `/tmp/claude-<uid>/base-export/`. Now every role's settings (the finder and each
+generation) deny `/tmp/claude-<uid>` and `/tmp/claude` in every control: sandbox read and
+write, permission `Read`/`Edit` (the file tools are not sandboxed; both the `/tmp` and the
+`/private/tmp` spelling), and the guard hook; each self-check fails if any entry is missing.
+Each launcher sets `CLAUDE_ENV_FILE=<H>/bin/role-env.sh`, which Claude Code runs inside every
+Bash command after its own `TMPDIR` export and which points `$TMPDIR` (and zsh's here-document
+prefix) back at the role's own temp root, so temp files, here-documents and Python's
+`tempfile` keep working there. The cross-check probe tries to read and to write the shared
+directory; both must be denied. One visible side effect: Claude Code writes its
+working-directory tracking file into the shared directory after each command, so in every role
+session a command that succeeds ends with `operation not permitted: /tmp/claude-<uid>/cwd-...`
+and reports exit code 1, and a `cd` does not carry over to the next call. A failing command
+keeps its own exit code and has no such line. The briefs say so, and tell each session to keep
+scratch and proof copies in its own folders.
 
 **Logins.** The first time, a role is not logged in: the autopilot stops with one line naming
 the launcher, for example `run ~/.vibe-check-holdout/v2.12/bin/crosscheck, type /login, ...`.
@@ -474,7 +511,7 @@ verify (the autopilot prints a line just before).
 | `blocked disagreement` | real run only (a dry run records the judge's outcome instead): the independent check disagreed on a case (named by ID and slot) | README 7b (i): resolve with evidence and `crosscheck-reset <ID> --reason resolved`, then `bin/holdout autopilot` again; or `retire --slot <S> --reason owner`, then `bin/holdout autopilot --replace-retired`. It never resolves a disagreement itself. |
 | `blocked validation` | `validate` still failed after three fix rounds with the finder | README 7b (iv), then `bin/holdout autopilot` again |
 | `blocked sandbox` | the sandbox probe or the finder check failed (for the finder check, the line above it says whether the kit read, the `sealed/` write, or both failed) | README 6 step 2/3, then `bin/holdout autopilot` again |
-| `blocked leakscan` | the leak scan named slots | README 7d steps 1-2 (cleanup only), then `bin/holdout autopilot --replace-retired` |
+| `blocked leakscan` | the leak scan named slots | README 7d steps 1-2 (cleanup only), then `bin/holdout autopilot --replace-retired`. In a dry run: close the named session, delete the named copy, then `bin/holdout autopilot --dry-run` (7d, dry run only): a clean fresh scan finishes without replacement |
 | `blocked residue` | scrub found plaintext residue outside the folder | delete what it names, then `bin/holdout autopilot` again |
 | `blocked other` | a session failed or timed out, a process still holds the folder, encrypt failed, or seal refused for another reason | follow the line printed just above it, then `bin/holdout autopilot` again |
 
@@ -502,9 +539,12 @@ judged case, seals a case you retired as itself as it stands (the dry-run seal m
 
 **Dry-run recovery (a leak-retired dummy case).** In a dry run every command a stop message
 names carries `--dry-run` (for example `bin/holdout autopilot --dry-run --replace-retired`), and
-the same flags work. When the leak scan named a dummy case (or a new case reuses retired
-material), a plain `--dry-run` re-run stops with one line naming `--dry-run --replace-retired`
-instead of trying the same case again. With that flag the autopilot records which cases it will delete before deleting any,
+the same flags work. When the leak scan named a dummy case, the default is 7d's dry-run rule:
+remove the leaked copy and run plain `--dry-run`; a clean fresh scan finishes the dry run with
+the named cases kept and marked `leak: waived (dry-run)` in `LEAK-WAIVER.json`, with no
+replacement and no new generation or login. Replacing the dummy case instead is still possible
+with `--dry-run --replace-retired`, and is required when a new case reuses retired material.
+With that flag the autopilot records which cases it will delete before deleting any,
 removes each retired case (and `SEAL.json` and the archive, if they exist), writes different
 dummy material for that slot under a new ID (new commits in the dry-run repo, a new module
 variant and a fresh random tag, so the revisions, the diff, the changed lines and the key all
@@ -525,12 +565,15 @@ copy, which refuses):
 `python3 ~/turingmind-code-review/docs/design/holdout-v2.12/tools/holdout_kit.py --folder <the holdout folder> refresh-kit`
 It re-copies the kit docs, templates and tools whose bytes differ, rewrites
 `kit/KIT-INVENTORY.json` (scrub's keep list) when it changed, rewrites `bin/holdout`,
-`bin/finder` and each existing `bin/crosscheck*` only when setup's text for it changed, and the
-finder settings only where setup's output changed (in `cfg-finder/` it touches only the
-`settings.json` grant, never the login). It then re-runs the finder and cross-check settings
-self-checks (cross-check workspaces are checked, never written) and confirms that nothing else
-changed: `sealed/`, `work/`, every login, `archive/`, `AUTOPILOT.json`, `LEAKSCAN.json`,
-`RETIRED.json` and the dry-run repos keep their exact files. The one file it may add is
+`bin/finder`, each existing `bin/crosscheck*` and `bin/role-env.sh` only when setup's text for
+it changed, the finder settings only where setup's output changed (in `cfg-finder/` it touches
+only the `settings.json` grant, never the login), and in each existing cross-check workspace
+only `.claude/settings.json` and `sandbox-probe.py`, regenerated by the same code that mints a
+generation. Every settings file is self-checked right after it is written; a failure restores
+the previous file and prints a PROBLEM line. It then confirms that nothing else changed:
+`sealed/`, `work/`, every login and config folder, the packets and verdicts in each workspace,
+`archive/`, `AUTOPILOT.json`, `LEAKSCAN.json`, `RETIRED.json`, `LEAK-WAIVER.json` and the
+dry-run repos keep their exact files. The one file it may add is
 `DRY-RUN.json`, and only when it can prove mechanically that the folder is a dry run: the
 autopilot journal says `dry-run`, both dry-run repos exist and are listed as eligible, and every
 case comes from them with the dry run's synthetic key text. It never adds it to the real

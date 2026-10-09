@@ -225,6 +225,16 @@ STOP_INSTRUCTIONS = {
         "Leak scan named slots %s. Follow README 7d steps 1-2 (close the "
         "named tuning session, delete the named matches as cleanup), then "
         "run bin/holdout autopilot --replace-retired."),
+    "leak-waiver": (
+        "The dry run could not record its leak waiver (the reason is in the "
+        "log inside the holdout folder, tmp/owner/autopilot). Do not replace "
+        "or delete anything; report blocked other."),
+    "leakscan-dry": (
+        "Leak scan named dummy slots %s. Follow README 7d steps 1-2 (close "
+        "the named session, delete the named matches), then run bin/holdout "
+        "autopilot --dry-run: a fresh scan that comes back clean finishes "
+        "the dry run without replacement, keeping those dummy cases marked "
+        "leak waived (dry-run). The hit stays recorded."),
     "retired": (
         "A sealed case reuses retired material. Run bin/holdout autopilot "
         "--replace-retired to replace it through the finder."),
@@ -312,8 +322,14 @@ SETUP_MSG = ("the holdout folder is not set up; run setup first (README "
 NO_CLAUDE_MSG = ("claude is not installed on PATH; install Claude Code, then "
                  "run bin/holdout autopilot again")
 TOOL_MSG = "%s is missing (%s); the autopilot needs it"
-SETTINGS_MSG = ("the %s settings failed their self-check; run setup again in "
-                "a fresh folder")
+SETTINGS_MSG = ("the %s settings failed their self-check; bring the folder "
+                "up to date with refresh-kit (README 7e) and run this again; "
+                "if refresh-kit reports a PROBLEM, run setup again in a "
+                "fresh folder")
+ROLE_ENV_MSG = ("the session launchers or bin/role-env.sh predate this kit "
+                "(role sessions would not keep their scratch in their own "
+                "temp root); bring the folder up to date with refresh-kit "
+                "(README 7e), then run bin/holdout autopilot again")
 AUTH_MSG = ("the %s session is not logged in. In a new Terminal window run "
             "%s, type /login, finish the browser login, type /exit, then run "
             "bin/holdout autopilot again.")
@@ -337,9 +353,10 @@ TIMEOUT_LINE = ("session %s: timed out after %d s (see the log inside the "
 
 
 def expected_probe_total(gen):
-    """Protected reads generation `gen`'s sandbox probe must report denied:
-    six base targets plus three per earlier generation."""
-    return 6 + 3 * (gen - 1)
+    """Protected reads and writes generation `gen`'s sandbox probe must
+    report denied: six base targets, the shared temp directory's read and
+    write, plus three per earlier generation."""
+    return 8 + 3 * (gen - 1)
 
 
 # ---------------------------------------------------------------- outcomes
@@ -763,6 +780,8 @@ def _check_settings(h, reg):
         prior = [holdout_kit.xcheck_names(k) for k in range(1, gen)]
         if holdout_kit.xcheck_settings_problems(settings, h, prior=prior):
             raise Precondition(SETTINGS_MSG % "cross-check")
+    if holdout_kit.role_env_problems(h, gens):
+        raise Precondition(ROLE_ENV_MSG)
 
 
 def _check_tools():
@@ -1698,11 +1717,15 @@ def _unreplaced_slots(h):
 
 def _step_leakscan(run):
     h, j = run.h, run.j
+    dry = run.mode == "dry-run"
     if run.journal_missing:
         return _skip(run, "leakscan", "journal missing")
     seal = _load_seal_or_none(h)
-    if seal is not None and not holdout_manifest.leak_ledger_problems(h,
-                                                                      seal):
+    # Skipped only when the recorded scans already settle this seal: a last
+    # scan with hits (or one against another seal) is never "recorded",
+    # so a resume always scans afresh.
+    if seal is not None and not holdout_manifest.leak_ledger_problems(
+            h, seal, dry_run=dry):
         return _skip(run, "leakscan", "recorded for this seal")
     _begin(run, "leakscan")
     from_archive = not _sealed_present(h)
@@ -1720,11 +1743,28 @@ def _step_leakscan(run):
           % (len(hits), result["probes"]))
     if hits:
         slots = sorted(set(result["hit_slots"]))
+        if dry:
+            raise Stop("leakscan", STOP_INSTRUCTIONS["leakscan-dry"]
+                       % ",".join(slots))
         j["replaced_slots"] = sorted(set(j["replaced_slots"]) | set(slots))
         journal_save(h, j)
         raise Stop("leakscan", STOP_INSTRUCTIONS["leakscan"]
                    % ",".join(slots))
     unreplaced = _unreplaced_slots(h)
+    if unreplaced and dry:
+        # Owner-approved dry-run rule: the fresh scan is clean, so the
+        # leak-named dummy cases are kept (no replacement, no new
+        # generation), each waived in LEAK-WAIVER.json; real seal, publish
+        # and rehash refuse any folder holding it.
+        try:
+            waived = _quiet(h, "leakscan", holdout_manifest.write_leak_waiver,
+                            h, _load_seal_or_none(h))
+        except KitError as exc:
+            _log_lines(h, "leakscan", [str(exc)])
+            raise Stop("other", STOP_INSTRUCTIONS["leak-waiver"])
+        return _done(run, "leakscan", "clean; leak waived (dry-run) for "
+                     "dummy slots %s, kept without replacement"
+                     % ",".join(sorted(set(waived.values()))))
     if unreplaced:
         raise Stop("leakscan", STOP_INSTRUCTIONS["leakscan"]
                    % ",".join(unreplaced))

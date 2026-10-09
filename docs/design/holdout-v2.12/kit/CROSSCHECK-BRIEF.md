@@ -16,6 +16,16 @@ Nobody has told you the expected verdict, and nothing in the packet says which t
 case was built for. Your job is to decide for yourself, write that judgment down, and only
 then compare it with the answer the owner reveals.
 
+Scratch and the shell. Keep every scratch file in your packet folders (`xcheck/<XID>/`) or
+in your own temp root, which `$TMPDIR` names inside every command. Never write under
+`/tmp`, `/private/tmp` or the shared `/tmp/claude-<uid>` directory: they are outside the
+holdout folder, other sessions read them, and your sandbox denies them. Because of that
+denial, a Bash call that succeeds ends with a line `operation not permitted:
+/tmp/claude-<uid>/cwd-...` and reports exit code 1; a call that fails reports its own exit
+code and has no such line. A `cd` does not carry over to the next call: use absolute paths,
+or `cd <dir> && <command>` in one call. To read a command's own status, end it with
+`; echo "rc=$?"`.
+
 ## Before reveal
 
 For each packet:
@@ -63,8 +73,9 @@ for each packet:
 - `revealed/proof-results.json`: the recorded proof runs.
 
 If the proof is runnable, re-run `proof/run` yourself, with the current directory at the
-root of each tree: once in a fresh export of `base/` and once in your changed tree. Note
-the two exit codes.
+root of each tree: once in a fresh copy of `base/` made inside the packet folder
+(`xcheck/<XID>/base-run/`, never under `/tmp`) and once in your changed tree. Note the two
+exit codes.
 
 Then write `xcheck/<XID>/final.json`:
 
@@ -133,8 +144,11 @@ workspace; judge it as in "Before reveal".
   any change is detected.
 - Never read `sealed/`, `work/`, `cfg-finder/`, the finder's or the owner's scratch
   (`tmp/finder`, `tmp/owner`), or any earlier cross-check workspace, configuration
-  directory or scratch root. All of them are denied. Your own scratch is the
-  `tmp/crosscheck/<your workspace>` directory set as `TMPDIR` when this session started.
+  directory or scratch root. All of them are denied. Your own scratch is your packet
+  folders or your temp root under `tmp/crosscheck/<your workspace>`, which `$TMPDIR` names
+  inside every command.
+- Never write under `/tmp`, `/private/tmp` or `/tmp/claude-<uid>`, not even a copy or an
+  export of a base tree.
 - Never write outside your packet folders.
 - Never run any code-review tool or reviewer agent, or ask one for a verdict.
 - Never discuss the case content with anyone but the owner, inside this session.
