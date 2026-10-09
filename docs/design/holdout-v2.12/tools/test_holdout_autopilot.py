@@ -545,8 +545,8 @@ class TestModuleShape(unittest.TestCase):
     def test_every_run_session_call_names_its_session(self):
         found = 0
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Call) and _call_name(node) == \
-                    "run_session":
+            if isinstance(node, ast.Call) and _call_name(node) in \
+                    ("run_session", "_launch"):
                 found += 1
                 kws = {k.arg for k in node.keywords}
                 self.assertTrue({"session_id", "resume"} & kws,

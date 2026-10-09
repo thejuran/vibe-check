@@ -963,6 +963,7 @@ COMMANDS = {
     "leakscan": "holdout_archive",
     "scrub": "holdout_archive",
     "dryrun": "holdout_dryrun",
+    "autopilot": "holdout_autopilot",
 }
 # The ONLY commands run() dispatches without --folder. seal-order and publish
 # take --repo; resume-check reads a checkpoint reply from stdin.
