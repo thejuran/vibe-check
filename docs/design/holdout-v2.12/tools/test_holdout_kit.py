@@ -2077,8 +2077,9 @@ class TestRefreshKit(SetupCase):
         self.assertTrue(holdout_kit.xcheck_settings_problems(
             self.xcheck_settings("xcheck-r2"), self.F,
             [holdout_kit.xcheck_names(1)]))
+        # 4 shared-temp problems plus 3 launchers without the PATH line.
         self.assertEqual(len(holdout_kit.role_env_problems(self.F, (1, 2))),
-                         4)
+                         7)
         before = self.snapshot()
         rc, out, err = self.refresh()
         self.assertEqual(rc, 0, out + err)
