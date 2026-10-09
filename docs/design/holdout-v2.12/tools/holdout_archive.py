@@ -64,7 +64,8 @@ ARCHIVE_RELPATH = "archive/holdout-v2.12.tar.enc"
 # level is archived, including logs, stray files and every cross-check
 # generation.
 ARCHIVE_EXCLUDES = ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json",
-                    holdout_kit.LEAK_WAIVER, "AUTOPILOT.json")
+                    holdout_kit.LEAK_WAIVER, "LEAK-CLEARED.json",
+                    "AUTOPILOT.json")
 
 OWNER_TMP = "tmp/owner"
 STAGE_NAME = "stage.tar"
@@ -534,14 +535,6 @@ def _hit(location, raw, decoded, index):
             "case_ids": sorted({c for p in matched for c in index[p][1]})}
 
 
-def _scan_file(path, index):
-    """The hit for one file (raw pass + JSON-decoded pass), or None."""
-    with open(path, "rb") as fh:
-        text = fh.read().decode("utf-8", "replace")
-    raw, decoded = _match(text, index)
-    return _hit(path, raw, decoded, index)
-
-
 def _under(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
@@ -649,7 +642,7 @@ def _report(result, unreadable):
 
 
 def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
-             openssl=None, tar=None):
+             openssl=None, tar=None, home=None, setup_time=None):
     """Search the tuning side for holdout text; record the scan in
     LEAKSCAN.json and retire every case it names. Prints counts, locations
     and slots only.
@@ -683,10 +676,15 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
             raise KitError(NO_PROBES_MSG)
         index = _index(probes)
         slot_of = {cid: slot for _, slot, cid in probes}
+        by_slot, slot_repo = _slot_probes(source)
+        tuning = os.path.realpath(repo) if repo else None
+        places = _Places(home or os.path.expanduser("~"), tuning)
+        setup = _setup_time(h) if setup_time is None else setup_time
+        found = {slot: [] for slot in by_slot}
         hits, seen, unreadable = [], set(), 0
         sources = [(root, ()) for root in roots]
-        if repo:
-            sources.append((os.path.realpath(repo), (".git",)))
+        if tuning:
+            sources.append((tuning, (".git",)))
         for root, skip_names in sources:
             for path in _iter_files(root, h, skip_names):
                 real = os.path.realpath(path)
@@ -694,17 +692,30 @@ def leakscan(folder, scan_roots=None, repo=None, from_archive=False,
                     continue
                 seen.add(real)
                 try:
-                    hit = _scan_file(path, index)
+                    with open(path, "rb") as fh:
+                        text = fh.read().decode("utf-8", "replace")
                 except OSError:
                     unreadable += 1
                     continue
+                raw, decoded = _match(text, index)
+                hit = _hit(path, raw, decoded, index)
                 if hit:
                     hits.append(hit)
-        if repo:
-            raw, decoded = _match(_git_log(os.path.realpath(repo)), index)
+                    for f in _file_findings(path, text, by_slot, slot_repo,
+                                            places, setup):
+                        found[f[0]].append(f)
+        if tuning:
+            log = _git_log(tuning)
+            raw, decoded = _match(log, index)
             hit = _hit(GIT_LOG_LOCATION, raw, decoded, index)
             if hit:
                 hits.append(hit)
+                for slot in hit["slots"]:
+                    found[slot].append((slot, "tuning-gitlog", "holdout",
+                                        "unknown"))
+        hits, benign = _apply_owner_rule(hits, found, slot_of)
+        if benign:
+            holdout_kit.print_ok(OWN_SOURCE_LINE % benign)
         result = {"probes": len(index), "hits": hits,
                   "hit_case_ids": sorted({c for h_ in hits
                                           for c in h_["case_ids"]}),
@@ -1054,6 +1065,78 @@ def leakdiag_line(result):
                                      ",".join(where) if where else "none")
 
 
+# ---------------------------------------------------------------- owner rule in leakscan
+
+OWN_SOURCE_LINE = ("leak scan: matched only the cases' own source code outside "
+                   "tuning-side places (%d location(s); not a leak under the "
+                   "owner rule)")
+
+
+def _apply_owner_rule(hits, found, slot_of):
+    """(hits, benign count): each hit keeps only the slots leakdiag's rule
+    calls exposed; a hit left with none is dropped and counted as benign."""
+    exposed = {slot for slot, f in found.items()
+               if _slot_cause(f) == "exposed"}
+    kept, benign = [], 0
+    for hit in hits:
+        slots = [s for s in hit["slots"] if s in exposed]
+        if not slots:
+            benign += 1
+            continue
+        kept.append(dict(hit, slots=slots, case_ids=[
+            c for c in hit["case_ids"] if slot_of.get(c) in exposed]))
+    return kept, benign
+
+
+LEAK_CLEAR_NEEDS_MSG = ("leak-clear needs SEAL.json and the live sealed/ "
+                        "(run it before scrub)")
+
+
+def leak_clear(folder, repo=None, scan_roots=None, home=None,
+               setup_time=None):
+    """Owner rule (2026-10-09): append a clearance for every current case a
+    leak scan named or a leakscan retirement covers whose slot leakdiag does
+    not call exposed. Returns (cleared slots, kept slots), each sorted. The
+    classification is recomputed here; nothing the owner types is trusted."""
+    _refuse()
+    h = os.path.realpath(folder)
+    if not os.path.isfile(os.path.join(h, holdout_manifest.SEAL_NAME)) \
+            or not os.path.isdir(os.path.join(h, "sealed")):
+        raise KitError(LEAK_CLEAR_NEEDS_MSG)
+    diag = leakdiag(h, scan_roots=scan_roots, repo=repo, home=home,
+                    setup_time=setup_time)
+    scans = holdout_manifest._load_scans(h) or []
+    named = {cid for scan in scans for cid in scan["hit_case_ids"]}
+    named |= {cid for cid, _, reasons in holdout_manifest.retired_matches(h)
+              if any(r.startswith("leakscan:") for r in reasons)}
+    cases, cleared, kept = {}, [], []
+    for cid in holdout_kit.case_ids(h):
+        if cid not in named:
+            continue
+        slot = _case_slot(h, cid)
+        cause = diag.get(slot, {}).get("cause", "exposed")
+        if cause == "exposed":
+            kept.append(slot)
+            continue
+        cases[cid] = {"slot": slot, "cause": cause,
+                      "identity": holdout_manifest.case_identity(h, cid)}
+        cleared.append(slot)
+    if cases:
+        holdout_manifest.append_clearance(h, cases)
+    order = list(holdout_kit.SLOTS)
+    cleared.sort(key=order.index)
+    kept.sort(key=order.index)
+    print("leak-clear cleared=%s kept=%s" % (",".join(cleared) or "none",
+                                             ",".join(kept) or "none"))
+    return cleared, kept
+
+
+def _case_slot(h, cid):
+    key = holdout_kit.load_json(os.path.join(h, "sealed", "keys", cid,
+                                             "key.json"), what="a key.json")
+    return key.get("slot")
+
+
 # ---------------------------------------------------------------- scrub
 
 # Files that outlive the plaintext, besides the unmodified kit files listed in
@@ -1070,7 +1153,9 @@ SCRUB_FIXED_SURVIVORS = ("SEAL.json", ".metadata_never_index",
                          "kit/KIT-INVENTORY.json", "LEAKSCAN.json",
                          "RETIRED.json", holdout_kit.DRYRUN_MARKER,
                          holdout_kit.SYNTHETIC_AGREEMENT,
-                         holdout_kit.LEAK_WAIVER, "AUTOPILOT.json")
+                         holdout_kit.LEAK_WAIVER,
+                         holdout_manifest.LEAK_CLEARED_RELPATH,
+                         "AUTOPILOT.json")
 # Survivors that must be present after scrub; any other may be absent.
 REQUIRED_SURVIVORS = ("SEAL.json", ".metadata_never_index", ARCHIVE_RELPATH,
                       "bin/holdout")
@@ -1328,6 +1413,12 @@ def add_parser(sub, name):
         p.add_argument("--from-archive", action="store_true",
                        help="build the probes from the decrypted archive "
                             "(after scrub)")
+    elif name == "leak-clear":
+        p = sub.add_parser(name, help="record, append-only, that the leak-"
+                                      "named cases leakdiag does not call "
+                                      "exposed are cleared (owner rule)")
+        p.add_argument("--repo", metavar="PATH",
+                       help="the tuning repo (tree and git log -p --all)")
     elif name == "scrub":
         p = sub.add_parser(name, help="remove every plaintext copy, keeping "
                                       "only the survivor allowlist")
@@ -1371,6 +1462,11 @@ def _cmd_leakdiag(args):
     return 0
 
 
+def _cmd_leak_clear(args):
+    leak_clear(args.folder, repo=args.repo)
+    return 0
+
+
 def _cmd_scrub(args):
     try:
         if not args.yes:
@@ -1395,6 +1491,7 @@ _HANDLERS = {
     "decrypt": _cmd_decrypt,
     "leakscan": _cmd_leakscan,
     "leakdiag": _cmd_leakdiag,
+    "leak-clear": _cmd_leak_clear,
     "scrub": _cmd_scrub,
 }
 

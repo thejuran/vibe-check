@@ -390,7 +390,8 @@ class TestEncrypt(ArchiveCase):
             self.assertIn(name, names)
         self.assertEqual(holdout_archive.ARCHIVE_EXCLUDES,
                          ("archive", "tmp", "LEAKSCAN.json", "RETIRED.json",
-                          "LEAK-WAIVER.json", "AUTOPILOT.json"))
+                          "LEAK-WAIVER.json", "LEAK-CLEARED.json",
+                          "AUTOPILOT.json"))
 
     def test_archive_members_refuses_top_level_symlink(self):
         os.symlink(self.p("notes.txt"), self.p("link.txt"))
@@ -962,13 +963,10 @@ class TestLeakscan(LeakCase):
         self.assertEqual(result["hits"], [])
 
 
-class TestLeakDiag(LeakCase):
-    """leakdiag re-runs the scan read-only and sorts each slot's matches in
-    fixed words. Owner rule (2026-10-09): a case's own source code in the AI
-    history of that same repo is not a leak. A probe is `source` when its
-    text is in the case's source repo history (git log -p --all), else
-    `holdout` (the finder's own words, a constructed line). Nothing is
-    printed but fixed words; nothing is recorded or retired."""
+class OwnRepoCase(LeakCase):
+    """Each case's provenance names a git source repo whose history holds
+    the case's two diff lines (so they are `source`); its key text is not
+    (`holdout`)."""
 
     SETUP = 1_800_000_000
 
@@ -993,7 +991,7 @@ class TestLeakDiag(LeakCase):
         os.makedirs(path, exist_ok=True)
         subprocess.run(["git", "init", "-q", path], check=True, timeout=60)
         if text is not None:
-            TestLeakDiag.commit(path, text)
+            OwnRepoCase.commit(path, text)
         return path
 
     @staticmethod
@@ -1043,6 +1041,11 @@ class TestLeakDiag(LeakCase):
         return {rel: open(os.path.join(self.folder, rel), "rb").read()
                 for rel in ("RETIRED.json", "LEAKSCAN.json")
                 if os.path.exists(os.path.join(self.folder, rel))}
+
+class TestLeakDiag(OwnRepoCase):
+    """leakdiag re-runs the scan read-only and sorts each slot's matches in
+    fixed words. Owner rule (2026-10-09): a case's own source code outside
+    tuning-side places is not a leak. Nothing is recorded or retired."""
 
     def test_own_source_history_is_origin_at_any_time(self):
         self.transcript(self.src["C1"], "a.jsonl",
@@ -1216,6 +1219,127 @@ class TestLeakDiag(LeakCase):
         self.assertNotIn("leakdiag C1", out)
 
 
+class TestLeakRule(OwnRepoCase):
+    """leakscan applies the owner rule: it counts, records and retires only
+    slots leakdiag calls exposed; leak-clear writes the clearance."""
+
+    def scan_home(self):
+        return self.quiet(holdout_archive.leakscan, self.folder,
+                          scan_roots=self.roots(), repo=self.tuning,
+                          home=self.home)
+
+    def retired(self):
+        path = self.p("RETIRED.json")
+        if not os.path.exists(path):
+            return []
+        with open(path) as fh:
+            return json.load(fh)["retired"]
+
+    def test_own_source_is_not_a_hit(self):
+        self.transcript(self.src["C3"], "s.jsonl",
+                        [(legacy_line("C3"), self.SETUP)])
+        self.codex_session(os.path.join(self.home, "x"), legacy_line("Q1"))
+        result, out = self.scan_home()
+        self.assertEqual((result["hits"], result["hit_slots"]), ([], []))
+        self.assertEqual(self.retired(), [])
+        self.assertIn("matched only the cases' own source code outside "
+                      "tuning-side places (2 location(s); not a leak under "
+                      "the owner rule)", out)
+        self.assert_no_probe_text(out)
+
+    def test_exposed_slots_still_hit_and_retire(self):
+        self.transcript(self.src["C3"], "s.jsonl",
+                        [(legacy_line("C3"), self.SETUP)])
+        self.transcript(self.tuning, "t.jsonl",
+                        [(legacy_line("Q1"), self.SETUP)])
+        self.transcript(self.src["Q2"], "k.jsonl",
+                        [(key_detail("Q2"), self.SETUP)])
+        result, _ = self.scan_home()
+        self.assertEqual(result["hit_slots"], ["Q1", "Q2"])
+        self.assertEqual(sorted(e["slot"] for e in self.retired()),
+                         ["Q1", "Q2"])
+
+    def test_a_shared_file_keeps_only_its_exposed_slots(self):
+        plant(self.tuning, "notes.md", legacy_line("C1") + "\n")
+        self.transcript(self.src["C2"], "s.jsonl",
+                        [(legacy_line("C2"), self.SETUP)])
+        result, _ = self.scan_home()
+        self.assertEqual(result["hit_slots"], ["C1"])
+
+    def name_all(self):
+        """The real run's situation: an earlier (pre-rule) scan named and
+        retired every slot."""
+        holdout_archive.record_leakscan(self.folder, {
+            "probes": 40, "hits": [{}] * 6,
+            "hit_case_ids": sorted(self.ids.values()),
+            "hit_slots": sorted(self.ids)})
+        for cid in self.ids.values():
+            holdout_manifest.retire_case(self.folder, cid, "leakscan")
+        self.transcript(self.src["C3"], "s.jsonl",
+                        [(legacy_line("C3"), self.SETUP)])
+        self.transcript(self.tuning, "t.jsonl",
+                        [(legacy_line("Q1"), self.SETUP)])
+
+    def clear(self):
+        return self.quiet(holdout_archive.leak_clear, self.folder,
+                          repo=self.tuning, scan_roots=self.roots(),
+                          home=self.home)
+
+    def test_leak_clear_clears_all_but_exposed(self):
+        self.name_all()
+        (cleared, kept), out = self.clear()
+        self.assertEqual(kept, ["Q1"])
+        self.assertEqual(cleared, ["C1", "C2", "C3", "Q2", "Q3"])
+        line = out.strip().splitlines()[-1]
+        self.assertEqual(line, "leak-clear cleared=C1,C2,C3,Q2,Q3 kept=Q1")
+        self.assertEqual(holdout_manifest.resume_reply_kind(line),
+                         "leak-clear")
+        self.assertEqual(holdout_manifest.cleared_slots(self.folder),
+                         cleared)
+        problems = holdout_manifest.retired_problems(self.folder)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Q1", problems[0])
+        self.assert_no_probe_text(out)
+        for cid in self.ids.values():
+            self.assertNotIn(cid, out)
+
+    def test_then_a_clean_rescan_settles_the_ledger(self):
+        self.name_all()
+        os.remove(os.path.join(self.home, ".claude", "projects",
+                               self.enc(self.tuning), "t.jsonl"))
+        self.clear()
+        self.scan_home()
+        self.assertEqual(holdout_manifest.leak_ledger_problems(
+            self.folder, self.seal()), [])
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+
+    def test_leak_clear_with_nothing_named(self):
+        (cleared, kept), out = self.clear()
+        self.assertEqual((cleared, kept), ([], []))
+        self.assertEqual(out.strip().splitlines()[-1],
+                         "leak-clear cleared=none kept=none")
+        self.assertFalse(os.path.exists(self.p("LEAK-CLEARED.json")))
+
+    def test_leak_clear_needs_a_seal_and_live_plaintext(self):
+        os.remove(self.p("SEAL.json"))
+        with self.assertRaises(holdout_kit.KitError):
+            self.clear()
+
+    def test_mutant_clearing_exposed_slots(self):
+        self.name_all()
+        with mock.patch.object(holdout_archive, "_slot_cause",
+                               return_value="prior-elsewhere"):
+            (cleared, kept), _ = self.clear()
+        self.assertEqual(kept, [])
+
+    def test_cli_refuses_inside_claude(self):
+        with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
+            rc, out, _ = self.run_inproc(["--folder", self.folder,
+                                          "leak-clear"])
+        self.assertNotEqual(rc, 0)
+        self.assertNotIn("leak-clear cleared", out)
+
+
 class TestLeakLedger(LeakCase):
 
     def test_clean_scan_entry(self):
@@ -1324,7 +1448,7 @@ class TestLeakRetire(LeakCase):
 FIXED = ("SEAL.json", ".metadata_never_index", ARCHIVE_REL, "bin/holdout",
          "kit/KIT-INVENTORY.json", "LEAKSCAN.json", "RETIRED.json",
          "DRY-RUN.json", "SYNTHETIC-AGREEMENT.json", "LEAK-WAIVER.json",
-         "AUTOPILOT.json")
+         "LEAK-CLEARED.json", "AUTOPILOT.json")
 
 SCRUB_PLANTS = {
     "xcheck/X-1/blind.json": "{}\n",
@@ -1683,7 +1807,7 @@ class TestLeakscanArchive(ScrubCase):
 
     def test_verify_copy_removed_on_error(self):
         self.scrubbed()
-        with mock.patch.object(holdout_archive, "_scan_file",
+        with mock.patch.object(holdout_archive, "_match",
                                side_effect=RuntimeError("boom")):
             plant(self.root_a, "a.txt", "x\n")
             with self.assertRaises(RuntimeError):

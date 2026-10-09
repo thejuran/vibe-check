@@ -1966,6 +1966,40 @@ class TestInputsChanged(PipelineCase):
                          .replace("<H>", self.F) % cid)
 
 
+class TestLeakClearance(PipelineCase):
+    """A clearance (owner rule, written by leak-clear) lets the leak-named
+    case stay: the rerun scans clean, publishes, scrubs, and the last line
+    says the slot was cleared, never that it was replaced."""
+
+    def test_cleared_slot_finishes_sealed_cleared(self):
+        patcher, planted = self.plant_leak(["C2"])
+        with patcher:
+            rc, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+        cid = slot_ids(self.F)["C2"]
+        holdout_manifest.append_clearance(self.F, {cid: {
+            "slot": "C2", "cause": "origin-history",
+            "identity": holdout_manifest.case_identity(self.F, cid)}})
+        self.assertEqual(ap._unreplaced_slots(self.F), [])
+        os.remove(planted)
+        rc, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "sealed cleared=C2", out)
+        self.assertEqual(rc, 0)
+        self.assertEqual(holdout_manifest.resume_reply_kind(
+            self.last_line(out)), "sealed")
+        self.assertTrue(os.path.exists(self.published()))
+        self.assertTrue(os.path.exists(os.path.join(
+            self.F, holdout_manifest.LEAK_CLEARED_RELPATH)))
+
+    def test_without_clearance_the_real_path_is_unchanged(self):
+        patcher, planted = self.plant_leak(["C2"])
+        with patcher:
+            self.cli()
+        os.remove(planted)
+        _, out, _ = self.cli()
+        self.assertEqual(self.last_line(out), "blocked leakscan")
+
+
 class TestLeakAndReplace(PipelineCase):
 
     def test_leak_stops_then_replace_retired_continues(self):

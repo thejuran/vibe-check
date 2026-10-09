@@ -401,7 +401,21 @@ tuning-side (`tuning-transcript`, `tuning-tree`, `tuning-gitlog`, `tuning-plugin
 Per slot: `exposed` = any holdout text, or any match tuning-side; `origin-history` = only source
 text, only in its own repo's places; `prior-elsewhere` = only source text, some in other or
 unattributed stores. Its last line, `leakdiag C1=... Q3=... where=...`, is the only line to
-send to the tuning session. Note that leakscan itself already retired every slot it named.
+send to the tuning session.
+
+**Owner rule in leakscan and the clearance (2026-10-09).** leakscan applies the same rule: it
+counts, records and retires only slots leakdiag would call `exposed`, and prints one fixed OK
+line counting the locations that matched only the cases' own source code. A case an earlier
+scan named or retired under the old rule stays blocked until `bin/holdout leak-clear --repo
+~/turingmind-code-review` (live `sealed/` and `SEAL.json`, before scrub) recomputes the
+classification itself and appends a clearance to `LEAK-CLEARED.json` for every such case that
+is not `exposed`. It prints `leak-clear cleared=<slots> kept=<slots>`; that line may be sent to
+the tuning session. `LEAK-CLEARED.json` is append-only like the other ledgers and survives
+scrub; a clearance holds only for the `SEAL.json` it was made against, voids only `leakscan`
+retirements of exactly the cleared content (never an `owner` one), and publish and seal still
+refuse every `kept` slot until it is replaced. After a clearance, `bin/holdout autopilot --repo
+~/turingmind-code-review` scans again and finishes with `sealed cleared=<slots>` (or `replaced
+slots=... cleared=...`).
 
 `publish` refuses mechanically. Every scan is appended to `LEAKSCAN.json`, a ledger in the
 holdout folder that scrub keeps. Right after a scan with matches, publish says the last scan

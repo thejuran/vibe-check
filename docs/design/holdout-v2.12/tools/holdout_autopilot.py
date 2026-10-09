@@ -1810,7 +1810,15 @@ def _unreplaced_slots(h):
         return []
     return sorted({cases[cid].get("slot") for cid in named
                    if cid in cases and isinstance(cases[cid], dict)}
-                  - {None})
+                  - {None} - set(_cleared_slots(h)))
+
+
+def _cleared_slots(h):
+    """Slots a leak clearance covers for the current seal (owner rule)."""
+    try:
+        return holdout_manifest.cleared_slots(h)
+    except KitError:
+        return []
 
 
 def _step_leakscan(run):
@@ -1959,8 +1967,11 @@ def _result_step(run):
         line = ("dry run ok prompted sandbox=ok" if j.get("prompted")
                 else "dry run ok no-prompt")
     else:
-        slots = sorted(set(j["replaced_slots"]))
+        cleared = _cleared_slots(h)
+        slots = sorted(set(j["replaced_slots"]) - set(cleared))
         line = ("replaced slots=" + ",".join(slots)) if slots else "sealed"
+        if cleared:
+            line += " cleared=" + ",".join(cleared)
         if j["nonrunnable"]:
             line += " non-runnable=%d" % j["nonrunnable"]
     mark(j, "result", "done")

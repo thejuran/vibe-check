@@ -612,7 +612,8 @@ def leak_ledger_problems(folder, seal, dry_run=False):
         for cid in scan["hit_case_ids"]:
             named.setdefault(cid, scan["at"])
     for cid in sorted(named):
-        if cid in cases and cid not in waived:
+        if cid in cases and cid not in waived \
+                and not _cleared_for_seal(folder, cid, named[cid], current):
             entry = cases[cid]
             slot = entry.get("slot", "?") if isinstance(entry, dict) else "?"
             problems.append(LEAK_NOT_REPLACED_MSG % (slot, cid, named[cid]))
@@ -996,6 +997,7 @@ def retired_matches(folder):
     ledger = _load_retired(folder)
     if not ledger["retired"]:
         return []
+    cleared = load_clearances(folder)
     sealed = _sealed(folder)
     out = []
     for cid in holdout_kit.case_ids(folder):
@@ -1003,7 +1005,7 @@ def retired_matches(folder):
         line, reasons = None, set()
         for entry in ledger["retired"]:
             matched = _matched_fields(fp, entry)
-            if not matched:
+            if not matched or _retirement_cleared(entry, cleared):
                 continue
             ident = ({"source": dict(fp["source"]),
                       "diff_sha256": fp["diff_sha256"],
@@ -1019,6 +1021,117 @@ def retired_matches(folder):
         if line is not None:
             out.append((cid, line, reasons))
     return out
+
+
+# ---------------------------------------------------------------- leak clearance
+#
+# Owner rule (2026-10-09): a case's own source code found outside tuning-side
+# places is not a leak (holdout_archive.leakdiag decides; leak-clear writes).
+# LEAK-CLEARED.json is append-only, like LEAKSCAN.json and RETIRED.json: a
+# clearance names the cases it clears, their content identity and the
+# SEAL.json it was made against. It lets a case a leak scan named stay in
+# THAT seal, and voids a `leakscan` retirement of exactly that content.
+# An `owner` retirement is never cleared.
+
+LEAK_CLEARED_RELPATH = "LEAK-CLEARED.json"
+LEAK_CLEARED_SCHEMA = "vibe-check-holdout-leak-cleared/1"
+LEAK_CLEAR_RULE = "own-source-outside-tuning/2026-10-09"
+CLEARED_MALFORMED_MSG = ("LEAK-CLEARED.json is malformed; repair it (never "
+                         "delete it)")
+
+
+def case_identity(folder, case_id):
+    fp = case_fingerprint(folder, case_id)
+    return {"source": dict(fp["source"]), "diff_sha256": fp["diff_sha256"],
+            "lines_sha256": fp["lines_sha256"],
+            "key_sha256": fp["key_sha256"]}
+
+
+def _clearance_ok(entry):
+    if not isinstance(entry, dict) or not isinstance(entry.get("at"), str) \
+            or entry.get("rule") != LEAK_CLEAR_RULE \
+            or not isinstance(entry.get("seal_sha256"), str) \
+            or not isinstance(entry.get("cases"), dict):
+        return False
+    for cid, case in entry["cases"].items():
+        if not holdout_kit.ID_RE.match(cid) or not isinstance(case, dict) \
+                or case.get("slot") not in holdout_kit.SLOTS \
+                or not isinstance(case.get("identity"), dict):
+            return False
+        try:
+            _content_identity(case["identity"])
+        except (KeyError, TypeError):
+            return False
+    return True
+
+
+def load_clearances(folder):
+    """The clearance list ([] when there is no file); KitError when it is
+    malformed (never treated as empty)."""
+    path = os.path.join(folder, LEAK_CLEARED_RELPATH)
+    if not os.path.lexists(path):
+        return []
+    try:
+        if os.path.islink(path):
+            raise ValueError
+        with open(path, "r", encoding="utf-8") as fh:
+            ledger = json.load(fh)
+    except (OSError, ValueError):
+        raise KitError(CLEARED_MALFORMED_MSG)
+    if not isinstance(ledger, dict) \
+            or ledger.get("schema") != LEAK_CLEARED_SCHEMA \
+            or not isinstance(ledger.get("clearances"), list) \
+            or not all(_clearance_ok(e) for e in ledger["clearances"]):
+        raise KitError(CLEARED_MALFORMED_MSG)
+    return ledger["clearances"]
+
+
+def append_clearance(folder, cases, at=None, seal_sha256=None):
+    """Append one clearance ({ID: {slot, cause, identity}}) made against the
+    current SEAL.json; existing entries are never modified."""
+    clearances = load_clearances(folder)
+    if seal_sha256 is None:
+        seal_sha256 = holdout_kit.sha256_file(os.path.join(folder, SEAL_NAME))
+    entry = {"at": at or _now(), "rule": LEAK_CLEAR_RULE,
+             "seal_sha256": seal_sha256, "cases": cases}
+    if not _clearance_ok(entry):
+        raise KitError("a clearance must name opaque IDs, slots and content "
+                       "identities")
+    clearances.append(entry)
+    holdout_kit.write_json_atomic(
+        os.path.join(folder, LEAK_CLEARED_RELPATH),
+        {"schema": LEAK_CLEARED_SCHEMA, "clearances": clearances})
+    return entry
+
+
+def _cleared_for_seal(folder, cid, named_at, seal_sha):
+    """True when a clearance made against this seal, at or after the scan
+    that named the case, clears it."""
+    if seal_sha is None:
+        return False
+    return any(e["seal_sha256"] == seal_sha and cid in e["cases"]
+               and e["at"] >= named_at for e in load_clearances(folder))
+
+
+def _retirement_cleared(entry, clearances):
+    """A `leakscan` retirement voided by a later clearance of exactly the same
+    content."""
+    if entry.get("reason") != "leakscan":
+        return False
+    ident = _content_identity(entry)
+    return any(c["at"] >= entry["at"]
+               and _content_identity(case["identity"]) == ident
+               for c in clearances for case in c["cases"].values())
+
+
+def cleared_slots(folder):
+    """Slots cleared against the current SEAL.json, sorted."""
+    path = os.path.join(folder, SEAL_NAME)
+    if not os.path.isfile(path):
+        return []
+    sha = holdout_kit.sha256_file(path)
+    return sorted({case["slot"] for e in load_clearances(folder)
+                   if e["seal_sha256"] == sha for case in e["cases"].values()})
 
 
 def retired_problems(folder):
@@ -1134,14 +1247,17 @@ def _alt(words):
 
 _DIAG_CHECK_RE = _alt(w for w in DIAG_CHECKS if w != "none")
 
+_SLOTS_RE = r"(?:C[1-3]|Q[1-3])(?:,(?:C[1-3]|Q[1-3]))*"
+
 RESUME_GRAMMAR = (
     ("dry-run-ok", re.compile(r"dry run ok prompted sandbox=ok")),
     ("dry-run-failed", re.compile(
         r"dry run ok(?: prompted| no-prompt)?(?: sandbox=ok)?"
         r"(?: problems=[0-9]+(?:,[0-9]+)*)?")),
-    ("sealed", re.compile(r"sealed(?: non-runnable=[0-6])?")),
+    ("sealed", re.compile(r"sealed(?: cleared=" + _SLOTS_RE + r")?"
+                          r"(?: non-runnable=[0-6])?")),
     ("replaced", re.compile(
-        r"replaced slots=(?:C[1-3]|Q[1-3])(?:,(?:C[1-3]|Q[1-3]))*"
+        r"replaced slots=" + _SLOTS_RE + r"(?: cleared=" + _SLOTS_RE + r")?"
         r"(?: non-runnable=[0-6])?")),
     ("clean", re.compile(r"clean leakscan=0")),
     ("blocked", re.compile(
@@ -1167,8 +1283,13 @@ RESUME_GRAMMAR += (
         + r" where=(?:none|" + _LEAKDIAG_WHERE_RE + r"(?:,"
         + _LEAKDIAG_WHERE_RE + r")*)")),
 )
+RESUME_GRAMMAR += (
+    ("leak-clear", re.compile(
+        r"leak-clear cleared=(?:none|" + _SLOTS_RE + r") kept=(?:none|"
+        + _SLOTS_RE + r")")),
+)
 RESUME_BLOCKING_KINDS = frozenset({"dry-run-failed", "blocked", "diagnosis",
-                                   "denials", "leakdiag"})
+                                   "denials", "leakdiag", "leak-clear"})
 RESUME_PROBLEM_MSG = ("resume reply does not conform to the opaque grammar; "
                       "treat it as a contamination incident and do not "
                       "record its contents")

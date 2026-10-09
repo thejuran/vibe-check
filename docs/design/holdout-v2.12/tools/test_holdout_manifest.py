@@ -1438,6 +1438,101 @@ class RetiredCase(SealedCase):
         return m.group(1)
 
 
+class TestLeakClearance(RetiredCase):
+    """A clearance (owner rule 2026-10-09) is an append-only record a later
+    kit command writes; it lets a leak-named, leakscan-retired case stay
+    only for the seal it was cleared against. Owner retirements are never
+    cleared."""
+
+    def clear(self, slots, at="2026-10-09T12:00:00Z", seal_sha=None):
+        cases = {self.ids[s]: {"slot": s, "cause": "origin-history",
+                               "identity": holdout_manifest.case_identity(
+                                   self.folder, self.ids[s])}
+                 for s in slots}
+        holdout_manifest.append_clearance(
+            self.folder, cases, at=at,
+            seal_sha256=seal_sha or holdout_kit.sha256_file(
+                os.path.join(self.folder, "SEAL.json")))
+
+    def named(self, slot, at="2026-10-09T10:00:00Z"):
+        cid = self.ids[slot]
+        write_ledger(self.folder, [
+            scan_entry(self.folder, hits=1, ids=[cid], slots=[slot], at=at),
+            scan_entry(self.folder, at="2026-10-09T11:00:00Z")])
+        return cid
+
+    def problems(self):
+        return holdout_manifest.leak_ledger_problems(self.folder, self.seal)
+
+    def test_named_case_needs_clearance(self):
+        cid = self.named("C3")
+        self.assertEqual(self.problems(),
+                         [not_replaced("C3", cid, "2026-10-09T10:00:00Z")])
+        self.clear(["C3"])
+        self.assertEqual(self.problems(), [])
+
+    def test_clearance_is_bound_to_the_seal(self):
+        self.named("C3")
+        self.clear(["C3"], seal_sha="0" * 64)
+        self.assertEqual(len(self.problems()), 1)
+
+    def test_clearance_before_the_naming_scan_does_not_count(self):
+        self.named("C3", at="2026-10-09T13:00:00Z")
+        self.clear(["C3"], at="2026-10-09T12:00:00Z")
+        self.assertEqual(len(self.problems()), 1)
+
+    def test_clears_only_its_cases(self):
+        cid = self.named("Q1")
+        self.clear(["C3"])
+        self.assertEqual(self.problems(),
+                         [not_replaced("Q1", cid, "2026-10-09T10:00:00Z")])
+
+    def test_leakscan_retirement_is_cleared(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C3"], "leakscan")
+        self.assertEqual(len(holdout_manifest.retired_problems(self.folder)),
+                         1)
+        self.clear(["C3"], at="2099-01-01T00:00:00Z")
+        self.assertEqual(holdout_manifest.retired_problems(self.folder), [])
+
+    def test_owner_retirement_is_never_cleared(self):
+        holdout_manifest.retire_case(self.folder, self.ids["C3"], "owner")
+        self.clear(["C3"], at="2099-01-01T00:00:00Z")
+        self.assertEqual(len(holdout_manifest.retired_problems(self.folder)),
+                         1)
+
+    def test_clears_only_the_content_it_names(self):
+        holdout_manifest.retire_case(self.folder, self.ids["Q1"], "leakscan")
+        self.clear(["C3"], at="2099-01-01T00:00:00Z")
+        self.assertEqual(len(holdout_manifest.retired_problems(self.folder)),
+                         1)
+
+    def test_an_edited_case_is_not_covered_by_the_old_seal(self):
+        self.named("C3")
+        self.clear(["C3"])
+        with open(self.p("keys", self.ids["C3"], "key.json"), "ab") as fh:
+            fh.write(b" ")
+        self.seal = self.seal_build()
+        self.assertIn(not_replaced("C3", self.ids["C3"],
+                                   "2026-10-09T10:00:00Z"), self.problems())
+
+    def test_append_only_and_malformed_refused(self):
+        self.clear(["C3"])
+        self.clear(["Q1"])
+        path = os.path.join(self.folder,
+                            holdout_manifest.LEAK_CLEARED_RELPATH)
+        with open(path) as fh:
+            self.assertEqual(len(json.load(fh)["clearances"]), 2)
+        with open(path, "w") as fh:
+            fh.write("{")
+        with self.assertRaises(holdout_kit.KitError):
+            holdout_manifest.load_clearances(self.folder)
+
+    def test_cleared_slots_for_seal(self):
+        self.clear(["C3", "Q1"])
+        self.assertEqual(holdout_manifest.cleared_slots(self.folder),
+                         ["C3", "Q1"])
+
+
 class TestRetired(RetiredCase):
 
     def test_fingerprint_is_id_independent(self):
@@ -1772,6 +1867,11 @@ class TestCliRetire(RetiredCase):
 CONFORMING = [
     ("sealed", "sealed"),
     ("sealed non-runnable=1", "sealed"),
+    ("sealed cleared=C1,C2,C3,Q1,Q2,Q3", "sealed"),
+    ("sealed cleared=C3 non-runnable=1", "sealed"),
+    ("replaced slots=C1 cleared=C3", "replaced"),
+    ("leak-clear cleared=C1,C3 kept=none", "leak-clear"),
+    ("leak-clear cleared=none kept=Q2", "leak-clear"),
     ("dry run ok prompted sandbox=ok", "dry-run-ok"),
     ("dry run ok", "dry-run-failed"),
     ("dry run ok prompted", "dry-run-failed"),
@@ -1807,6 +1907,8 @@ CONFORMING = [
 
 NON_CONFORMING = [
     "sealed!", "Sealed", "sealed, C1 came from a repo I will not name",
+    "sealed cleared=", "sealed cleared=C4", "leak-clear cleared=C1",
+    "leak-clear cleared=C1 kept=the auth one",
     "sealed\nall good", "replaced", "replaced slots=C4", "blocked",
     "clean leakscan=1", "dry run ok, openssl prompted", "",
     "sealed non-runnable=7", "dry run ok prompted sandbox=OK",
@@ -1879,10 +1981,12 @@ class TestResumeGrammar(unittest.TestCase):
         kinds = {k for k, _ in holdout_manifest.RESUME_GRAMMAR}
         self.assertEqual(kinds, {"dry-run-ok", "dry-run-failed", "sealed",
                                  "replaced", "clean", "blocked",
-                                 "diagnosis", "denials", "leakdiag"})
+                                 "diagnosis", "denials", "leakdiag",
+                                 "leak-clear"})
         self.assertEqual(holdout_manifest.RESUME_BLOCKING_KINDS,
                          frozenset({"dry-run-failed", "blocked",
-                                    "diagnosis", "denials", "leakdiag"}))
+                                    "diagnosis", "denials", "leakdiag",
+                                    "leak-clear"}))
         self.assertTrue(holdout_manifest.RESUME_BLOCKING_KINDS <= kinds)
         order = [k for k, _ in holdout_manifest.RESUME_GRAMMAR]
         self.assertLess(order.index("dry-run-ok"),
