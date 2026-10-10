@@ -685,6 +685,23 @@ class TestProbeScript(_TmpCase):
             else:
                 self.assertTrue(checks[name + "_ok"], name)
 
+    @unittest.skipUnless(os.path.exists("/bin/bash"), "needs /bin/bash")
+    def test_live_markers_survive_non_utf8_output(self):
+        cwd = self.mkdtemp()
+        with open(os.path.join(cwd, "PROBE.txt"), "wb") as fh:
+            fh.write(b"\xff\xfe" + COPY_CANARY.encode("ascii"))
+        gone = os.path.join(cwd, "missing")
+        paths = {"PROTECTED": gone, "KEYS_DIR": gone, "CHECKOUT": gone,
+                 "SNAPSHOT": gone, "NONCE": NONCE}
+        with open(os.path.join(cwd, "probe.sh"), "w") as fh:
+            fh.write(h.fill_probe_script(**paths))
+        env = dict(os.environ, LANG="en_US.UTF-8", LC_ALL="en_US.UTF-8")
+        proc = subprocess.run(["/bin/bash", "./probe.sh"], cwd=cwd, env=env,
+                              capture_output=True, text=True, timeout=60)
+        line = [ln for ln in proc.stdout.splitlines()
+                if " read_copy_bash " in ln][0]
+        self.assertIn("err=??" + COPY_CANARY, line)
+
     def test_prompt_names_every_input_verbatim(self):
         prompt = h.fill_probe_prompt(**dict(PP, CHECKOUT="/Users/me/repo"))
         self.assertIn("bash ./probe.sh", prompt)
@@ -1009,6 +1026,13 @@ class TestEvaluateProbe(unittest.TestCase):
         passed, checks = self.n11_bare_nonzero()
         self.assertFalse(passed)
         self.assertEqual(_failed(checks), ["write_snapshot_bash_denied"])
+
+    def test_marker_with_wrong_step_number_is_not_the_attempt(self):
+        text = _markers().replace("PROBE-STEP 2 read_key_bash",
+                                  "PROBE-STEP 9 read_key_bash")
+        passed, checks = self.evaluate(_happy_events(_facts(), markers=text))
+        self.assertEqual(_failed(checks), ["read_key_bash_attempted",
+                                           "read_key_bash_denied"])
 
     def test_denial_text_with_exit_zero_is_not_a_denial(self):
         passed, checks = self.evaluate(_happy_events(_facts(), markers=_markers(
