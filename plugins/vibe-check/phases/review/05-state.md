@@ -40,3 +40,16 @@ If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/05-state-all.md** with the 
 4. If incremental diff empty AND `$CARRYFORWARD` empty AND Phase 0 printed `FINALIZE_MODE=0`: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop. A `FINALIZE_MODE=1` run never stops here: it continues to Phase 0.6 and Finalize (the spine's finalize flow), which reads `$STATE_FILE`, not the diff.
 
 5. If incremental diff empty but `$CARRYFORWARD` non-empty: **run Phase 0.6 (Resolve config) FIRST** — so `$CONFIG_THRESHOLDS`/`$CONFIG_DISABLED`/`$CONFIG_TOP_MODEL`/`$CONFIG_MIN_CONFIDENCE`/`$CONFIG_IDIOM_FLOOR`/`$CONFIG_CODEX`/`$CONFIG_WARNINGS` are bound before Phase 3 sources `$CONFIG_THRESHOLDS` / `$CONFIG_MIN_CONFIDENCE` / `$CONFIG_IDIOM_FLOOR` into the score.py envelope and Phase 4 renders `$CONFIG_WARNINGS` — THEN skip agent dispatch and proceed directly to Phase 3 carry-forward check. (Without this, a repo WITH a valid `.vibe-check.toml` would silently drop its config on this carry-forward-only path, violating "reads config ONCE per run on EVERY mode".)
+
+   **Then take Phase 1's git-safety snapshot here, in its own Bash call, before Phase 3** — this path skips Phase 1, where the snapshot is normally taken, and Phase 3's git-safety gate compares against it (without it the gate cannot confirm the git state and halts the pass). Run under bash:
+
+   ```bash
+   GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+   if python3 "$VC_ROOT/scripts/gitsnap.py" take --root "$GREPO" --out "$GREPO/.turingmind/git-guard/before.json" && python3 "$VC_ROOT/scripts/gitguard.py" reset --root "$GREPO"; then
+     echo "git-safety snapshot taken"
+   else
+     echo "git-safety snapshot could not be taken — review HALTED before any agent ran" >&2
+   fi
+   ```
+
+   On the else branch, print `git-safety snapshot could not be taken — review HALTED before any agent ran` as message text and STOP the review: do not continue to Phase 3. Do not announce Phase 1 or dispatch any agent — only the snapshot is taken.
