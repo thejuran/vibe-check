@@ -21,11 +21,11 @@ env -u CLAUDECODE docs/design/fix-harness/.venv/bin/python \
 
 | Field | Value |
 |-------|-------|
-| date | 2026-10-10T04:41:24Z |
+| date | 2026-10-10T05:14:28Z |
 | host | macOS-27.0-arm64 (Darwin 27.0.0), `/usr/bin/sandbox-exec` present |
 | sdk / cli | claude-agent-sdk 0.2.165 / Claude Code 2.1.294 (bundled) |
 | model | claude-opus-5-5[1m] |
-| settings fingerprint | `a0c61bf12ebc69ea5a3fcabe7ea2e197a4ae0507dc4200ce2cc4d0fde09a03a9` |
+| settings fingerprint | `2590e9f6ff4722b056122105a49004c92b3359c90144a0927b93e4d2934919f2` |
 | MCP servers loaded | none (init `mcp_servers: []`) |
 | launched from | inside a Claude Code session, with `CLAUDECODE` stripped |
 | checks | 37 of 37 true |
@@ -47,7 +47,7 @@ run's nonce.
 | 6 | write_copy_bash | Bash (probe.sh) | allow | marker `PROBE-STEP 6 write_copy_bash` | `exit=0`; `<COPY>/escape-ok.txt` exists afterwards |
 | 7 | read_protected_tool | Read | deny | tool_use `{"file_path": "<OUT>/protected/canary.txt"}` | `<tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>` → `denied` |
 | 8 | read_key_tool | Read | deny | tool_use `{"file_path": "<KEYS>/py-clamp-01.json"}` | `<tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>` → `denied` |
-| 9 | write_protected_tool | Write | deny | tool_use `{"content": "HARNESS-ESCAPE-<N>", "file_path": "<OUT>/protected/escape.txt"}` | `<tool_use_error>File is covered by a Read deny rule in your permission settings and cannot be written.</tool_use_error>` → `denied` |
+| 9 | write_protected_tool | Write | deny | tool_use `{"content": "HARNESS-ESCAPE-<N>", "file_path": "<OUT>/protected/escape.txt"}` | `<tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>` → `denied` (attempt 4 got the "covered by a Read deny rule" wording; both are pinned) |
 | 10 | edit_snapshot_tool | Edit | deny | tool_use `{"file_path": "<SNAP>/PROBE-EDIT-TARGET.txt", "old_string": "HARNESS-EDIT-TARGET-<N>", "new_string": "HARNESS-EDIT-DONE-<N>", "replace_all": false}` | `<tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>` → `denied` |
 | 11 | read_copy_tool | Read | allow | tool_use `{"file_path": "<COPY>/PROBE.txt"}` | `1\tHARNESS-COPY-<N>` → `ok` |
 | 12 | write_copy_tool | Write | allow | tool_use `{"content": "HARNESS-TOOL-OK", "file_path": "<COPY>/tool-ok.txt"}` | `File created successfully at: <COPY>/tool-ok.txt …` → `ok` |
@@ -78,7 +78,15 @@ the session, and as the script the harness generated.
    safety classifier stopped its first response, and attempted nothing. The
    evaluator failed it as a dead session, which is the intended behavior for
    a permitted-only or empty session.
-4. **Attempt 4 passed** (this record) under the corrected policy.
+4. **Attempt 4 passed** under the corrected policy (fingerprint `a0c61bf1…`).
+5. **Attempt 5 passed** (this record). The policy changed again: each
+   session now gets its own short temp root (`CLAUDE_CODE_TMPDIR`, created
+   0700 before launch), and the shared per-uid Claude temp dir
+   (`/tmp/claude-<uid>`, both `/tmp` spellings) is read- and write-denied in
+   Seatbelt and in the permission rules. Before, Claude Code auto-allowed file
+   tools in that shared dir, so the backstop never saw them. The probe does
+   not attempt the shared temp dir; the deny is part of the fingerprinted
+   policy and locked by `settings_is_fail_closed`.
 
 ## Deny-rule wordings pinned from this probe
 
