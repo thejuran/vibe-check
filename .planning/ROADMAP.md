@@ -398,7 +398,7 @@ Plans:
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
 | 50. Finalize entry fix + 2.11.1 patch | v2.11 | 2/2 | Complete    | 2026-10-08 |
 | 51. Seal the holdout | v2.12 | 10/10 | Complete    | 2026-10-09 |
-| 52. Hardening + accepted-fix harness | v2.12 | 14/14 | Complete   | 2026-10-10 |
+| 52. Hardening + accepted-fix harness | v2.12 | 14/14 | Complete    | 2026-10-10 |
 | 53. False-alarm reduction | v2.12 | 0/? | Not started | - |
 | 54. Freeze + release gates + integration audit | v2.12 | 0/? | Not started | - |
 | 55. Measure + ship 2.12.0 | v2.12 | 0/? | Not started | - |
