@@ -48,7 +48,9 @@ MAX_OWNER_COMMANDS = 3
 
 DENY_PROTECTED = "harness containment: protected path"
 DENY_OUTSIDE = "harness containment: path outside the disposable copy"
+DENY_EXTERNAL = "harness containment: external tool"
 FAIL_PROTECTED = "containment: session reached a protected path"
+FAIL_EXTERNAL = "containment: session reached an external tool"
 HARNESS_STOP = "harness stop: "
 
 DriveResult = collections.namedtuple(
@@ -76,10 +78,22 @@ def _sdk():
 
 
 def session_env(environ=None):
-    """The session's environment: the parent's, minus `CLAUDECODE`."""
+    """The session's environment: the parent's, minus `CLAUDECODE`, with the
+    owner's claude.ai account MCP connectors switched off."""
     env = dict(os.environ if environ is None else environ)
     env.pop("CLAUDECODE", None)
+    env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
     return env
+
+
+def check_no_mcp_servers(init_data):
+    """Raise when the session loaded any MCP server (account connectors
+    included): MCP tools run outside the OS sandbox."""
+    servers = init_data.get("mcp_servers") if isinstance(init_data, dict) \
+        else None
+    if servers:
+        raise DriverError("mcp servers loaded: %r" % [
+            s.get("name") if isinstance(s, dict) else s for s in servers])
 
 
 def check_plugin_identity(init_data, snapshot_path):
@@ -229,6 +243,10 @@ class Session:
             self.protected_denials += 1
             self.fail(FAIL_PROTECTED)
             return sdk.PermissionResultDeny(message=DENY_PROTECTED)
+        if decision.kind == "external":
+            self.containment_denials += 1
+            self.fail(FAIL_EXTERNAL)
+            return sdk.PermissionResultDeny(message=DENY_EXTERNAL)
         self.containment_denials += 1
         return sdk.PermissionResultDeny(message=DENY_OUTSIDE)
 
@@ -252,6 +270,8 @@ def build_options(sdk, session, settings, env, stderr=None):
         plugins=[{"type": "local", "path": session.snapshot.path}],
         settings=json.dumps(settings),
         setting_sources=[],
+        strict_mcp_config=True,
+        mcp_servers={},
         permission_mode="default",
         can_use_tool=session.can_use_tool,
         hooks={"PreToolUse": [sdk.HookMatcher(matcher=None,
@@ -287,6 +307,7 @@ async def _run_session(sdk, session, prompt, settings, env, timeout_s):
                             session.init = msg.data
                             check_plugin_identity(msg.data,
                                                   session.snapshot.path)
+                            check_no_mcp_servers(msg.data)
                         texts = [b["text"] for b in obj.get("content") or ()
                                  if isinstance(b, dict)
                                  and b.get("type") == "text"]

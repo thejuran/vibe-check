@@ -290,6 +290,9 @@ def build_session_settings(copy_root, snapshot_path, out_dir,
             ],
             "defaultMode": "default",
         },
+        # Account (claude.ai) MCP connectors load regardless of
+        # setting_sources and run in the CLI process, outside Seatbelt.
+        "disableClaudeAiConnectors": True,
     }
 
 
@@ -312,7 +315,8 @@ def settings_is_fail_closed(settings):
             if not isinstance(paths[key], str) or not os.path.isabs(paths[key]):
                 return False
         return bool(
-            sb.get("enabled") is True
+            settings.get("disableClaudeAiConnectors") is True
+            and sb.get("enabled") is True
             and sb.get("failIfUnavailable") is True
             and sb.get("allowUnsandboxedCommands") is False
             and sb.get("excludedCommands") == []
@@ -369,7 +373,14 @@ _PATH_FIELD = {"Read": "file_path", "Edit": "file_path", "Write": "file_path",
 _GENERIC_PATH_FIELDS = ("file_path", "path", "notebook_path")
 _GLOB_CHARS = re.compile(r"[*?\[{]")
 _SEVERITY = {"copy": 0, "snapshot": 0, "invalid": 1, "outside": 2,
-             "protected": 3}
+             "external": 3, "protected": 3}
+MCP_TOOL_PREFIX = "mcp__"
+
+
+def _is_external_tool(tool_name):
+    """MCP tools run in the Claude Code process, outside the OS sandbox and
+    outside the copy, whatever their input says."""
+    return isinstance(tool_name, str) and tool_name.startswith(MCP_TOOL_PREFIX)
 
 
 def protected_roots(out_dir, checkout_root=None, keys_dir=None):
@@ -423,6 +434,8 @@ def path_allowed(tool_name, input_data, copy_root, snapshot_path,
     Metadata only: nothing is read beyond `realpath`.
     """
     data = input_data if isinstance(input_data, dict) else {}
+    if _is_external_tool(tool_name):
+        return Decision(False, "external", None)
     if tool_name in _PATH_FIELD:
         fields = (_PATH_FIELD[tool_name],)
     else:

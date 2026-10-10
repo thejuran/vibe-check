@@ -170,7 +170,10 @@ class TestStructure(unittest.TestCase):
 class TestEnvAndIdentity(unittest.TestCase):
     def test_claudecode_is_stripped(self):
         env = d.session_env({"CLAUDECODE": "1", "PATH": "/bin", "HOME": "/h"})
-        self.assertEqual(env, {"PATH": "/bin", "HOME": "/h"})
+        self.assertEqual(env, {"PATH": "/bin", "HOME": "/h",
+                               "ENABLE_CLAUDEAI_MCP_SERVERS": "false"})
+        env = d.session_env({"ENABLE_CLAUDEAI_MCP_SERVERS": "true"})
+        self.assertEqual(env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
 
     def test_session_env_default_reads_os_environ(self):
         with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
