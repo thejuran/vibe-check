@@ -1,0 +1,62 @@
+{
+  "case_id": "py-clamp-01",
+  "clean_tree_checkpoint": {
+    "passed": true,
+    "status": ""
+  },
+  "cli_version": "2.1.294",
+  "containment": {
+    "denials": 0,
+    "fail_if_unavailable": true,
+    "probe_fingerprint": "2590e9f6ff4722b056122105a49004c92b3359c90144a0927b93e4d2934919f2",
+    "protected_path_denials": 0,
+    "sandbox_enabled": true,
+    "unsandboxed_retry": false
+  },
+  "copy_root": "/private/var/folders/xq/3_d4916j6jl_5n6173p02lxw0000gn/T/fixharness-xcr4g1a4/repo",
+  "decisions": {
+    "cards": 1,
+    "deferred_non_seeded": 0,
+    "owner_commands": 1,
+    "questions": 2,
+    "repeats": 0,
+    "turn_end_questions": 0
+  },
+  "entry": "finalize",
+  "execution_seconds": 321.03,
+  "execution_seconds_label": "automated execution time",
+  "harness_answer_seconds": 0.0,
+  "kind": "clean",
+  "mode": "default",
+  "model": "claude-opus-5-5[1m]",
+  "obligations": {
+    "ambiguous": 0,
+    "decided": 0,
+    "downgraded": 0,
+    "fix_verified": 0,
+    "missing": 0,
+    "regression": 0,
+    "resolved": 1,
+    "snapshots": 6,
+    "tracked": 1,
+    "visible_open_nonblocking": 0,
+    "visible_open_nonblocking_hashes": []
+  },
+  "owner_commands_issued": 1,
+  "phase_id": null,
+  "plugin_path": "/private/var/folders/xq/3_d4916j6jl_5n6173p02lxw0000gn/T/fixharness-xcr4g1a4/plugin",
+  "plugin_sha": "e49c89d5335adb51e32c171c09822ea1e51d03ff",
+  "plugin_snapshot_sha256": "3287e17f39e497a795cb01b7b559082754601ffe4d316232309ec69fa0a3d3a6",
+  "plugin_source_path": "/Users/julianamacbook/turingmind-code-review/plugins/vibe-check",
+  "plugin_tree_dirty": false,
+  "pre_run_head": "8c4c02a3bbce5c4383b35868b0b1b63e0290df18",
+  "prompt": "/vibe-check:review --finalize",
+  "reasons": [],
+  "setting_sources": [],
+  "state_path": "/private/var/folders/xq/3_d4916j6jl_5n6173p02lxw0000gn/T/fixharness-xcr4g1a4/repo/.turingmind/state/repo-main.json",
+  "transcript_sha256": "83805bc8a93ab7360a7f0b70e58919fc0d37dd2bc5edd92ed8c186ec8f441914",
+  "verdict": "COMPLETE",
+  "waiting_on_owner_note": "not measured — scripted run, no human in the loop",
+  "waiting_on_owner_seconds": null,
+  "would_be_owner_questions": 2
+}
