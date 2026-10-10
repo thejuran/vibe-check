@@ -1,0 +1,62 @@
+{
+  "case_id": "py-clamp-01",
+  "clean_tree_checkpoint": {
+    "passed": false,
+    "status": "1 .M N... 100644 100644 100644 2a554e54eac606a1c4efdaa58556d9a5c966db2c 2a554e54eac606a1c4efdaa58556d9a5c966db2c src/clamp.py\n1 MM N... 100644 100644 100644 e57ef1e72218b813b2271c522bfaf0a0605d7d77 101d2aaa8aab5ac253865055b1da5d6f34bba742 src/util.py"
+  },
+  "cli_version": "2.1.294",
+  "containment": {
+    "denials": 0,
+    "fail_if_unavailable": true,
+    "probe_fingerprint": "2590e9f6ff4722b056122105a49004c92b3359c90144a0927b93e4d2934919f2",
+    "protected_path_denials": 0,
+    "sandbox_enabled": true,
+    "unsandboxed_retry": false
+  },
+  "copy_root": "/private/var/folders/xq/3_d4916j6jl_5n6173p02lxw0000gn/T/fixharness-02l15d96/repo",
+  "decisions": {
+    "cards": 1,
+    "deferred_non_seeded": 0,
+    "owner_commands": 1,
+    "questions": 1,
+    "repeats": 0,
+    "turn_end_questions": 0
+  },
+  "entry": "review",
+  "execution_seconds": 401.769,
+  "execution_seconds_label": "automated execution time",
+  "harness_answer_seconds": 0.0,
+  "kind": "preservation",
+  "mode": "default",
+  "model": "claude-opus-5-5[1m]",
+  "obligations": {
+    "ambiguous": 0,
+    "decided": 0,
+    "downgraded": 0,
+    "fix_verified": 0,
+    "missing": 0,
+    "regression": 0,
+    "resolved": 1,
+    "snapshots": 6,
+    "tracked": 1,
+    "visible_open_nonblocking": 0,
+    "visible_open_nonblocking_hashes": []
+  },
+  "owner_commands_issued": 1,
+  "phase_id": null,
+  "plugin_path": "/private/var/folders/xq/3_d4916j6jl_5n6173p02lxw0000gn/T/fixharness-02l15d96/plugin",
+  "plugin_sha": "c92b98c2da65e2d0edfffd583f15f9bb420ba8a2",
+  "plugin_snapshot_sha256": "452dd86a1c6fa20bb1f9361948bed1b7ede355ed09c3f1d22ff9e5dfaa372d22",
+  "plugin_source_path": "/Users/julianamacbook/turingmind-code-review/plugins/vibe-check",
+  "plugin_tree_dirty": false,
+  "pre_run_head": "37c2477fdf96d9d49a9e34c25e101a760356b32b",
+  "prompt": "/vibe-check:review",
+  "reasons": [],
+  "setting_sources": [],
+  "state_path": "/private/var/folders/xq/3_d4916j6jl_5n6173p02lxw0000gn/T/fixharness-02l15d96/repo/.turingmind/state/repo-main.json",
+  "transcript_sha256": "f0b19a8e42d58e4f4f920b7a2f25c9c93cd630cda756358338f6926c5f48df25",
+  "verdict": "COMPLETE",
+  "waiting_on_owner_note": "not measured — scripted run, no human in the loop",
+  "waiting_on_owner_seconds": null,
+  "would_be_owner_questions": 1
+}
