@@ -1,0 +1,13 @@
+{
+  "case_id": "py-clamp-01",
+  "file": "src/clamp.py",
+  "line": 13,
+  "title": "clamp returns hi - 1 at the upper bound (off-by-one)",
+  "problem": "Values above the range are clamped to hi - 1 instead of hi, and a value equal to hi is pulled down to hi - 1, so the documented closed range [lo, hi] is never reached at its top end.",
+  "current_code": "    if value > hi - 1:",
+  "fix_hint": "Compare against hi and return hi: `if value > hi: return hi`.",
+  "band": "warning",
+  "agent": "logic",
+  "axis": "boundary",
+  "expected_commit_files": ["src/clamp.py"]
+}

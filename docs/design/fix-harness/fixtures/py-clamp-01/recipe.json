@@ -1,0 +1,15 @@
+{
+  "case_id": "py-clamp-01",
+  "description": "Synthetic Python case: clamp() keeps values at hi - 1 instead of hi (off-by-one upper bound).",
+  "fixed_file": "src/clamp.py",
+  "untouched_file": "src/util.py",
+  "test_cmd": ["python3", "-m", "unittest", "discover", "-s", "tests"],
+  "defect_check": ["python3", "-c", "import sys; sys.path.insert(0,'src'); from clamp import clamp; sys.exit(0 if clamp(10,0,5)==5 else 1)"],
+  "hunk_lines": [13, 14],
+  "sentinels": {
+    "staged": {"file": "src/util.py", "after_line": 2},
+    "unstaged_untouched": {"file": "src/util.py", "after_line": 16},
+    "unstaged_fixed": {"file": "src/clamp.py", "after_line": 23}
+  },
+  "gsd_phase_id": "52-harness-case"
+}

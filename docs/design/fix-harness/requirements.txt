@@ -1,0 +1,2 @@
+# harness only — never installed into the plugin
+claude-agent-sdk==0.2.165
