@@ -1,0 +1,27 @@
+{
+  "questions": [
+    {
+      "header": "Pass 2",
+      "multiSelect": false,
+      "options": [
+        {
+          "description": "The fix agent applies every listed row (Step B), committing each fix atomically as `fix(review-pass-2): <title>`; then the review reruns.",
+          "label": "Apply all & rerun"
+        },
+        {
+          "description": "A multi-select of the rows; the fix agent applies the chosen ones (Step B); then the review reruns.",
+          "label": "Apply selected…"
+        },
+        {
+          "description": "No fixes; the review reruns on the current diff.",
+          "label": "Skip & rerun"
+        },
+        {
+          "description": "Opens a second card: close out, abandon, or fix by hand.",
+          "label": "Stop here…"
+        }
+      ],
+      "question": "Pass 2 — 1 finding(s) listed below. How do you want to proceed?\n\n#1 src/clamp.py:13 — clamp returns hi - 1 at the upper bound (off-by-one) (critical)"
+    }
+  ]
+}

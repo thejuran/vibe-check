@@ -103,6 +103,69 @@ It writes `fixtures/probe/sandbox-probe.json` only when every required check
 passes. On failure it prints each failed check and, for every file-tool
 step, the verbatim tool result and how it was classified.
 
+**Result on this host (2026-10-10):** PASSED, 37 of 37 checks, with
+claude-agent-sdk 0.2.165 / Claude Code 2.1.294 and policy fingerprint
+`a0c61bf1…`. All four Bash escapes (read the protected canary, read the key,
+write into the checkout, write into the snapshot) exited 1 with `Operation
+not permitted`. All four file-tool escapes were blocked by the deny rules
+before reaching the harness. The two permitted operations of each channel
+worked. Evidence per step, and the probe's history, are in
+`fixtures/probe/README.md`.
+
+## A1 — plugin identity
+
+Resolved 2026-10-10, live. With `setting_sources=[]` and
+`plugins=[{"type": "local", "path": <snapshot>}]`, the init message listed
+exactly one `vibe-check`, at the snapshot path
+(`source: vibe-check@inline`), in both the probe session and the smoke
+session. The installed `vibe-check@thejuran` cache copy did not appear. The
+same list also carries Claude Code's builtin plugins (`cc-plugin-agents-md`,
+`cc-plugin-telemetry`, and in the smoke session `cc-plugin-plugin-authoring`,
+all with `path: builtin`). The driver tolerates those and requires exactly
+one `vibe-check` at the snapshot path. No option adjustment was needed.
+
+## A2 — launching from inside Claude Code
+
+Resolved 2026-10-10, live. Both the probe and the smoke session were
+launched from a Bash call inside a Claude Code session, with
+`env -u CLAUDECODE` on the command line. The driver also drops `CLAUDECODE`
+from the session env, and the SDK drops it from the inherited set. Both
+sessions started, and no plain terminal was needed.
+
+## Smoke session (2026-10-10)
+
+`run --case py-clamp-01 --mode default --kind preservation` ran twice. The
+first run surfaced the account-connector leak (see Containment), so it was
+rerun once the policy was fixed and the probe re-recorded. Both runs ended
+the same way: **FAILED**, with a validated `run.json`. Making runs complete
+is plan 52-11's job. The rerun:
+
+- passed the preflight. The init message listed one `vibe-check`, at the
+  snapshot path, and no MCP server;
+- answered two real fix-loop cards (`Apply all & rerun`), both captured.
+  The first is in `fixtures/replay/fix-loop-card.json`;
+- the fix landed as one commit, `fix(review-pass-2): …`, touching only
+  `src/clamp.py`;
+- 0 protected-path denials, 0 backstop denials;
+- the obligation ledger holds 5 snapshots (seed, card, card, turn_end,
+  final), every one with a full HEAD sha; 2 hashes tracked, none open and
+  retained;
+- 513 s of automated execution time; owner-waiting time not measured.
+
+Verdict reasons: `.turingmind/REVIEW.md missing`, `state not archived`,
+`turn ended on unrecognised text`. On pass 3 the plugin could not close the
+seeded finding:
+
+1. The finding is attributed to the `logic` agent, which `/vibe-check:review`
+   does not dispatch, so no recheck can resolve it.
+2. The fix agent's "obsolete" verdict is not recorded while the fixed file
+   differs from HEAD, and here it differs because of the planted fixed-file
+   sentinel.
+
+The session then stopped and listed options in prose. The harness counted
+that as a would-be owner question and failed the run, as designed. These
+findings are carried to plan 52-11.
+
 ## Isolation rules
 
 - Cases are synthetic. Never build a case from the B3 benchmark diffs or the
@@ -150,6 +213,23 @@ therefore runs under three layers (`tools/harness_sandbox.py`):
 The copy and the snapshot live under the per-user temp dir, outside this
 checkout: the checkout is denied with `//`-anchored rules that cannot be
 carved open again for a subdirectory.
+
+**Account MCP connectors are off.** `setting_sources=[]` does not stop
+Claude Code from loading the owner's claude.ai account connectors (Gmail,
+Drive, …). The first smoke session loaded seven of them, and a subagent called
+one. MCP tools run inside the Claude Code process, outside Seatbelt. Every
+session therefore sets `disableClaudeAiConnectors` in the policy, runs with
+`ENABLE_CLAUDEAI_MCP_SERVERS=false` and `--strict-mcp-config` (no servers),
+and refuses to continue if the init message lists any MCP server. The
+backstop denies any `mcp__` tool call and fails the run.
+
+**What the backstop sees.** `can_use_tool` is reached only by calls that
+would prompt. Claude Code auto-allows reads under the cwd, some in-copy
+edits by subagents, and file-tool calls under its own temp dir
+(`/tmp/claude-<uid>`), so those never reach the backstop. Protected paths
+are blocked for every agent by the deny rules, whether a call prompts or
+not, and the probe proves that. `containment.denials` counts only the calls
+the backstop saw.
 
 The model API credentials are untouched. The Claude Code process uses them
 outside the sandbox, as it always does; only the tools it runs are contained.

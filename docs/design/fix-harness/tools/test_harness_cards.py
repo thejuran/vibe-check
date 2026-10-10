@@ -490,3 +490,57 @@ class TestNextOwnerCommand(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCapturedCards(unittest.TestCase):
+    """Real AskUserQuestion payloads captured verbatim from live harness
+    sessions (fixtures/replay/*-card.json) are the authoritative card shape:
+    each must classify as its file name says and be answered from the
+    seeded identity alone."""
+
+    REPLAY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "fixtures", "replay")
+    KEY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "keys", "py-clamp-01.json")
+
+    def cards(self):
+        import glob
+        import json
+        out = {}
+        for path in sorted(glob.glob(os.path.join(self.REPLAY_DIR,
+                                                  "*-card.json"))):
+            with open(path, encoding="utf-8") as fh:
+                out[os.path.basename(path)[:-len("-card.json")]] = json.load(fh)
+        return out
+
+    def seeded(self):
+        import json
+        with open(self.KEY_PATH, encoding="utf-8") as fh:
+            key = json.load(fh)
+        return (key["file"], key["title"])
+
+    def test_fix_loop_card_was_captured(self):
+        self.assertIn("fix-loop", self.cards())
+
+    def test_captured_cards_classify_by_name(self):
+        for kind, card in self.cards().items():
+            self.assertIsInstance(card.get("questions"), list, kind)
+            self.assertEqual(hc.classify_card(card), kind, kind)
+
+    def test_captured_fix_loop_card_is_answered_apply_all(self):
+        card = self.cards()["fix-loop"]
+        d = hc.answer_card(hc.FIX_LOOP, card, self.seeded())
+        self.assertIsNone(d.fail)
+        self.assertEqual(list(d.answers.values()), [hc.APPLY_ALL])
+        self.assertEqual(list(d.answers), [card["questions"][0]["question"]])
+
+    def test_captured_shape_matches_the_hand_written_fixture(self):
+        card = self.cards()["fix-loop"]["questions"][0]
+        made = fix_loop_card(_rows((self.seeded()[0], self.seeded()[1],
+                                    "critical")))["questions"][0]
+        self.assertEqual(set(card), set(made))
+        self.assertEqual([o["label"] for o in card["options"]],
+                         [o["label"] for o in made["options"]])
+        self.assertIs(card["multiSelect"], made["multiSelect"])
+        self.assertEqual(card["question"].split("\n\n")[0],
+                         made["question"].split("\n\n")[0])
