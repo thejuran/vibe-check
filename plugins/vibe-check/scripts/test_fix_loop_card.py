@@ -17,10 +17,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import batch_parse  # noqa: E402  (sibling module: the card labels)
+import fixstage  # noqa: E402  (the one exit table: render_case_arms)
+from test_git_safety_prose import OPTIONAL_EXPANSION  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
@@ -278,6 +281,143 @@ def exit9_parity_problems(fix_text, step_b):
     if EXIT9_NO_RETRY not in fix_arm or EXIT9_NO_RETRY not in loop_arm:
         problems.append("a 9) arm does not forbid a retry")
     return problems
+
+
+# --- the exit table: every prose case block is locked to fixstage -------- #
+
+# Every (file, subcommand) whose `case "$rc"` block copies fixstage's arms.
+ARMS_CONSUMERS = ((FIX_MD, "begin"), (FIX_MD, "undo"), (FIX_MD, "commit"),
+                  (FIX_LOOP, "begin"), (FIX_LOOP, "undo"),
+                  (FIX_LOOP, "commit"), (FIX_LOOP, "preflight"))
+_CASE_BLOCK = re.compile(
+    r'fixstage\.py" (\w+) [^\n]*; rc=\$\?\n([ ]*)case "\$rc" in\n(.*?)\n\2esac',
+    re.S)
+PREFLIGHT_INVOCATION = 'fixstage.py" preflight --root "$GREPO"'
+BUILD_DISPATCH = "**Build the dispatch (deterministic).**"
+SUBSET_BULLET = "- **Finalize routed a fix set here (D-10)**"
+ORDINARY_BULLET = "- **Every other pass**"
+SUBSET_NO_CARD = ("Then print Finalize's `echo_text` as message text, write "
+                  "`{\"all\": true}` to `$ANSWERFILE` with the Write tool, and "
+                  "go straight to **Step B** — ask NO AskUserQuestion: the "
+                  "owner already chose these rows at Finalize (D-06).")
+BUDGET_NO_CARD = "a Finalize-routed subset costs no card"
+
+
+def case_blocks(text):
+    """[(sub, dedented case body)] for every fixstage `case "$rc"` block."""
+    out = []
+    for m in _CASE_BLOCK.finditer(text):
+        indent = m.group(2)
+        lines = [l[len(indent):] if l.startswith(indent) else l
+                 for l in m.group(3).split("\n")]
+        out.append((m.group(1), "\n".join(lines)))
+    return out
+
+
+def rendered_arms(sub):
+    """{label: arm text} parsed from fixstage.render_case_arms(sub)."""
+    return {m.group(1): m.group(2) for m in
+            re.finditer(r"^\s+(\d|\*)\) (.*)$",
+                        fixstage.render_case_arms(sub), re.M)}
+
+
+def arms_parity_problems(text, sub):
+    """Every `case "$rc"` block after `fixstage.py" <sub>` in `text` is
+    byte-equal to fixstage.render_case_arms(sub) ([] = holds)."""
+    blocks = [body for name, body in case_blocks(text) if name == sub]
+    if not blocks:
+        return ["no case block for fixstage %s" % sub]
+    want = fixstage.render_case_arms(sub)
+    problems = ["%s case block #%d differs from render_case_arms" % (sub, i + 1)
+                for i, body in enumerate(blocks) if body != want]
+    if case_arms(text, 'fixstage.py" %s' % sub) != rendered_arms(sub):
+        problems.append("%s arms differ from the exit table" % sub)
+    return problems
+
+
+def record_mapping_problems(step_b):
+    """The fallback's commit record mapping names every (code, verdict) of
+    EXIT_TABLE["commit"], in table order."""
+    lines = [l for l in step_b.split("\n")
+             if l.strip().startswith("Exit 0 → `applied`")]
+    if len(lines) != 1:
+        return ["commit record mapping line missing or duplicated"]
+    line = lines[0]
+    problems, at = [], 0
+    for code, _label, verdict, _arm in fixstage.EXIT_TABLE["commit"]:
+        if code == 0:
+            needle = "Exit 0 → `%s`" % verdict
+        elif code == "*":
+            needle = "anything else → `%s`" % verdict
+        else:
+            needle = "; %s → `%s`" % (code, verdict)
+        found = line.find(needle, at)
+        if found < 0:
+            problems.append("record mapping lacks %s" % needle)
+        else:
+            at = found
+    return problems
+
+
+def _fence_around(text, at):
+    open_at = text.rindex("```bash", 0, at)
+    return text[open_at:text.index("```", at)]
+
+
+def preflight_fence_problems(step_b):
+    """The preflight fence runs before Build the dispatch and first in the
+    inline fallback; its 1) arm pauses and never reruns ([] = holds)."""
+    problems = []
+    hits = [m.start() for m in re.finditer(re.escape(PREFLIGHT_INVOCATION),
+                                           step_b)]
+    if BUILD_DISPATCH not in step_b or FALLBACK_START not in step_b:
+        return ["Build the dispatch or the inline fallback is missing"]
+    build_at = step_b.index(BUILD_DISPATCH)
+    if not any(h < build_at for h in hits):
+        problems.append("no preflight fence before Build the dispatch")
+    fb = fallback_section(step_b)
+    fb_hits = [m.start() for m in re.finditer(re.escape(PREFLIGHT_INVOCATION),
+                                              fb)]
+    first_call = fb.find(FIXSTAGE + "begin")
+    if not fb_hits or (first_call >= 0 and fb_hits[0] > first_call):
+        problems.append("no preflight fence before the fallback's first call")
+    for h in hits:
+        fence = _fence_around(step_b, h)
+        if OPTIONAL_EXPANSION.search(fence):
+            problems.append("preflight fence uses an optional expansion")
+        if "; rc=$?" not in fence or 'case "$rc" in' not in fence:
+            problems.append("preflight fence does not branch with case")
+        arm1 = case_arms(fence, 'fixstage.py" preflight').get("1", "")
+        if "Paused." not in arm1:
+            problems.append("preflight 1) arm does not pause")
+        if "rerun" in arm1.lower():
+            problems.append("preflight 1) arm mentions the Rerun")
+    return problems
+
+
+def subset_no_card_problems(card):
+    """A Finalize-routed subset goes straight to Step B with no card."""
+    problems = []
+    if SUBSET_BULLET not in card or ORDINARY_BULLET not in card:
+        return ["subset or ordinary bullet missing"]
+    bullet = card[card.index(SUBSET_BULLET):card.index(ORDINARY_BULLET)]
+    if SUBSET_NO_CARD not in bullet:
+        problems.append("subset bullet does not go straight to Step B")
+    if bullet.count("AskUserQuestion") != 1:
+        problems.append("subset bullet mentions AskUserQuestion other than "
+                        "to forbid it")
+    if '{"all": true}' not in bullet:
+        problems.append("subset bullet does not write the all answer")
+    budget = [l for l in card.split("\n") if l.startswith("**Card budget.**")]
+    if len(budget) != 1 or BUDGET_NO_CARD not in budget[0]:
+        problems.append("card budget does not say the subset costs no card")
+    return problems
+
+
+def arm_echo(arm, rc):
+    """The text an `echo "..."` arm prints for exit `rc`."""
+    m = re.match(r'echo "(.*)"( >&2)?$', arm)
+    return m.group(1).replace("$rc", str(rc)) if m else None
 
 
 def run_commit_fence(text, rc):
@@ -771,6 +911,128 @@ class TestStepBVerifiedFlow(unittest.TestCase):
             with self.subTest(label=label):
                 mutant = self.mutate(line, line.replace(label, "checked", 1))
                 self.assertNotEqual(label_problems(mutant), [])
+
+
+class TestExitTableLocks(unittest.TestCase):
+    """Every prose copy of fixstage's exit table is locked byte-for-byte to
+    render_case_arms; the preflight fence and the no-card subset path are
+    locked; each lock has a mutant that trips it."""
+
+    def setUp(self):
+        self.texts = {}
+        for path in (FIX_MD, FIX_LOOP):
+            with open(path, encoding="utf-8") as fh:
+                self.texts[path] = fh.read()
+        self.step_b = step_b_section(self.texts[FIX_LOOP])
+        self.card = card_section(self.texts[FIX_LOOP])
+
+    def test_fix_md_pin(self):
+        with open(FIX_MD, "rb") as fh:
+            self.assertEqual(hashlib.sha256(fh.read()).hexdigest(),
+                             FIX_MD_SHA256)
+
+    def test_arms_parity_every_consumer(self):
+        for path, sub in ARMS_CONSUMERS:
+            with self.subTest(file=os.path.basename(path), sub=sub):
+                self.assertEqual(arms_parity_problems(self.texts[path], sub),
+                                 [])
+
+    def test_every_case_block_is_a_known_consumer(self):
+        for path, text in self.texts.items():
+            for sub, _body in case_blocks(text):
+                self.assertIn((path, sub), ARMS_CONSUMERS)
+        self.assertEqual(
+            sum(1 for _ in case_blocks(self.texts[FIX_LOOP])
+                if _[0] == "preflight"), 2)
+
+    def test_record_mapping_names_every_commit_verdict(self):
+        self.assertEqual(record_mapping_problems(self.step_b), [])
+
+    def test_preflight_fence(self):
+        self.assertEqual(preflight_fence_problems(self.step_b), [])
+
+    def test_subset_no_card(self):
+        self.assertEqual(subset_no_card_problems(self.card), [])
+        self.assertEqual(nudge_count(self.texts[FIX_LOOP]), 0)
+
+    def test_commit_fence_runs_every_table_arm(self):
+        for path in (FIX_MD, FIX_LOOP):
+            text = self.texts[path] if path == FIX_MD else self.step_b
+            for code, _label, _verdict, arm in fixstage.EXIT_TABLE["commit"]:
+                rc = 1 if code == "*" else code
+                with self.subTest(file=os.path.basename(path), rc=rc):
+                    want = arm_echo(arm, rc)
+                    self.assertIsNotNone(want)
+                    self.assertIn(want, run_commit_fence(text, rc))
+
+    # ------------------------------------------------------------ mutants
+
+    def test_mutant_arm9_deleted_from_fix_loop(self):
+        text = self.texts[FIX_LOOP]
+        line = [l for l in text.split("\n")
+                if l.strip().startswith('9) echo "publication-uncertain')]
+        self.assertEqual(len(line), 1)
+        mutant = text.replace(line[0] + "\n", "", 1)
+        self.assertNotEqual(mutant, text)
+        self.assertNotEqual(arms_parity_problems(mutant, "commit"), [])
+
+    def test_mutant_fix_md_arm6_word_changed(self):
+        text = self.texts[FIX_MD]
+        old = "HEAD moved during the commit; nothing was published"
+        self.assertEqual(text.count(old), 1)
+        mutant = text.replace(old, "HEAD moved during the commit; nothing "
+                                   "got published")
+        self.assertNotEqual(mutant, text)
+        self.assertNotEqual(arms_parity_problems(mutant, "commit"), [])
+
+    def test_mutant_preflight_fence_removed(self):
+        for which in ("step-b", "fallback"):
+            with self.subTest(which=which):
+                hits = [m.start() for m in re.finditer(
+                    re.escape(PREFLIGHT_INVOCATION), self.step_b)]
+                self.assertEqual(len(hits), 2)
+                at = hits[0] if which == "step-b" else hits[1]
+                fence = _fence_around(self.step_b, at)
+                mutant = self.step_b.replace(fence, "```bash\n:\n", 1)
+                self.assertNotEqual(mutant, self.step_b)
+                self.assertNotEqual(preflight_fence_problems(mutant), [])
+
+    def test_mutant_preflight_arm1_reruns(self):
+        arm = rendered_arms("preflight")["1"]
+        self.assertIn(arm, self.step_b)
+        mutant = self.step_b.replace(
+            arm, arm.replace("end Phase 5 for this pass", "go to the Rerun"))
+        self.assertNotEqual(mutant, self.step_b)
+        self.assertNotEqual(preflight_fence_problems(mutant), [])
+
+    def test_mutant_subset_asks_again(self):
+        mutant = self.card.replace(
+            SUBSET_NO_CARD, SUBSET_NO_CARD + " Then call AskUserQuestion to "
+            "confirm the rows.", 1)
+        self.assertNotEqual(mutant, self.card)
+        self.assertNotEqual(subset_no_card_problems(mutant), [])
+
+    def test_mutant_card_budget_reverted(self):
+        mutant = self.card.replace("; " + BUDGET_NO_CARD, "", 1)
+        self.assertNotEqual(mutant, self.card)
+        self.assertNotEqual(subset_no_card_problems(mutant), [])
+
+    def test_mutant_record_mapping_drops_a_verdict(self):
+        old = "3 → `applied-uncommitted`"
+        self.assertEqual(self.step_b.count(old), 1)
+        mutant = self.step_b.replace(old, "3 → `errored`")
+        self.assertNotEqual(record_mapping_problems(mutant), [])
+
+    def test_mutant_table_arm_changed_breaks_prose(self):
+        # A table edit without re-copying the prose trips the lock too.
+        rows = fixstage.EXIT_TABLE["undo"]
+        changed = ((rows[0][0], rows[0][1], rows[0][2],
+                    rows[0][3].replace("undone", "reverted")),) + rows[1:]
+        with unittest.mock.patch.dict(fixstage.EXIT_TABLE, {"undo": changed}):
+            self.assertNotEqual(
+                arms_parity_problems(self.texts[FIX_LOOP], "undo"), [])
+        self.assertEqual(arms_parity_problems(self.texts[FIX_LOOP], "undo"),
+                         [])
 
 
 class TestExit9BothConsumers(unittest.TestCase):
