@@ -1384,15 +1384,17 @@ class TestCommit(CommitCase):
         self.assertEqual(git(self.repo, "symbolic-ref", "HEAD").stdout.strip(),
                          branch)
 
-    def test_k_hostile_title_refused(self):
+    def test_k_hostile_title_sanitized_never_executed(self):
+        # D-08: punctuation never refuses a verified fix; the title is data from
+        # the record file, so the substitution is inert and `$` becomes a space.
         self.set_record(["f.txt"], title="$(touch pwned)")
-        pre = self.rev()
-        res, attempt = self.fix_flow(self.fix30)
-        self.assertEqual(res.returncode, 1)
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertFalse(os.path.exists(os.path.join(self.repo, "pwned")))
         self.assertFalse(os.path.exists("pwned"))
-        self.assertEqual(self.rev(), pre)
-        self.assertEqual(self.closed_outcome(attempt), "refused")
+        self.assertEqual(
+            git(self.repo, "log", "-1", "--format=%s").stdout.strip(),
+            "fix(review-pass-1): (touch pwned)")
 
     def test_l2_mutant_post_from_working_tree_sweeps_owner_edit(self):
         with mock.patch.object(fixstage, "_post_bytes", _post_from_working_tree):

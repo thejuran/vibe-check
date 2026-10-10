@@ -1,6 +1,6 @@
-"""Tests for fixcommit.py — the fix agent's commit-construction owner (plan 40-07).
+"""Tests for fixcommit.py — the commit-construction library fixstage imports.
 
-Three defect families are locked here, each reproduced live before the fix:
+Defect families locked here, each reproduced live before the fix:
 
   * **F4 — the guard API is per-candidate, not bulk.** `guard.contained(root, candidate)`
     takes ONE STRING. Handing it a LIST makes `candidate.strip()` fail the isinstance
@@ -8,20 +8,19 @@ Three defect families are locked here, each reproduced live before the fix:
     "one bulk call" implementation would have refused every ordinary multi-file fix.
     `validate_paths` therefore LOOPS. Pinned three ways: a counting wrapper that
     records the argument TYPES, a direct assertion that a list argument is refused,
-    and a CLI test showing the `--path a --path b` form is the supported bulk shape.
+    and a guard-CLI test showing the `--path a --path b` form is the supported bulk
+    shape.
 
-  * **F5 — the gate must fail CLOSED by control flow.** The prose gate used to be
-    `python3 ... || { : ...; }`; the shell no-op builtin SUCCEEDS, so execution fell
-    straight through into `git add`/`git commit` after a rejection (reproduced:
-    AFTER_REJECT_REACHED). Here: a rejection writes NO msgfile and exits non-zero, so
-    an `if/then/else` caller cannot reach its git operations.
+  * **Bug E (D-08) — a verified fix is never refused over title punctuation.** The
+    subject is built by `commit_subject`, which sanitizes deterministically (quotes
+    dropped, `;` -> `,`, control/separator/bidi/zero-width characters -> space). The
+    trailer-forgery invariant still holds: no newline survives, and a final
+    `TITLE_ALLOWED.fullmatch` belt refuses anything the sanitizer missed.
 
-  * **FL-03 (R4) — the title must never reach a shell command line.** The finding title
-    is attacker-influenced and the caller SUBSTITUTED it into bash, so the shell expanded
-    it BEFORE any Python validation ran. A command substitution executed at expansion
-    time. The fix: the title arrives only through a serialized JSON data channel
-    (`--finding-json`), never on argv. The tests below assert both that the channel
-    exists and that no argv surface accepts a title.
+  * **The standalone CLI is retired.** `fixstage.py commit` owns the commit path.
+    Running `fixcommit.py` directly exits 2 (never 0, so a stale
+    `if python3 fixcommit.py ...; then git commit` fence cannot proceed), and no
+    prose or script may invoke it.
 """
 
 import ast
@@ -45,6 +44,13 @@ GUARD_PY = os.path.join(SCRIPTS_DIR, "guard.py")
 
 SENTINEL_PATH = "../../SENTINEL-PATH"
 SENTINEL_TITLE = "SENTINEL-TITLE"
+FID = "abcdef0123456789"
+
+
+def _one_line(message):
+    """Exactly one line, newline-terminated: no trailer can follow it."""
+    return (message.endswith("\n") and message.count("\n") == 1
+            and "\r" not in message)
 
 
 class _RootCase(unittest.TestCase):
@@ -94,15 +100,13 @@ class TestValidateTitle(unittest.TestCase):
                 self.assertFalse(ok, "%s was accepted" % label)
                 self.assertTrue(reason.startswith("refused:"), reason)
 
-    def test_rejects_never_strips(self):
-        # fix.md:44 — "reject (do NOT silently strip)". A stripped title would
-        # produce a plausible-looking commit that hides the injection attempt.
+    def test_validate_title_stays_a_predicate(self):
+        # validate_title answers "is this already a legal subject?"; it never
+        # cleans. Cleaning is commit_subject's job (D-08).
         hostile = "ok part\nCo-Authored-By: e@v.il"
         ok, _ = fixcommit.validate_title(hostile)
         self.assertFalse(ok)
-        # and no API exists that returns a cleaned title
-        self.assertFalse(hasattr(fixcommit, "sanitize_title"))
-        self.assertFalse(hasattr(fixcommit, "strip_title"))
+        self.assertTrue(hasattr(fixcommit, "commit_subject"))
 
     def test_non_str_title_refused(self):
         for value in (None, 5, ["a"], {"a": 1}):
@@ -390,152 +394,128 @@ class TestBuildMessage(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     fixcommit.build_message(value, "Fix leak")
 
-    def test_bad_title_rejected(self):
+    def test_newline_title_cannot_forge_a_trailer(self):
+        msg = fixcommit.build_message(2, "t\nCo-Authored-By: evil <e@x>", FID)
+        self.assertTrue(_one_line(msg), repr(msg))
+        self.assertIn("Co-Authored-By: evil", msg.split("\n")[0])
+
+    def test_punctuated_title_builds_a_sanitized_subject(self):
+        self.assertEqual(fixcommit.build_message(2, "Don't; x", FID),
+                         "fix(review-pass-2): Dont, x\n")
+
+    def test_non_string_title_refused(self):
+        for value in (None, 5, ["a"]):
+            with self.subTest(value=repr(value)):
+                with self.assertRaises(ValueError):
+                    fixcommit.build_message(2, value, FID)
+
+    def test_empty_after_sanitizing_without_an_id_refused(self):
         with self.assertRaises(ValueError):
-            fixcommit.build_message(2, "x\nCo-Authored-By: e@v.il")
+            fixcommit.build_message(2, "'" * 3, None)
+        self.assertEqual(fixcommit.build_message(2, "'" * 3, FID),
+                         "fix(review-pass-2): finding abcdef01\n")
 
 
 # --------------------------------------------------------------------------- #
-# CLI — fail-closed contract (F5) and the FL-03 data channel (R4)
+# commit_subject — D-08 deterministic sanitization, belt, and fallback
 # --------------------------------------------------------------------------- #
-class TestCli(_RootCase):
-    def _finding(self, **over):
-        rec = {"pass_number": 2, "title": "Fix leak",
-               "paths": ["src/a.py", "src/b.py"]}
-        rec.update(over)
-        return rec
+class TestCommitSubject(unittest.TestCase):
+    TABLE = (
+        ("Don't trust the user's input; sanitize",
+         "Dont trust the users input, sanitize"),
+        ("a\tb\nc d\u200be", "a b c d e"),
+        ("ok title", "ok title"),
+        ('say "hi"', "say hi"),
+        ("a\u2028b\u0085c\u202ed\ufeffe\u2066f", "a b c d e f"),
+        ("x\r\ny\x00z\x7fw", "x y z w"),
+        ("  spaced   out  ", "spaced out"),
+        ("h\u00e9llo", "h llo"),
+        ("$(touch pwned)", "(touch pwned)"),
+        ("Avoid shell=True, use argv #2 (a/b.py: x_y-z)",
+         "Avoid shell=True, use argv #2 (a/b.py: x_y-z)"),
+    )
 
-    def _write_finding(self, rec):
-        path = os.path.join(self.root, "finding.json")
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(rec, fh)
-        return path
+    def test_table(self):
+        for title, want in self.TABLE:
+            with self.subTest(title=title):
+                got = fixcommit.commit_subject(title, FID)
+                self.assertEqual(got, want)
+                self.assertIsNotNone(fixcommit.TITLE_ALLOWED.fullmatch(got))
 
-    def _run(self, *argv):
-        return subprocess.run([sys.executable, FIXCOMMIT_PY, *argv],
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              text=True, timeout=30)
+    def test_empty_after_sanitizing_falls_back_to_the_id(self):
+        for title in ("'" * 3, "  \n\t ", ""):
+            with self.subTest(title=title):
+                self.assertEqual(
+                    fixcommit.commit_subject(title, "deadbeefcafe"),
+                    "finding deadbeef")
 
-    def _msgfile(self):
-        return os.path.join(self.root, "msg.txt")
+    def test_fallback_needs_a_hex_id(self):
+        for fid in (None, "", "NOTHEX!!", "abc", 5):
+            with self.subTest(fid=repr(fid)):
+                with self.assertRaises(ValueError):
+                    fixcommit.commit_subject("'" * 3, fid)
 
-    def test_success_writes_the_golden_message_and_exits_zero(self):
-        fj = self._write_finding(self._finding())
-        msg = self._msgfile()
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", msg)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        with open(msg, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), "fix(review-pass-2): Fix leak\n")
+    def test_every_codepoint_maps_into_the_allowlist(self):
+        """No input character can survive outside TITLE_ALLOWED's class."""
+        bad = []
+        for cp in range(0, 0x3100):
+            got = fixcommit.commit_subject("a" + chr(cp) + "b", FID)
+            if fixcommit.TITLE_ALLOWED.fullmatch(got) is None:
+                bad.append(hex(cp))
+        self.assertEqual(bad, [])
 
-    def test_success_prints_the_validated_paths_one_per_line(self):
-        fj = self._write_finding(self._finding())
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", self._msgfile())
-        self.assertEqual(proc.stdout.split("\n")[:2], ["src/a.py", "src/b.py"])
-        self.assertNotIn("\x00", proc.stdout)
+    def test_mutant_no_sanitizing_trips_the_belt(self):
+        """Belt lock: with commit_subject an identity, an apostrophe title must
+        NOT reach the message; the TITLE_ALLOWED.fullmatch belt refuses it."""
+        with mock.patch.object(fixcommit, "commit_subject", lambda t, i: t):
+            with self.assertRaises(ValueError):
+                fixcommit.build_message(1, "Don't", FID)
+            with self.assertRaises(ValueError):
+                fixcommit.build_message(1, "t\nCo-Authored-By: e <e@x>", FID)
 
-    def test_rejection_writes_no_msgfile_and_exits_one(self):
-        """F5: the caller's `if` must have nothing to fall through into."""
-        fj = self._write_finding(
-            self._finding(paths=["../../.git/hooks/pre-commit"]))
-        msg = self._msgfile()
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", msg)
-        self.assertEqual(proc.returncode, 1)
-        self.assertFalse(os.path.exists(msg),
-                         "a refused finding must leave NO message file")
+    def test_mutant_no_belt_and_no_sanitizing_forges_a_trailer(self):
+        """The one-line predicate the forgery test relies on can trip."""
+        permissive = re.compile(r"^.+$", re.DOTALL)
+        with mock.patch.object(fixcommit, "commit_subject", lambda t, i: t), \
+                mock.patch.object(fixcommit, "TITLE_ALLOWED", permissive):
+            msg = fixcommit.build_message(1, "t\nCo-Authored-By: e <e@x>", FID)
+        self.assertFalse(_one_line(msg), "forgery predicate is not live")
 
-    def test_bad_title_rejection_writes_no_msgfile(self):
-        fj = self._write_finding(
-            self._finding(title="x\nCo-Authored-By: e@v.il"))
-        msg = self._msgfile()
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", msg)
-        self.assertEqual(proc.returncode, 1)
+    def test_mutant_newline_kept_is_caught(self):
+        """A sanitizer that forgot newlines is refused by the belt, not shipped."""
+        def leaky(title, fid):
+            return title.replace("'", "")
+        with mock.patch.object(fixcommit, "commit_subject", leaky):
+            with self.assertRaises(ValueError):
+                fixcommit.build_message(1, "a\nCo-Authored-By: e", FID)
+
+
+# --------------------------------------------------------------------------- #
+# The standalone CLI is retired; fixstage.py commit owns the commit path
+# --------------------------------------------------------------------------- #
+class TestCliRetired(_RootCase):
+    def test_running_the_module_exits_two_with_the_retirement_message(self):
+        fj = os.path.join(self.root, "finding.json")
+        with open(fj, "w", encoding="utf-8") as fh:
+            json.dump({"pass_number": 2, "title": "Fix leak",
+                       "paths": ["src/a.py"]}, fh)
+        msg = os.path.join(self.root, "msg.txt")
+        proc = subprocess.run(
+            [sys.executable, FIXCOMMIT_PY, "--finding-json", fj,
+             "--root", self.root, "--msgfile", msg],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            timeout=30)
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("fixcommit CLI is retired", proc.stderr)
+        self.assertIn("fixstage.py commit", proc.stderr)
         self.assertFalse(os.path.exists(msg))
 
-    def test_never_echo_path_or_title(self):
-        fj = self._write_finding(
-            self._finding(title=SENTINEL_TITLE + "\x00",
-                          paths=[SENTINEL_PATH]))
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", self._msgfile())
-        self.assertEqual(proc.returncode, 1)
-        for stream in (proc.stdout, proc.stderr):
-            self.assertNotIn("SENTINEL-PATH", stream)
-            self.assertNotIn(SENTINEL_TITLE, stream)
-
-    def test_missing_or_malformed_finding_json_refused(self):
-        msg = self._msgfile()
-        missing = self._run("--finding-json",
-                            os.path.join(self.root, "nope.json"),
-                            "--root", self.root, "--msgfile", msg)
-        self.assertEqual(missing.returncode, 1)
-        bad = os.path.join(self.root, "bad.json")
-        with open(bad, "w") as fh:
-            fh.write("{not json")
-        proc = self._run("--finding-json", bad, "--root", self.root,
-                         "--msgfile", msg)
-        self.assertEqual(proc.returncode, 1)
-        self.assertFalse(os.path.exists(msg))
-
-    def test_usage_error_exits_nonzero(self):
-        proc = self._run("--root", self.root)  # no --finding-json
-        self.assertNotEqual(proc.returncode, 0)
-
-    def test_empty_root_refused(self):
-        fj = self._write_finding(self._finding())
-        proc = self._run("--finding-json", fj, "--root", "",
-                         "--msgfile", self._msgfile())
-        self.assertEqual(proc.returncode, 1)
-
-    # --- FL-03 (R4): the title never touches a command line -------------- #
-
-    def test_cli_exposes_no_title_or_pass_argv_flag(self):
-        """FL-03: attacker-influenced bytes must not reach a shell command line.
-
-        The caller substituted `--title "<finding.title>"` into bash, so the
-        SHELL expanded the title before Python ever saw it — a command
-        substitution ran at expansion time. Reproduced. The only channel is the
-        serialized JSON file, so no argv surface may accept a title.
-        """
-        for flag in ("--title", "--pass", "--path"):
-            with self.subTest(flag=flag):
-                proc = self._run(flag, "x", "--root", self.root,
-                                 "--msgfile", self._msgfile())
-                self.assertNotEqual(
-                    proc.returncode, 0,
-                    "%s is still an accepted argv flag — the title/paths must "
-                    "arrive only via --finding-json" % flag)
-                self.assertIn("unrecognized arguments", proc.stderr)
-
-    def test_command_substitution_title_has_no_side_effect(self):
-        """A title containing `$(...)` produces NO file and NO commit.
-
-        With the JSON channel the bytes never reach a shell, so the substitution
-        is inert; fixcommit then REJECTS the title on the allowlist, so the
-        caller's `if` records `errored` without staging or committing.
-        """
-        canary = os.path.join(self.root, "PWNED")
-        hostile = 'Fix leak"; $(touch %s) #' % canary
-        fj = self._write_finding(self._finding(title=hostile))
-        msg = self._msgfile()
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", msg)
-        self.assertEqual(proc.returncode, 1)
-        self.assertFalse(os.path.exists(canary),
-                         "the command substitution EXECUTED — FL-03 regression")
-        self.assertFalse(os.path.exists(msg))
-
-    def test_backtick_title_rejected_without_execution(self):
-        canary = os.path.join(self.root, "PWNED2")
-        hostile = "Fix `touch %s` leak" % canary
-        fj = self._write_finding(self._finding(title=hostile))
-        proc = self._run("--finding-json", fj, "--root", self.root,
-                         "--msgfile", self._msgfile())
-        self.assertEqual(proc.returncode, 1)
-        self.assertFalse(os.path.exists(canary))
+    def test_no_cli_surface_remains(self):
+        for name in ("parse_argv", "run", "KNOWN_FLAGS", "USAGE"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(fixcommit, name))
+        self.assertTrue(hasattr(fixcommit, "commit_subject"))
 
 
 # --------------------------------------------------------------------------- #
@@ -581,7 +561,8 @@ class TestImportSet(unittest.TestCase):
 
     def test_exports_the_contracted_names(self):
         for name in ("TITLE_ALLOWED", "PATH_RE", "validate_paths",
-                     "validate_title", "build_message", "run"):
+                     "validate_title", "build_message", "commit_subject",
+                     "validate_fix_paths"):
             self.assertTrue(hasattr(fixcommit, name),
                             "fixcommit.%s is missing" % name)
 
