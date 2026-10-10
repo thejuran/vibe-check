@@ -265,7 +265,36 @@ Plans:
   4. The accepted-fix harness runs accept → apply → rerun → Close out → finalize on disposable copies in both default-diff and GSD modes, starting from a seeded answer-key finding (never detection output), planting one staged and one unstaged sentinel in an untouched file plus one unstaged sentinel in the fixed file outside the hunk, and checking all three byte-for-byte afterwards; a run is reported complete only when the defect is verified fixed with tests passing, commits contain only the accepted repair, and rerun → Close out → finalize succeeds without manual repair, without silently dropping unresolved findings and without a false success report
   5. Two sentinel-free clean-tree runs (one default-diff, one GSD) assert the tree is clean after fixes commit and before Close out; every harness run records the owner-decision count and elapsed time split into waiting-on-owner vs execution
 
-**Plans**: TBD
+**Plans:** 13 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 52-01-PLAN.md — gitguard HARD-03/04: repo-root threading, `remote show -n`, `-C`/cd restriction, live bare-repo vectors, WebFetch/MCP boundary lock
+- [ ] 52-02-PLAN.md — gitsnap HARD-02: new-tag allowance (created only), moved/deleted/branch still halt, policy stated + locked
+- [ ] 52-03-PLAN.md — fixcommit HARD-06 + bug E: deterministic commit subject, CLI retired (stub exits 2), live punctuated-title commit
+- [ ] 52-04-PLAN.md — batch_parse bug D: `-- reason`, `all`, note shapes, bare Mixed → one clarification; 90-finalize prose + locks
+- [ ] 52-05-PLAN.md — HARD-08 whole-token FINALIZE_MODE across spines; HARD-09 first-run gate fence + test_first_run.py
+- [ ] 52-06-PLAN.md — Harness core A: skeleton, synthetic case + key record, disposable-copy builder (default/GSD)
+- [ ] 52-07-PLAN.md — Harness core B: card classifier/answerer (plugin constants, seeded identity), repeat ledger
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 52-08-PLAN.md — gitguard HARD-07: quote-aware tokenizer, `cd`/`sed -n` argv validators, visible explanations, dedupe without suppression
+- [ ] 52-09-PLAN.md — fixstage HARD-01/05 + bug C: EXIT_TABLE + render_case_arms, `preflight`, prose arms locked byte-for-byte, no-card subset path
+- [ ] 52-12-PLAN.md — Harness core A2: seeder via score.py/state_shape (D-14 lock), three sentinels plant/verify (D-16)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 52-13-PLAN.md — Harness core B2: FLOW-02 verdict (finalize-counts, sentinel verify, key-free), FLOW-05 record (D-13 lock)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 52-10-PLAN.md — Harness driver: pinned Agent SDK venv, thin SDK driver (identity assert, no write path), one-command CLI, smoke run, replay negative controls
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 52-11-PLAN.md — Live proof: P-D, P-G, C-D, C-G to COMPLETE on the synthetic case; isolation lock; both suites green
 
 ### Phase 53: False-alarm reduction
 
