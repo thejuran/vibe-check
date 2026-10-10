@@ -45,6 +45,16 @@ HALT_WORDING = (
     "cannot tell which.",
     "`git stash list`", "`git reflog -10`", "`git status`",
 )
+TAG_POLICY_HEAD = "Tag policy:"
+TAG_POLICY_FACTS = (
+    "a NEW tag appearing mid-pass",
+    "is allowed and announced",
+    "a moved or deleted tag",
+    "halts the pass",
+    "Remote-tracking refs (`refs/remotes/*`) are never compared",
+)
+ALLOWED_TAG_LINE = "a tag fetch — allowed; the pass continues"
+RC0_BULLET = "- **`rc` 0"
 SCRATCH_PATHS = (".turingmind/git-guard/", ".turingmind/fixstage/",
                  ".turingmind/fixcheck/")
 
@@ -136,6 +146,29 @@ def halt_wording_holds(text):
 def notices_copied_as_message_text_holds(text):
     gate = _gate_section(text)
     return "message text in this same turn" in gate
+
+
+def _gate_line(text, prefix):
+    """The first line of the gate section starting with prefix ('' if none)."""
+    for line in _gate_section(text).splitlines():
+        if line.lstrip().startswith(prefix):
+            return line
+    return ""
+
+
+def tag_allowance_stated_holds(text):
+    """The gate states the tag/remote-tracking policy: new tags allowed and
+    announced, moved/deleted tags halt, refs/remotes/* never compared."""
+    line = _gate_line(text, TAG_POLICY_HEAD)
+    return bool(line) and all(f in line for f in TAG_POLICY_FACTS)
+
+
+def allowed_lines_copied_holds(text):
+    """The rc 0 bullet tells the orchestrator to print the `new tag` line as
+    message text (an allowed change is announced, never hidden)."""
+    line = _gate_line(text, RC0_BULLET)
+    return ("`new tag" in line and ALLOWED_TAG_LINE in line
+            and "as message text" in line)
 
 
 def uses_case_not_optional_expansion_holds(*texts):
@@ -277,6 +310,41 @@ class TestCollectGate(unittest.TestCase):
                                    "the shell output", 1)
         self.assertNotEqual(mutant, self.text)
         self.assertFalse(notices_copied_as_message_text_holds(mutant))
+
+
+    # (6b) allowed tag lines are copied as message text on rc 0
+    def test_allowed_lines_copied(self):
+        self.assertTrue(allowed_lines_copied_holds(self.text))
+
+    def test_mutant_new_tag_mention_dropped_from_rc0(self):
+        mutant = self.text.replace(
+            " AND each `new tag … appeared (a tag fetch — allowed; the pass "
+            "continues)` line", "", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(allowed_lines_copied_holds(mutant))
+
+    # (6c) the tag / remote-tracking policy is stated in the gate
+    def test_tag_allowance_stated(self):
+        self.assertTrue(tag_allowance_stated_holds(self.text))
+
+    def test_mutant_tag_policy_sentence_deleted(self):
+        line = _gate_line(self.text, TAG_POLICY_HEAD)
+        mutant = self.text.replace(line, "", 1)
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(tag_allowance_stated_holds(mutant))
+
+    def test_mutant_each_tag_policy_fact(self):
+        for fact in TAG_POLICY_FACTS:
+            with self.subTest(fact=fact):
+                mutant = self.text.replace(fact, "", 1)
+                self.assertNotEqual(mutant, self.text)
+                self.assertFalse(tag_allowance_stated_holds(mutant))
+
+    def test_mutant_tag_policy_moved_after_step0(self):
+        line = _gate_line(self.text, TAG_POLICY_HEAD)
+        mutant = self.text.replace(line + "\n", "", 1) + "\n" + line + "\n"
+        self.assertNotEqual(mutant, self.text)
+        self.assertFalse(tag_allowance_stated_holds(mutant))
 
 
 class TestZshSafety(unittest.TestCase):
