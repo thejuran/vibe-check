@@ -158,6 +158,7 @@ class TestStructure(unittest.TestCase):
                  and isinstance(n.value, ast.Name)}
         for banned in (("harness_sandbox", "snapshot_plugin"),
                        ("harness_sandbox", "make_workspace"),
+                       ("harness_sandbox", "make_session_tmp"),
                        ("os", "remove"), ("os", "unlink"), ("os", "rename"),
                        ("os", "replace"), ("os", "makedirs"),
                        ("os", "mkdir"), ("subprocess", "run")):
@@ -174,6 +175,12 @@ class TestEnvAndIdentity(unittest.TestCase):
                                "ENABLE_CLAUDEAI_MCP_SERVERS": "false"})
         env = d.session_env({"ENABLE_CLAUDEAI_MCP_SERVERS": "true"})
         self.assertEqual(env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
+
+    def test_session_temp_root_is_passed_as_claude_code_tmpdir(self):
+        env = d.session_env({"CLAUDE_TMPDIR": "/tmp/claude", "PATH": "/bin"},
+                            tmp_root="/tmp/fhabc")
+        self.assertEqual(env["CLAUDE_CODE_TMPDIR"], "/tmp/fhabc")
+        self.assertNotIn("CLAUDE_TMPDIR", env)
 
     def test_session_env_default_reads_os_environ(self):
         with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
@@ -215,9 +222,28 @@ class TestFailClosed(_Case):
         return harness_sandbox.build_session_settings(
             self.copy.root, self.snapshot.path, self.out)
 
-    def drive(self, settings):
+    def drive(self, settings, tmp_root=None):
         return d.drive(self.copy, self.snapshot, "/vibe-check:review",
-                       self.core, self.out, settings)
+                       self.core, self.out, settings,
+                       tmp_root=tmp_root or self.tmp_root())
+
+    def tmp_root(self):
+        root = harness_sandbox.make_session_tmp()
+        self.addCleanup(os.rmdir, root)
+        return root
+
+    def test_missing_or_shared_session_temp_is_refused(self):
+        s = self.settings()
+        bad = (None, "relative", "/nonexistent-fh-root",
+               harness_sandbox.SHARED_CLAUDE_TEMP_PATHS[0])
+        for root in bad:
+            with self.subTest(root=root), \
+                    mock.patch.object(d, "_sdk",
+                                      side_effect=AssertionError("sdk")):
+                with self.assertRaises(d.DriverError) as cm:
+                    d.drive(self.copy, self.snapshot, "/vibe-check:review",
+                            self.core, self.out, s, tmp_root=root)
+                self.assertIn("session temp root", str(cm.exception))
 
     def test_open_settings_are_refused_before_any_sdk_use(self):
         s = self.settings()
@@ -249,7 +275,7 @@ class TestFailClosed(_Case):
         sdk = types.SimpleNamespace(ClaudeAgentOptions=Opts,
                                     HookMatcher=lambda **kw: kw)
         with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
-            d.build_options(sdk, self.session, s, None)
+            d.build_options(sdk, self.session, s, None, tmp_root="/tmp/fhq")
         self.assertEqual(captured["cwd"], self.copy.root)
         self.assertEqual(captured["plugins"],
                          [{"type": "local", "path": self.snapshot.path}])
@@ -257,6 +283,7 @@ class TestFailClosed(_Case):
         self.assertEqual(captured["setting_sources"], [])
         self.assertEqual(captured["permission_mode"], "default")
         self.assertNotIn("CLAUDECODE", captured["env"])
+        self.assertEqual(captured["env"]["CLAUDE_CODE_TMPDIR"], "/tmp/fhq")
         self.assertNotIn("sandbox", captured)
         self.assertIs(captured["strict_mcp_config"], True)
         self.assertEqual(captured["mcp_servers"], {})

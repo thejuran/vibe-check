@@ -70,6 +70,37 @@ class TestWorkspace(_TmpCase):
                                                    "plugins", "vibe-check")))
 
 
+class TestSessionTemp(unittest.TestCase):
+    def test_shared_temp_is_the_per_uid_claude_dir_in_both_spellings(self):
+        uid = os.getuid()
+        self.assertEqual(h.SHARED_CLAUDE_TEMP_PATHS,
+                         ("/tmp/claude-%d" % uid,
+                          "/private/tmp/claude-%d" % uid))
+
+    def test_session_tmp_is_short_private_and_not_shared(self):
+        root = h.make_session_tmp()
+        try:
+            self.assertTrue(os.path.isdir(root))
+            self.assertEqual(os.stat(root).st_mode & 0o777, 0o700)
+            self.assertLessEqual(
+                len(os.path.join(root, "claude-%d" % os.getuid())),
+                h.SESSION_TMP_MAX_LEN)
+            for shared in h.SHARED_CLAUDE_TEMP_PATHS:
+                self.assertFalse(h._is_under(os.path.realpath(root), shared))
+        finally:
+            os.rmdir(root)
+
+    def test_session_tmp_under_shared_temp_is_refused(self):
+        with mock.patch.object(h, "SESSION_TMP_PARENT",
+                               h.SHARED_CLAUDE_TEMP_PATHS[1]), \
+                mock.patch.object(h.tempfile, "mkdtemp",
+                                  return_value=h.SHARED_CLAUDE_TEMP_PATHS[1]
+                                  + "/fhX"), \
+                mock.patch.object(h.os, "rmdir"):
+            with self.assertRaises(h.SandboxError):
+                h.make_session_tmp()
+
+
 class TestSnapshot(_TmpCase):
     def _fake_checkout(self):
         repo = self.mkdtemp()
@@ -142,9 +173,11 @@ class TestSessionSettings(unittest.TestCase):
                 "excludedCommands": [],
                 "filesystem": {
                     "denyRead": [CHECKOUT, OUT, KEYS,
-                                 *h.PROTECTED_CREDENTIAL_PATHS],
+                                 *h.PROTECTED_CREDENTIAL_PATHS,
+                                 *h.SHARED_CLAUDE_TEMP_PATHS],
                     "allowRead": [COPY, SNAP],
-                    "denyWrite": [SNAP, COPY + "/probe.sh"],
+                    "denyWrite": [SNAP, COPY + "/probe.sh",
+                                  *h.SHARED_CLAUDE_TEMP_PATHS],
                 },
                 "network": {"allowedDomains": [], "strictAllowlist": True},
             },
@@ -157,6 +190,10 @@ class TestSessionSettings(unittest.TestCase):
                     "Read(~/.config/gh/**)", "Read(~/.netrc)",
                     "Read(~/.gnupg/**)", "Read(~/.claude/.credentials.json)",
                     "Read(~/.claude.json)",
+                    *["Read(//%s/**)" % p.lstrip("/")
+                      for p in h.SHARED_CLAUDE_TEMP_PATHS],
+                    *["Edit(//%s/**)" % p.lstrip("/")
+                      for p in h.SHARED_CLAUDE_TEMP_PATHS],
                     "Edit(//private/tmp/w/plugin/**)",
                     "Edit(//private/tmp/w/repo/probe.sh)",
                     "NotebookEdit",
@@ -222,6 +259,16 @@ class TestSessionSettings(unittest.TestCase):
                 "Edit(//private/tmp/w/repo/probe.sh)"),
             lambda s: s.pop("disableClaudeAiConnectors"),
             lambda s: s.update(disableClaudeAiConnectors=False),
+        ] + [
+            (lambda key, p: lambda s: s["sandbox"]["filesystem"][key].remove(p))(
+                key, p)
+            for key in ("denyRead", "denyWrite")
+            for p in h.SHARED_CLAUDE_TEMP_PATHS
+        ] + [
+            (lambda r: lambda s: s["permissions"]["deny"].remove(r))(
+                "%s(//%s/**)" % (tool, p.lstrip("/")))
+            for tool in ("Read", "Edit")
+            for p in h.SHARED_CLAUDE_TEMP_PATHS
         ]
         for weaken in weakenings:
             s = _sample_settings()
