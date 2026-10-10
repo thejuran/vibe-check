@@ -219,9 +219,11 @@ class TestMixedGrammar(unittest.TestCase):
               "reason": "later"}),
             ("fix 1-3", None,
              {"fix": h(1, 2, 3), "defer": [], "dismiss": [], "undecided": h(4, 5)}),
+            # `--` after whitespace always opens the reason; like Q2, it is
+            # dropped when nothing is dismissed or deferred.
             ("fix 1 -- 3", None,
              {"fix": h(1), "defer": [], "dismiss": [], "undecided": h(2, 3, 4, 5),
-              "reason": "3"}),
+              "reason": None}),
         ]
         for q1, q2, want in table:
             with self.subTest(q1=q1):

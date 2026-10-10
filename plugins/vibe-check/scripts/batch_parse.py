@@ -6,20 +6,31 @@ owner's text from a file, so owner text is never on a command line.
 
 * `parse_answer(rows, q1, q2)` reads the finalize card. Q1 is a button label or
   typed text in the Mixed… grammar; Q2 is the one reason covering every
-  dismissed and deferred row.
+  dismissed and deferred row. A trailing `-- <reason>` on Q1 gives the reason
+  inline and wins over Q2.
 * `parse_selection(rows, labels=None, text=None)` maps a multi-select answer
   (labels shaped `#n file:line`) or a typed list (`1,3-5`) to row numbers by
   the leading number only, never by title text.
 
 Grammar (case-insensitive, whitespace-tolerant, trailing ';' allowed):
 
+    q1      := [ prefix [ 'notes:' ] ] answer [ ' --' reason ]
+    prefix  := 'Mixed…' | '(no option selected)'      (exact, case-sensitive)
     answer  := clause ( ';' clause )*
     clause  := verb targets | 'look' N
     verb    := 'fix' | 'defer' | 'dismiss'
-    targets := 'rest' | item ( ',' item )*
+    targets := 'rest' | 'all' | item ( ',' item )*
     item    := N | N '-' N          1 <= N <= len(rows); ranges ascending
 
-`rest` expands after the explicit items, over the unassigned rows whose band is
+The prefix is how the question tool reports a selected option plus typed notes.
+A prefix with no answer after it (a bare Mixed…) returns need_text: the caller
+asks once more, and no row is ever decided from the selection alone.
+
+`--` at the start or preceded by whitespace always starts the reason, so `fix 1 -- 3` is
+`fix 1` with reason "3"; a single `-` is still a range. An empty inline reason
+counts as none, and Q2 applies.
+
+`all` is a synonym of `rest`. `rest` expands after the explicit items, over the unassigned rows whose band is
 in `_rest_bands_for(verb)`: every band for `fix`, MEDIUM only for `dismiss` and
 `defer`. A critical or warning row is therefore dismissed or deferred only when
 the owner names it by number; otherwise it stays undecided and finalize stays
@@ -69,8 +80,11 @@ _BUTTON_TEXT = {
     FINALIZE_Q1[2]: "fix rest",
 }
 _MIXED = FINALIZE_Q1[3]
+_NOTE_PREFIXES = (_MIXED, "(no option selected)")
+_NOTES_LABEL = "notes:"
 
-_CLAUSE_RE = re.compile(r"(fix|defer|dismiss)\s+(rest|[0-9,\s-]+)")
+_CLAUSE_RE = re.compile(r"(fix|defer|dismiss)\s+(rest|all|[0-9,\s-]+)")
+_REASON_SPLIT_RE = re.compile(r"(?:^|\s)--\s*")
 _LOOK_RE = re.compile(r"look\s+([0-9]+)")
 _ITEM_RE = re.compile(r"([0-9]+)(?:-([0-9]+))?")
 _LABEL_RE = re.compile(r"#([0-9]+) +\S")
@@ -142,6 +156,29 @@ def _empty_result(**overrides):
     return out
 
 
+def _strip_note_prefix(text):
+    """(remainder, had_prefix): drop one leading note prefix and an optional
+    `notes:` label. Text without a prefix comes back stripped, unchanged."""
+    body = text.strip()
+    for prefix in _NOTE_PREFIXES:
+        if body.startswith(prefix):
+            body = body[len(prefix):].strip()
+            if body.startswith(_NOTES_LABEL):
+                body = body[len(_NOTES_LABEL):].strip()
+            return body, True
+    return body, False
+
+
+def _split_inline_reason(text):
+    """(clauses_text, reason or None) split at the first `--` that opens the
+    text or follows whitespace."""
+    parts = _REASON_SPLIT_RE.split(text, maxsplit=1)
+    if len(parts) == 1:
+        return text, None
+    reason = parts[1].strip()
+    return parts[0], (reason or None)
+
+
 def _parse_clauses(text):
     """Split normalized text into ('look', N) / (verb, 'rest'|spec) tuples."""
     body = text.strip().lower().rstrip(";").strip()
@@ -151,7 +188,8 @@ def _parse_clauses(text):
     for clause in re.split(r"\s*;\s*", body):
         m = _CLAUSE_RE.fullmatch(clause)
         if m:
-            clauses.append((m.group(1), m.group(2).strip()))
+            spec = m.group(2).strip()
+            clauses.append((m.group(1), "rest" if spec == "all" else spec))
             continue
         m = _LOOK_RE.fullmatch(clause)
         if m:
@@ -164,10 +202,13 @@ def _parse_clauses(text):
 def _answer(rows, q1, q2):
     if not isinstance(q1, str) or not q1.strip():
         raise _Refusal(REASON_EMPTY)
-    stripped = q1.strip()
-    if stripped == _MIXED:
+    body, had_prefix = _strip_note_prefix(q1)
+    text, inline_reason = _split_inline_reason(body)
+    text = text.strip()
+    if had_prefix and not text:
+        # A bare selection names no row: ask once, never infer a verb.
         return _empty_result(need_text=True)
-    text = _BUTTON_TEXT.get(stripped, stripped)
+    text = _BUTTON_TEXT.get(text, text)
     clauses = _parse_clauses(text)
     count = len(rows)
 
@@ -204,9 +245,12 @@ def _answer(rows, q1, q2):
 
     reason = None
     if by_verb["dismiss"] or by_verb["defer"]:
-        if not isinstance(q2, str) or not q2.strip():
+        if inline_reason is not None:
+            reason = inline_reason
+        elif isinstance(q2, str) and q2.strip():
+            reason = q2.strip()
+        else:
             raise _Refusal(REASON_NO_REASON)
-        reason = q2.strip()
 
     echo = []
     for verb in VERBS:
