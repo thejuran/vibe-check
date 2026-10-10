@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -234,13 +235,68 @@ class TestSeedRefusals(_CopyCase):
                               "state", "repo-main.json").exists())
 
 
+class TestSeedGates(_CopyCase):
+    """The two plugin gates are load-bearing: a fake plugin reply that a real
+    run cannot produce proves each refusal branch is wired."""
+
+    def _patched(self, rewrite):
+        real = hs._plugin
+
+        def fake(script, *args, stdin=None):
+            proc = real(script, *args, stdin=stdin)
+            return rewrite(Path(script).name, proc)
+        return mock.patch.object(hs, "_plugin", side_effect=fake)
+
+    def _state(self):
+        return Path(self.copy.root, ".turingmind", "state", "repo-main.json")
+
+    def test_survivor_below_warning_is_refused(self):
+        def demote(name, proc):
+            if name != "score.py":
+                return proc
+            out = json.loads(proc.stdout)
+            out["findings"][0]["band"] = "medium"
+            return proc.__class__(proc.args, 0, json.dumps(out), "")
+        with self._patched(demote):
+            with self.assertRaises(hs.SeedError):
+                hs.seed_state(self.copy, _key(), "default")
+        self.assertFalse(self._state().exists())
+
+    def test_shape_rejection_is_refused_and_leaves_no_state(self):
+        def reject(name, proc):
+            if name != "state_shape.py":
+                return proc
+            return proc.__class__(proc.args, 1, "", "bad shape\n")
+        with self._patched(reject):
+            with self.assertRaises(hs.SeedError):
+                hs.seed_state(self.copy, _key(), "default")
+        self.assertFalse(self._state().exists())
+
+    def test_score_is_given_the_defect_hunk_as_changed_lines(self):
+        seen = {}
+        real = hs._plugin
+
+        def spy(script, *args, stdin=None):
+            if Path(script).name == "score.py":
+                seen.update(json.loads(stdin))
+            return real(script, *args, stdin=stdin)
+        with mock.patch.object(hs, "_plugin", side_effect=spy):
+            hs.seed_state(self.copy, _key(), "default")
+        recipe = hf.load_recipe(CASE)
+        self.assertEqual(seen["changed_line_ranges"],
+                         {_key()["file"]: [recipe["hunk_lines"]]})
+        self.assertEqual(seen["codex"], {"status": "off"})
+        self.assertEqual(seen["command"], "review")
+
+
 class TestNoShell(unittest.TestCase):
     def test_no_shell_true_in_the_tools(self):
         here = Path(__file__).resolve().parent
+        needle = "shell" + "=True"
         for py in here.glob("*.py"):
             if py.name.startswith("test_"):
                 continue
-            self.assertNotIn("shell=True", py.read_text(encoding="utf-8"),
+            self.assertNotIn(needle, py.read_text(encoding="utf-8"),
                              py.name)
 
 
