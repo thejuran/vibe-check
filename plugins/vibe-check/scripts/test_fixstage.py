@@ -2597,5 +2597,187 @@ class TestIndexSync(HookCase):
             self.assertEqual(now.get(name), data, name)
 
 
+# ------------------------------------------------- exit table and preflight
+
+OLD_GIT_LINE = ("git 2.30 is installed; vibe-check's fixes need git 2.36 or "
+                "newer (to run your commit hooks). No fix was attempted.")
+
+
+def _git_shim_dir(tmp, version):
+    """A dir holding an executable `git` that reports `version` for
+    `git version` and runs the real git (original PATH) for everything else."""
+    shim_dir = os.path.join(tmp, "shim-%s" % version)
+    os.makedirs(shim_dir)
+    path = os.path.join(shim_dir, "git")
+    real_path = os.environ.get("PATH", "")
+    with open(path, "w") as fh:
+        fh.write("#!/bin/sh\n"
+                 "if [ \"$1\" = version ]; then\n"
+                 "  echo 'git version %s'\n"
+                 "  exit 0\n"
+                 "fi\n"
+                 "PATH='%s' exec git \"$@\"\n" % (version, real_path))
+    os.chmod(path, 0o755)
+    return shim_dir
+
+
+class TestExitTable(unittest.TestCase):
+    """EXIT_TABLE is the one source of codes, labels and arm texts."""
+
+    def test_exit_table_every_sub_ends_with_refused(self):
+        for sub in ("begin", "undo", "commit", "preflight"):
+            self.assertIn(sub, fixstage.EXIT_TABLE)
+        for sub, rows in fixstage.EXIT_TABLE.items():
+            self.assertEqual(rows[-1][:2], ("*", "refused"), sub)
+            codes = [r[0] for r in rows]
+            self.assertEqual(len(codes), len(set(codes)), sub)
+            self.assertTrue(all(isinstance(c, int) for c in codes[:-1]), sub)
+
+    def test_exit_table_outcome_carries_table_code(self):
+        for code, label, _verdict, _arm in fixstage.EXIT_TABLE["commit"][:-1]:
+            out = fixstage._outcome(label, ["x"])
+            self.assertIsInstance(out, fixstage._Outcome)
+            self.assertEqual((out.code, out.outcome, out.lines),
+                             (code, label, ["x"]))
+        with self.assertRaises(KeyError):
+            fixstage._outcome("no-such-label", [])
+
+    def test_exit_table_no_literal_outcome_codes(self):
+        with open(FIXSTAGE) as fh:
+            source = fh.read()
+        self.assertEqual(re.findall(r"_Outcome\(\d", source), [])
+
+    def test_exit_table_render_case_arms(self):
+        rendered = fixstage.render_case_arms("commit").split("\n")
+        rows = fixstage.EXIT_TABLE["commit"]
+        self.assertEqual(len(rendered), len(rows))
+        for line, (code, _label, _verdict, arm) in zip(rendered, rows):
+            self.assertEqual(line, "  %s) %s ;;" % (code, arm))
+        self.assertTrue(rendered[-1].startswith("  *) "))
+
+    def test_exit_table_docstring_complete(self):
+        docs = fixstage.render_exit_docs()
+        self.assertIn(docs, fixstage.__doc__)
+        for sub, rows in fixstage.EXIT_TABLE.items():
+            for code, label, _verdict, _arm in rows:
+                self.assertIn("%s %s" % (code, label), docs, (sub, code))
+
+    def test_exit_table_docstring_mutant(self):
+        # A table row added without re-pasting the docstring trips the lock.
+        table = dict(fixstage.EXIT_TABLE)
+        table["commit"] = table["commit"][:1] + (
+            (42, "new-label", "errored", 'echo "x" >&2'),) + table["commit"][1:]
+        self.assertNotIn(fixstage.render_exit_docs(table), fixstage.__doc__)
+
+    def test_exit_table_undo_and_begin_codes(self):
+        self.assertEqual(fixstage._exit_code("undo", "undone"), 0)
+        self.assertEqual(fixstage._exit_code("undo", "undo-partial"), 3)
+        self.assertEqual(fixstage._exit_code("begin", "opened"), 0)
+
+
+class TestPreflight(unittest.TestCase):
+    """`preflight --root R`: old git is reported once, at pass start."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = os.path.realpath(self._tmp.name)
+        self.repo = gitfixture.make_repo(self.tmp)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def env(self, version=None):
+        env = gitfixture.helper_env()
+        if version is not None:
+            env["PATH"] = (_git_shim_dir(self.tmp, version) + os.pathsep
+                           + env.get("PATH", ""))
+        return env
+
+    def cli(self, *args, version=None):
+        proc = subprocess.run([sys.executable, FIXSTAGE] + list(args),
+                              env=self.env(version), stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=120)
+        return Result(proc.returncode, proc.stdout, proc.stderr)
+
+    def inproc(self, module, version, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, self.env(version)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = module.run(list(args))
+        return Result(code, out.getvalue(), err.getvalue())
+
+    def test_preflight_real_git_ok(self):
+        res = self.cli("preflight", "--root", self.repo)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout, "")
+
+    def test_preflight_old_git(self):
+        res = self.cli("preflight", "--root", self.repo, version="2.30.0")
+        self.assertEqual(res.returncode, 1, res.stderr)
+        self.assertEqual(res.stdout, OLD_GIT_LINE + "\n")
+
+    def test_preflight_exact_minimum(self):
+        res = self.cli("preflight", "--root", self.repo, version="2.36.0")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_preflight_needs_no_record(self):
+        # No finding record exists anywhere: preflight never loads one.
+        self.assertEqual(self.cli("preflight", "--root", self.repo).returncode, 0)
+
+    def test_preflight_usage(self):
+        record = os.path.join(self.tmp, "finding.json")
+        for args in (["preflight"],
+                     ["preflight", "--root", self.repo, "--finding-json", record],
+                     ["preflight", "--root", self.repo, "--attempt", "0" * 32],
+                     ["preflight", "--root", self.repo, "--bogus", "x"]):
+            res = self.cli(*args)
+            self.assertEqual(res.returncode, 2, args)
+            self.assertEqual(res.stdout, "", args)
+
+    def test_preflight_bad_root_is_not_old_git(self):
+        res = self.cli("preflight", "--root", os.path.join(self.tmp, "nope"))
+        self.assertNotIn(res.returncode, (0, 1))
+        self.assertNotIn("No fix was attempted", res.stdout)
+
+    def test_preflight_mutant_comparison_le(self):
+        real = self.inproc(fixstage, "2.36.0", "preflight", "--root", self.repo)
+        self.assertEqual(real.returncode, 0)
+        mutant = _mutant_module(
+            ("if version < MIN_GIT_FOR_HOOKS:  # preflight",
+             "if version <= MIN_GIT_FOR_HOOKS:  # preflight"))
+        res = self.inproc(mutant, "2.36.0", "preflight", "--root", self.repo)
+        self.assertEqual(res.returncode, 1)
+
+    def test_preflight_mutant_minimum_lowered(self):
+        real = self.inproc(fixstage, "2.30.0", "preflight", "--root", self.repo)
+        self.assertEqual(real.returncode, 1)
+        mutant = _mutant_module(("MIN_GIT_FOR_HOOKS = (2, 36)",
+                                 "MIN_GIT_FOR_HOOKS = (2, 0)"))
+        res = self.inproc(mutant, "2.30.0", "preflight", "--root", self.repo)
+        self.assertEqual(res.returncode, 0)
+
+
+class TestCommitOldGitBelt(CommitCase):
+    """The commit-time belt still refuses on old git (exit 1, nothing made)."""
+
+    def test_commit_refused_on_old_git(self):
+        shim = _git_shim_dir(self.tmp, "2.30.0")
+        head = self.rev()
+
+        def runner(*args):
+            env = gitfixture.helper_env()
+            env["PATH"] = shim + os.pathsep + env.get("PATH", "")
+            proc = subprocess.run([sys.executable, FIXSTAGE] + list(args),
+                                  env=env, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True, timeout=120)
+            return Result(proc.returncode, proc.stdout, proc.stderr)
+
+        res, _ = self.fix_flow(lambda: self.edit_line("f.txt", 3, "fixed\n"),
+                               runner=runner)
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("git 2.36 or newer", res.stderr)
+        self.assertEqual(self.rev(), head)
+
+
 if __name__ == "__main__":
     unittest.main()
