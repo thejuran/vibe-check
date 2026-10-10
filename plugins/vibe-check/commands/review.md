@@ -96,7 +96,7 @@ Runs on EVERY mode, unconditionally, after Phase 0.5 and before Phase 0.7 — in
 
 ## Finalize mode (`--finalize`)
 
-Runs iff `$ARGUMENTS` contains `--finalize`, and REPLACES everything after Phase 0.6. Run Phase 0, then Phase 0.5 — which binds `$STATE_FILE` and reads the state; its routing into Phase 0.7, Phase 1 or the carry-forward steps does not apply here — then the unconditional Phase 0.6. **Then Read $VC_ROOT/phases/shared/90-finalize.md** — do not execute finalize from memory. Do NOT run Phases 0.2, 0.3, 0.7, 1, 1.5, 2, 3, 4 or 4.5, and do NOT dispatch agents. Phase 5 runs only if the finalize card routes a fix set into the fix-loop card. Without `--finalize`, never read the file.
+Runs iff Phase 0 printed `FINALIZE_MODE=1`, and REPLACES everything after Phase 0.6. Run Phase 0, then Phase 0.5 — which binds `$STATE_FILE` and reads the state; its routing into Phase 0.7, Phase 1 or the carry-forward steps does not apply here — then the unconditional Phase 0.6. **Then Read $VC_ROOT/phases/shared/90-finalize.md** — do not execute finalize from memory. Do NOT run Phases 0.2, 0.3, 0.7, 1, 1.5, 2, 3, 4 or 4.5, and do NOT dispatch agents. Phase 5 runs only if the finalize card routes a fix set into the fix-loop card. On `FINALIZE_MODE=0`, never read the file.
 
 ## Phase 0.7 — First-run setup
 
@@ -134,7 +134,7 @@ Runs immediately after Phase 4.5 ONLY when none of the skip conditions below fir
 
 Phase 5 runs ONLY when ALL of these are true:
 
-- `$ARGUMENTS` does NOT contain `--finalize` (finalize has its own dedicated flow — Finalize mode above)
+- Phase 0 printed `FINALIZE_MODE=0` (finalize has its own dedicated flow — Finalize mode above)
 - At least one finding was reported in Phase 4 (no findings → nothing to fix; print "✅ No issues to fix. Re-run when you've changed code, or run with `--finalize` to ship." and stop)
 - Scope mode is `default` (uncommitted) or `GSD phase mode` — stateful modes where rerun-with-carry-forward makes sense. **Skip Phase 5 entirely in PR mode and range mode** (both are stateless — print a one-liner pointing the user at `--finalize` if they want a REVIEW.md artifact, then stop)
 - The `$TURINGMIND_NONINTERACTIVE` env var is NOT set to a truthy value (CI / scripted runs disable the loop; print a one-line summary instead)

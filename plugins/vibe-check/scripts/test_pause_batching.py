@@ -364,12 +364,37 @@ ESTIMATE_GATE_PIN = (
 )
 
 
+# The one reviewed edit to the skip sections since 116f14a: the finalize skip
+# bullet reads Phase 0's whole-token FINALIZE_MODE instead of a substring test
+# of $ARGUMENTS. pinned_skip_section() undoes exactly this substitution (and
+# requires it to be present once), so every other byte stays pinned.
+SKIP_FINALIZE_NOW = "- Phase 0 printed `FINALIZE_MODE=0` (finalize has"
+SKIP_FINALIZE_116F14A = "- `$ARGUMENTS` does NOT contain `--finalize` (finalize has"
+
+
+def pinned_skip_section(text):
+    section = skip_section_to_h2(text)
+    if section.count(SKIP_FINALIZE_NOW) != 1:
+        return section
+    return section.replace(SKIP_FINALIZE_NOW, SKIP_FINALIZE_116F14A)
+
+
 class TestSkipSectionsByteIdentical(unittest.TestCase):
     def test_skip_sections_match_digest(self):
         for path, digest in SKIP_SHA256.items():
             with self.subTest(path=path):
                 self.assertEqual(
-                    sha256_hex(skip_section_to_h2(read_prose(path))), digest)
+                    sha256_hex(pinned_skip_section(read_prose(path))), digest)
+
+    def test_skip_digest_mutant_outside_finalize_bullet(self):
+        for path, digest in SKIP_SHA256.items():
+            text = read_prose(path)
+            section = skip_section_to_h2(text)
+            mutant = text.replace(section, section.replace(
+                "At least one finding was reported", "At least one finding was listed", 1))
+            with self.subTest(path=path):
+                self.assertNotEqual(mutant, text)
+                self.assertNotEqual(sha256_hex(pinned_skip_section(mutant)), digest)
 
     def test_skip_digest_mutant(self):
         for path, digest in SKIP_SHA256.items():

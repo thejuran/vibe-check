@@ -1,13 +1,13 @@
 # Finalize mode
 
-> **Lazy-loaded.** Read from the command spine when `$ARGUMENTS` contains `--finalize`, after Phase 0 and Phase 0.5 (and the unconditional Phase 0.6) have run. Never read on a review pass.
+> **Lazy-loaded.** Read from the command spine when Phase 0 printed `FINALIZE_MODE=1` (`--finalize` as a whole token), after Phase 0 and Phase 0.5 (and the unconditional Phase 0.6) have run. Never read on a review pass.
 > Shared: `/review` and `/deep-review` finalize through this one file.
 
 **Who owns what.** `scripts/finalize_gate.py` decides which way finalize goes: write, open the finalize card (`outstanding-to-phase-5` for undecided critical/warning, `medium-ack-loop` for undecided medium — both enter the same ONE card), fall back, error, or refuse. This file computes the gate's inputs, renders every message, and writes REVIEW.md. The gate never produces REVIEW.md content and never prints a finding.
 
 ## Finalize mode
 
-If `$ARGUMENTS` contains `--finalize`:
+If Phase 0 printed `FINALIZE_MODE=1`:
 - Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents. Phase 0.5 binds `$STATE_FILE` to the mode-resolved state path (GSD `<$PHASE_ID>.json`, other-modes `<repo>-<branch>.json`, or `--all` `by-mode/all/<scope-hash>.json`) — Finalize consumes that one variable and never re-derives a path of its own.
 - Read the two gate counts from `carry_state.py` — never by hand. When there is no state file both counts are `0` and the helper is not run. Otherwise:
   1. **HEAD fingerprints.** For every entry of root `fix_verdicts` whose `at_pass == state.passes[-1].pass_number`, find its finding in `state.passes[-1].findings` by `stable_hash`. That finding's `<file>` comes from the reviewed diff and may be attacker-authored, so validate it BEFORE any git call: it must match `^[A-Za-z0-9._/-]+$` (the PATH_RE pre-filter `agents/fix.md` step 0 uses) AND `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"` must exit 0 (`$GUARD_PY` from `$VC_ROOT/phases/shared/01-bootstrap.md`; branch on the EXIT CODE; an unresolved/empty `$GUARD_PY` refuses). A file failing either check is never passed to git and is OMITTED from `$BLOBFILE` (fail closed). For a validated `<file>`, run `git rev-parse "HEAD:<file>"`, `git diff --quiet HEAD -- <file>` and `git diff --cached --quiet -- <file>`. Serialize `{"<file>": "<blob>"}` to `$BLOBFILE` with the Write tool, including a file ONLY when all three exit 0. A file whose rev-parse fails, or whose working tree or index differs from HEAD, is OMITTED: the fix agent judged working-tree content, so HEAD's blob is evidence only while HEAD, index and working tree are identical. Omission is how this file tells the helper "unbound" — the helper fails closed for an absent file and never runs git itself. With no last-pass fix verdicts `$BLOBFILE` holds `{}` and is still passed. The helper honours a fix-obsolete verdict ONLY while HEAD's blob equals the verdict's recorded `verified_blob`, so any edit after the verdict re-opens the finding.
