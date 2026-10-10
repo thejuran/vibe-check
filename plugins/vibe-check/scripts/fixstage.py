@@ -105,8 +105,43 @@ policy forbids that rewind) are not reported; the commit still shows in
 Out of scope: on an unborn branch there is no old tip to compare, so an
 interrupt while publishing there reports 9.
 
+    preflight --root R    (no finding record; run once at pass start)
+        0 git can run the owner's commit hooks | 1 git older than 2.36: one
+          plain line on stdout naming the installed version; nothing was
+          attempted | 2 usage | 3 refused (root or git version unreadable;
+          never 1, which callers read as "git too old")
+
 Refusals print a fixed reason on stderr that names the failing rule. Callers
 branch on the EXIT CODE.
+
+## Exit table
+
+`EXIT_TABLE` is the one source of every exit code, label, recorded verdict
+and `case "$rc"` arm; `_outcome` looks commit codes up there, the prose
+copies its arms from `render_case_arms`, and this list is
+`render_exit_docs()` pasted verbatim (test_fixstage.py locks it):
+
+    preflight
+        0 ready
+        1 git-too-old
+        * refused
+    begin
+        0 opened
+        * refused -> record errored
+    undo
+        0 undone -> record unverified
+        3 undo-partial -> record errored
+        * refused -> record errored
+    commit
+        0 committed -> record applied
+        3 not-separable -> record applied-uncommitted
+        4 hook-rejected -> record errored
+        5 hook-changed -> record errored
+        6 head-moved -> record errored
+        7 moved-after-commit -> record errored
+        8 published-unverified -> record errored
+        9 publication-uncertain -> record errored
+        * refused -> record errored
 
 ## The isolated commit
 
@@ -156,7 +191,7 @@ import fixcommit  # noqa: E402  (the ONE path-validation source)
 ID_RE = re.compile(r"^[0-9a-f]{8,64}$")
 ATTEMPT_RE = re.compile(r"^[0-9a-f]{32}$")
 
-SUBCOMMANDS = ("begin", "snapshot", "seal", "undo", "commit")
+SUBCOMMANDS = ("begin", "snapshot", "seal", "undo", "commit", "preflight")
 KNOWN_FLAGS = ("--root", "--finding-json", "--attempt")
 
 CLOSED_KEEP = 5
@@ -177,13 +212,119 @@ REGULAR_MODES = ("100644", "100755")
 
 USAGE = ("usage: fixstage.py begin --root <repo> --finding-json <file>\n"
          "       fixstage.py {snapshot|seal|undo|commit} --root <repo> "
-         "--finding-json <file> --attempt <32hex>\n")
+         "--finding-json <file> --attempt <32hex>\n"
+         "       fixstage.py preflight --root <repo>\n")
 
 REFUSED_STALE = "refused: stale or unknown attempt"
 
 
 class Refused(Exception):
     """A fixed, printable refusal reason (exit 1)."""
+
+
+# ---------------------------------------------------------------- exit table
+
+# The ONE exit table: per subcommand, (exit code, label, the verdict the
+# caller records, the `case "$rc"` arm the caller runs). The label is the
+# closing outcome where the subcommand closes an attempt. "*" is the
+# catch-all arm (1 refused, 2 usage, anything else). agents/fix.md and
+# phases/review/50-fix-loop.md copy the arms verbatim from
+# render_case_arms(); test_fix_loop_card.py locks every copy byte-for-byte
+# and test_fixstage.py locks the docstring's generated exit list.
+EXIT_TABLE = {
+    "preflight": (
+        (0, "ready", None,
+         'echo "fix preflight passed — git can run your commit hooks"'),
+        (1, "git-too-old", None,
+         'echo "git too old — show the line above as message text, then the '
+         'Abandon Paused. line, and end Phase 5 for this pass; no fix was '
+         'attempted" >&2'),
+        ("*", "refused", None,
+         'echo "fix preflight could not run; nothing was changed — show the '
+         'Abandon Paused. line and end Phase 5 for this pass" >&2'),
+    ),
+    "begin": (
+        (0, "opened", None,
+         'echo "attempt opened — copy the attempt= value printed above"'),
+        ("*", "refused", "errored",
+         'echo "fixstage begin refused (exit $rc) — recording errored; '
+         'nothing was edited" >&2'),
+    ),
+    "undo": (
+        (0, "undone", "unverified",
+         'echo "undone — record unverified with the reason and the check; '
+         'nothing was committed"'),
+        (3, "undo-partial", "errored",
+         'echo "could not undo cleanly: the not-undone paths above changed '
+         'while the check ran and were left as is — record errored; nothing '
+         'was committed" >&2'),
+        ("*", "refused", "errored",
+         'echo "undo refused (exit $rc) — record errored; the file is left '
+         'as is and nothing was committed" >&2'),
+    ),
+    "commit": (
+        (0, "committed", "applied",
+         'echo "committed — record applied; commit_sha is the commit_sha= '
+         'value above"'),
+        (3, "not-separable", "applied-uncommitted",
+         'echo "not separable — record applied-uncommitted: applied, not '
+         'committed — mixed with your unfinished edits; build/test re-run '
+         'won\'t see it" >&2'),
+        (4, "hook-rejected", "errored",
+         'echo "commit-not-created — record errored: your commit hook '
+         'rejected the commit (or it could not be signed); the edit is left '
+         'applied and uncommitted" >&2'),
+        (5, "hook-changed", "errored",
+         'echo "hook-changed — record errored: committed, but your commit '
+         'hook changed what went into that commit; nothing was rewritten" >&2'),
+        (6, "head-moved", "errored",
+         'echo "head-moved — record errored: HEAD moved during the commit; '
+         'nothing was published or rewritten; the edit is left applied and '
+         'uncommitted" >&2'),
+        (7, "moved-after-commit", "errored",
+         'echo "moved-after-commit — record errored: committed, then HEAD '
+         'moved again; nothing was rewritten" >&2'),
+        (8, "published-unverified", "errored",
+         'echo "published-unverified — record errored: committed, but an '
+         'error stopped the post-commit checks; nothing was rewritten" >&2'),
+        (9, "publication-uncertain", "errored",
+         'echo "publication-uncertain — record errored: interrupted while '
+         'publishing; the commit at the sha above may or may not be on your '
+         'branch; do NOT retry this fix — check git log first" >&2'),
+        ("*", "refused", "errored",
+         'echo "commit refused (exit $rc) — record errored; the edit is left '
+         'applied and uncommitted. NOTHING is staged and NOTHING is committed '
+         'on this path." >&2'),
+    ),
+}
+
+
+def _exit_code(sub, label):
+    """The table's exit code for `label` of `sub` (KeyError when unknown)."""
+    for code, row_label, _verdict, _arm in EXIT_TABLE[sub]:
+        if row_label == label and code != "*":
+            return code
+    raise KeyError("%s: no exit code for %r" % (sub, label))
+
+
+def render_case_arms(sub):
+    """The body of the `case "$rc" in ... esac` block for `sub`: one
+    `  <code>) <arm> ;;` line per table row, the `*)` arm last."""
+    return "\n".join("  %s) %s ;;" % (code, arm)
+                     for code, _label, _verdict, arm in EXIT_TABLE[sub])
+
+
+def render_exit_docs(table=None):
+    """The exit list pasted into this module's docstring (a test locks it)."""
+    table = EXIT_TABLE if table is None else table
+    lines = []
+    for sub, rows in table.items():
+        lines.append("    %s" % sub)
+        for code, label, verdict, _arm in rows:
+            lines.append("        %s %s%s" % (code, label,
+                                             "" if verdict is None
+                                             else " -> record " + verdict))
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- CLI parsing
@@ -208,6 +349,13 @@ def parse_argv(argv):
             return None, "argument %s: given more than once\n" % token
         values[token] = rest[i + 1]
         i += 2
+    if sub == "preflight":
+        for flag in ("--finding-json", "--attempt"):
+            if flag in values:
+                return None, "preflight does not take %s\n" % flag
+        if "--root" not in values:
+            return None, "the following arguments are required: --root\n"
+        return (sub, values), None
     required = ["--root", "--finding-json"]
     if sub == "begin":
         if "--attempt" in values:
@@ -455,7 +603,7 @@ def cmd_begin(root, record):
     _atomic_write(os.path.join(sdir, "open"), attempt.encode("ascii"))
     out.append("attempt=%s" % attempt)
     sys.stdout.write("\n".join(out) + "\n")
-    return 0
+    return _exit_code("begin", "opened")
 
 
 def _head(root):
@@ -688,14 +836,16 @@ def cmd_undo(root, record, attempt):
     for path in kept:
         # Paths passed PATH_RE validation, so they are safe to print.
         sys.stdout.write("not-undone: %s\n" % path)
-    _close_attempt(root, fid, attempt, "undo-partial" if kept else "undone")
-    return 3 if kept else 0
+    outcome = "undo-partial" if kept else "undone"
+    _close_attempt(root, fid, attempt, outcome)
+    return _exit_code("undo", outcome)
 
 
 # ------------------------------------------------------------------ commit
 
 class _Outcome(Exception):
-    """A terminal commit outcome: exit code, closing outcome, stdout lines."""
+    """A terminal commit outcome: exit code, closing outcome, stdout lines.
+    Built only through `_outcome`, so the code always comes from EXIT_TABLE."""
 
     def __init__(self, code, outcome, lines):
         Exception.__init__(self, outcome)
@@ -704,8 +854,13 @@ class _Outcome(Exception):
         self.lines = lines
 
 
+def _outcome(label, lines):
+    """The commit `_Outcome` for `label`, its code looked up in EXIT_TABLE."""
+    return _Outcome(_exit_code("commit", label), label, lines)
+
+
 def _not_separable(reason):
-    return _Outcome(3, "not-separable", ["not-separable: " + reason])
+    return _outcome("not-separable", ["not-separable: " + reason])
 
 
 def _race_point(root, label):
@@ -728,6 +883,27 @@ def _git_version(root):
     if proc.returncode != 0 or match is None:
         return (0, 0)
     return (int(match.group(1)), int(match.group(2)))
+
+
+# A preflight that cannot run (bad root, git unreadable) must not exit 1:
+# its callers read 1 as "git too old".
+PREFLIGHT_REFUSED = 3
+
+
+def cmd_preflight(root):
+    """Exit 0 when git can run the owner's commit hooks (`git hook run`);
+    exit 1 with one plain line when it is too old. Reads no finding record,
+    so it runs once at pass start, before anything is dispatched or edited."""
+    version = _git_version(root)
+    if version == (0, 0):
+        raise Refused("refused: could not read the git version")
+    if version < MIN_GIT_FOR_HOOKS:  # preflight
+        sys.stdout.write(
+            "git %d.%d is installed; vibe-check's fixes need git %d.%d or "
+            "newer (to run your commit hooks). No fix was attempted.\n"
+            % (version + MIN_GIT_FOR_HOOKS))
+        return _exit_code("preflight", "git-too-old")
+    return _exit_code("preflight", "ready")
 
 
 def _capture_base(root):
@@ -1314,13 +1490,13 @@ def _published_outcome(new, verified, changed, known):
     `committed`; verified reports 5 or 0 as the checks found."""
     left = ["index-left-as-is: %s" % p for p in sorted(known)]
     if not verified:
-        return _Outcome(8, "published-unverified",
+        return _outcome("published-unverified",
                         ["published-unverified: %s" % new]
                         + (["hook-changed: %s" % new] if changed else [])
                         + left)
     if changed:
-        return _Outcome(5, "hook-changed", ["hook-changed: %s" % new] + left)
-    return _Outcome(0, "committed", ["commit_sha=%s" % new] + left)
+        return _outcome("hook-changed", ["hook-changed: %s" % new] + left)
+    return _outcome("committed", ["commit_sha=%s" % new] + left)
 
 
 def _commit(root, record, adir, scratch, pub):
@@ -1364,7 +1540,7 @@ def _commit(root, record, adir, scratch, pub):
         new = _make_commit_object(root, tree, base, msgfile)
     if new is None:
         if _head_state(root) != (base, base_symref):
-            raise _Outcome(6, "head-moved", [
+            raise _outcome("head-moved", [
                 "head-moved: the commit was not made and HEAD was changed by "
                 "something else; nothing was rewritten - check git log"])
         if not ok:
@@ -1373,15 +1549,14 @@ def _commit(root, record, adir, scratch, pub):
             reason = "the commit could not be signed"
         else:
             reason = "git could not create the commit"
-        raise _Outcome(4, "hook-rejected",
-                       ["commit-not-created: " + reason]
+        raise _outcome("hook-rejected", ["commit-not-created: " + reason]
                        + (tail.splitlines() if tail else []))
     pub["candidate"] = new
     pub["base"] = base
     pub["symref"] = base_symref
     if not _publish_ref(root, base, base_symref, new, subject):
         # The commit object stays unreferenced (gc removes it); never published.
-        raise _Outcome(6, "head-moved", [
+        raise _outcome("head-moved", [
             "head-moved: the branch moved while the fix was being committed; "
             "nothing was published or rewritten - check git log"])
     pub["sha"] = new
@@ -1404,19 +1579,17 @@ def _commit(root, record, adir, scratch, pub):
             lines = ["moved-after-commit: %s" % new]
             if changed:
                 lines.append("hook-changed: %s" % new)
-            raise _Outcome(7, "moved-after-commit", lines)
+            raise _outcome("moved-after-commit", lines)
         verified = pub["verified"] = True
         if changed:
             targets, left = _hook_changed_targets(root, base, new, before)
             left += _sync_real_index(root, before, targets, adir)
-            return _Outcome(5, "hook-changed",
-                            ["hook-changed: %s" % new]
+            return _outcome("hook-changed", ["hook-changed: %s" % new]
                             + ["index-left-as-is: %s" % p
                                for p in sorted(left)])
 
         left = _sync_real_index(root, before, targets, adir)
-        return _Outcome(0, "committed",
-                        ["commit_sha=%s" % new]
+        return _outcome("committed", ["commit_sha=%s" % new]
                         + ["index-left-as-is: %s" % p for p in left])
     except _Outcome:
         raise
@@ -1562,7 +1735,7 @@ def cmd_commit(root, record, attempt):
                 if state == "published":
                     sha = pub["candidate"]
                 elif state == "unknown":  # never refused: uncertain publication
-                    result = _Outcome(9, "publication-uncertain", [
+                    result = _outcome("publication-uncertain", [
                         "publication-uncertain: %s" % pub["candidate"]])
                     _diag("commit: interrupted while publishing; could not "
                           "tell whether the commit landed\n")
@@ -1574,7 +1747,7 @@ def cmd_commit(root, record, attempt):
                         sha, pub.get("verified", False), pub.get("changed"),
                         pub.get("known", []))
                 except BaseException:  # the sha must survive the mapping
-                    result = _Outcome(8, "published-unverified",
+                    result = _outcome("published-unverified",
                                       ["published-unverified: %s" % sha])
                 _diag("commit: interrupted after the commit was published; "
                       "reporting it\n")
@@ -1613,6 +1786,8 @@ def run(argv):
     try:
         _check_toplevel(root)
         root = os.path.realpath(root)
+        if sub == "preflight":
+            return cmd_preflight(root)
         record = _load_record(root, values["--finding-json"])
         if sub == "begin":
             return cmd_begin(root, record)
@@ -1621,12 +1796,12 @@ def run(argv):
         return handler(root, record, values["--attempt"])
     except Refused as exc:
         sys.stderr.write(str(exc) + "\n")
-        return 1
+        return PREFLIGHT_REFUSED if sub == "preflight" else 1
     except (OSError, subprocess.SubprocessError) as exc:
         # Fixed reason plus the error class only; no paths or file contents.
         sys.stderr.write("refused: %s during %s (fail closed)\n"
                          % (type(exc).__name__, sub))
-        return 1
+        return PREFLIGHT_REFUSED if sub == "preflight" else 1
 
 
 if __name__ == "__main__":

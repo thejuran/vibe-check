@@ -2607,8 +2607,10 @@ def _git_shim_dir(tmp, version):
     """A dir holding an executable `git` that reports `version` for
     `git version` and runs the real git (original PATH) for everything else."""
     shim_dir = os.path.join(tmp, "shim-%s" % version)
-    os.makedirs(shim_dir)
     path = os.path.join(shim_dir, "git")
+    if os.path.exists(path):
+        return shim_dir
+    os.makedirs(shim_dir)
     real_path = os.environ.get("PATH", "")
     with open(path, "w") as fh:
         fh.write("#!/bin/sh\n"
