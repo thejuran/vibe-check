@@ -391,7 +391,7 @@ FOCUS_FACT_LINE = ('FOCUS_OK=false; if [ -n "$(cat "$VC_ROOT/templates/codex-foc
 FOCUS_FACT_ARG = 'focus_readable "$FOCUS_OK"'
 FOCUS_SLUG = "focus-unreadable"
 RUN_BRANCH_LINE = 'if [ "$CODEX_ACTION" = run ] && [ -n "$TIMEOUT_BIN" ]; then'
-MKTEMP_LINE = "CODEX_DIR=$(mktemp -d)"
+MKTEMP_LINE = 'CODEX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vc-codex.XXXXXX")'
 OLD_MKTEMP_LINE = "CODEX_OUT=$(mktemp)"
 RUN_DECISION_TOKEN = '`action: "run"`'
 ARGS_LINE_TEXT = 'ARGS=(adversarial-review --json <codex_args> "$CODEX_FOCUS")'

@@ -60,8 +60,8 @@ If Phase 0 printed `FINALIZE_MODE=1`:
 **Rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Reuse the `$BLOBFILE` built by the HEAD-fingerprints step above, so a verified fix-obsolete closure is honoured exactly as in the counts. Run under bash:
 
 ```bash
-ROWSFILE=$(mktemp)
-ANSWERFILE=$(mktemp)
+ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+ANSWERFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
 if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode finalize --head-blobs "$BLOBFILE" < "$STATE_FILE"); then
   printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
 else
@@ -108,7 +108,7 @@ Bulk Dismiss all / Defer all (and `dismiss rest` / `defer rest`) apply to medium
 **Parse.** Write `{"q1": "<the tool result's FULL Q1 answer string — including any `notes:` text and any trailing `-- reason` — verbatim>", "q2": "<Q2 answer verbatim, or null>"}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line. Then run under bash:
 
 ```bash
-PARSEFILE=$(mktemp)
+PARSEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
 if python3 "$VC_ROOT/scripts/batch_card.py" parse --rows "$ROWSFILE" --answer "$ANSWERFILE" > "$PARSEFILE"; then
   cat "$PARSEFILE"
 else
@@ -125,7 +125,7 @@ On a refusal the helper has printed one fixed reason on stderr (it never contain
 - otherwise → the parse output's `echo_text` field (the `echo` lines plus "Reason: {{reason}}" when `reason` is set, already joined by the helper) is what the owner must see; it must never be visible only inside a Bash call's output. Put it, verbatim, where it is guaranteed on screen: as the opening lines of the next message you print — the stop message of step 3 below, or the REVIEW.md summary after `write` — and, when step 2 routes to the fix-loop card, as that card's closing "From your finalize answer:" block. Then act immediately — there is NO confirm card (D-06 echo-then-record):
   1. `payload` non-null → copy it file-to-file into `$DECFILE`, then run **Recording decisions** below. On a recording refusal: stop (the rule there).
      ```bash
-     DECFILE=$(mktemp)
+     DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
      if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
@@ -135,7 +135,7 @@ On a refusal the helper has printed one fixed reason on stderr (it never contain
      ```
   2. `fix` non-empty (D-10) → copy the helper's ready-made subset file-to-file:
      ```bash
-     SUBSETFILE=$(mktemp)
+     SUBSETFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
      if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
        printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
      else

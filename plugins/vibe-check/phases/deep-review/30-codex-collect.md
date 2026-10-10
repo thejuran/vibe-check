@@ -35,7 +35,7 @@ This override **AUGMENTS the INPUT** to the unchanged shared Phase 3 in `$VC_ROO
    ```bash
    CODEX_DIR="<printed in Phase 2c step 3>"
    CODEX_OUT="$CODEX_DIR/payload.json"
-   DIFF_LIST=$(mktemp)
+   DIFF_LIST=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
    git diff --name-only -z <the Phase-0 range arguments> > "$DIFF_LIST"   # plus untracked files where Phase 0 includes them
    ROOT=$(git rev-parse --show-toplevel)
    if CODEX_AGENT_JSON=$(python3 -c '

@@ -16,8 +16,8 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
 - **Finalize routed a fix set here (D-10)** → the subset fence. Substitute `<subset path>` with the literal path Finalize's subset step printed after `SUBSETFILE=` — the path itself, not `$SUBSETFILE`. If Finalize routed here but printed no subset path, refuse: print "No fix set from Finalize — the fix loop will not fall back to every open row; nothing was changed", then the Abandon line below, and stop. Never run the ordinary fence in its place.
 
   ```bash
-  ROWSFILE=$(mktemp)
-  ANSWERFILE=$(mktemp)
+  ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+  ANSWERFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
   if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop --subset "<subset path>" < "$STATE_FILE"); then
     printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
   else
@@ -31,8 +31,8 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
 - **Every other pass** → the ordinary fence; the card lists every open row.
 
   ```bash
-  ROWSFILE=$(mktemp)
-  ANSWERFILE=$(mktemp)
+  ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+  ANSWERFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
   if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop < "$STATE_FILE"); then
     printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
   else
@@ -120,7 +120,7 @@ Exit 0 → Build the dispatch. Exit 1 → print the `git X.Y is installed; …` 
 **Build the dispatch (deterministic).** Run under bash:
 
 ```bash
-PAYLOADFILE=$(mktemp)
+PAYLOADFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
 if python3 "$VC_ROOT/scripts/batch_card.py" payload --rows "$ROWSFILE" --answer "$ANSWERFILE" < "$STATE_FILE" > "$PAYLOADFILE"; then
   :
 else
