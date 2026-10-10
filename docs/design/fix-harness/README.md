@@ -43,6 +43,66 @@ module and every unit test runs on the system `python3` without it.
 
 Unit tests are stdlib-only and run with bare `pytest -q` from `tools/`.
 
+## Run
+
+Launch from the repository root with the harness venv's Python and
+`CLAUDECODE` unset. One command per run; `--out` must be a new or empty dir
+(it is read-denied to the session):
+
+```
+H=docs/design/fix-harness
+PY="env -u CLAUDECODE $H/.venv/bin/python $H/tools/fixharness.py"
+
+$PY run --case py-clamp-01 --mode default --kind preservation --out <dir>/P-D   # /vibe-check:review
+$PY run --case py-clamp-01 --mode gsd     --kind preservation --out <dir>/P-G   # /vibe-check:review 52-harness-case
+$PY run --case py-clamp-01 --mode default --kind clean        --out <dir>/C-D   # /vibe-check:review --finalize (entry: finalize)
+$PY run --case py-clamp-01 --mode gsd     --kind clean        --out <dir>/C-G   # /vibe-check:review 52-harness-case
+```
+
+Options: `--plugin-source` (default `plugins/vibe-check`; must be under
+`plugins/`), `--command review|deep-review` (default `review`).
+
+Each run:
+
+1. creates a workspace under the temp dir and snapshots the plugin into it;
+2. builds the copy, seeds the pass-1 state and records ledger snapshot 0;
+3. plants the three sentinels (preservation only; `sentinels.json` goes to
+   `--out`, never into the copy);
+4. builds the session settings and runs the preflight, which needs a passed
+   probe record for this SDK version and policy fingerprint;
+5. drives the session. The plugin's state is read before every card and
+   after every turn. In default-diff mode, a loop that ends on "No changes to
+   review." (or a sibling one-liner) gets `/vibe-check:review --finalize`
+   from the harness, recorded as an owner command (D-24). Clean-tree runs
+   check `git status` outside `.turingmind/` before Close out or that
+   `--finalize` (FLOW-04);
+6. writes `obligations.json`, judges the committed HEAD and writes
+   `run.json`.
+
+The workspace (copy + snapshot) is kept so it can be inspected; its paths
+are in `run.json`. `check --run <dir>` re-validates the record and, while the
+copy still exists, re-runs the verdict with the saved obligation ledger.
+
+`replay --case … --mode … --kind … --messages <jsonl> --out <dir>` feeds
+recorded cards (`{"card": …}`), tool calls (`{"tool": …, "input": …}`) and
+turn ends (`{"turn_end": …}`) through the same core and permission dispatch
+without the SDK, and writes `replay.json`.
+
+Exit codes: `0` COMPLETE (probe passed, replay clean, check clean), `1`
+FAILED, `2` usage, preflight or driver error. No record is written on `2`.
+
+### Sandbox probe
+
+```
+$PY probe-sandbox --out <scratch>/probe
+```
+
+The probe gates every launch. Rerun it after an SDK upgrade or any change to
+the containment policy; the preflight says when the record no longer matches.
+It writes `fixtures/probe/sandbox-probe.json` only when every required check
+passes. On failure it prints each failed check and, for every file-tool
+step, the verbatim tool result and how it was classified.
+
 ## Isolation rules
 
 - Cases are synthetic. Never build a case from the B3 benchmark diffs or the
