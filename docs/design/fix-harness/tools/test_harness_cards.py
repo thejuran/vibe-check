@@ -223,6 +223,17 @@ class TestAnswerFixLoop(unittest.TestCase):
         d = hc.answer_card(hc.FIX_LOOP, card, seeded=SEEDED)
         self.assertEqual(d.fail, hc.FAIL_SEEDED_NOT_LISTED)
 
+    def test_compact_cut_title_matches_only_its_own_prefix(self):
+        card = fix_loop_card(_rows(SEEDED + ("critical",)))
+        q = card["questions"][0]
+        head = q["question"].split("\n\n")[0]
+        q["question"] = head + "\n\n#1 src/clamp.py:10 — clamp returns a… (critical)"
+        d = hc.answer_card(hc.FIX_LOOP, card, seeded=SEEDED)
+        self.assertIsNone(d.fail)
+        q["question"] = head + "\n\n#1 src/clamp.py:10 — clamp drops… (critical)"
+        d = hc.answer_card(hc.FIX_LOOP, card, seeded=SEEDED)
+        self.assertEqual(d.fail, hc.FAIL_SEEDED_NOT_LISTED)
+
     def test_two_matching_rows_fail(self):
         card = fix_loop_card(_rows(SEEDED + ("critical",),
                                    SEEDED + ("warning",)))
