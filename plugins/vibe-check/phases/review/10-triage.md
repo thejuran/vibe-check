@@ -19,7 +19,7 @@ fi
 - In `--all` mode take it ONCE, before the first chunk's triage — never once per chunk. The comparison in Phase 3 covers the whole pass.
 - `--finalize` dispatches no agents and never reaches this phase, so it takes no snapshot.
 
-Dispatch a single Task call to `triage` agent. Prompt:
+Dispatch a single Task call to `triage` agent. Set `run_in_background: false` on it. Prompt:
 
 ````
 You are the triage agent. Classify this diff.
