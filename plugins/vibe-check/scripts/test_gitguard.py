@@ -104,6 +104,16 @@ DENY = (
     "git ls-remote --upload-pack='git stash pop; git-upload-pack' .",
     "git ls-remote --upload-p=x .",
     "git ls-remote origin",
+    # bare-repo probe: `remote show` without -n runs remote.origin.uploadpack
+    "git remote show origin",
+    "git remote show --verbose origin",
+    # -C / cd to anything but the reviewed repo root (repo_root unknown here)
+    "git -C sub diff HEAD~1 | head -20",
+    "git -C vendor/x.git show HEAD",
+    "git -C /elsewhere log -1",
+    "cd vendor/x.git && git show HEAD",
+    "cd && git status",
+    "cd - && git status",
 )
 
 # (command, expected reason constant name, plugin_scripts)
@@ -221,7 +231,9 @@ ALLOW = (
     "git status --porcelain",
     "git rev-parse --show-toplevel",
     "git ls-files -s",
-    "git -C sub diff HEAD~1 | head -20",
+    "git -C . diff HEAD~1 | head -20",
+    "git -C ./ log -1",
+    "git remote show -n origin",
     "git --no-pager log -1",
     "git log 2>/dev/null",
     "git diff 2>&1 | head",
@@ -261,6 +273,74 @@ ALLOW = (
     "ls 2>/dev/null",
     "pwd",
 )
+
+# (command, expected verdict) with repo_root="/r": "allowed" or a reason name.
+DIR_ROOT = "/r"
+DIR_TARGET_CASES = (
+    ("git -C . log -1", "allowed"),
+    ("git -C /r log -1", "allowed"),
+    ("git -C /r/ log -1", "allowed"),
+    ("git -C /r/./ log -1", "allowed"),
+    ("git -C /r -C . log -1", "allowed"),
+    ("git -C /r/vendor/x.git show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("git -C vendor/x.git show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("git -C /r/vendor/x.git/link/.. show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("git -C /r/sub/.. log -1", "REASON_GIT_OTHER_DIR"),
+    ("git -C /r/sub log -1", "REASON_GIT_OTHER_DIR"),
+    ("git -C /elsewhere show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("git -C //r log -1", "REASON_GIT_OTHER_DIR"),
+    ("git -C ~ log -1", "REASON_GIT_OTHER_DIR"),
+    ("git -C '' log -1", "REASON_GIT_OTHER_DIR"),
+    ("git -C /r -C sub log -1", "REASON_GIT_OTHER_DIR"),
+    ("git -C=/r log -1", "REASON_GIT_GLOBAL_OPT"),
+    ("git -C/r log -1", "REASON_GIT_GLOBAL_OPT"),
+    ("cd vendor/x.git && git show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("cd /r/vendor/x.git/link/.. && git show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("cd -P /r/vendor/x.git/link/.. && git show HEAD",
+     "REASON_GIT_OTHER_DIR"),
+    ("cd -L /r/vendor/x.git && git show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("cd && git status", "REASON_GIT_OTHER_DIR"),
+    ("cd - && git status", "REASON_GIT_OTHER_DIR"),
+    ("cd ~ && git status", "REASON_GIT_OTHER_DIR"),
+    ("cd /r /x && git status", "REASON_GIT_OTHER_DIR"),
+    ("cd /r/sub; git log -1", "REASON_GIT_OTHER_DIR"),
+    ("git log -1; cd /r/sub", "REASON_GIT_OTHER_DIR"),
+    ("cd /r/sub && timeout 5 git log -1", "REASON_GIT_OTHER_DIR"),
+    ("cd /r/sub && /usr/bin/git log -1", "REASON_GIT_OTHER_DIR"),
+    ("command cd /r/sub && git log -1", "REASON_GIT_OTHER_DIR"),
+    ("CD /r/sub && git log -1", "REASON_GIT_OTHER_DIR"),
+    # cd to the root is not a dir-rule refusal; `cd` itself is not on the
+    # allowlist yet, so the refusal reason is the allowlist one
+    ("cd /r && git log -1", "REASON_NOT_ALLOWLISTED"),
+    ("cd . && git log -1", "REASON_NOT_ALLOWLISTED"),
+    # a git-less cd is never a dir-rule refusal
+    ("cd /r/sub && ls", "REASON_NOT_ALLOWLISTED"),
+)
+
+
+def _old_lenient_remote(args):
+    """The pre-hardening `remote` validator: `show` without -n allowed."""
+    if not args:
+        return True, "allowed"
+    if args in (["-v"], ["--verbose"]):
+        return True, "allowed"
+    if args[0] == "get-url" and all(
+            a in ("--push", "--all") or not a.startswith("-")
+            for a in args[1:]):
+        return True, "allowed"
+    if args[0] == "show" and all(
+            a == "-n" or not a.startswith("-") for a in args[1:]):
+        return True, "allowed"
+    return False, gitguard.REASON_GIT_ARGS
+
+
+def _realpath_dir_target(operand, repo_root):
+    """The rejected realpath design: physical resolution vs the root."""
+    if os.path.realpath(os.path.join(repo_root, operand)) \
+            == os.path.realpath(repo_root):
+        return "root", None
+    return None, gitguard.REASON_GIT_OTHER_DIR
+
 
 AUDITED_READERS = frozenset(
     {"cat", "head", "tail", "ls", "wc", "grep", "rg", "stat", "find"})
@@ -315,6 +395,17 @@ class TestClassifyDeny(unittest.TestCase):
                 self.assertIs(allowed, False, cmd)
                 self.assertTrue(reason.startswith("refused:"), reason)
 
+    def test_deny_table_with_repo_root(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.realpath(tmp)
+            os.makedirs(os.path.join(root, "sub"))
+            for cmd in DENY:
+                with self.subTest(cmd=cmd):
+                    allowed, reason = gitguard.classify(cmd, repo_root=root)
+                    self.assertIs(allowed, False, cmd)
+                    self.assertTrue(reason.startswith("refused:"), reason)
+
     def test_deny_table_has_the_incident_and_edge_forms(self):
         for literal in ("git stash pop", "g''it stash",
                         "git -c core.fsmonitor=x status"):
@@ -356,6 +447,86 @@ class TestClassifyAllow(unittest.TestCase):
         for cmd in ALLOW:
             with self.subTest(cmd=cmd):
                 self.assertEqual(gitguard.classify(cmd), (True, "allowed"))
+                self.assertEqual(gitguard.classify(cmd, repo_root="/r"),
+                                 (True, "allowed"))
+
+
+class TestDirTarget(unittest.TestCase):
+    """`git -C` and `cd`-then-git accept only the reviewed repo root."""
+
+    def test_dir_target_table(self):
+        for cmd, expected in DIR_TARGET_CASES:
+            with self.subTest(cmd=cmd):
+                verdict = gitguard.classify(cmd, repo_root=DIR_ROOT)
+                if expected == "allowed":
+                    self.assertEqual(verdict, (True, "allowed"))
+                else:
+                    self.assertEqual(verdict, (False, _reason(expected)))
+
+    def test_no_repo_root_refuses_every_target_but_dot(self):
+        self.assertEqual(gitguard.classify("git -C . log -1"),
+                         (True, "allowed"))
+        for cmd in ("git -C /r log -1", "git -C sub log -1",
+                    "cd /r && git log -1"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(gitguard.classify(cmd),
+                                 (False, gitguard.REASON_GIT_OTHER_DIR))
+
+    def test_remote_show_requires_n(self):
+        self.assertEqual(gitguard.classify("git remote show origin"),
+                         (False, gitguard.REASON_GIT_ARGS))
+        self.assertEqual(gitguard.classify("git remote show -n origin"),
+                         (True, "allowed"))
+        self.assertEqual(gitguard.classify("git remote show origin -n"),
+                         (True, "allowed"))
+        self.assertEqual(gitguard.classify("git remote -v"),
+                         (True, "allowed"))
+        self.assertEqual(gitguard.classify("git remote show -n -v origin"),
+                         (False, gitguard.REASON_GIT_ARGS))
+
+    def test_resolver_contract(self):
+        r = gitguard._resolve_dir_target
+        self.assertEqual(r(".", None), ("root", None))
+        self.assertEqual(r("./", None), ("root", None))
+        self.assertEqual(r(".", "/r"), ("root", None))
+        self.assertEqual(r("/r", "/r"), ("root", None))
+        self.assertEqual(r("/r/./", "/r"), ("root", None))
+        for operand, root in (("sub", "/r"), ("/r", None), ("", "/r"),
+                              (None, "/r"), ("-", "/r"), ("~", "/r"),
+                              ("/r/x/..", "/r"), ("/rr", "/r"),
+                              ("/", "/r"), ("/r/../r", "/r")):
+            with self.subTest(operand=operand, root=root):
+                self.assertEqual(r(operand, root),
+                                 (None, gitguard.REASON_GIT_OTHER_DIR))
+
+    def test_resolver_subdir_kinds(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.realpath(tmp)
+            for rel in ("src/a", "nested/inner", "bare/b", "sub.git/x"):
+                os.makedirs(os.path.join(root, rel))
+            open(os.path.join(root, "nested", ".git"), "w").close()
+            for name in ("HEAD",):
+                open(os.path.join(root, "bare", "b", name), "w").close()
+            for name in ("objects", "refs"):
+                os.makedirs(os.path.join(root, "bare", "b", name))
+            os.symlink(os.path.join(root, "src"),
+                       os.path.join(root, "link"))
+            r = gitguard._resolve_dir_target
+            self.assertEqual(r(root + "/src", root), ("subdir", None))
+            self.assertEqual(r(root + "/src/a/", root), ("subdir", None))
+            self.assertEqual(r(root + "/bare", root), ("subdir", None))
+            for rel in ("nested", "nested/inner", "bare/b", "sub.git",
+                        "sub.git/x", "link", "link/a", "missing",
+                        "src/a/../a"):
+                with self.subTest(rel=rel):
+                    self.assertEqual(r(root + "/" + rel, root),
+                                     (None, gitguard.REASON_GIT_OTHER_DIR))
+            # git never accepts a subdir, even a clean one
+            self.assertEqual(
+                gitguard.classify("git -C %s/src log -1" % root,
+                                  repo_root=root),
+                (False, gitguard.REASON_GIT_OTHER_DIR))
 
     def test_allow_table_has_no_removed_word(self):
         self.assertFalse([c for c in ALLOW if c.split()[0] in REMOVED_WORDS])
@@ -390,7 +561,9 @@ class TestClassifyFailClosed(unittest.TestCase):
                     "python3 x/fixstage.py " + SENTINEL,
                     SENTINEL + " arg",
                     "ls $(" + SENTINEL + ")",
-                    "echo x > " + SENTINEL):
+                    "echo x > " + SENTINEL,
+                    "git -C /" + SENTINEL + " log",
+                    "cd /" + SENTINEL + " && git log"):
             with self.subTest(cmd=cmd):
                 allowed, reason = gitguard.classify(cmd)
                 self.assertIs(allowed, False)
@@ -630,6 +803,63 @@ class TestClassifyMutants(unittest.TestCase):
                 with self.subTest(cmd=cmd):
                     self.assertAllowed(cmd)
 
+    def test_p_remote_show_without_n(self):
+        cmd = "git remote show origin"
+        self.assertIsNot(gitguard.CONDITIONAL_SUBCOMMANDS["remote"],
+                         _old_lenient_remote)
+        self.assertDenied(cmd)
+        with mock.patch.dict(gitguard.CONDITIONAL_SUBCOMMANDS,
+                             {"remote": _old_lenient_remote}):
+            self.assertAllowed(cmd)
+
+    def test_q_other_dir_resolver_always_root(self):
+        always = lambda o, r: ("root", None)  # noqa: E731
+        with_cd = gitguard.SAFE_COMMAND_WORDS | {"cd"}
+        dash_c = "git -C /elsewhere show HEAD"
+        via_cd = "cd /r/vendor/x.git/link/.. && git show HEAD"
+        self.assertEqual(gitguard.classify(dash_c, repo_root="/r"),
+                         (False, gitguard.REASON_GIT_OTHER_DIR))
+        with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", with_cd):
+            # with `cd` allowlisted the dir rule alone holds the line
+            self.assertEqual(gitguard.classify(via_cd, repo_root="/r"),
+                             (False, gitguard.REASON_GIT_OTHER_DIR))
+        with mock.patch.object(gitguard, "_resolve_dir_target", always):
+            self.assertEqual(gitguard.classify(dash_c, repo_root="/r"),
+                             (True, "allowed"))
+            with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", with_cd):
+                self.assertEqual(gitguard.classify(via_cd, repo_root="/r"),
+                                 (True, "allowed"))
+
+    def test_r_realpath_disagreement(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.realpath(tmp)
+            bare = os.path.join(root, "vendor", "x.git")
+            os.makedirs(bare)
+            # link -> <root>/vendor: physically link/.. is <root>, while
+            # bash's logical `cd link/..` lands back in vendor/x.git
+            os.symlink(os.path.join(root, "vendor"),
+                       os.path.join(bare, "link"))
+            target = bare + "/link/.."
+            self.assertEqual(os.path.realpath(target), root)
+            with_cd = gitguard.SAFE_COMMAND_WORDS | {"cd"}
+            via_cd = "cd %s && git show HEAD" % target
+            dash_c = "git -C %s show HEAD" % target
+            for cmd in (via_cd, dash_c):
+                with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS",
+                                       with_cd):
+                    self.assertEqual(gitguard.classify(cmd, repo_root=root),
+                                     (False, gitguard.REASON_GIT_OTHER_DIR))
+            with mock.patch.object(gitguard, "_resolve_dir_target",
+                                   _realpath_dir_target):
+                self.assertEqual(gitguard.classify(dash_c, repo_root=root),
+                                 (True, "allowed"))
+                with mock.patch.object(gitguard, "SAFE_COMMAND_WORDS",
+                                       with_cd):
+                    self.assertEqual(
+                        gitguard.classify(via_cd, repo_root=root),
+                        (True, "allowed"))
+
     def test_o_file_readded(self):
         readers = gitguard.PURE_READERS | {"file"}
         words = gitguard.SAFE_COMMAND_WORDS | {"file"}
@@ -656,7 +886,9 @@ HOOK_CASES = (  # (agent_type, command, expected rc)
     ("general-purpose", "git stash pop", 0),
     ("vibe-check:compliance", "git stash pop", 2),
     ("vibe-check:compliance", "git log --oneline -5", 0),
-    ("vibe-check:bugs", "git -C sub diff HEAD~1 | head", 0),
+    ("vibe-check:bugs", "git -C . diff HEAD~1 | head", 0),
+    ("vibe-check:bugs", "git -C sub diff HEAD~1 | head", 2),
+    ("vibe-check:bugs", "git remote show origin", 2),
     ("vibe-check:bugs", "git log && git checkout main", 2),
     ("vibe-check:triage", "git add .", 2),
     ("vibe-check:bugs", "grep -rn foo src", 0),
@@ -1154,9 +1386,9 @@ class TestHookMutants(unittest.TestCase):
         real = gitguard.classify
         seen = []
 
-        def unwired(command, plugin_scripts=frozenset()):
+        def unwired(command, plugin_scripts=frozenset(), repo_root=None):
             seen.append(plugin_scripts)
-            return real(command)
+            return real(command, repo_root=repo_root)
         self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 2)
         with mock.patch.object(gitguard, "classify", unwired):
             self.assertEqual(self._rc("vibe-check:bugs", CARRY_STATE_CMD), 0)
@@ -1184,6 +1416,19 @@ class TestHookMutants(unittest.TestCase):
         self.assertEqual(self._rc_payload("other-plugin:x", "a1"), 0)
         with mock.patch.object(gitguard, "GUARDED_PREFIX", ""):
             self.assertEqual(self._rc_payload("other-plugin:x", "a1"), 2)
+
+    def test_k_repo_root_wired_into_classify(self):
+        real = gitguard.classify
+        cmd = "git -C %s log -1" % self.repo
+
+        def unwired(command, plugin_scripts=frozenset(), repo_root=None):
+            return real(command, plugin_scripts)
+        self.assertEqual(self._rc("vibe-check:bugs", cmd), 0)
+        self.assertEqual(
+            self._rc("vibe-check:bugs", "git -C %s/sub log -1" % self.repo),
+            2)
+        with mock.patch.object(gitguard, "classify", unwired):
+            self.assertEqual(self._rc("vibe-check:bugs", cmd), 2)
 
 
 # --------------------------------------------------------------------------- #
