@@ -221,6 +221,21 @@ def _abs_rule(tool, path):
     return "%s(//%s/**)" % (tool, path.lstrip("/"))
 
 
+def _file_rule(tool, path):
+    return "%s(//%s)" % (tool, path.lstrip("/"))
+
+
+# The sandbox probe's fixed script sits in the writable copy. A session that
+# could rewrite it could forge `Operation not permitted` markers, so every
+# session's policy write-denies that one path (Seatbelt and the Edit rule);
+# being part of every session keeps the probe and run fingerprints equal.
+PROBE_SCRIPT_NAME = "probe.sh"
+
+
+def probe_script_path(copy_root):
+    return os.path.join(copy_root, PROBE_SCRIPT_NAME)
+
+
 def _credential_rule(entry):
     if entry in _CREDENTIAL_FILES:
         return "Read(%s)" % entry
@@ -259,7 +274,7 @@ def build_session_settings(copy_root, snapshot_path, out_dir,
                 "denyRead": [checkout_root, out_dir, keys_dir,
                              *PROTECTED_CREDENTIAL_PATHS],
                 "allowRead": [copy_root, snapshot_path],
-                "denyWrite": [snapshot_path],
+                "denyWrite": [snapshot_path, probe_script_path(copy_root)],
             },
             "network": {"allowedDomains": [], "strictAllowlist": True},
         },
@@ -270,6 +285,7 @@ def build_session_settings(copy_root, snapshot_path, out_dir,
                 _abs_rule("Read", keys_dir),
                 *[_credential_rule(e) for e in PROTECTED_CREDENTIAL_PATHS],
                 _abs_rule("Edit", snapshot_path),
+                _file_rule("Edit", probe_script_path(copy_root)),
                 "NotebookEdit",
             ],
             "defaultMode": "default",
@@ -311,6 +327,8 @@ def settings_is_fail_closed(settings):
             and all(_credential_rule(e) in deny
                     for e in PROTECTED_CREDENTIAL_PATHS)
             and _abs_rule("Edit", paths["snapshot"]) in deny
+            and probe_script_path(paths["copy"]) in fs["denyWrite"]
+            and _file_rule("Edit", probe_script_path(paths["copy"])) in deny
             and "NotebookEdit" in deny
             and not _is_under(paths["copy"], paths["checkout"])
             and not _is_under(paths["snapshot"], paths["checkout"]))
@@ -532,7 +550,8 @@ def _step_checks():
               "copy_canary_seen", "no_checkout_escape_file",
               "no_snapshot_escape_file", "no_protected_escape_file",
               "snapshot_unchanged", "edit_target_intact",
-              "copy_write_worked", "copy_tool_write_worked"]
+              "copy_write_worked", "copy_tool_write_worked",
+              "probe_script_intact"]
     return tuple(names)
 
 
@@ -757,6 +776,15 @@ def _absent_everywhere(needle, events):
     return all(needle not in (e.result_text or "") for e in events)
 
 
+def _probe_script_intact(facts):
+    """probe.sh hashed before launch and after the session both equal the
+    hash of the script the harness generated."""
+    expected = facts.get("probe_script_expected_sha")
+    return bool(isinstance(expected, str) and expected
+                and facts.get("probe_script_sha_before") == expected
+                and facts.get("probe_script_sha_after") == expected)
+
+
 def _matches_step(event, step_name, expected_inputs, copy_root):
     """True when the event is the spec'd call: same tool, COMPLETE input."""
     spec = expected_inputs.get(step_name) if isinstance(expected_inputs, dict) \
@@ -836,5 +864,6 @@ def evaluate_probe(events, facts):
     checks["copy_write_worked"] = facts.get("copy_marker_exists") is True
     checks["copy_tool_write_worked"] = \
         facts.get("copy_tool_marker_exists") is True
+    checks["probe_script_intact"] = _probe_script_intact(facts)
     result = {k: bool(checks.get(k, False)) for k in PROBE_REQUIRED_CHECKS}
     return all(result.values()), result

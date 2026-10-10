@@ -1163,7 +1163,11 @@ class TestEvaluateProbe(unittest.TestCase):
                       "probe_script_sha_after": "d" * 64},
                      {"probe_script_expected_sha": "d" * 64},
                      {"probe_script_sha_after": None},
-                     {"probe_script_expected_sha": ""}):
+                     {"probe_script_expected_sha": ""},
+                     {"probe_script_sha_before": "d" * 64},
+                     {"probe_script_expected_sha": None,
+                      "probe_script_sha_before": None,
+                      "probe_script_sha_after": None}):
             passed, checks = self.evaluate(**over)
             self.assertEqual(_failed(checks), ["probe_script_intact"], over)
 
