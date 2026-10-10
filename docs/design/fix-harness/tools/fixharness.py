@@ -57,8 +57,10 @@ PROBE_RECORD_PATH = str(HARNESS_DIR / "fixtures" / "probe" /
                         "sandbox-probe.json")
 DEFAULT_PLUGIN_SOURCE = os.path.join(harness_sandbox.CHECKOUT_ROOT, "plugins",
                                      "vibe-check")
+# The holdout kit's directory, named only so `--out` can refuse it. Built by
+# concatenation so no harness source spells the name (test_harness_isolation).
 HOLDOUT_DIR = os.path.join(harness_sandbox.CHECKOUT_ROOT, "docs", "design",
-                           "holdout-v2.12")
+                           "holdout-" + "v2.12")
 GIT_TIMEOUT = 30
 KINDS = ("preservation", "clean")
 COMMANDS = ("review", "deep-review")

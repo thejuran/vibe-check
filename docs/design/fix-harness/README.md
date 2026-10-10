@@ -105,7 +105,7 @@ step, the verbatim tool result and how it was classified.
 
 **Result on this host (2026-10-10):** PASSED, 37 of 37 checks, with
 claude-agent-sdk 0.2.165 / Claude Code 2.1.294 and policy fingerprint
-`a0c61bf1…`. All four Bash escapes (read the protected canary, read the key,
+`2590e9f6…` (re-recorded in 52-11 after the private-temp policy change). All four Bash escapes (read the protected canary, read the key,
 write into the checkout, write into the snapshot) exited 1 with `Operation
 not permitted`. All four file-tool escapes were blocked by the deny rules
 before reaching the harness. The two permitted operations of each channel
@@ -163,8 +163,37 @@ seeded finding:
    sentinel.
 
 The session then stopped and listed options in prose. The harness counted
-that as a would-be owner question and failed the run, as designed. These
-findings are carried to plan 52-11.
+that as a would-be owner question and failed the run, as designed. Plan
+52-11 fixed both: the key now names `bugs`, a reviewer `/vibe-check:review`
+always dispatches, so the normal recheck closes the finding, and the
+obsolete-verdict rule is correct as designed (see
+`runs/phase52/RUNS.md`, "52-10 carry-overs").
+
+## Status (Phase 52)
+
+The four matrix cells ran live on `py-clamp-01` through the plugin in this
+working tree, all on one plugin build, and all four are **COMPLETE**:
+
+| run | mode | kind | entry | verdict |
+|-----|------|------|-------|---------|
+| P-D | default | preservation | review | COMPLETE |
+| P-G | gsd | preservation | review | COMPLETE |
+| C-D | default | clean | finalize | COMPLETE |
+| C-G | gsd | clean | review | COMPLETE |
+
+Records, transcripts, counts, timing, failed attempts and the defects the
+runs exposed (four plugin, two harness, each fixed with a test) are in
+`runs/phase52/RUNS.md`. `tools/test_harness_isolation.py` locks every
+`runs/phase52/*/run.json` to a valid COMPLETE record. It also locks this
+directory against any reference to the benchmark or holdout inputs. The
+harness was proven on synthetic fixtures only.
+
+## Phase 55 usage
+
+Phase 55 reuses the same CLI (`fixharness.py run`, one command per run) for
+the mandatory measured runs. The cases for those runs come from the answer
+keys, supplied at Phase 55 under its release-by-role rules. They are not
+part of this phase, and nothing here reads them.
 
 ## Phase 52 gate
 
@@ -177,6 +206,16 @@ commit `c28f3e8` (2026-10-10):
   `374 passed, 113 subtests passed`
 
 No integration fix was needed.
+
+After the four live runs and their fixes, on the tree that carries the four
+COMPLETE records (plan 52-11's final commit):
+
+- plugin suite: `2502 passed, 3542 subtests passed`
+- harness suite: `389 passed, 213 subtests passed`
+
+Each run keeps its workspace (copy + snapshot) and its private temp root
+(`/tmp/fh…`) for inspection. Neither lives in this checkout. Delete them by
+hand when no longer needed.
 
 ## Isolation rules
 
@@ -235,10 +274,20 @@ session therefore sets `disableClaudeAiConnectors` in the policy, runs with
 and refuses to continue if the init message lists any MCP server. The
 backstop denies any `mcp__` tool call and fails the run.
 
+**Private temp root.** Claude Code's own temp dir defaults to the per-uid
+`/tmp/claude-<uid>`, which every Claude Code session of the same user shares,
+and it auto-allows file tools there. Each run therefore creates a short 0700
+temp root before launch and passes it as `CLAUDE_CODE_TMPDIR`, so the session's
+temp files (and the sandbox's `$TMPDIR`) live under it. The shared
+`/tmp/claude-<uid>` (both `/tmp` spellings) is read- and write-denied in
+Seatbelt and in the permission rules, and the driver refuses a missing or
+shared temp root. The probe does not attempt the shared dir; the deny is part
+of the fingerprinted policy and locked by `settings_is_fail_closed`.
+
 **What the backstop sees.** `can_use_tool` is reached only by calls that
 would prompt. Claude Code auto-allows reads under the cwd, some in-copy
-edits by subagents, and file-tool calls under its own temp dir
-(`/tmp/claude-<uid>`), so those never reach the backstop. Protected paths
+edits by subagents, and file-tool calls under its own (now per-run) temp
+dir, so those never reach the backstop. Protected paths
 are blocked for every agent by the deny rules, whether a call prompts or
 not, and the probe proves that. `containment.denials` counts only the calls
 the backstop saw.
