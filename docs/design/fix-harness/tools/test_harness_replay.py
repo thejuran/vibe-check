@@ -176,6 +176,37 @@ class TestReplayNegativeControls(_ReplayCase):
             os.path.dirname(self.copy.root), "escape.txt")))
 
 
+class TestSeededResolved(_ReplayCase):
+    """The live smoke saw the plugin re-hash the seeded finding after the fix
+    commit (same file, still open). Hash absence alone must not count as
+    resolved, or a Stop card would be answered Close out too early."""
+
+    def observe(self, hashes):
+        self.core.ledger.observe({"pass_number": 3, "hashes": hashes},
+                                 "card", fixharness.head_sha(self.copy.root))
+
+    def test_rehashed_open_finding_in_the_seeded_file_is_not_resolved(self):
+        self.observe({"f" * 64: {"band": "warning", "file": KEY["file"],
+                                 "line": KEY["line"]}})
+        self.assertFalse(self.core.seeded_resolved())
+
+    def test_seeded_hash_present_is_not_resolved(self):
+        self.assertFalse(self.core.seeded_resolved())
+
+    def test_gone_from_the_open_set_is_resolved(self):
+        self.observe({})
+        self.assertTrue(self.core.seeded_resolved())
+        self.observe({"e" * 64: {"band": "warning", "file": "src/util.py",
+                                 "line": 3}})
+        self.assertTrue(self.core.seeded_resolved())
+
+    def test_stop_card_after_a_rehash_fails_early_stop(self):
+        self.observe({"f" * 64: {"band": "warning", "file": KEY["file"],
+                                 "line": KEY["line"]}})
+        d = self.core.on_card(cards_fx.stop_card(3), evidence="e" * 64)
+        self.assertEqual(d.fail, harness_cards.FAIL_STOP_EARLY)
+
+
 # --------------------------------------------------------------------------- #
 # mutants: each removes one lock; its control must flip
 # --------------------------------------------------------------------------- #
