@@ -192,6 +192,9 @@ class TestSeededResolved(_ReplayCase):
 
     def test_seeded_hash_present_is_not_resolved(self):
         self.assertFalse(self.core.seeded_resolved())
+        self.observe({self.core.seeded_hash: {"band": "warning",
+                                              "file": None, "line": None}})
+        self.assertFalse(self.core.seeded_resolved())
 
     def test_gone_from_the_open_set_is_resolved(self):
         self.observe({})

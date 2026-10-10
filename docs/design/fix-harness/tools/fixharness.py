@@ -195,14 +195,23 @@ class Core:
             head_sha(self.copy.root), status_v2(self.copy.root), state)
 
     def seeded_resolved(self):
-        """The seeded finding has left the open set in the latest snapshot."""
+        """The seeded finding has left the open set in the latest snapshot.
+
+        Fail-closed: the plugin can re-hash a carried finding after the fix
+        commit moves its line, so the seeded hash being gone is not enough.
+        Any open finding left in the seeded file counts as not resolved.
+        """
         snaps = self.ledger.snapshots
         if not snaps or self.seeded_hash is None:
             return False
         last = snaps[-1]
         if last.get("absent") or last.get("malformed"):
             return False
-        return self.seeded_hash not in last.get("hashes", {})
+        hashes = last.get("hashes", {})
+        if self.seeded_hash in hashes:
+            return False
+        return not any(isinstance(v, dict) and v.get("file") == self.seeded[0]
+                       for v in hashes.values())
 
     def before_close_out(self):
         """FLOW-04: record the tree outside `.turingmind/` right before the
