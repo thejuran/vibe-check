@@ -102,6 +102,22 @@ class TestKeyToFinding(unittest.TestCase):
             hs.key_to_finding(k, self.source)
         self.assertNotIn(k["title"], str(ctx.exception))
 
+    def test_agent_must_be_a_plugin_reviewer(self):
+        # an agent the plugin does not have can never recheck its finding,
+        # so the seeded row could never close; refuse it at seed time
+        for agent in ("logic", "fix", "triage", "index", "codex-adversarial",
+                      "../bugs", "Bugs"):
+            k = _key()
+            k["agent"] = agent
+            with self.subTest(agent=agent):
+                with self.assertRaises(hs.SeedError):
+                    hs.key_to_finding(k, self.source)
+
+    def test_case_key_agent_is_always_dispatched_by_review(self):
+        # /vibe-check:review always runs bugs and security (20-dispatch.md)
+        self.assertIn(_key()["agent"], hs.REVIEW_ALWAYS_ON)
+        self.assertEqual(set(hs.REVIEW_ALWAYS_ON), {"bugs", "security"})
+
     def test_band_below_warning_is_refused(self):
         k = _key()
         k["band"] = "medium"
