@@ -243,6 +243,34 @@ def check_list_in_card(text):
     return problems
 
 
+def parse_q1_spec(text):
+    """The Parse step's description of the Q1 value written to $ANSWERFILE."""
+    section = card_section(text)
+    m = re.search(r'\*\*Parse\.\*\*.*?"q1": "<(.*?)>", "q2"', section, re.S)
+    return m.group(1) if m else ""
+
+
+def q1_full_string_holds(text):
+    """The parser gets the whole Q1 answer: notes text and inline reason too."""
+    spec = parse_q1_spec(text)
+    return all(n in spec for n in ("FULL Q1 answer string", "`notes:`",
+                                   "`-- reason`", "verbatim"))
+
+
+def need_text_bullet(text):
+    for line in card_section(text).splitlines():
+        if line.startswith("- `need_text` true"):
+            return line
+    return ""
+
+
+def bare_mixed_one_clarification_holds(text):
+    """A bare Mixed… re-asks exactly once and never decides a row itself."""
+    bullet = need_text_bullet(text)
+    return all(n in bullet for n in ("ONCE", "Never infer",
+                                     "(no option selected) notes:"))
+
+
 class LockCase(unittest.TestCase):
     def assert_holds(self, check, *texts):
         self.assertEqual(check(*texts), [])
@@ -324,6 +352,40 @@ class TestFinalizeCard(LockCase):
             with self.subTest(key=key):
                 self.assertIsNotNone(row["stale"][key])
         self.assertIn(row["stale"]["decision"], ("dismiss", "defer"))
+
+    def test_q1_full_string_reaches_the_parser(self):
+        self.assertTrue(q1_full_string_holds(self.text))
+        for needle in ("including any `notes:` text and any trailing "
+                       "`-- reason` — ", "FULL ", " — verbatim"):
+            with self.subTest("mutant: %r removed" % needle):
+                mutant = remove(self.text, needle)
+                self.assertNotEqual(mutant, self.text)
+                self.assertFalse(q1_full_string_holds(mutant))
+        with self.subTest("mutant: the phrase moved out of the Parse step"):
+            mutant = self.text.replace(
+                "the tool result's FULL Q1 answer string — including any "
+                "`notes:` text and any trailing `-- reason` — verbatim",
+                "Q1 answer", 1) + "\nFULL Q1 answer string `notes:` " \
+                "`-- reason` verbatim\n"
+            self.assertNotEqual(mutant, self.text)
+            self.assertFalse(q1_full_string_holds(mutant))
+
+    def test_bare_mixed_buys_one_clarification(self):
+        self.assertTrue(bare_mixed_one_clarification_holds(self.text))
+        self.assertIn("A bare Mixed… buys exactly one clarification.",
+                      card_section(self.text))
+        for needle in ("re-show the same card ONCE",
+                       " Never infer fix/defer/dismiss from a bare selection"):
+            with self.subTest("mutant: %r removed" % needle):
+                mutant = remove(self.text, needle)
+                self.assertNotEqual(mutant, self.text)
+                self.assertFalse(bare_mixed_one_clarification_holds(mutant))
+        with self.subTest("mutant: rule moved off the need_text bullet"):
+            bullet = need_text_bullet(self.text)
+            mutant = self.text.replace(
+                bullet, "- `need_text` true → re-show the same card.", 1)
+            self.assertNotEqual(mutant, self.text)
+            self.assertFalse(bare_mixed_one_clarification_holds(mutant))
 
     def test_same_turn_and_budget(self):
         self.assert_holds(check_turn_and_budget, self.text)

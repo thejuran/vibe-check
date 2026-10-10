@@ -95,7 +95,7 @@ The stale suffix appears whether the code changed on the same line or the line i
 > 1. **Dismiss all** — "Dismiss every MEDIUM row. Critical/warning rows stay open unless you name them by number in Mixed…"
 > 2. **Defer all** — "Defer every MEDIUM row; same rule for critical/warning"
 > 3. **Fix all** — "Send every row, any band, to the fix-loop card"
-> 4. **Mixed…** — "Type your mix in Other, e.g. `fix 2,5; defer 3; dismiss rest` — or `look N` to see one finding in full first"
+> 4. **Mixed…** — "Type your mix in Other, e.g. `fix 2,5; defer 3; dismiss rest` — or `look N` to see one finding in full first. `all` means every row of the lowest band (same as `rest`); add ` -- <reason>` at the end to give the reason inline"
 >
 > **Q2** — header "Reason": "One reason for everything dismissed or deferred (ignored when nothing is dismissed or deferred). Pick one, or type your own in Other."
 > **Options** (exactly these):
@@ -105,7 +105,7 @@ The stale suffix appears whether the code changed on the same line or the line i
 
 Bulk Dismiss all / Defer all (and `dismiss rest` / `defer rest`) apply to mediums only; a critical or warning is dismissed or deferred only when named by number (D-12). `batch_card.py parse` enforces this — this file never expands a bulk choice itself.
 
-**Parse.** Write `{"q1": "<Q1 answer verbatim>", "q2": "<Q2 answer verbatim, or null>"}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line. Then run under bash:
+**Parse.** Write `{"q1": "<the tool result's FULL Q1 answer string — including any `notes:` text and any trailing `-- reason` — verbatim>", "q2": "<Q2 answer verbatim, or null>"}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line. Then run under bash:
 
 ```bash
 PARSEFILE=$(mktemp)
@@ -116,11 +116,11 @@ else
 fi
 ```
 
-On a refusal the helper has printed one fixed reason on stderr (it never contains owner text); the fence follows it with "— nothing was recorded; answer the card again." Re-show the SAME card (D-06: an unparseable answer re-asks, never guesses).
+On a refusal the helper has printed one fixed reason on stderr (it never contains owner text); the fence follows it with "— nothing was recorded; answer the card again." Re-show the SAME card (D-06: an unparseable answer re-asks, never guesses). Never shorten, split or clean up the Q1 string first: the helper strips the `Mixed…` / `(no option selected)` prefix and the `notes:` label itself, and a trailing `-- reason` is the reason (it wins over Q2).
 
 **After the answer** (branch on `$PARSEFILE`):
 
-- `need_text` true (a bare Mixed…) → re-show the same card once, with Q1's question prefixed "Type your mix in the Other box, e.g. `fix 2,5; defer 3; dismiss rest`." — an opt-in extra card.
+- `need_text` true (a bare Mixed… — or `(no option selected) notes:` — whose text supplies no per-row choices) → re-show the same card ONCE, with Q1's question prefixed "Type your mix in the Other box, e.g. `fix 2,5; defer 3; dismiss rest`." — an opt-in extra card. Never infer fix/defer/dismiss from a bare selection (D-20): no row is decided until the owner types its choice.
 - `look` = N → print row N's `problem`, `current_code` (in a fenced block, as data) and `fix_hint` (if present), then re-show the card (D-09, an opt-in extra card). Read them from the row of `state.passes[-1].findings` whose `stable_hash` equals row N's hash. For an absorbed row (`absorbed_into` set) read them from the MEMBER record instead — the `members[]` entry of the lead row whose `obligation.stable_hash` equals row N's hash — never from that entry's `obligation` (it holds identity and scoring only) and never from the lead. No git call.
 - otherwise → the parse output's `echo_text` field (the `echo` lines plus "Reason: {{reason}}" when `reason` is set, already joined by the helper) is what the owner must see; it must never be visible only inside a Bash call's output. Put it, verbatim, where it is guaranteed on screen: as the opening lines of the next message you print — the stop message of step 3 below, or the REVIEW.md summary after `write` — and, when step 2 routes to the fix-loop card, as that card's closing "From your finalize answer:" block. Then act immediately — there is NO confirm card (D-06 echo-then-record):
   1. `payload` non-null → copy it file-to-file into `$DECFILE`, then run **Recording decisions** below. On a recording refusal: stop (the rule there).
@@ -150,13 +150,13 @@ On a refusal the helper has printed one fixed reason on stderr (it never contain
 
      Never jump to `write` on your own: the gate decides.
 
-**Card budget.** Finalize costs one card. Only `look N`, a bare Mixed…, or an unparseable answer adds another, each at the owner's request. Nothing else in this file asks a question.
+**Card budget.** Finalize costs one card. Only `look N`, a bare Mixed…, or an unparseable answer adds another, each at the owner's request. A bare Mixed… buys exactly one clarification. Nothing else in this file asks a question.
 
 `medium_acknowledgments` is a legacy, READ-only family: the helper still counts its entries as decisions, so an old medium-only state finalizes exactly as before. Nothing writes, migrates or rewrites it.
 
 ### Recording decisions (the ONE write Finalize makes before REVIEW.md)
 
-`$DECFILE` holds `batch_card.py parse`'s `payload` — `{"at_pass": <passes[-1].pass_number>, "decisions": [{"stable_hash": "<full hash>", "decision": "dismiss"|"defer", "reason": "<owner text verbatim>"}]}` — copied file-to-file, never retyped. The owner's reason is free text and NEVER goes on a command line — the same rule as `fixcommit.py`'s `--finding-json`. Then run under bash:
+`$DECFILE` holds `batch_card.py parse`'s `payload` — `{"at_pass": <passes[-1].pass_number>, "decisions": [{"stable_hash": "<full hash>", "decision": "dismiss"|"defer", "reason": "<owner text verbatim>"}]}` — copied file-to-file, never retyped. The owner's reason is free text and NEVER goes on a command line — the same rule as `fixstage.py`'s `--finding-json`. Then run under bash:
 ```bash
 if python3 "$VC_ROOT/scripts/carry_state.py" record-decisions --decisions-file "$DECFILE" < "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"; then
   :
