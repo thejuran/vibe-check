@@ -109,7 +109,7 @@ Runs iff Phase 0 printed `FINALIZE_MODE=1`, and REPLACES everything after Phase 
 
 ## Phase 0.7 — First-run setup
 
-Runs when Phase 0.5 found no state file (it says when). **Before executing it, Read $VC_ROOT/phases/review/07-first-run.md** — do not execute this phase from memory of its title. Announce `✓ Phase 0.7 — First-run setup`. When Phase 0.5 skips it, announce `⊘ Phase 0.7 — First-run setup (skipped: state file present)` and do not read the file.
+Runs when Phase 0.5 found no state file (it says when). **Before executing it, Read $VC_ROOT/phases/review/07-first-run.md** — do not execute this phase from memory of its title. Announce `✓ Phase 0.7 — First-run setup` — or, when the file's first fence finds `.turingmind/` at the repo top, only the file's own `⊘ … (skipped: .turingmind/ exists)` line. When Phase 0.5 skips it, announce `⊘ Phase 0.7 — First-run setup (skipped: state file present)` and do not read the file.
 
 ## Phase 1 — Triage
 
