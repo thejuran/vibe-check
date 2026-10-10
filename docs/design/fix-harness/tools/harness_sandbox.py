@@ -105,6 +105,19 @@ PROTECTED_CREDENTIAL_PATHS = (
 _CREDENTIAL_FILES = frozenset({"~/.netrc", "~/.claude/.credentials.json",
                                "~/.claude.json"})
 
+# Claude Code's per-uid temp dir (`/tmp/claude-<uid>`; `/tmp` is a symlink
+# on macOS, so both spellings). It is shared with every other Claude Code
+# session of the same user, and Claude Code auto-allows its own temp, so file
+# tools there never reach the backstop. Each run gets a private temp root
+# instead (CLAUDE_CODE_TMPDIR) and the shared one is denied to the session.
+SHARED_CLAUDE_TEMP_PATHS = ("/tmp/claude-%d" % os.getuid(),
+                            "/private/tmp/claude-%d" % os.getuid())
+SESSION_TMP_PARENT = "/tmp"
+# Claude Code wants `<CLAUDE_CODE_TMPDIR>/claude-<uid>` short enough for an
+# AF_UNIX socket path; above ~30 bytes child processes fall back to another
+# temp dir.
+SESSION_TMP_MAX_LEN = 30
+
 GIT_TIMEOUT = 60
 SNAPSHOT_SKIP_DIRS = frozenset({"__pycache__", ".pytest_cache", ".venv"})
 SNAPSHOT_SKIP_SUFFIXES = (".pyc",)
@@ -158,6 +171,25 @@ def make_workspace(prefix="fixharness-"):
         shutil.rmtree(path, ignore_errors=True)
         raise SandboxError("workspace would sit inside a protected tree: %s"
                            % path)
+    return path
+
+
+def make_session_tmp():
+    """Create the session's private temp root (0700) and return it.
+
+    Passed to the session as CLAUDE_CODE_TMPDIR. The returned path keeps the
+    short `/tmp/...` spelling; refused when it lands under the shared Claude
+    temp dir or is too long for Claude Code's socket paths.
+    """
+    path = tempfile.mkdtemp(prefix="fh", dir=SESSION_TMP_PARENT)
+    real = os.path.realpath(path)
+    too_long = len(os.path.join(path, "claude-%d" % os.getuid())) \
+        > SESSION_TMP_MAX_LEN
+    shared = any(_is_under(real, p) or _is_under(path, p)
+                 for p in SHARED_CLAUDE_TEMP_PATHS)
+    if too_long or shared:
+        os.rmdir(path)
+        raise SandboxError("session temp root is unusable: %s" % path)
     return path
 
 
@@ -272,9 +304,11 @@ def build_session_settings(copy_root, snapshot_path, out_dir,
             "excludedCommands": [],
             "filesystem": {
                 "denyRead": [checkout_root, out_dir, keys_dir,
-                             *PROTECTED_CREDENTIAL_PATHS],
+                             *PROTECTED_CREDENTIAL_PATHS,
+                             *SHARED_CLAUDE_TEMP_PATHS],
                 "allowRead": [copy_root, snapshot_path],
-                "denyWrite": [snapshot_path, probe_script_path(copy_root)],
+                "denyWrite": [snapshot_path, probe_script_path(copy_root),
+                              *SHARED_CLAUDE_TEMP_PATHS],
             },
             "network": {"allowedDomains": [], "strictAllowlist": True},
         },
@@ -284,6 +318,8 @@ def build_session_settings(copy_root, snapshot_path, out_dir,
                 _abs_rule("Read", out_dir),
                 _abs_rule("Read", keys_dir),
                 *[_credential_rule(e) for e in PROTECTED_CREDENTIAL_PATHS],
+                *[_abs_rule("Read", p) for p in SHARED_CLAUDE_TEMP_PATHS],
+                *[_abs_rule("Edit", p) for p in SHARED_CLAUDE_TEMP_PATHS],
                 _abs_rule("Edit", snapshot_path),
                 _file_rule("Edit", probe_script_path(copy_root)),
                 "NotebookEdit",
@@ -324,6 +360,10 @@ def settings_is_fail_closed(settings):
             and paths["out"] in fs["denyRead"]
             and paths["keys"] in fs["denyRead"]
             and all(p in fs["denyRead"] for p in PROTECTED_CREDENTIAL_PATHS)
+            and all(p in fs["denyRead"] and p in fs["denyWrite"]
+                    and _abs_rule("Read", p) in deny
+                    and _abs_rule("Edit", p) in deny
+                    for p in SHARED_CLAUDE_TEMP_PATHS)
             and paths["snapshot"] in fs["denyWrite"]
             and _abs_rule("Read", paths["checkout"]) in deny
             and _abs_rule("Read", paths["out"]) in deny

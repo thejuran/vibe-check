@@ -487,10 +487,14 @@ def run(argv):
     prompt, entry = entry_for(args.mode, args.kind, copy.phase_id,
                               args.command)
 
+    session_tmp = phase.pre("make_session_tmp",
+                            harness_sandbox.make_session_tmp)
+
     phase.launch()
     started = time.monotonic()
     try:
-        result = _drive(copy, snapshot, prompt, core, out, settings)
+        result = _drive(copy, snapshot, prompt, core, out, settings,
+                        tmp_root=session_tmp)
     except harness_driver_sdk.DriverError as exc:
         print("fixharness: driver: %s" % exc, file=sys.stderr)
         return 2
@@ -637,9 +641,13 @@ def probe_sandbox(argv):
         CHECKOUT=harness_sandbox.CHECKOUT_ROOT, NONCE=nonce,
         SNAPSHOT=snapshot.path, COPY=copy.root)
 
+    session_tmp = phase.pre("make_session_tmp",
+                            harness_sandbox.make_session_tmp)
+
     phase.launch()
     try:
-        result = _drive(copy, snapshot, prompt, ProbeCore(), out, settings)
+        result = _drive(copy, snapshot, prompt, ProbeCore(), out, settings,
+                        tmp_root=session_tmp)
     except harness_driver_sdk.DriverError as exc:
         print("fixharness: driver: %s" % exc, file=sys.stderr)
         return 2

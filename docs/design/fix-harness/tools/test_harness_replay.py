@@ -346,7 +346,9 @@ class TestOrderingAndPreflight(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 phase.pre("plant", lambda: None)
 
-        def fake_drive(copy, snapshot, prompt, core, out, settings, **_kw):
+        def fake_drive(copy, snapshot, prompt, core, out, settings, **kw):
+            seen["tmp_root"] = kw.get("tmp_root")
+            self.addCleanup(shutil.rmtree, kw["tmp_root"], True)
             seen["before"] = _copy_view(core)
             seen["snapshots_at_start"] = len(core.ledger.snapshots)
             core.observe_state("card")
@@ -369,7 +371,9 @@ class TestOrderingAndPreflight(unittest.TestCase):
             code = fixharness.run(self.argv())
         self.assertEqual(phases, [["make_workspace", "snapshot_plugin",
                                    "build_copy", "seed_state", "ledger_seed",
-                                   "plant", "preflight"]])
+                                   "plant", "preflight",
+                                   "make_session_tmp"]])
+        self.assertTrue(os.path.isdir(seen["tmp_root"]))
         self.assertEqual(seen["snapshots_at_start"], 1)
         self.assertEqual(seen["snapshots"], 3)
         self.assertEqual(seen["before"], seen["after"])

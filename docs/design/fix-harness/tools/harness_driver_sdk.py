@@ -77,13 +77,32 @@ def _sdk():
         sdk_types.ResultMessage, claude_agent_sdk.__version__)
 
 
-def session_env(environ=None):
+def session_env(environ=None, tmp_root=None):
     """The session's environment: the parent's, minus `CLAUDECODE`, with the
-    owner's claude.ai account MCP connectors switched off."""
+    owner's claude.ai account MCP connectors switched off and, given
+    `tmp_root`, Claude Code's temp root moved off the shared per-uid dir."""
     env = dict(os.environ if environ is None else environ)
     env.pop("CLAUDECODE", None)
     env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
+    if tmp_root is not None:
+        env.pop("CLAUDE_TMPDIR", None)
+        env["CLAUDE_CODE_TMPDIR"] = tmp_root
     return env
+
+
+def check_session_tmp(tmp_root):
+    """Raise unless `tmp_root` is an existing absolute dir outside the shared
+    Claude temp dir (the pre-launch harness creates it)."""
+    ok = (isinstance(tmp_root, str) and os.path.isabs(tmp_root)
+          and os.path.isdir(tmp_root))
+    if ok:
+        real = os.path.realpath(tmp_root)
+        ok = not any(harness_sandbox._is_under(real, p)
+                     or harness_sandbox._is_under(tmp_root, p)
+                     for p in harness_sandbox.SHARED_CLAUDE_TEMP_PATHS)
+    if not ok:
+        raise DriverError("session temp root missing or shared: %r"
+                          % (tmp_root,))
 
 
 def check_no_mcp_servers(init_data):
@@ -264,7 +283,7 @@ async def _keep_open(_input_data, _tool_use_id, _context):
     return {"continue_": True}
 
 
-def build_options(sdk, session, settings, env, stderr=None):
+def build_options(sdk, session, settings, env, stderr=None, tmp_root=None):
     return sdk.ClaudeAgentOptions(
         cwd=session.copy.root,
         plugins=[{"type": "local", "path": session.snapshot.path}],
@@ -276,7 +295,7 @@ def build_options(sdk, session, settings, env, stderr=None):
         can_use_tool=session.can_use_tool,
         hooks={"PreToolUse": [sdk.HookMatcher(matcher=None,
                                               hooks=[_keep_open])]},
-        env=session_env(env),
+        env=session_env(env, tmp_root=tmp_root),
         stderr=stderr)
 
 
@@ -285,10 +304,11 @@ def _turn_text(result_msg, last_text):
     return text if isinstance(text, str) and text.strip() else last_text
 
 
-async def _run_session(sdk, session, prompt, settings, env, timeout_s):
+async def _run_session(sdk, session, prompt, settings, env, timeout_s,
+                       tmp_root=None):
     stderr_tail = collections.deque(maxlen=STDERR_TAIL)
     options = build_options(sdk, session, settings, env,
-                            stderr=stderr_tail.append)
+                            stderr=stderr_tail.append, tmp_root=tmp_root)
     try:
         async with asyncio.timeout(timeout_s):
             async with sdk.ClaudeSDKClient(options=options) as client:
@@ -348,20 +368,22 @@ def _transcript_sha256(out_dir):
 
 
 def drive(copy, snapshot, prompt, core, out_dir, settings, env=None,
-          timeout_s=DEFAULT_TIMEOUT_S):
+          timeout_s=DEFAULT_TIMEOUT_S, tmp_root=None):
     """Run one session; return DriveResult. Raises DriverError when the
     session cannot be launched as specified (never falls back)."""
     if not harness_sandbox.settings_is_fail_closed(settings):
         raise DriverError("settings not fail-closed")
+    check_session_tmp(tmp_root)
     sdk = _sdk()
     session = Session(copy, snapshot, core, out_dir)
     started = time.monotonic()
     try:
         session.log({"harness": "start",
                      "sdk_version": getattr(sdk, "version", None),
-                     "copy_root": copy.root, "plugin_path": snapshot.path})
+                     "copy_root": copy.root, "plugin_path": snapshot.path,
+                     "session_tmp": tmp_root})
         asyncio.run(_run_session(sdk, session, prompt, settings, env,
-                                 timeout_s))
+                                 timeout_s, tmp_root=tmp_root))
         session.log({"harness": "end",
                      "seconds": round(time.monotonic() - started, 3)})
     finally:
