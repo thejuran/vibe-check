@@ -42,9 +42,24 @@ Exit codes (callers branch on the code, never on stdout):
     python3 gitsnap.py take --root <repo> --out <file>
         0 written | 2 cannot take (not a repo, git error, unwritable) — HALT
     python3 gitsnap.py compare --root <repo> --before <file>
-        0 same (prints nothing) | 1 changed (one plain line per changed
-        component) | 2 cannot confirm (missing/garbled before file, git
-        error) — callers treat 2 as changed (fail closed)
+        0 same, or only allowed changes (prints one line per allowed change;
+        nothing when nothing changed) | 1 halting change (prints the allowed
+        lines, then one plain line per halting component) | 2 cannot confirm
+        (missing/garbled before file, git error) — callers treat 2 as changed
+        (fail closed)
+
+Ref policy:
+
+- Remote-tracking refs (`refs/remotes/*`) are never compared. A fetch that
+  updates them cannot move the reviewed checkout, and review agents cannot
+  fetch (the guard denies fetch/pull), so a fetch that only updates them
+  neither halts nor prints.
+- A NEW local tag (a `refs/tags/*` name absent before and present after, e.g.
+  from `git fetch --tags`) is allowed: compare prints
+  `new tag <ref> appeared (a tag fetch — allowed; the pass continues)` and
+  does not halt for it.
+- A moved or deleted tag, any `refs/heads/*` (or other ref) change, and any
+  HEAD or branch-switch change halt the pass.
 
 I/O: stdlib only, imports exactly {argparse, hashlib, json, os, subprocess,
 sys}; every `subprocess.run` is an argv list with `timeout=60`, never a shell.
@@ -62,10 +77,14 @@ import sys
 IN_PROGRESS_MARKERS = ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD",
                        "REVERT_HEAD", "rebase-merge", "rebase-apply")
 
-# A fetch (background or IDE) moves remote-tracking refs and review agents
-# cannot (the guard denies fetch/pull), so they are not part of the
-# fingerprint. The trailing slash makes this an exact namespace prefix.
+# Ref policy (see the module docstring). Remote-tracking refs are not part of
+# the fingerprint: a fetch (background or IDE) moves them, review agents cannot
+# (the guard denies fetch/pull), and moving them cannot move the reviewed
+# checkout. New local tags are allowed and announced (_is_allowed_ref_change);
+# moved/deleted tags and any refs/heads/* or HEAD change halt. The trailing
+# slashes make both of these exact namespace prefixes.
 EXCLUDED_REF_PREFIXES = ("refs/remotes/",)
+ALLOWED_NEW_REF_PREFIX = "refs/tags/"
 
 SNAPSHOT_KEYS = {
     "head": (str, type(None)),
@@ -224,9 +243,24 @@ def _branch(symref):
     return symref[len(prefix):] if symref.startswith(prefix) else symref
 
 
+def _is_allowed_ref_change(name, before_refs, after_refs):
+    """True only for a CREATED tag: absent before, present after.
+
+    A moved or deleted tag is not allowed — moving a tag can hide a rewrite.
+    """
+    return (name.startswith(ALLOWED_NEW_REF_PREFIX)
+            and name not in before_refs and name in after_refs)
+
+
 def diff_snapshots(before, after):
-    """Plain human lines, one per changed component; [] when nothing changed."""
+    """(halt_lines, info_lines) — plain human lines.
+
+    halt_lines: one per changed component that halts the pass.
+    info_lines: one per allowed change (a new tag), announced but not halting.
+    Both are [] when nothing changed.
+    """
     lines = []
+    info = []
     if before["head"] != after["head"]:
         lines.append("HEAD moved %s → %s" % (_short(before["head"]),
                                              _short(after["head"])))
@@ -244,13 +278,17 @@ def diff_snapshots(before, after):
     if before["refs"] != after["refs"]:
         changes = []
         for name in sorted(set(before["refs"]) | set(after["refs"])):
-            if name not in after["refs"]:
+            if _is_allowed_ref_change(name, before["refs"], after["refs"]):
+                info.append("new tag %s appeared " % name
+                            + "(a tag fetch — allowed; the pass continues)")
+            elif name not in after["refs"]:
                 changes.append("%s deleted" % name)
             elif name not in before["refs"]:
                 changes.append("%s created" % name)
             elif before["refs"][name] != after["refs"][name]:
                 changes.append("%s moved" % name)
-        lines.append("branches/tags changed: %s" % ", ".join(changes))
+        if changes:
+            lines.append("branches/tags changed: %s" % ", ".join(changes))
     grew = after["head_reflog_count"] - before["head_reflog_count"]
     if grew > 0:
         lines.append("HEAD reflog grew by %d entr%s (a checkout or reset happened)"
@@ -265,7 +303,7 @@ def diff_snapshots(before, after):
     if ended:
         lines.append("a merge/rebase that was in progress has ended (%s)"
                      % ", ".join(ended))
-    return lines
+    return lines, info
 
 
 def load_snapshot(path):
@@ -330,10 +368,10 @@ def run(argv):
             write_snapshot(args.out, take_snapshot(args.root))
             return 0
         before = load_snapshot(args.before)
-        lines = diff_snapshots(before, take_snapshot(args.root))
-        for line in lines:
+        halt, info = diff_snapshots(before, take_snapshot(args.root))
+        for line in info + halt:
             sys.stdout.write(line + "\n")
-        return 1 if lines else 0
+        return 1 if halt else 0
     except SnapError as exc:
         sys.stderr.write("gitsnap: cannot confirm git state: %s\n" % exc)
         return 2

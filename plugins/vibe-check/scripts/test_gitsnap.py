@@ -466,8 +466,8 @@ class TestDiffSnapshotsShape(unittest.TestCase):
         self.assertEqual(info, [NEW_TAG_LINE])
 
     def test_no_change_is_two_empty_lists(self):
-        self.assertEqual(gitsnap.diff_snapshots(self.BASE, dict(self.BASE)),
-                         ([], []))
+        halt, info = gitsnap.diff_snapshots(self.BASE, dict(self.BASE))
+        self.assertEqual((halt, info), ([], []))
 
 
 class TestCannotConfirm(GitsnapCase):
