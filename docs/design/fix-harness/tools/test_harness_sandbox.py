@@ -90,7 +90,9 @@ class TestSnapshot(_TmpCase):
             fh.write("junk")
         with open(os.path.join(src, "README.md"), "w") as fh:
             fh.write("hello\n")
-        _git(repo, "add", "plugins/vibe-check/scripts/a.py",
+        with open(os.path.join(repo, ".gitignore"), "w") as fh:
+            fh.write("__pycache__/\n*.pyc\n.pytest_cache/\n.venv/\n")
+        _git(repo, "add", ".gitignore", "plugins/vibe-check/scripts/a.py",
              "plugins/vibe-check/README.md")
         _git(repo, "commit", "-q", "-m", "init")
         return repo, src
