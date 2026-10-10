@@ -358,5 +358,50 @@ class TestEmptyDiffCarveOut(unittest.TestCase):
         self.assertFalse(stop_is_conditioned(text, SCOPE_STOP))
 
 
+RERUN_EXCEPTION = "the fix loop's Rerun after Step B committed a fix"
+RERUN_CONTINUE = "continue to Phase 0.5"
+RERUN_POINTER = "Phase 0's empty-diff stop does not apply to this Rerun"
+
+
+def rerun_exempt(scope_text):
+    """True iff the default-diff stop line also exempts the fix loop's Rerun
+    after a committed fix and sends it on to Phase 0.5 (which reviews the
+    commits since the last pass), while still stopping every other clean run."""
+    try:
+        line = stop_line(scope_text, SCOPE_STOP)
+    except AssertionError:
+        return False
+    return (RERUN_EXCEPTION in line and RERUN_CONTINUE in line
+            and stop_is_conditioned(scope_text, SCOPE_STOP))
+
+
+class TestRerunAfterCommittedFix(unittest.TestCase):
+    """In default-diff mode every fix is a commit, so the tree is clean when
+    the fix loop reruns. Stopping there with "No changes to review." means
+    the fix is never rechecked, and the next --finalize asks the owner about
+    the same finding again (a redundant question, D-22)."""
+
+    def test_scope_stop_exempts_the_rerun(self):
+        self.assertTrue(rerun_exempt(read(SCOPE)))
+
+    def test_fix_loop_rerun_points_at_the_exception(self):
+        text = read(FIX_LOOP)
+        rerun = text[text.index("**The Rerun.**"):]
+        rerun = rerun[:rerun.index("\n\n")]
+        self.assertIn(RERUN_POINTER, rerun)
+
+    def test_r1_dropping_the_exception_fails_lock(self):
+        text = read(SCOPE)
+        line = stop_line(text, SCOPE_STOP)
+        mutant = text.replace(line, line.replace(RERUN_EXCEPTION, "a rerun"))
+        self.assertNotEqual(mutant, text)
+        self.assertFalse(rerun_exempt(mutant))
+
+    def test_r2_old_stop_line_fails_lock(self):
+        text = read(SCOPE)
+        mutant = text.replace(stop_line(text, SCOPE_STOP), SCOPE_STOP_2110)
+        self.assertFalse(rerun_exempt(mutant))
+
+
 if __name__ == "__main__":
     unittest.main()
