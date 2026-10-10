@@ -198,7 +198,7 @@ Full details: `.planning/milestones/v2.11-ROADMAP.md`.
 Design spec: `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-design.md` (owner-approved; phase order is FIXED). Branch `feat/v2.12`. Release intent: 2.12.0.
 
 - [x] **Phase 51: Seal the holdout** — six owner-selected real cases (C1/C2/C3 catch, Q1/Q2/Q3 quiet) with sealed keys living outside the repo; only content hashes committed, before any tuning; access split by role and a PreToolUse hook denies the holdout path during tuning phases (completed 2026-10-09)
-- [ ] **Phase 52: Hardening + accepted-fix harness** — close the 999.21 fix-agent edges (old git, tag fetch, bare-repo probe, WebFetch/MCP boundary, one exit table, retire fixcommit CLI), stop guard over-blocking of read-only `cd`/`grep`/`sed -n`, whole-token `--finalize`, first-run card misfire; build the accept → apply → rerun → Close out → finalize harness (sentinel preservation + clean-tree, default-diff + GSD) on disposable copies
+- [x] **Phase 52: Hardening + accepted-fix harness** — close the 999.21 fix-agent edges (old git, tag fetch, bare-repo probe, WebFetch/MCP boundary, one exit table, retire fixcommit CLI), stop guard over-blocking of read-only `cd`/`grep`/`sed -n`, whole-token `--finalize`, first-run card misfire; build the accept → apply → rerun → Close out → finalize harness (sentinel preservation + clean-tree, default-diff + GSD) on disposable copies (completed 2026-10-10)
 - [ ] **Phase 53: False-alarm reduction** — three-outcome reachability replaces Rule 2; evidence-based conditional suppression for the 999.19 noise classes; H-LANE site representation decided; a never-filtered **Needs verification** group with mechanical admission that counts as an alarm; generic rule wording enforced by leakage scanner + prose locks; replay guard + live non-holdout dev runs before freeze
 - [ ] **Phase 54: Freeze + release gates + integration audit** — test/security/deep-review gates and the milestone integration audit pass on the candidate BEFORE measurement; freeze by artifact identity (committed manifest of SHA + per-file content hashes + model config + harness version); pre-window identity check that never accepts a version string; post-freeze change policy
 - [ ] **Phase 55: Measure + ship 2.12.0** — B3 ×3 (≤3/18 · 15/15), holdout ×3 judged per case, 16 preservation + 2 clean-tree accepted-fix runs; `RESULTS-v2.12.md` with honest limitations; outcome recorded MET/UNMET separately from shipping (a waiver never converts UNMET); publish 2.12.0 (main + tag + branch, atomic, hash-verified)
@@ -265,7 +265,7 @@ Plans:
   4. The accepted-fix harness runs accept → apply → rerun → Close out → finalize on disposable copies in both default-diff and GSD modes, starting from a seeded answer-key finding (never detection output), planting one staged and one unstaged sentinel in an untouched file plus one unstaged sentinel in the fixed file outside the hunk, and checking all three byte-for-byte afterwards; a run is reported complete only when the defect is verified fixed with tests passing, commits contain only the accepted repair, and rerun → Close out → finalize succeeds without manual repair, without silently dropping unresolved findings and without a false success report
   5. Two sentinel-free clean-tree runs (one default-diff, one GSD) assert the tree is clean after fixes commit and before Close out; every harness run records the owner-decision count and elapsed time split into waiting-on-owner vs execution
 
-**Plans:** 13/14 plans executed
+**Plans:** 14/14 plans complete
 
 Plans:
 **Wave 1**
@@ -295,7 +295,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 52-11-PLAN.md — Live proof: P-D, P-G, C-D, C-G to COMPLETE on the synthetic case; isolation lock; both suites green
+- [x] 52-11-PLAN.md — Live proof: P-D, P-G, C-D, C-G to COMPLETE on the synthetic case; isolation lock; both suites green
 
 ### Phase 53: False-alarm reduction
 
@@ -398,7 +398,7 @@ Plans:
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
 | 50. Finalize entry fix + 2.11.1 patch | v2.11 | 2/2 | Complete    | 2026-10-08 |
 | 51. Seal the holdout | v2.12 | 10/10 | Complete    | 2026-10-09 |
-| 52. Hardening + accepted-fix harness | v2.12 | 13/14 | In Progress|  |
+| 52. Hardening + accepted-fix harness | v2.12 | 14/14 | Complete   | 2026-10-10 |
 | 53. False-alarm reduction | v2.12 | 0/? | Not started | - |
 | 54. Freeze + release gates + integration audit | v2.12 | 0/? | Not started | - |
 | 55. Measure + ship 2.12.0 | v2.12 | 0/? | Not started | - |
