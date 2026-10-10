@@ -703,7 +703,7 @@ def _tokenize(command):
     """Split a command into Tokens the way bash reads words and operators.
 
     Single quotes are literal; inside double quotes a backslash escapes only
-    $ ` " \\ and newline; outside quotes a backslash makes the next character
+    $ ` " and \\, and a backslash-newline is deleted; outside quotes a backslash makes the next character
     literal. `#` is literal (no comment handling: bash only starts a comment
     at a word start, and treating it as one could hide a second command).
     Raises ValueError on an unterminated quote or a trailing backslash.
@@ -765,6 +765,11 @@ def _tokenize(command):
                 if c == '"':
                     i += 1
                     break
+                if c == "\\" and i + 1 < n and command[i + 1] == "\n":
+                    # Line continuation: the shell deletes backslash-newline
+                    # inside double quotes too ("--ou\<nl>tput" -> --output).
+                    i += 2
+                    continue
                 if c == "\\" and i + 1 < n and command[i + 1] in \
                         _DQUOTE_ESCAPABLE:
                     word.append(command[i + 1])
