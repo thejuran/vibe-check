@@ -166,6 +166,18 @@ The session then stopped and listed options in prose. The harness counted
 that as a would-be owner question and failed the run, as designed. These
 findings are carried to plan 52-11.
 
+## Phase 52 gate
+
+Both suites were run on the merged tree before any of the four live runs, at
+commit `c28f3e8` (2026-10-10):
+
+- plugin suite (bare `pytest -q` in `plugins/vibe-check/scripts`):
+  `2487 passed, 3469 subtests passed`
+- harness suite (bare `pytest -q` in `docs/design/fix-harness/tools`):
+  `374 passed, 113 subtests passed`
+
+No integration fix was needed.
+
 ## Isolation rules
 
 - Cases are synthetic. Never build a case from the B3 benchmark diffs or the
