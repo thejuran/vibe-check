@@ -265,7 +265,7 @@ Plans:
   4. The accepted-fix harness runs accept → apply → rerun → Close out → finalize on disposable copies in both default-diff and GSD modes, starting from a seeded answer-key finding (never detection output), planting one staged and one unstaged sentinel in an untouched file plus one unstaged sentinel in the fixed file outside the hunk, and checking all three byte-for-byte afterwards; a run is reported complete only when the defect is verified fixed with tests passing, commits contain only the accepted repair, and rerun → Close out → finalize succeeds without manual repair, without silently dropping unresolved findings and without a false success report
   5. Two sentinel-free clean-tree runs (one default-diff, one GSD) assert the tree is clean after fixes commit and before Close out; every harness run records the owner-decision count and elapsed time split into waiting-on-owner vs execution
 
-**Plans:** 7/14 plans executed
+**Plans:** 8/14 plans executed
 
 Plans:
 **Wave 1**
@@ -280,7 +280,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 52-08-PLAN.md — gitguard HARD-07: quote-aware tokenizer, `cd`/`sed -n` argv validators, visible explanations, dedupe without suppression
+- [x] 52-08-PLAN.md — gitguard HARD-07: quote-aware tokenizer, `cd`/`sed -n` argv validators, visible explanations, dedupe without suppression
 - [ ] 52-09-PLAN.md — fixstage HARD-01/05 + bug C: EXIT_TABLE + render_case_arms, `preflight`, prose arms locked byte-for-byte, no-card subset path
 - [ ] 52-12-PLAN.md — Harness core A2: seeder via score.py/state_shape (D-14 lock), three sentinels plant/verify (D-16)
 
@@ -398,7 +398,7 @@ Plans:
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
 | 50. Finalize entry fix + 2.11.1 patch | v2.11 | 2/2 | Complete    | 2026-10-08 |
 | 51. Seal the holdout | v2.12 | 10/10 | Complete    | 2026-10-09 |
-| 52. Hardening + accepted-fix harness | v2.12 | 7/14 | In Progress|  |
+| 52. Hardening + accepted-fix harness | v2.12 | 8/14 | In Progress|  |
 | 53. False-alarm reduction | v2.12 | 0/? | Not started | - |
 | 54. Freeze + release gates + integration audit | v2.12 | 0/? | Not started | - |
 | 55. Measure + ship 2.12.0 | v2.12 | 0/? | Not started | - |
