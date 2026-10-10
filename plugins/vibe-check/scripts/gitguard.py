@@ -31,7 +31,18 @@ Contract (fail CLOSED on every ambiguity):
     plugin script basename refuses only as a `scripts/<name>` path
   - reasons are FIXED strings that never echo the command (callers render a
     sanitized command separately)
-  - classify itself is pure — no I/O; only the CLI below does I/O
+  - `git -C` is accepted only for `.` or the reviewed repo root spelled as an
+    absolute, `..`-free path; `git remote show` requires `-n`; a `cd` to
+    anything other than the root refuses every git in the same command. Why:
+    a reviewed repo can track an embedded bare repo (`x.git/`) whose config
+    names programs git executes (remote.origin.uploadpack on `remote show`,
+    diff.external on `diff`, a textconv driver on `show`/`log -p`), and git
+    discovers it from `-C` or from a `cd` into it. Relative and symlinked
+    targets are refused because bash's logical `cd` and the filesystem's
+    physical path can disagree (`link/..`) and the hook cannot see the
+    shell's persistent cwd
+  - classify does no I/O beyond read-only metadata checks (isdir, islink,
+    lexists) on a `-C`/`cd` target; only the CLI below reads or writes files
 
 CLI (python3 gitguard.py <subcommand>):
   hook                      PreToolUse hook; stdin = the tool-call JSON.
@@ -147,6 +158,7 @@ REASON_GIT_AS_ARGUMENT = (
     "refused: git passed as an argument to another command (fail closed)")
 REASON_GIT_DIR_PATH = (
     "refused: .git path used by a non-reader command (fail closed)")
+REASON_GIT_OTHER_DIR = "refused: git in another directory (fail closed)"
 
 # --------------------------------------------------------------------------- #
 # command-word policy
@@ -350,7 +362,9 @@ def _remote(args):
             a in ("--push", "--all") or not a.startswith("-")
             for a in args[1:]):
         return _ok()
-    if args[0] == "show" and all(
+    # Without -n, `remote show` contacts the remote and runs
+    # remote.origin.uploadpack from whatever repo git discovered.
+    if args[0] == "show" and "-n" in args[1:] and all(
             a == "-n" or not a.startswith("-") for a in args[1:]):
         return _ok()
     return _no()
@@ -683,7 +697,57 @@ def _is_denied_subcommand_flag(token):
     return False
 
 
-def _classify_git_argv(args):
+def _is_bare_shaped(path):
+    return all(os.path.lexists(os.path.join(path, name))
+               for name in ("HEAD", "objects", "refs"))
+
+
+def _resolve_dir_target(operand, repo_root):
+    """Classify a `git -C` value or `cd` operand -> (kind, reason).
+
+    kind is "root" (the reviewed repo root itself), "subdir" (a plain
+    directory inside it) or None with reason REASON_GIT_OTHER_DIR. Git accepts
+    only "root"; a git-less `cd` may also accept "subdir".
+
+    The rule is LEXICAL on purpose and never calls realpath on the operand.
+    bash's default `cd` is logical: with `R/vendor/x.git/link -> R/vendor`,
+    realpath("R/vendor/x.git/link/..") is R, yet `cd vendor/x.git/link/..`
+    lands in R/vendor/x.git, an embedded bare repo whose config can name
+    programs git runs (uploadpack, diff.external, textconv). So a target is
+    the root only when it is `.`, or an absolute path with no `..` component
+    whose normpath is exactly repo_root (already physical: _find_repo_root
+    realpaths it). Relative operands are refused because the hook cannot see
+    the Bash tool's persistent shell cwd. A "subdir" must exist and no prefix
+    from the first component down may be a symlink, hold a `.git` entry, look
+    like a bare repo (HEAD + objects + refs) or have a name ending in `.git`.
+    Filesystem access is metadata only (isdir, islink, lexists).
+    """
+    if operand in (".", "./"):
+        return "root", None
+    refused = (None, REASON_GIT_OTHER_DIR)
+    if not isinstance(repo_root, str) or not repo_root \
+            or not isinstance(operand, str) or not operand.startswith("/"):
+        return refused
+    if ".." in operand.split("/"):
+        return refused
+    target = os.path.normpath(operand)
+    if target == repo_root:
+        return "root", None
+    prefix = repo_root.rstrip(os.sep) + os.sep
+    if not target.startswith(prefix) or not os.path.isdir(target):
+        return refused
+    current = repo_root
+    for part in target[len(prefix):].split(os.sep):
+        current = os.path.join(current, part)
+        if (os.path.islink(current)
+                or os.path.lexists(os.path.join(current, ".git"))
+                or _is_bare_shaped(current)
+                or part.endswith(".git")):
+            return refused
+    return "subdir", None
+
+
+def _classify_git_argv(args, repo_root=None):
     i = 0
     while i < len(args):
         tok = args[i]
@@ -697,6 +761,9 @@ def _classify_git_argv(args):
         if name in GLOBAL_OPTS_WITH_VALUE and "=" not in tok:
             if i + 1 >= len(args):
                 return False, REASON_GIT_GLOBAL_OPT
+            if name == "-C" and \
+                    _resolve_dir_target(args[i + 1], repo_root)[0] != "root":
+                return False, REASON_GIT_OTHER_DIR
             i += 2
             continue
         i += 1
@@ -731,7 +798,7 @@ def _touches_git_dir(args):
     return any(".git" in tok.split("/") for tok in args)
 
 
-def _classify_simple(argv):
+def _classify_simple(argv, repo_root=None):
     argv = _strip_redirects(argv)
     if not argv:
         return True, ALLOWED
@@ -747,7 +814,7 @@ def _classify_simple(argv):
     if word == "find" and any(tok in FIND_ACTION_FLAGS for tok in args):
         return False, REASON_INDIRECTION
     if word == "git":
-        return _classify_git_argv(args)
+        return _classify_git_argv(args, repo_root)
     if word not in SAFE_COMMAND_WORDS:
         return False, REASON_NOT_ALLOWLISTED
     if _reader_flag_denied(word, args):
@@ -759,7 +826,35 @@ def _classify_simple(argv):
     return True, ALLOWED
 
 
-def _classify(command, plugin_scripts):
+def _segment_word(segment):
+    """-> (lowercased command word, args) after redirects/wrappers, or None."""
+    argv, reason = _unwrap(_strip_redirects(segment))
+    if reason or not argv:
+        return None
+    word, reason = _command_basename(argv[0])
+    if reason:
+        return None
+    return word, argv[1:]
+
+
+def _cd_moves_git(segments, repo_root):
+    """True when a command runs git and any `cd` in it leaves the repo root."""
+    words = [_segment_word(seg) for seg in segments]
+    if not any(w is not None and w[0] == "git" for w in words):
+        return False
+    for w in words:
+        if w is None or w[0] != "cd":
+            continue
+        operands = list(w[1])
+        while operands and operands[0] in ("-L", "-P"):
+            operands.pop(0)
+        if len(operands) != 1 \
+                or _resolve_dir_target(operands[0], repo_root)[0] != "root":
+            return True
+    return False
+
+
+def _classify(command, plugin_scripts, repo_root=None):
     if not isinstance(command, str) or not command.strip():
         return False, REASON_NO_COMMAND
     if _references_trusted_script(command, plugin_scripts):
@@ -777,23 +872,27 @@ def _classify(command, plugin_scripts):
     segments = _split_simple_commands(tokens)
     if not segments:
         return False, REASON_NO_COMMAND
+    if _cd_moves_git(segments, repo_root):
+        return False, REASON_GIT_OTHER_DIR
     for segment in segments:
-        allowed, reason = _classify_simple(segment)
+        allowed, reason = _classify_simple(segment, repo_root)
         if not allowed:
             return False, reason
     return True, ALLOWED
 
 
-def classify(command, plugin_scripts=frozenset()):
+def classify(command, plugin_scripts=frozenset(), repo_root=None):
     """Could this review-agent Bash command change the repo? -> (bool, reason).
 
     `command` is the raw tool_input.command string. `plugin_scripts` is the set
     of the plugin's scripts/ basenames supplied by the hook (lowercased and
-    unioned with TRUSTED_SCRIPT_BASENAMES). Returns (True, "allowed") or
-    (False, <fixed reason>). Pure; never raises — any internal error refuses.
+    unioned with TRUSTED_SCRIPT_BASENAMES). `repo_root` is the physical root of
+    the reviewed repo the hook resolved (None when it found none); `git -C`
+    and `cd`-then-git accept only that root. Returns (True, "allowed") or
+    (False, <fixed reason>). Never raises — any internal error refuses.
     """
     try:
-        return _classify(command, plugin_scripts)
+        return _classify(command, plugin_scripts, repo_root)
     except Exception:  # noqa: BLE001 — fail closed on any classifier defect
         return False, REASON_INTERNAL
 
@@ -936,8 +1035,9 @@ def hook_main(stdin_text):
             tool_input = data.get("tool_input")
             command = (tool_input.get("command")
                        if isinstance(tool_input, dict) else None)
-            ok, reason = classify(command,
-                                  plugin_scripts=_plugin_script_names())
+            ok, reason = classify(
+                command, plugin_scripts=_plugin_script_names(),
+                repo_root=_find_repo_root(data.get("cwd")))
         elif tool in DENY_TOOLS:
             ok, reason = False, REASON_DENY_TOOL
         else:

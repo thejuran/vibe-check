@@ -303,6 +303,9 @@ DIR_TARGET_CASES = (
     ("cd - && git status", "REASON_GIT_OTHER_DIR"),
     ("cd ~ && git status", "REASON_GIT_OTHER_DIR"),
     ("cd /r /x && git status", "REASON_GIT_OTHER_DIR"),
+    # only -L/-P are skipped as flags; anything else counts as an operand
+    ("cd -e /r && git log -1", "REASON_GIT_OTHER_DIR"),
+    ("cd -- /r && git log -1", "REASON_GIT_OTHER_DIR"),
     ("cd /r/sub; git log -1", "REASON_GIT_OTHER_DIR"),
     ("git log -1; cd /r/sub", "REASON_GIT_OTHER_DIR"),
     ("cd /r/sub && timeout 5 git log -1", "REASON_GIT_OTHER_DIR"),
@@ -494,7 +497,8 @@ class TestDirTarget(unittest.TestCase):
         for operand, root in (("sub", "/r"), ("/r", None), ("", "/r"),
                               (None, "/r"), ("-", "/r"), ("~", "/r"),
                               ("/r/x/..", "/r"), ("/rr", "/r"),
-                              ("/", "/r"), ("/r/../r", "/r")):
+                              ("/", "/r"), ("/r/../r", "/r"),
+                              ("r", "r"), ("vendor", "vendor")):
             with self.subTest(operand=operand, root=root):
                 self.assertEqual(r(operand, root),
                                  (None, gitguard.REASON_GIT_OTHER_DIR))
