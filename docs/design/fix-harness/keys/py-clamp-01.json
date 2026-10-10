@@ -7,7 +7,7 @@
   "current_code": "    if value > hi - 1:",
   "fix_hint": "Compare against hi and return hi: `if value > hi: return hi`.",
   "band": "warning",
-  "agent": "logic",
+  "agent": "bugs",
   "axis": "boundary",
   "expected_commit_files": ["src/clamp.py"]
 }

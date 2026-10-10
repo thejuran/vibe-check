@@ -61,6 +61,11 @@ SEVERITY_FOR_BAND = {"critical": "critical", "warning": "high"}
 SEED_CONFIDENCE = 90
 SEED_CATEGORY = "bug"
 REVIEW_COMMAND = "review"
+# Plugin agents that never report review findings, so never recheck one.
+NON_REVIEWER_AGENTS = ("fix", "triage", "index", "codex-adversarial")
+# The reviewers /vibe-check:review dispatches on every pass (20-dispatch.md).
+REVIEW_ALWAYS_ON = ("bugs", "security")
+_AGENT_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 CODEX_OFF = {"status": "off", "reason": None, "verdict": None, "findings": 0}
 
 # Strings that only answer-key records carry. Any of them inside the copy
@@ -100,6 +105,14 @@ def _source_lines(source):
     return text.splitlines()
 
 
+def _is_plugin_reviewer(agent):
+    """A carried finding closes only when its own agent rechecks it, so the
+    seeded finding must name an agent the plugin has and dispatches."""
+    if not _AGENT_NAME_RE.match(agent) or agent in NON_REVIEWER_AGENTS:
+        return False
+    return (PLUGIN_SCRIPTS_DIR.parent / "agents" / (agent + ".md")).is_file()
+
+
 def key_to_finding(key, source):
     """One agent-finding item for `key`, with raw facts read from `source`.
 
@@ -113,6 +126,8 @@ def key_to_finding(key, source):
     for field in ("file", "title", "problem", "current_code", "agent"):
         if not isinstance(key[field], str) or not key[field].strip():
             raise SeedError("key field %s must be a non-empty string" % field)
+    if not _is_plugin_reviewer(key["agent"]):
+        raise SeedError("key agent is not a plugin reviewer")
     if key["band"] not in BLOCKING_BANDS:
         raise SeedError("key band must be critical or warning")
     line = key["line"]
