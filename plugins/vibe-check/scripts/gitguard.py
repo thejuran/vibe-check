@@ -100,6 +100,17 @@ output operands, output flags, exec/compile flags — in both BSD and GNU forms)
   - find: its write/exec paths are exactly -fprint/-fprint0/-fprintf/-fls
     (DENIED_READER_FLAGS) and -exec/-execdir/-ok/-okdir/-delete (refused as
     indirection)
+  - sed: allowed ONLY through _classify_sed (ARGV_VALIDATED_WORDS), never by
+    name: -n/--quiet/--silent required, `-e` the only other flag, and every
+    script a numeric-address print (`sed -n 'N,Mp' file`, `$`, `+N`, `;`
+    lists). -i/--in-place, -f, w/W/r/R/e, s///w, s///e and regex addresses
+    are outside the grammar and refuse; it then writes only to stdout
+  - cd: allowed ONLY through _classify_cd (ARGV_VALIDATED_WORDS): `cd
+    [-L|-P] <one operand>` with the operand judged by _resolve_dir_target
+    (the repo root, `.`, or an absolute, `..`-free plain subdirectory with no
+    symlink or git directory on the way). cd writes nothing, but the Bash
+    tool keeps the new cwd for later commands, so no-operand, `-`, relative,
+    glob/brace/tilde and two-operand forms refuse
   - git: governed by its own argv rules (READ_ONLY_SUBCOMMANDS,
     CONDITIONAL_SUBCOMMANDS, DENIED_SUBCOMMAND_FLAGS)
   stdout itself is confined by the redirect rule.
@@ -171,6 +182,11 @@ REASON_GIT_AS_ARGUMENT = (
 REASON_GIT_DIR_PATH = (
     "refused: .git path used by a non-reader command (fail closed)")
 REASON_GIT_OTHER_DIR = "refused: git in another directory (fail closed)"
+REASON_SED_FORM = (
+    "refused: sed is allowed only as `sed -n 'N,Mp' file` (fail closed)")
+REASON_CD_FORM = (
+    "refused: cd is allowed only with a single directory operand "
+    "(fail closed)")
 
 # --------------------------------------------------------------------------- #
 # command-word policy
@@ -185,8 +201,13 @@ PURE_READERS = frozenset(
 
 SAFE_COMMAND_WORDS = frozenset({"git"}) | PURE_READERS | frozenset({
     "echo", "printf", "true", "false", "cut", "tr", "basename", "dirname",
-    "pwd",
+    "pwd", "cd", "sed",
 })
+
+# Allowlisted words whose COMPLETE argv goes through a dedicated validator
+# before (and instead of) the generic allowlist checks: the name alone never
+# allows them.
+ARGV_VALIDATED_WORDS = frozenset({"cd", "sed"})
 
 DENIED_READER_FLAGS = {
     "rg": frozenset(
@@ -263,6 +284,14 @@ _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _RG_Z_CLUSTER_RE = re.compile(r"^-[A-Za-z]*z[A-Za-z]*$")
 _TRUSTED_SPLIT_RE = re.compile(r"[\s;&|(){}<>=]+")
 _SUBSTITUTION_MARKERS = ("`", "$(", "${", "<(", ">(", "<<")
+_SED_ADDR = r"(?:[0-9]+|\$)"
+_SED_ADDR2 = r"(?:[0-9]+|\$|\+[0-9]+)"
+_SED_CMD = r"%s(?:,%s)?p" % (_SED_ADDR, _SED_ADDR2)
+_SED_SCRIPT_RE = re.compile(r"%s(?:;%s)*;?" % (_SED_CMD, _SED_CMD))
+_SED_QUIET_FLAGS = frozenset({"-n", "--quiet", "--silent"})
+# Characters that make bash expand a cd operand into some other path (glob,
+# brace, tilde) — the resolver would judge the literal text, not the target.
+_CD_EXPANSION_CHARS = frozenset("*?[]{}~")
 
 
 # --------------------------------------------------------------------------- #
@@ -819,8 +848,12 @@ def _resolve_dir_target(operand, repo_root):
     """Classify a `git -C` value or `cd` operand -> (kind, reason).
 
     kind is "root" (the reviewed repo root itself), "subdir" (a plain
-    directory inside it) or None with reason REASON_GIT_OTHER_DIR. Git accepts
-    only "root"; a git-less `cd` may also accept "subdir".
+    directory inside it) or None with a reason: REASON_GIT_OTHER_DIR when a
+    path component is a git directory (a `.git` entry, the bare shape, a
+    `.git` name suffix), else REASON_CD_FORM (relative, `..`, symlink,
+    outside the root, missing). Git accepts only "root" and refuses anything
+    else as REASON_GIT_OTHER_DIR itself; a git-less `cd` may also accept
+    "subdir".
 
     The rule is LEXICAL on purpose and never calls realpath on the operand.
     bash's default `cd` is logical: with `R/vendor/x.git/link -> R/vendor`,
@@ -837,7 +870,7 @@ def _resolve_dir_target(operand, repo_root):
     """
     if operand in (".", "./"):
         return "root", None
-    refused = (None, REASON_GIT_OTHER_DIR)
+    refused = (None, REASON_CD_FORM)
     if not isinstance(repo_root, str) or not repo_root \
             or not isinstance(operand, str) or not operand.startswith("/"):
         return refused
@@ -852,10 +885,11 @@ def _resolve_dir_target(operand, repo_root):
     current = repo_root
     for part in target[len(prefix):].split(os.sep):
         current = os.path.join(current, part)
-        if (os.path.islink(current)
-                or os.path.lexists(os.path.join(current, ".git"))
+        if (os.path.lexists(os.path.join(current, ".git"))
                 or _is_bare_shaped(current)
                 or part.endswith(".git")):
+            return None, REASON_GIT_OTHER_DIR
+        if os.path.islink(current):
             return refused
     return "subdir", None
 
@@ -907,6 +941,74 @@ def _reader_flag_denied(word, args):
     return False
 
 
+def _classify_sed(args):
+    """sed is allowed only as a quiet numeric-range print -> (bool, reason).
+
+    Flags: exactly -n/--quiet/--silent (required) and `-e <script>`
+    (repeatable). Every script — the -e values, or else the first operand —
+    must match `cmd(;cmd)*;?` with `cmd := addr(,addr2)?p`, `addr := N|$`,
+    `addr2 := N|$|+N`. Every other token is a file operand that must not
+    start with `-`. The whole script is validated, not just the flags: `w`,
+    `W`, `r`, `R`, `e`, `s///w`, `s///e` and regex addresses (where a write
+    hides behind a delimiter) all fall outside the grammar.
+    """
+    quiet = False
+    scripts = []
+    operands = []
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in _SED_QUIET_FLAGS:
+            quiet = True
+        elif tok == "-e":
+            if i + 1 >= len(args):
+                return False, REASON_SED_FORM
+            scripts.append(args[i + 1])
+            i += 2
+            continue
+        elif tok.startswith("-"):
+            return False, REASON_SED_FORM
+        else:
+            operands.append(tok)
+        i += 1
+    if not scripts:
+        if not operands:
+            return False, REASON_SED_FORM
+        scripts.append(operands.pop(0))
+    if not quiet:
+        return False, REASON_SED_FORM
+    if not all(_SED_SCRIPT_RE.fullmatch(script) for script in scripts):
+        return False, REASON_SED_FORM
+    return True, ALLOWED
+
+
+def _classify_cd(args, repo_root):
+    """cd [-L|-P]... <one operand> -> (bool, reason).
+
+    The operand count and flags are checked here; every judgement about the
+    path itself is _resolve_dir_target's (root or subdir -> allowed). A cd
+    with no operand (goes to $HOME), `cd -`, two operands (zsh's substitute
+    form), any other flag, or an operand bash would expand (glob, brace,
+    tilde) is refused: the Bash tool's shell keeps the new cwd for every
+    later command, and the guard cannot see it.
+    """
+    operands = list(args)
+    while operands and operands[0] in ("-L", "-P"):
+        operands.pop(0)
+    if len(operands) != 1:
+        return False, REASON_CD_FORM
+    operand = operands[0]
+    # `-`, `-x` and `~` are never absolute, so the resolver refuses them.
+    if _CD_EXPANSION_CHARS & set(operand):
+        return False, REASON_CD_FORM
+    kind, reason = _resolve_dir_target(operand, repo_root)
+    if kind in ("root", "subdir"):
+        return True, ALLOWED
+    if reason == REASON_GIT_OTHER_DIR:
+        return False, REASON_GIT_OTHER_DIR
+    return False, REASON_CD_FORM
+
+
 def _touches_git_dir(args):
     return any(".git" in tok.split("/") for tok in args)
 
@@ -928,6 +1030,10 @@ def _classify_simple(argv, repo_root=None):
         return False, REASON_INDIRECTION
     if word == "git":
         return _classify_git_argv(args, repo_root)
+    if word in ARGV_VALIDATED_WORDS:
+        if word == "sed":
+            return _classify_sed(args)
+        return _classify_cd(args, repo_root)
     if word not in SAFE_COMMAND_WORDS:
         return False, REASON_NOT_ALLOWLISTED
     if _reader_flag_denied(word, args):
