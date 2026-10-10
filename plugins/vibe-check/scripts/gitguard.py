@@ -65,13 +65,16 @@ CLI (python3 gitguard.py <subcommand>):
   reset --root R            deletes the record file if present. exit 0 | 2.
 
 I/O: stdlib only. The module's full import set is {argparse, json, os, re,
-shlex, sys}; it never imports subprocess, shutil or socket.
+sys}; it never imports subprocess, shutil or socket.
 
-Tokenizing notes: shlex treats a newline as plain whitespace, so unquoted
-newlines become ` ; ` before tokenizing; shlex comment handling is turned off
-because shlex starts a comment at `#` even mid-word (bash does not), which would
-hide a second command. A redirect's fd number (`2` in `2>/dev/null`) stays in
-the argv as an extra argument — that can only make a command look less safe,
+Tokenizing notes: a small hand-written lexer (_tokenize) reads words the way
+bash does and marks a token as an operator only when its `;|&()<>` characters
+are UNQUOTED and UNESCAPED, so `find … \\( -name x \\)` and `grep "a;b"` stay
+one command while an unquoted zsh qualifier `*(e:cmd:)` still splits (and the
+resulting segment refuses). Unquoted newlines become ` ; ` before tokenizing.
+`#` is never a comment start (a mid-word `#` treated as one would hide a
+second command). A redirect's fd number (`2` in `2>/dev/null`) stays in the
+argv as an extra argument — that can only make a command look less safe,
 never more.
 
 Allowlist audit (every kept word was checked for implicit writes — positional
@@ -126,7 +129,6 @@ import argparse
 import json
 import os
 import re
-import shlex
 import sys
 
 # The WebFetch/MCP scope boundary, stated identically in the docstring above,
@@ -524,7 +526,8 @@ def _mentions_git(command):
 
 
 def _normalise_newlines(command):
-    """Replace newlines outside quotes with ` ; ` (shlex treats \\n as space)."""
+    """Replace newlines outside quotes with ` ; ` (the lexer treats \\n as
+    plain whitespace)."""
     out = []
     quote = None
     i = 0
@@ -559,14 +562,112 @@ def _normalise_newlines(command):
     return "".join(out)
 
 
+class Token(str):
+    """A shell word or operator plus how it was spelled.
+
+    is_operator is True only for a run of UNQUOTED, UNESCAPED operator
+    characters (`;`, `|`, `&`, `(`, `)`, `<`, `>`). quoted / escaped record
+    whether any part of the word was quoted or backslash-escaped.
+    """
+
+    __slots__ = ("is_operator", "quoted", "escaped")
+
+    def __new__(cls, text, is_operator=False, quoted=False, escaped=False):
+        obj = str.__new__(cls, text)
+        obj.is_operator = is_operator
+        obj.quoted = quoted
+        obj.escaped = escaped
+        return obj
+
+
+_WHITESPACE = " \t\r\n"
+_DQUOTE_ESCAPABLE = '$`"\\\n'
+
+
 def _tokenize(command):
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""
-    return list(lexer)
+    """Split a command into Tokens the way bash reads words and operators.
+
+    Single quotes are literal; inside double quotes a backslash escapes only
+    $ ` " \\ and newline; outside quotes a backslash makes the next character
+    literal. `#` is literal (no comment handling: bash only starts a comment
+    at a word start, and treating it as one could hide a second command).
+    Raises ValueError on an unterminated quote or a trailing backslash.
+    """
+    tokens = []
+    word = []
+    in_word = False
+    quoted = escaped = False
+    op = []
+
+    def flush_word():
+        nonlocal word, in_word, quoted, escaped
+        if in_word:
+            tokens.append(Token("".join(word), False, quoted, escaped))
+        word, in_word, quoted, escaped = [], False, False, False
+
+    def flush_op():
+        if op:
+            tokens.append(Token("".join(op), True))
+            del op[:]
+
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if ch in _PUNCT_CHARS:
+            flush_word()
+            op.append(ch)
+            i += 1
+            continue
+        flush_op()
+        if ch in _WHITESPACE:
+            flush_word()
+            i += 1
+            continue
+        in_word = True
+        if ch == "\\":
+            if i + 1 >= n:
+                raise ValueError("no escaped character")
+            word.append(command[i + 1])
+            escaped = True
+            i += 2
+            continue
+        if ch == "'":
+            end = command.find("'", i + 1)
+            if end < 0:
+                raise ValueError("no closing quotation")
+            word.append(command[i + 1:end])
+            quoted = True
+            i = end + 1
+            continue
+        if ch == '"':
+            quoted = True
+            i += 1
+            while True:
+                if i >= n:
+                    raise ValueError("no closing quotation")
+                c = command[i]
+                if c == '"':
+                    i += 1
+                    break
+                if c == "\\" and i + 1 < n and command[i + 1] in \
+                        _DQUOTE_ESCAPABLE:
+                    word.append(command[i + 1])
+                    i += 2
+                    continue
+                word.append(c)
+                i += 1
+            continue
+        word.append(ch)
+        i += 1
+    flush_op()
+    flush_word()
+    return tokens
 
 
 def _is_punct(token):
+    if isinstance(token, Token):
+        return token.is_operator
     return bool(token) and all(ch in _PUNCT_CHARS for ch in token)
 
 
@@ -615,7 +716,9 @@ def _split_simple_commands(tokens):
     current = []
     for tok in tokens:
         if (_is_punct(tok) and not _is_redirect_op(tok)) \
-                or tok in _SEPARATOR_TOKENS:
+                or (tok in _SEPARATOR_TOKENS
+                    and not getattr(tok, "quoted", False)
+                    and not getattr(tok, "escaped", False)):
             if current:
                 segments.append(current)
             current = []

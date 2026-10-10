@@ -681,7 +681,7 @@ class TestTokenize(unittest.TestCase):
 # module purity
 # --------------------------------------------------------------------------- #
 class TestImportSet(unittest.TestCase):
-    ALLOWED = {"argparse", "json", "os", "re", "shlex", "sys"}
+    ALLOWED = {"argparse", "json", "os", "re", "sys"}
     FORBIDDEN = {"subprocess", "shutil", "socket"}
 
     def _imported(self):
