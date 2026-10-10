@@ -204,10 +204,11 @@ class TestDetectsChange(GitsnapCase):
         git(self.repo, "branch", "-D", "x")
         self.assertChanged("refs/heads/x deleted")
 
-    def test_tag_create_is_detected(self):
-        self.take()
+    def test_tag_delete_is_detected(self):
         git(self.repo, "tag", "v9")
-        self.assertChanged("refs/tags/v9 created")
+        self.take()
+        git(self.repo, "tag", "-d", "v9")
+        self.assertChanged("refs/tags/v9 deleted")
 
     def test_switch_at_same_commit_is_branch_switch(self):
         self.take()
@@ -300,6 +301,173 @@ class TestRemoteRefsExcluded(GitsnapCase):
         proc = self.compare()
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("refs/heads/x created", proc.stdout)
+
+
+NEW_TAG_LINE = ("new tag refs/tags/v1 appeared "
+                "(a tag fetch — allowed; the pass continues)")
+
+
+class TestTagAllowance(GitsnapCase):
+    """A NEW local tag (e.g. `git fetch --tags`) is allowed and announced.
+
+    A moved or deleted tag, any refs/heads/* change and any HEAD change still
+    halt. Allowed lines are printed even when something else halts.
+    """
+
+    def side_commit(self):
+        """A commit object that moves no local ref and no HEAD reflog."""
+        return git(self.repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD",
+                   "-m", "side").stdout.strip()
+
+    def after_refs(self):
+        after = os.path.join(self.tmp, "snaps", "after.json")
+        proc = self.cli("take", "--root", self.repo, "--out", after)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        with open(after) as fh:
+            return json.load(fh)["refs"]
+
+    def test_new_tag_is_allowed_and_announced(self):
+        self.take()
+        git(self.repo, "tag", "v1")
+        self.assertIn("refs/tags/v1", self.after_refs())
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, NEW_TAG_LINE + "\n")
+
+    def test_new_annotated_tag_is_allowed(self):
+        self.take()
+        git(self.repo, "tag", "-a", "-m", "release", "v1")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, NEW_TAG_LINE + "\n")
+
+    def test_real_fetch_tags_is_allowed_and_announced(self):
+        bare = os.path.join(self.tmp, "origin.git")
+        pusher = os.path.join(self.tmp, "pusher")
+        git(self.tmp, "init", "-q", "--bare", "-b", "main", bare)
+        git(self.repo, "remote", "add", "origin", bare)
+        git(self.repo, "push", "-q", "origin", "main")
+        git(self.tmp, "clone", "-q", bare, pusher)
+        git(pusher, "tag", "v1")
+        git(pusher, "push", "-q", "origin", "v1")
+        self.take()
+        git(self.repo, "fetch", "-q", "--tags", "origin")
+        self.assertIn("refs/tags/v1", self.after_refs())
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, NEW_TAG_LINE + "\n")
+
+    def test_moved_tag_halts(self):
+        git(self.repo, "tag", "v1")
+        self.take()
+        git(self.repo, "tag", "-f", "v1", self.side_commit())
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("refs/tags/v1 moved", proc.stdout)
+        self.assertNotIn("appeared", proc.stdout)
+
+    def test_deleted_tag_halts(self):
+        git(self.repo, "tag", "v1")
+        self.take()
+        git(self.repo, "tag", "-d", "v1")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("refs/tags/v1 deleted", proc.stdout)
+
+    def test_branch_created_still_halts_not_a_tag(self):
+        self.take()
+        git(self.repo, "branch", "b1")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("refs/heads/b1 created", proc.stdout)
+        self.assertNotIn("appeared", proc.stdout)
+
+    def test_new_tag_with_branch_created_halts_and_still_announces_tag(self):
+        self.take()
+        git(self.repo, "tag", "v1")
+        git(self.repo, "branch", "b1")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn(NEW_TAG_LINE, proc.stdout)
+        self.assertIn("branches/tags changed: refs/heads/b1 created",
+                      proc.stdout)
+        self.assertNotIn("refs/tags/v1 created", proc.stdout)
+
+    def test_new_tag_with_head_move_halts(self):
+        self.take()
+        git(self.repo, "tag", "v1")
+        write(self.repo, "f.txt", "two\n")
+        git(self.repo, "commit", "-q", "-am", "second")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("HEAD moved", proc.stdout)
+        self.assertIn(NEW_TAG_LINE, proc.stdout)
+
+    def test_tag_lookalike_namespace_is_not_allowed(self):
+        self.take()
+        git(self.repo, "update-ref", "refs/tagsx/v1", "HEAD")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("refs/tagsx/v1 created", proc.stdout)
+
+    def test_remote_only_fetch_with_tags_policy_prints_nothing(self):
+        self.take()
+        git(self.repo, "update-ref", "refs/remotes/origin/x", "HEAD")
+        proc = self.compare()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout, "")
+
+    def test_mutant_tag_prefix_only_allowance_misses_moved_tag(self):
+        def move():
+            git(self.repo, "tag", "-f", "v1", self.side_commit())
+        git(self.repo, "tag", "v1")
+        self.take_inproc()
+        move()
+        code, out = self.compare_inproc()
+        self.assertEqual(code, 1, "real split must halt a moved tag: " + out)
+        self.assertFalse(gitsnap._is_allowed_ref_change(
+            "refs/tags/v1", {"refs/tags/v1": "a"}, {"refs/tags/v1": "b"}))
+        with mock.patch.object(
+                gitsnap, "_is_allowed_ref_change",
+                lambda name, before, after: name.startswith("refs/tags/")):
+            self.take_inproc()
+            move()
+            code, out = self.compare_inproc()
+        self.assertEqual(code, 0, "prefix-only mutant should go blind: " + out)
+
+    def test_mutant_tag_allowance_removed_halts_on_new_tag(self):
+        self.take_inproc()
+        git(self.repo, "tag", "v1")
+        code, out = self.compare_inproc()
+        self.assertEqual(code, 0, out)
+        git(self.repo, "tag", "-d", "v1")
+        with mock.patch.object(gitsnap, "_is_allowed_ref_change",
+                               lambda name, before, after: False):
+            self.take_inproc()
+            git(self.repo, "tag", "v1")
+            code, out = self.compare_inproc()
+        self.assertEqual(code, 1, "no-allowance mutant must halt: " + out)
+        self.assertIn("refs/tags/v1 created", out)
+
+
+class TestDiffSnapshotsShape(unittest.TestCase):
+    """diff_snapshots returns (halt_lines, info_lines)."""
+
+    BASE = {"head": "a" * 40, "symref": "refs/heads/main",
+            "index_sha256": "0" * 64, "stash": [], "refs_sha256": "x",
+            "refs": {"refs/heads/main": "a" * 40},
+            "head_reflog_count": 1, "in_progress": []}
+
+    def test_tag_only_change_is_info_not_halt(self):
+        after = dict(self.BASE, refs=dict(self.BASE["refs"],
+                                          **{"refs/tags/v1": "a" * 40}))
+        halt, info = gitsnap.diff_snapshots(self.BASE, after)
+        self.assertEqual(halt, [])
+        self.assertEqual(info, [NEW_TAG_LINE])
+
+    def test_no_change_is_two_empty_lists(self):
+        self.assertEqual(gitsnap.diff_snapshots(self.BASE, dict(self.BASE)),
+                         ([], []))
 
 
 class TestCannotConfirm(GitsnapCase):
