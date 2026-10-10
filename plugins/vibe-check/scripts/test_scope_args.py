@@ -33,13 +33,23 @@ SPINES = [
     os.path.join(PLUGIN_DIR, "commands", "deep-review.md"),
 ]
 FIX_LOOP = os.path.join(PLUGIN_DIR, "phases", "review", "50-fix-loop.md")
+FINALIZE = os.path.join(PLUGIN_DIR, "phases", "shared", "90-finalize.md")
 
 FENCE = re.compile(r"```bash\n(.*?)```", re.S)
 NEEDLE = "SCOPE_ARGS=$(printf '%s' \"$ARGUMENTS\""
 # The whole-token strip expression the normalizer carries; M2 targets it.
 STRIP_EXPR = "s/ --finalize( --finalize)* / /g"
 
-TRIGGER = "Runs iff `$ARGUMENTS` contains `--finalize`"
+TRIGGER = "Runs iff Phase 0 printed `FINALIZE_MODE=1`"
+# The whole-token finalize match the normalizer fence carries; M3 targets it.
+FINALIZE_MATCH = '*" --finalize "*)'
+# Substring-test phrasings the finalize trigger used before FINALIZE_MODE: none
+# of the files that branch on finalize may carry them again.
+OLD_TRIGGER_PHRASES = [
+    "contains `--finalize`",
+    "contain `--finalize`",
+    "contain the `--finalize` token",
+]
 REENTRY = "${original_args} --finalize"
 
 SHELLS = ["/bin/bash"] + (["/bin/zsh"] if os.path.exists("/bin/zsh") else [])
@@ -72,6 +82,7 @@ WHOLE_TOKEN_NEGATIVES = [
     "--finalizex 49",
     "path/--finalize",
     "49 --finalize=1",
+    "--finalize=1",
 ]
 
 REGRESSION_CASES = [
@@ -113,15 +124,37 @@ def sandbox_regex(text):
 def scope_args(block, arguments, shell="/bin/bash"):
     flags = ["-f"] if shell.endswith("zsh") else []
     proc = subprocess.run(
-        [shell, *flags, "-c", block + '\nprintf "%s" "$SCOPE_ARGS"\n'],
+        [shell, *flags, "-c",
+         "{\n" + block + '\n} >/dev/null\nprintf "%s" "$SCOPE_ARGS"\n'],
         env=dict(os.environ, ARGUMENTS=arguments),
         capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0, proc.stderr
     return proc.stdout
 
 
+def finalize_mode(block, arguments, shell="/bin/bash"):
+    """Run the normalizer fence and return the value of its one
+    `FINALIZE_MODE=<0|1>` output line (which must equal $FINALIZE_MODE)."""
+    flags = ["-f"] if shell.endswith("zsh") else []
+    proc = subprocess.run(
+        [shell, *flags, "-c", block + '\nprintf "VAR=%s\\n" "$FINALIZE_MODE"\n'],
+        env=dict(os.environ, ARGUMENTS=arguments),
+        capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    printed = [ln for ln in lines if ln.startswith("FINALIZE_MODE=")]
+    assert len(printed) == 1, "expected one FINALIZE_MODE= line, got %r" % lines
+    value = printed[0][len("FINALIZE_MODE="):]
+    assert lines[-1] == "VAR=" + value, (lines, value)
+    return value
+
+
 def finalize_trigger_present(text):
     return TRIGGER in text
+
+
+def old_trigger_phrases(text):
+    return [p for p in OLD_TRIGGER_PHRASES if p in text]
 
 
 class _Base(unittest.TestCase):
@@ -182,6 +215,30 @@ class TestInvariance(_Base):
 
 
 @unittest.skipUnless(len(SHELLS) == 2, "/bin/zsh not present")
+class TestFinalizeMode(_Base):
+    """FINALIZE_MODE is the one place the finalize flag is decided."""
+
+    def test_finalize_cases_are_1(self):
+        for shell in SHELLS:
+            for arguments, _ in FINALIZE_CASES:
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(finalize_mode(self.block, arguments, shell), "1")
+
+    def test_whole_token_negatives_are_0(self):
+        for required in ("foo--finalize", "--finalize=1", "path/--finalize", "--finalize-x"):
+            self.assertIn(required, WHOLE_TOKEN_NEGATIVES)
+        for shell in SHELLS:
+            for arguments in WHOLE_TOKEN_NEGATIVES:
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(finalize_mode(self.block, arguments, shell), "0")
+
+    def test_no_finalize_shapes_are_0(self):
+        for shell in SHELLS:
+            for arguments, _ in REGRESSION_CASES:
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(finalize_mode(self.block, arguments, shell), "0")
+
+
 class TestShellParity(_Base):
     def test_bash_equals_zsh(self):
         inputs = ([a for a, _ in FINALIZE_CASES] + WHOLE_TOKEN_NEGATIVES
@@ -205,12 +262,30 @@ class TestMutants(_Base):
         self.assertNotEqual(mutant, self.block)
         self.assertNotEqual(scope_args(mutant, "foo--finalize"), "foo--finalize")
 
+    def test_m3_substring_finalize_match_routes_negatives_to_1(self):
+        self.assertIn(FINALIZE_MATCH, self.block)
+        mutant = self.block.replace(FINALIZE_MATCH, "*--finalize*)")
+        self.assertNotEqual(mutant, self.block)
+        self.assertEqual(finalize_mode(self.block, "foo--finalize"), "0")
+        self.assertEqual(finalize_mode(mutant, "foo--finalize"), "1")
+
 
 class TestBoundary(unittest.TestCase):
     def test_spines_keep_finalize_trigger(self):
         for spine in SPINES:
             with self.subTest(spine=os.path.basename(spine)):
                 self.assertTrue(finalize_trigger_present(read(spine)))
+
+    def test_no_substring_trigger_phrasing_left(self):
+        for path in SPINES + [SCOPE, STATE, FINALIZE]:
+            with self.subTest(file=os.path.basename(path)):
+                self.assertEqual(old_trigger_phrases(read(path)), [])
+
+    def test_substring_phrase_lock_mutant(self):
+        text = read(SPINES[0])
+        mutant = text.replace(TRIGGER, "Runs iff `$ARGUMENTS` contains `--finalize`")
+        self.assertNotEqual(mutant, text)
+        self.assertNotEqual(old_trigger_phrases(mutant), [])
 
     def test_fix_loop_reenters_with_finalize(self):
         self.assertIn(REENTRY, read(FIX_LOOP))
@@ -222,7 +297,7 @@ class TestBoundary(unittest.TestCase):
         self.assertFalse(finalize_trigger_present(mutant))
 
 
-CARVE_OUT = "`$ARGUMENTS` does NOT contain the `--finalize` token"
+CARVE_OUT = "Phase 0 printed `FINALIZE_MODE=0`"
 SCOPE_STOP = "No changes to review."
 STATE_STOP = "No new changes since pass"
 SCOPE_STOP_2110 = '   If empty: print "No changes to review." and stop.'
@@ -254,14 +329,14 @@ class TestEmptyDiffCarveOut(unittest.TestCase):
         text = read(SCOPE)
         self.assertTrue(stop_is_conditioned(text, SCOPE_STOP))
         self.assertIn('print "No changes to review." and stop', stop_line(text, SCOPE_STOP))
-        self.assertIn("`--finalize` run", stop_line(text, SCOPE_STOP))
+        self.assertIn("`FINALIZE_MODE=1`", stop_line(text, SCOPE_STOP))
 
     def test_state_step4_stop_is_conditioned(self):
         text = read(STATE)
         self.assertTrue(stop_is_conditioned(text, STATE_STOP))
         self.assertIn('print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop',
                       stop_line(text, STATE_STOP))
-        self.assertIn("`--finalize` run", stop_line(text, STATE_STOP))
+        self.assertIn("`FINALIZE_MODE=1`", stop_line(text, STATE_STOP))
 
     def test_e1_unconditional_scope_stop_fails_lock(self):
         text = read(SCOPE)
