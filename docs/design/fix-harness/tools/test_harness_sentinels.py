@@ -158,13 +158,28 @@ class TestVerify(_Planted):
                     "HEAD:%s" % self.recipe["fixed_file"])
         fixed_head = head.replace("    if value > hi - 1:\n        return hi - 1\n",
                                   "    if value > hi:\n        return hi\n")
+        root = self.copy.root
         blob = subprocess.run(
-            ["git", "hash-object", "-w", "--stdin"], cwd=self.copy.root,
+            ["git", "hash-object", "-w", "--stdin"], cwd=root,
             input=fixed_head, capture_output=True, text=True,
             timeout=60).stdout.strip()
-        _git(self.copy.root, "update-index", "--cacheinfo",
-             "100644,%s,%s" % (blob, self.recipe["fixed_file"]))
-        _git(self.copy.root, "commit", "-qm", "fix clamp")
+        # A private index keeps the owner's staged sentinel out of the commit.
+        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(
+            self._tmp.name, "fix.index"))
+
+        def g(*args):
+            proc = subprocess.run(["git", *args], cwd=root, env=env,
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return proc.stdout.strip()
+        g("read-tree", "HEAD")
+        g("update-index", "--cacheinfo",
+          "100644,%s,%s" % (blob, self.recipe["fixed_file"]))
+        commit = g("commit-tree", g("write-tree"), "-p", "HEAD",
+                   "-m", "fix clamp")
+        _git(root, "update-ref", "HEAD", commit)
+        self.assertNotIn("hi - 1", _git(root, "show", "HEAD:%s"
+                                        % self.recipe["fixed_file"]))
         self.assertEqual(hsn.verify(self.copy, self.record), [])
 
     def test_flipped_byte_in_unstaged_sentinel_is_named(self):
@@ -197,6 +212,12 @@ class TestVerify(_Planted):
         _git(self.copy.root, "commit", "-qm", "sweep")
         reasons = hsn.verify(self.copy, self.record)
         self.assertEqual(reasons, ["staged sentinel was committed"])
+
+    def test_committed_unstaged_sentinel_is_reported(self):
+        _git(self.copy.root, "add", self.recipe["untouched_file"])
+        _git(self.copy.root, "commit", "-qm", "sweep all")
+        reasons = hsn.verify(self.copy, self.record)
+        self.assertIn("unstaged sentinel was committed", reasons)
 
     def test_reset_untouched_file_changes_the_index_blob(self):
         _git(self.copy.root, "reset", "-q", "--",
