@@ -128,7 +128,7 @@ TRUSTED_BYPASS_DENY = (
     ("python3 FIXSTAGE.PY commit", "REASON_TRUSTED_SCRIPT", frozenset()),
     ("python3 x/gitsnap.py check", "REASON_TRUSTED_SCRIPT", frozenset()),
     ("python3 x/fixcheck.py after", "REASON_TRUSTED_SCRIPT", frozenset()),
-    ("python3 x/fixcommit.py --finding-json f", "REASON_TRUSTED_SCRIPT",
+    ("python3 x/fixcommit.py f.json", "REASON_TRUSTED_SCRIPT",
      frozenset()),
     ("python3 x/gitguard.py reset --root .", "REASON_TRUSTED_SCRIPT",
      frozenset()),

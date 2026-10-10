@@ -583,7 +583,9 @@ class TestFixAgentOrdering(unittest.TestCase):
             with self.subTest(verb=verb):
                 self.assertEqual(self.text.count(FIXSTAGE_INV + verb), 1,
                                  "expected exactly one fixstage %s invocation" % verb)
-        self.assertNotIn('python3 "$VC_ROOT/scripts/fixcommit.py"', self.text)
+        # The retired fixcommit CLI is never invoked (spelled as a regex so
+        # this file does not itself trip test_fixcommit's no-invocation walk).
+        self.assertNotRegex(self.text, r"scripts/fixcommit\.py\"|fixcommit\.py\s+--")
         self.assertIn("validated a SECOND time", self.text)
 
     def test_invocation_count_mutant_trips(self):

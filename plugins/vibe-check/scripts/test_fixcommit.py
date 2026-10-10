@@ -519,6 +519,66 @@ class TestCliRetired(_RootCase):
 
 
 # --------------------------------------------------------------------------- #
+# No prose or script invokes the retired CLI
+# --------------------------------------------------------------------------- #
+PLUGIN_DIR = os.path.normpath(os.path.join(SCRIPTS_DIR, ".."))
+LOCK_DIRS = ("phases", "agents", "commands", "scripts")
+CLI_INVOCATION_RE = re.compile(
+    r"fixcommit\.py[\"']?\s+--|scripts/fixcommit\.py\"")
+
+
+def _invokes_retired_cli(text):
+    return CLI_INVOCATION_RE.search(text) is not None
+
+
+class TestNoCliInvocation(unittest.TestCase):
+    """A mention ("fixcommit.py's docstring", `fixcommit.TITLE_ALLOWED`) is fine;
+    an invocation form of the old command line is not."""
+
+    def _files(self):
+        for sub in LOCK_DIRS:
+            for dirpath, _dirs, names in os.walk(os.path.join(PLUGIN_DIR, sub)):
+                for name in names:
+                    if name.endswith((".md", ".py")):
+                        yield os.path.join(dirpath, name)
+
+    def test_no_file_invokes_the_retired_cli(self):
+        this = os.path.abspath(__file__)
+        scanned, offenders = 0, []
+        for path in self._files():
+            if os.path.abspath(path) == this:
+                continue  # this file spells the patterns to test them
+            scanned += 1
+            with open(path, "r", encoding="utf-8") as fh:
+                if _invokes_retired_cli(fh.read()):
+                    offenders.append(os.path.relpath(path, PLUGIN_DIR))
+        self.assertGreater(scanned, 50, "the walk found too few files")
+        self.assertEqual(offenders, [])
+
+    def test_walk_covers_the_prose_that_used_to_invoke_it(self):
+        rels = {os.path.relpath(p, PLUGIN_DIR) for p in self._files()}
+        for rel in ("agents/fix.md", "phases/review/50-fix-loop.md",
+                    "phases/shared/90-finalize.md", "scripts/fixstage.py"):
+            with self.subTest(rel=rel):
+                self.assertIn(rel, rels)
+
+    def test_mutant_invocations_are_flagged(self):
+        for text in ('python3 "$VC_ROOT/scripts/fixcommit.py" --finding-json f',
+                     "python3 x/fixcommit.py --finding-json f",
+                     "if python3 fixcommit.py --root .; then git commit; fi"):
+            with self.subTest(text=text):
+                self.assertTrue(_invokes_retired_cli(text))
+
+    def test_mentions_are_not_flagged(self):
+        for text in ("(fixcommit.py's docstring carries the full reasoning)",
+                     "`fixcommit.TITLE_ALLOWED`",
+                     "the same rule as `fixcommit.py`'s `--finding-json`",
+                     "(the fixstage/fixcommit library pattern)"):
+            with self.subTest(text=text):
+                self.assertFalse(_invokes_retired_cli(text))
+
+
+# --------------------------------------------------------------------------- #
 # module purity
 # --------------------------------------------------------------------------- #
 class TestImportSet(unittest.TestCase):

@@ -1384,6 +1384,25 @@ class TestCommit(CommitCase):
         self.assertEqual(git(self.repo, "symbolic-ref", "HEAD").stdout.strip(),
                          branch)
 
+    def test_k2_punctuated_title_commits_with_a_sanitized_subject(self):
+        # Bug E (D-08): Phase 51 needed hand commits for titles with `'`.
+        self.set_record(["f.txt"], title="Don't trust the user's input; sanitize")
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(
+            git(self.repo, "log", "-1", "--format=%s").stdout.strip(),
+            "fix(review-pass-1): Dont trust the users input, sanitize")
+        body = git(self.repo, "log", "-1", "--format=%B").stdout
+        self.assertEqual([l for l in body.split("\n") if l.strip()][1:], [])
+
+    def test_k3_title_that_sanitizes_to_nothing_uses_the_finding_id(self):
+        self.set_record(["f.txt"], title="'\"' \u200b\n")
+        res, _ = self.fix_flow(self.fix30)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(
+            git(self.repo, "log", "-1", "--format=%s").stdout.strip(),
+            "fix(review-pass-1): finding " + FID[:8])
+
     def test_k_hostile_title_sanitized_never_executed(self):
         # D-08: punctuation never refuses a verified fix; the title is data from
         # the record file, so the substitution is inert and `$` becomes a space.

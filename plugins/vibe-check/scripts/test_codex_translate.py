@@ -53,7 +53,7 @@ NUL = "\x00"         # ASCII control (low end)
 DEL = "\x7f"         # ASCII control (DEL)
 
 # fixcommit.TITLE_ALLOWED — the commit-construction allowlist. DELIBERATELY
-# STRICTER than this module's display sanitizer: `"` and `'` are rejected there
+# STRICTER than this module's display sanitizer: `"` and `'` are excluded there
 # because a quote is not demonstrably safe at a construction site. `,` is
 # admitted (owner decision D-16). Not a disagreement — see the docstring of
 # TestAllowlistRelationship.
@@ -193,8 +193,8 @@ class TestAllowlistRelationship(unittest.TestCase):
         (otherwise the display path would mangle a title the commit path
         considers legitimate), and
       * sanitize_title additionally keeps `"` and `'` — which the commit
-        path (fixcommit) REJECTS, because a quote is not demonstrably safe at
-        a construction site. Do NOT re-widen the commit allowlist to admit
+        path (fixcommit.commit_subject) DROPS, because a quote is not
+        demonstrably safe at a construction site. Do NOT re-widen the commit allowlist to admit
         quotes or apostrophes.
     """
 

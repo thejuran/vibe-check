@@ -59,7 +59,7 @@ title or a path (finding text is attacker-influenced).
 
 Owner reason text and fix verdicts arrive in files written by the orchestrator
 with its Write tool and are passed by path; no free text is ever on argv
-(the fixcommit.py pattern).
+(the fixstage/fixcommit library pattern).
 
 CLI (stdin is always the parsed state object; stdout is JSON):
 
