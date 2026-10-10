@@ -163,6 +163,7 @@ class TestSessionSettings(unittest.TestCase):
                 ],
                 "defaultMode": "default",
             },
+            "disableClaudeAiConnectors": True,
         }
         self.assertEqual(_sample_settings(), expected)
         self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
@@ -219,6 +220,8 @@ class TestSessionSettings(unittest.TestCase):
                 COPY + "/probe.sh"),
             lambda s: s["permissions"]["deny"].remove(
                 "Edit(//private/tmp/w/repo/probe.sh)"),
+            lambda s: s.pop("disableClaudeAiConnectors"),
+            lambda s: s.update(disableClaudeAiConnectors=False),
         ]
         for weaken in weakenings:
             s = _sample_settings()
@@ -238,6 +241,11 @@ class TestSessionSettings(unittest.TestCase):
             return s
         with mock.patch.object(h, "build_session_settings", patched):
             return h.build_session_settings(COPY, SNAP, OUT, CHECKOUT, KEYS)
+
+    def test_m14_connectors_left_enabled_flips(self):
+        self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
+        s = self._mutant(lambda s: s.pop("disableClaudeAiConnectors"))
+        self.assertFalse(h.settings_is_fail_closed(s))
 
     def test_m1_dropping_fail_if_unavailable_flips(self):
         self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
@@ -279,6 +287,29 @@ class TestPathBackstop(_TmpCase):
         r = self.check("Write", {"file_path": self.copy + "/new.txt",
                                  "content": "x"})
         self.assertEqual((r.ok, r.kind), (True, "copy"))
+
+    # MCP tools run inside the Claude Code process, outside Seatbelt and
+    # outside the copy; the smoke session reached the owner's account
+    # connectors through one. Every `mcp__` tool is external, path or not.
+    def test_mcp_tools_are_external(self):
+        for tool, data in (
+                ("mcp__claude_ai_Claude_Docs__update",
+                 {"payload": {"note": "x"},
+                  "ref": {"id": "src/clamp.py", "object": "file"}}),
+                ("mcp__claude_ai_Gmail__send", {}),
+                ("mcp__srv__read", {"file_path": self.copy + "/inside.txt"})):
+            r = self.check(tool, data)
+            self.assertEqual((r.ok, r.kind), (False, "external"), tool)
+
+    def test_m15_mcp_rule_is_load_bearing(self):
+        data = {"payload": {}, "ref": {"id": "x", "object": "file"}}
+        self.assertFalse(self.check("mcp__claude_ai_Gmail__send", data).ok)
+        with mock.patch.object(h, "_is_external_tool", lambda name: False):
+            self.assertTrue(self.check("mcp__claude_ai_Gmail__send", data).ok)
+
+    def test_builtin_pathless_tools_stay_allowed(self):
+        for tool in ("Bash", "Agent", "TodoWrite", "ToolSearch", "Skill"):
+            self.assertTrue(self.check(tool, {"command": "x"}).ok, tool)
 
     def test_symlink_escape_is_outside(self):
         r = self.check("Edit", {"file_path": self.copy + "/link_out/x",

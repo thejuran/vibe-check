@@ -176,6 +176,15 @@ class TestEnvAndIdentity(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
             self.assertNotIn("CLAUDECODE", d.session_env())
 
+    def test_no_mcp_server_may_load(self):
+        d.check_no_mcp_servers({"mcp_servers": []})
+        d.check_no_mcp_servers({})
+        with self.assertRaises(d.DriverError) as cm:
+            d.check_no_mcp_servers({"mcp_servers": [
+                {"name": "claude.ai Gmail", "source": "claudeai",
+                 "status": "pending"}]})
+        self.assertIn("mcp servers loaded", str(cm.exception))
+
     def test_identity_exactly_one_at_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             snap = os.path.realpath(tmp)
@@ -246,6 +255,10 @@ class TestFailClosed(_Case):
         self.assertEqual(captured["permission_mode"], "default")
         self.assertNotIn("CLAUDECODE", captured["env"])
         self.assertNotIn("sandbox", captured)
+        self.assertIs(captured["strict_mcp_config"], True)
+        self.assertEqual(captured["mcp_servers"], {})
+        self.assertEqual(captured["env"]["ENABLE_CLAUDEAI_MCP_SERVERS"],
+                         "false")
 
 
 # --------------------------------------------------------------------------- #
@@ -311,6 +324,16 @@ class TestDispatch(_Case):
         self.assertEqual(self.session.containment_denials, 1)
         self.assertEqual(self.session.protected_denials, 0)
         self.assertIsNone(self.session.failed_reason)
+
+    def test_mcp_call_is_denied_and_fails_the_run(self):
+        res = self.call("mcp__claude_ai_Claude_Docs__update",
+                        {"payload": {"note": "x"},
+                         "ref": {"id": "src/clamp.py", "object": "file"}})
+        self.assertIsInstance(res, FakeDeny)
+        self.assertEqual(res.message, "harness containment: external tool")
+        self.assertEqual(self.session.containment_denials, 1)
+        self.assertEqual(self.session.failed_reason,
+                         "containment: session reached an external tool")
 
     def test_bash_is_allowed_and_logged(self):
         res = self.call("Bash", {"command": "git status"})
