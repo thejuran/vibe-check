@@ -254,6 +254,57 @@ class TestTriageSnapshot(unittest.TestCase):
         self.assertFalse(take_once_per_pass_holds(mutant))
 
 
+STATE = os.path.join(PLUGIN_DIR, "phases", "review", "05-state.md")
+STEP5_HEAD = "5. If incremental diff empty but `$CARRYFORWARD` non-empty"
+STEP5_STOP = "STOP the review"
+
+
+def _dedent_body(body):
+    import textwrap
+    return textwrap.dedent(body).strip()
+
+
+def carry_only_takes_snapshot_holds(state_text, triage_text):
+    """The carry-forward-only path (step 5: no new diff, open carried rows)
+    skips Phase 1, so it takes Phase 1's git-safety snapshot itself, with the
+    identical fence and the same fail-closed stop; Phase 3's gate then has a
+    snapshot to compare against."""
+    head = state_text.find(STEP5_HEAD)
+    if head < 0:
+        return False
+    tail = state_text[head:]
+    mine = _fence_with(tail, TAKE_CALL)
+    theirs = _fence_with(triage_text, TAKE_CALL)
+    if mine is None or theirs is None:
+        return False
+    if _dedent_body(mine[2]) != _dedent_body(theirs[2]):
+        return False
+    after = tail[mine[1]:]
+    return TAKE_HALT_ECHO in after and STEP5_STOP in after
+
+
+class TestCarryForwardOnlySnapshot(unittest.TestCase):
+    def test_step5_takes_the_snapshot(self):
+        self.assertTrue(carry_only_takes_snapshot_holds(_read(STATE),
+                                                        _read(TRIAGE)))
+
+    def test_mutant_without_the_fence_fails(self):
+        text = _read(STATE)
+        start, end, _ = _fence_with(text[text.find(STEP5_HEAD):], TAKE_CALL) \
+            or (0, 0, "")
+        off = text.find(STEP5_HEAD)
+        mutant = text[:off + start] + text[off + end:]
+        self.assertNotEqual(mutant, text)
+        self.assertFalse(carry_only_takes_snapshot_holds(mutant, _read(TRIAGE)))
+
+    def test_mutant_fence_without_reset_fails(self):
+        text = _read(STATE)
+        mutant = text.replace(
+            ' && python3 "$VC_ROOT/scripts/gitguard.py" reset --root "$GREPO"', "")
+        self.assertNotEqual(mutant, text)
+        self.assertFalse(carry_only_takes_snapshot_holds(mutant, _read(TRIAGE)))
+
+
 class TestCollectGate(unittest.TestCase):
     def setUp(self):
         self.text = _read(COLLECT)
