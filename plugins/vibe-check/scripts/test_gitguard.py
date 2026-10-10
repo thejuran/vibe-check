@@ -2005,9 +2005,222 @@ def _write_blocks(root, lines):
     return path
 
 
-def _rec(agent="compliance", tool="Bash", command="git stash pop"):
+def _rec(agent="compliance", tool="Bash", command="git stash pop",
+         reason=None):
     return {"agent": agent, "tool": tool, "command": command,
-            "reason": "refused: x"}
+            "reason": gitguard.REASON_GIT_ARGS if reason is None else reason}
+
+
+def _expl(reason=None):
+    return gitguard.EXPLANATIONS[
+        gitguard.REASON_GIT_ARGS if reason is None else reason]
+
+
+def _bline(agent="compliance", command="git stash pop", reason=None,
+           suffix="repo untouched."):
+    return "Blocked: %s tried `%s` — %s %s" % (agent, command, suffix,
+                                               _expl(reason))
+
+
+_COUNT_RE = re.compile(r" \(×([0-9]+)\)$")
+_TAIL_RE = re.compile(r"^…and ([0-9]+) more blocked attempts?$")
+
+
+def _records_accounted(lines):
+    """Sum of the per-line counts plus the tail line's remainder."""
+    total = 0
+    for line in lines:
+        tail = _TAIL_RE.match(line)
+        if tail:
+            total += int(tail.group(1))
+            continue
+        count = _COUNT_RE.search(line)
+        total += int(count.group(1)) if count else 1
+    return total
+
+
+def _all_reasons():
+    return {getattr(gitguard, n) for n in dir(gitguard)
+            if n.startswith("REASON_")}
+
+
+def _explanations_exhaustive(explanations):
+    return (set(explanations) == _all_reasons()
+            and all(isinstance(v, str) and v.strip()
+                    for v in explanations.values()))
+
+
+class TestExplanationsExhaustive(unittest.TestCase):
+    def test_every_reason_has_an_explanation(self):
+        reasons = _all_reasons()
+        self.assertGreaterEqual(len(reasons), 20)
+        self.assertEqual(set(gitguard.EXPLANATIONS), reasons,
+                         reasons ^ set(gitguard.EXPLANATIONS))
+        self.assertTrue(_explanations_exhaustive(gitguard.EXPLANATIONS))
+
+    def test_explanations_are_plain_fixed_sentences(self):
+        for reason, text in gitguard.EXPLANATIONS.items():
+            with self.subTest(reason=reason):
+                self.assertTrue(text.strip())
+                self.assertNotIn("\n", text)
+                self.assertTrue(text.endswith("."), text)
+                self.assertNotIn("fail closed", text)
+                # a backtick would unbalance the notice's `<cmd>` quoting
+                self.assertNotIn("`", text)
+
+    def test_named_explanations(self):
+        e = gitguard.EXPLANATIONS
+        self.assertIn("sed -n 'N,Mp' file", e[gitguard.REASON_SED_FORM])
+        self.assertIn("absolute directory", e[gitguard.REASON_CD_FORM])
+        self.assertIn("repo root", e[gitguard.REASON_GIT_OTHER_DIR])
+
+    def test_mutant_missing_entry_trips(self):
+        for reason in sorted(gitguard.EXPLANATIONS):
+            with self.subTest(reason=reason):
+                patched = dict(gitguard.EXPLANATIONS)
+                del patched[reason]
+                self.assertFalse(_explanations_exhaustive(patched))
+        blanked = dict(gitguard.EXPLANATIONS)
+        blanked[gitguard.REASON_SED_FORM] = " "
+        self.assertFalse(_explanations_exhaustive(blanked))
+
+
+class TestNoticeExplanations(unittest.TestCase):
+    def test_every_reason_renders_its_explanation(self):
+        for reason, text in gitguard.EXPLANATIONS.items():
+            with self.subTest(reason=reason):
+                for tool, command in (("Bash", "ls"), ("Agent", "")):
+                    lines = gitguard.render_notices(
+                        [_rec(tool=tool, command=command, reason=reason)],
+                        repo_changed=False)
+                    self.assertEqual(len(lines), 1)
+                    self.assertTrue(lines[0].endswith(" " + text), lines[0])
+
+    def test_unknown_or_malformed_reason_falls_back(self):
+        fallback = gitguard.EXPLANATIONS[gitguard.REASON_INTERNAL]
+        for reason in ("refused: x", None, ["a"], {"b": 1}, 7):
+            with self.subTest(reason=reason):
+                rec = _rec()
+                rec["reason"] = reason
+                lines = gitguard.render_notices([rec], repo_changed=False)
+                self.assertEqual(len(lines), 1)
+                self.assertTrue(lines[0].endswith(" " + fallback), lines[0])
+        rec = _rec()
+        del rec["reason"]
+        self.assertTrue(gitguard.render_notices([rec], False)[0].endswith(
+            " " + fallback))
+
+    def test_dedupe_counts(self):
+        r = {"agent": "logic", "tool": "Bash", "command": "sed -i x f",
+             "reason": gitguard.REASON_SED_FORM}
+        lines = gitguard.render_notices([r, r, r], False)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("(×3)", lines[0])
+        self.assertIn(gitguard.EXPLANATIONS[gitguard.REASON_SED_FORM],
+                      lines[0])
+        self.assertTrue(lines[0].endswith(" (×3)"))
+
+    def test_dedupe_keeps_distinct_reasons_and_order(self):
+        recs = [_rec(), _rec(command="cd a b",
+                             reason=gitguard.REASON_CD_FORM),
+                _rec(), _rec(agent="bugs"), _rec()]
+        lines = gitguard.render_notices(recs, False)
+        self.assertEqual(lines, [
+            _bline() + " (×3)",
+            _bline(command="cd a b", reason=gitguard.REASON_CD_FORM),
+            _bline(agent="bugs")])
+        self.assertEqual(_records_accounted(lines), len(recs))
+
+    def test_sum_of_counts_with_cap_and_tail(self):
+        recs = []
+        for i in range(14):
+            recs.extend([_rec(command="cat f%d" % i)] * (i % 3 + 1))
+        lines = gitguard.render_notices(recs, False)
+        self.assertEqual(len(lines), gitguard.NOTICE_CAP + 1)
+        self.assertRegex(lines[-1], _TAIL_RE)
+        self.assertEqual(_records_accounted(lines), len(recs))
+
+    def test_mutant_dedupe_drops_instead_of_counting(self):
+        recs = [_rec(), _rec(), _rec(agent="bugs")]
+        self.assertEqual(_records_accounted(
+            gitguard.render_notices(recs, False)), len(recs))
+
+        def dropping(records, suffix):
+            seen = []
+            for rec in records:
+                line = gitguard._render_one(rec, suffix)
+                if line not in [l for l, _ in seen]:
+                    seen.append((line, 1))
+            return seen
+
+        with mock.patch.object(gitguard, "_group_notices", dropping):
+            self.assertNotEqual(_records_accounted(
+                gitguard.render_notices(recs, False)), len(recs),
+                "dedupe-drop mutant survived")
+
+
+class TestDenyMessage(unittest.TestCase):
+    def test_names_the_allowed_read_forms_and_ends_with_reason(self):
+        msg = gitguard.DENY_MESSAGE % gitguard.REASON_SED_FORM
+        for verb in ("diff", "show", "log", "blame", "status", "rev-parse",
+                     "ls-files", "grep"):
+            self.assertIn(verb, msg)
+        for word in ("cat", "head", "tail", "ls", "wc", "rg", "stat",
+                     "find"):
+            self.assertRegex(msg, r"\b%s\b" % word)
+        self.assertIn("sed -n 'N,Mp' file", msg)
+        self.assertIn("cd <absolute dir inside the repo", msg)
+        self.assertTrue(msg.endswith(gitguard.REASON_SED_FORM + ".\n"), msg)
+        self.assertEqual(msg.count("\n"), 1)
+
+    def test_hook_stderr_carries_the_forms(self):
+        repo = _make_repo(self)
+        rc, err = _hook_in_process(_payload(
+            "vibe-check:bugs", command="sed -i 's/a/b/' a.txt", cwd=repo))
+        self.assertEqual(rc, 2)
+        self.assertIn("sed -n 'N,Mp' file", err)
+        self.assertIn(gitguard.REASON_SED_FORM, err)
+
+
+# The Phase-50 Blocked-notice noise: real read-only shapes review agents ran.
+PHASE50_NOISE = (
+    "cd {R}; grep -n \"finalize\" commands/review.md",
+    "cd {R} && grep -rn finalize .",
+    "cd {R}/sub && grep -n x f",
+    "sed -n '560,760p' file",
+    "git show HEAD:f | sed -n '598,606p;664,672p'",
+    r'find . -maxdepth 1 -type f \( -name "PLAN.md" -o -name "*.md" \)',
+    "git grep -n token -- '*.md'",
+    "git show HEAD:f.py",
+    'grep -rn "a;b|c" src',
+)
+
+
+class TestPhase50Noise(unittest.TestCase):
+    def test_phase50_noise_corpus_allowed(self):
+        repo = _make_repo(self)
+        os.makedirs(os.path.join(repo, "sub"))
+        self.assertEqual(len(PHASE50_NOISE), 9)
+        for template in PHASE50_NOISE:
+            roots = (repo,) if "{R}" in template else (repo, None, "/r")
+            for root in roots:
+                cmd = template.format(R=repo)
+                with self.subTest(cmd=cmd, root=root):
+                    self.assertEqual(gitguard.classify(cmd, repo_root=root),
+                                     (True, "allowed"))
+
+    def test_phase50_noise_produces_no_notice(self):
+        repo = _make_repo(self)
+        os.makedirs(os.path.join(repo, "sub"))
+        for template in PHASE50_NOISE:
+            cmd = template.format(R=repo)
+            with self.subTest(cmd=cmd):
+                rc, err = _hook_in_process(
+                    _payload("vibe-check:bugs", command=cmd, cwd=repo))
+                self.assertEqual((rc, err), (0, ""))
+        self.assertFalse(os.path.exists(_blocks_path(repo)))
+        rc, out, _ = _run_cli(["notices", "--root", repo])
+        self.assertEqual((rc, out), (0, ""))
 
 
 class TestNotices(unittest.TestCase):
@@ -2028,9 +2241,10 @@ class TestNotices(unittest.TestCase):
                                   _rec(agent="bugs", tool="Agent",
                                        command="")])
         self.assertEqual(self._notices(), [
-            "Blocked: compliance tried `git stash pop` — repo untouched.",
-            "Blocked: bugs tried `git checkout main` — repo untouched.",
-            "Blocked: bugs tried to use the `Agent` tool — repo untouched.",
+            _bline(),
+            _bline(agent="bugs", command="git checkout main"),
+            "Blocked: bugs tried to use the `Agent` tool — repo untouched. "
+            + _expl(),
         ])
 
     def test_repo_changed_suffix(self):
@@ -2038,16 +2252,21 @@ class TestNotices(unittest.TestCase):
         lines = self._notices("--repo-changed")
         self.assertEqual(len(lines), 2)
         for line in lines:
-            self.assertTrue(line.endswith("— this attempt was refused."),
-                            line)
+            self.assertTrue(line.endswith(
+                "— this attempt was refused. " + _expl()), line)
             self.assertNotIn("repo untouched", line)
 
     def test_cap_at_ten(self):
-        _write_blocks(self.root, [_rec() for _ in range(13)])
+        _write_blocks(self.root,
+                      [_rec(command="cat f%d" % i) for i in range(13)])
         lines = self._notices()
         self.assertEqual(len(lines), 11)
         self.assertEqual(lines[-1], "…and 3 more blocked attempts")
         self.assertTrue(all(l.startswith("Blocked: ") for l in lines[:10]))
+
+    def test_identical_blocks_collapse_with_a_count(self):
+        _write_blocks(self.root, [_rec() for _ in range(13)])
+        self.assertEqual(self._notices(), [_bline() + " (×13)"])
 
     def test_consume(self):
         path = _write_blocks(self.root, [_rec()])
@@ -2068,7 +2287,8 @@ class TestNotices(unittest.TestCase):
         lines = self._notices()
         self.assertEqual(lines, [
             "Blocked: unknown-agent tried an unreadable command "
-            "— repo untouched."] * 2)
+            "— repo untouched. "
+            + gitguard.EXPLANATIONS[gitguard.REASON_INTERNAL] + " (×2)"])
         self.assertNotIn(SENTINEL, "\n".join(lines))
 
     def test_render_resanitizes(self):
@@ -2085,14 +2305,11 @@ class TestNotices(unittest.TestCase):
         lines = self._notices()
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0].count("`"), 2)
-        self.assertEqual(
-            lines[0], "Blocked: compliance tried `git stash pop` "
-                      "— repo untouched.")
+        self.assertEqual(lines[0], _bline())
 
     def test_render_notices_pure(self):
         lines = gitguard.render_notices([_rec()], repo_changed=False)
-        self.assertEqual(lines, [
-            "Blocked: compliance tried `git stash pop` — repo untouched."])
+        self.assertEqual(lines, [_bline()])
         self.assertEqual(gitguard.render_notices([], repo_changed=True), [])
 
     def test_end_to_end_from_hook(self):
@@ -2102,8 +2319,7 @@ class TestNotices(unittest.TestCase):
         self.assertEqual(rc, 2)
         rc, out, _ = _run_cli(["notices", "--root", repo, "--consume"])
         self.assertEqual(rc, 0)
-        self.assertEqual(out.splitlines(), [
-            "Blocked: compliance tried `git stash pop` — repo untouched."])
+        self.assertEqual(out.splitlines(), [_bline()])
         self.assertFalse(os.path.exists(_blocks_path(repo)))
 
     def test_usage_errors(self):
