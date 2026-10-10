@@ -4,7 +4,8 @@ Before this module, `agents/fix.md` (and its restatement in the Phase-5 fix loop
 carried the commit-title allowlist, the path pre-filter regex, and the message
 format as PROSE, re-typed in two places. Prose copies drift; the Fable A7/B2
 incident is what a drifted copy of a security check costs. This module is the
-source; the prose calls it.
+source, and it is a LIBRARY: `fixstage.py commit` (and `fixcheck.py`) import it.
+It has no command-line interface of its own (see "Retired CLI" below).
 
 Division of labour (the purity rule, mirroring score.py / guard.py / chunks.py):
 this module VALIDATES and BUILDS. It never runs git and never runs a shell — bash
@@ -52,40 +53,42 @@ load-bearing:
     one-directionally (everything this class permits survives the display
     sanitizer unchanged; the reverse must not hold).
 
-Rejection is REJECTION, never sanitization: a stripped title yields a
-plausible-looking commit that hides the injection attempt. There is deliberately
-no `sanitize_title` here.
+## Commit subjects are sanitized deterministically (owner decision D-08)
+
+A verified fix is never refused over title punctuation. `commit_subject` maps
+the title into the class above: `"` and `'` are dropped; `;` becomes `,`; every
+other character outside the class becomes a space (that covers control
+characters, U+0085, the line and paragraph separators, bidi controls and
+zero-width characters); runs of spaces are collapsed and the ends trimmed. A title that sanitizes to
+nothing becomes `finding <first 8 hex chars of the finding id>`.
+
+The trailer-forgery invariant is preserved, not traded away: no newline or
+other control character can survive, and `build_message` re-checks the result
+with `TITLE_ALLOWED.fullmatch` as a belt, refusing if the sanitizer ever let
+something through. The injection attempt stays visible as plain text on the
+one subject line. `validate_title` remains a pure predicate ("is this already a
+legal subject?"); it never cleans.
 
 ## FL-03 (R4) — why the title arrives as JSON, never on argv
 
 The finding title originates in reviewer-agent output derived from the reviewed
-repo, i.e. attacker-influenced. The previous caller substituted it into a bash
+repo, i.e. attacker-influenced. An earlier caller substituted it into a bash
 command line as `--title "<finding.title>"`, so **the shell expanded it before
 this module ever ran** — a title containing a command substitution executed at
 expansion time. Reproduced. Python validation cannot protect bytes that a shell
-already consumed.
+already consumed. So the title reaches this module only as data: fixstage reads
+the finding record from a JSON file the agent wrote, and hands the parsed title
+to `build_message`. No attacker-influenced byte ever appears on a command line.
 
-So the CLI takes `--finding-json <path>`: the agent writes the finding record
-(`pass_number`, `title`, `paths`) to a temp file with its `Write` tool, and bash
-passes only that path. No attacker-influenced byte ever appears on a command
-line. There is intentionally NO `--title` / `--pass` / `--path` flag; adding one
-would restore the defect.
+## Retired CLI
 
-## Fail-closed CLI contract (D-13 gate semantics, F5)
-
-Exit 0 only when every path is contained AND the title is clean AND the message
-file was written. On ANY rejection: a fixed reason on stderr, NOTHING written,
-exit 1. Reasons name the FAILING RULE, never the offending path or title
-(Shared Pattern 3 / T-40-23c).
-
-The caller must branch with `if ...; then <git ops>; else <record errored>; fi`.
-An or-brace gate whose failure branch is the shell no-op builtin SUCCEEDS, so
-execution falls straight through into `git add`/`git commit` after a rejection.
-That was reproduced; a rejection must make the side effect UNREACHABLE, not
-merely logged.
+This module once had its own `--finding-json/--root/--msgfile` command line.
+`fixstage.py commit` owns the commit path now, so that interface is gone.
+Running this file directly writes a retirement notice to stderr and exits 2 —
+never 0, because a stale `if <run this file>; then git commit; fi` fence would
+otherwise fall straight through into the commit.
 """
 
-import json
 import os
 import re
 import sys
@@ -103,11 +106,22 @@ TITLE_ALLOWED = re.compile(r"^[A-Za-z0-9 ._:/()#=,-]+$")
 # Pass numbers are digits only; anything else could reach the subject line.
 PASS_RE = re.compile(r"^[0-9]+$")
 
+# commit_subject's character maps (see the docstring, D-08). `_OUTSIDE_TITLE`
+# is the complement of TITLE_ALLOWED's class, so every control character,
+# U+0085, line/paragraph separator, bidi control and zero-width character is
+# mapped to a space by it; the belt in build_message keeps the two honest.
+_DROPPED = re.compile("[\"']")
+_OUTSIDE_TITLE = re.compile(r"[^A-Za-z0-9 ._:/()#=,-]")
+_SPACE_RUN = re.compile(r" {2,}")
+
+# The finding id (fixstage validates it as lowercase hex, 8-64 chars).
+_FINDING_ID_RE = re.compile(r"^[0-9a-f]{8,64}$")
+
 
 def validate_title(title):
     """Is `title` safe to construct a commit subject from? -> (ok, reason).
 
-    Rejects, never strips (`agents/fix.md`: "reject (do NOT silently strip)").
+    A pure predicate: it never cleans (`commit_subject` does that, D-08).
     The reason names the failing rule and never echoes the title.
     """
     if not isinstance(title, str):
@@ -189,107 +203,53 @@ def validate_fix_paths(root, paths):
     return True, "accepted"
 
 
-def build_message(pass_number, title):
+def commit_subject(title, finding_id):
+    """The deterministic, single-line commit subject for a finding title (D-08).
+
+    Never refuses over punctuation. Raises ValueError only for a non-string
+    title, or for a title that sanitizes to nothing when there is no valid
+    finding id to fall back on. The result always matches TITLE_ALLOWED.
+    """
+    if not isinstance(title, str):
+        return _reject("refused: title is not a string (fail closed)")
+    subject = _DROPPED.sub("", title)
+    subject = subject.replace(";", ",")
+    subject = _OUTSIDE_TITLE.sub(" ", subject)
+    subject = _SPACE_RUN.sub(" ", subject).strip()
+    if subject:
+        return subject
+    if (not isinstance(finding_id, str)
+            or _FINDING_ID_RE.fullmatch(finding_id) is None):
+        return _reject("refused: title is empty after sanitizing and the "
+                       "finding id is not lowercase hex")
+    return "finding " + finding_id[:8]
+
+
+def build_message(pass_number, title, finding_id=None):
     """The commit message for one applied finding. Raises ValueError if unsafe.
 
     Exactly one line plus one trailing newline; `--cleanup=verbatim` keeps it
-    byte-for-byte, so the validation above is the only thing standing between a
-    crafted title and a forged trailer.
+    byte-for-byte. The subject comes from `commit_subject`; the
+    `TITLE_ALLOWED.fullmatch` belt below is what guarantees no newline (and so
+    no forged trailer) can reach the message even if the sanitizer regresses.
     """
     if isinstance(pass_number, bool) or not isinstance(pass_number, (int, str)):
         return _reject("refused: pass number is not an int or digit string")
     text = str(pass_number)
     if PASS_RE.match(text) is None:
         return _reject("refused: pass number is not digits-only")
-    ok, reason = validate_title(title)
-    if not ok:
-        return _reject(reason)
-    return "fix(review-pass-%s): %s\n" % (text, title)
+    subject = commit_subject(title, finding_id)
+    if not isinstance(subject, str) or TITLE_ALLOWED.fullmatch(subject) is None:
+        return _reject("refused: sanitized title is outside the commit "
+                       "allowlist (fail closed)")
+    return "fix(review-pass-%s): %s\n" % (text, subject)
 
 
 def _reject(reason):
     raise ValueError(reason)
 
 
-# The ONLY flags this CLI accepts. FL-03: `--title`, `--pass` and `--path` are
-# deliberately ABSENT — an attacker-influenced value on a command line is
-# expanded by the shell before Python runs, so those flags cannot exist here.
-KNOWN_FLAGS = ("--finding-json", "--root", "--msgfile")
-
-USAGE = ("usage: fixcommit.py --finding-json <path> --root <repo> "
-         "--msgfile <path>\n")
-
-
-def parse_argv(argv):
-    """Hand-rolled so an UNKNOWN flag is a usage error, not a silent default.
-
-    Deliberately not argparse: the import set for this module is
-    {json, os, re, sys, guard}, and a hand parser lets the FL-03 rejection of a
-    `--title` flag be an explicit, testable "unrecognized arguments" error.
-    Returns (values, None) or (None, error message).
-    """
-    values = {}
-    i = 0
-    while i < len(argv):
-        token = argv[i]
-        if token not in KNOWN_FLAGS:
-            return None, "unrecognized arguments: %s\n" % token
-        if i + 1 >= len(argv):
-            return None, "argument %s: expected one argument\n" % token
-        if token in values:
-            return None, "argument %s: given more than once\n" % token
-        values[token] = argv[i + 1]
-        i += 2
-    missing = [f for f in KNOWN_FLAGS if f not in values]
-    if missing:
-        return None, ("the following arguments are required: %s\n"
-                      % ", ".join(missing))
-    return values, None
-
-
-def run(argv):
-    """CLI. Exit 0 on success (msgfile written), 1 on any rejection, 2 on usage.
-
-    Never runs git. The caller stages and commits ONLY inside the success branch
-    of an `if`; see the docstring's fail-closed contract.
-    """
-    values, err = parse_argv(argv)
-    if err is not None:
-        sys.stderr.write(USAGE)
-        sys.stderr.write(err)
-        return 2  # usage errors are non-zero too — callers treat that as refused
-
-    try:
-        with open(values["--finding-json"], "r", encoding="utf-8") as fh:
-            record = json.load(fh)
-    except (OSError, ValueError, UnicodeDecodeError):
-        sys.stderr.write("refused: finding record is missing or not valid JSON\n")
-        return 1
-    if not isinstance(record, dict):
-        sys.stderr.write("refused: finding record is not an object\n")
-        return 1
-
-    ok, reason = validate_paths(values["--root"], record.get("paths"))
-    if not ok:
-        sys.stderr.write(reason + "\n")
-        return 1
-    try:
-        message = build_message(record.get("pass_number"), record.get("title"))
-    except ValueError as exc:
-        sys.stderr.write(str(exc) + "\n")
-        return 1
-
-    try:
-        with open(values["--msgfile"], "w", encoding="utf-8") as fh:
-            fh.write(message)
-    except OSError:
-        sys.stderr.write("refused: could not write the message file\n")
-        return 1
-
-    for path in record["paths"]:
-        sys.stdout.write(path + "\n")
-    return 0
-
-
 if __name__ == "__main__":
-    sys.exit(run(sys.argv[1:]))
+    sys.stderr.write("fixcommit CLI is retired — fixstage.py commit owns the "
+                     "commit path\n")
+    sys.exit(2)

@@ -1335,7 +1335,7 @@ def _commit(root, record, adir, scratch, pub):
         raise Refused("refused: attempt not sealed")
     try:
         message = fixcommit.build_message(record.get("pass_number"),
-                                          record.get("title"))
+                                          record.get("title"), record["id"])
     except ValueError as exc:
         raise Refused(str(exc))
     _validate_paths(root, record["paths"])  # the D-15 second gate
