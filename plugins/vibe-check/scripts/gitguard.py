@@ -113,6 +113,8 @@ Residuals (what this deterministic rule cannot see, and the belt for each):
     replaced
   - another plugin's hook overriding this deny
   - python3 missing, so the hook cannot run (the hook fails open)
+  - WebFetch and MCP tools (a scope boundary, not a gap):
+WebFetch and MCP are outside the git-state guard's scope by decision (D-02): the guard protects the reviewed repo's git state only; those tools cannot change it, and their output is treated as untrusted review input like any file content.
   The git-metadata effects of these (HEAD, index, stash, branches/tags, HEAD
   reflog) are caught after the fact by the gitsnap before/after snapshot around
   the review fan-out. gitsnap does NOT see working-tree byte writes, which is
@@ -126,6 +128,14 @@ import os
 import re
 import shlex
 import sys
+
+# The WebFetch/MCP scope boundary, stated identically in the docstring above,
+# hooks/hooks.json and the README (a prose test locks all three copies).
+BOUNDARY_SENTENCE = (
+    "WebFetch and MCP are outside the git-state guard's scope by decision (D-02): "
+    "the guard protects the reviewed repo's git state only; those tools cannot "
+    "change it, and their output is treated as untrusted review input like any "
+    "file content.")
 
 # --------------------------------------------------------------------------- #
 # fixed reasons

@@ -1,5 +1,5 @@
 {
-  "description": "vibe-check: review agents may only run read-only git and may not spawn agents, write files or switch worktrees (FIX-03, 999.20). Never fires for the main session, the fix agent, or other plugins' agents.",
+  "description": "vibe-check: review agents may only run read-only git and may not spawn agents, write files or switch worktrees (FIX-03, 999.20). Never fires for the main session, the fix agent, or other plugins' agents. WebFetch and MCP are outside the git-state guard's scope by decision (D-02): the guard protects the reviewed repo's git state only; those tools cannot change it, and their output is treated as untrusted review input like any file content.",
   "hooks": {
     "PreToolUse": [
       {

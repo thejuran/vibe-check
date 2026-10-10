@@ -1507,6 +1507,61 @@ class TestHooksJson(unittest.TestCase):
         self.assertIn("matcher misses Agent", _hooks_json_problems(mutated))
 
 
+README_MD = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.dirname(SCRIPTS_DIR))), "README.md")
+
+
+def boundary_sentence_holds(text):
+    """The WebFetch/MCP boundary decision appears byte-for-byte in `text`."""
+    return isinstance(text, str) and gitguard.BOUNDARY_SENTENCE in text
+
+
+class TestBoundaryDecision(unittest.TestCase):
+    """WebFetch/MCP stay outside the guard by a documented decision; the
+    same sentence must stay in the docstring, hooks.json and the README."""
+
+    def _sites(self):
+        with open(HOOKS_JSON, "r", encoding="utf-8") as fh:
+            desc = json.load(fh)["description"]
+        with open(README_MD, "r", encoding="utf-8") as fh:
+            readme = fh.read()
+        return {"docstring": gitguard.__doc__, "hooks.json": desc,
+                "README.md": readme}
+
+    def test_sentence_states_the_decision(self):
+        sentence = gitguard.BOUNDARY_SENTENCE
+        for part in ("WebFetch and MCP are outside the git-state guard",
+                     "untrusted review input"):
+            self.assertIn(part, sentence)
+
+    def test_every_site_carries_the_sentence(self):
+        for name, text in self._sites().items():
+            with self.subTest(site=name):
+                self.assertTrue(boundary_sentence_holds(text), name)
+
+    def test_readme_no_longer_promises_a_future_release(self):
+        self.assertNotIn("tracked for a future release",
+                         self._sites()["README.md"])
+
+    def test_boundary_is_not_a_guard_extension(self):
+        for tool in ("WebFetch", "WebSearch"):
+            self.assertNotIn(tool, gitguard.DENY_TOOLS)
+
+    def test_mutant_dropping_the_sentence_trips(self):
+        for name, text in self._sites().items():
+            with self.subTest(site=name):
+                mutated = text.replace(gitguard.BOUNDARY_SENTENCE, "")
+                self.assertNotEqual(mutated, text)
+                self.assertFalse(boundary_sentence_holds(mutated))
+
+    def test_mutant_rewording_the_sentence_trips(self):
+        for name, text in self._sites().items():
+            with self.subTest(site=name):
+                mutated = text.replace("by decision (D-02)", "for now")
+                self.assertNotEqual(mutated, text)
+                self.assertFalse(boundary_sentence_holds(mutated))
+
+
 class TestHookMutants(unittest.TestCase):
     def setUp(self):
         self.repo = _make_repo(self)
