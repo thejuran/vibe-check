@@ -270,15 +270,21 @@ class TestSharedInvariants(unittest.TestCase):
         cache = base_tests / "__pycache__"
         made = not cache.exists()
         cache.mkdir(exist_ok=True)
-        stray = cache / "stray.cpython-0.pyc"
+        # one stray only the directory skip catches, one only the suffix
+        # skip catches, so each filter is exercised on its own
+        in_cache = cache / "stray.txt"
+        loose_pyc = base_tests / "stray.pyc"
         try:
-            stray.write_bytes(b"x")
+            in_cache.write_bytes(b"x")
+            loose_pyc.write_bytes(b"x")
             with tempfile.TemporaryDirectory() as tmp:
                 info = hf.build_copy(self.recipe, "default", tmp)
-                self.assertFalse(any("__pycache__" in f
-                                     for f in _copy_files(info.root)))
+                files = _copy_files(info.root)
+                self.assertFalse(any("__pycache__" in f for f in files))
+                self.assertFalse(any(f.endswith(".pyc") for f in files))
         finally:
-            stray.unlink()
+            in_cache.unlink()
+            loose_pyc.unlink()
             if made:
                 cache.rmdir()
 
