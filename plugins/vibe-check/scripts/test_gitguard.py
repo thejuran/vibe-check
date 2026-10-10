@@ -115,6 +115,10 @@ DENY = (
     "cd vendor/x.git && git show HEAD",
     "cd && git status",
     "cd - && git status",
+    # unquoted zsh glob qualifier / process substitution stay operators
+    "ls *(e:'git stash':)",
+    "print -l =(cmd)",
+    "git log; git stash pop # quoted ';' elsewhere: 'a;b'",
 )
 
 # (command, expected reason constant name, plugin_scripts)
@@ -273,6 +277,12 @@ ALLOW = (
     "tail -n 5 f.py",
     "ls 2>/dev/null",
     "pwd",
+    # escaped / quoted punctuation is a literal word, not an operator
+    r'find . -maxdepth 1 -type f \( -name "PLAN.md" -o -name "*.md" \)',
+    'grep -n "a;b" file',
+    "grep -n 'x|y' file",
+    'grep -n ">" file',
+    "grep -n '&&' file",
 )
 
 # (command, expected verdict) with repo_root="/r": "allowed" or a reason name.
@@ -362,6 +372,20 @@ FUZZ = (
     "env", "timeout", "nice -n", "command",
     "\x00", "git\x00stash", "éè git", "cat <>",
 )
+
+
+def _tokenize_legacy(command):
+    """The pre-hardening tokenizer: shlex with punctuation_chars, which makes
+    an escaped `\\(` or a quoted `">"` an operator token."""
+    import shlex
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
+
+
+FIND_ESCAPED = (r'find . -maxdepth 1 -type f \( -name "PLAN.md" '
+                r'-o -name "*.md" \)')
 
 
 # --------------------------------------------------------------------------- #
@@ -578,6 +602,79 @@ class TestClassifyFailClosed(unittest.TestCase):
     def test_hash_does_not_hide_a_second_command(self):
         # shlex treats `#` as a comment start even mid-word; bash does not.
         self.assertIs(gitguard.classify("echo a#b; git stash pop")[0], False)
+
+
+# --------------------------------------------------------------------------- #
+# tokenizer: only unquoted, unescaped punctuation is an operator
+# --------------------------------------------------------------------------- #
+class TestTokenize(unittest.TestCase):
+    def _toks(self, command):
+        return gitguard._tokenize(command)
+
+    def _shape(self, command):
+        return [(str(t), t.is_operator) for t in self._toks(command)]
+
+    def test_tokenize_escaped_parens_are_words(self):
+        self.assertEqual(self._shape(r"find . \( -name x \)"), [
+            ("find", False), (".", False), ("(", False), ("-name", False),
+            ("x", False), (")", False)])
+
+    def test_tokenize_quoted_punctuation_is_a_word(self):
+        self.assertEqual(self._shape("grep 'a;b' \"x|y\" \">\" f"), [
+            ("grep", False), ("a;b", False), ("x|y", False), (">", False),
+            ("f", False)])
+
+    def test_tokenize_unquoted_operators_group_like_bash(self):
+        self.assertEqual(self._shape("a&&b||c;d|e 2>&1 >/dev/null"), [
+            ("a", False), ("&&", True), ("b", False), ("||", True),
+            ("c", False), (";", True), ("d", False), ("|", True),
+            ("e", False), ("2", False), (">&", True), ("1", False),
+            (">", True), ("/dev/null", False)])
+
+    def test_tokenize_unquoted_zsh_qualifier_paren_is_an_operator(self):
+        shape = self._shape("ls *(e:'git stash':)")
+        self.assertIn(("(", True), shape)
+        self.assertIn((")", True), shape)
+
+    def test_tokenize_quote_and_escape_flags(self):
+        toks = self._toks("a 'b' c\\d \"\" x\"y\"")
+        self.assertEqual([str(t) for t in toks], ["a", "b", "cd", "", "xy"])
+        self.assertEqual([t.quoted for t in toks],
+                         [False, True, False, True, True])
+        self.assertEqual([t.escaped for t in toks],
+                         [False, False, True, False, False])
+
+    def test_tokenize_double_quote_escapes(self):
+        self.assertEqual([str(t) for t in self._toks('"a\\"b" "\\x"')],
+                         ['a"b', "\\x"])
+
+    def test_tokenize_hash_is_literal(self):
+        self.assertEqual([str(t) for t in self._toks("echo a#b")],
+                         ["echo", "a#b"])
+
+    def test_tokenize_unterminated_refuses(self):
+        for cmd in ("grep 'x", 'grep "x', "grep x\\"):
+            with self.subTest(cmd=cmd):
+                with self.assertRaises(ValueError):
+                    self._toks(cmd)
+                self.assertEqual(gitguard.classify(cmd),
+                                 (False, gitguard.REASON_UNPARSEABLE))
+
+    def test_find_escaped_parens_allowed(self):
+        self.assertEqual(gitguard.classify(FIND_ESCAPED), (True, "allowed"))
+
+    def test_tokeniz_legacy_mutant_refuses_find_escaped(self):
+        self.assertEqual(gitguard.classify(FIND_ESCAPED), (True, "allowed"))
+        with mock.patch.object(gitguard, "_tokenize", _tokenize_legacy):
+            allowed, reason = gitguard.classify(FIND_ESCAPED)
+            self.assertIs(allowed, False, "legacy tokenizer mutant survived")
+            self.assertEqual(reason, gitguard.REASON_NOT_ALLOWLISTED)
+            self.assertEqual(gitguard.classify('grep -n ">" file'),
+                             (False, gitguard.REASON_REDIRECT))
+
+    def test_chained_second_command_still_split(self):
+        self.assertEqual(gitguard.classify("git log; git stash pop"),
+                         (False, gitguard.REASON_GIT_ARGS))
 
 
 # --------------------------------------------------------------------------- #
