@@ -705,10 +705,10 @@ def _print_probe_diagnostics(events, facts, checks):
         if not matches:
             print("step %s: no matching tool call" % step.name,
                   file=sys.stderr)
-    spec_inputs = [json.dumps(v, sort_keys=True) for v in expected.values()]
     for e in events:
-        if e.tool != "Bash" and json.dumps(e.input, sort_keys=True) \
-                not in spec_inputs:
+        if e.tool != "Bash" and not any(harness_sandbox._matches_step(
+                e, name, expected, facts.get("copy_root"))
+                for name in expected):
             print("unspecified tool call: %s %r" % (e.tool, e.input),
                   file=sys.stderr)
         elif e.tool == "Bash" and e.command != "bash ./probe.sh":

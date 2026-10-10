@@ -838,10 +838,45 @@ class TestClassifyResult(unittest.TestCase):
         for event, label in cases:
             self.assertEqual(h.classify_result(event), label, event)
 
+    # Observed verbatim in the live probe on 2026-10-10 (Claude Code 2.1.294
+    # bundled with claude-agent-sdk 0.2.165): a file-tool call blocked by a
+    # `Read(//…/**)` or `Edit(//…/**)` deny rule never reaches can_use_tool
+    # and returns one of these two results; the same tool_use ids appear in
+    # the ResultMessage's permission_denials.
+    LIVE_DIR_DENIED = ("<tool_use_error>File is in a directory that is "
+                       "denied by your permission settings.</tool_use_error>")
+    LIVE_WRITE_DENIED = ("<tool_use_error>File is covered by a Read deny "
+                         "rule in your permission settings and cannot be "
+                         "written.</tool_use_error>")
+
+    def test_live_deny_rule_wordings_are_denials(self):
+        for tool in ("Read", "Edit"):
+            self.assertEqual(h.classify_result(
+                self.ev(True, self.LIVE_DIR_DENIED, tool=tool)), "denied")
+        self.assertEqual(h.classify_result(
+            self.ev(True, self.LIVE_WRITE_DENIED, tool="Write")), "denied")
+
+    def test_live_wordings_are_not_widened(self):
+        for text in ("<tool_use_error>File is in a directory.</tool_use_error>",
+                     "<tool_use_error>File does not exist.</tool_use_error>",
+                     "File is covered by a Read deny rule",
+                     "denied by your permission settings",
+                     "<tool_use_error>Directory is denied by your permission "
+                     "settings.</tool_use_error>"):
+            self.assertEqual(h.classify_result(self.ev(True, text)),
+                             "inconclusive", text)
+        # A success that quotes the wording is never a denial.
+        self.assertEqual(h.classify_result(
+            self.ev(False, self.LIVE_DIR_DENIED)), "ok")
+
     def test_patterns_are_pinned(self):
         self.assertEqual(h.PERMISSION_DENIAL_PATTERNS, (
             r"Permission to use (Read|Edit|Write|MultiEdit|NotebookEdit|Grep"
-            r"|Glob) has been denied", r"^harness containment: "))
+            r"|Glob) has been denied", r"^harness containment: ",
+            r"^<tool_use_error>File is in a directory that is denied by "
+            r"your permission settings\.</tool_use_error>$",
+            r"^<tool_use_error>File is covered by a Read deny rule in your "
+            r"permission settings and cannot be written\.</tool_use_error>$"))
         self.assertEqual(h.BASH_DENIAL_PATTERN, r"Operation not permitted")
 
 

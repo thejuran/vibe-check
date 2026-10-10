@@ -559,10 +559,19 @@ def _step_checks():
 # requires all of them, so the two cannot drift.
 PROBE_REQUIRED_CHECKS = _step_checks()
 
+# The last two are Claude Code's deny-rule results observed verbatim in the
+# live probe of 2026-10-10 (CLI 2.1.294 via claude-agent-sdk 0.2.165): a
+# file-tool call matching a `Read(//…/**)` / `Edit(//…/**)` deny rule never
+# reaches can_use_tool and returns exactly one of these lines. They are pinned
+# whole (anchored) so no other error text can match.
 PERMISSION_DENIAL_PATTERNS = (
     r"Permission to use (Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob) "
     r"has been denied",
     r"^harness containment: ",
+    r"^<tool_use_error>File is in a directory that is denied by "
+    r"your permission settings\.</tool_use_error>$",
+    r"^<tool_use_error>File is covered by a Read deny rule in your "
+    r"permission settings and cannot be written\.</tool_use_error>$",
 )
 BASH_DENIAL_PATTERN = r"Operation not permitted"
 
