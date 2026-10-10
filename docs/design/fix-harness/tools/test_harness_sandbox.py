@@ -284,8 +284,11 @@ class TestPathBackstop(_TmpCase):
     def test_dotdot_traversal_is_outside(self):
         r = self.check("Read", {"file_path": "../other"})
         self.assertEqual((r.ok, r.kind), (False, "outside"))
-        r = self.check("Read", {"file_path": "nested/../../plugin/x"})
-        self.assertFalse(r.ok)
+        r = self.check("Read", {"file_path": "nested/../../elsewhere/x"})
+        self.assertEqual((r.ok, r.kind), (False, "outside"))
+        r = self.check("Edit", {"file_path": "nested/../../plugin/x",
+                                "old_string": "a", "new_string": "b"})
+        self.assertEqual((r.ok, r.kind), (False, "snapshot"))
 
     def test_keys_and_checkout_and_out_are_protected(self):
         for path in (os.path.join(str(hf.KEYS_DIR), "py-clamp-01.json"),
@@ -299,6 +302,11 @@ class TestPathBackstop(_TmpCase):
     def test_symlink_into_protected_root_is_protected(self):
         os.symlink(self.out, os.path.join(self.copy, "link_prot"))
         r = self.check("Read", {"file_path": "link_prot/canary.txt"})
+        self.assertEqual((r.ok, r.kind), (False, "protected"))
+
+    def test_symlink_out_of_protected_root_is_still_protected(self):
+        os.symlink(self.outside, os.path.join(self.out, "esc"))
+        r = self.check("Read", {"file_path": self.out + "/esc/x"})
         self.assertEqual((r.ok, r.kind), (False, "protected"))
 
     def test_snapshot_is_read_only(self):
@@ -429,7 +437,8 @@ class TestPreflight(_TmpCase):
     def test_copy_under_checkout(self):
         problems = h.preflight(h.CHECKOUT_ROOT + "/x", self.snap,
                                self.settings, self.record_path, self.SDK)
-        self.assertTrue(problems)
+        self.assertTrue(any("inside the checkout" in p for p in problems),
+                        problems)
 
     def test_unsupported_host(self):
         with mock.patch.object(h.sys, "platform", "linux"):

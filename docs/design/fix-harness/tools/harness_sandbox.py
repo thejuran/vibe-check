@@ -49,6 +49,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 import harness_fixture
@@ -299,3 +300,162 @@ def settings_fingerprint(settings):
         bare = re.escape(value.lstrip("/"))
         text = re.sub(r"/{1,2}" + bare + r'(?=[/"*)]|$)', token, text)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Path backstop for file tools
+# ---------------------------------------------------------------------------
+
+READ_ONLY_TOOLS = frozenset({"Read", "Grep", "Glob"})
+_PATH_FIELD = {"Read": "file_path", "Edit": "file_path", "Write": "file_path",
+               "MultiEdit": "file_path", "NotebookEdit": "notebook_path",
+               "Grep": "path", "Glob": "path"}
+_GENERIC_PATH_FIELDS = ("file_path", "path", "notebook_path")
+_GLOB_CHARS = re.compile(r"[*?\[{]")
+_SEVERITY = {"copy": 0, "snapshot": 0, "invalid": 1, "outside": 2,
+             "protected": 3}
+
+
+def protected_roots(out_dir, checkout_root=None, keys_dir=None):
+    """The roots the backstop treats as protected for one run."""
+    return (checkout_root or CHECKOUT_ROOT, out_dir, keys_dir or KEYS_DIR,
+            *[os.path.expanduser(p) for p in PROTECTED_CREDENTIAL_PATHS])
+
+
+def _normalise(raw, copy_root):
+    """Absolute, lexically normalised form of a tool path (no I/O)."""
+    path = os.path.expanduser(raw) if raw.startswith("~") else raw
+    if not os.path.isabs(path):
+        path = os.path.join(copy_root, path)
+    return os.path.normpath(path)
+
+
+def _glob_prefix(base, pattern):
+    """The literal directory a Glob search starts from."""
+    joined = _normalise(pattern, base)
+    parts = joined.split("/")
+    for i, part in enumerate(parts):
+        if _GLOB_CHARS.search(part):
+            return "/".join(parts[:i]) or "/"
+    return joined
+
+
+def _classify_path(tool_name, lexical, copy_root, snapshot_path, roots):
+    real = os.path.realpath(lexical)
+    for root in roots:
+        root_lex = os.path.normpath(os.path.expanduser(root))
+        for candidate_root in {root_lex, os.path.realpath(root_lex)}:
+            if _is_under(lexical, candidate_root) \
+                    or _is_under(real, candidate_root):
+                return Decision(False, "protected", lexical)
+    if _is_under(lexical, copy_root) \
+            and _is_under(real, os.path.realpath(copy_root)):
+        return Decision(True, "copy", lexical)
+    if _is_under(lexical, snapshot_path) \
+            and _is_under(real, os.path.realpath(snapshot_path)):
+        return Decision(tool_name in READ_ONLY_TOOLS, "snapshot", lexical)
+    return Decision(False, "outside", lexical)
+
+
+def path_allowed(tool_name, input_data, copy_root, snapshot_path,
+                 protected_roots):
+    """Bound a file tool's path to the copy (or, read-only, the snapshot).
+
+    Both the lexical `normpath` and the `realpath` must resolve inside the
+    allowed tree, so `..` traversal and symlinks planted in the copy cannot
+    escape. Anything under a protected root on EITHER side is `protected`.
+    Metadata only: nothing is read beyond `realpath`.
+    """
+    data = input_data if isinstance(input_data, dict) else {}
+    if tool_name in _PATH_FIELD:
+        fields = (_PATH_FIELD[tool_name],)
+    else:
+        fields = tuple(f for f in _GENERIC_PATH_FIELDS if f in data)
+        if not fields:
+            return Decision(True, "no-path", None)
+    candidates = []
+    for field in fields:
+        raw = data.get(field)
+        if raw is None and tool_name in ("Grep", "Glob"):
+            raw = copy_root
+        if not isinstance(raw, str) or not raw:
+            return Decision(False, "invalid", None)
+        candidates.append(_normalise(raw, copy_root))
+    if tool_name == "Glob":
+        pattern = data.get("pattern")
+        if not isinstance(pattern, str):
+            return Decision(False, "invalid", candidates[0])
+        candidates.append(_glob_prefix(candidates[0], pattern))
+    decisions = [_classify_path(tool_name, c, copy_root, snapshot_path,
+                                protected_roots) for c in candidates]
+    worst = decisions[0]
+    for d in decisions[1:]:
+        if not d.ok and (worst.ok or _SEVERITY[d.kind] > _SEVERITY[worst.kind]):
+            worst = d
+    if worst.ok:
+        return decisions[0]
+    return Decision(False, worst.kind, decisions[0].path)
+
+
+# ---------------------------------------------------------------------------
+# Launch preflight
+# ---------------------------------------------------------------------------
+
+SEATBELT = "/usr/bin/sandbox-exec"
+UNSUPPORTED_HOST_PROBLEM = "unsupported host for the enforced sandbox"
+SEATBELT_MISSING_PROBLEM = "Seatbelt (/usr/bin/sandbox-exec) is not available"
+SETTINGS_OPEN_PROBLEM = "session settings are not fail-closed"
+SETTINGS_MISMATCH_PROBLEM = ("session settings were built for a different "
+                             "copy or plugin snapshot")
+PROBE_STALE_PROBLEM = ("sandbox probe missing or stale — run fixharness.py "
+                       "probe-sandbox")
+
+# Replaced below by the probe section; preflight reads it at call time.
+PROBE_REQUIRED_CHECKS = ("preconditions_hold", "script_ran")
+
+
+def _fingerprint_matches(record, settings):
+    return record.get("settings_fingerprint") == settings_fingerprint(settings)
+
+
+def _probe_record_ok(record_path, settings, sdk_version):
+    try:
+        with open(record_path, "r", encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    if not isinstance(record, dict):
+        return False
+    checks = record.get("checks")
+    return bool(
+        record.get("passed") is True
+        and record.get("sdk_version") == sdk_version
+        and _fingerprint_matches(record, settings)
+        and isinstance(checks, dict) and checks
+        and set(checks) >= set(PROBE_REQUIRED_CHECKS)
+        and all(v is True for v in checks.values()))
+
+
+def preflight(copy_root, snapshot_path, settings, probe_record_path,
+              sdk_version):
+    """Return the reasons a session must not launch ([] = launch)."""
+    problems = []
+    if sys.platform != "darwin":
+        problems.append(UNSUPPORTED_HOST_PROBLEM)
+    elif not os.access(SEATBELT, os.X_OK):
+        problems.append(SEATBELT_MISSING_PROBLEM)
+    if not settings_is_fail_closed(settings):
+        problems.append(SETTINGS_OPEN_PROBLEM)
+    else:
+        paths = _policy_paths(settings)
+        if paths["copy"] != copy_root or paths["snapshot"] != snapshot_path:
+            problems.append(SETTINGS_MISMATCH_PROBLEM)
+    for value, what in ((copy_root, "copy"), (snapshot_path, "plugin snapshot")):
+        if not isinstance(value, str) or not os.path.isabs(value) \
+                or os.path.realpath(value) != value:
+            problems.append("%s path is not a realpath: %r" % (what, value))
+        elif _is_under(value, CHECKOUT_ROOT):
+            problems.append("%s is inside the checkout: %s" % (what, value))
+    if not _probe_record_ok(probe_record_path, settings, sdk_version):
+        problems.append(PROBE_STALE_PROBLEM)
+    return problems
