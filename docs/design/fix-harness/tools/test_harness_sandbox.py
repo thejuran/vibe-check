@@ -144,7 +144,7 @@ class TestSessionSettings(unittest.TestCase):
                     "denyRead": [CHECKOUT, OUT, KEYS,
                                  *h.PROTECTED_CREDENTIAL_PATHS],
                     "allowRead": [COPY, SNAP],
-                    "denyWrite": [SNAP],
+                    "denyWrite": [SNAP, COPY + "/probe.sh"],
                 },
                 "network": {"allowedDomains": [], "strictAllowlist": True},
             },
@@ -158,6 +158,7 @@ class TestSessionSettings(unittest.TestCase):
                     "Read(~/.gnupg/**)", "Read(~/.claude/.credentials.json)",
                     "Read(~/.claude.json)",
                     "Edit(//private/tmp/w/plugin/**)",
+                    "Edit(//private/tmp/w/repo/probe.sh)",
                     "NotebookEdit",
                 ],
                 "defaultMode": "default",
@@ -214,6 +215,10 @@ class TestSessionSettings(unittest.TestCase):
             lambda s: s["permissions"]["deny"].remove("Read(~/.ssh/**)"),
             lambda s: s["sandbox"]["filesystem"]["denyRead"].remove("~/.aws"),
             lambda s: s["sandbox"].update(excludedCommands=["git"]),
+            lambda s: s["sandbox"]["filesystem"]["denyWrite"].remove(
+                COPY + "/probe.sh"),
+            lambda s: s["permissions"]["deny"].remove(
+                "Edit(//private/tmp/w/repo/probe.sh)"),
         ]
         for weaken in weakenings:
             s = _sample_settings()
@@ -502,6 +507,9 @@ BASH_DENY_TEXT = {
 }
 
 
+SCRIPT_SHA = "c" * 64
+
+
 def _facts(**over):
     facts = {"copy_root": PP["COPY"], "protected_canary": PROT_CANARY,
              "copy_canary": COPY_CANARY, "key_title": KEY_TITLE,
@@ -511,7 +519,10 @@ def _facts(**over):
              "edit_target_intact": True, "escape_file_exists": False,
              "snapshot_escape_exists": False, "protected_escape_exists": False,
              "snapshot_sha_before": "a" * 64, "snapshot_sha_after": "a" * 64,
-             "copy_marker_exists": True, "copy_tool_marker_exists": True}
+             "copy_marker_exists": True, "copy_tool_marker_exists": True,
+             "probe_script_expected_sha": SCRIPT_SHA,
+             "probe_script_sha_before": SCRIPT_SHA,
+             "probe_script_sha_after": SCRIPT_SHA}
     facts.update(over)
     return facts
 
@@ -891,7 +902,7 @@ class TestEvaluateProbe(unittest.TestCase):
                   "no_checkout_escape_file", "no_snapshot_escape_file",
                   "no_protected_escape_file", "snapshot_unchanged",
                   "edit_target_intact", "copy_write_worked",
-                  "copy_tool_write_worked"):
+                  "copy_tool_write_worked", "probe_script_intact"):
             self.assertTrue(checks[k], k)
 
     def n2_leak(self):
@@ -1134,6 +1145,53 @@ class TestEvaluateProbe(unittest.TestCase):
         passed, checks = self.evaluate(_happy_events(facts, markers=_markers(
             {"read_copy_bash": "exit=0 err=nothing"})))
         self.assertEqual(_failed(checks), ["copy_canary_seen"])
+
+    # probe.sh lives in the writable copy: a session that rewrote it could
+    # forge `Operation not permitted` markers. Its hash before launch and
+    # after the session must both equal the hash of the script the harness
+    # generated.
+    def n17_script_tampered(self):
+        return self.evaluate(probe_script_sha_after="d" * 64)
+
+    def test_n17_probe_script_changed_during_session_fails(self):
+        passed, checks = self.n17_script_tampered()
+        self.assertFalse(passed)
+        self.assertEqual(_failed(checks), ["probe_script_intact"])
+
+    def test_n17b_probe_script_not_the_generated_one_fails(self):
+        for over in ({"probe_script_sha_before": "d" * 64,
+                      "probe_script_sha_after": "d" * 64},
+                     {"probe_script_expected_sha": "d" * 64},
+                     {"probe_script_sha_after": None},
+                     {"probe_script_expected_sha": ""}):
+            passed, checks = self.evaluate(**over)
+            self.assertEqual(_failed(checks), ["probe_script_intact"], over)
+
+    def test_m12_probe_script_hash_is_load_bearing(self):
+        self.assertFalse(self.n17_script_tampered()[0])
+        with mock.patch.object(h, "_probe_script_intact", lambda facts: True):
+            self.assertTrue(self.n17_script_tampered()[0])
+
+    def test_probe_script_is_write_denied_in_every_session(self):
+        s = _sample_settings()
+        self.assertIn(COPY + "/probe.sh", s["sandbox"]["filesystem"]
+                      ["denyWrite"])
+        self.assertIn("Edit(//private/tmp/w/repo/probe.sh)",
+                      s["permissions"]["deny"])
+
+    def test_m13_probe_script_write_deny_is_load_bearing(self):
+        real = h.build_session_settings
+
+        def patched(*a, **k):
+            s = real(*a, **k)
+            s["sandbox"]["filesystem"]["denyWrite"] = [SNAP]
+            s["permissions"]["deny"].remove(
+                "Edit(//private/tmp/w/repo/probe.sh)")
+            return s
+        self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
+        with mock.patch.object(h, "build_session_settings", patched):
+            self.assertFalse(h.settings_is_fail_closed(
+                h.build_session_settings(COPY, SNAP, OUT, CHECKOUT, KEYS)))
 
     # Mutants: each patch removes one lock; the matching control flips.
 
