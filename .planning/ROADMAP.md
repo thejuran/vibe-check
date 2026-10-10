@@ -265,7 +265,7 @@ Plans:
   4. The accepted-fix harness runs accept → apply → rerun → Close out → finalize on disposable copies in both default-diff and GSD modes, starting from a seeded answer-key finding (never detection output), planting one staged and one unstaged sentinel in an untouched file plus one unstaged sentinel in the fixed file outside the hunk, and checking all three byte-for-byte afterwards; a run is reported complete only when the defect is verified fixed with tests passing, commits contain only the accepted repair, and rerun → Close out → finalize succeeds without manual repair, without silently dropping unresolved findings and without a false success report
   5. Two sentinel-free clean-tree runs (one default-diff, one GSD) assert the tree is clean after fixes commit and before Close out; every harness run records the owner-decision count and elapsed time split into waiting-on-owner vs execution
 
-**Plans:** 11/14 plans executed
+**Plans:** 12/14 plans executed
 
 Plans:
 **Wave 1**
@@ -286,7 +286,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 52-13-PLAN.md — Harness core B2: FLOW-02 verdict (content-level repair boundary vs recipe hunk in every run, finalize-counts, sentinel verify, key-free), FLOW-05 record (D-13 + containment locks)
+- [x] 52-13-PLAN.md — Harness core B2: FLOW-02 verdict (content-level repair boundary vs recipe hunk in every run, finalize-counts, sentinel verify, key-free), FLOW-05 record (D-13 + containment locks)
 - [x] 52-14-PLAN.md — Harness containment policy: workspace outside the checkout, plugin snapshot, Seatbelt sandbox + Read/Edit deny settings (fail closed), file-tool path backstop, preflight, probe evaluator
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -398,7 +398,7 @@ Plans:
 | 49. Measure + release 2.11.0 | v2.11 | 9/9 | Complete    | 2026-10-08 |
 | 50. Finalize entry fix + 2.11.1 patch | v2.11 | 2/2 | Complete    | 2026-10-08 |
 | 51. Seal the holdout | v2.12 | 10/10 | Complete    | 2026-10-09 |
-| 52. Hardening + accepted-fix harness | v2.12 | 11/14 | In Progress|  |
+| 52. Hardening + accepted-fix harness | v2.12 | 12/14 | In Progress|  |
 | 53. False-alarm reduction | v2.12 | 0/? | Not started | - |
 | 54. Freeze + release gates + integration audit | v2.12 | 0/? | Not started | - |
 | 55. Measure + ship 2.12.0 | v2.12 | 0/? | Not started | - |
