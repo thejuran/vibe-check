@@ -197,7 +197,7 @@ NON_GIT_DENY = (
     ("cp a b", "REASON_NOT_ALLOWLISTED"),
     ("touch x", "REASON_NOT_ALLOWLISTED"),
     ("tee f", "REASON_NOT_ALLOWLISTED"),
-    ("sed -i s/a/b/ f", "REASON_NOT_ALLOWLISTED"),
+    ("sed -i s/a/b/ f", "REASON_SED_FORM"),
     ("awk '{system(\"x\")}' f", "REASON_NOT_ALLOWLISTED"),
     ("alias g=fixstage", "REASON_NOT_ALLOWLISTED"),
     ("$CMD arg", "REASON_NOT_ALLOWLISTED"),
@@ -226,6 +226,50 @@ NON_GIT_DENY = (
     ("find . -fprint0 out", "REASON_NOT_ALLOWLISTED"),
     ("find . -fprintf out x", "REASON_NOT_ALLOWLISTED"),
     ("find . -fls out", "REASON_NOT_ALLOWLISTED"),
+    # sed outside the numeric-print grammar (whole script validated, D-19)
+    ("sed -i 's/a/b/' f", "REASON_SED_FORM"),
+    ("sed -n 'w /tmp/x' f", "REASON_SED_FORM"),
+    ("sed -n '1p' -i f", "REASON_SED_FORM"),
+    ("sed -n '/re/p' f", "REASON_SED_FORM"),
+    ("sed -n 's/a/b/w x' f", "REASON_SED_FORM"),
+    ("sed -n -e '1p' -e 'e' f", "REASON_SED_FORM"),
+    ("sed -f script f", "REASON_SED_FORM"),
+    ("sed -n -f script f", "REASON_SED_FORM"),
+    ("sed -n '1p;e' f", "REASON_SED_FORM"),
+    ("sed -n '1r /etc/passwd' f", "REASON_SED_FORM"),
+    ("sed -n '1R x' f", "REASON_SED_FORM"),
+    ("sed -n '1W x' f", "REASON_SED_FORM"),
+    ("sed -n '1,5p w x' f", "REASON_SED_FORM"),
+    ("sed -n '1e date' f", "REASON_SED_FORM"),
+    ("sed '1p' f", "REASON_SED_FORM"),
+    ("sed -n", "REASON_SED_FORM"),
+    ("sed -n -e", "REASON_SED_FORM"),
+    ("sed -n 'p' f", "REASON_SED_FORM"),
+    ("sed -n '1,5 p' f", "REASON_SED_FORM"),
+    ("sed -ne '1p' f", "REASON_SED_FORM"),
+    ("sed -n -E '1p' f", "REASON_SED_FORM"),
+    ("sed -n --in-place '1p' f", "REASON_SED_FORM"),
+    ("sed -n --expression=1p f", "REASON_SED_FORM"),
+    ("sed -n '1p' -- f", "REASON_SED_FORM"),
+    ("sed -n '1p' -s f", "REASON_SED_FORM"),
+    ("sed -n '0~2p' f", "REASON_SED_FORM"),
+    ("sed -n '1!p' f", "REASON_SED_FORM"),
+    ("sed -n '1p' f -i", "REASON_SED_FORM"),
+    ("cat f | sed -n 'w out'", "REASON_SED_FORM"),
+    # cd grammar (no repo root known: every absolute operand refuses)
+    ("cd a b", "REASON_CD_FORM"),
+    ("cd -", "REASON_CD_FORM"),
+    ("cd", "REASON_CD_FORM"),
+    ("cd && grep x f", "REASON_CD_FORM"),
+    ("cd ~", "REASON_CD_FORM"),
+    ("cd -e /x", "REASON_CD_FORM"),
+    ("cd -- /x", "REASON_CD_FORM"),
+    ("cd sub && grep x f", "REASON_CD_FORM"),
+    ("cd /outside && grep x f", "REASON_CD_FORM"),
+    # legitimately unprovable forms stay refused
+    ("wc -l f | sort -n", "REASON_NOT_ALLOWLISTED"),
+    ("for f in *; do cat $f; done", "REASON_NOT_ALLOWLISTED"),
+    ("xargs cat", "REASON_INDIRECTION"),
 )
 
 ALLOW = (
@@ -283,6 +327,19 @@ ALLOW = (
     "grep -n 'x|y' file",
     'grep -n ">" file',
     "grep -n '&&' file",
+    # sed only as `sed -n` + numeric-address print scripts
+    "sed -n '560,760p' file",
+    "git show HEAD:f | sed -n '598,606p;664,672p'",
+    "sed -n '$p' f",
+    "sed -n '1,+5p' f",
+    "sed -n '1,$p' f",
+    "sed --quiet '3p' f",
+    "sed --silent 3p f",
+    "sed -n -e '1p' -e '5,6p' f",
+    "sed -n '1p;' a b",
+    "cat f | sed -n '2,3p'",
+    "git grep -n token -- '*.md'",
+    "cd . && grep x f",
 )
 
 # (command, expected verdict) with repo_root="/r": "allowed" or a reason name.
@@ -323,12 +380,16 @@ DIR_TARGET_CASES = (
     ("cd /r/sub && /usr/bin/git log -1", "REASON_GIT_OTHER_DIR"),
     ("command cd /r/sub && git log -1", "REASON_GIT_OTHER_DIR"),
     ("CD /r/sub && git log -1", "REASON_GIT_OTHER_DIR"),
-    # cd to the root is not a dir-rule refusal; `cd` itself is not on the
-    # allowlist yet, so the refusal reason is the allowlist one
-    ("cd /r && git log -1", "REASON_NOT_ALLOWLISTED"),
-    ("cd . && git log -1", "REASON_NOT_ALLOWLISTED"),
-    # a git-less cd is never a dir-rule refusal
-    ("cd /r/sub && ls", "REASON_NOT_ALLOWLISTED"),
+    # cd to the root (spelled absolute or `.`) then git is allowed
+    ("cd /r && git log -1", "allowed"),
+    ("cd . && git log -1", "allowed"),
+    ("cd /r; grep -n \"finalize\" commands/review.md", "allowed"),
+    ("cd /r && grep -rn x .", "allowed"),
+    # a git-less cd to a directory that does not exist is a cd-form refusal
+    ("cd /r/sub && ls", "REASON_CD_FORM"),
+    ("cd a b", "REASON_CD_FORM"),
+    ("cd sub && grep x f", "REASON_CD_FORM"),
+    ("cd && grep x f", "REASON_CD_FORM"),
 )
 
 
@@ -360,7 +421,7 @@ AUDITED_READERS = frozenset(
     {"cat", "head", "tail", "ls", "wc", "grep", "rg", "stat", "find"})
 AUDITED_WORDS = frozenset({"git"}) | AUDITED_READERS | frozenset(
     {"echo", "printf", "true", "false", "cut", "tr", "basename", "dirname",
-     "pwd"})
+     "pwd", "cd", "sed"})
 REMOVED_WORDS = frozenset(
     {"uniq", "sort", "diff", "cmp", "comm", "nl", "column", "file", "tee",
      "split", "csplit", "dd", "truncate"})
@@ -526,7 +587,7 @@ class TestDirTarget(unittest.TestCase):
                               ("r", "r"), ("vendor", "vendor")):
             with self.subTest(operand=operand, root=root):
                 self.assertEqual(r(operand, root),
-                                 (None, gitguard.REASON_GIT_OTHER_DIR))
+                                 (None, gitguard.REASON_CD_FORM))
 
     def test_resolver_subdir_kinds(self):
         import tempfile
@@ -546,11 +607,15 @@ class TestDirTarget(unittest.TestCase):
             self.assertEqual(r(root + "/src/a/", root), ("subdir", None))
             self.assertEqual(r(root + "/bare", root), ("subdir", None))
             for rel in ("nested", "nested/inner", "bare/b", "sub.git",
-                        "sub.git/x", "link", "link/a", "missing",
-                        "src/a/../a"):
+                        "sub.git/x"):
                 with self.subTest(rel=rel):
                     self.assertEqual(r(root + "/" + rel, root),
                                      (None, gitguard.REASON_GIT_OTHER_DIR))
+            # not a git dir, but still not provably safe: a cd-form refusal
+            for rel in ("link", "link/a", "missing", "src/a/../a"):
+                with self.subTest(rel=rel):
+                    self.assertEqual(r(root + "/" + rel, root),
+                                     (None, gitguard.REASON_CD_FORM))
             # git never accepts a subdir, even a clean one
             self.assertEqual(
                 gitguard.classify("git -C %s/src log -1" % root,
@@ -675,6 +740,162 @@ class TestTokenize(unittest.TestCase):
     def test_chained_second_command_still_split(self):
         self.assertEqual(gitguard.classify("git log; git stash pop"),
                          (False, gitguard.REASON_GIT_ARGS))
+
+
+# --------------------------------------------------------------------------- #
+# cd and sed argv validators (complete-command validation)
+# --------------------------------------------------------------------------- #
+# (command template with {R} = the fixture repo root, expected verdict)
+CD_FIXTURE_CASES = (
+    ("cd {R}; grep -n \"finalize\" commands/review.md", "allowed"),
+    ("cd {R} && grep -rn x .", "allowed"),
+    ("cd {R}/", "allowed"),
+    ("cd {R}/sub && grep x f", "allowed"),
+    ("cd -L {R}/sub && grep x f", "allowed"),
+    ("cd -P {R}/sub && grep x f", "allowed"),
+    ("cd {R}/sub/deep", "allowed"),
+    ("cd {R} && git log -1", "allowed"),
+    ("cd {R}/sub && git log -1", "REASON_GIT_OTHER_DIR"),
+    ("cd {R}/sub/.. && grep x f", "REASON_CD_FORM"),
+    ("cd {R}/lnk && grep x f", "REASON_CD_FORM"),
+    ("cd {R}/vendor/x.git/link && grep x f", "REASON_GIT_OTHER_DIR"),
+    ("cd {R}/vendor/x.git && grep x HEAD", "REASON_GIT_OTHER_DIR"),
+    ("cd {R}/vendor/x.git", "REASON_GIT_OTHER_DIR"),
+    ("cd {R}/vendor/x.git/refs && ls", "REASON_GIT_OTHER_DIR"),
+    ("cd vendor/x.git && git show HEAD", "REASON_GIT_OTHER_DIR"),
+    ("cd vendor/x.git && grep x HEAD", "REASON_CD_FORM"),
+    ("cd {R}/missing && ls", "REASON_CD_FORM"),
+    ("cd /outside && grep x f", "REASON_CD_FORM"),
+    ("cd {R}/sub {R}", "REASON_CD_FORM"),
+    ("cd -- {R}/sub", "REASON_CD_FORM"),
+    ("cd -e {R}/sub", "REASON_CD_FORM"),
+    ("cd -", "REASON_CD_FORM"),
+    ("cd", "REASON_CD_FORM"),
+    ("cd ~", "REASON_CD_FORM"),
+    ("cd sub && grep x f", "REASON_CD_FORM"),
+    # a glob or brace operand is not the directory bash will enter
+    ("cd {R}/[v] && grep x HEAD", "REASON_CD_FORM"),
+    ("cd {R}/su? && grep x f", "REASON_CD_FORM"),
+    ("cd {R}/s* && grep x f", "REASON_CD_FORM"),
+    ("cd {R}/{{sub,v}} && grep x f", "REASON_CD_FORM"),
+)
+
+
+def _make_cd_fixture(test):
+    """A repo root with sub/deep, a bare-shaped vendor/x.git (whose link ->
+    vendor), lnk -> sub, a bare-shaped v and a literal directory `[v]`."""
+    import tempfile
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    root = os.path.realpath(tmp.name)
+    os.makedirs(os.path.join(root, "sub", "deep"))
+    os.makedirs(os.path.join(root, "[v]"))
+    for bare in (os.path.join(root, "vendor", "x.git"),
+                 os.path.join(root, "v")):
+        os.makedirs(os.path.join(bare, "objects"))
+        os.makedirs(os.path.join(bare, "refs"))
+        open(os.path.join(bare, "HEAD"), "w").close()
+    os.symlink(os.path.join(root, "vendor"),
+               os.path.join(root, "vendor", "x.git", "link"))
+    os.symlink(os.path.join(root, "sub"), os.path.join(root, "lnk"))
+    return root
+
+
+class TestCdSedValidators(unittest.TestCase):
+    def setUp(self):
+        self.root = _make_cd_fixture(self)
+
+    def test_fixture_has_what_the_cases_assume(self):
+        r = gitguard._resolve_dir_target
+        self.assertEqual(r(self.root + "/sub", self.root), ("subdir", None))
+        self.assertTrue(os.path.islink(self.root + "/lnk"))
+        self.assertTrue(gitguard._is_bare_shaped(self.root + "/v"))
+        # the resolver alone would accept the literal `[v]` directory, so
+        # only the operand-form check stands between bash's glob (-> v, a
+        # bare repo) and an allowed cd
+        self.assertEqual(r(self.root + "/[v]", self.root), ("subdir", None))
+
+    def test_cd_fixture_table(self):
+        for template, expected in CD_FIXTURE_CASES:
+            cmd = template.format(R=self.root)
+            with self.subTest(cmd=cmd):
+                verdict = gitguard.classify(cmd, repo_root=self.root)
+                if expected == "allowed":
+                    self.assertEqual(verdict, (True, "allowed"))
+                else:
+                    self.assertEqual(verdict, (False, _reason(expected)))
+
+    def test_sed_validator_direct(self):
+        ok = gitguard._classify_sed
+        self.assertEqual(ok(["-n", "1p", "f"]), (True, "allowed"))
+        self.assertEqual(ok(["-n", "-e", "1p", "-e", "$p"]),
+                         (True, "allowed"))
+        for args in ([], ["-n"], ["1p", "f"], ["-n", "1p", "-f"],
+                     ["-n", "1pw"], ["-n", "1p;;2p"], ["-n", ";"],
+                     ["-n", "+1p"], ["-n", "1,2,3p"], ["-n", "$,+p"]):
+            with self.subTest(args=args):
+                self.assertEqual(ok(args), (False, gitguard.REASON_SED_FORM))
+
+    def test_cd_validator_has_no_path_logic_of_its_own(self):
+        with open(GITGUARD_PY, "r", encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        fn = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+              and n.name == "_classify_cd"][0]
+        names = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name)}
+        attrs = {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
+        self.assertIn("_resolve_dir_target", names)
+        self.assertFalse({"realpath", "getcwd", "abspath", "normpath",
+                          "isdir", "islink", "lexists"} & attrs, attrs)
+
+    # mutants -------------------------------------------------------------
+    def test_sed_validator_mutant(self):
+        cmd = "sed -i 's/a/b/' f"
+        self.assertEqual(gitguard.classify(cmd),
+                         (False, gitguard.REASON_SED_FORM))
+        with mock.patch.object(gitguard, "_classify_sed",
+                               lambda args: (True, "allowed")):
+            self.assertEqual(gitguard.classify(cmd), (True, "allowed"),
+                             "sed validator mutant survived")
+
+    def test_cd_validator_mutant(self):
+        cmd = "cd a b"
+        self.assertEqual(gitguard.classify(cmd, repo_root=self.root),
+                         (False, gitguard.REASON_CD_FORM))
+        with mock.patch.object(gitguard, "_classify_cd",
+                               lambda args, repo_root: (True, "allowed")):
+            self.assertEqual(gitguard.classify(cmd, repo_root=self.root),
+                             (True, "allowed"), "cd validator mutant survived")
+
+    def test_sed_and_cd_name_only_mutant(self):
+        # with the argv dispatch skipped, the allowlist entry alone would
+        # wave every sed and cd form through: the dispatch is what holds
+        self.assertIn("sed", gitguard.SAFE_COMMAND_WORDS)
+        self.assertIn("cd", gitguard.SAFE_COMMAND_WORDS)
+        self.assertEqual(gitguard.ARGV_VALIDATED_WORDS,
+                         frozenset({"cd", "sed"}))
+        for cmd in ("sed -n 'w /tmp/x' f", "cd a b"):
+            self.assertIs(gitguard.classify(cmd)[0], False, cmd)
+        with mock.patch.object(gitguard, "ARGV_VALIDATED_WORDS", frozenset()):
+            for cmd in ("sed -n 'w /tmp/x' f", "cd a b"):
+                with self.subTest(cmd=cmd):
+                    self.assertEqual(gitguard.classify(cmd),
+                                     (True, "allowed"),
+                                     "name-only mutant survived")
+
+    def test_cd_resolver_bypass_mutant(self):
+        bare = "cd %s/vendor/x.git && grep x HEAD" % self.root
+        rel = "cd sub && grep x f"
+        self.assertEqual(gitguard.classify(bare, repo_root=self.root),
+                         (False, gitguard.REASON_GIT_OTHER_DIR))
+        self.assertEqual(gitguard.classify(rel, repo_root=self.root),
+                         (False, gitguard.REASON_CD_FORM))
+        with mock.patch.object(gitguard, "_resolve_dir_target",
+                               lambda o, r: ("subdir", None)):
+            for cmd in (bare, rel):
+                with self.subTest(cmd=cmd):
+                    self.assertEqual(
+                        gitguard.classify(cmd, repo_root=self.root),
+                        (True, "allowed"), "resolver bypass survived")
 
 
 # --------------------------------------------------------------------------- #
@@ -1117,9 +1338,9 @@ class TestBareRepoVectors(unittest.TestCase):
         self.assertEqual(gitguard.classify("git -C %s status" % self.root,
                                            repo_root=self.root),
                          (True, "allowed"))
-        allowed, reason = gitguard.classify("cd %s && git status" % self.root,
-                                            repo_root=self.root)
-        self.assertNotEqual(reason, gitguard.REASON_GIT_OTHER_DIR)
+        self.assertEqual(gitguard.classify("cd %s && git status" % self.root,
+                                           repo_root=self.root),
+                         (True, "allowed"))
 
     def test_resolver_inputs_for_git_less_cd(self):
         r = gitguard._resolve_dir_target
