@@ -31,6 +31,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import gitguard  # noqa: E402  (sibling module under test)
+import gitfixture  # noqa: E402  (shared temp-repo helper)
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 GITGUARD_PY = os.path.join(SCRIPTS_DIR, "gitguard.py")
@@ -872,6 +873,182 @@ class TestClassifyMutants(unittest.TestCase):
         with mock.patch.object(gitguard, "PURE_READERS", readers), \
                 mock.patch.object(gitguard, "SAFE_COMMAND_WORDS", words):
             self.assertAllowed("file -C -m x")
+
+
+# --------------------------------------------------------------------------- #
+# live bare-repo vectors — prove each vector runs a program, then prove the
+# classifier refuses it
+# --------------------------------------------------------------------------- #
+LOGICAL_CD_CMD = "cd vendor/x.git/link/.. && git show HEAD"
+VECTOR_MARKERS = {"uploadpack": "marker-uploadpack",
+                  "diffext": "marker-diffext",
+                  "textconv": "marker-textconv"}
+VECTOR_TIMEOUT = 30
+
+
+class TestBareRepoVectors(unittest.TestCase):
+    """A reviewed repo R tracks an embedded bare clone vendor/x.git whose
+    config names a marker program for remote.origin.uploadpack, diff.external
+    and a textconv driver. vendor/x.git/link -> R/vendor, so physically
+    link/.. is R while bash's logical `cd link/..` lands in vendor/x.git.
+    Each test first proves its vector live (the marker file appears), then
+    proves the classifier refuses it."""
+
+    @classmethod
+    def setUpClass(cls):
+        import subprocess
+        import tempfile
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = os.path.realpath(cls._tmp.name)
+        cls.markers = os.path.join(base, "markers")
+        os.makedirs(cls.markers)
+        scripts = {}
+        for vector, body in (
+                ("uploadpack", "exit 1\n"),
+                ("diffext", "exit 0\n"),
+                ("textconv", 'cat "$1"\n')):
+            path = gitfixture.write(
+                base, "bin/%s.sh" % vector,
+                '#!/bin/sh\ntouch "$MARKER_DIR/%s"\n%s'
+                % (VECTOR_MARKERS[vector], body))
+            os.chmod(path, 0o755)
+            scripts[vector] = path
+        src = gitfixture.make_repo(os.path.join(base, "src"))
+        gitfixture.write(src, "a.txt", "one\n")
+        gitfixture.git(src, "add", "a.txt")
+        gitfixture.git(src, "commit", "-q", "-m", "one")
+        gitfixture.write(src, "a.txt", "two\n")
+        gitfixture.git(src, "commit", "-q", "-am", "two")
+        cls.root = gitfixture.make_repo(os.path.join(base, "r"))
+        bare = os.path.join(cls.root, "vendor", "x.git")
+        gitfixture.git(cls.root, "clone", "-q", "--bare", src, bare)
+        gitfixture.git(bare, "config", "remote.origin.uploadpack",
+                       scripts["uploadpack"])
+        gitfixture.git(bare, "config", "diff.external", scripts["diffext"])
+        gitfixture.git(bare, "config", "diff.m.textconv", scripts["textconv"])
+        gitfixture.write(bare, "info/attributes", "*.txt diff=m\n")
+        gitfixture.git(cls.root, "add", "vendor")
+        gitfixture.git(cls.root, "commit", "-q", "-m", "vendor a bare repo")
+        os.symlink(os.path.join(cls.root, "vendor"),
+                   os.path.join(bare, "link"))
+        cls.bare = bare
+        cls.git_version = subprocess.run(
+            ["git", "--version"], stdout=subprocess.PIPE, text=True,
+            timeout=VECTOR_TIMEOUT).stdout.strip()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def _env(self):
+        env = gitfixture.helper_env()
+        env["MARKER_DIR"] = self.markers
+        env["PWD"] = self.root
+        env["GIT_PAGER"] = "cat"
+        env["PAGER"] = "cat"
+        return env
+
+    def _marker(self, vector):
+        return os.path.join(self.markers, VECTOR_MARKERS[vector])
+
+    def _fires(self, argv, vector):
+        """Run argv in R; -> True when it created the vector's marker."""
+        import subprocess
+        path = self._marker(vector)
+        if os.path.exists(path):
+            os.remove(path)
+        subprocess.run(argv, cwd=self.root, env=self._env(),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=VECTOR_TIMEOUT)
+        return os.path.exists(path)
+
+    def _live_or_skip(self, argv, vector):
+        if not self._fires(argv, vector):
+            self.skipTest("vector not live on %s: %s" % (
+                self.git_version, vector))
+
+    def assertOtherDir(self, cmd):
+        self.assertEqual(gitguard.classify(cmd, repo_root=self.root),
+                         (False, gitguard.REASON_GIT_OTHER_DIR), cmd)
+
+    def test_uploadpack_vector(self):
+        self._live_or_skip(
+            ["git", "-C", "vendor/x.git", "remote", "show", "origin"],
+            "uploadpack")
+        self.assertFalse(self._fires(
+            ["git", "-C", "vendor/x.git", "remote", "show", "-n", "origin"],
+            "uploadpack"), "remote show -n must not contact the remote")
+        self.assertOtherDir("git -C vendor/x.git remote show origin")
+        self.assertEqual(
+            gitguard.classify("git remote show origin", repo_root=self.root),
+            (False, gitguard.REASON_GIT_ARGS))
+
+    def test_diff_external_vector(self):
+        self._live_or_skip(
+            ["git", "-C", "vendor/x.git", "diff", "HEAD~1", "HEAD"],
+            "diffext")
+        self.assertOtherDir("git -C vendor/x.git diff HEAD~1 HEAD")
+
+    def test_textconv_vector(self):
+        self._live_or_skip(
+            ["git", "-C", "vendor/x.git", "show", "HEAD"], "textconv")
+        self.assertOtherDir("git -C vendor/x.git show HEAD")
+        self.assertOtherDir("cd vendor/x.git && git log -p -1")
+
+    def test_logical_cd_symlink_vector(self):
+        # The one shell call in this class: a fixed literal, never input.
+        self._live_or_skip(["bash", "-c", LOGICAL_CD_CMD], "textconv")
+        # A realpath check would have approved the path that just ran the
+        # marker: physically link/.. is the repo root itself.
+        self.assertEqual(
+            os.path.realpath(os.path.join(self.root, "vendor/x.git/link/..")),
+            self.root)
+        self.assertOtherDir(LOGICAL_CD_CMD)
+        self.assertOtherDir("cd %s/vendor/x.git/link/.. && git show HEAD"
+                            % self.root)
+        self.assertOtherDir("cd -P %s/vendor/x.git/link/.. && git show HEAD"
+                            % self.root)
+        self.assertOtherDir("git -C %s/vendor/x.git/link/.. show HEAD"
+                            % self.root)
+        self.assertOtherDir("cd %s/vendor/x.git/link && git show HEAD"
+                            % self.root)
+
+    def test_controls_not_over_blocked(self):
+        self.assertEqual(gitguard.classify("git -C . log -1",
+                                           repo_root=self.root),
+                         (True, "allowed"))
+        self.assertEqual(gitguard.classify("git -C %s status" % self.root,
+                                           repo_root=self.root),
+                         (True, "allowed"))
+        allowed, reason = gitguard.classify("cd %s && git status" % self.root,
+                                            repo_root=self.root)
+        self.assertNotEqual(reason, gitguard.REASON_GIT_OTHER_DIR)
+
+    def test_resolver_inputs_for_git_less_cd(self):
+        r = gitguard._resolve_dir_target
+        self.assertEqual(r(self.root + "/vendor", self.root),
+                         ("subdir", None))
+        refused = (None, gitguard.REASON_GIT_OTHER_DIR)
+        self.assertEqual(r(self.bare, self.root), refused)
+        self.assertEqual(r(self.bare + "/link", self.root), refused)
+        self.assertEqual(r(self.bare + "/refs", self.root), refused)
+
+    def test_bare_dir_refused_by_each_marker_alone(self):
+        # HEAD+objects+refs and the .git suffix each refuse on their own.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.realpath(tmp)
+            plain = os.path.join(root, "plain")
+            os.makedirs(os.path.join(plain, "objects"))
+            os.makedirs(os.path.join(plain, "refs"))
+            open(os.path.join(plain, "HEAD"), "w").close()
+            os.makedirs(os.path.join(root, "empty.git"))
+            refused = (None, gitguard.REASON_GIT_OTHER_DIR)
+            self.assertEqual(gitguard._resolve_dir_target(plain, root),
+                             refused)
+            self.assertEqual(
+                gitguard._resolve_dir_target(root + "/empty.git", root),
+                refused)
 
 
 # --------------------------------------------------------------------------- #
