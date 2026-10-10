@@ -54,10 +54,13 @@ CLI (python3 gitguard.py <subcommand>):
                             is appended to
                             <repo>/.turingmind/git-guard/blocks.jsonl.
   notices --root R [--consume] [--repo-changed]
-                            prints one sanitized line per recorded block
-                            ("Blocked: <agent> tried `<cmd>` — repo
-                            untouched."), at most 10 plus a "…and N more"
-                            line; --consume deletes the record file after.
+                            prints one sanitized line per distinct recorded
+                            block ("Blocked: <agent> tried `<cmd>` — repo
+                            untouched. <plain explanation of the reason>",
+                            with " (×N)" when the same block repeated), at
+                            most 10 plus a "…and N more" line counting every
+                            remaining record; --consume deletes the record
+                            file after.
                             The orchestrator must copy these lines into the
                             review as its own message text — never leave them
                             only inside Bash output, which the owner may not
@@ -187,6 +190,89 @@ REASON_SED_FORM = (
 REASON_CD_FORM = (
     "refused: cd is allowed only with a single directory operand "
     "(fail closed)")
+REASON_DENY_TOOL = (
+    "review agents may not spawn agents, write files or switch worktrees")
+REASON_GUARD_ERROR = "guard error (fail closed)"
+
+# One plain-language sentence per REASON_* for the owner-facing Blocked
+# notice. Fixed text that never echoes input and holds no backtick (the
+# notice quotes the command in backticks). TestExplanationsExhaustive keeps
+# this map in step with every REASON_* constant: add both together.
+EXPLANATIONS = {
+    REASON_NO_COMMAND: (
+        "The tool call carried no command text, so there was nothing the "
+        "guard could check."),
+    REASON_INTERNAL: (
+        "The guard could not analyse this command, so it refused it rather "
+        "than guess."),
+    REASON_TRUSTED_SCRIPT: (
+        "The command names one of vibe-check's own scripts that can commit "
+        "or change git state; review agents may not run or read them."),
+    REASON_INDIRECTION: (
+        "Interpreters, shells and wrappers such as python, bash, eval, xargs "
+        "or find -exec can run anything, so the guard cannot prove they are "
+        "read-only."),
+    REASON_NOT_ALLOWLISTED: (
+        "Review agents may only run a fixed list of read-only commands "
+        "(read-only git, cat, head, tail, ls, wc, grep, rg, stat, find, cd, "
+        "sed -n); this command or one of its flags is not on it."),
+    REASON_SUBSTITUTION: (
+        "Command substitution, process substitution and heredocs (including "
+        "a $( inside quotes) can run hidden commands, so the guard refuses "
+        "them."),
+    REASON_REDIRECT: (
+        "Writing output to a file would change the working tree; only "
+        "/dev/null and stream duplications are allowed."),
+    REASON_UNPARSEABLE: (
+        "The command could not be parsed (for example an unclosed quote), so "
+        "the guard cannot tell what it would run."),
+    REASON_GIT_EXPANSION: (
+        "A $ variable in a command that mentions git could change which repo "
+        "or program git uses, so it is refused."),
+    REASON_ENV: (
+        "Only harmless settings (GIT_PAGER=cat, PAGER=cat, LC_ALL, LANG, "
+        "NO_COLOR, TERM=dumb) may precede a command; others can redirect git "
+        "or run programs."),
+    REASON_GIT_GLOBAL_OPT: (
+        "git options such as -c, --git-dir or --work-tree can point git at "
+        "other config or another repo, so only a small read-only set is "
+        "allowed."),
+    REASON_GIT_SUBCOMMAND: (
+        "This git subcommand (or alias) can change the repo; review agents "
+        "may only use read-only git such as diff, show, log, blame and "
+        "status."),
+    REASON_GIT_FLAG: (
+        "This git flag writes a file or runs an external program (for "
+        "example --output, --ext-diff or --textconv)."),
+    REASON_GIT_ARGS: (
+        "This form of the git subcommand changes the repo (for example stash "
+        "pop, branch -D or tag v1); only its listing forms are allowed."),
+    REASON_GIT_AS_ARGUMENT: (
+        "Passing git as an argument to another command would let that "
+        "command run git in ways the guard cannot check."),
+    REASON_GIT_DIR_PATH: (
+        "Only the plain readers (cat, head, tail, ls, wc, grep, rg, stat, "
+        "find) may touch paths inside .git."),
+    REASON_GIT_OTHER_DIR: (
+        "git may only run in the reviewed repo root; this directory (or a cd "
+        "on the way to it) is another git directory whose config could run "
+        "programs."),
+    REASON_SED_FORM: (
+        "sed may only print numbered line ranges (sed -n 'N,Mp' file); "
+        "in-place edits, regex addresses and w, r and e commands are "
+        "refused."),
+    REASON_CD_FORM: (
+        "cd may only target one absolute directory inside the reviewed repo; "
+        "relative paths, .., globs, symlinks and leaving the repo are "
+        "refused because the shell keeps that directory for later commands "
+        "and the guard cannot see it."),
+    REASON_DENY_TOOL: (
+        "Review agents only read; they may not start other agents, write or "
+        "edit files, or switch worktrees."),
+    REASON_GUARD_ERROR: (
+        "The guard hit an internal error while checking this call, so it "
+        "refused it rather than guess."),
+}
 
 # --------------------------------------------------------------------------- #
 # command-word policy
@@ -1126,14 +1212,12 @@ DENY_TOOLS = frozenset({
     "EnterWorktree", "ExitWorktree",
 })
 
-REASON_DENY_TOOL = (
-    "review agents may not spawn agents, write files or switch worktrees")
-REASON_GUARD_ERROR = "guard error (fail closed)"
-
 DENY_MESSAGE = (
-    "vibe-check: blocked — %s. Review agents may only use read-only git "
-    "(diff, show, log, blame, status, rev-parse, ls-files). "
-    "The repo was not changed.\n")
+    "vibe-check: blocked. Review agents may only run read-only commands: "
+    "read-only git (diff, show, log, blame, status, rev-parse, ls-files, "
+    "grep), cat/head/tail/ls/wc/grep/rg/stat/find, cd <absolute dir inside "
+    "the repo — no relative paths, `..`, symlinks or nested/bare git dirs>, "
+    "and sed -n 'N,Mp' file. The repo was not changed. Reason: %s.\n")
 
 BLOCKS_RELPATH = os.path.join(".turingmind", "git-guard", "blocks.jsonl")
 COMMAND_CAP = 120
@@ -1311,28 +1395,61 @@ def _load_records(path):
     return records
 
 
+def _explanation(reason):
+    """The fixed explanation for a recorded reason; unknown -> REASON_INTERNAL's."""
+    fallback = EXPLANATIONS[REASON_INTERNAL]
+    if not isinstance(reason, str):
+        return fallback
+    return EXPLANATIONS.get(reason, fallback)
+
+
 def _render_one(record, suffix):
     if not isinstance(record, dict):
-        return "Blocked: unknown-agent tried an unreadable command — %s" % suffix
+        return "Blocked: unknown-agent tried an unreadable command — %s %s" % (
+            suffix, _explanation(None))
+    explanation = _explanation(record.get("reason"))
     agent = record.get("agent")
     if not (isinstance(agent, str) and _SHORT_AGENT_RE.match(agent)):
         agent = "unknown-agent"
     tool = _short_tool(record.get("tool"))
     if tool != "Bash":
-        return "Blocked: %s tried to use the `%s` tool — %s" % (
-            agent, tool, suffix)
+        return "Blocked: %s tried to use the `%s` tool — %s %s" % (
+            agent, tool, suffix, explanation)
     command = _sanitize_command(record.get("command"))
     if not command:
-        return "Blocked: %s tried an unreadable command — %s" % (agent, suffix)
-    return "Blocked: %s tried `%s` — %s" % (agent, command, suffix)
+        return "Blocked: %s tried an unreadable command — %s %s" % (
+            agent, suffix, explanation)
+    return "Blocked: %s tried `%s` — %s %s" % (
+        agent, command, suffix, explanation)
+
+
+def _group_notices(records, suffix):
+    """Rendered lines with how many records produced each -> [(line, count)].
+
+    Identical rendered lines (same agent, tool, sanitized command and
+    explanation) collapse into one entry, in first-seen order. Every record
+    is counted: the counts always sum to len(records).
+    """
+    order = []
+    counts = {}
+    for record in records:
+        line = _render_one(record, suffix)
+        if line not in counts:
+            order.append(line)
+            counts[line] = 0
+        counts[line] += 1
+    return [(line, counts[line]) for line in order]
 
 
 def render_notices(records, repo_changed):
-    """One sanitized line per block, capped at NOTICE_CAP plus a tail line."""
+    """One sanitized, explained line per distinct block, with a ` (×N)` count
+    for repeats; at most NOTICE_CAP lines plus a tail line that counts every
+    remaining record. No refusal is ever dropped silently."""
     suffix = "this attempt was refused." if repo_changed else "repo untouched."
-    records = list(records)
-    lines = [_render_one(r, suffix) for r in records[:NOTICE_CAP]]
-    extra = len(records) - NOTICE_CAP
+    groups = _group_notices(list(records), suffix)
+    lines = [line if count == 1 else "%s (×%d)" % (line, count)
+             for line, count in groups[:NOTICE_CAP]]
+    extra = sum(count for _, count in groups[NOTICE_CAP:])
     if extra > 0:
         lines.append("…and %d more blocked attempt%s"
                      % (extra, "" if extra == 1 else "s"))
