@@ -20,6 +20,7 @@ import os
 import unittest
 from unittest import mock
 
+import batch_card
 import batch_parse
 from batch_parse import (
     FINALIZE_Q1,
@@ -140,12 +141,27 @@ class TestButtons(unittest.TestCase):
                       " — still open; finalize stays blocked", out["echo"])
 
     def test_bare_mixed_needs_text(self):
-        for q2 in (None, "False positive"):
-            with self.subTest(q2=q2):
-                out = parse_answer(make_rows(), "Mixed…", q2)
+        # A bare selection carries no per-row choice: one clarification,
+        # never an inferred fix/defer/dismiss.
+        bare = [
+            ("Mixed…", None),
+            ("Mixed…", "False positive"),
+            ("Mixed… notes:", "False positive"),
+            ("Mixed… notes:   ", None),
+            ("Mixed…   ", "Accepted risk"),
+            ("(no option selected) notes:   ", None),
+            ("(no option selected) notes:", "False positive"),
+            ("(no option selected)", None),
+            ("Mixed… notes: -- harness: not the seeded finding", None),
+        ]
+        for q1, q2 in bare:
+            with self.subTest(q1=q1, q2=q2):
+                out = parse_answer(make_rows(), q1, q2)
+                self.assertIsInstance(out, dict, out)
                 self.assertTrue(out["ok"])
                 self.assertTrue(out["need_text"])
                 self.assertIsNone(out["look"])
+                self.assertIsNone(out["reason"])
                 for key in ("fix", "dismiss", "defer", "undecided", "echo"):
                     self.assertEqual(out[key], [], key)
 
@@ -175,6 +191,37 @@ class TestMixedGrammar(unittest.TestCase):
              {"fix": h(3), "defer": [], "dismiss": [], "undecided": h(1, 2, 4, 5)}),
             ("  fix 1 , 2 ;dismiss 3-5", "r",
              {"fix": h(1, 2), "defer": [], "dismiss": h(3, 4, 5), "undecided": []}),
+            ("defer 2,3 -- harness: not the seeded finding", None,
+             {"fix": [], "defer": h(2, 3), "dismiss": [], "undecided": h(1, 4, 5),
+              "reason": "harness: not the seeded finding"}),
+            ("fix 1; defer rest -- noise", "Accepted risk",
+             {"fix": h(1), "defer": h(3, 4, 5), "dismiss": [], "undecided": h(2),
+              "reason": "noise"}),
+            ("defer 2 --", "Accepted risk",
+             {"fix": [], "defer": h(2), "dismiss": [], "undecided": h(1, 3, 4, 5),
+              "reason": "Accepted risk"}),
+            ("defer 2 -- a; b", None,
+             {"fix": [], "defer": h(2), "dismiss": [], "undecided": h(1, 3, 4, 5),
+              "reason": "a; b"}),
+            ("fix all", None,
+             {"fix": h(1, 2, 3, 4, 5), "defer": [], "dismiss": [], "undecided": []}),
+            ("FIX 1; Dismiss ALL", "r",
+             {"fix": h(1), "defer": [], "dismiss": h(3, 4, 5), "undecided": h(2)}),
+            ("Mixed… notes: fix 1; defer 2 -- x", None,
+             {"fix": h(1), "defer": h(2), "dismiss": [], "undecided": h(3, 4, 5),
+              "reason": "x"}),
+            ("(no option selected) notes: fix 1", None,
+             {"fix": h(1), "defer": [], "dismiss": [], "undecided": h(2, 3, 4, 5)}),
+            ("Mixed… fix 1", None,
+             {"fix": h(1), "defer": [], "dismiss": [], "undecided": h(2, 3, 4, 5)}),
+            ("Mixed…\nnotes: defer 3 -- later", None,
+             {"fix": [], "defer": h(3), "dismiss": [], "undecided": h(1, 2, 4, 5),
+              "reason": "later"}),
+            ("fix 1-3", None,
+             {"fix": h(1, 2, 3), "defer": [], "dismiss": [], "undecided": h(4, 5)}),
+            ("fix 1 -- 3", None,
+             {"fix": h(1), "defer": [], "dismiss": [], "undecided": h(2, 3, 4, 5),
+              "reason": "3"}),
         ]
         for q1, q2, want in table:
             with self.subTest(q1=q1):
@@ -185,6 +232,28 @@ class TestMixedGrammar(unittest.TestCase):
                 self.assertIsNone(out["look"])
                 for key, val in want.items():
                     self.assertEqual(out[key], val, key)
+
+    def test_all_is_rest(self):
+        for verb, q2 in (("defer", "later"), ("dismiss", "r"), ("fix", None)):
+            with self.subTest(verb=verb):
+                via_all = parse_answer(make_rows(), "%s all -- later" % verb, q2)
+                via_rest = parse_answer(make_rows(), "%s rest -- later" % verb, q2)
+                self.assertIsInstance(via_all, dict, via_all)
+                self.assertEqual(via_all, via_rest)
+        out = parse_answer(make_rows(), "defer all -- later", None)
+        self.assertEqual(out["defer"], h(3, 4, 5))
+        self.assertEqual(out["undecided"], h(1, 2))
+
+    def test_inline_reason_reaches_echo_text(self):
+        out = parse_answer(make_rows(),
+                           "defer 2,3 -- harness: not the seeded finding", None)
+        self.assertIn("Reason: harness: not the seeded finding",
+                      batch_card.echo_text(out))
+        out = parse_answer(make_rows(), "fix 1; defer rest -- noise",
+                           "Accepted risk")
+        text = batch_card.echo_text(out)
+        self.assertIn("Reason: noise", text)
+        self.assertNotIn("Accepted risk", text)
 
     def test_named_cw_may_be_dismissed(self):
         out = parse_answer(make_rows(), "dismiss 1, 2", "r")
@@ -222,18 +291,27 @@ class TestMixedGrammar(unittest.TestCase):
             ("delete 2", None, REASON_TOKEN),
             ("fix two", None, REASON_TOKEN),
             ("fix 1 2", None, REASON_TOKEN),
-            ("fix all", None, REASON_TOKEN),
+            ("fix every", None, REASON_TOKEN),
+            ("fix 1--3", None, REASON_TOKEN),
+            ("-- just a reason", None, REASON_EMPTY),
+            ("mixed… fix 1", None, REASON_TOKEN),
+            ("Mixed… notes: False positive", None, REASON_TOKEN),
+            ("all; fix 1", None, REASON_TOKEN),
+            ("fix all; defer rest", "r", REASON_REST_TWICE),
+            ("defer all; dismiss all", "r", REASON_REST_TWICE),
             ("fix", None, REASON_TOKEN),
             ("fix 1,", None, REASON_TOKEN),
             ("fix 1;; dismiss 2", "r", REASON_TOKEN),
             ("fix -1", None, REASON_TOKEN),
             ("look", None, REASON_TOKEN),
             ("look 1-2", None, REASON_TOKEN),
-            ("Mixed… fix 1", None, REASON_TOKEN),
             ("dismiss 3", "", REASON_NO_REASON),
             ("dismiss 3", None, REASON_NO_REASON),
             ("defer 3", "   ", REASON_NO_REASON),
             ("Dismiss all", None, REASON_NO_REASON),
+            ("defer 2 --", None, REASON_NO_REASON),
+            ("defer 2 --   ", "", REASON_NO_REASON),
+            ("Mixed… notes: dismiss 3 --", None, REASON_NO_REASON),
         ]
         for q1, q2, reason in table:
             with self.subTest(q1=q1, q2=q2):
@@ -383,6 +461,36 @@ class TestMutants(unittest.TestCase):
             mutant = parse_answer(make_rows(), "fix 2; dismiss 2", "r")
         self.assertIsInstance(mutant, dict)
         self.assertTrue(mutant["ok"])
+
+
+    def test_m3_note_prefix_strip_is_load_bearing(self):
+        real = parse_answer(make_rows(), "Mixed… notes: fix 1", None)
+        self.assertIsInstance(real, dict, real)
+        self.assertEqual(real["fix"], h(1))
+        with mock.patch.object(batch_parse, "_NOTE_PREFIXES", ()):
+            mutant = parse_answer(make_rows(), "Mixed… notes: fix 1", None)
+        self.assertNotEqual(mutant, real)
+        self.assertEqual(mutant, (None, REASON_TOKEN))
+
+    def test_m4_inline_reason_split_is_load_bearing(self):
+        real = parse_answer(make_rows(), "defer 2 -- r", None)
+        self.assertIsInstance(real, dict, real)
+        self.assertEqual(real["reason"], "r")
+        with mock.patch.object(batch_parse, "_split_inline_reason",
+                               lambda text: (text, None)):
+            mutant = parse_answer(make_rows(), "defer 2 -- r", None)
+        self.assertNotEqual(mutant, real)
+        self.assertIsInstance(mutant, tuple)
+        self.assertIsNone(mutant[0])
+        self.assertIn(mutant[1], REASONS)
+
+    def test_m5_bare_note_prefix_never_infers(self):
+        real = parse_answer(make_rows(), "Mixed… notes:", "False positive")
+        self.assertTrue(real["need_text"])
+        with mock.patch.object(batch_parse, "_NOTE_PREFIXES", ()):
+            mutant = parse_answer(make_rows(), "Mixed… notes:", "False positive")
+        self.assertNotEqual(mutant, real)
+        self.assertEqual(mutant, (None, REASON_TOKEN))
 
 
 class TestImportSet(unittest.TestCase):
