@@ -26,6 +26,8 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
   fi
   ```
 
+  Then print Finalize's `echo_text` as message text, write `{"all": true}` to `$ANSWERFILE` with the Write tool, and go straight to **Step B** — ask NO AskUserQuestion: the owner already chose these rows at Finalize (D-06).
+
 - **Every other pass** → the ordinary fence; the card lists every open row.
 
   ```bash
@@ -95,11 +97,25 @@ The fix agent decides each actual edit (there is no pre-baked patch); findings i
 
 **The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun (substituting the literal subset path for `"$SUBSETFILE"`, as in the subset fence), and every later pass's card uses the ordinary fence, so a Finalize-routed subset never carries into the next pass's card. Then loop back to Phase 0 of the current command with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0.5 detects new commits since the last pass's `head_sha`; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
 
-**Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more. Nothing else in this file asks a question.
+**Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more; a Finalize-routed subset costs no card. Nothing else in this file asks a question.
 
 ### Step B — Apply fixes (after Apply all & rerun / Apply selected…)
 
-Fixes are applied by the dedicated **`fix` agent** (`agents/fix.md`), dispatched via a single `Task` call. The fix agent reads each file and applies the change *semantically* — it locates the site and writes the edit itself, so there is no pre-baked `old`/`new` substring and no `drifted`/`errored`-on-substring skip path. This is what lets it fix multi-site bugs, race conditions, and other findings that don't reduce to one tidy block.
+Fixes are applied by the dedicated **`fix` agent** (`agents/fix.md`), dispatched via a single `Task` call. The fix agent reads each file and applies the change *semantically* — it locates the site and writes the edit itself, so there is no pre-baked `old`/`new` substring and no `drifted`/`errored`-on-substring skip path. This is what lets it fix multi-site bugs, race conditions, and other findings that don't reduce to one tidy block. Old git is reported here, once, at pass start — never first at commit time.
+
+**Check git first (once per pass).** Before anything is dispatched or edited, run under bash:
+
+```bash
+GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+python3 "$VC_ROOT/scripts/fixstage.py" preflight --root "$GREPO"; rc=$?
+case "$rc" in
+  0) echo "fix preflight passed — git can run your commit hooks" ;;
+  1) echo "git too old — show the line above as message text, then the Abandon Paused. line, and end Phase 5 for this pass; no fix was attempted" >&2 ;;
+  *) echo "fix preflight could not run; nothing was changed — show the Abandon Paused. line and end Phase 5 for this pass" >&2 ;;
+esac
+```
+
+Exit 0 → Build the dispatch. Exit 1 → print the `git X.Y is installed; …` line fixstage printed as message text, then the Abandon "Paused." line exactly as the Stop here… card's Abandon option renders it, and end Phase 5 for this pass: no Task call and no Rerun — a rerun would show the same card again with nothing changed. Any other exit → print "fix preflight could not run; nothing was changed", then the same "Paused." line, and end Phase 5 for this pass.
 
 **Build the dispatch (deterministic).** Run under bash:
 
@@ -178,6 +194,17 @@ How it is consumed: Finalize's `carry_state.py finalize-counts --head-blobs` tre
 **The fix agent is the only apply path.** Do NOT apply fixes inline from the orchestrator. The orchestrator's `allowed-tools` retains `Edit`/`Bash(git:*)` only for the documented inline-fallback case below; everything else — including findings the user hand-specifies after a `needs-human` — is re-dispatched to the `fix` agent so there is exactly one commit-message convention.
 
 **Inline fallback (narrow, fully specified).** Apply a fix inline from the orchestrator ONLY when re-dispatching the agent is impossible for this invocation (e.g. the finding edits the `fix` agent's own spec, or `$TURINGMIND_NONINTERACTIVE` blocks a sub-dispatch). When you do, run the SAME verified, hunk-isolated flow `agents/fix.md` steps 4-6 run, through the same trusted helpers — `fixstage.py` and `fixcheck.py` — never a hand-built `git add`/`git commit`. Shell state does not persist between Bash calls, so every fence below re-derives `GREPO`; `<A>` is a placeholder you substitute with the attempt id, not a shell token.
+- **Check git first** — once per pass, before the first inline Edit (skip it when Step B already ran it this pass). Run under bash:
+  ```bash
+  GREPO=$(git rev-parse --show-toplevel 2>/dev/null)
+  python3 "$VC_ROOT/scripts/fixstage.py" preflight --root "$GREPO"; rc=$?
+  case "$rc" in
+    0) echo "fix preflight passed — git can run your commit hooks" ;;
+    1) echo "git too old — show the line above as message text, then the Abandon Paused. line, and end Phase 5 for this pass; no fix was attempted" >&2 ;;
+    *) echo "fix preflight could not run; nothing was changed — show the Abandon Paused. line and end Phase 5 for this pass" >&2 ;;
+  esac
+  ```
+  Exit 0 → continue. Exit 1 or any other exit → handled exactly as in **Check git first** above: show fixstage's line (or "fix preflight could not run; nothing was changed"), then the "Paused." line, and end Phase 5 for this pass — no Edit, no Rerun.
 - **Write the finding record.** Serialize `{"id": …, "pass_number": …, "title": …, "paths": [...]}` with the Write tool to `.turingmind/fixstage/finding.json` under the repository top (`paths` = the finding's validated file set: every file the fix will touch, primary + siblings). Never put the title or a path on a command line, because the shell expands a command line before any helper runs; the record is the only way they reach the helpers, which re-validate every path (regex pre-filter + `guard.py` containment) and the title and REJECT rather than strip.
 - **Open a fresh attempt.** Run under bash:
   ```bash
@@ -236,14 +263,14 @@ How it is consumed: Finalize's `carry_state.py finalize-counts --head-blobs` tre
     3) echo "not separable — record applied-uncommitted: applied, not committed — mixed with your unfinished edits; build/test re-run won't see it" >&2 ;;
     4) echo "commit-not-created — record errored: your commit hook rejected the commit (or it could not be signed); the edit is left applied and uncommitted" >&2 ;;
     5) echo "hook-changed — record errored: committed, but your commit hook changed what went into that commit; nothing was rewritten" >&2 ;;
-    6) echo "head-moved — record errored: HEAD moved; nothing published or rewritten; the edit is left applied and uncommitted" >&2 ;;
+    6) echo "head-moved — record errored: HEAD moved during the commit; nothing was published or rewritten; the edit is left applied and uncommitted" >&2 ;;
     7) echo "moved-after-commit — record errored: committed, then HEAD moved again; nothing was rewritten" >&2 ;;
     8) echo "published-unverified — record errored: committed, but an error stopped the post-commit checks; nothing was rewritten" >&2 ;;
     9) echo "publication-uncertain — record errored: interrupted while publishing; the commit at the sha above may or may not be on your branch; do NOT retry this fix — check git log first" >&2 ;;
     *) echo "commit refused (exit $rc) — record errored; the edit is left applied and uncommitted. NOTHING is staged and NOTHING is committed on this path." >&2 ;;
   esac
   ```
-  Exit 0 → `applied` with the `commit_sha=` value, plus "your staging area still holds the old version of <p> — review `git status` before your next commit" for each `index-left-as-is: <p>` line; 3 → `applied-uncommitted`; 4 → `errored` "your commit hook rejected the commit; the edit is left applied and uncommitted"; 5 → `errored` "committed as <sha>, but your commit hook changed what went into it; nothing was rewritten — check `git show <sha>`" (sha from the `hook-changed:` line); 6 → `errored` "HEAD moved; nothing published or rewritten; the edit is left applied and uncommitted"; 7 → `errored` "committed as <sha>, then HEAD moved again; nothing was rewritten — check `git log`" (sha from the `moved-after-commit:` line); 8 → `errored` "committed as <sha>, but an error stopped the post-commit checks; nothing was rewritten — check `git show <sha>` and `git log`" (sha from the `published-unverified:` line; never `applied`); if a `hook-changed:` line follows, add "your commit hook changed what went into that commit"; 9 → `errored` "interrupted while publishing; commit <sha> may or may not be on your branch — check `git log` for it before you retry anything" (sha from the `publication-uncertain:` line; never `applied`; this fix is not retried automatically); anything else → `errored` "commit refused; the edit is left applied and uncommitted". fixstage builds the message from the record by file, never inline `-m` (that would reintroduce the title-injection vector), runs the owner's hooks itself, and is never given `--no-verify`.
+  Exit 0 → `applied` with the `commit_sha=` value, plus "your staging area still holds the old version of <p> — review `git status` before your next commit" for each `index-left-as-is: <p>` line; 3 → `applied-uncommitted`; 4 → `errored` "your commit hook rejected the commit; the edit is left applied and uncommitted"; 5 → `errored` "committed as <sha>, but your commit hook changed what went into it; nothing was rewritten — check `git show <sha>`" (sha from the `hook-changed:` line); 6 → `errored` "HEAD moved during the commit; nothing was published or rewritten; the edit is left applied and uncommitted"; 7 → `errored` "committed as <sha>, then HEAD moved again; nothing was rewritten — check `git log`" (sha from the `moved-after-commit:` line); 8 → `errored` "committed as <sha>, but an error stopped the post-commit checks; nothing was rewritten — check `git show <sha>` and `git log`" (sha from the `published-unverified:` line; never `applied`); if a `hook-changed:` line follows, add "your commit hook changed what went into that commit"; 9 → `errored` "interrupted while publishing; commit <sha> may or may not be on your branch — check `git log` for it before you retry anything" (sha from the `publication-uncertain:` line; never `applied`; this fix is not retried automatically); anything else → `errored` "commit refused; the edit is left applied and uncommitted". fixstage builds the message from the record by file, never inline `-m` (that would reintroduce the title-injection vector), runs the owner's hooks itself, and is never given `--no-verify`.
 - Whatever the undo or commit returned, this attempt is over: never run another fixstage or fixcheck call with this `<A>`. Record a synthetic result `{id, status, commit_sha, files_touched, check, summary}` with the status above, so it renders identically to agent results.
 
 **Render results** in the turn after the single fix `Task` returns, copied into your reply as message text (never left only in a Bash call's output, which the terminal collapses), under a `### Fixes applied` heading, grouped by status:
