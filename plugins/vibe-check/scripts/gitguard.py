@@ -683,15 +683,20 @@ class Token(str):
     is_operator is True only for a run of UNQUOTED, UNESCAPED operator
     characters (`;`, `|`, `&`, `(`, `)`, `<`, `>`). quoted / escaped record
     whether any part of the word was quoted or backslash-escaped.
+    expands_dollar is True when a `$` sat unquoted or inside double quotes,
+    where bash expands it (`$p` -> empty); a single-quoted or escaped `$` is
+    literal.
     """
 
-    __slots__ = ("is_operator", "quoted", "escaped")
+    __slots__ = ("is_operator", "quoted", "escaped", "expands_dollar")
 
-    def __new__(cls, text, is_operator=False, quoted=False, escaped=False):
+    def __new__(cls, text, is_operator=False, quoted=False, escaped=False,
+                expands_dollar=False):
         obj = str.__new__(cls, text)
         obj.is_operator = is_operator
         obj.quoted = quoted
         obj.escaped = escaped
+        obj.expands_dollar = expands_dollar
         return obj
 
 
@@ -711,14 +716,16 @@ def _tokenize(command):
     tokens = []
     word = []
     in_word = False
-    quoted = escaped = False
+    quoted = escaped = expands = False
     op = []
 
     def flush_word():
-        nonlocal word, in_word, quoted, escaped
+        nonlocal word, in_word, quoted, escaped, expands
         if in_word:
-            tokens.append(Token("".join(word), False, quoted, escaped))
-        word, in_word, quoted, escaped = [], False, False, False
+            tokens.append(Token("".join(word), False, quoted, escaped,
+                                expands))
+        word, in_word, quoted, escaped, expands = [], False, False, False, \
+            False
 
     def flush_op():
         if op:
@@ -775,9 +782,13 @@ def _tokenize(command):
                     word.append(command[i + 1])
                     i += 2
                     continue
+                if c == "$":
+                    expands = True
                 word.append(c)
                 i += 1
             continue
+        if ch == "$":
+            expands = True
         word.append(ch)
         i += 1
     flush_op()
@@ -1068,6 +1079,10 @@ def _classify_sed(args):
         scripts.append(operands.pop(0))
     if not quiet:
         return False, REASON_SED_FORM
+    # A script bash expands is not the script sed runs: unquoted `$p` vanishes
+    # and the next operand (`'w /path'`) becomes the script.
+    if any(getattr(script, "expands_dollar", False) for script in scripts):
+        return False, REASON_SED_FORM
     if not all(_SED_SCRIPT_RE.fullmatch(script) for script in scripts):
         return False, REASON_SED_FORM
     return True, ALLOWED
@@ -1167,12 +1182,17 @@ def _cd_moves_git(segments, repo_root):
 def _classify(command, plugin_scripts, repo_root=None):
     if not isinstance(command, str) or not command.strip():
         return False, REASON_NO_COMMAND
-    if _references_trusted_script(command, plugin_scripts):
-        return False, REASON_TRUSTED_SCRIPT
-    if _has_substitution(command):
-        return False, REASON_SUBSTITUTION
-    if _mentions_git(command) and "$" in command:
-        return False, REASON_GIT_EXPANSION
+    # The raw-text checks judge both spellings: bash deletes backslash-newline
+    # before it reads words ("gi\<nl>t" runs git, "$\<nl>(" substitutes), so a
+    # check on the raw text alone is defeated by a line continuation. Joining
+    # inside single quotes too only refuses more.
+    for text in (command, command.replace("\\\n", "")):
+        if _references_trusted_script(text, plugin_scripts):
+            return False, REASON_TRUSTED_SCRIPT
+        if _has_substitution(text):
+            return False, REASON_SUBSTITUTION
+        if _mentions_git(text) and "$" in text:
+            return False, REASON_GIT_EXPANSION
     try:
         tokens = _tokenize(_normalise_newlines(command))
     except ValueError:

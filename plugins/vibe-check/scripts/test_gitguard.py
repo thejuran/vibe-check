@@ -2347,5 +2347,49 @@ class TestReset(unittest.TestCase):
         self.assertEqual(_run_cli(["reset"])[0], 2)
 
 
+class TestShellRejoinGaps(unittest.TestCase):
+    """bash deletes backslash-newline before it reads words, and expands an
+    unquoted (or double-quoted) `$`: every check must judge what bash runs."""
+
+    def test_backslash_newline_rejoins_a_substitution(self):
+        cmd = 'echo "$\\\n(touch x)"'
+        self.assertEqual(gitguard.classify(cmd),
+                         (False, gitguard.REASON_SUBSTITUTION))
+        self.assertEqual(gitguard.classify("echo $\\\n(touch x)"),
+                         (False, gitguard.REASON_SUBSTITUTION))
+
+    def test_backslash_newline_rejoins_git_beside_an_expansion(self):
+        cmd = 'echo --output=/tmp/x; "gi\\\nt" diff HEAD $_'
+        self.assertEqual(gitguard.classify(cmd),
+                         (False, gitguard.REASON_GIT_EXPANSION))
+
+    def test_backslash_newline_rejoins_a_trusted_script_name(self):
+        self.assertEqual(gitguard.classify("cat /abs/scripts/fixsta\\\nge.py"),
+                         (False, gitguard.REASON_TRUSTED_SCRIPT))
+
+    def test_backslash_newline_inside_double_quotes_rejoins_a_git_flag(self):
+        self.assertEqual(gitguard.classify('git diff "--ou\\\ntput=/tmp/x"'),
+                         (False, gitguard.REASON_GIT_FLAG))
+
+    def test_sed_script_that_bash_expands_is_refused(self):
+        for cmd in ("sed -n $p 'w /tmp/x'", 'sed -n "1,$p" f',
+                    "sed -n -e $p f"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(gitguard.classify(cmd),
+                                 (False, gitguard.REASON_SED_FORM))
+
+    def test_literal_dollar_sed_scripts_stay_allowed(self):
+        for cmd in ("sed -n '$p' f", "sed -n \\$p f", "sed -n '1,$p' f",
+                    "sed -n -e '1p' -e '$p' f"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(gitguard.classify(cmd), (True, "allowed"))
+
+    def test_plain_continuations_stay_allowed(self):
+        for cmd in ("git log \\\n -1", "grep -n foo \\\n file",
+                    "sed -n \\\n '1,5p' f"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(gitguard.classify(cmd), (True, "allowed"))
+
+
 if __name__ == "__main__":
     unittest.main()
