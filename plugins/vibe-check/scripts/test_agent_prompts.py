@@ -49,6 +49,7 @@ import os
 import re
 import sys
 import unittest
+from unittest import mock
 
 # Make sibling imports resolve when unittest discovery runs from the root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1019,15 +1020,15 @@ class TestTwoPassCeiling(unittest.TestCase):
     def setUp(self):
         self.c = scoring_constants(read("templates/scoring.md"))
 
-    def _pass1(self, sev):
+    def _pass1(self, sev, sec_line=12):
         return score.run(_envelope(
             [_finding(id="real", line=10, agent_confidence=85, severity="critical",
                       title="real defect", current_code="return q"),
-             _cdx_note(sev), _sec_note(sev)],
+             _cdx_note(sev), _sec_note(sev, line=sec_line)],
             [], "joined", 1))
 
-    def _pass2(self, sev):
-        p1 = self._pass1(sev)
+    def _pass2(self, sev, sec_line=12):
+        p1 = self._pass1(sev, sec_line)
         self.assertEqual(len(p1["findings"]), 1)
         self.assertEqual(p1["findings"][0]["id"], "real")
         self.assertEqual(len(p1["findings"][0]["members"]), 3)
@@ -1037,13 +1038,29 @@ class TestTwoPassCeiling(unittest.TestCase):
             [_cdx_note(sev, id="cdx2")], _carry(p1, {"real"}), "joined", 2))
         return arm_a, arm_b
 
+    def _d05_score(self, sev):
+        """Arm B under D-05: the capped notes never qualify on their own (each
+        is below the deep-review cutoff alone), so the pair earns no +10 — only
+        the persisted bonus remains. The worst path loses the corroborated bonus."""
+        return max_path_score(45, self.c, sev) - self.c["corroborated_bonus"]
+
     def test_capped_low_notes_never_reach_warning_after_carry_forward(self):
         arm_a, arm_b = self._pass2("low")
         for arm in (arm_a, arm_b):
             for row in arm["findings"]:
                 self.assertLess(row["orchestrator_score"], self.c["warning_floor"])
                 self.assertNotIn(row["band"], ("warning", "critical"))
-        # Non-vacuity: arm B really carries the notes to the Medium floor.
+        # D-05: the weak pair no longer corroborates, so arm B scores like arm A:
+        # 45 + 20 + 15 - 20 = 60, below the Medium floor -> dropped sub-threshold
+        # (it was 70, the Medium floor, under the pre-D-05 group rule).
+        self.assertEqual(self._d05_score("low"), 60)
+        self.assertLess(self._d05_score("low"), self.c["medium_floor"])
+        for arm in (arm_a, arm_b):
+            self.assertEqual(arm["findings"], [])
+            self.assertTrue(any("sub-threshold" in str(f.get("reason", ""))
+                                for f in arm["filtered"]), arm["filtered"])
+
+    def _assert_old_70(self, arm_b):
         self.assertEqual(len(arm_b["findings"]), 1)
         row = arm_b["findings"][0]
         self.assertEqual(row["status"], "persisted")
@@ -1051,25 +1068,47 @@ class TestTwoPassCeiling(unittest.TestCase):
         self.assertEqual(row["orchestrator_score"], 70)
         self.assertEqual(row["band"], "medium")
         self.assertEqual(sorted(row["attribution"]), ["codex-adversarial", "security"])
-        # Arm A: persisted but uncorroborated -> 60, dropped as sub-threshold.
-        self.assertEqual(arm_a["findings"], [])
-        self.assertTrue(any("sub-threshold" in str(f.get("reason", ""))
-                            for f in arm_a["filtered"]), arm_a["filtered"])
 
-    def test_higher_severity_variants_do_reach_warning(self):
+    def test_mutation_always_qualifies_restores_the_old_70(self):
+        # Mutation partner (qualification alone): the two notes on ONE line, so
+        # the same-line proxy is satisfied and only qualification stands between
+        # them and the +10. D-05 drops the row; with every member qualifying
+        # (the pre-D-05 rule) the pair corroborates and arm B is back at 70.
+        _arm_a, arm_b = self._pass2("low", sec_line=11)
+        self.assertEqual(arm_b["findings"], [])
+        with mock.patch.object(score, "_member_qualifies", lambda *a, **k: True):
+            _arm_a, arm_b = self._pass2("low", sec_line=11)
+        self._assert_old_70(arm_b)
+
+    def test_mutation_group_rule_restores_the_old_70(self):
+        # Mutation partner (the whole pre-D-05 rule on the pinned fixture): any
+        # Codex member + any Claude-lane member at the site credits every member.
+        def group_rule(members, codex_joined, qualifies):
+            agents = [m.get("agent") for m in members if isinstance(m, dict)]
+            if codex_joined and score.CODEX_AGENT in agents and any(
+                    isinstance(a, str) and a != score.CODEX_AGENT for a in agents):
+                return {id(m) for m in members}
+            return set()
+        with mock.patch.object(score, "_corroborated_members", group_rule):
+            _arm_a, arm_b = self._pass2("low")
+        self._assert_old_70(arm_b)
+
+    def test_higher_severity_variants_lose_the_plus_ten(self):
+        # D-05: at every severity the capped notes (one line apart, and the new
+        # Codex note below the cutoff alone) form no qualifying same-line pair;
+        # persistence alone carries them. Only `critical` still reaches Warning.
+        expected_band = {"critical": "warning", "high": "medium", "medium": "medium"}
         for sev in ("critical", "high", "medium"):
             with self.subTest(severity=sev):
                 arm_a, arm_b = self._pass2(sev)
                 self.assertEqual(len(arm_b["findings"]), 1)
                 row = arm_b["findings"][0]
                 self.assertEqual(row["status"], "persisted")
-                self.assertEqual(row["band"], "warning")
-                self.assertEqual(row["orchestrator_score"],
-                                 max_path_score(45, self.c, sev))
-                if sev == "critical":
-                    self.assertEqual(len(arm_a["findings"]), 1)
-                    self.assertEqual(arm_a["findings"][0]["orchestrator_score"], 80)
-                    self.assertEqual(arm_a["findings"][0]["band"], "warning")
+                self.assertEqual(row["orchestrator_score"], self._d05_score(sev))
+                self.assertEqual(row["band"], expected_band[sev])
+                self.assertEqual(len(arm_a["findings"]), 1)
+                self.assertEqual(arm_a["findings"][0]["orchestrator_score"],
+                                 self._d05_score(sev))
 
     def test_pass_one_corroborated_low_pair_is_filtered(self):
         result = score.run(_envelope([_cdx_note("low"), _sec_note("low")],
@@ -1921,6 +1960,38 @@ class TestContractDocumentsFocus(unittest.TestCase):
                       "severity low"):
             with self.subTest(token=token):
                 self.assertIn(token, norm(sec))
+
+    # D-05 (Phase 53): the weak-note paragraph states the decided per-member rule.
+    D05_SENTENCE = ("A ≤ 45 / low note never qualifies as a second opinion: alone it "
+                    "scores 45 + 20 − 20 = 45, below every per-command cutoff, so it "
+                    "earns no +10 and releases no lone-lane cap")
+    D05_RETIRED = ("still earns the +10", "backlog 999.19", "tops out at 70")
+
+    def _focus_section(self, text):
+        return norm(section(
+            text, "Calibration reaches Codex through the kickoff focus text (Phase 42)"))
+
+    def test_d05_weak_note_sentence_pinned(self):
+        sec = self._focus_section(read("agents/codex-adversarial.md"))
+        self.assertIn(norm(self.D05_SENTENCE), sec)
+        self.assertIn("45 + 20 + 15 − 20 = 60", sec)
+        self.assertIn("D-05", sec)
+        for phrase in self.D05_RETIRED:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, sec)
+
+    def test_d05_retired_phrase_mutation_trips(self):
+        # Mutation partner: the pre-D-05 sentence planted back into the section
+        # is caught by the forbidden-phrase check above.
+        text = read("agents/codex-adversarial.md")
+        anchor = "That is why the literal fixes the severity"
+        self.assertEqual(text.count(anchor), 1)
+        planted = text.replace(anchor, "A Codex note at ≤ 45 still earns the +10. " + anchor)
+        self.assertIn("still earns the +10", self._focus_section(planted))
+        with self.assertRaises(AssertionError):
+            sec = self._focus_section(planted)
+            for phrase in self.D05_RETIRED:
+                self.assertNotIn(phrase, sec)
 
 
 # --------------------------------------------------------------------------- #

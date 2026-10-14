@@ -15,7 +15,7 @@ orchestrator_score = agent_confidence
   + 20  if finding.agent == "compliance"  (rule-citation bonus — the compliance agent quotes the rule in `problem`)
   − 30  if intent_doc_match.confidence > 0.7  (intent-doc partial match)
   − 100 if intent_doc_match.confidence > 0.9  (intent-doc strong match — REPLACES the −30 above, does not stack)
-  + 10  if corroborated by a second opinion: a codex-adversarial member AND a Claude-lane member at the same site (provenance = envelope codex.status == "joined"); Claude↔Claude agreement earns nothing (D-01)
+  + 10  if corroborated by a second opinion: a codex-adversarial member AND a Claude-lane member that EACH clear the per-command cutoff on their own lone-lane score and share the same line (provenance = envelope codex.status == "joined"); only those two members earn it; Claude↔Claude agreement earns nothing (D-01, D-05)
   + 15  if persisted from previous pass
 
   + severity weight (applied last, before clamp):
@@ -71,19 +71,27 @@ The formula freeze lifted for v2.10 Wave 1, scoped to the three changes below; e
 
 A finding group has a **second opinion** when either holds:
 
-- **Codex-corroborated** — the group holds a `codex-adversarial` member AND a Claude-lane member at the same site, and the envelope's orchestrator-set `codex.status` is `"joined"`. Provenance comes from that block, never from the finding: a native agent can write `agent: "codex-adversarial"` or `category: "adversarial"` on its own finding, and that self-report earns nothing.
+- **Codex-corroborated** — a `codex-adversarial` member AND a Claude-lane member of the group qualify as a pair (D-05, below), and the envelope's orchestrator-set `codex.status` is `"joined"`. Provenance comes from that block, never from the finding: a native agent can write `agent: "codex-adversarial"` or `category: "adversarial"` on its own finding, and that self-report earns nothing.
 - **Persisted** — the finding was carried forward from a previous pass and its line is unchanged (`status == "persisted"`, set by the carry-forward compare, never by the agent).
 
 `in_diff` is NOT a corroborator. Claude↔Claude agreement between two Claude lanes is one correlated voter, not a second opinion.
 
+**Qualification (D-05, Phase 53).** A second opinion counts only from an independently qualifying finding:
+
+- Each member of the pair must clear the per-command cutoff (`/review` 80, `/deep-review` 70) on its OWN lone-lane score — the B-REWEIGHT offset applied, no +10, no second-opinion credit — so two weak notes can never promote each other.
+- The pair must share the same `line`. The same line is a mechanical proxy for "the same defect, not merely nearby lines"; title matching stays retired (agent titles are free text).
+- The credit is PER MEMBER: only the two members of a qualifying pair receive the +10 and the lone-lane cap release. Every other member of the same grouped row is scored as a lone-lane finding — a grouped row is a site, not a defect.
+- A member that fails qualification (for example a capped ≤ 45 / low note) stays a listed member and stays visible; it never boosts another finding's band.
+- Persistence (D-01's second arm) is unchanged and remains a row property: a persisted member gives every member of its row a second opinion.
+
 ### Lone-lane band ceiling (B-SEV, D-02)
 
-- A group with no second opinion has its score capped at `critical floor − 1` (94 by default; respects a config-tuned `thresholds.critical`) BEFORE banding — it may reach Warning (still finalize-blocking) but never Critical. A lone Codex finding (no Claude lane beside it) is capped too.
+- A member with no second opinion (no qualifying pair of its own, no persisted member in its row) has its score capped at `critical floor − 1` (94 by default; respects a config-tuned `thresholds.critical`) BEFORE banding — it may reach Warning (still finalize-blocking) but never Critical. A lone Codex finding (no Claude lane beside it) is capped too.
 - The cap lowers the band only: the per-command filter threshold still judges the uncapped score, so the ceiling never drops a finding.
 
 ### Lone-lane confidence calibration (B-REWEIGHT, D-15)
 
-- For a group with no second opinion, each member's `agent_confidence` is adjusted by a per-agent offset ≤ 0 BEFORE the formula (the offset joins step 1, the starting value).
+- For a member with no second opinion, its `agent_confidence` is adjusted by a per-agent offset ≤ 0 BEFORE the formula (the offset joins step 1, the starting value).
 - The offsets are DERIVED, not hand-picked: shrunk per-agent precision (prior strength 20, min labeled sample 5) over the labeled Claude-5-era B3 runs — method and inputs in `docs/design/b3-ground-truth/CALIBRATION-v2.10.md`; `scripts/calibrate.py --check` re-derives them and fails when the embedded constants drift.
 - Agents with thin data (labeled n < 5) or precision at/above the pooled rate are identity (offset 0, absent from the table).
 - The offset never raises confidence, never changes the emitted `agent_confidence`, never touches `stable_hash` inputs, and does NOT feed the `min_confidence` filter — that filter reads the raw value.
@@ -96,6 +104,7 @@ A finding group has a **second opinion** when either holds:
 
 - A **site** is the same file within ±2 lines. Every lane at one site — native Claude agents and Codex alike — is ONE surviving row; category no longer affects grouping.
 - The row is led by the member with the strongest EFFECTIVE band (its score after the lone-lane ceiling → `band_for` → the idiom cap by that member's OWN category), then the highest score, then the `stable_hash` tie-break, then the agent name — so an idiom-capped member never drags a co-located security warning down, and the pick never depends on arrival order. The per-command cutoff judges the uncapped score of the first member in that order whose uncapped score clears it, and that member leads the row (its score and band are the row's); when no member clears the cutoff the row drops as sub-threshold.
+- **Row lead (D-06).** The lead is the most severe qualifying member. Tie-break order, fully deterministic: effective band, capped score, raw score, `stable_hash`, agent name. Owner decisions (dismiss / defer / acknowledge) bind to each member's own `stable_hash`; when regrouping demotes a former lead to an absorbed member, its member record keeps its own obligation identity, so a decision is never erased or re-targeted by a change of lead.
 - `attribution` lists every lane; `members` carries every lane's own record, rendered as its title (survivor first, then the absorbed members in scored order). Members are de-duplicated by each member's own lane-aware occurrence identity `(agent, stable_hash(file, canonical, title), line)` — never by (agent, title), never by `stable_hash` alone, and never by `(stable_hash, line)` without the agent: two identical lines with one title are two members, and two lanes at one line with one title are two members. An agent-supplied `members` on a fresh finding is stripped at ingress exactly like `status`.
 - On a later pass every carried row is expanded into its members first: each member is carried on its OWN HEAD read (line + window, the same `carry_forward_status` compare as any finding) and scored on its own facts, so a still-valid member outlives a lead that was fixed, suppressed at its own line or fell sub-threshold, and re-collapses with a lead that survives. A member whose line is gone is recorded in `fixed_since_last`.
 - Absorbed members are recorded in `filtered[]` as `absorbed-into: <hash>` — never silently dropped.
