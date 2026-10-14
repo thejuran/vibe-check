@@ -1004,6 +1004,7 @@ class TestNeedsVerificationCard(TempDirCase):
                       doc["card_text"].splitlines())
 
     def test_rank_is_load_bearing(self):
+        self.assertEqual(nv_doc()["rows"][-1]["band"], "medium")
         rank = {"critical": 0, "warning": 1, "medium": 2}
         with mock.patch.object(batch_card, "_BAND_RANK", rank):
             doc = nv_doc()
@@ -1027,6 +1028,8 @@ class TestNeedsVerificationCard(TempDirCase):
 
     def test_finalize_nv_wanted_is_load_bearing(self):
         s = nv_card_state()
+        self.assertIn("needs-verification",
+                      [r["band"] for r in nv_doc(s, "finalize", {})["rows"]])
         real = carry_state.finalize_counts
 
         def no_nv(state, head_blobs=None):
@@ -1049,6 +1052,8 @@ class TestNeedsVerificationCard(TempDirCase):
 
     def test_apply_all_exclusion_is_load_bearing(self):
         doc = nv_doc()
+        self.assertEqual(batch_card.select(doc["rows"], {"all": True})[0][
+            "rows"], [1, 2, 5])
         with mock.patch.object(carry_state, "NV_BAND", "no-such-band"):
             out, _ = batch_card.select(doc["rows"], {"all": True})
         self.assertEqual(out["rows"], [1, 2, 3, 4, 5])

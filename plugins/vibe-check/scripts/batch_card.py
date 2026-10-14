@@ -76,7 +76,7 @@ import carry_state  # noqa: E402  (sibling module: the one closure rule)
 import batch_parse  # noqa: E402  (sibling module: the answer grammar)
 
 MODES = ("fix-loop", "finalize")
-_BAND_RANK = {"critical": 0, "warning": 1, "medium": 2}
+_BAND_RANK = {"critical": 0, "warning": 1, carry_state.NV_BAND: 2, "medium": 3}
 
 SUBCOMMANDS = ("rows", "select-questions", "select", "payload", "parse",
                "decisions-report")
@@ -220,12 +220,14 @@ def _context(state):
 def build_rows(state, mode, head_blobs=None, subset=None):
     """({"at_pass", "mode", "rows"}, None) or (None, reason).
 
-    fix-loop: every open, unclosed (no head blobs) critical/warning/medium
-    record. finalize: exactly finalize_counts' outstanding critical/warning
-    and unacknowledged medium hashes (head blobs honoured). Rows are ordered
+    fix-loop: every open, unclosed (no head blobs) critical/warning/
+    needs-verification/medium record. finalize: exactly finalize_counts'
+    outstanding critical/warning, undecided needs-verification and
+    unacknowledged medium hashes (head blobs honoured). Rows are ordered
     band -> file -> line (None last) -> hash and numbered from 1.
     With `subset` (fix-loop only): the dispatch targets from
-    `resolve_fix_targets`, in subset order.
+    `resolve_fix_targets`, in subset order; the document then carries
+    `"subset": true`, so Apply all sends every row the owner named.
     """
     reason = carry_state.state_reason(state)
     if reason is not None:
@@ -242,6 +244,7 @@ def build_rows(state, mode, head_blobs=None, subset=None):
         if mode == "finalize":
             counts = carry_state.finalize_counts(state, head_blobs)
             wanted = set(counts["outstanding_cw_hashes"]
+                         + counts["undecided_nv_hashes"]
                          + counts["unacknowledged_medium_hashes"])
             chosen = [r for r in records if r["stable_hash"] in wanted]
         else:
@@ -258,6 +261,8 @@ def build_rows(state, mode, head_blobs=None, subset=None):
     for i, row in enumerate(rows):
         row["n"] = i + 1
     doc = {"at_pass": last["pass_number"], "mode": mode, "rows": rows}
+    if subset is not None:
+        doc["subset"] = True
     doc.update(card_texts(rows, mode))
     return doc, None
 
@@ -548,6 +553,8 @@ def _valid_rows_doc(doc):
     if not (isinstance(doc, dict) and _is_count(doc.get("at_pass"))
             and isinstance(doc.get("rows"), list)):
         return False
+    if "subset" in doc and not isinstance(doc["subset"], bool):
+        return False
     for i, row in enumerate(doc["rows"]):
         if not isinstance(row, dict):
             return False
@@ -649,12 +656,19 @@ def _valid_select_answer(answer):
     return False
 
 
-def select(rows, answer):
-    """({"hashes", "rows"}, None) or (None, reason) for a selection answer."""
+def select(rows, answer, subset=False):
+    """({"hashes", "rows"}, None) or (None, reason) for a selection answer.
+
+    `{"all": true}` on an ordinary card selects every row except
+    needs-verification rows: an unverified hypothesis is fixed only when the
+    owner names it. On a subset card (`subset` true) every row was already
+    named by the owner, so all of them are sent.
+    """
     if not _valid_select_answer(answer):
         return None, REASON_ANSWER
     if "all" in answer:
-        numbers = [r["n"] for r in rows]
+        numbers = [r["n"] for r in rows
+                   if subset or r["band"] != carry_state.NV_BAND]
     elif "none" in answer:
         numbers = []
     else:
@@ -752,7 +766,7 @@ def _unit(record, last):
     if source is None:
         return None
     fix_hint = source.get("fix_hint")
-    return {
+    unit = {
         "id": record["stable_hash"],
         "file": source.get("file"),
         "line": source.get("line"),
@@ -762,6 +776,14 @@ def _unit(record, last):
         "fix_hint": fix_hint if isinstance(fix_hint, str) else None,
         "why_it_matters": _str_or(source.get("why_it_matters"), ""),
     }
+    # A confirmed needs-verification item carries its trigger, path and
+    # consequence to the fix agent (string fields only; data, not prompt).
+    nv = source.get("needs_verification")
+    if isinstance(nv, dict):
+        unit["needs_verification"] = {k: v for k, v in nv.items()
+                                      if isinstance(k, str)
+                                      and isinstance(v, str)}
+    return unit
 
 
 def build_payload(state, rows_doc, answer):
@@ -772,7 +794,8 @@ def build_payload(state, rows_doc, answer):
     each routed member's own defect; a member sidecar row contributes the
     member dict. The rows file must describe this state's last pass.
     """
-    selection, reason = select(rows_doc["rows"], answer)
+    selection, reason = select(rows_doc["rows"], answer,
+                               subset=rows_doc.get("subset", False))
     if reason is not None:
         return None, reason
     last = state["passes"][-1]
@@ -953,7 +976,8 @@ def _run_answer_side(sub, flags, state):
     if answer is None:
         return _refuse(REASON_ANSWER), ""
     if sub == "select":
-        result, reason = select(rows_doc["rows"], answer)
+        result, reason = select(rows_doc["rows"], answer,
+                                subset=rows_doc.get("subset", False))
     elif sub == "parse":
         result, reason = parse(rows_doc, answer)
     else:
