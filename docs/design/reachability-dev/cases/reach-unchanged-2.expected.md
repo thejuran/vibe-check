@@ -15,34 +15,42 @@ All of these are real or arguable, but none is new in this commit:
   the remote one.
 - (c) The success response echoes the URL-decoded file name back in the body.
 
-## Reachability evidence
+## Before/after comparison (the basis of the quiet verdict)
 
-Feature_sha 43ee518 (after the change):
-- Routes are unchanged: `src/python/web/handler/controller.py:66-70` (queue,
-  stop and extract by POST; delete_local and delete_remote by DELETE, each with
-  a `<file_name>` path segment).
-- Shared helper `_dispatch_command` (`controller.py:76`) unquotes first
-  (`:92`), runs `_check_path_safe` only when `guard` is true (`:93-94`), and
-  echoes the name on success (`:104`, `success_msg.format(file_name)`).
-- `guard=True` is passed only by extract, delete_local and delete_remote
-  (`:125`, `:134`, `:143`). Queue and stop use the default `guard=False`.
-- `_check_path_safe` (`:172`) returns None when the local path is unset (`:180`).
+The commit touches only `src/python/web/handler/controller.py`. It moves the
+shared body of five single-action handlers into one helper.
 
-Base_sha b853a18 (before the change):
-- Each of the five handlers unquoted first (`controller.py:81,100,119,142,165`).
-- Only extract, delete_local and delete_remote called `_check_path_safe`
-  (`:121,144,167`). Queue and stop did not.
-- Every handler echoed the name on success (`:91,110,133,156,179`).
+### Routes and inputs
+
+| | base_sha b853a18 | feature_sha 43ee518 |
+|---|---|---|
+| Route registration (queue, stop, extract by POST; delete_local, delete_remote by DELETE; each with a `<file_name>` path segment) | `controller.py:66-70` | `controller.py:66-70` (identical lines) |
+| Input: URL `<file_name>` unquoted before any check | each handler: `controller.py:81,100,119,142,165` | `_dispatch_command`: `controller.py:92` |
+
+Same routes, same methods, same single URL input per route.
+
+### Checks and outputs per route
+
+| Route | base_sha b853a18 | feature_sha 43ee518 | Same? |
+|---|---|---|---|
+| queue | unquote `:81`; no `_check_path_safe`; echo `:91` | `_dispatch_command` with default `guard=False` (`:82`); echo `:104` | yes: unguarded before and after |
+| stop | unquote `:100`; no `_check_path_safe`; echo `:110` | default `guard=False`; echo `:104` | yes: unguarded before and after |
+| extract | unquote `:119`; `_check_path_safe` `:121-123`; echo `:133` | `guard=True` (`:125`) → `_check_path_safe` `:93-96`; echo `:104` | yes: guarded before and after, guard after unquote |
+| delete_local | unquote `:142`; `_check_path_safe` `:144-146`; echo `:156` | `guard=True` (`:134`) → `:93-96`; echo `:104` | yes |
+| delete_remote | unquote `:165`; `_check_path_safe` `:167-169`; echo `:179` | `guard=True` (`:143`) → `:93-96`; echo `:104` | yes |
+| `_check_path_safe` body (no-op when local path unset; checks the local path) | `controller.py:209` | `controller.py:172` (returns None when unset at `:180`) | yes: same function, moved |
+| Bulk-command path guard | `controller.py:373-376` | `controller.py:336-339` | yes: untouched, moved |
 
 ## Why the exposure is unchanged
 
 For each of the five routes, the same URL input passes through the same unquote,
 the same guard decision (guarded for the same three actions, unguarded for the
-same two), the same command queue and the same echoing response. The commit
-moves the shared scaffold into one helper and keeps unquote-before-guard. It adds
-no route, caller or input, and removes no check. The bulk-command path is
-untouched.
+same two), the same command queue and the same echoing response (tables above).
+The commit moves the shared scaffold into one helper and keeps
+unquote-before-guard. It adds no route, caller or input, and removes no check.
 
-## Repository corroboration
+## Supporting context (not proof)
 
-No later commit touches this file to fix anything this refactor introduced.
+No later commit touches this file to fix anything this refactor introduced. This
+absence agrees with the verdict but does not establish it; the before/after
+comparison above does.
