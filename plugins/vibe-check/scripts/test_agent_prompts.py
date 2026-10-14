@@ -1995,6 +1995,57 @@ class TestContractDocumentsFocus(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# scoring.md Qualification: the same-line rule is documented as a proxy, with
+# its known conservative limitation (owner wording, Phase 53 D-05)
+# --------------------------------------------------------------------------- #
+class TestQualificationLimitationProse(unittest.TestCase):
+    ANCHOR = "**Qualification (D-05, Phase 53).**"
+    REQUIRED = (
+        "It is only a proxy: a shared line does not guarantee that the two "
+        "reviewers agree on the failure.",
+        "When two lanes anchor one defect on different lines of a single "
+        "multi-line statement, the pair is not credited.",
+        "capped at 94 (warning). It is never dropped and still fires.",
+        "deliberately does not widen to adjacent lines or to the whole statement",
+        "must distinguish shared LOCATION from shared FAILURE MECHANISM; a "
+        "defect-type label alone would not establish a shared mechanism.",
+        "Phase 53 D-05, case A2",
+    )
+    # Overclaims the owner ruled out: exact-line matching does not establish
+    # semantic agreement.
+    FORBIDDEN = ("guarantees the same defect", "guarantees semantic agreement",
+                 "same line means the same defect")
+
+    def _block(self, text):
+        start = text.index(self.ANCHOR)
+        end = text.find("\n### ", start)
+        return norm(text[start:] if end == -1 else text[start:end])
+
+    def _check(self, text):
+        block = self._block(text)
+        for phrase in self.REQUIRED:
+            self.assertIn(norm(phrase), block)
+        for phrase in self.FORBIDDEN:
+            self.assertNotIn(phrase, block)
+
+    def test_limitation_pinned(self):
+        self._check(read("templates/scoring.md"))
+
+    def test_overclaim_mutation_trips(self):
+        # Mutation partners: dropping the proxy caveat, or planting an
+        # overclaim, each fail the check.
+        text = read("templates/scoring.md")
+        caveat = ("It is only a proxy: a shared line does not guarantee that the "
+                  "two reviewers agree on the failure. ")
+        self.assertEqual(text.count(caveat), 1)
+        for mutated in (text.replace(caveat, ""),
+                        text.replace(caveat, caveat + "The same line guarantees "
+                                     "semantic agreement. ")):
+            with self.assertRaises(AssertionError):
+                self._check(mutated)
+
+
+# --------------------------------------------------------------------------- #
 # Retired +10 prose stays retired (R6)
 # --------------------------------------------------------------------------- #
 def _stale_prose_corpus():

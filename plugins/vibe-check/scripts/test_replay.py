@@ -928,5 +928,113 @@ class TestDiffMode(_TmpDirCase):
                 self.assertNotIn(t, blob)
 
 
+# --------------------------------------------------------------------------
+# Same-line corroboration: three archived regression cases
+# --------------------------------------------------------------------------
+
+# Pre-53 scorer (score.py at 230332e): the row-wide second opinion it gave is
+# what lifted each of the three Codex findings below to critical/100.
+PRE_SAME_LINE_SPEC = "blob:d4f9fb14aea5f934a12dadf34e357626f7047ba5"
+# run -> (file, Codex line, row stable_hash[:12]). Owner-approved outcome under
+# the same-line rule: each Codex finding fires at warning/94, not critical.
+#   A1: the only Claude member that clears the cutoff alone (bugs L108) reports
+#       a different defect; the notes on L107 are too weak to count.
+#   A2: KNOWN CONSERVATIVE LIMITATION. Codex (L232) and the qualifying Claude
+#       members (L233) report the same defect, anchored on different lines of
+#       one multi-line statement, so the pair is not credited.
+#   A3: the qualifying Claude member (architecture L232) is at the same code
+#       but disputes the harm; the L233 note is below the cutoff alone.
+SAME_LINE_CASES = {
+    "runs-v2.10-phase43/first/should-quiet-4/run-3":
+        ("triggarr/models/config.py", 107, "fedecf9ededf"),
+    "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1":
+        ("triggarr/clients/base.py", 232, "13f543dd935e"),
+    "runs-v2.10/triggarr-secret-in-logs/run-1":
+        ("triggarr/clients/base.py", 233, "12fe298fc07e"),
+}
+# A scorer that credits a Codex/Claude pair one line apart: the "adjacent
+# lines" widening the owner ruled out.
+_OFF_LINE_CREDIT = (
+    '            if _as_line(b.get("line")) == a_line:\n',
+    '            b_line = _as_line(b.get("line"))\n'
+    '            if b_line is not None and abs(b_line - a_line) <= 1:\n',
+)
+
+
+class TestPhase53SameLineRegressionCases(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        runs = {r["rel_path"]: r for r in replay.iter_runs(roots=replay.DIFF_ROOTS)}
+        cls.envelopes = {}
+        for rel in SAME_LINE_CASES:
+            assert rel in runs, "archived regression run missing: " + rel
+            cls.envelopes[rel] = replay.reconstruct_envelope(runs[rel])[0]
+
+    def _scorer(self, mutate=False):
+        if not mutate:
+            return replay.load_scorer("path:" + os.path.join(REPO_ROOT, replay.SCORE_REL))
+        with open(os.path.join(REPO_ROOT, replay.SCORE_REL), encoding="utf-8") as fh:
+            original = fh.read()
+        old, new = _OFF_LINE_CREDIT
+        self.assertEqual(original.count(old), 1, "mutation anchor moved: off-line credit")
+        path = os.path.join(HERE, "_score_mutant_offline_%d.py" % os.getpid())
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(original.replace(old, new))
+        return replay.load_scorer("path:" + path)
+
+    def _codex_row(self, scorer, rel):
+        result = replay.replay_run(scorer, self.envelopes[rel])
+        file_, line, hash12 = SAME_LINE_CASES[rel]
+        rows = [f for f in result.get("findings", [])
+                if f.get("agent") == replay.CODEX_AGENT and f.get("file") == file_
+                and f.get("line") == line]
+        self.assertEqual(len(rows), 1, rel)
+        self.assertEqual(rows[0]["stable_hash"][:12], hash12, rel)
+        return result, rows[0]
+
+    def _assert_approved_outcome(self, scorer):
+        # No subTest here: the mutation partner needs the first failure to raise.
+        for rel in SAME_LINE_CASES:
+            result, row = self._codex_row(scorer, rel)
+            self.assertTrue(replay.fires(result), rel)
+            self.assertEqual((row["band"], row["orchestrator_score"]),
+                             ("warning", 94), rel)
+
+    def test_each_case_fires_at_warning_94(self):
+        self._assert_approved_outcome(self._scorer())
+
+    def test_pre_same_line_scorer_gave_critical_100(self):
+        base = replay.load_scorer(PRE_SAME_LINE_SPEC)
+        for rel in SAME_LINE_CASES:
+            with self.subTest(run=rel):
+                _result, row = self._codex_row(base, rel)
+                self.assertEqual((row["band"], row["orchestrator_score"]),
+                                 ("critical", 100), rel)
+
+    def test_a2_pair_sits_on_adjacent_lines_of_one_statement(self):
+        # The limitation's shape: no Claude member shares Codex's line, and the
+        # Claude members that clear the cutoff alone sit on the next line.
+        rel = "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+        _result, row = self._codex_row(self._scorer(), rel)
+        lanes = [(m.get("agent"), m.get("line")) for m in row["members"]
+                 if m.get("agent") != replay.CODEX_AGENT]
+        self.assertNotIn(232, [ln for _a, ln in lanes])
+        self.assertIn(("architecture", 233), lanes)
+        self.assertIn(("compliance", 233), lanes)
+
+    def test_off_line_credit_mutation_trips(self):
+        # Mutation partner: crediting pairs one line apart lifts all three
+        # Codex findings back to critical, so the pinned outcome fails.
+        mutant = self._scorer(mutate=True)
+        for rel in SAME_LINE_CASES:
+            with self.subTest(run=rel):
+                _result, row = self._codex_row(mutant, rel)
+                self.assertEqual(row["band"], "critical", rel)
+        with self.assertRaises(AssertionError):
+            self._assert_approved_outcome(mutant)
+
+
 if __name__ == "__main__":
     unittest.main()
