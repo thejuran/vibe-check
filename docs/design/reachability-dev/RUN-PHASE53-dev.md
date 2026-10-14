@@ -245,6 +245,8 @@ sidecar() {
   esac
   CLONE=$HOME/$CN
   STATE_DIR=$CLONE/.turingmind/state
+  # the candidate keeps live review state under format-53/; a new flat file means an older build ran
+  STATE53=$STATE_DIR/format-53
   PARK=$STATE_DIR/.b3-parked-phase53-dev
   PROJ=$(proj_dir "$CLONE")
   MEM=$PROJ/memory
@@ -268,6 +270,9 @@ mem_evidence() {
   mv "$MEM" "$ev"
   echo "auto-memory re-created by a session moved aside to $ev (evidence, never merged back)"
 }
+
+# every top-level review state file, at the flat (pre-format-53) location and under format-53/
+state_files() { find "$STATE_DIR" "$STATE53" -maxdepth 1 -name '*.json' 2> /dev/null || true; }
 
 # the full tracked diff of the clone, as one sha256
 clone_diff_sha() { git -C "$CLONE" diff | shasum -a 256 | awk '{print $1}'; }
@@ -505,6 +510,12 @@ for f in "$STATE_DIR"/*.json; do
   test -e "$f" || continue
   mv "$f" "$PARK/"; PARKED=$((PARKED + 1))
 done
+mkdir "$PARK/format-53"
+for f in "$STATE53"/*.json; do
+  test -e "$f" || continue
+  mv "$f" "$PARK/format-53/"; PARKED=$((PARKED + 1))
+done
+test -z "$(state_files)" || { echo 'A STATE FILE IS STILL PRESENT AFTER PARKING — STOPPING'; exit 1; }
 if test "$PARKED" -gt 0; then HAD_PRIOR=true; else HAD_PRIOR=false; fi
 if test -f "$CLONE/uv.lock"; then LOCK=1; else LOCK=0; fi
 {
@@ -565,7 +576,7 @@ cache_unchanged 'run not started'
 grep -qx "diff_id=$CASE" "$STATE_DIR/.b3-inprogress" 2> /dev/null \
   || { echo 'CLONE NOT PREPARED FOR THIS CASE — STOPPING'; exit 1; }
 test ! -e "$RUN_DIR" || { echo "$RP ALREADY EXISTS — use the next run number or p53 fail — STOPPING"; exit 1; }
-test -z "$(find "$STATE_DIR" -maxdepth 1 -name '*.json')" \
+test -z "$(state_files)" \
   || { echo 'A STATE FILE IS ALREADY PRESENT (an unfinished run) — p53 fail — STOPPING'; exit 1; }
 mem_evidence pre
 read -r ATT || true
@@ -596,10 +607,12 @@ grep -qx "diff_id=$CASE" "$STATE_DIR/.b3-inprogress" 2> /dev/null \
 test "$(git rev-parse HEAD)" = "$BASE_SHA" || { echo 'HEAD MOVED DURING THE RUN — p53 fail — STOPPING'; exit 1; }
 test -f "$RUN_DIR/clear.txt" || { echo 'clear.txt MISSING (pre never ran) — STOPPING'; exit 1; }
 test ! -e "$RUN_DIR/state.json" || { echo "$RP IS ALREADY ARCHIVED — STOPPING"; exit 1; }
-NEW=$(find "$STATE_DIR" -maxdepth 1 -name '*.json' -newer "$RUN_DIR/clear.txt")
+test -z "$(find "$STATE_DIR" -maxdepth 1 -name '*.json')" \
+  || { echo 'A FLAT (PRE-format-53) STATE FILE WAS WRITTEN — not the candidate build — p53 fail — STOPPING'; exit 1; }
+NEW=$(find "$STATE53" -maxdepth 1 -name '*.json' -newer "$RUN_DIR/clear.txt" 2> /dev/null || true)
 test "$(printf '%s\n' "$NEW" | grep -c .)" = "1" \
-  || { echo 'EXPECTED EXACTLY ONE NEW STATE FILE — p53 fail — STOPPING'; exit 1; }
-test "$(find "$STATE_DIR" -maxdepth 1 -name '*.json' | grep -c .)" = "1" \
+  || { echo 'EXPECTED EXACTLY ONE NEW format-53 STATE FILE — p53 fail — STOPPING'; exit 1; }
+test "$(state_files | grep -c .)" = "1" \
   || { echo 'AN OLDER STATE FILE IS PRESENT — STOPPING'; exit 1; }
 cp "$NEW" "$RUN_DIR/state.json"
 python3 - "$RUN_DIR/state.json" "$BASE_SHA" <<'PY' || { echo 'NOT ONE ISOLATED PASS AT THE PINNED HEAD — p53 fail — STOPPING'; exit 1; }
@@ -699,8 +712,7 @@ test -d "$RUN_DIR" || { echo "$RP DOES NOT EXIST — STOPPING"; exit 1; }
 DEST=$REPO/$ATTEMPTS/$STAGE-$CASE-run-$RUN-$(date +%s)
 mkdir -p "$REPO/$ATTEMPTS"
 mv "$RUN_DIR" "$DEST"
-for f in "$STATE_DIR"/*.json; do
-  test -e "$f" || continue
+for f in $(state_files); do
   mv "$f" "$DEST/"
 done
 printf 'reason: %s\nlabel: development rehearsal\n' "$FAIL_REASON" > "$DEST/reason.txt"
@@ -721,7 +733,7 @@ grep -qx "diff_id=$CASE" "$STATE_DIR/.b3-inprogress" || { echo 'SENTINEL IS FOR 
 START_BRANCH=$(sed -n 's/^start_branch=//p' "$STATE_DIR/.b3-inprogress")
 START_SHA=$(sed -n 's/^start_sha=//p' "$STATE_DIR/.b3-inprogress")
 test -n "$START_BRANCH" && test -n "$START_SHA" || { echo 'SENTINEL INCOMPLETE — STOPPING'; exit 1; }
-test -z "$(find "$STATE_DIR" -maxdepth 1 -name '*.json')" \
+test -z "$(state_files)" \
   || { echo 'A RUN IS UNFINISHED (state file present) — p53 post or p53 fail — STOPPING'; exit 1; }
 if test -f "$CLONE/uv.lock"; then
   chflags nouchg "$CLONE/uv.lock"
@@ -734,8 +746,15 @@ git switch -q "$START_BRANCH"
 test "$(git rev-parse HEAD)" = "$START_SHA" || { echo 'BRANCH NOT RESTORED — STOPPING'; exit 1; }
 test -z "$(git status --porcelain)" || { echo 'CLONE NOT CLEAN AFTER THE REVERT — STOPPING'; exit 1; }
 if grep -qx 'had_prior_state=true' "$STATE_DIR/.b3-inprogress"; then
-  for f in "$PARK"/*.json; do mv -n "$f" "$STATE_DIR/"; done
+  for f in "$PARK"/*.json; do test -e "$f" || continue; mv -n "$f" "$STATE_DIR/"; done
+  if test -d "$PARK/format-53"; then
+    for f in "$PARK"/format-53/*.json; do
+      test -e "$f" || continue
+      mkdir -p "$STATE53"; mv -n "$f" "$STATE53/"
+    done
+  fi
 fi
+if test -d "$PARK/format-53"; then rmdir "$PARK/format-53" 2> /dev/null || true; fi
 test -z "$(find "$PARK" -mindepth 1)" || { echo 'PARKED FILES COULD NOT ALL BE RESTORED — STOPPING'; exit 1; }
 rmdir "$PARK"
 rm "$STATE_DIR/.b3-inprogress"

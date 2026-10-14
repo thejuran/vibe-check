@@ -478,6 +478,22 @@ runs complete (Task 3 sign-off item 7 reads it).
 
 ## Cache
 
+resync-cache (2026-10-14, stage targeted): installed cache
+`~/.claude/plugins/cache/thejuran/vibe-check/2.11.1` (resolved from `installed_plugins.json`; the
+directory name is the registry's, a version string is never compared) backed up to
+`~/.b3/vibe-check-cache-bak-pre-phase53-dev`, then rsynced from `plugins/vibe-check/`.
+Content parity over the runtime roots (sha256, `score43.py fingerprint`):
+
+- cache `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`
+- tree  `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`
+
+Relaunch: every measured session is a NEW `claude` process started in tmux after the resync, so it
+loads the resynced cache at start; the driving session is not a measured session.
+`p53 fingerprint` (stage targeted) recorded `CACHE_FP` =
+`5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`; `preflight` OK.
+
 ## Targeted-stage fingerprints
+
+- `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26` — candidate `0a924de` (plugin tree unchanged at `a845fe1`)
 
 ## Runs
