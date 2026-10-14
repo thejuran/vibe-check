@@ -57,8 +57,8 @@ been approved).
 
 | id | shape | repo | feature_sha | base_sha | commit_subject | expected |
 |----|-------|------|-------------|----------|----------------|----------|
-| reach-new-1 | new exposure | ~/triggarr | 050c9c968e48f7e80b2ad3c74ecf9565a804bcfc | 345eaaad08d592376897c3d9a5c33ca173fdbbf8 | feat(72-02): implement reset_request_page, reset_request_post, _write_reset_token_file | finding: the reset token reaches the in-app log viewer |
-| reach-new-2 | new exposure | ~/seedsyncarr | 093cd18948f39d4c3a9a5e746e20abd84888aafd | a6a0c6db7380ca0bf2af0805f6f74f44be947431 | feat(62-02): use innerHTML for notification bell text binding | finding: server- and remote-influenced notification text is rendered as HTML |
+| reach-new-1 | new exposure | ~/triggarr | 050c9c968e48f7e80b2ad3c74ecf9565a804bcfc | 345eaaad08d592376897c3d9a5c33ca173fdbbf8 | feat(72-02): implement reset_request_page, reset_request_post, _write_reset_token_file | finding: the reset token reaches the unchanged in-app log viewer path (development evidence — shares a broad category with a B3 case; not independent evidence) |
+| reach-new-2 | new exposure | ~/seedsyncarr | 093cd18948f39d4c3a9a5e746e20abd84888aafd | a6a0c6db7380ca0bf2af0805f6f74f44be947431 | feat(62-02): use innerHTML for notification bell text binding | finding: unchanged server- and remote-influenced notification text is newly rendered as HTML (HTML injection; script execution neither required nor claimed) |
 | reach-unchanged-1 | unchanged | ~/roonseek | 79031dc5a4a718829e2aeb1298c28e85c30eeb2d | 754b2f1c4891b3438be5b2208fc6b0b3eb8235bc | refactor(29-followup): split filter-overrides handler into POST/PUT | quiet |
 | reach-unchanged-2 | unchanged | ~/seedsyncarr | 43ee518610e1a0727534ef6d933ad8ecdc620a57 | b853a18ddfb157d3c1d8541bd700a3f24a47cd7a | feat(108-02): extract _dispatch_command helper; thin five single-action handlers | quiet |
 
@@ -82,4 +82,39 @@ with status M). Each one passes `git apply --check` on a detached worktree at
 
 ## Approval record
 
-(pending owner approval of the batch)
+**Date:** 2026-10-14
+**Approved ids (development fixtures — not independent/holdout evidence):**
+`reach-new-1`, `reach-new-2`, `reach-unchanged-1`, `reach-unchanged-2`.
+
+Owner reply, verbatim:
+
+> "Approve the four cases as development fixtures, including reach-new-1. Its overlap with B3's broad category is acceptable; label it clearly as development evidence.
+>
+> Keep these conditions in the record:
+> - New exposure: identify the unchanged helper or downstream behavior newly reached by each change. "A new bug appeared" alone doesn't test the reachability rule.
+> - Unchanged exposure: justify quiet outcomes with before/after routes, inputs and checks. "Nothing was fixed later" and historical notes are supporting context, not proof.
+> - HTML case: score the demonstrated HTML injection, without requiring or claiming script execution.
+>
+> Real commits and exact diffs establish provenance; the code comparison establishes the expected verdict. Proceed with the targeted runs, keeping the holdout sealed."
+
+How the conditions are carried in the case files:
+
+- **New exposure** — `reach-new-1.expected.md` and `reach-new-2.expected.md` each
+  carry a table of the unchanged helper/downstream steps the change newly reaches,
+  with `file:line` at both `base_sha` and `feature_sha`.
+- **Unchanged exposure** — `reach-unchanged-1.expected.md` and
+  `reach-unchanged-2.expected.md` rest the quiet verdict on before/after tables of
+  routes, inputs and checks (`file:line` at both commits). Later fixes and
+  historical notes appear only under "Supporting context (not proof)".
+- **HTML case** — `reach-new-2.expected.md` scores the demonstrated HTML
+  injection; script execution is neither required nor claimed.
+- **reach-new-1** is labelled "development evidence — shares a broad category
+  with a B3 case; not independent evidence".
+
+Provenance comes from the real commits and the byte-identical diffs (the
+real-commit lock above); the expected verdicts come from the code comparison in
+each `expected.md`.
+
+The holdout stays sealed: it was not opened, listed or used for this batch.
+This is the single batch approval: the Phase 53 development rehearsal (53-14) runs exactly these
+four ids with no further per-case questions.
