@@ -50,6 +50,10 @@ as a guard: the default branches build a FLAT filename and the `--all` branch
 builds a `by-mode/all/` path, so "a plain `/review` can NEVER resolve INTO the
 `by-mode/all/` subtree (and `--all` can never resolve out of it)".
 
+The third namespace, `format-53/` (resolve_current), holds state in the
+Needs-verification format. No shipped key can start with it, so a plugin older
+than that format never reads or writes such a state.
+
 FAIL CLOSED, because resolving to the wrong state file silently merges two
 reviews' state, or orphans one. An unknown mode, a missing component, an
 abbreviated phase id, or a component unsafe as a filename returns
@@ -78,6 +82,17 @@ STATE_DIR = ".turingmind/state"
 
 # review.md:418 — the RESERVED subdirectory for mode-scoped state.
 ALL_SUBDIR = "by-mode/all"
+
+# The RESERVED subdirectory for Phase-53-format state. That state carries a
+# band (`needs-verification`) and a rollback marker that the shipped 2.11.x
+# reader refuses — or, on an ordinary review, that the shipped scorer rescores
+# into fixed-since-last. The shipped resolver's grammar is a flat
+# `<safe-component>.json` or `by-mode/all/<12hex>.json`, so a sibling reserved
+# subdirectory is structurally unreachable by every shipped mode: the same
+# argument ALL_SUBDIR makes against the flat grammar. resolve_current() is the
+# shipped key relocated under it; resolve() stays the shipped rule (the OLD
+# location, kept as the migration source).
+FORMAT_SUBDIR = "format-53"
 
 # review.md:422 — the literal token used ONLY when $NARROW is empty.
 WHOLE_TREE_TOKEN = "whole-tree"
@@ -210,18 +225,33 @@ def resolve(mode, phase_id=None, repo=None, branch=None, narrow=None):
     return _resolve_flat(repo, branch)
 
 
+def resolve_current(mode, phase_id=None, repo=None, branch=None, narrow=None):
+    """The CURRENT-format state path: resolve()'s key under FORMAT_SUBDIR.
+
+    `.turingmind/state/format-53/<repo>-<slug>.json`, `.../format-53/<PHASE_ID>.json`
+    or `.../format-53/by-mode/all/<12hex>.json`. A refusal from resolve() is
+    returned unchanged; an empty FORMAT_SUBDIR yields resolve()'s path itself.
+    No filesystem access.
+    """
+    path, reason = resolve(mode, phase_id=phase_id, repo=repo, branch=branch,
+                           narrow=narrow)
+    if path is None or not FORMAT_SUBDIR:
+        return (path, reason)
+    return ("%s/%s/%s" % (STATE_DIR, FORMAT_SUBDIR, path[len(STATE_DIR) + 1:]),
+            REASON_OK)
+
+
 def run(envelope):
-    """{"mode": ..., "repo": ..., "branch": ..., ...} -> {"path", "reason"}."""
+    """{"mode": ..., "repo": ..., "branch": ..., ...} -> {"path", "reason",
+    "current_path"}: `path` is the shipped (OLD) location, `current_path` the
+    Phase-53-format location (null on refusal)."""
     if not isinstance(envelope, dict):
-        return {"path": None, "reason": REASON_UNKNOWN_MODE}
-    path, reason = resolve(
-        envelope.get("mode"),
-        phase_id=envelope.get("phase_id"),
-        repo=envelope.get("repo"),
-        branch=envelope.get("branch"),
-        narrow=envelope.get("narrow"),
-    )
-    return {"path": path, "reason": reason}
+        return {"path": None, "reason": REASON_UNKNOWN_MODE, "current_path": None}
+    kw = {"phase_id": envelope.get("phase_id"), "repo": envelope.get("repo"),
+          "branch": envelope.get("branch"), "narrow": envelope.get("narrow")}
+    path, reason = resolve(envelope.get("mode"), **kw)
+    current, _ = resolve_current(envelope.get("mode"), **kw)
+    return {"path": path, "reason": reason, "current_path": current}
 
 
 # --------------------------------------------------------------------------- #
