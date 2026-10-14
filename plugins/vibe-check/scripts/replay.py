@@ -44,6 +44,8 @@ timeout.
     python3 replay.py baseline --out <md> [--manifest <abs>]
     python3 replay.py candidate --name <slug> --scorer <spec>
         [--override NAME=JSON ...] --out <md> [--manifest <abs>]
+    python3 replay.py diff --base <spec> --scorer <spec> --out <md>
+        [--roots manifest|all] [--allow <json>]
 
 A scorer spec is `blob:<sha>`, `rev:<rev>` or `path:<abs>`.
 Exit 0 clean / 1 gate failure / 2 usage error or unreadable input.
@@ -68,6 +70,12 @@ GROUND_TRUTH_REL = "docs/design/b3-ground-truth"
 ARCHIVE_ROOTS = ("docs/design/b3-ground-truth/runs",
                  "docs/design/b3-ground-truth/runs-v2.10",
                  "docs/design/b3-ground-truth/runs-v2.10-phase40")
+# ARCHIVE_ROOTS stays the manifest census (EXPECTED_SCOREABLE, the guardrail).
+# DIFF_ROOTS adds the later archives and is used ONLY for byte-identity
+# evidence (`diff`): it never feeds the census, the manifest or the guardrail.
+DIFF_ROOTS = ARCHIVE_ROOTS + ("docs/design/b3-ground-truth/runs-v2.10-phase41",
+                              "docs/design/b3-ground-truth/runs-v2.10-phase43",
+                              "docs/design/b3-ground-truth/runs-v2.11-phase49")
 MANIFEST_REL = "docs/design/b3-ground-truth/REPLAY-CATCH-MANIFEST-v2.10.json"
 LEDGER_REL = "docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md"
 SCORE_REL = "plugins/vibe-check/scripts/score.py"
@@ -137,8 +145,8 @@ def excluded_run_dirs(repo_root=REPO_ROOT):
     return sorted(out)
 
 
-def iter_runs(repo_root=REPO_ROOT):
-    """Every scoreable archived run, sorted by rel_path.
+def iter_runs(repo_root=REPO_ROOT, roots=ARCHIVE_ROOTS):
+    """Every scoreable archived run under `roots`, sorted by rel_path.
 
     Each record: rel_path (relative to docs/design/b3-ground-truth/, the
     manifest's key space), archive (root basename), diff (diff directory name),
@@ -147,7 +155,7 @@ def iter_runs(repo_root=REPO_ROOT):
     """
     gt_root = _abs(GROUND_TRUTH_REL, repo_root)
     runs = []
-    for root_rel in ARCHIVE_ROOTS:
+    for root_rel in roots:
         base = _abs(root_rel, repo_root)
         archive = os.path.basename(root_rel)
         for dirpath, dirnames, filenames in os.walk(base):
@@ -1041,6 +1049,226 @@ def _cmd_candidate(name, spec, override_pairs, out_path, manifest_path=None):
     return 1 if (gcounts["REGRESSED"] or gcounts["UNEVALUABLE"]) else 0
 
 
+# --------------------------------------------------------------------------- #
+# Complete-output diff (byte-identity evidence)
+# --------------------------------------------------------------------------- #
+
+# Leaves whose values are shown verbatim in a diff report or allowance file.
+# Every other leaf value is replaced by a sha256 digest of its canonical JSON
+# before it leaves _changes, so finding text can never reach either file.
+_SAFE_LEAVES = ("band", "orchestrator_score", "status", "line", "file", "agent",
+                "first_pass_N", "pass_number", "verdict", "at_pass", "source")
+_DIFF_ROOT_SETS = {"manifest": ARCHIVE_ROOTS, "all": DIFF_ROOTS}
+_ALLOWANCE_KEYS = ("run", "path", "before", "after")
+_CANONICAL_PATH = "__canonical__"
+
+
+def _canonical_json(obj):
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _flatten_into(out, prefix, value):
+    if isinstance(value, dict) and value:
+        for k in sorted(value, key=str):
+            _flatten_into(out, "%s.%s" % (prefix, k), value[k])
+    elif isinstance(value, list) and value:
+        for i, v in enumerate(value):
+            _flatten_into(out, "%s[%d]" % (prefix, i), v)
+    else:
+        out[prefix] = value
+
+
+def _flatten_output(result):
+    """{path: value} over the WHOLE scorer output object.
+
+    Findings are keyed by stable_hash (`findings[<h>]...`; a repeated hash gets
+    `#<n>`, a finding without a str hash `findings[?<index>]`), with their output
+    order recorded at `findings.order`; every other list is keyed by index and
+    every pass-level scalar by its key name. Canonical JSON equality stays the
+    ground truth (see _changes); this flattening exists to NAME what changed.
+    """
+    out = {}
+    if not isinstance(result, dict):
+        out[""] = result
+        return out
+    for key in sorted(result, key=str):
+        value = result[key]
+        if key == "findings" and isinstance(value, list):
+            order, seen = [], {}
+            for i, f in enumerate(value):
+                h = f.get("stable_hash") if isinstance(f, dict) else None
+                if isinstance(h, str):
+                    seen[h] = seen.get(h, 0) + 1
+                    label = h if seen[h] == 1 else "%s#%d" % (h, seen[h])
+                else:
+                    label = "?%d" % i
+                order.append(label)
+                _flatten_into(out, "findings[%s]" % label, f)
+            out["findings.order"] = order
+        else:
+            _flatten_into(out, str(key), value)
+    return out
+
+
+def _is_safe(path, value):
+    """True when `value` may be shown verbatim at `path`."""
+    if value is None or not isinstance(value, (str, int, float, bool)):
+        return False
+    if "." not in path and "[" not in path:
+        return isinstance(value, (int, bool))
+    return path.rsplit(".", 1)[-1] in _SAFE_LEAVES
+
+
+def _digest_unsafe(path, value):
+    if _is_safe(path, value):
+        return value
+    return "sha256:" + _sha256_bytes(_canonical_json(value).encode("utf-8"))
+
+
+def _changes(a, b):
+    """[{"path", "before", "after"[, "absent"]}] for every difference between two outputs.
+
+    A path present on one side only renders that side as JSON null with
+    `"absent": "before"|"after"` (a real null is always digested, so null in a
+    change or allowance means absent). Values are compared by canonical JSON, so
+    True vs 1 is a difference. Unsafe values are digested here, before they leave.
+    If the canonical JSONs differ but no path does, one `__canonical__` change
+    carrying both digests is emitted, so no difference can pass unnamed.
+    """
+    fa, fb = _flatten_output(a), _flatten_output(b)
+    out = []
+    for path in sorted(set(fa) | set(fb)):
+        in_a, in_b = path in fa, path in fb
+        if in_a and in_b and _canonical_json(fa[path]) == _canonical_json(fb[path]):
+            continue
+        ch = {"path": path,
+              "before": _digest_unsafe(path, fa[path]) if in_a else None,
+              "after": _digest_unsafe(path, fb[path]) if in_b else None}
+        if not in_a:
+            ch["absent"] = "before"
+        elif not in_b:
+            ch["absent"] = "after"
+        out.append(ch)
+    if not out and _canonical_json(a) != _canonical_json(b):
+        out.append({"path": _CANONICAL_PATH,
+                    "before": _digest_unsafe(_CANONICAL_PATH, a),
+                    "after": _digest_unsafe(_CANONICAL_PATH, b)})
+    return out
+
+
+def _load_allowances(path):
+    """The `allow` entries of an allowance file; any malformed entry -> ReplayError."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        raise ReplayError("allowance file unreadable or not JSON")
+    if not isinstance(data, dict) or set(data) != {"allow"} or not isinstance(data["allow"], list):
+        raise ReplayError('allowance file must be {"allow": [...]}')
+    for i, entry in enumerate(data["allow"]):
+        if not isinstance(entry, dict) or set(entry) != set(_ALLOWANCE_KEYS):
+            raise ReplayError("allowance entry %d must have exactly the keys "
+                              "run, path, before, after" % i)
+        if not isinstance(entry["run"], str) or not isinstance(entry["path"], str):
+            raise ReplayError("allowance entry %d: run and path must be strings" % i)
+    return data["allow"]
+
+
+def _apply_allowances(rel_path, changes, allowances):
+    """(unexplained, used): a change is explained only by an entry with the same
+    run, path, before and after (compared as canonical JSON, digests verbatim).
+    `used` is the set of allowance indices that explained a change; each entry
+    explains at most one change."""
+    used = set()
+    unexplained = []
+    for ch in changes:
+        hit = None
+        for i, entry in enumerate(allowances):
+            if (i not in used and entry["run"] == rel_path and entry["path"] == ch["path"]
+                    and _canonical_json(entry["before"]) == _canonical_json(ch["before"])
+                    and _canonical_json(entry["after"]) == _canonical_json(ch["after"])):
+                hit = i
+                break
+        if hit is None:
+            unexplained.append(ch)
+        else:
+            used.add(hit)
+    return unexplained, used
+
+
+def _render_value(ch, side):
+    if ch.get("absent") == side:
+        return "(absent)"
+    return str(ch[side])
+
+
+def _write_sidecar(path, entries):
+    text = json.dumps({"allow": entries}, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    if '"title"' in text or "<result>" in text:
+        raise ReplayError("sidecar writer refused: forbidden token in sidecar text")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _cmd_diff(base_spec, cand_spec, out_path, roots_name="all", allow_path=None):
+    """Replay every run under the chosen roots through both scorers and compare the
+    COMPLETE output. Exit 1 iff some run has a difference no pinned allowance explains."""
+    if roots_name not in _DIFF_ROOT_SETS:
+        raise ReplayError("refused: --roots must be manifest or all")
+    roots = _DIFF_ROOT_SETS[roots_name]
+    allowances = _load_allowances(allow_path) if allow_path else []
+    base = load_scorer(base_spec)
+    cand = load_scorer(cand_spec)
+    runs = iter_runs(roots=roots)
+    used_all = set()
+    sections, sidecar = [], []
+    n_diff = n_allowed = n_unallowed = 0
+    for run in runs:
+        envelope, _meta = reconstruct_envelope(run)
+        a = replay_run(base, envelope)
+        b = replay_run(cand, envelope)
+        changes = _changes(a, b)
+        if not changes:
+            continue
+        n_diff += 1
+        unexplained, used = _apply_allowances(run["rel_path"], changes, allowances)
+        used_all |= used
+        if unexplained:
+            n_unallowed += 1
+        else:
+            n_allowed += 1
+        bad = {id(c) for c in unexplained}
+        body = ["changed paths: %d" % len(changes),
+                "allowed: %s" % ("no" if unexplained else "yes"), ""]
+        for ch in unexplained + [c for c in changes if id(c) not in bad]:
+            body.append("- %s%s: %s -> %s" % ("UNALLOWED " if id(ch) in bad else "",
+                                              ch["path"], _render_value(ch, "before"),
+                                              _render_value(ch, "after")))
+        sections.append({"heading": run["rel_path"], "body": body,
+                         "tables": [("before", a.get("findings") or []),
+                                    ("after", b.get("findings") or [])]})
+        sidecar += [{"run": run["rel_path"], "path": c["path"], "before": c["before"],
+                     "after": c["after"]} for c in changes]
+    unused = len(allowances) - len(used_all)
+    header = [("#", "Replay report — complete-output diff"),
+              ("base", base._replay_spec + " (sha256 " + base._replay_sha256 + ")"),
+              ("candidate", cand._replay_spec + " (sha256 " + cand._replay_sha256 + ")"),
+              ("roots", "%s (%d roots)" % (roots_name, len(roots))),
+              ("allowances", allow_path or "none"),
+              ("runs compared", str(len(runs))),
+              ("runs differing", str(n_diff)),
+              ("runs differing (allowed)", str(n_allowed)),
+              ("runs with unallowed differences", str(n_unallowed)),
+              ("allowances unused", str(unused)),
+              ("head", _head_sha()),
+              ("generated", _utc_now())]
+    if not sections:
+        sections = [{"heading": "Differences", "body": ["- none"]}]
+    _write_sidecar(out_path + ".changes.json", sidecar)
+    write_report(out_path, header, sections)
+    return 1 if n_unallowed else 0
+
+
 def _parse_overrides(pairs):
     out = {}
     for pair in pairs or []:
@@ -1072,6 +1300,12 @@ def run(argv):
     p_c.add_argument("--override", action="append", default=[])
     p_c.add_argument("--out", required=True)
     p_c.add_argument("--manifest", default=None)
+    p_d = sub.add_parser("diff")
+    p_d.add_argument("--base", required=True)
+    p_d.add_argument("--scorer", required=True)
+    p_d.add_argument("--out", required=True)
+    p_d.add_argument("--roots", choices=("manifest", "all"), default="all")
+    p_d.add_argument("--allow", default=None)
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -1091,6 +1325,8 @@ def run(argv):
         if args.cmd == "candidate":
             return _cmd_candidate(args.name, args.scorer, args.override, args.out,
                                   args.manifest)
+        if args.cmd == "diff":
+            return _cmd_diff(args.base, args.scorer, args.out, args.roots, args.allow)
     except ReplayError as exc:
         sys.stderr.write(str(exc) + "\n")
         return 2
