@@ -963,6 +963,180 @@ class TestPayload(TempDirCase):
         self.assertEqual(proc.stdout, b"")
 
 
+# --------------------------------------------------------------------------- #
+# Needs-verification rows on the one card (QUIET-06, O-1, R10)
+# --------------------------------------------------------------------------- #
+NV_FIELDS = {"trigger": "caller passes None", "path": "load() -> parse()",
+             "consequence": "crash on startup"}
+
+
+def nv_card_state():
+    """critical HB, NV HA (a.py:12), medium HC, warning HD, NV HE (b.py:4)."""
+    rows = [
+        mk_finding("critical", "new", HB, file="app/z.py", line=3),
+        mk_finding("needs-verification", "new", HA, file="a.py", line=12,
+                   current_code="x = load()", problem="NVPROBLEM",
+                   needs_verification=dict(NV_FIELDS)),
+        mk_finding("medium", "new", HC, file="app/a.py", line=9),
+        mk_finding("warning", "new", HD, file="app/a.py", line=20),
+        mk_finding("needs-verification", "new", HE, file="b.py", line=4,
+                   current_code="y()", needs_verification=dict(NV_FIELDS)),
+    ]
+    return mk_state([mk_pass(1, []), mk_pass(2, rows)])
+
+
+def nv_doc(state=None, mode="fix-loop", head_blobs=None, subset=None):
+    doc, reason = batch_card.build_rows(state or nv_card_state(), mode,
+                                        head_blobs, subset)
+    assert reason is None, reason
+    return doc
+
+
+class TestNeedsVerificationCard(TempDirCase):
+    def test_fix_loop_rank_and_text(self):
+        doc = nv_doc()
+        self.assertEqual([(r["n"], r["band"], r["stable_hash"])
+                          for r in doc["rows"]],
+                         [(1, "critical", HB), (2, "warning", HD),
+                          (3, "needs-verification", HA),
+                          (4, "needs-verification", HE), (5, "medium", HC)])
+        self.assertIn("#3 a.py:12 — t aaaaaa (needs-verification)",
+                      doc["card_text"].splitlines())
+
+    def test_rank_is_load_bearing(self):
+        rank = {"critical": 0, "warning": 1, "medium": 2}
+        with mock.patch.object(batch_card, "_BAND_RANK", rank):
+            doc = nv_doc()
+        self.assertEqual(doc["rows"][-1]["band"], "needs-verification")
+
+    def test_finalize_lists_undecided_nv_then_omits_decided(self):
+        s = nv_card_state()
+        doc = nv_doc(s, "finalize", {})
+        self.assertEqual([r["band"] for r in doc["rows"]],
+                         ["critical", "warning", "needs-verification",
+                          "needs-verification", "medium"])
+        counts = carry_state.finalize_counts(s, {})
+        self.assertEqual({r["stable_hash"] for r in doc["rows"]},
+                         set(counts["outstanding_cw_hashes"]
+                             + counts["unacknowledged_medium_hashes"]
+                             + counts["undecided_nv_hashes"]))
+        s = dismiss(s, HA, decision="defer", reason="wired in Phase 7")
+        hashes = [r["stable_hash"] for r in nv_doc(s, "finalize", {})["rows"]]
+        self.assertNotIn(HA, hashes)
+        self.assertIn(HE, hashes)
+
+    def test_finalize_nv_wanted_is_load_bearing(self):
+        s = nv_card_state()
+        real = carry_state.finalize_counts
+
+        def no_nv(state, head_blobs=None):
+            out = real(state, head_blobs)
+            out["undecided_nv_hashes"] = []
+            return out
+
+        with mock.patch.object(carry_state, "finalize_counts", no_nv):
+            doc = nv_doc(s, "finalize", {})
+        self.assertNotIn("needs-verification",
+                         [r["band"] for r in doc["rows"]])
+
+    def test_apply_all_skips_nv_on_ordinary_card(self):
+        doc = nv_doc()
+        self.assertNotIn("subset", doc)
+        out, reason = batch_card.select(doc["rows"], {"all": True})
+        self.assertIsNone(reason)
+        self.assertEqual(out["rows"], [1, 2, 5])
+        self.assertEqual(out["hashes"], [HB, HD, HC])
+
+    def test_apply_all_exclusion_is_load_bearing(self):
+        doc = nv_doc()
+        with mock.patch.object(carry_state, "NV_BAND", "no-such-band"):
+            out, _ = batch_card.select(doc["rows"], {"all": True})
+        self.assertEqual(out["rows"], [1, 2, 3, 4, 5])
+
+    def test_subset_all_sends_every_named_hash(self):
+        doc = nv_doc(subset=[HA, HB])
+        self.assertIs(doc["subset"], True)
+        out, reason = batch_card.select(doc["rows"], {"all": True},
+                                        subset=True)
+        self.assertIsNone(reason)
+        self.assertEqual(out["hashes"], [HA, HB])
+        proc = run_cli(["select", "--rows", self.write("r.json", doc),
+                        "--answer", self.write("a.json", {"all": True})])
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout)["hashes"], [HA, HB])
+
+    def test_label_naming_nv_confirms_it(self):
+        doc = nv_doc()
+        out, reason = batch_card.select(doc["rows"],
+                                        {"labels": ["#3 a.py:12"]})
+        self.assertIsNone(reason)
+        self.assertEqual(out["hashes"], [HA])
+
+    def test_payload_all_has_no_nv_and_named_nv_carries_fields(self):
+        s = nv_card_state()
+        doc = nv_doc(s)
+        out, reason = batch_card.build_payload(s, doc, {"all": True})
+        self.assertIsNone(reason)
+        self.assertEqual(out["sent"], [HB, HD, HC])
+        for unit in out["findings"]:
+            self.assertNotIn("needs_verification", unit)
+        proc = run_cli(["payload", "--rows", self.write("r.json", doc),
+                        "--answer", self.write("a.json",
+                                               {"labels": ["#3 a.py:12"]})],
+                       json.dumps(s).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["sent"], [HA])
+        unit = out["findings"][0]
+        self.assertEqual(unit["needs_verification"], NV_FIELDS)
+        self.assertEqual(unit["problem"], "NVPROBLEM")
+        self.assertEqual(unit["current_code"], "x = load()")
+
+    def test_subset_payload_all_includes_nv(self):
+        s = nv_card_state()
+        doc = nv_doc(s, subset=[HA])
+        proc = run_cli(["payload", "--rows", self.write("r.json", doc),
+                        "--answer", self.write("a.json", {"all": True})],
+                       json.dumps(s).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout)["sent"], [HA])
+
+    def test_parse_by_number_records_each_nv_row(self):
+        s = nv_card_state()
+        doc = nv_doc(s, "finalize", {})
+        out, reason = batch_card.parse(
+            doc, {"q1": "defer 3,4 -- wired in Phase 7"})
+        self.assertIsNone(reason)
+        self.assertEqual(out["payload"]["decisions"], [
+            {"stable_hash": HA, "decision": "defer",
+             "reason": "wired in Phase 7"},
+            {"stable_hash": HE, "decision": "defer",
+             "reason": "wired in Phase 7"}])
+        s = carry_state.record_decisions(s, out["payload"])
+        self.assertIsNotNone(s)
+        rep = batch_card.decisions_report(s)
+        got = {(e["stable_hash"], e["band"], e["reason"], e["status"])
+               for e in rep["entries"]}
+        self.assertIn((HA, "needs-verification", "wired in Phase 7",
+                       "current"), got)
+        self.assertIn((HE, "needs-verification", "wired in Phase 7",
+                       "current"), got)
+
+    def test_parse_rest_leaves_nv_open(self):
+        doc = nv_doc(nv_card_state(), "finalize", {})
+        out, reason = batch_card.parse(doc, {"q1": "Fix all"})
+        self.assertIsNone(reason)
+        self.assertEqual(out["fix_targets"], [HB, HD, HC])
+        self.assertIn("2 needs-verification undecided — still open;"
+                      " finalize stays blocked", out["echo_text"])
+
+    def test_rows_doc_subset_flag_shape(self):
+        doc = nv_doc()
+        self.assertTrue(batch_card._valid_rows_doc(dict(doc, subset=True)))
+        self.assertTrue(batch_card._valid_rows_doc(dict(doc, subset=False)))
+        self.assertFalse(batch_card._valid_rows_doc(dict(doc, subset="yes")))
+
+
 class TestCliContract(TempDirCase):
     def test_sealed_tuples(self):
         self.assertEqual(batch_card.KNOWN_FLAGS,
