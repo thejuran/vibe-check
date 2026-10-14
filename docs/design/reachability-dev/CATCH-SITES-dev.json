@@ -1,0 +1,21 @@
+{
+  "_purpose": "Keyed catch sites for the approved new-exposure development cases (development rehearsal, not release evidence). Read only by score43.py dev-catch-candidates, which lists the rows at the site with band >= floor plus every Needs-verification row at the site, and prints the keyed defect above the table for the hand AXIS call (credit only for a row naming the defect's location AND causal failure; alarm and Needs-verification rows judged alike). Site lines are at feature_sha (the after-commit column of <id>.expected.md at a145914), widened to small inclusive ranges as in the sealed manifest. No B3 id may appear here (load_dev_sites refuses the file).",
+  "catch_cases": {
+    "reach-new-1": {
+      "site": {
+        "file": "triggarr/web/routes.py",
+        "lines": [[1079, 1094], [1677, 1694]]
+      },
+      "floor": "warning",
+      "defect": "triggarr/web/routes.py:1689-1692 (reset_request_post) logs the newly minted password-reset token at WARNING into the unchanged logging path: the buffer sink (triggarr/logging.py:72-84) copies it into log_buffer unredacted because the token is not in the collect_secrets redaction list, and the unchanged in-app log viewer (routes.py:1079-1094) and dashboard render that buffer, so anyone who can read the log viewer can read a live reset token and complete a password reset."
+    },
+    "reach-new-2": {
+      "site": {
+        "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+        "lines": [[26, 30]]
+      },
+      "floor": "warning",
+      "defect": "src/angular/src/app/pages/main/notification-bell.component.html:28 now binds unchanged server- and remote-influenced notification text with [innerHTML] instead of {{ notif.text }} interpolation, so markup in those strings is parsed as HTML in every open UI (HTML injection): Angular's sanitizer keeps links, images and formatting, so injected markup can render attacker-controlled links or images in a trusted UI element."
+    }
+  }
+}

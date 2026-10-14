@@ -37,6 +37,9 @@ docs/design/b3-ground-truth/runs-v2.10-phase43/**/transcript.jsonl
 # Phase-49 measurement transcripts — same rule.
 docs/design/b3-ground-truth/runs-v2.11-phase49/**/transcript.jsonl
 
+# Phase-53 development-rehearsal transcripts — same rule (copied in for dev-tally's card count).
+docs/design/reachability-dev/runs-phase53-dev/**/transcript.jsonl
+
 # Repo-local Claude Code settings: absolute paths and the v2.12 holdout deny hook live here.
 # Today it is ignored only by the owner's global gitignore; this line makes the repo itself
 # guarantee it is never committed.
