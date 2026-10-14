@@ -41,6 +41,13 @@ commit allowlist to admit quotes or apostrophes. `test_codex_translate.TestAllow
 pins the relationship in the one direction that must hold: every character the
 commit class permits survives this sanitizer unchanged.
 
+`needs_verification` is the one optional output key. A body that starts with
+the fixed marker `NEEDS VERIFICATION | Trigger: ... | Path: ... | Consequence:
+...` yields `{"trigger", "path", "consequence"}`, each field single-lined,
+stripped of the same codepoints as a title and cut to NV_FIELD_CAP. A body that
+does not match the grammar exactly (or leaves a field empty) gets no key and is
+otherwise translated as before. The body is never rewritten.
+
 `why_it_matters` is PINNED to the body verbatim. The contract row
 (codex-adversarial.md:60) allows "the impact clause of `body`, or restate
 concisely from `recommendation`" — a judgement an LLM makes and a script cannot.
@@ -101,6 +108,21 @@ _STRIP_CHARS = re.compile(
 # `..` reject in _structurally_rejected must run too.
 _PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
+# Needs-verification body marker. Codex's companion schema is fixed, so an
+# unresolved assessment travels as a strict body prefix rather than a new JSON
+# field. The grammar is fixed before measurement (QUIET-07) and mirrored in
+# `templates/codex-focus.txt`; change both together or neither:
+#   NEEDS VERIFICATION | Trigger: <text> | Path: <text> | Consequence: <text>
+# Case-sensitive, anchored at the start of the body, ` | ` separators. A body
+# that does not match is an ordinary finding, translated exactly as before.
+NV_MARKER = "NEEDS VERIFICATION"
+NV_FIELD_CAP = 300
+_NV_MARKER_RE = re.compile(
+    r"^NEEDS VERIFICATION \| Trigger: (.+?) \| Path: (.+?) "
+    r"\| Consequence: (.+?)\s*$",
+    re.DOTALL,
+)
+
 
 # --------------------------------------------------------------------------- #
 # Sanitization
@@ -133,6 +155,40 @@ def cap_note(value):
     if not isinstance(value, str):
         return ""
     return _LINE_BOUNDARIES.split(value, 1)[0][:NOTE_CAP]
+
+
+def sanitize_nv_field(value):
+    """Reduce one needs-verification field to inert, single-line display text.
+
+    Same shape as `sanitize_title`: a non-string degrades to "", only the first
+    line survives, the spoofing/injection codepoints are deleted, surrounding
+    whitespace is stripped, and the result is cut to NV_FIELD_CAP characters.
+    Never raises. An empty result means the field carries nothing concrete, and
+    the caller then emits no needs-verification object at all.
+    """
+    if not isinstance(value, str):
+        return ""
+    text = _LINE_BOUNDARIES.split(value, 1)[0]
+    text = _STRIP_CHARS.sub("", text)
+    return text.strip()[:NV_FIELD_CAP]
+
+
+def _needs_verification(body):
+    """Parse the marker grammar out of `body` -> dict, or None.
+
+    None on a non-string body, a body that does not match the grammar, or any
+    field that sanitizes to empty. The refusal path is silent: field text is
+    attacker-influenced and is never echoed into notes or errors.
+    """
+    if not isinstance(body, str):
+        return None
+    m = _NV_MARKER_RE.match(body)
+    if m is None:
+        return None
+    trigger, path, consequence = (sanitize_nv_field(g) for g in m.groups())
+    if not (trigger and path and consequence):
+        return None
+    return {"trigger": trigger, "path": path, "consequence": consequence}
 
 
 # --------------------------------------------------------------------------- #
@@ -193,7 +249,7 @@ def translate_finding(idx, finding):
     recommendation = finding.get("recommendation")
     if not isinstance(recommendation, str) or not recommendation:
         recommendation = None
-    return {
+    out = {
         "id": "codex-%03d" % idx,
         "file": finding.get("file"),
         "line": finding.get("line_start"),
@@ -211,6 +267,12 @@ def translate_finding(idx, finding):
         "fix_hint": recommendation,
         "intent_doc_match": None,
     }
+    # Optional, and only when the body carries the full marker grammar. The
+    # body itself still rides `problem` / `why_it_matters` verbatim.
+    nv = _needs_verification(finding.get("body"))
+    if nv is not None:
+        out["needs_verification"] = nv
+    return out
 
 
 def translate(result, diff_files, root=None):
