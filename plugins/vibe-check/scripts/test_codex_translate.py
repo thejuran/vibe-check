@@ -25,10 +25,12 @@ every such fixture.
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 # Make `import codex_translate` resolve when unittest discovery runs from root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -314,6 +316,152 @@ class TestTranslateFinding(unittest.TestCase):
              "agent_confidence", "problem", "why_it_matters", "fix_hint",
              "intent_doc_match"},
         )
+
+
+NV_BODY = ("NEEDS VERIFICATION | Trigger: value 300 reaches parse_limit | "
+           "Path: api/handlers.py:88 via load_config | "
+           "Consequence: startup aborts on legacy config")
+
+
+class TestNeedsVerificationMarker(unittest.TestCase):
+    """The fixed Codex body grammar for an unresolved assessment (QUIET-07).
+
+    A body that matches the strict marker grammar carries a
+    `needs_verification` object; anything else translates exactly as before.
+    """
+
+    def test_marker_body_yields_needs_verification(self):
+        out = codex_translate.translate_finding(1, _finding(body=NV_BODY))
+        self.assertEqual(out["needs_verification"], {
+            "trigger": "value 300 reaches parse_limit",
+            "path": "api/handlers.py:88 via load_config",
+            "consequence": "startup aborts on legacy config",
+        })
+        # The body stays the raw text on both pinned fields.
+        self.assertEqual(out["problem"], NV_BODY)
+        self.assertEqual(out["why_it_matters"], NV_BODY)
+
+    def test_missing_consequence_is_an_ordinary_finding(self):
+        body = ("NEEDS VERIFICATION | Trigger: value 300 reaches parse_limit | "
+                "Path: api/handlers.py:88 via load_config")
+        out = codex_translate.translate_finding(1, _finding(body=body))
+        self.assertNotIn("needs_verification", out)
+        # Same output as an ordinary body: swapping in a marker-free body
+        # changes only the two body-pinned fields.
+        plain = codex_translate.translate_finding(1, _finding(body="plain"))
+        plain.update(problem=body, why_it_matters=body)
+        self.assertEqual(out, plain)
+        self.assertEqual(
+            set(out),
+            {"id", "file", "line", "title", "category", "cwe", "severity",
+             "agent_confidence", "problem", "why_it_matters", "fix_hint",
+             "intent_doc_match"})
+
+    def test_marker_is_case_sensitive(self):
+        body = NV_BODY.replace("NEEDS VERIFICATION", "needs verification", 1)
+        self.assertTrue(body.startswith("needs verification | "))
+        out = codex_translate.translate_finding(1, _finding(body=body))
+        self.assertNotIn("needs_verification", out)
+
+    def test_marker_must_lead_the_body(self):
+        out = codex_translate.translate_finding(
+            1, _finding(body="Note. " + NV_BODY))
+        self.assertNotIn("needs_verification", out)
+
+    def test_non_string_body_is_an_ordinary_finding(self):
+        for body in (None, 7, ["NEEDS VERIFICATION"], {"trigger": "x"}):
+            out = codex_translate.translate_finding(1, _finding(body=body))
+            self.assertNotIn("needs_verification", out)
+
+    def test_field_codepoints_stripped_and_cut_at_line_boundary(self):
+        trigger = "val" + NUL + "ue `300`" + LSEP + "second line smuggled"
+        _assert_contains_codepoint(self, trigger, NUL, "NUL")
+        _assert_contains_codepoint(self, trigger, LSEP, "LINE SEPARATOR")
+        self.assertIn("`", trigger)
+        body = ("NEEDS VERIFICATION | Trigger: %s | Path: a.py:1 via f | "
+                "Consequence: request refused" % trigger)
+        nv = codex_translate.translate_finding(
+            1, _finding(body=body))["needs_verification"]
+        self.assertEqual(nv["trigger"], "value 300")
+        for field in nv.values():
+            self.assertNotIn(NUL, field)
+            self.assertNotIn("`", field)
+            self.assertNotIn(LSEP, field)
+            self.assertNotIn("smuggled", field)
+
+    def test_field_with_newline_keeps_first_line_only(self):
+        body = ("NEEDS VERIFICATION | Trigger: first\nsecond | Path: a.py:1 | "
+                "Consequence: c")
+        nv = codex_translate.translate_finding(
+            1, _finding(body=body))["needs_verification"]
+        self.assertEqual(nv["trigger"], "first")
+
+    def test_long_field_capped(self):
+        self.assertEqual(codex_translate.NV_FIELD_CAP, 300)
+        body = ("NEEDS VERIFICATION | Trigger: t | Path: a.py:1 | "
+                "Consequence: " + "x" * 1000)
+        nv = codex_translate.translate_finding(
+            1, _finding(body=body))["needs_verification"]
+        self.assertEqual(len(nv["consequence"]), 300)
+
+    def test_cap_constant_is_load_bearing(self):
+        """Mutation: a larger cap lets the 1000-char field through."""
+        body = ("NEEDS VERIFICATION | Trigger: t | Path: a.py:1 | "
+                "Consequence: " + "x" * 1000)
+        with mock.patch.object(codex_translate, "NV_FIELD_CAP", 5000):
+            nv = codex_translate.translate_finding(
+                1, _finding(body=body))["needs_verification"]
+        self.assertEqual(len(nv["consequence"]), 1000)
+
+    def test_empty_field_after_strip_yields_no_key(self):
+        bodies = [
+            "NEEDS VERIFICATION | Trigger: t | Path: | Consequence: c",
+            "NEEDS VERIFICATION | Trigger: t | Path:   | Consequence: c",
+            "NEEDS VERIFICATION | Trigger: t | Path: " + NUL + BELL
+            + " | Consequence: c",
+            "NEEDS VERIFICATION | Trigger: ``` | Path: a.py:1 | Consequence: c",
+            "NEEDS VERIFICATION | Trigger: t | Path: a.py:1 | Consequence: "
+            + LSEP + "hidden",
+        ]
+        _assert_contains_codepoint(self, bodies[2], NUL, "NUL")
+        _assert_contains_codepoint(self, bodies[4], LSEP, "LINE SEPARATOR")
+        for body in bodies:
+            out = codex_translate.translate_finding(1, _finding(body=body))
+            self.assertNotIn("needs_verification", out, body)
+
+    def test_sanitize_nv_field_never_raises(self):
+        for value in (None, 3, b"bytes", ["x"], {}):
+            self.assertEqual(codex_translate.sanitize_nv_field(value), "")
+
+    def test_marker_regex_is_load_bearing(self):
+        """Mutation: a never-matching marker regex drops the key."""
+        with mock.patch.object(
+                codex_translate, "_NV_MARKER_RE", re.compile(r"(?!)")):
+            out = codex_translate.translate_finding(1, _finding(body=NV_BODY))
+        self.assertNotIn("needs_verification", out)
+        # And the unpatched module still emits it (the mutant is the cause).
+        self.assertIn("needs_verification",
+                      codex_translate.translate_finding(1, _finding(body=NV_BODY)))
+
+    def test_sanitizer_is_load_bearing(self):
+        """Mutation: an identity sanitizer lets the NUL and backtick through."""
+        body = ("NEEDS VERIFICATION | Trigger: a" + NUL + "`b` | Path: p | "
+                "Consequence: c")
+        _assert_contains_codepoint(self, body, NUL, "NUL")
+        with mock.patch.object(codex_translate, "sanitize_nv_field",
+                               lambda v: v):
+            nv = codex_translate.translate_finding(
+                1, _finding(body=body))["needs_verification"]
+        self.assertIn(NUL, nv["trigger"])
+
+    def test_translate_carries_the_key_through(self):
+        result = {"verdict": "needs-attention", "summary": "s",
+                  "findings": [_finding(body=NV_BODY)]}
+        out = codex_translate.translate(result, ["src/auth/session.ts"])
+        self.assertEqual(out["findings"][0]["needs_verification"]["trigger"],
+                         "value 300 reaches parse_limit")
+        # No field text leaks into the notes.
+        self.assertEqual(out["agent_notes"], ["s"])
 
 
 class TestTranslateGolden(unittest.TestCase):
@@ -620,6 +768,10 @@ class TestImportSet(unittest.TestCase):
             "codex_translate.py imports outside the allowed set: "
             + str(imported - self.ALLOWED),
         )
+
+    def test_import_set_is_exactly_allowed(self):
+        """The marker parse adds no import: the set stays exactly ALLOWED."""
+        self.assertEqual(self._imported(), self.ALLOWED)
 
     def test_guard_is_actually_imported(self):
         """The containment leg must be guard.py, not a re-inlined copy."""
