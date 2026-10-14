@@ -372,6 +372,74 @@ class TestAnswerFinalize(unittest.TestCase):
         self.assertEqual(d.questions_asked, 1)
 
 
+NV = "needs-verification"
+NOISE_NV = ("src/cache.py", "cache key may collide across tenants")
+_PRE_NV_ROW_RE = hc.re.compile(
+    r"^#([0-9]+) (.+?):([0-9]+|\?) — (.*?) \((critical|warning|medium)\)"
+    r"(?=$|\s)")
+
+
+class TestNeedsVerificationRows(unittest.TestCase):
+    """A Needs-verification row is never the seeded finding: it parses, and
+    the finalize card defers it by number like any other non-seeded row."""
+
+    def test_parse_nv_row(self):
+        self.assertEqual(
+            hc.parse_rows("#1 src/a.py:12 — a title (needs-verification)"),
+            [hc.Row(1, "src/a.py", 12, "a title", NV)])
+
+    def test_nv_row_from_plugin_rendering(self):
+        rows = _rows(NOISE_NV + (NV,), SEEDED + ("critical",))
+        got = hc.parse_rows(_q(finalize_card(rows)))
+        self.assertEqual(got[0], hc.Row(1, NOISE_NV[0], 10, NOISE_NV[1], NV))
+
+    def _mixed_finalize(self):
+        return finalize_card(_rows(NOISE_NV + (NV,), SEEDED + ("critical",),
+                                   NOISE_B + ("medium",)))
+
+    def test_finalize_defers_nv_row_by_number(self):
+        card = self._mixed_finalize()
+        d = hc.answer_card(hc.FINALIZE, card, seeded=SEEDED)
+        self.assertIsNone(d.fail)
+        self.assertEqual(d.answers[_q(card)],
+                         "fix 2; defer 1,3 -- harness: not the seeded finding")
+        self.assertEqual(d.deferred_non_seeded, 2)
+
+    def test_finalize_only_nv_row_after_seeded_resolved(self):
+        card = finalize_card(_rows(NOISE_NV + (NV,)))
+        d = hc.answer_card(hc.FINALIZE, card, seeded=SEEDED,
+                           seeded_resolved=True)
+        self.assertIsNone(d.fail)
+        self.assertEqual(d.answers[_q(card)],
+                         "defer 1 -- harness: not the seeded finding")
+        self.assertEqual(d.deferred_non_seeded, 1)
+
+    def test_fix_loop_with_nv_selects_seeded_only(self):
+        rows = _rows(SEEDED + ("critical",), NOISE_NV + (NV,))
+        card = fix_loop_card(rows)
+        d = hc.answer_card(hc.FIX_LOOP, card, seeded=SEEDED)
+        self.assertIsNone(d.fail)
+        self.assertEqual(d.answers, {_q(card): hc.APPLY_SELECTED})
+
+    def test_nv_row_with_seeded_file_and_title_never_matches_other_rows(self):
+        # The seeded match is exact on (file, title); an NV row on the same
+        # file with a different title is not the seeded finding.
+        card = finalize_card(_rows((SEEDED[0], "possible overflow", NV),
+                                   SEEDED + ("critical",)))
+        d = hc.answer_card(hc.FINALIZE, card, seeded=SEEDED)
+        self.assertIsNone(d.fail)
+        self.assertEqual(d.answers[_q(card)],
+                         "fix 2; defer 1 -- harness: not the seeded finding")
+
+    def test_mutant_pre_nv_regex_fails_unparsed_row(self):
+        card = self._mixed_finalize()
+        with mock.patch.object(hc, "_ROW_RE", _PRE_NV_ROW_RE):
+            d = hc.answer_card(hc.FINALIZE, card, seeded=SEEDED)
+        self.assertEqual(d.fail, hc.FAIL_UNPARSED_ROW)
+        d = hc.answer_card(hc.FINALIZE, card, seeded=SEEDED)
+        self.assertIsNone(d.fail)
+
+
 class TestAnswerUnknown(unittest.TestCase):
 
     def _first_run_answer(self):
