@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_card  # noqa: E402  (sibling module: KNOWN_FLAGS, build_rows)
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import carry_state  # noqa: E402  (sibling module: KNOWN_FLAGS)
+import finalize_gate  # noqa: E402  (sibling module: FLAGS, the REVIEW.md stamp)
 from test_batch_card import HB, successor_state  # noqa: E402
 from test_pause_batching import FINALIZE_MD, PINS  # noqa: E402
 
@@ -492,6 +493,169 @@ class TestReviewMdRendering(LockCase):
                        "`record-decisions` step above"):
             with self.subTest(needle=needle):
                 self.assertIn(needle, section)
+
+
+# --------------------------------------------------------------------------- #
+# Needs-verification at finalize (Phase 53 R10) and the REVIEW.md format stamp.
+# Each predicate returns True when the lock holds; each test also runs it on a
+# mutant that must return False.
+# --------------------------------------------------------------------------- #
+FLAGS_LITERAL_RE = re.compile(r'`\{"flags": \{([^`]*)\}\}`')
+NV_BY_NUMBER = (
+    "never cover a Needs-verification item",
+    "a critical, warning or needs-verification row is dismissed or deferred "
+    "only when named by number",
+    "several may be named at once with one reason",
+    "each is recorded individually (R10)",
+)
+NV_FALLBACK_HEADER = ("Print: \"Cannot finalize — {{N}} Needs-verification "
+                      "item(s) undecided:\"")
+REVIEW_CLOSED_CALL = 'finalize_gate.py" review-closed'
+UNSTAMPED_ARCHIVE = "REVIEW-unstamped-"
+
+
+def seven_key_flags_holds(text):
+    literals = FLAGS_LITERAL_RE.findall(text)
+    if len(literals) != 1:
+        return False
+    keys = re.findall(r'"([a-z_]+)":', literals[0])
+    return (sorted(keys) == sorted(finalize_gate.FLAGS)
+            and "exactly the seven keys" in text
+            and "exactly the six keys" not in text)
+
+
+def nv_by_number_rule_holds(text):
+    section = card_section(text)
+    return all(phrase in section for phrase in NV_BY_NUMBER)
+
+
+def nv_fallback_listing_holds(text):
+    i = text.find(NV_FALLBACK_HEADER)
+    if i < 0:
+        return False
+    bullet_end = text.find("\n- ", i)
+    bullet = text[i:bullet_end if bullet_end >= 0 else len(text)]
+    return "`undecided_nv_hashes`" in bullet and "and stop" in bullet
+
+
+def write_bullet(text):
+    start = text.index("- `write` (only on the gate's `write`")
+    return text[start:text.index("- `refuse`", start)]
+
+
+def schema_template_lines(schema):
+    body = schema.split("````markdown\n", 1)[1].split("\n````", 1)[0]
+    return body.split("\n")
+
+
+def review_stamp_written_holds(text, schema=None):
+    schema = read_prose(SCHEMA_MD) if schema is None else schema
+    bullet = write_bullet(text)
+    if (finalize_gate.REVIEW_FORMAT_STAMP not in bullet
+            or REVIEW_CLOSED_CALL not in bullet):
+        return False
+    lines = schema_template_lines(schema)
+    if lines.count(finalize_gate.APPROVED_LINE) != 1:
+        return False
+    i = lines.index(finalize_gate.APPROVED_LINE)
+    return (i + 1 < len(lines)
+            and lines[i + 1] == finalize_gate.REVIEW_FORMAT_STAMP
+            and lines.count(finalize_gate.REVIEW_FORMAT_STAMP) == 1)
+
+
+def archive_fence(text):
+    fences = re.findall(r"````bash\n(.*?)\n````", text, re.S)
+    hits = [f for f in fences if "PRIOR_PHASE=" in f]
+    return hits[0] if len(hits) == 1 else None
+
+
+def unstamped_review_archived_holds(text):
+    fence = archive_fence(text)
+    if fence is None:
+        return False
+    prior = fence.find("PRIOR_PHASE=")
+    check = fence.find(REVIEW_CLOSED_CALL)
+    moved = fence.find(UNSTAMPED_ARCHIVE)
+    return 0 <= check < prior and 0 <= moved < prior and check < moved
+
+
+class TestNeedsVerificationFinalizeProse(LockCase):
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+        self.schema = read_prose(SCHEMA_MD)
+
+    def _mutant(self, old, new=""):
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_seven_key_flags(self):
+        self.assertTrue(seven_key_flags_holds(self.text))
+        with self.subTest("mutant: undecided_nv dropped from the literal"):
+            self.assertFalse(seven_key_flags_holds(
+                self._mutant('"undecided_nv": 0, ')))
+        with self.subTest("mutant: back to six keys"):
+            self.assertFalse(seven_key_flags_holds(
+                self._mutant("exactly the seven keys", "exactly the six keys")))
+
+    def test_nv_by_number_rule(self):
+        self.assertTrue(nv_by_number_rule_holds(self.text))
+        for phrase in NV_BY_NUMBER:
+            with self.subTest(mutant=phrase[:40]):
+                self.assertFalse(nv_by_number_rule_holds(self._mutant(phrase)))
+
+    def test_nv_fallback_listing(self):
+        self.assertTrue(nv_fallback_listing_holds(self.text))
+        with self.subTest("mutant: header removed"):
+            self.assertFalse(nv_fallback_listing_holds(
+                self._mutant(NV_FALLBACK_HEADER)))
+        with self.subTest("mutant: hash list not named"):
+            i = self.text.index(NV_FALLBACK_HEADER)
+            j = self.text.index("`undecided_nv_hashes`", i)
+            mutant = (self.text[:j] + "`the hashes`"
+                      + self.text[j + len("`undecided_nv_hashes`"):])
+            self.assertNotEqual(mutant, self.text)
+            self.assertFalse(nv_fallback_listing_holds(mutant))
+
+    def test_review_stamp_written(self):
+        self.assertTrue(review_stamp_written_holds(self.text, self.schema))
+        stamp = finalize_gate.REVIEW_FORMAT_STAMP
+        with self.subTest("mutant: stamp dropped from the write bullet"):
+            bullet = write_bullet(self.text)
+            mutant = self.text.replace(bullet, bullet.replace(stamp, ""))
+            self.assertNotEqual(mutant, self.text)
+            self.assertFalse(review_stamp_written_holds(mutant, self.schema))
+        with self.subTest("mutant: stamp removed from the schema"):
+            mutant = self.schema.replace(stamp + "\n", "", 1)
+            self.assertNotEqual(mutant, self.schema)
+            self.assertFalse(review_stamp_written_holds(self.text, mutant))
+        with self.subTest("mutant: stamp moved into a code fence"):
+            mutant = self.schema.replace(stamp + "\n",
+                                         "```\n" + stamp + "\n```\n", 1)
+            self.assertNotEqual(mutant, self.schema)
+            self.assertFalse(review_stamp_written_holds(self.text, mutant))
+        with self.subTest("mutant: stamp not directly under the verdict"):
+            mutant = self.schema.replace(stamp + "\n", "", 1).replace(
+                "## Coverage", stamp + "\n\n## Coverage", 1)
+            self.assertNotEqual(mutant, self.schema)
+            self.assertFalse(review_stamp_written_holds(self.text, mutant))
+
+    def test_unstamped_review_archived(self):
+        self.assertTrue(unstamped_review_archived_holds(self.text))
+        with self.subTest("mutant: unstamped archive removed"):
+            self.assertFalse(unstamped_review_archived_holds(
+                self._mutant(UNSTAMPED_ARCHIVE, "REVIEW-")))
+        with self.subTest("mutant: check moved after the phase archive"):
+            fence = archive_fence(self.text)
+            head, tail = fence.split("if [ -f .turingmind/REVIEW.md ]; then\n", 1)
+            moved = "if [ -f .turingmind/REVIEW.md ]; then\n" + tail + "\n" + head
+            mutant = self.text.replace(fence, moved)
+            self.assertNotEqual(mutant, self.text)
+            self.assertFalse(unstamped_review_archived_holds(mutant))
+
+    def test_state_file_is_the_format53_location(self):
+        self.assertIn("`.turingmind/state/format-53/`", self.text)
+        self.assertIn("format-53/", self.schema)
 
 
 if __name__ == "__main__":

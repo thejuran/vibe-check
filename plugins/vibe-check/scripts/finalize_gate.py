@@ -26,7 +26,27 @@ THE BRANCH ORDER, transcribed in the prose's own sequence:
                    depend on ANSWERS THE USER HAS NOT GIVEN YET, so they are
                    outside a pure precondition gate. Entering the card is the
                    decision this module owns.
+  Phase 53 R10  `undecided_nv` > 0 (open Needs-verification items with no
+                current owner decision, carry_state.py finalize-counts),
+                evaluated AFTER the critical/warning branch and BEFORE the
+                medium branch -> the same finalize card (`outstanding-to-phase-5`,
+                REASON_UNDECIDED_NV), or `fallback` when Phase 5 is unavailable.
+                APPROVED is never written while one is undecided.
   review.md:48  otherwise -> write `.turingmind/REVIEW.md`.
+
+THE SEVENTH FLAG. `undecided_nv` joined the closed flag set in Phase 53. The set
+is compared by equality, so a caller still building the six-key flags of an
+older finalize is refused (fail closed) rather than read as "no
+Needs-verification items".
+
+THE REVIEW.md FORMAT STAMP. A shipped 2.11.x finalize writes the same
+`**Final verdict:** ✅ APPROVED` line from its own old-location state, which
+never held the Needs-verification rows. The Phase-53 finalize writes
+REVIEW_FORMAT_STAMP on the line directly under the verdict, and
+`review_closed(text)` (CLI `finalize_gate.py review-closed < REVIEW.md`, exit
+0/1) is True only when BOTH lines are present as whole lines. It is not a gate
+decision — the gate still decides `write`; the stamp is what the write produces
+and what every reader requires.
 
 WHY THE VOCABULARY IS SIX AND NOT THREE. Fix-list FL-07 (finding R11) caught a
 draft limited to `write` / `fallback` / `refuse`, which cannot represent either
@@ -66,6 +86,9 @@ their text is attacker-influenced, and a count belongs to the render.
 I/O: stdlib only, imports exactly {json, sys}. CLI:
 
     echo '{"flags": {...}}' | python3 finalize_gate.py
+    python3 finalize_gate.py review-closed < .turingmind/REVIEW.md
+
+Any other argv exits 2 with nothing on stdout.
 
 JSON stdin -> JSON stdout. Unparseable stdin propagates so the process exits
 NON-ZERO.
@@ -89,6 +112,7 @@ REASON_NO_STATE = "no prior review passes"
 REASON_OUTSTANDING_CW = "outstanding critical/warning findings route to the fix loop"
 REASON_PHASE5_UNAVAILABLE = "fix loop unavailable; user must re-run with --finalize"
 REASON_UNACKNOWLEDGED_MEDIUM = "medium findings await acknowledgement"
+REASON_UNDECIDED_NV = "needs-verification items await an owner decision"
 REASON_CLEAN = "no outstanding findings; finalization may proceed"
 REASON_MALFORMED = "malformed gate input"
 
@@ -97,15 +121,24 @@ REASONS = (
     REASON_OUTSTANDING_CW,
     REASON_PHASE5_UNAVAILABLE,
     REASON_UNACKNOWLEDGED_MEDIUM,
+    REASON_UNDECIDED_NV,
     REASON_CLEAN,
     REASON_MALFORMED,
 )
 
-# The exact flag set, transcribed. `state_file_present` is :31; the two counts
-# are the :33/:34 computations; the three switches are :39's three named
+# The REVIEW.md lines that make a Phase-53 close. A REVIEW.md carrying the
+# verdict line but not the stamp was written by a finalize that never read the
+# Phase-53 state, so it never closes this review. The stamp's number is the
+# state-format phase and is frozen with `statepath.FORMAT_SUBDIR`.
+APPROVED_LINE = "**Final verdict:** ✅ APPROVED"
+REVIEW_FORMAT_STAMP = "**State format:** 53"
+
+# The exact flag set, transcribed. `state_file_present` is :31; the first two
+# counts are the :33/:34 computations and `undecided_nv` is the Phase 53
+# Needs-verification count; the three switches are :39's three named
 # conditions for "Phase 5 is unavailable".
 _BOOL_FLAGS = ("state_file_present", "noninteractive", "pr_mode", "range_mode")
-_COUNT_FLAGS = ("outstanding_cw", "unacknowledged_medium")
+_COUNT_FLAGS = ("outstanding_cw", "unacknowledged_medium", "undecided_nv")
 FLAGS = _BOOL_FLAGS + _COUNT_FLAGS
 
 
@@ -159,6 +192,14 @@ def decide(flags):
             return _decision(ACTIONS[3], REASON_PHASE5_UNAVAILABLE)
         return _decision(ACTIONS[1], REASON_OUTSTANDING_CW)
 
+    # Phase 53 R10 — undecided Needs-verification items block the write. After
+    # Critical/Warning (those are fixed first) and before Medium; the card lists
+    # them and the owner decides each by number.
+    if flags["undecided_nv"] > 0:
+        if not phase5_available:
+            return _decision(ACTIONS[3], REASON_PHASE5_UNAVAILABLE)
+        return _decision(ACTIONS[1], REASON_UNDECIDED_NV)
+
     # The medium branch. The finalize card's fix choice defers to Phase 5, so the
     # branch needs the same interactivity the fallback at :39 tests for.
     if flags["unacknowledged_medium"] > 0:
@@ -168,6 +209,16 @@ def decide(flags):
 
     # :48 — write .turingmind/REVIEW.md.
     return _decision(ACTIONS[0], REASON_CLEAN)
+
+
+def review_closed(text):
+    """True iff `text` (a REVIEW.md) holds both APPROVED_LINE and
+    REVIEW_FORMAT_STAMP as whole lines (trailing whitespace ignored). A stamp
+    quoted in prose, indented, or inside a code span is not a stamp."""
+    if not isinstance(text, str):
+        return False
+    lines = {ln.rstrip() for ln in text.split("\n")}
+    return APPROVED_LINE in lines and REVIEW_FORMAT_STAMP in lines
 
 
 def run(envelope):
@@ -181,6 +232,13 @@ def run(envelope):
 # stdin/stdout shim — the ONLY process I/O. Fails CLOSED on bad input.
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
-    # Do NOT wrap json.load in a swallowing try/except: an unparseable stdin
-    # must propagate so the process exits NON-ZERO.
-    json.dump(run(json.load(sys.stdin)), sys.stdout, allow_nan=False)
+    if len(sys.argv) == 1:
+        # Do NOT wrap json.load in a swallowing try/except: an unparseable stdin
+        # must propagate so the process exits NON-ZERO.
+        json.dump(run(json.load(sys.stdin)), sys.stdout, allow_nan=False)
+    elif sys.argv[1:] == ["review-closed"]:
+        closed = review_closed(sys.stdin.read())
+        json.dump({"closed": closed}, sys.stdout)
+        sys.exit(0 if closed else 1)
+    else:
+        sys.exit(2)

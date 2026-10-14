@@ -15,6 +15,7 @@ Written by `--finalize` to `.turingmind/REVIEW.md` (single file, fork schema onl
 **Baseline:** {{baseline_sha_short}} → {{head_sha_short}} ({{commits}} commits, {{loc}} LOC changed)
 **Passes:** {{N}} ({{deep_count}}× deep-review, {{quick_count}}× review)
 **Final verdict:** ✅ APPROVED
+**State format:** 53
 
 ## Coverage
 | Agent | Mode | Findings raised | Outstanding |
@@ -54,11 +55,12 @@ Written by `--finalize` to `.turingmind/REVIEW.md` (single file, fork schema onl
 {{architecture agent's notes about PLAN.md/SPEC.md alignment, if any}}
 
 ## Audit trail
-See `.turingmind/state/<phase-id>.json.archived-{{date}}` for full per-pass history.
+See `.turingmind/state/format-53/<phase-id>.json.archived-{{date}}` for full per-pass history.
 ````
 
 Section notes:
 
+- **State format** is the stamp `--finalize` writes from `finalize_gate.REVIEW_FORMAT_STAMP`; `finalize_gate.py review-closed` requires it — a REVIEW.md without it was written by an older plugin against an older state file and never closes a Phase-53 review.
 - **Coverage → Outstanding** counts open findings not closed by a current owner decision or a verified resolution, so it reads 0 on a written REVIEW.md.
 - **Resolved by verification** lists, for audit, every recheck- or fix-obsolete-resolved finding of ANY band: each `passes[].resolved[]` entry with its `resolution` evidence, AND each fix-obsolete verdict the owner finalized on without a rerun (its only record is root `fix_verdicts` — there is no `resolved[]` entry, so without this rule the resolution would vanish from REVIEW.md). Listed once per finding.
 - **Findings dismissed** lists every dismissal of any band: root `decisions` entries with `decision == "dismiss"` (band shown after the agent) UNION legacy root `medium_acknowledgments` entries. A decision that no longer closes its finding — replaced by a later decision (kept in that record's `history`), stale because the finding's evidence changed after it, or whose finding is no longer in the last pass — is kept and rendered with the suffix ` (superseded)`; it is never dropped (D-13 audit). Pre-47 records and legacy acknowledgements are never superseded by evidence.

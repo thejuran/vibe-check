@@ -125,7 +125,8 @@ def gate(counts):
     flags = {"state_file_present": True, "noninteractive": False,
              "pr_mode": False, "range_mode": False,
              "outstanding_cw": counts["outstanding_cw"],
-             "unacknowledged_medium": counts["unacknowledged_medium"]}
+             "unacknowledged_medium": counts["unacknowledged_medium"],
+             "undecided_nv": counts["undecided_nv"]}
     return finalize_gate.decide(flags)["action"]
 
 
@@ -1727,7 +1728,8 @@ def e2e_gate(state, head_blobs=None):
         "state_file_present": True, "noninteractive": False,
         "pr_mode": False, "range_mode": False,
         "outstanding_cw": counts["outstanding_cw"],
-        "unacknowledged_medium": counts["unacknowledged_medium"]})["action"]
+        "unacknowledged_medium": counts["unacknowledged_medium"],
+        "undecided_nv": counts["undecided_nv"]})["action"]
 
 
 def carry_set(state):
@@ -2313,6 +2315,14 @@ class TestNeedsVerificationCounts(unittest.TestCase):
         c = carry_state.finalize_counts(s)
         self.assertEqual(c["outstanding_cw_hashes"], [])
         self.assertEqual(c["unacknowledged_medium_hashes"], [])
+
+    def test_gate_blocks_until_nv_decided(self):
+        s = nv_pass1_state()
+        self.assertEqual(e2e_gate(s), "outstanding-to-phase-5")
+        self.assertEqual(e2e_gate(nv_defer(s)), "write")
+        # A decision taken before the body changed no longer unblocks.
+        s = nv_next_pass(nv_defer(s), ts._NV_FIRST, _nv_changed_body())
+        self.assertEqual(e2e_gate(s), "outstanding-to-phase-5")
 
     def test_counts_cli_reports_undecided_nv(self):
         s = nv_pass1_state()

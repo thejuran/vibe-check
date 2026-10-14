@@ -1080,7 +1080,8 @@ class TestSuccessor(unittest.TestCase):
                         "pr_mode": False, "range_mode": False,
                         "outstanding_cw": cli_counts["outstanding_cw"],
                         "unacknowledged_medium":
-                            cli_counts["unacknowledged_medium"]}))
+                            cli_counts["unacknowledged_medium"],
+                        "undecided_nv": cli_counts["undecided_nv"]}))
                 self.assertEqual(verdicts[0], verdicts[1])
                 tagged = rows_of(s, "finalize", {})
                 self.assertEqual([r["stable_hash"] for r in tagged], [HB])

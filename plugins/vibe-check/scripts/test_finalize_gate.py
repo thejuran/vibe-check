@@ -39,6 +39,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import finalize_gate  # noqa: E402  (sibling module under test)
+import replay  # noqa: E402  (sibling — reads the shipped v2.11.1 schema blob)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FINALIZE_GATE_PY = os.path.join(HERE, "finalize_gate.py")
@@ -48,6 +49,7 @@ CLEAN = {
     "state_file_present": True,
     "outstanding_cw": 0,
     "unacknowledged_medium": 0,
+    "undecided_nv": 0,
     "noninteractive": False,
     "pr_mode": False,
     "range_mode": False,
@@ -302,6 +304,197 @@ class TestCLI(unittest.TestCase):
 
     def test_empty_stdin_exits_nonzero(self):
         self.assertNotEqual(self._run(b"").returncode, 0)
+
+
+class TestUndecidedNeedsVerification(unittest.TestCase):
+    """Phase 53 R10: APPROVED is never written while a Needs-verification item
+    is undecided. The seventh flag is part of the closed set."""
+
+    def test_six_key_pre53_flags_refuse(self):
+        six = {k: v for k, v in flags().items() if k != "undecided_nv"}
+        self.assertEqual(len(six), 6)
+        got = finalize_gate.decide(six)
+        self.assertEqual(got, {"action": "refuse",
+                               "reason": finalize_gate.REASON_MALFORMED})
+
+    def test_flag_set_is_seven_keys(self):
+        self.assertEqual(finalize_gate._COUNT_FLAGS,
+                         ("outstanding_cw", "unacknowledged_medium",
+                          "undecided_nv"))
+        self.assertEqual(len(finalize_gate.FLAGS), 7)
+        self.assertEqual(set(CLEAN), set(finalize_gate.FLAGS))
+
+    def test_bool_or_bad_count_refuses(self):
+        for bad in (True, False, "1", None, -1, 1.0):
+            with self.subTest(bad=bad):
+                got = finalize_gate.decide(flags(undecided_nv=bad))
+                self.assertEqual(got["reason"], finalize_gate.REASON_MALFORMED)
+
+    def test_undecided_nv_routes_to_the_card(self):
+        got = finalize_gate.decide(flags(undecided_nv=2))
+        self.assertEqual(got, {"action": "outstanding-to-phase-5",
+                               "reason": finalize_gate.REASON_UNDECIDED_NV})
+
+    def test_undecided_nv_without_phase5_falls_back(self):
+        for mode in ("noninteractive", "pr_mode", "range_mode"):
+            with self.subTest(mode=mode):
+                got = finalize_gate.decide(flags(undecided_nv=2, **{mode: True}))
+                self.assertEqual(got, {
+                    "action": "fallback",
+                    "reason": finalize_gate.REASON_PHASE5_UNAVAILABLE})
+
+    def test_cw_precedes_nv(self):
+        got = finalize_gate.decide(flags(outstanding_cw=1, undecided_nv=1))
+        self.assertEqual(got["reason"], finalize_gate.REASON_OUTSTANDING_CW)
+
+    def test_nv_precedes_medium(self):
+        got = finalize_gate.decide(flags(undecided_nv=1, unacknowledged_medium=3))
+        self.assertEqual(got["reason"], finalize_gate.REASON_UNDECIDED_NV)
+        self.assertNotEqual(got["action"], "medium-ack-loop")
+
+    def test_never_writes_while_nv_undecided(self):
+        for extra in ({}, {"noninteractive": True}, {"pr_mode": True},
+                      {"range_mode": True}, {"unacknowledged_medium": 1}):
+            with self.subTest(**extra):
+                got = finalize_gate.decide(flags(undecided_nv=1, **extra))
+                self.assertNotEqual(got["action"], "write")
+
+    def test_all_zero_writes(self):
+        self.assertEqual(finalize_gate.decide(flags()),
+                         {"action": "write",
+                          "reason": finalize_gate.REASON_CLEAN})
+
+    def test_vocabulary_unchanged(self):
+        self.assertEqual(len(finalize_gate.ACTIONS), 6)
+        self.assertIn(finalize_gate.REASON_UNDECIDED_NV, finalize_gate.REASONS)
+        self.assertEqual(len(set(finalize_gate.REASONS)),
+                         len(finalize_gate.REASONS))
+
+
+# The shipped v2.11.1 REVIEW.md schema (verified against `git ls-tree v2.11.1`):
+# its header has NO state-format stamp — exactly what every 2.11.x finalize
+# writes.
+V2111_REVIEW_SCHEMA_BLOB = "7469242c48ab7fb88f91af2dc9d2abcbf4441091"
+_PLACEHOLDER = "{{"
+
+
+def old_style_review_md():
+    """A REVIEW.md rendered from the v2.11.1 schema template: the fenced
+    template body with every {{placeholder}} filled."""
+    text = replay._git("cat-file", "-p", V2111_REVIEW_SCHEMA_BLOB).decode("utf-8")
+    body = text.split("````markdown\n", 1)[1].split("\n````", 1)[0]
+    out = []
+    i = 0
+    while True:
+        j = body.find(_PLACEHOLDER, i)
+        if j < 0:
+            out.append(body[i:])
+            break
+        k = body.find("}}", j)
+        out.append(body[i:j] + "x")
+        i = k + 2
+    return "".join(out)
+
+
+def stamped(text):
+    return text.replace(finalize_gate.APPROVED_LINE + "\n",
+                        finalize_gate.APPROVED_LINE + "\n"
+                        + finalize_gate.REVIEW_FORMAT_STAMP + "\n", 1)
+
+
+class TestReviewClosed(unittest.TestCase):
+    def test_constants(self):
+        self.assertEqual(finalize_gate.REVIEW_FORMAT_STAMP, "**State format:** 53")
+        self.assertEqual(finalize_gate.APPROVED_LINE,
+                         "**Final verdict:** \u2705 APPROVED")
+
+    def test_fixture_is_the_shipped_render(self):
+        old = old_style_review_md()
+        self.assertNotIn(_PLACEHOLDER, old)
+        self.assertIn(finalize_gate.APPROVED_LINE, old.split("\n"))
+        self.assertNotIn("State format", old)
+        self.assertNotEqual(stamped(old), old)
+
+    def test_stamped_approved_is_closed(self):
+        self.assertTrue(finalize_gate.review_closed(stamped(old_style_review_md())))
+
+    def test_old_style_review_md_is_not_a_phase53_close(self):
+        self.assertFalse(finalize_gate.review_closed(old_style_review_md()))
+
+    def test_review_stamp_requirement_is_load_bearing_mutation(self):
+        old = old_style_review_md()
+        original = finalize_gate.REVIEW_FORMAT_STAMP
+        try:
+            finalize_gate.REVIEW_FORMAT_STAMP = ""
+            self.assertTrue(finalize_gate.review_closed(old))
+        finally:
+            finalize_gate.REVIEW_FORMAT_STAMP = original
+        self.assertFalse(finalize_gate.review_closed(old))
+
+    def test_stamp_without_approved_is_not_closed(self):
+        text = stamped(old_style_review_md()).replace(
+            finalize_gate.APPROVED_LINE, "**Final verdict:** \u274c BLOCKED")
+        self.assertIn(finalize_gate.REVIEW_FORMAT_STAMP, text)
+        self.assertFalse(finalize_gate.review_closed(text))
+
+    def test_stamp_is_whole_line(self):
+        base = old_style_review_md()
+        for bad in ("**State format:** 52", "**State format:** 53x",
+                    "    **State format:** 53", "> **State format:** 53",
+                    "x **State format:** 53",
+                    "`**State format:** 53`"):
+            with self.subTest(bad=bad):
+                text = base.replace(finalize_gate.APPROVED_LINE + "\n",
+                                    finalize_gate.APPROVED_LINE + "\n" + bad + "\n", 1)
+                self.assertIn(bad, text)
+                self.assertFalse(finalize_gate.review_closed(text))
+
+    def test_trailing_whitespace_tolerated(self):
+        text = (finalize_gate.APPROVED_LINE + "  \r\n"
+                + finalize_gate.REVIEW_FORMAT_STAMP + " \n")
+        self.assertTrue(finalize_gate.review_closed(text))
+
+    def test_non_str_and_empty(self):
+        for bad in (None, b"x", 5, [], ""):
+            with self.subTest(bad=bad):
+                self.assertFalse(finalize_gate.review_closed(bad))
+
+
+class TestReviewClosedCLI(unittest.TestCase):
+    def _run(self, argv, payload):
+        return subprocess.run(
+            [sys.executable, FINALIZE_GATE_PY] + argv, input=payload,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+
+    def test_stamped_exits_zero(self):
+        proc = self._run(["review-closed"],
+                         stamped(old_style_review_md()).encode("utf-8"))
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout.decode()), {"closed": True})
+
+    def test_unstamped_exits_one(self):
+        proc = self._run(["review-closed"], old_style_review_md().encode("utf-8"))
+        self.assertEqual(proc.returncode, 1, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout.decode()), {"closed": False})
+
+    def test_empty_stdin_exits_one(self):
+        proc = self._run(["review-closed"], b"")
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(json.loads(proc.stdout.decode()), {"closed": False})
+
+    def test_unknown_argv_exits_two_silently(self):
+        for argv in (["bogus"], ["review-closed", "extra"], ["--flags"]):
+            with self.subTest(argv=argv):
+                proc = self._run(argv, b"{}")
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+
+    def test_no_argv_flags_path_unchanged(self):
+        proc = self._run([], json.dumps({"flags": flags(undecided_nv=1)}).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout.decode()),
+                         {"action": "outstanding-to-phase-5",
+                          "reason": finalize_gate.REASON_UNDECIDED_NV})
 
 
 class TestCitations(unittest.TestCase):

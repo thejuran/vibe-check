@@ -152,6 +152,7 @@ class TestNoninteractiveBytePin(unittest.TestCase):
             "state_file_present": True,
             "outstanding_cw": 1,
             "unacknowledged_medium": 0,
+            "undecided_nv": 0,
             "noninteractive": True,
             "pr_mode": False,
             "range_mode": False,
