@@ -1,0 +1,40 @@
+# Provenance — reach-new-2.patch
+
+diff_id: reach-new-2
+role: reach-new (development rehearsal — demonstrated new exposure; never release evidence)
+source_repo: ~/seedsyncarr
+feature_sha: 093cd18948f39d4c3a9a5e746e20abd84888aafd
+base_sha: a6a0c6db7380ca0bf2af0805f6f74f44be947431
+commit_subject: feat(62-02): use innerHTML for notification bell text binding
+commit_date: 2026-04-14
+touched_paths: src/angular/src/app/pages/main/notification-bell.component.html
+
+## What the patch is
+The byte-exact forward diff `git diff a6a0c6d 093cd18 -- <touched_paths>` (the
+whole commit; one line in one template). It switches the notification text
+binding from Angular text interpolation to an `[innerHTML]` property binding.
+
+## Real-commit lock (run 2026-10-14)
+`git -C ~/seedsyncarr cat-file -t 093cd18948f39d4c3a9a5e746e20abd84888aafd` → commit
+`git -C ~/seedsyncarr rev-parse 093cd18948f39d4c3a9a5e746e20abd84888aafd^` → a6a0c6db7380ca0bf2af0805f6f74f44be947431 (= base_sha)
+`git -C ~/seedsyncarr diff a6a0c6d 093cd18 -- src/angular/src/app/pages/main/notification-bell.component.html | cmp - reach-new-2.patch` → identical (exit 0)
+
+## B3 exclusion
+feature_sha and base_sha appear in no `docs/design/b3-ground-truth/diffs/*.provenance`.
+
+## Full-worktree proof pair
+Detached linked worktree at base_sha, `git apply --check` exit 0, patch applied,
+FULL `git diff` (no pathspec) piped to `shasum -a 256`:
+EXPECTED_TREE_DIFF_SHA256: 11414a59b3ec753fb6a1f66485e920731f09856b53af82dfe4331427c050ae3a
+EXPECTED_TOUCHED_PATHS: src/angular/src/app/pages/main/notification-bell.component.html
+untracked_after_apply: 0
+
+## PURE-M gate
+name-status:
+M	src/angular/src/app/pages/main/notification-bell.component.html
+
+## Security gate
+literal_secret_scan: `grep -oE '[A-Za-z0-9_-]{20,}'` on the patch → no hits.
+
+## Size
++1/-1, one template file.

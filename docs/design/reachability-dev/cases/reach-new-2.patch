@@ -1,0 +1,13 @@
+diff --git a/src/angular/src/app/pages/main/notification-bell.component.html b/src/angular/src/app/pages/main/notification-bell.component.html
+index 44b14a5..2f6f22f 100644
+--- a/src/angular/src/app/pages/main/notification-bell.component.html
++++ b/src/angular/src/app/pages/main/notification-bell.component.html
+@@ -25,7 +25,7 @@
+                   @default { <i class="fa fa-info-circle"></i> }
+                 }
+               </span>
+-              <span class="bell-notif-text">{{ notif.text }}</span>
++              <span class="bell-notif-text" [innerHTML]="notif.text"></span>
+               @if (notif.dismissible) {
+                 <button class="bell-notif-dismiss" (click)="dismissNotification(notif)" aria-label="Dismiss">
+                   <i class="fa fa-times"></i>

@@ -1,0 +1,43 @@
+# Provenance — reach-unchanged-1.patch
+
+diff_id: reach-unchanged-1
+role: reach-unchanged (development rehearsal — demonstrated unchanged exposure; never release evidence)
+source_repo: ~/roonseek
+feature_sha: 79031dc5a4a718829e2aeb1298c28e85c30eeb2d
+base_sha: 754b2f1c4891b3438be5b2208fc6b0b3eb8235bc
+commit_subject: refactor(29-followup): split filter-overrides handler into POST/PUT
+commit_date: 2026-05-18
+touched_paths: src/roonseek/web/_filter_overrides.py src/roonseek/web/library.py
+
+## What the patch is
+The byte-exact forward diff `git diff 754b2f1 79031dc -- <touched_paths>` (the
+whole commit). It splits one dual-method POST/PUT handler into two route
+handlers sharing three extracted helpers, and removes a now-unused
+`parse_optional_int` helper. It does not change routes, auth, or validation.
+
+## Real-commit lock (run 2026-10-14)
+`git -C ~/roonseek cat-file -t 79031dc5a4a718829e2aeb1298c28e85c30eeb2d` → commit
+`git -C ~/roonseek rev-parse 79031dc5a4a718829e2aeb1298c28e85c30eeb2d^` → 754b2f1c4891b3438be5b2208fc6b0b3eb8235bc (= base_sha)
+`git -C ~/roonseek diff 754b2f1 79031dc -- src/roonseek/web/_filter_overrides.py src/roonseek/web/library.py | cmp - reach-unchanged-1.patch` → identical (exit 0)
+
+## B3 exclusion
+feature_sha and base_sha appear in no `docs/design/b3-ground-truth/diffs/*.provenance`.
+
+## Full-worktree proof pair
+Detached linked worktree at base_sha, `git apply --check` exit 0, patch applied,
+FULL `git diff` (no pathspec) piped to `shasum -a 256`:
+EXPECTED_TREE_DIFF_SHA256: 59d97aabec54625bf57655554e9ead1036c24aa34d613d7ae13080f5e839a6df
+EXPECTED_TOUCHED_PATHS: src/roonseek/web/_filter_overrides.py src/roonseek/web/library.py
+untracked_after_apply: 0
+
+## PURE-M gate
+name-status:
+M	src/roonseek/web/_filter_overrides.py
+M	src/roonseek/web/library.py
+
+## Security gate
+literal_secret_scan: `grep -oE '[A-Za-z0-9_-]{20,}'` on the patch → only Python
+  identifiers; no secret-shaped token.
+
+## Size
++120/-75 across two product files (one route module, one helper module).

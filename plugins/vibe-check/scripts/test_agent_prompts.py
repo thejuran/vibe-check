@@ -73,6 +73,16 @@ DIFFS_DIR = os.path.join(REPO_ROOT, "docs", "design", "b3-ground-truth", "diffs"
 # their identifiers must stay out of the prompts exactly like B3's.
 DEV_CASES_DIR = os.path.join(REPO_ROOT, "docs", "design", "reachability-dev", "cases")
 
+# Generic platform names the dev-case patches happen to contain. Same rules as
+# GENERIC_API: every entry needs a reason and must still appear in the raw
+# dev-case extraction (TestDevCaseLeakScanner.test_dev_allowlist_is_live).
+DEV_GENERIC_API = {
+    "innerHTML": "DOM property; the security and framework prompts name it as "
+                 "the generic HTML-injection sink",
+    "run_in_executor": "asyncio event-loop API; framework-fastapi.md names it as "
+                       "the generic way to offload blocking calls",
+}
+
 LOUD = ("bugs", "security", "impact")
 
 SENTINELS = {"validate_url_ssrf", "sanitize_log_value", "safe_float",
@@ -158,7 +168,8 @@ def b3_identifiers(diffs_dir):
 
 def all_case_identifiers():
     """Identifiers from the B3 diffs AND the development rehearsal cases."""
-    return b3_identifiers(DIFFS_DIR) | b3_identifiers(DEV_CASES_DIR)
+    return b3_identifiers(DIFFS_DIR) | (
+        b3_identifiers(DEV_CASES_DIR) - set(DEV_GENERIC_API))
 
 
 # Any B3 case id: the numbered should-quiet/should-catch forms plus every named
@@ -962,7 +973,8 @@ class TestDevCaseLeakScanner(unittest.TestCase):
 
     def test_all_case_identifiers_unions_both_sources(self):
         self.assertTrue(b3_identifiers(DIFFS_DIR) <= all_case_identifiers())
-        self.assertTrue(b3_identifiers(DEV_CASES_DIR) <= all_case_identifiers())
+        self.assertTrue(b3_identifiers(DEV_CASES_DIR) - set(DEV_GENERIC_API)
+                        <= all_case_identifiers())
 
     def test_planted_quiet_case_id_trips(self):
         planted = self.bugs + "\nAs seen in should-quiet-6, skip it.\n"
@@ -1007,6 +1019,21 @@ class TestDevCaseLeakScanner(unittest.TestCase):
             self.assertIn("plantedrepo", wired)
         finally:
             shutil.rmtree(tmp)
+
+    def test_dev_allowlist_is_live(self):
+        raw = _raw_b3_identifiers(DEV_CASES_DIR)
+        for name, reason in DEV_GENERIC_API.items():
+            self.assertIn(name, raw, f"stale DEV_GENERIC_API entry: {name}")
+            self.assertTrue(reason.strip(), f"unexplained DEV_GENERIC_API entry: {name}")
+            self.assertNotIn(name, all_case_identifiers())
+
+    def test_dev_case_identifier_trips_on_real_dir(self):
+        ids = all_case_identifiers()
+        dev = b3_identifiers(DEV_CASES_DIR) - set(DEV_GENERIC_API)
+        self.assertTrue(dev, "dev-case directory yields no identifiers")
+        token = sorted(t for t in dev if "/" not in t)[0]
+        self.assertEqual(case_id_leaks(self.bugs), [])
+        self.assertIn(token, leaks(self.bugs + "\nuse " + token + " here\n", ids))
 
     def test_missing_or_empty_dev_dir_is_harmless(self):
         tmp = tempfile.mkdtemp()

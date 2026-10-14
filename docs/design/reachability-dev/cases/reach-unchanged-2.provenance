@@ -1,0 +1,42 @@
+# Provenance — reach-unchanged-2.patch
+
+diff_id: reach-unchanged-2
+role: reach-unchanged (development rehearsal — demonstrated unchanged exposure; never release evidence)
+source_repo: ~/seedsyncarr
+feature_sha: 43ee518610e1a0727534ef6d933ad8ecdc620a57
+base_sha: b853a18ddfb157d3c1d8541bd700a3f24a47cd7a
+commit_subject: feat(108-02): extract _dispatch_command helper; thin five single-action handlers
+commit_date: 2026-06-01
+touched_paths: src/python/web/handler/controller.py
+
+## What the patch is
+The byte-exact forward diff `git diff b853a18 43ee518 -- <touched_paths>` (the
+whole commit). Five near-identical single-action command handlers collapse into
+one shared dispatch helper. The routes and the per-action path-guard choice
+stay as they were.
+
+## Real-commit lock (run 2026-10-14)
+`git -C ~/seedsyncarr cat-file -t 43ee518610e1a0727534ef6d933ad8ecdc620a57` → commit
+`git -C ~/seedsyncarr rev-parse 43ee518610e1a0727534ef6d933ad8ecdc620a57^` → b853a18ddfb157d3c1d8541bd700a3f24a47cd7a (= base_sha)
+`git -C ~/seedsyncarr diff b853a18 43ee518 -- src/python/web/handler/controller.py | cmp - reach-unchanged-2.patch` → identical (exit 0)
+
+## B3 exclusion
+feature_sha and base_sha appear in no `docs/design/b3-ground-truth/diffs/*.provenance`.
+
+## Full-worktree proof pair
+Detached linked worktree at base_sha, `git apply --check` exit 0, patch applied,
+FULL `git diff` (no pathspec) piped to `shasum -a 256`:
+EXPECTED_TREE_DIFF_SHA256: 16304c0a9a0ab90af1313b4fb56b5176525b19fabf146b2c8b2d47c3441dee0c
+EXPECTED_TOUCHED_PATHS: src/python/web/handler/controller.py
+untracked_after_apply: 0
+
+## PURE-M gate
+name-status:
+M	src/python/web/handler/controller.py
+
+## Security gate
+literal_secret_scan: `grep -oE '[A-Za-z0-9_-]{20,}'` on the patch → only Python
+  identifiers; no secret-shaped token.
+
+## Size
++41/-78, one product file.

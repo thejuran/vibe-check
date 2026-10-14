@@ -52,7 +52,33 @@ never appear in agent prompts or templates, exactly like the B3 cases.
 
 ## Case index
 
-(filled when the batch is mined)
+Mined 2026-10-14 from the B3 source repos only (no other development repo has
+been approved).
+
+| id | shape | repo | feature_sha | base_sha | commit_subject | expected |
+|----|-------|------|-------------|----------|----------------|----------|
+| reach-new-1 | new exposure | ~/triggarr | 050c9c968e48f7e80b2ad3c74ecf9565a804bcfc | 345eaaad08d592376897c3d9a5c33ca173fdbbf8 | feat(72-02): implement reset_request_page, reset_request_post, _write_reset_token_file | finding: the reset token reaches the in-app log viewer |
+| reach-new-2 | new exposure | ~/seedsyncarr | 093cd18948f39d4c3a9a5e746e20abd84888aafd | a6a0c6db7380ca0bf2af0805f6f74f44be947431 | feat(62-02): use innerHTML for notification bell text binding | finding: server- and remote-influenced notification text is rendered as HTML |
+| reach-unchanged-1 | unchanged | ~/roonseek | 79031dc5a4a718829e2aeb1298c28e85c30eeb2d | 754b2f1c4891b3438be5b2208fc6b0b3eb8235bc | refactor(29-followup): split filter-overrides handler into POST/PUT | quiet |
+| reach-unchanged-2 | unchanged | ~/seedsyncarr | 43ee518610e1a0727534ef6d933ad8ecdc620a57 | b853a18ddfb157d3c1d8541bd700a3f24a47cd7a | feat(108-02): extract _dispatch_command helper; thin five single-action handlers | quiet |
+
+### Real-commit lock (outputs recorded 2026-10-14)
+
+For every case: `git -C <repo> cat-file -t <feature_sha>` printed `commit`;
+`git -C <repo> rev-parse <feature_sha>^` printed exactly `base_sha`; and
+`git -C <repo> diff <base_sha> <feature_sha> -- <touched_paths> | cmp - cases/<id>.patch`
+exited 0 (byte-identical).
+
+| id | cat-file -t | rev-parse feature^ | diff vs patch |
+|----|-------------|--------------------|---------------|
+| reach-new-1 | commit | 345eaaad08d592376897c3d9a5c33ca173fdbbf8 | identical |
+| reach-new-2 | commit | a6a0c6db7380ca0bf2af0805f6f74f44be947431 | identical |
+| reach-unchanged-1 | commit | 754b2f1c4891b3438be5b2208fc6b0b3eb8235bc | identical |
+| reach-unchanged-2 | commit | b853a18ddfb157d3c1d8541bd700a3f24a47cd7a | identical |
+
+Each patch is the whole commit (every file the commit touches is a product file
+with status M). Each one passes `git apply --check` on a detached worktree at
+`base_sha`. No `feature_sha` or `base_sha` here appears in any B3 provenance file.
 
 ## Approval record
 

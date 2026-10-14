@@ -1,0 +1,44 @@
+# Provenance — reach-new-1.patch
+
+diff_id: reach-new-1
+role: reach-new (development rehearsal — demonstrated new exposure; never release evidence)
+source_repo: ~/triggarr
+feature_sha: 050c9c968e48f7e80b2ad3c74ecf9565a804bcfc
+base_sha: 345eaaad08d592376897c3d9a5c33ca173fdbbf8
+commit_subject: feat(72-02): implement reset_request_page, reset_request_post, _write_reset_token_file
+commit_date: 2026-06-03
+touched_paths: triggarr/web/routes.py
+
+## What the patch is
+The byte-exact forward diff `git diff 345eaaa 050c9c9 -- triggarr/web/routes.py`
+(the whole commit; it touches only this file). It adds the unauthenticated
+password-reset request flow, which mints a reset token and logs it at WARNING.
+The existing, unchanged logging pipeline copies every WARNING into the in-app
+log buffer that authenticated web pages render.
+
+## Real-commit lock (run 2026-10-14)
+`git -C ~/triggarr cat-file -t 050c9c968e48f7e80b2ad3c74ecf9565a804bcfc` → commit
+`git -C ~/triggarr rev-parse 050c9c968e48f7e80b2ad3c74ecf9565a804bcfc^` → 345eaaad08d592376897c3d9a5c33ca173fdbbf8 (= base_sha)
+`git -C ~/triggarr diff 345eaaa 050c9c9 -- triggarr/web/routes.py | cmp - reach-new-1.patch` → identical (exit 0)
+
+## B3 exclusion
+feature_sha and base_sha appear in no `docs/design/b3-ground-truth/diffs/*.provenance`.
+
+## Full-worktree proof pair
+Detached linked worktree at base_sha, `git apply --check` exit 0, patch applied,
+FULL `git diff` (no pathspec) piped to `shasum -a 256`:
+EXPECTED_TREE_DIFF_SHA256: 44be366944412aedf5498dd2891d7aab5372b56a2d75a0e428617150f682addb
+EXPECTED_TOUCHED_PATHS: triggarr/web/routes.py
+untracked_after_apply: 0
+
+## PURE-M gate
+name-status:
+M	triggarr/web/routes.py
+
+## Security gate
+literal_secret_scan: `grep -oE '[A-Za-z0-9_-]{20,}'` on the patch → only Python
+  identifiers, a comment rule line of dashes and a hyphenated comment phrase; no
+  secret-shaped token.
+
+## Size
++167 insertions, one product file.
