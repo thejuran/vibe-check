@@ -677,5 +677,256 @@ class TestMethodRecordOrdering(unittest.TestCase):
         self.assertGreater(checked, 0, "no candidate replay report exists -- vacuous")
 
 
+# --------------------------------------------------------------------------
+# Complete-output diff (byte-identity evidence)
+# --------------------------------------------------------------------------
+
+# Each mutant is score.py with ONE anchored substitution; the test asserts the
+# substitution changed the text, so a moved anchor fails instead of passing vacuously.
+_MUTANTS = {
+    "score": ("    return max(0, min(100, pre_clamp))\n",
+              "    return max(0, min(100, pre_clamp)) + 1\n"),
+    # Moves rows across band floors so whole findings (and their titles) appear
+    # and disappear: the title-digest rule then has real title paths to guard.
+    "drop": ("    return max(0, min(100, pre_clamp))\n",
+             "    return max(0, min(100, pre_clamp - 40))\n"),
+    "key": ("    return _sanitize_nonfinite(out)\n",
+            "    out[\"probe\"] = 1\n    return _sanitize_nonfinite(out)\n"),
+    # Member records carry no orchestrator_score (_MEMBER_EXCLUDED_KEYS), so the
+    # member-only mutant shifts each member record's own line in the group loop.
+    "member": ("carried_obligations[id(m)][\"obligation\"], m, pass_number)\n"
+               "            members.append(ref)\n",
+               "carried_obligations[id(m)][\"obligation\"], m, pass_number)\n"
+               "            ref[\"line\"] = (ref[\"line\"] or 0) + 1\n"
+               "            members.append(ref)\n"),
+    "status": ("            survivor[\"status\"] = \"new\"\n",
+               "            survivor[\"status\"] = \"persisted\"\n"),
+    "value": ("        \"scored_by_script\": True,\n",
+              "        \"scored_by_script\": 1,\n"),
+}
+
+
+def _header_value(text, label):
+    m = re.search(r"^- %s: (.*)$" % re.escape(label), text, re.MULTILINE)
+    if m is None:
+        raise AssertionError("report header has no %r line" % label)
+    return m.group(1)
+
+
+def _section_tables(text):
+    """{heading: (before rows, after rows)} for every per-run section of a diff report."""
+    out = {}
+    for chunk in text.split("\n## ")[1:]:
+        lines = chunk.splitlines()
+        heading, current, tables = lines[0], None, {"before": [], "after": []}
+        for ln in lines[1:]:
+            if ln in ("before", "after"):
+                current = ln
+            elif current and ln.startswith("| ") and not ln.startswith("| agent |"):
+                tables[current].append(ln)
+        out[heading] = (tables["before"], tables["after"])
+    return out
+
+
+class TestDiffMode(_TmpDirCase):
+
+    def _mutant(self, kind):
+        with open(os.path.join(REPO_ROOT, replay.SCORE_REL), encoding="utf-8") as fh:
+            original = fh.read()
+        old, new = _MUTANTS[kind]
+        self.assertEqual(original.count(old), 1, "mutation anchor moved: " + kind)
+        text = original.replace(old, new)
+        self.assertNotEqual(text, original)
+        path = os.path.join(HERE, "_score_mutant_%s_%d.py" % (kind, os.getpid()))
+        self.addCleanup(lambda: os.path.exists(path) and os.remove(path))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return "path:" + path
+
+    def _diff(self, cand, roots="manifest", allow=None, name="d.md"):
+        out = os.path.join(self.tmp, name)
+        rc = replay._cmd_diff("rev:HEAD", cand, out, roots, allow)
+        return rc, self._read(out), out
+
+    def _assert_rows_identical(self, text):
+        tables = _section_tables(text)
+        self.assertGreater(len(tables), 0)
+        self.assertGreater(sum(len(b) for b, _a in tables.values()), 0,
+                           "no rows in any differing run -- row comparison is vacuous")
+        for heading, (before, after) in tables.items():
+            self.assertEqual(before, after, "row projection moved in " + heading)
+
+    def _sidecar(self, out):
+        with open(out + ".changes.json", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _write_allow(self, data, name="allow.json"):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        return path
+
+    def test_identical_specs_exit_zero(self):
+        rc, text, _out = self._diff("rev:HEAD")
+        self.assertEqual(rc, 0)
+        self.assertEqual(_header_value(text, "runs differing"), "0")
+        self.assertEqual(_header_value(text, "runs with unallowed differences"), "0")
+        self.assertEqual(int(_header_value(text, "runs compared")), replay.EXPECTED_SCOREABLE)
+
+    def test_planted_score_mutation_exits_one_with_row_diff(self):
+        rc, text, _out = self._diff(self._mutant("score"))
+        self.assertEqual(rc, 1)
+        self.assertGreater(int(_header_value(text, "runs with unallowed differences")), 0)
+        self.assertRegex(text, r"(?m)^- UNALLOWED findings\[[^\]]+\]\.orchestrator_score: ")
+        tables = _section_tables(text)
+        self.assertTrue(any(b != a for b, a in tables.values()),
+                        "a score mutation must move the row projection")
+
+    def test_key_only_mutation_is_reported(self):
+        rc, text, _out = self._diff(self._mutant("key"))
+        self.assertEqual(rc, 1)
+        self.assertIn("UNALLOWED probe: (absent) -> 1", text)
+        self.assertEqual(int(_header_value(text, "runs differing")), replay.EXPECTED_SCOREABLE)
+        self._assert_rows_identical(text)
+
+    def test_member_only_mutation_exits_one(self):
+        rc, text, _out = self._diff(self._mutant("member"), roots="all")
+        self.assertEqual(rc, 1)
+        # --roots all must really walk every archive root, not the manifest three.
+        self.assertEqual(int(_header_value(text, "runs compared")),
+                         len(replay.iter_runs(roots=replay.DIFF_ROOTS)))
+        self.assertRegex(text, r"(?m)^## runs-v2\.1[01]-phase(41|43|49)/")
+        self.assertGreater(int(_header_value(text, "runs differing")), 0,
+                           "member mutant changed nothing -- test would be vacuous")
+        self.assertRegex(text, r"(?m)^- UNALLOWED findings\[[^\]]+\]\.members\[\d+\]\.line: ")
+        self.assertNotRegex(text, r"(?m)^- (UNALLOWED )?findings\[[^\]]+\]\.(line|band|"
+                                  r"orchestrator_score|file|agent): ")
+        self._assert_rows_identical(text)
+
+    def test_status_only_mutation_exits_one(self):
+        rc, text, _out = self._diff(self._mutant("status"))
+        self.assertEqual(rc, 1)
+        self.assertRegex(text, r"(?m)^- UNALLOWED findings\[[^\]]+\]\.status: new -> persisted$")
+        self._assert_rows_identical(text)
+
+    def test_existing_key_value_mutation_exits_one(self):
+        rc, text, _out = self._diff(self._mutant("value"))
+        self.assertEqual(rc, 1)
+        self.assertIn("UNALLOWED scored_by_script: True -> 1", text)
+
+    def test_sidecar_allowance_round_trip(self):
+        cand = self._mutant("score")
+        rc, _text, out = self._diff(cand)
+        self.assertEqual(rc, 1)
+        rc2, text2, _out2 = self._diff(cand, allow=out + ".changes.json", name="d2.md")
+        self.assertEqual(rc2, 0)
+        self.assertEqual(_header_value(text2, "runs with unallowed differences"), "0")
+        self.assertEqual(_header_value(text2, "allowances unused"), "0")
+        self.assertGreater(int(_header_value(text2, "runs differing")), 0)
+        self.assertEqual(_header_value(text2, "runs differing (allowed)"),
+                         _header_value(text2, "runs differing"))
+        self.assertNotIn("UNALLOWED", text2)
+
+    def _int_entry(self, data, field):
+        for i, e in enumerate(data["allow"]):
+            if e["path"].endswith(".orchestrator_score") and isinstance(e[field], int):
+                return i
+        raise AssertionError("no int orchestrator_score entry in the sidecar")
+
+    def test_tampered_allowance_fails(self):
+        cand = self._mutant("score")
+        _rc, _t, out = self._diff(cand)
+        data = self._sidecar(out)
+        i = self._int_entry(data, "after")
+        data["allow"][i]["after"] += 1
+        run_path = data["allow"][i]["run"]
+        rc, text, _o = self._diff(cand, allow=self._write_allow(data), name="d2.md")
+        self.assertEqual(rc, 1)
+        self.assertEqual(_header_value(text, "runs with unallowed differences"), "1")
+        self.assertEqual(_header_value(text, "allowances unused"), "1")
+        section = text.split("\n## " + run_path + "\n", 1)[1].split("\n## ", 1)[0]
+        self.assertEqual(section.count("UNALLOWED "), 1)
+
+    def test_partial_allowance_fails(self):
+        cand = self._mutant("score")
+        _rc, _t, out = self._diff(cand)
+        data = self._sidecar(out)
+        del data["allow"][0]
+        rc, text, _o = self._diff(cand, allow=self._write_allow(data), name="d2.md")
+        self.assertEqual(rc, 1)
+        self.assertEqual(_header_value(text, "runs with unallowed differences"), "1")
+        self.assertEqual(_header_value(text, "allowances unused"), "0")
+
+    def test_allowance_requires_exact_before(self):
+        cand = self._mutant("score")
+        _rc, _t, out = self._diff(cand)
+        data = self._sidecar(out)
+        i = self._int_entry(data, "before")
+        data["allow"][i]["before"] += 1
+        rc, text, _o = self._diff(cand, allow=self._write_allow(data), name="d2.md")
+        self.assertEqual(rc, 1)
+        self.assertEqual(_header_value(text, "allowances unused"), "1")
+
+    def test_allowance_for_another_run_does_not_apply(self):
+        cand = self._mutant("score")
+        _rc, _t, out = self._diff(cand)
+        data = self._sidecar(out)
+        data["allow"][0]["run"] = "runs/not-a-run/run-1"
+        rc, text, _o = self._diff(cand, allow=self._write_allow(data), name="d2.md")
+        self.assertEqual(rc, 1)
+        self.assertEqual(_header_value(text, "allowances unused"), "1")
+
+    def test_unflattenable_difference_is_named_canonical(self):
+        # A dotted key and a nested key flatten to the same path with the same
+        # value; only the canonical-JSON ground truth can see the difference.
+        a = {"scored_by_script": True, "findings": [], "x": {"b.c": 1}}
+        b = {"scored_by_script": True, "findings": [], "x": {"b": {"c": 1}}}
+        self.assertEqual(replay._flatten_output(a), replay._flatten_output(b))
+        changes = replay._changes(a, b)
+        self.assertEqual([c["path"] for c in changes], ["__canonical__"])
+        self.assertTrue(all(str(c[k]).startswith("sha256:") for c in changes
+                            for k in ("before", "after")))
+        self.assertEqual(replay._changes(a, json.loads(json.dumps(a))), [])
+
+    def test_malformed_allowance_is_replay_error(self):
+        path = self._write_allow({"allow": [{"run": "r", "path": "p", "before": 1}]})
+        with self.assertRaises(replay.ReplayError):
+            replay._load_allowances(path)
+        extra = self._write_allow({"allow": [{"run": "r", "path": "p", "before": 1,
+                                              "after": 2, "glob": "*"}]}, "extra.json")
+        with self.assertRaises(replay.ReplayError):
+            replay._load_allowances(extra)
+        rc = replay.run(["diff", "--base", "rev:HEAD", "--scorer", "rev:HEAD",
+                         "--out", os.path.join(self.tmp, "x.md"), "--roots", "manifest",
+                         "--allow", path])
+        self.assertEqual(rc, 2)
+
+    def test_all_roots_scans_more_runs_than_manifest(self):
+        all_runs = replay.iter_runs(roots=replay.DIFF_ROOTS)
+        self.assertGreater(len(all_runs), replay.EXPECTED_SCOREABLE)
+        self.assertEqual(len(replay.iter_runs()), replay.EXPECTED_SCOREABLE)
+        prefixes = {r["rel_path"].split("/", 1)[0] for r in all_runs}
+        for root in ("runs-v2.10-phase41", "runs-v2.10-phase43", "runs-v2.11-phase49"):
+            self.assertIn(root, prefixes)
+
+    def test_report_and_sidecar_have_no_titles(self):
+        rc, text, out = self._diff(self._mutant("drop"), roots="all")
+        self.assertEqual(rc, 1)
+        sidecar = self._read(out + ".changes.json")
+        self.assertIn(".title", sidecar, "no title path changed -- digest rule untested")
+        titles = set()
+        for run in replay.iter_runs(roots=replay.DIFF_ROOTS):
+            for p in run["state"].get("passes") or []:
+                for f in p.get("findings") or []:
+                    t = f.get("title") if isinstance(f, dict) else None
+                    if isinstance(t, str) and t.strip():
+                        titles.add(t)
+        self.assertGreater(len(titles), 0)
+        for blob in (text, sidecar):
+            self.assertNotIn('"title"', blob)
+            for t in titles:
+                self.assertNotIn(t, blob)
+
+
 if __name__ == "__main__":
     unittest.main()
