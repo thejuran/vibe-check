@@ -495,6 +495,85 @@ class TestMutants(unittest.TestCase):
         self.assertEqual(mutant, (None, REASON_TOKEN))
 
 
+NV_BANDS = ("critical", "needs-verification", "medium", "needs-verification",
+            "warning")
+NV_OPEN = "2 needs-verification undecided — still open; finalize stays blocked"
+
+
+def make_nv_rows():
+    return [
+        {"n": i + 1, "stable_hash": str(i + 1) * 64, "band": NV_BANDS[i],
+         "file": FILES[i], "line": LINES[i], "title": "t%d" % (i + 1)}
+        for i in range(5)
+    ]
+
+
+class TestNeedsVerification(unittest.TestCase):
+    """NV rows are decided only by number, for every verb (O-1, R10)."""
+
+    def test_fix_rest_and_fix_all_skip_nv(self):
+        for q1 in ("fix rest", "fix all", "Fix all"):
+            with self.subTest(q1=q1):
+                out = parse_answer(make_nv_rows(), q1, None)
+                self.assertEqual(out["fix"], h(1, 3, 5))
+                self.assertEqual(out["undecided"], h(2, 4))
+                self.assertIn(NV_OPEN, out["echo"])
+
+    def test_dismiss_and_defer_rest_reach_medium_only(self):
+        for q1 in ("dismiss rest -- noise", "dismiss all -- noise",
+                   "defer rest -- noise", "Defer all"):
+            with self.subTest(q1=q1):
+                out = parse_answer(make_nv_rows(), q1, "noise")
+                verb = "dismiss" if q1.lower().startswith("dismiss") else "defer"
+                self.assertEqual(out[verb], h(3))
+                self.assertIn(NV_OPEN, out["echo"])
+
+    def test_defer_by_number_records_each_row(self):
+        out = parse_answer(make_nv_rows(), "defer 2,4 -- wired in Phase 7", None)
+        self.assertEqual(out["defer"], h(2, 4))
+        self.assertEqual(out["reason"], "wired in Phase 7")
+        self.assertFalse(any("needs-verification undecided" in line
+                             for line in out["echo"]))
+
+    def test_fix_by_number_confirms(self):
+        out = parse_answer(make_nv_rows(), "fix 2", None)
+        self.assertEqual(out["fix"], h(2))
+        self.assertIn("1 needs-verification undecided — still open;"
+                      " finalize stays blocked", out["echo"])
+
+    def test_dismiss_by_number_needs_reason(self):
+        self.assertEqual(parse_answer(make_nv_rows(), "dismiss 2", None),
+                         (None, REASON_NO_REASON))
+
+    def test_rows_accept_nv_band_and_refuse_low(self):
+        self.assertTrue(parse_answer(make_nv_rows(), "fix 1", None)["ok"])
+        bad = make_nv_rows()
+        bad[1]["band"] = "low"
+        with self.assertRaises(ValueError):
+            parse_answer(bad, "fix 1", None)
+
+    def test_selection_by_label_reaches_nv(self):
+        out = parse_selection(make_nv_rows(), labels=["#2 app/b.py:7"])
+        self.assertEqual(out["hashes"], h(2))
+
+    def test_nv_exclusion_from_fix_rest_is_load_bearing(self):
+        real = parse_answer(make_nv_rows(), "fix rest", None)
+        self.assertNotIn(h(2)[0], real["fix"])
+        with mock.patch.object(batch_parse, "_rest_bands_for",
+                               lambda verb: batch_parse._BANDS):
+            mutant = parse_answer(make_nv_rows(), "fix rest", None)
+        self.assertIn(h(2)[0], mutant["fix"])
+        self.assertIn(h(4)[0], mutant["fix"])
+
+    def test_nv_echo_line_is_load_bearing(self):
+        real = parse_answer(make_nv_rows(), "fix rest", None)
+        self.assertIn(NV_OPEN, real["echo"])
+        with mock.patch.object(batch_parse, "_NV_BAND", "no-such-band"):
+            mutant = parse_answer(make_nv_rows(), "fix 1", None)
+        self.assertFalse(any("needs-verification undecided" in line
+                             for line in mutant["echo"]))
+
+
 class TestImportSet(unittest.TestCase):
     ALLOWED = {"re", "json"}
 
