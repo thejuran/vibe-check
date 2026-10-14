@@ -27,13 +27,25 @@ Evidence rules:
   run-1..3 scoreable and no other run may exist.
 * Archive content is parsed as JSON data only — never imported or executed.
 
-Output rule: `fp` and `aggregate` output carries agent / file / line / band /
-score / stable_hash only (rendered through `replay.finding_row`). Finding
-titles appear ONLY in `catch-candidates` output, which exists so the owner can
-make the AXIS call.
+Output rule: `fp`, `aggregate`, `dev-burden` and `dev-tally` output carries
+agent / file / line / band / score / stable_hash only (rendered through
+`replay.finding_row`). Finding titles appear ONLY in `catch-candidates` and
+`dev-catch-candidates` output (both read them through `catch_candidates`),
+which exist so the owner can make the AXIS call.
 
-Imports exactly {argparse, json, os, re, subprocess, sys} plus the sibling
-`replay`; every git call carries a 120-second timeout.
+Development rehearsal (never release evidence): `dev-burden` reports visible
+alarms (critical/warning) and Needs-verification items separately and fires on
+either; the archived guardrail's fire rule (`fp_verdict`) never counts
+Needs-verification rows.
+`dev-tally` aggregates per run with owner questions from `count_cards.py`;
+with `--require-fingerprint` every run whose `fingerprint.txt` is missing or
+names another build is listed as stale and the command exits 1. `fingerprint`
+prints a content hash over the runtime roots (`RUNTIME_ROOTS`).
+`dev-catch-candidates` lists alarm and Needs-verification rows at a
+development case's keyed site; it refuses every id in `DIFFS`.
+
+Imports exactly {argparse, hashlib, json, os, re, subprocess, sys} plus the
+sibling `replay`; every subprocess call carries a 120-second timeout.
 
     python3 score43.py ledger --runs-root R [--expected-diffs PATH]
     python3 score43.py fp --state PATH
@@ -49,6 +61,10 @@ Imports exactly {argparse, json, os, re, subprocess, sys} plus the sibling
     python3 score43.py retune-gate --repo DIR --s S --s2 S2 --failed-diffs PATH
         --last-first-commit SHA [--first-root R1 --retune-root R2] [--cohort failed|full]
     python3 score43.py headline-check [--profile phase43|phase49] --results PATH --verdict PATH
+    python3 score43.py dev-burden --state PATH
+    python3 score43.py dev-tally --runs-root R [--require-fingerprint HEX]
+    python3 score43.py fingerprint --root DIR
+    python3 score43.py dev-catch-candidates --state PATH --id ID --sites PATH
 
 Profiles (`PROFILES`): each names its pinned bar triple, the headline H1 and
 before-values the headline grammar is checked against, the aggregate labels it
@@ -72,6 +88,7 @@ Exit 0 clean / 1 gate failure / 2 usage error or unreadable input.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -316,6 +333,161 @@ def _site_entry(diff, manifest_path=None):
                          % len(entries))
     site, floor = entries.pop()
     return {"site": json.loads(site), "floor": floor}
+
+
+# --------------------------------------------------------------------------- #
+# Development rehearsal: burden, tally, runtime fingerprint, dev catch sites
+# --------------------------------------------------------------------------- #
+
+NV_BAND = "needs-verification"  # mirrors score.py; never folded into the guardrail fire rule
+ALARM_BANDS = ("critical", "warning")
+DEV_FLOORS = ("critical", "warning", "medium")
+DEV_RUN_RE = re.compile(r"^run-([0-9]+)$")
+RUNTIME_ROOTS = (".claude-plugin", "agents", "commands", "scripts", "templates",
+                 "hooks", "phases")
+FINGERPRINT_EXCLUDED_DIRS = ("__pycache__", ".pytest_cache")
+FINGERPRINT_EXCLUDED_NAMES = (".in_use",)
+COUNT_CARDS_PY = os.path.join(HERE, "count_cards.py")
+
+
+def _projection(f):
+    return {"agent": f.get("agent"), "file": f.get("file"), "line": f.get("line"),
+            "band": f.get("band"), "score": f.get("orchestrator_score"),
+            "stable_hash": f.get("stable_hash")}
+
+
+def dev_burden(state):
+    """R13 burden for one development run: visible alarms (critical/warning)
+    and Needs-verification items counted separately; the run fired iff either
+    is non-zero. `fp_verdict` (the archived guardrail) is not consulted."""
+    findings = _findings(state)
+    alarm_rows = [_projection(f) for f in findings if f.get("band") in ALARM_BANDS]
+    nv_rows = [_projection(f) for f in findings if f.get("band") == NV_BAND]
+    return {"alarms": len(alarm_rows), "nv_items": len(nv_rows),
+            "fired": bool(alarm_rows or nv_rows),
+            "alarm_rows": alarm_rows, "nv_rows": nv_rows}
+
+
+def runtime_fingerprint(root):
+    """sha256 over the sorted lines `<relpath>\\0<sha256 of bytes>\\n` for every
+    file under the runtime roots of `root`, minus caches and the `.in_use`
+    marker. Content-only: mtimes and the location of `root` do not enter it."""
+    lines = []
+    for top in RUNTIME_ROOTS:
+        base = os.path.join(root, top)
+        if not os.path.isdir(base):
+            continue
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = sorted(d for d in dirnames if d not in FINGERPRINT_EXCLUDED_DIRS)
+            for name in filenames:
+                if name.endswith(".pyc") or name in FINGERPRINT_EXCLUDED_NAMES:
+                    continue
+                path = os.path.join(dirpath, name)
+                if not os.path.isfile(path):
+                    continue
+                rel = os.path.relpath(path, root).replace(os.sep, "/")
+                h = hashlib.sha256()
+                with open(path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(65536), b""):
+                        h.update(chunk)
+                lines.append("%s\0%s\n" % (rel, h.hexdigest()))
+    return hashlib.sha256("".join(sorted(lines)).encode("utf-8")).hexdigest()
+
+
+def _run_fingerprint(run_dir):
+    path = os.path.join(run_dir, "fingerprint.txt")
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if line.startswith("runtime_fingerprint:"):
+                return line.split(":", 1)[1].strip().lower() or None
+    return None
+
+
+def dev_tally(runs_root, cards_for_run, require_fingerprint=None):
+    """Per-run burden over <runs_root>/<case>/run-<n>/state.json for ANY case
+    name, plus totals. `cards_for_run(run_dir)` returns the owner-question
+    count or None. With `require_fingerprint`, a run whose fingerprint.txt is
+    missing or names another build is listed under `stale` and left out of the
+    totals."""
+    want = require_fingerprint.strip().lower() if require_fingerprint else None
+    runs, missing, stale, seen_fp = [], [], [], set()
+    for case in sorted(os.listdir(runs_root)):
+        cdir = os.path.join(runs_root, case)
+        if not os.path.isdir(cdir):
+            continue
+        numbered = []
+        for name in os.listdir(cdir):
+            m = DEV_RUN_RE.match(name)
+            if m and os.path.isdir(os.path.join(cdir, name)):
+                numbered.append((int(m.group(1)), name))
+        for n, name in sorted(numbered):
+            rdir = os.path.join(cdir, name)
+            key = "%s/%s" % (case, name)
+            fp = _run_fingerprint(rdir)
+            if fp:
+                seen_fp.add(fp)
+            if not os.path.isfile(os.path.join(rdir, "state.json")):
+                missing.append(key)
+                continue
+            if want is not None and fp != want:
+                stale.append(key)
+                continue
+            b = dev_burden(_read_json(os.path.join(rdir, "state.json")))
+            runs.append({"case": case, "run": n, "alarms": b["alarms"],
+                         "nv_items": b["nv_items"], "fired": b["fired"],
+                         "cards": cards_for_run(rdir)})
+    totals = {"runs": len(runs), "fired_runs": sum(1 for r in runs if r["fired"]),
+              "alarms": sum(r["alarms"] for r in runs),
+              "nv_items": sum(r["nv_items"] for r in runs),
+              "cards": sum(r["cards"] for r in runs if r["cards"] is not None),
+              "cards_unavailable": sum(1 for r in runs if r["cards"] is None),
+              "fingerprints": sorted(seen_fp)}
+    return {"runs": runs, "missing": missing, "stale": stale, "totals": totals}
+
+
+def load_dev_sites(path):
+    """The development catch-site file's `catch_cases`. Refused as a whole when
+    malformed or when any key is a sealed B3 diff (no second answer key)."""
+    data = _read_json(path)
+    cases = data.get("catch_cases") if isinstance(data, dict) else None
+    if not isinstance(cases, dict) or not cases:
+        raise ScoreError("dev sites: no catch_cases object")
+    sealed = sorted(k for k in cases if k in DIFFS)
+    if sealed:
+        raise ScoreError("dev sites: sealed B3 id refused: %s" % ", ".join(sealed))
+    for case_id, e in cases.items():
+        site = e.get("site") if isinstance(e, dict) else None
+        if (not isinstance(site, dict) or not isinstance(site.get("file"), str)
+                or not site.get("file") or not isinstance(site.get("lines"), list)
+                or not site.get("lines")):
+            raise ScoreError("dev sites: %s has no usable site" % case_id)
+        for pair in site["lines"]:
+            if (not isinstance(pair, list) or len(pair) != 2
+                    or not all(isinstance(x, int) and not isinstance(x, bool) for x in pair)
+                    or pair[0] > pair[1]):
+                raise ScoreError("dev sites: %s has a malformed line range" % case_id)
+        if e.get("floor") not in DEV_FLOORS:
+            raise ScoreError("dev sites: %s floor is not one of %s"
+                             % (case_id, "/".join(DEV_FLOORS)))
+        if not isinstance(e.get("defect"), str) or not e["defect"].strip():
+            raise ScoreError("dev sites: %s has no keyed defect" % case_id)
+    return cases
+
+
+def dev_catch_candidates(state, entry):
+    """For a development new-exposure case: the band >= floor rows at the site
+    (from `catch_candidates`) followed by every Needs-verification row at the
+    site, each marked `nv`. NV rows rank below every floor, so they are listed
+    separately; both kinds earn credit only under the same AXIS standard
+    against `defect` (R13). Titles come from `catch_candidates` alone."""
+    site = entry.get("site")
+    alarm_like = [dict(r, nv=False) for r in catch_candidates(state, entry)
+                  if r["band"] != NV_BAND]
+    every_row = catch_candidates(state, {"site": site, "floor": None})
+    nv = [dict(r, nv=True) for r in every_row if r["band"] == NV_BAND]
+    return {"defect": entry.get("defect"), "rows": alarm_like + nv}
 
 
 # --------------------------------------------------------------------------- #
@@ -771,6 +943,108 @@ def _cmd_catch_candidates(state_path, diff, manifest_path):
     return 0
 
 
+def _cmd_dev_burden(state_path):
+    b = dev_burden(_read_json(state_path))
+    _emit(["alarms: %d" % b["alarms"],
+           "needs-verification items: %d" % b["nv_items"],
+           "fired: %s" % ("yes" if b["fired"] else "no"),
+           "alarm rows:"] + _render_rows(b["alarm_rows"])
+          + ["needs-verification rows:"] + _render_rows(b["nv_rows"]))
+    return 0
+
+
+def _sha_file_token(path):
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        tokens = fh.read().split()
+    return tokens[0].lower() if tokens else None
+
+
+def _file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _cards_for_run(run_dir):
+    """Owner questions for one run via `count_cards.py count`, or None when the
+    transcript is absent (transcripts are local-only) or does not match the
+    run's committed transcript.jsonl.sha256 before AND after the count."""
+    transcript = os.path.join(run_dir, "transcript.jsonl")
+    want = _sha_file_token(transcript + ".sha256")
+    if want is None or not os.path.isfile(transcript) or _file_sha256(transcript) != want:
+        return None
+    proc = subprocess.run([sys.executable, COUNT_CARDS_PY, "count", "--transcript", transcript],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          timeout=120)
+    if proc.returncode != 0 or _file_sha256(transcript) != want:
+        return None
+    m = re.search(r"^cards: ([0-9]+)$", proc.stdout, re.MULTILINE)
+    return int(m.group(1)) if m else None
+
+
+def _cmd_dev_tally(runs_root, require_fingerprint=None):
+    t = dev_tally(runs_root, _cards_for_run, require_fingerprint=require_fingerprint)
+    lines = ["label: development rehearsal - not release evidence"]
+    for r in t["runs"]:
+        lines.append("%s run-%d alarms=%d nv=%d fired=%s cards=%s" % (
+            r["case"], r["run"], r["alarms"], r["nv_items"], "yes" if r["fired"] else "no",
+            "unavailable" if r["cards"] is None else r["cards"]))
+    tot = t["totals"]
+    lines += ["runs: %d" % tot["runs"], "fired runs: %d" % tot["fired_runs"],
+              "alarms: %d" % tot["alarms"], "needs-verification items: %d" % tot["nv_items"],
+              "owner questions: %d (unavailable for %d runs)" % (tot["cards"],
+                                                                  tot["cards_unavailable"]),
+              "fingerprints seen: %s" % (", ".join(tot["fingerprints"]) or "none")]
+    if require_fingerprint:
+        lines.append("required fingerprint: %s" % require_fingerprint.strip().lower())
+    for key in t["missing"]:
+        lines.append("missing: %s" % key)
+    for key in t["stale"]:
+        lines.append("stale: %s" % key)
+    _emit(lines)
+    if require_fingerprint and (t["stale"] or t["missing"]):
+        sys.stderr.write("dev-tally: %d stale, %d missing under --require-fingerprint\n"
+                         % (len(t["stale"]), len(t["missing"])))
+        return 1
+    return 0
+
+
+def _cmd_fingerprint(root):
+    if not os.path.isdir(root):
+        raise ScoreError("fingerprint: not a directory")
+    print(runtime_fingerprint(root))
+    return 0
+
+
+def _cmd_dev_catch_candidates(state_path, case_id, sites_path):
+    if case_id in DIFFS:
+        raise ScoreError("dev-catch-candidates: not a development case")
+    cases = load_dev_sites(sites_path)
+    if case_id not in cases:
+        raise ScoreError("dev-catch-candidates: not a development case")
+    r = dev_catch_candidates(_read_json(state_path), cases[case_id])
+    print("keyed defect: %s" % _cell(r["defect"]))
+    print("label: development rehearsal - not release evidence")
+    print("| agent | file | line | band | score | stable_hash | nv | survivor title "
+          "| member titles | AXIS |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for row in r["rows"]:
+        members = "; ".join("%s: %s" % (agent, t) for agent, t in row["member_titles"])
+        h = row["stable_hash"]
+        print("| %s |" % " | ".join(_cell(v) for v in (
+            row["agent"], row["file"], row["line"], row["band"], row["score"],
+            h[:12] if isinstance(h, str) else h, "yes" if row["nv"] else "no",
+            row["survivor_title"], members, "")))
+    nv = sum(1 for row in r["rows"] if row["nv"])
+    print("candidates at site: %d (alarms %d, needs-verification %d)"
+          % (len(r["rows"]), len(r["rows"]) - nv, nv))
+    return 0
+
+
 def _cmd_codex_status(state_path):
     c = codex_status(_read_json(state_path))
     print("codex.status=%s reason=%s codex_findings=%d dropout=%s" % (
@@ -967,6 +1241,17 @@ def _parser():
     p.add_argument("--manifest", default=None)
     p = sub.add_parser("codex-status")
     p.add_argument("--state", required=True)
+    p = sub.add_parser("dev-burden")
+    p.add_argument("--state", required=True)
+    p = sub.add_parser("dev-tally")
+    p.add_argument("--runs-root", required=True)
+    p.add_argument("--require-fingerprint", default=None)
+    p = sub.add_parser("fingerprint")
+    p.add_argument("--root", required=True)
+    p = sub.add_parser("dev-catch-candidates")
+    p.add_argument("--state", required=True)
+    p.add_argument("--id", required=True)
+    p.add_argument("--sites", required=True)
     p = sub.add_parser("aggregate")
     p.add_argument("--runs-root", default=None)
     p.add_argument("--label", required=True,
@@ -1023,6 +1308,14 @@ def run(argv):
             return _cmd_catch_candidates(args.state, args.diff, args.manifest)
         if args.cmd == "codex-status":
             return _cmd_codex_status(args.state)
+        if args.cmd == "dev-burden":
+            return _cmd_dev_burden(args.state)
+        if args.cmd == "dev-tally":
+            return _cmd_dev_tally(args.runs_root, args.require_fingerprint)
+        if args.cmd == "fingerprint":
+            return _cmd_fingerprint(args.root)
+        if args.cmd == "dev-catch-candidates":
+            return _cmd_dev_catch_candidates(args.state, args.id, args.sites)
         if args.cmd == "aggregate":
             return _cmd_aggregate(args)
         if args.cmd == "failed-diffs":

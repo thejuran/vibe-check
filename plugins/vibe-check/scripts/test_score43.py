@@ -435,6 +435,40 @@ class TestDevTally(_TmpDirCase):
         self.assertIn("cards=unavailable", self.cli("dev-tally", "--runs-root", root)[1])
 
 
+    def _bound_run(self):
+        root = self.p("runs")
+        run_dir = write_dev_run(root, "reach-quiet-1", 1, [_row("medium")])
+        data = b'{"type": "assistant", "message": {"content": []}}\n'
+        transcript = os.path.join(run_dir, "transcript.jsonl")
+        with open(transcript, "wb") as fh:
+            fh.write(data)
+        import hashlib
+        with open(transcript + ".sha256", "w") as fh:
+            fh.write(hashlib.sha256(data).hexdigest() + "\n")
+        return run_dir, transcript
+
+    def test_unbound_transcript_is_never_counted(self):
+        run_dir, transcript = self._bound_run()
+        with open(transcript, "ab") as fh:
+            fh.write(b"\n")
+        with mock.patch.object(score43.subprocess, "run") as run:
+            self.assertIsNone(score43._cards_for_run(run_dir))
+        run.assert_not_called()
+
+    def test_transcript_swapped_during_count_is_refused(self):
+        run_dir, transcript = self._bound_run()
+        real_run = subprocess.run
+
+        def swap_then_count(argv, **kw):
+            proc = real_run(argv, **kw)
+            with open(transcript, "ab") as fh:
+                fh.write(b"\n")
+            return proc
+        with mock.patch.object(score43.subprocess, "run", side_effect=swap_then_count):
+            self.assertIsNone(score43._cards_for_run(run_dir))
+        self.assertEqual(score43._cards_for_run(run_dir), None)
+
+
 class TestDevCatchCandidates(_TmpDirCase):
 
     ENTRY = {"site": {"file": "a.py", "lines": [[10, 15]]}, "floor": "warning",
@@ -458,6 +492,11 @@ class TestDevCatchCandidates(_TmpDirCase):
         entry = dict(self.ENTRY, floor="medium")
         r = score43.dev_catch_candidates(make_state(rows=self._rows()), entry)
         self.assertEqual([x["stable_hash"] for x in r["rows"]], ["h1", "h4", "h2"])
+
+    def test_nv_row_listed_once_under_unvalidated_floor(self):
+        entry = dict(self.ENTRY, floor=None)
+        r = score43.dev_catch_candidates(make_state(rows=self._rows()), entry)
+        self.assertEqual([x["stable_hash"] for x in r["rows"]].count("h2"), 1)
 
     def test_load_dev_sites_refusals(self):
         ok = write_json(self.p("ok.json"), {"catch_cases": {"reach-new-1": self.ENTRY}})
@@ -493,6 +532,12 @@ class TestDevCatchCandidates(_TmpDirCase):
                                      "--id", case, "--sites", sites)
             self.assertEqual(code, 1, case)
             self.assertIn("dev-catch-candidates: not a development case", err)
+
+    def test_cli_refuses_b3_id_before_reading_sites_file(self):
+        code, _o, err = self.cli("dev-catch-candidates", "--state", self.p("none.json"),
+                                 "--id", "should-quiet-4", "--sites", self.p("none-sites.json"))
+        self.assertEqual(code, 1)
+        self.assertIn("dev-catch-candidates: not a development case", err)
 
     def test_cli_refuses_b3_id_listed_in_sites_file(self):
         with open(self.p("sites.json"), "w", encoding="utf-8") as fh:
