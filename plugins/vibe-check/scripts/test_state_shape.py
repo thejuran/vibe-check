@@ -251,6 +251,27 @@ class TestSchemasAreDistinct(unittest.TestCase):
         self.assertEqual(state_shape.check_finding(make_finding(memberz=[member]), FUTURE),
                          ["unknown key in finding: memberz"])
 
+    def test_phase53_needs_verification_key_is_optional_under_future_schema(self):
+        """v2.12 Phase 53 (QUIET-06/07): `needs_verification` is the recorded
+        addition to the closed finding set. Clean under the future schema;
+        rejected under the archive schema and under the future schema as it
+        stood before Phase 53; a misspelling is still rejected."""
+        nv = {"trigger": "parse_limit set to 300", "path": "a.py:3 via load",
+              "consequence": "startup aborts on legacy config", "symbol": "load"}
+        f = make_finding(needs_verification=nv, band="needs-verification",
+                         orchestrator_score=0)
+        self.assertEqual(state_shape.check_finding(f, FUTURE), [])
+        self.assertIn("unknown key in finding: needs_verification",
+                      state_shape.check_finding(f, ARCHIVE))
+        pre53 = dict(FUTURE, finding_optional=[
+            k for k in FUTURE["finding_optional"] if k != "needs_verification"])
+        self.assertEqual(state_shape.check_finding(f, pre53),
+                         ["unknown key in finding: needs_verification"])
+        self.assertEqual(state_shape.check_finding(make_finding(needs_verify=nv), FUTURE),
+                         ["unknown key in finding: needs_verify"])
+        self.assertEqual(FUTURE["_rollback"]["phase53_added"],
+                         {"finding": ["needs_verification"]})
+
 
 class TestCensusAll37(unittest.TestCase):
     """F13 -- every sealed state validates clean under archive-compat."""

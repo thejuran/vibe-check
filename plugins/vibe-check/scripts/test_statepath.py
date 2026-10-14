@@ -367,6 +367,76 @@ class TestModeSet(unittest.TestCase):
         self.assertEqual(statepath.STATE_DIR, ".turingmind/state")
 
 
+class TestCurrentLocation(unittest.TestCase):
+    """Phase-53-format state lives under the reserved `format-53/` subdirectory:
+    the shipped key, relocated. `resolve` (the OLD location) is unchanged."""
+
+    PREFIX = ".turingmind/state/format-53/"
+
+    CONTEXTS = (
+        ("gsd", {"phase_id": "53-false-alarm-reduction"}),
+        ("default", {"repo": "triggarr", "branch": ""}),
+        ("pr", {"repo": "r", "branch": "feat/x"}),
+        ("range", {"repo": "r", "branch": "main"}),
+        ("all", {"repo": "r", "branch": "main", "narrow": ""}),
+    )
+
+    def test_every_mode_is_the_shipped_key_under_format_53(self):
+        self.assertEqual(statepath.FORMAT_SUBDIR, "format-53")
+        for mode, kw in self.CONTEXTS:
+            with self.subTest(mode=mode):
+                old, reason = statepath.resolve(mode, **kw)
+                new, new_reason = statepath.resolve_current(mode, **kw)
+                self.assertEqual((reason, new_reason), (statepath.REASON_OK,) * 2)
+                self.assertTrue(new.startswith(self.PREFIX))
+                self.assertEqual(new[len(self.PREFIX):],
+                                 old[len(statepath.STATE_DIR) + 1:])
+                self.assertNotEqual(old, new)
+
+    def test_refusals_propagate(self):
+        self.assertEqual(statepath.resolve_current("gsd", phase_id="02"),
+                         statepath.resolve("gsd", phase_id="02"))
+        self.assertEqual(statepath.resolve_current("nope"), statepath.resolve("nope"))
+        self.assertIsNone(statepath.resolve_current("default", repo="../x", branch="b")[0])
+
+    def test_run_emits_current_path(self):
+        out = statepath.run({"mode": "default", "repo": "r", "branch": "b"})
+        self.assertEqual(out["path"], ".turingmind/state/r-b.json")
+        self.assertEqual(out["current_path"], ".turingmind/state/format-53/r-b.json")
+        refused = statepath.run({"mode": "gsd", "phase_id": "02"})
+        self.assertIsNone(refused["path"])
+        self.assertIsNone(refused["current_path"])
+        self.assertIsNone(statepath.run([])["current_path"])
+
+    def test_three_namespaces_are_disjoint(self):
+        """flat, `by-mode/all/` and `format-53/` never meet: no shipped key can
+        start with `format-53/`, and no Phase-53 key is a shipped key."""
+        names = ("format-53", "format", "53", "by-mode", "all", "format-53-x")
+        for repo in names:
+            for branch in ("", "format-53", "53/x", "whole-tree"):
+                for mode in ("default", "all"):
+                    kw = {"repo": repo, "branch": branch}
+                    if mode == "all":
+                        kw["narrow"] = ""
+                    with self.subTest(mode=mode, repo=repo, branch=branch):
+                        old, _ = statepath.resolve(mode, **kw)
+                        new, _ = statepath.resolve_current(mode, **kw)
+                        self.assertFalse(old.startswith(self.PREFIX))
+                        self.assertTrue(new.startswith(self.PREFIX))
+        for pid in ("format-53", "format-53-x", "53-false-alarm-reduction"):
+            with self.subTest(phase_id=pid):
+                old, _ = statepath.resolve("gsd", phase_id=pid)
+                self.assertFalse(old.startswith(self.PREFIX))
+
+    def test_empty_subdir_collapses_onto_the_shipped_path(self):
+        from unittest import mock
+        with mock.patch.object(statepath, "FORMAT_SUBDIR", ""):
+            for mode, kw in self.CONTEXTS:
+                with self.subTest(mode=mode):
+                    self.assertEqual(statepath.resolve_current(mode, **kw),
+                                     statepath.resolve(mode, **kw))
+
+
 class TestNoFilesystemAccess(unittest.TestCase):
     """It computes a path; it does not check or create one."""
 
@@ -420,6 +490,8 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr.decode())
         self.assertEqual(json.loads(proc.stdout.decode())["path"],
                          ".turingmind/state/triggarr-.json")
+        self.assertEqual(json.loads(proc.stdout.decode())["current_path"],
+                         ".turingmind/state/format-53/triggarr-.json")
 
     def test_abbreviated_phase_id_refuses_through_the_shim(self):
         payload = json.dumps({"mode": "gsd", "phase_id": "40"}).encode()

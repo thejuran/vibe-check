@@ -6684,3 +6684,499 @@ class TestWeakNoteDropped(unittest.TestCase):
              mutant.__dict__)
         r = mutant.run(_hl_env(self._no_member_qualifies(), _Q_RANGES, codex=_JOINED))
         self.assertEqual(r["nv_dropped_weak"], 1)
+
+
+# --------------------------------------------------------------------------- #
+# Rollback contract for Needs-verification (R10): proven against the SHIPPED
+# 2.11.1 reader, gate, prose, resolver and scorer (pinned blobs, exec'd).
+# --------------------------------------------------------------------------- #
+import copy  # noqa: E402
+import hashlib  # noqa: E402
+import shutil  # noqa: E402
+import types  # noqa: E402
+
+import carry_state  # noqa: E402  (the CURRENT reader — the downgrade's refusal input)
+import statepath  # noqa: E402
+
+# v2.11.1 blobs (verified against `git ls-tree v2.11.1`).
+OLD_CARRY_STATE_BLOB = "0fc763654914abf25e6b00fd97962b42527686f4"     # scripts/carry_state.py
+OLD_FINALIZE_GATE_BLOB = "b1d5a698478c6241fd0bb07cf7892e7aac39fd3c"   # scripts/finalize_gate.py
+OLD_FINALIZE_PROSE_BLOB = "8bba76cc3a8613061f29ce52e3f930f0eaa7ac4d"  # phases/shared/90-finalize.md
+OLD_STATEPATH_BLOB = "9ff5c2a5b95cbe1914b408a3da0a81ec56af742e"       # scripts/statepath.py
+OLD_STATE_PROSE_BLOB = "aedadf33adff095f2d6f703cbc209361ead26741"     # phases/review/05-state.md
+OLD_STATE_ALL_PROSE_BLOB = "dbf0a24e2207a45fc45a676f366804e2d6caeeee"  # phases/review/05-state-all.md
+
+_NV_OPEN = ("new", "persisted", "needs-recheck")
+_NV_PHASE_ID = "53-false-alarm-reduction"
+
+
+def _blob_text(blob):
+    return replay._git("cat-file", "-p", blob).decode("utf-8")
+
+
+def _blob_module(blob, name):
+    mod = types.ModuleType(name)
+    exec(compile(_blob_text(blob), name + ".py", "exec"), mod.__dict__)
+    return mod
+
+
+def _six(counts):
+    """The six-key flags the shipped finalize prose builds from finalize-counts."""
+    return {"state_file_present": True,
+            "outstanding_cw": counts["outstanding_cw"],
+            "unacknowledged_medium": counts["unacknowledged_medium"],
+            "noninteractive": False, "pr_mode": False, "range_mode": False}
+
+
+def _pass_entry(n, out):
+    return {"pass_number": n, "head_sha": "a" * 40, "timestamp": "2026-10-14T00:00:00Z",
+            "mode": "review", "diff_range": "HEAD~1..HEAD", "agents_run": ["bugs"],
+            "findings": out["findings"], "filtered": out.get("filtered", []),
+            "codex": {"status": "off", "reason": None, "verdict": None, "findings": 0}}
+
+
+def _nv_state(rows, decisions=None):
+    st = {"medium_acknowledgments": {}, "passes": [_pass_entry(1, {"findings": rows})]}
+    if decisions is not None:
+        st["decisions"] = decisions
+    return st
+
+
+def _decision_for(row, reason="owner checked: legacy configs are migrated at install"):
+    snap = row.get("snapshot") or {}
+    return {"decision": "dismiss", "reason": reason, "at_pass": 1, "band": row["band"],
+            "evidence": {k: snap.get(k) for k in ("file", "line", "canonical_line_content",
+                                                  "band")}}
+
+
+def _write_json(path, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, indent=2, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def _sha(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def _nv_counts(state):
+    """The downgrade's refusal input: the CURRENT reader's finalize-counts.
+
+    Until the reader reports `undecided_nv` / `undecided_nv_hashes` itself, the
+    same two values are computed here: open last-pass Needs-verification rows
+    with no `decisions` entry.
+    """
+    counts = carry_state.finalize_counts(state)
+    if isinstance(counts, dict) and "undecided_nv" in counts:
+        return counts
+    decisions = state.get("decisions") if isinstance(state.get("decisions"), dict) else {}
+    hashes = sorted(f["stable_hash"] for f in state["passes"][-1]["findings"]
+                    if f.get("band") == score.NV_BAND and f.get("status") in _NV_OPEN
+                    and f.get("stable_hash") not in decisions)
+    return dict(counts or {}, undecided_nv=len(hashes), undecided_nv_hashes=hashes)
+
+
+def _downgrade_phase53(state):
+    """`_rollback.phase53_nv_downgrade` Steps 0 and 2, exactly as written.
+
+    -> (converted copy, None), or (None, message) — the procedure's non-zero
+    exit. The input is never modified.
+    """
+    counts = _nv_counts(state)
+    if counts["undecided_nv"]:
+        return None, ("refused: %d undecided Needs-verification item(s); decide them "
+                      "on a --finalize with the current plugin first: %s"
+                      % (counts["undecided_nv"], ", ".join(counts["undecided_nv_hashes"])))
+    new = copy.deepcopy(state)
+    passes = new["passes"]
+    for i, p in enumerate(passes):
+        for f in p.get("findings", []):
+            if not (isinstance(f, dict) and f.get("band") == score.NV_BAND):
+                continue
+            f.pop("needs_verification", None)
+            f.pop("members", None)
+            if i == len(passes) - 1 and f.get("status") in _NV_OPEN:
+                f["band"] = "warning"
+                if isinstance(f.get("snapshot"), dict):
+                    f["snapshot"]["band"] = "warning"
+    return new, None
+
+
+def _downgrade_phase53_files(new_path, old_path):
+    """Steps 1 and 3: backups, then the converted copy at the OLD location.
+    The Phase-53 file is only ever READ. -> None, or the refusal message."""
+    with open(new_path, "rb") as fh:
+        state = json.loads(fh.read().decode("utf-8"))
+    converted, message = _downgrade_phase53(state)
+    if message is not None:
+        return message
+    shutil.copyfile(new_path, new_path + ".pre-downgrade.bak")
+    if os.path.exists(old_path):
+        shutil.copyfile(old_path, old_path + ".pre-downgrade.bak")
+    os.makedirs(os.path.dirname(old_path), exist_ok=True)
+    _write_json(old_path, converted)
+    return None
+
+
+def _old_collect(rows, head_files):
+    """The PRE-53 collector rule: canonical = the HEAD line at `file:line` only
+    (null when `line` is null or the line is gone); window = that line and the
+    next two. Members are read the same way at their own file:line."""
+    def head(file, line):
+        text = head_files.get(file) if isinstance(file, str) else None
+        ln = score._as_line(line)
+        if text is None or ln is None:
+            return None, None
+        lines = text.split("\n")
+        if not 1 <= ln <= len(lines):
+            return None, None
+        return lines[ln - 1], "\n".join(lines[ln - 1:ln + 2])
+    out = []
+    for r in rows:
+        e = json.loads(json.dumps(r))
+        e["canonical_line_content"], e["canonical_window"] = head(e.get("file"), e.get("line"))
+        for m in e.get("members") or []:
+            if isinstance(m, dict):
+                m["canonical_line_content"], m["canonical_window"] = head(m.get("file"),
+                                                                          m.get("line"))
+        out.append(e)
+    return out
+
+
+class TestRollbackNeedsVerification(unittest.TestCase):
+    """R10 across a plugin rollback: an undecided Needs-verification item never
+    passes an older finalize and never vanishes through an older review."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.OLD_CS = _blob_module(OLD_CARRY_STATE_BLOB, "old_carry_state")
+        cls.OLD_GATE = _blob_module(OLD_FINALIZE_GATE_BLOB, "old_finalize_gate")
+        cls.OLDSP = _blob_module(OLD_STATEPATH_BLOB, "old_statepath")
+        cls.old_scorer = replay.load_scorer("blob:" + PRE_D05_SCORER_BLOB)
+
+    # -- fixtures ------------------------------------------------------------ #
+    def _row(self, **kw):
+        rows = _nv_rows(score.run(_nv_env([_nv(**kw)])))
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    def _symbol_row(self):
+        return self._row(id_="nv-sym", line=None, symbol="load_config")
+
+    def _line_row(self):
+        return self._row(id_="nv-line", line=12, title="parse_limit 300 reaches Config")
+
+    def _old_decide(self, state):
+        counts = self.OLD_CS.finalize_counts(state)
+        self.assertIsNotNone(counts)
+        return counts, self.OLD_GATE.decide(_six(counts))["action"]
+
+    def _shipped_review(self, state, head_files):
+        """One ORDINARY review on the shipped plugin: carry the open last-pass
+        rows, collect by the pre-53 rule, score with the shipped scorer, and
+        append the pass entry. -> (scorer output, new state)."""
+        last = state["passes"][-1]
+        carry = [f for f in last["findings"] if f.get("status") in _NV_OPEN]
+        n = last["pass_number"] + 1
+        out = self.old_scorer.run({"command": "review", "all_mode": False, "pass_number": n,
+                                   "changed_line_ranges": {}, "findings": [],
+                                   "carryforward": _old_collect(carry, head_files)})
+        new = json.loads(json.dumps(state))
+        new["passes"].append(_pass_entry(n, out))
+        return out, new
+
+    def _neutralise_refusal(self):
+        real = carry_state.finalize_counts
+
+        def fake(state, head_blobs=None):
+            return dict(real(state, head_blobs) or {}, undecided_nv=0, undecided_nv_hashes=[])
+        return mock.patch.object(carry_state, "finalize_counts", fake)
+
+    # -- the shipped reader ---------------------------------------------------- #
+    def test_old_reader_approves_without_marker_reproduction(self):
+        row = self._symbol_row()
+        unmarked = dict(row)
+        del unmarked["members"]
+        counts, action = self._old_decide(_nv_state([unmarked]))
+        self.assertEqual((counts["outstanding_cw"], counts["unacknowledged_medium"]), (0, 0))
+        self.assertEqual(action, "write")
+
+    def test_old_reader_refuses_open_nv_state(self):
+        state = _nv_state([self._symbol_row()])
+        before = json.dumps(state, sort_keys=True)
+        self.assertIsNone(self.OLD_CS.finalize_counts(state))
+        self.assertEqual(self.OLD_CS.state_reason(state), self.OLD_CS.REASON_OBLIGATION)
+        self.assertEqual(json.dumps(state, sort_keys=True), before)
+        prose = _blob_text(OLD_FINALIZE_PROSE_BLOB)
+        i = prose.index('if COUNTS_JSON=$(python3 "$VC_ROOT/scripts/carry_state.py" '
+                        'finalize-counts')
+        j = prose.index("else", i)
+        k = prose.index("exit 1", j)
+        self.assertLess(k, prose.index("finalize_gate.py", i))
+        self.assertIn("nothing was written or archived", prose[j:k])
+
+    def test_nv_marker_is_load_bearing_mutation(self):
+        h = score.stable_hash(_NV_FILE, _NV_FIRST, _NV_TITLE)
+        with mock.patch.object(score, "_NV_MEMBER_OBLIGATION",
+                               {"stable_hash": h, "band": score.NV_BAND}):
+            row = self._row(line=None, symbol="load_config")
+        counts, action = self._old_decide(_nv_state([row]))
+        self.assertEqual(counts["outstanding_cw"], 0)
+        self.assertEqual(action, "write")
+
+    def test_decided_nv_row_still_halts_old_reader(self):
+        row = self._symbol_row()
+        decisions = {row["stable_hash"]: _decision_for(row)}
+        state = _nv_state([row], copy.deepcopy(decisions))
+        self.assertIsNone(self.OLD_CS.finalize_counts(state))
+        self.assertEqual(self.OLD_CS.state_reason(state), self.OLD_CS.REASON_OBLIGATION)
+        self.assertEqual(state["decisions"], decisions)
+
+    # -- the downgrade procedure ------------------------------------------------ #
+    def test_downgrade_refuses_undecided_nv(self):
+        sym, line = self._symbol_row(), self._line_row()
+        state = _nv_state([sym, line], {line["stable_hash"]: _decision_for(line)})
+        before = json.dumps(state, sort_keys=True)
+        converted, message = _downgrade_phase53(state)
+        self.assertIsNone(converted)
+        self.assertIn(sym["stable_hash"], message)
+        self.assertNotIn(line["stable_hash"], message)
+        self.assertEqual(json.dumps(state, sort_keys=True), before)
+
+    def test_downgrade_refusal_is_load_bearing_mutation(self):
+        sym, line = self._symbol_row(), self._line_row()
+        state = _nv_state([sym, line], {line["stable_hash"]: _decision_for(line)})
+        with self._neutralise_refusal():
+            converted, message = _downgrade_phase53(state)
+        self.assertIsNone(message)
+        rows = {f["stable_hash"]: f for f in converted["passes"][-1]["findings"]}
+        self.assertEqual(rows[sym["stable_hash"]]["band"], "warning")
+        self.assertIsNone(rows[sym["stable_hash"]]["line"])
+        self.assertNotIn(sym["stable_hash"], converted["decisions"])
+
+    def test_downgrade_decided_rows_convert_and_keep_decisions(self):
+        sym, line = self._symbol_row(), self._line_row()
+        decisions = {r["stable_hash"]: _decision_for(r) for r in (sym, line)}
+        state = _nv_state([sym, line], copy.deepcopy(decisions))
+        original = json.dumps(state, sort_keys=True)
+        converted, message = _downgrade_phase53(state)
+        self.assertIsNone(message)
+        for f in converted["passes"][-1]["findings"]:
+            self.assertEqual(f["band"], "warning")
+            self.assertNotIn("needs_verification", f)
+            self.assertNotIn("members", f)
+        self.assertEqual(converted["decisions"], decisions)
+        self.assertIsNotNone(self.OLD_CS.finalize_counts(converted))
+        for f in converted["passes"][-1]["findings"]:
+            self.assertEqual(self.OLD_CS.decision_state(f, converted), "stale")
+        self.assertEqual(json.dumps(state, sort_keys=True), original)
+
+    def test_downgrade_then_old_review_cannot_approve_undecided(self):
+        sym, line = self._symbol_row(), self._line_row()
+        head = {_NV_FILE: "import os\n\nCONFIG = None\n"}   # line 12 is gone
+        decisions = {r["stable_hash"]: _decision_for(r) for r in (sym, line)}
+        converted, message = _downgrade_phase53(_nv_state([sym, line], decisions))
+        self.assertIsNone(message)
+        out, after = self._shipped_review(converted, head)
+        gone = {(e["file"], e["line"], e["title"]) for e in out["fixed_since_last"]}
+        for r in (sym, line):
+            self.assertIn((r["file"], r["line"], r["title"]), gone)
+        _, action = self._old_decide(after)
+        self.assertEqual(action, "write")
+        for r in (sym, line):
+            self.assertIn(r["stable_hash"], after["decisions"])
+            self.assertTrue(after["decisions"][r["stable_hash"]]["reason"])
+
+    def test_downgrade_then_old_review_undecided_harm_reproduced_mutation(self):
+        sym, line = self._symbol_row(), self._line_row()
+        head = {_NV_FILE: "import os\n\nCONFIG = None\n"}
+        state = _nv_state([sym, line], {line["stable_hash"]: _decision_for(line)})
+        with self._neutralise_refusal():
+            converted, message = _downgrade_phase53(state)
+        self.assertIsNone(message)
+        _, after = self._shipped_review(converted, head)
+        _, action = self._old_decide(after)
+        self.assertEqual(action, "write")
+        self.assertNotIn(sym["stable_hash"], after["decisions"])
+        self.assertNotIn(sym["stable_hash"],
+                         [f["stable_hash"] for f in after["passes"][-1]["findings"]])
+
+    def test_old_scorer_rescoring_path(self):
+        p1 = self._row(conf=85)
+        env = _nv_env([], carryforward=[_nv_cf(p1, _NV_FIRST, _NV_CODE)], pass_number=2)
+        old = self.old_scorer.run(json.loads(json.dumps(env)))
+        self.assertEqual(len(old["findings"]), 1)
+        row = old["findings"][0]
+        self.assertNotIn("needs_verification", row)
+        self.assertIn(row["band"], ("critical", "warning", "medium", "low"))
+        self.assertGreater(row["orchestrator_score"], 0)
+        self.assertFalse(any(isinstance(m.get("obligation"), str) for m in row.get("members", [])))
+        cur = _nv_rows(score.run(json.loads(json.dumps(env))))
+        self.assertEqual(len(cur), 1)
+        self.assertEqual(cur[0]["members"][0]["obligation"], score._NV_MEMBER_OBLIGATION)
+
+    # -- the separate Phase-53 state location ------------------------------------ #
+    _CONTEXTS = (
+        ("gsd", {"phase_id": "40-prose-diet-restructure-for-opus-5"}),
+        ("default", {"repo": "triggarr", "branch": ""}),
+        ("pr", {"repo": "r", "branch": "feat/x"}),
+        ("range", {"repo": "r", "branch": "main"}),
+        ("all", {"repo": "r", "branch": "main", "narrow": ""}),
+        ("default", {"repo": "format-53", "branch": ""}),
+        ("gsd", {"phase_id": "format-53-false-alarm"}),
+    )
+
+    def _prefix(self):
+        return statepath.STATE_DIR + "/" + statepath.FORMAT_SUBDIR + "/"
+
+    def test_shipped_resolver_never_reaches_phase53_location(self):
+        for mode, kw in self._CONTEXTS:
+            with self.subTest(mode=mode, **kw):
+                old, _ = self.OLDSP.resolve(mode, **kw)
+                new, _ = statepath.resolve_current(mode, **kw)
+                self.assertIsInstance(old, str)
+                self.assertFalse(old.startswith(self._prefix()))
+                self.assertTrue(new.startswith(self._prefix()))
+                self.assertNotEqual(old, new)
+        self.assertEqual(self.OLDSP.resolve("default", repo="format-53", branch="")[0],
+                         ".turingmind/state/format-53-.json")
+        state_prose = _blob_text(OLD_STATE_PROSE_BLOB)
+        self.assertIn('STATE_FILE=".turingmind/state/${PHASE_ID}.json"', state_prose)
+        self.assertIn('STATE_FILE=".turingmind/state/$(git rev-parse --show-toplevel '
+                      '| xargs basename)-${BRANCH_SLUG}.json"', state_prose)
+        self.assertNotIn("format-53", state_prose)
+        all_prose = _blob_text(OLD_STATE_ALL_PROSE_BLOB)
+        self.assertIn(".turingmind/state/by-mode/all/", all_prose)
+        self.assertNotIn("format-53", all_prose)
+
+    def test_phase53_location_prefix_is_load_bearing_mutation(self):
+        with mock.patch.object(statepath, "FORMAT_SUBDIR", ""):
+            for mode, kw in self._CONTEXTS[:2]:
+                with self.subTest(mode=mode):
+                    self.assertEqual(self.OLDSP.resolve(mode, **kw)[0],
+                                     statepath.resolve_current(mode, **kw)[0])
+
+    def _paths(self, tmp):
+        old = os.path.join(tmp, self.OLDSP.resolve("gsd", phase_id=_NV_PHASE_ID)[0])
+        new = os.path.join(tmp, statepath.resolve_current("gsd", phase_id=_NV_PHASE_ID)[0])
+        os.makedirs(os.path.dirname(old), exist_ok=True)
+        os.makedirs(os.path.dirname(new), exist_ok=True)
+        return old, new
+
+    def _old_format_state(self):
+        f = make_finding(id="w-1", file="src/other.py", line=3, title="unchecked read",
+                         agent_confidence=90, severity="high", current_code="data = fh.read()",
+                         canonical_line_content="data = fh.read()",
+                         source_window=["a", "b", "c", "d", "e"])
+        out = self.old_scorer.run({"command": "review", "all_mode": False, "pass_number": 1,
+                                   "changed_line_ranges": {"src/other.py": [[1, 9]]},
+                                   "carryforward": [], "findings": [f]})
+        self.assertEqual(out["findings"][0]["band"], "warning")
+        st = {"medium_acknowledgments": {}, "passes": [_pass_entry(1, out)]}
+        st["decisions"] = {out["findings"][0]["stable_hash"]: {
+            "decision": "dismiss", "reason": "bounded by the caller", "at_pass": 1}}
+        return st
+
+    _HEAD = {_NV_FILE: "import os\n", "src/other.py": "import io\n\ndata = fh.read()\n"}
+
+    def _shipped_pipeline(self, old_path):
+        """The ACTUAL 2.11.1 ordinary review + persist + finalize, against the
+        path the shipped resolver gives. -> (scorer output, gate action)."""
+        with open(old_path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        out, new = self._shipped_review(state, self._HEAD)
+        _write_json(old_path, new)
+        with open(old_path, encoding="utf-8") as fh:
+            _, action = self._old_decide(json.load(fh))
+        return out, action
+
+    def test_actual_2111_run_leaves_phase53_state_byte_unchanged(self):
+        sym = self._symbol_row()
+        with tempfile.TemporaryDirectory() as tmp:
+            old_path, new_path = self._paths(tmp)
+            self.assertNotEqual(old_path, new_path)
+            _write_json(new_path, _nv_state([sym], {}))
+            before = _sha(new_path)
+            _write_json(old_path, self._old_format_state())
+            old_before = _sha(old_path)
+            _, action = self._shipped_pipeline(old_path)
+            self.assertEqual(action, "write")
+            self.assertEqual(_sha(new_path), before)
+            self.assertNotEqual(_sha(old_path), old_before)
+            with open(new_path, encoding="utf-8") as fh:
+                counts = _nv_counts(json.load(fh))
+            self.assertEqual(counts["undecided_nv"], 1)
+            self.assertEqual(counts["undecided_nv_hashes"], [sym["stable_hash"]])
+
+    def test_phase53_location_isolation_is_load_bearing_mutation(self):
+        sym = self._symbol_row()
+        collapse = lambda mode, **kw: statepath.resolve(mode, **kw)  # noqa: E731
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(statepath, "resolve_current", collapse):
+            old_path, new_path = self._paths(tmp)
+            self.assertEqual(old_path, new_path)
+            _write_json(new_path, _nv_state([sym], {}))
+            before = _sha(new_path)
+            out, action = self._shipped_pipeline(old_path)
+            self.assertNotEqual(_sha(new_path), before)
+            self.assertIn((sym["file"], sym["line"], sym["title"]),
+                          {(e["file"], e["line"], e["title"]) for e in out["fixed_since_last"]})
+            with open(new_path, encoding="utf-8") as fh:
+                after = json.load(fh)
+            self.assertNotIn(sym["stable_hash"],
+                             [f["stable_hash"] for f in after["passes"][-1]["findings"]])
+            self.assertNotIn(sym["stable_hash"], after.get("decisions", {}))
+            self.assertEqual(action, "write")
+
+    def _downgrade_tree(self, tmp, decided=True, existing_old=True):
+        sym, line = self._symbol_row(), self._line_row()
+        rows = (sym, line) if decided else (line,)
+        old_path, new_path = self._paths(tmp)
+        _write_json(new_path, _nv_state([sym, line], {r["stable_hash"]: _decision_for(r)
+                                                      for r in rows}))
+        if existing_old:
+            _write_json(old_path, self._old_format_state())
+        return old_path, new_path
+
+    def test_downgrade_writes_to_old_location_and_keeps_original(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_path, new_path = self._downgrade_tree(tmp)
+            with open(new_path, "rb") as fh:
+                original = fh.read()
+            with open(old_path, "rb") as fh:
+                prior_old = fh.read()
+            self.assertIsNone(_downgrade_phase53_files(new_path, old_path))
+            with open(new_path, "rb") as fh:
+                self.assertEqual(fh.read(), original)
+            with open(new_path + ".pre-downgrade.bak", "rb") as fh:
+                self.assertEqual(fh.read(), original)
+            with open(old_path + ".pre-downgrade.bak", "rb") as fh:
+                self.assertEqual(fh.read(), prior_old)
+            with open(old_path, encoding="utf-8") as fh:
+                converted = json.load(fh)
+            self.assertEqual(converted, _downgrade_phase53(json.loads(original))[0])
+            self.assertTrue(all(f["band"] == "warning"
+                                for f in converted["passes"][-1]["findings"]))
+
+    def test_downgrade_refusal_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_path, new_path = self._downgrade_tree(tmp, decided=False)
+            before = (_sha(new_path), _sha(old_path))
+            message = _downgrade_phase53_files(new_path, old_path)
+            self.assertTrue(message.startswith("refused:"))
+            self.assertEqual((_sha(new_path), _sha(old_path)), before)
+            self.assertFalse(os.path.exists(new_path + ".pre-downgrade.bak"))
+            self.assertFalse(os.path.exists(old_path + ".pre-downgrade.bak"))
+
+    def test_downgrade_backup_is_load_bearing_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_path, new_path = self._downgrade_tree(tmp)
+            with open(old_path, "rb") as fh:
+                prior_old = fh.read()
+            with mock.patch.object(shutil, "copyfile", lambda *a, **k: None):
+                self.assertIsNone(_downgrade_phase53_files(new_path, old_path))
+            with open(old_path, "rb") as fh:
+                self.assertNotEqual(fh.read(), prior_old)
+            self.assertFalse(os.path.exists(old_path + ".pre-downgrade.bak"))
