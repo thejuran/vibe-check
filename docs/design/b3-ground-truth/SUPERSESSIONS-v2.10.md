@@ -470,3 +470,111 @@ confirms the artifact with `batchsnap.py check-pass`. The owner reviews it.
 **Sign-off:** owner decision 2026-09-29 (AskUserQuestion, option "Count them + fix the bug"), taken
 after the six runs were archived and the mechanical verdict read FAIL only on `state_shape`.
 Recorded by the assistant.
+
+## 010 — 2026-10-14 — Phase 53 D-05/D-06 second-opinion qualification — severity correction on default config (owner-approved, D-07/O-3)
+
+**Outcome:** SEVERITY CORRECTION with disclosed limitation (not a false-alarm reduction). The
+owner approved this as a change to how severe some findings are, plus one known limitation. It
+does not claim fewer false alarms: no run changes whether it fires.
+
+**What changed:** the second-opinion rule in `plugins/vibe-check/scripts/score.py`
+(`templates/scoring.md` § Qualification, D-05; row lead D-06). A Codex member and a Claude-lane
+member now corroborate each other only when each clears the per-command cutoff on its own
+lone-lane score and both sit on the same line. The credit (+10 and release of the lone-lane cap)
+goes per member, not to the whole grouped row.
+
+**Identity:**
+
+- base: `blob:d4f9fb14aea5f934a12dadf34e357626f7047ba5` (score.py at 230332e)
+- candidate: `blob:5ca2ddd5cc9a7f88bab9bbdc0604477e8a3d0504` (score.py from 53-02). Later scorer
+  plans diff against this blob.
+- report: `docs/design/b3-ground-truth/REPLAY-REPORT-phase53-d05.md`
+  (`replay.py diff --roots all --allow …`). The diff exits 0. `runs compared: 154`,
+  `runs differing: 27`, `runs differing (allowed): 27`, `runs with unallowed differences: 0`,
+  `allowances unused: 0`.
+- allowance file: `docs/design/b3-ground-truth/ALLOWANCES-phase53-d05.json`, sha256
+  `b40a06d42e83ca1b8acc87cccfe6e52d8a3712e1e756512255d57f2ce7067698`. It has 1698 entries over
+  27 runs, every entry copied verbatim from the diff sidecar
+  `REPLAY-REPORT-phase53-d05.md.changes.json`. It is byte-identical to the sidecar (same sha256).
+  An earlier version that covered only groups B and C (24 runs, 1669 entries) had sha256
+  `bd6a1fdcedbdc37434a52e83afe3c5803e274077be18fa9ace4c562cd2b755b2`.
+
+**The 27 differing runs:**
+
+- Group 1, pre-approved O-3 (8 runs). Each Codex finding goes critical/100 → warning/94, and every
+  run matches the research measurement. Two of the 8 also reorder supporting notes in the same row:
+  `runs-v2.10-phase43/retune/should-quiet-6/run-3` and
+  `runs-v2.11-phase49/first/should-quiet-6/run-3`. The 8 runs:
+  - `runs-v2.10-phase43/first/should-quiet-4/run-2`
+  - `runs-v2.10-phase43/first/should-quiet-6/run-1`
+  - `runs-v2.10-phase43/retune/should-quiet-6/run-1`
+  - `runs-v2.10-phase43/retune/should-quiet-6/run-2`
+  - `runs-v2.10-phase43/retune/should-quiet-6/run-3`
+  - `runs-v2.11-phase49/first/should-quiet-6/run-1`
+  - `runs-v2.11-phase49/first/should-quiet-6/run-2`
+  - `runs-v2.11-phase49/first/should-quiet-6/run-3`
+- A1–A3, beyond O-3 (3 runs). Each Codex finding goes critical/100 → warning/94:
+  - A1 `runs-v2.10-phase43/first/should-quiet-4/run-3`: the strong Claude reviewer (bugs L108)
+    identified a different defect, and the notes on Codex's line L107 are too weak to count. No
+    genuine corroboration.
+  - A2 `runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1`: Codex (L232) and two qualifying
+    Claude lanes (L233) found the same defect, in one logging call that spans two lines. The pair is
+    anchored on different lines, so it is not credited. **This is the known conservative
+    limitation.** Genuine corroboration is lost, but the finding still fires at warning.
+  - A3 `runs-v2.10/triggarr-secret-in-logs/run-1` (protected catch): the strong Claude reviewer
+    (architecture L232) is at the same code but disputes the harm. No genuine corroboration.
+- Group B, lead switches (5 runs). The row band and score stay critical/100, but the row lead and
+  its identity change: `runs-v2.10-phase40/batch3/triggarr-secret-in-logs/run-1`,
+  `runs-v2.10-phase40/final/triggarr-secret-in-logs/run-1` (protected), `runs/should-quiet-1/run-1`,
+  `runs/third-organic-should-catch/run-2` (protected), `runs/third-organic-should-catch/run-3`
+  (protected).
+- Group C, member order only (11 runs). The row is unchanged; only the member list and the
+  absorbed-members list reorder:
+  - `runs-v2.10-phase40/batch1/triggarr-secret-in-logs/run-1`
+  - `runs-v2.10-phase40/batch2/triggarr-secret-in-logs/run-1`
+  - `runs-v2.10-phase43/first/should-quiet-6/run-2`
+  - `runs-v2.10-phase43/first/should-quiet-6/run-3`
+  - `runs-v2.10-phase43/first/should-quiet-7/run-2`
+  - `runs-v2.10-phase43/first/should-quiet-7/run-3`
+  - `runs-v2.10-phase43/first/triggarr-autoescape/run-2`
+  - `runs-v2.10-phase43/first/triggarr-secret-in-logs/run-3`
+  - `runs-v2.10/third-organic-should-catch/run-2` (protected)
+  - `runs-v2.11-phase49/first/triggarr-secret-in-logs/run-2`
+  - `runs/should-quiet-1/run-3`
+
+**Fire state:** 0 runs changed fire state (all 154 runs scored under both scorers). All 27
+differing runs fire before and after. Every changed finding stays visible and blocking.
+
+**Protected catches:** kept 25 / protected 26, AMENDED 1, REGRESSED 0, UNEVALUABLE 0
+(`REPLAY-REPORT-phase53-d05-guardrail.md`). This is the same split the pre-53 scorer gives. The
+amended run is `runs/triggarr-secret-in-logs/run-2` under the existing entry 008. A3 stays kept, at
+warning/94.
+
+**Decision survival (groups B and C, the owner's proviso):** each of the 16 runs was run twice.
+Pass 1 used the pre-53 scorer, and every open record got a dismiss decision. Pass 2 replayed it as
+carry-forward under the candidate, with the pre-53 scorer as the control. There were two
+variants: lanes re-report, and lanes report nothing new. In all 32 comparisons every decision
+outcome under the candidate equals the control: 0 decisions lost and 0 re-targeted. In the B lead
+switches, the demoted lead's decision stays current on its member record. It is never handed to
+the new lead. Detail is in the report, § "Owner decision on groups B and C".
+
+**Owner replies (verbatim):**
+
+1. "Approve groups B and C, provided existing decisions remain attached to their findings. For A1–A3, compare the findings' actual failure mechanism and affected code path. Don't loosen the rule to "adjacent lines." If A2/A3 demonstrably identify the same defect, show that explicitly and propose either a narrow matching correction or a documented conservative limitation for my approval. Assess A1 by the same standard; its should-quiet label must not determine matching. Keep this bounded to these three cases. No broader planning loop."
+2. "Choose (b), and approve A1–A3's Critical → Warning changes. Based on this analysis, only A2 loses genuine corroboration; A1 and A3 correctly receive no agreement boost. All remain visible and blocking. Record A2 as a known conservative limitation and preserve these three examples as regression cases. No further scorer rewrite or checkpoint is needed for this choice. One wording correction: exact-line matching is also only a proxy for "same defect." Document that honestly rather than claiming it guarantees semantic agreement. A future structured matching improvement should distinguish shared location from shared failure mechanism; a defect-type label alone won't establish that. This approves a severity correction and its disclosed limitation—not a reduction in false-alarm counts."
+3. "A1 stays Warning: the strong reviewer identified a different defect; the matching notes were too weak to count. The original 8 runs remain approved: Critical → Warning, including the two supporting-note reorderings."
+
+**Effect:**
+
+1. The candidate scorer is accepted on default config. Its complete-output differences from the
+   base are exactly the pinned allowance file. A later edit to that file changes its sha256.
+2. Known limitation (A2) is documented in `plugins/vibe-check/templates/scoring.md`
+   § Qualification. That text says the same-line rule is itself only a proxy for "the same defect"
+   and does not guarantee the reviewers agree on the failure. It also says a future structured
+   matching improvement must separate shared location from shared failure mechanism, and that a
+   defect-type label alone would not establish that.
+3. A1, A2 and A3 are regression cases in `plugins/vibe-check/scripts/test_replay.py`
+   (`TestPhase53SameLineRegressionCases`). Each fires at warning/94 under the current scorer and at
+   critical/100 under the base. A2 has no Claude member on Codex's line. A mutation partner checks
+   that a scorer crediting off-line pairs lifts all three to critical and fails the pin.
+4. No scorer rewrite follows from this decision.

@@ -6,11 +6,11 @@
 - allowances: docs/design/b3-ground-truth/ALLOWANCES-phase53-d05.json
 - runs compared: 154
 - runs differing: 27
-- runs differing (allowed): 24
-- runs with unallowed differences: 3
+- runs differing (allowed): 27
+- runs with unallowed differences: 0
 - allowances unused: 0
-- head: 216a1b04950addaf29466f25ccf3d18d6d8e4c94
-- generated: 2026-10-14T19:51:47Z
+- head: fbb75cbf399124834c8f4d6f55b5517b1272bc9e
+- generated: 2026-10-14T20:00:29Z
 
 _no rounding — exact fractions_
 
@@ -751,11 +751,11 @@ after
 ## runs-v2.10-phase43/first/should-quiet-4/run-3
 
 changed paths: 3
-allowed: no
+allowed: yes
 
-- UNALLOWED findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].band: critical -> warning
-- UNALLOWED findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].orchestrator_score: 100 -> 94
-- UNALLOWED findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].snapshot.band: critical -> warning
+- findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].band: critical -> warning
+- findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].orchestrator_score: 100 -> 94
+- findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].snapshot.band: critical -> warning
 
 before
 
@@ -1001,31 +1001,31 @@ after
 ## runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1
 
 changed paths: 23
-allowed: no
+allowed: yes
 
-- UNALLOWED filtered[2].line: 233 -> 235
-- UNALLOWED filtered[2].title: sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef -> sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7
-- UNALLOWED filtered[3].line: 235 -> 233
-- UNALLOWED filtered[3].title: sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7 -> sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].band: critical -> warning
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].agent: impact -> bugs
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].agent_confidence: sha256:39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9 -> sha256:02d20bbd7e394ad5999a4cebabac9619732c343a4cac99470c03e23ba2bdc2bc
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].category: sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7 -> sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].fix_hint: sha256:1e29ae017e762f65ab8d1985d30717fa1b68a20a1ec71685a02cfd0c6b2e22eb -> sha256:343edcb43004ce7d34e186a70c22f65473e52e50ea04ecf64c9956387b13b68b
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].line: 233 -> 235
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].problem: sha256:a19272eb4be1507274c41c7b1aafffde8a6fda2d851aa2e527065a024e866a64 -> sha256:89f0eb4030a51c14df2096168b5f20e30d31d01aa1c7c73d949cb78a6fa8c47d
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].title: sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef -> sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].why_it_matters: sha256:ed81e27a37cc2ca0c17d6307139baa0b6382e1179f09ce7c246910d702122fb7 -> sha256:f0e76b30fcea5dc02d97598678dfe99e52f6a01a19c83df65de2656bf1eb251c
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].agent: bugs -> impact
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].agent_confidence: sha256:02d20bbd7e394ad5999a4cebabac9619732c343a4cac99470c03e23ba2bdc2bc -> sha256:39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].category: sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0 -> sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].fix_hint: sha256:343edcb43004ce7d34e186a70c22f65473e52e50ea04ecf64c9956387b13b68b -> sha256:1e29ae017e762f65ab8d1985d30717fa1b68a20a1ec71685a02cfd0c6b2e22eb
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].line: 235 -> 233
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].problem: sha256:89f0eb4030a51c14df2096168b5f20e30d31d01aa1c7c73d949cb78a6fa8c47d -> sha256:a19272eb4be1507274c41c7b1aafffde8a6fda2d851aa2e527065a024e866a64
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].title: sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7 -> sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].why_it_matters: sha256:f0e76b30fcea5dc02d97598678dfe99e52f6a01a19c83df65de2656bf1eb251c -> sha256:ed81e27a37cc2ca0c17d6307139baa0b6382e1179f09ce7c246910d702122fb7
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].orchestrator_score: 100 -> 94
-- UNALLOWED findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].snapshot.band: critical -> warning
+- filtered[2].line: 233 -> 235
+- filtered[2].title: sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef -> sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7
+- filtered[3].line: 235 -> 233
+- filtered[3].title: sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7 -> sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].band: critical -> warning
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].agent: impact -> bugs
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].agent_confidence: sha256:39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9 -> sha256:02d20bbd7e394ad5999a4cebabac9619732c343a4cac99470c03e23ba2bdc2bc
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].category: sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7 -> sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].fix_hint: sha256:1e29ae017e762f65ab8d1985d30717fa1b68a20a1ec71685a02cfd0c6b2e22eb -> sha256:343edcb43004ce7d34e186a70c22f65473e52e50ea04ecf64c9956387b13b68b
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].line: 233 -> 235
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].problem: sha256:a19272eb4be1507274c41c7b1aafffde8a6fda2d851aa2e527065a024e866a64 -> sha256:89f0eb4030a51c14df2096168b5f20e30d31d01aa1c7c73d949cb78a6fa8c47d
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].title: sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef -> sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].why_it_matters: sha256:ed81e27a37cc2ca0c17d6307139baa0b6382e1179f09ce7c246910d702122fb7 -> sha256:f0e76b30fcea5dc02d97598678dfe99e52f6a01a19c83df65de2656bf1eb251c
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].agent: bugs -> impact
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].agent_confidence: sha256:02d20bbd7e394ad5999a4cebabac9619732c343a4cac99470c03e23ba2bdc2bc -> sha256:39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].category: sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0 -> sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].fix_hint: sha256:343edcb43004ce7d34e186a70c22f65473e52e50ea04ecf64c9956387b13b68b -> sha256:1e29ae017e762f65ab8d1985d30717fa1b68a20a1ec71685a02cfd0c6b2e22eb
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].line: 235 -> 233
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].problem: sha256:89f0eb4030a51c14df2096168b5f20e30d31d01aa1c7c73d949cb78a6fa8c47d -> sha256:a19272eb4be1507274c41c7b1aafffde8a6fda2d851aa2e527065a024e866a64
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].title: sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7 -> sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].why_it_matters: sha256:f0e76b30fcea5dc02d97598678dfe99e52f6a01a19c83df65de2656bf1eb251c -> sha256:ed81e27a37cc2ca0c17d6307139baa0b6382e1179f09ce7c246910d702122fb7
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].orchestrator_score: 100 -> 94
+- findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].snapshot.band: critical -> warning
 
 before
 
@@ -1241,11 +1241,11 @@ after
 ## runs-v2.10/triggarr-secret-in-logs/run-1
 
 changed paths: 3
-allowed: no
+allowed: yes
 
-- UNALLOWED findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].band: critical -> warning
-- UNALLOWED findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].orchestrator_score: 100 -> 94
-- UNALLOWED findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].snapshot.band: critical -> warning
+- findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].band: critical -> warning
+- findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].orchestrator_score: 100 -> 94
+- findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].snapshot.band: critical -> warning
 
 before
 
@@ -3992,3 +3992,26 @@ The 16 runs' entries were copied verbatim from the diff sidecar into `ALLOWANCES
 - A1 runs-v2.10-phase43/first/should-quiet-4/run-3
 - A2 runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1
 - A3 runs-v2.10/triggarr-secret-in-logs/run-1 (protected catch)
+
+## Owner decision on A1–A3 (2026-10-14)
+
+The `UNALLOWED` lines quoted under `## Pre-approved set (O-3)` above are copied from the pre-decision diff. They are kept there as the record of what the owner was shown. This report's header comes from the rerun after the decision below.
+
+How the three runs were assessed, per the owner's first reply: compare the actual failure mechanism and the affected code path of the Codex finding and of each Claude-lane finding that clears the cutoff alone. Do not widen the rule to adjacent lines, and do not let the should-quiet label decide the match.
+
+- A1 runs-v2.10-phase43/first/should-quiet-4/run-3: codex L107 vs the only qualifying Claude member, bugs L108 (alone 70). The two describe **different defects** on neighbouring lines. The Claude notes on L107 are below the cutoff alone. No genuine second opinion, so the cap to warning/94 is correct.
+- A2 runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1: codex L232 vs architecture L233 (alone 91) and compliance L233 (alone 100). All three describe **the same defect**: one logging call that spans two lines and leaks URL credentials into the log. Codex anchors it on the call's first line, the Claude lanes on its second. The same-line rule does not credit the pair, so a genuine second opinion is lost and the finding is capped at warning/94. This is the known conservative limitation recorded below.
+- A3 runs-v2.10/triggarr-secret-in-logs/run-1 (protected catch): codex L233 vs architecture L232 (alone 94). Both point at the same code, but the strong Claude member **disputes the harm** that Codex reports. Agreement on location is not agreement on the failure. The L233 Claude note is below the cutoff alone (66). No genuine second opinion, so warning/94 is correct. The protected catch is still kept (it fires at warning).
+
+Owner replies (verbatim):
+
+1. "Approve groups B and C, provided existing decisions remain attached to their findings. For A1–A3, compare the findings' actual failure mechanism and affected code path. Don't loosen the rule to "adjacent lines." If A2/A3 demonstrably identify the same defect, show that explicitly and propose either a narrow matching correction or a documented conservative limitation for my approval. Assess A1 by the same standard; its should-quiet label must not determine matching. Keep this bounded to these three cases. No broader planning loop."
+2. "Choose (b), and approve A1–A3's Critical → Warning changes. Based on this analysis, only A2 loses genuine corroboration; A1 and A3 correctly receive no agreement boost. All remain visible and blocking. Record A2 as a known conservative limitation and preserve these three examples as regression cases. No further scorer rewrite or checkpoint is needed for this choice. One wording correction: exact-line matching is also only a proxy for "same defect." Document that honestly rather than claiming it guarantees semantic agreement. A future structured matching improvement should distinguish shared location from shared failure mechanism; a defect-type label alone won't establish that. This approves a severity correction and its disclosed limitation—not a reduction in false-alarm counts."
+3. "A1 stays Warning: the strong reviewer identified a different defect; the matching notes were too weak to count. The original 8 runs remain approved: Critical → Warning, including the two supporting-note reorderings."
+
+Applied:
+
+- The A1–A3 entries (29) were copied verbatim from `REPLAY-REPORT-phase53-d05.md.changes.json` into `ALLOWANCES-phase53-d05.json`. The file now holds 1698 entries over 27 runs, every sidecar entry. The formal diff with `--allow` exits 0: `runs differing (allowed): 27`, `runs with unallowed differences: 0`, `allowances unused: 0`.
+- Known limitation (A2) is documented in `templates/scoring.md` § Qualification. That text also states that the same-line rule is itself only a proxy for "the same defect".
+- A1, A2 and A3 are pinned as regression cases in `plugins/vibe-check/scripts/test_replay.py` (`TestPhase53SameLineRegressionCases`).
+- Outcome: SEVERITY CORRECTION with disclosed limitation (not a false-alarm reduction). All three findings still fire at warning/94 (blocking). Fire state: 0 runs changed.

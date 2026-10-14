@@ -3819,6 +3819,24 @@
     {
       "after": "warning",
       "before": "critical",
+      "path": "findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].band",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-3"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].orchestrator_score",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[fedecf9ededf1e6479cf584ae95303d7b3633e48e779d0c41d33ecf9cb4dfd39].snapshot.band",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
       "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].band",
       "run": "runs-v2.10-phase43/first/should-quiet-6/run-1"
     },
@@ -4519,6 +4537,144 @@
       "run": "runs-v2.10-phase43/first/triggarr-autoescape/run-2"
     },
     {
+      "after": 235,
+      "before": 233,
+      "path": "filtered[2].line",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7",
+      "before": "sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef",
+      "path": "filtered[2].title",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 233,
+      "before": 235,
+      "path": "filtered[3].line",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef",
+      "before": "sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7",
+      "path": "filtered[3].title",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].band",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "bugs",
+      "before": "impact",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].agent",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:02d20bbd7e394ad5999a4cebabac9619732c343a4cac99470c03e23ba2bdc2bc",
+      "before": "sha256:39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].agent_confidence",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0",
+      "before": "sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].category",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:343edcb43004ce7d34e186a70c22f65473e52e50ea04ecf64c9956387b13b68b",
+      "before": "sha256:1e29ae017e762f65ab8d1985d30717fa1b68a20a1ec71685a02cfd0c6b2e22eb",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].fix_hint",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 235,
+      "before": 233,
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].line",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:89f0eb4030a51c14df2096168b5f20e30d31d01aa1c7c73d949cb78a6fa8c47d",
+      "before": "sha256:a19272eb4be1507274c41c7b1aafffde8a6fda2d851aa2e527065a024e866a64",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].problem",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7",
+      "before": "sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].title",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:f0e76b30fcea5dc02d97598678dfe99e52f6a01a19c83df65de2656bf1eb251c",
+      "before": "sha256:ed81e27a37cc2ca0c17d6307139baa0b6382e1179f09ce7c246910d702122fb7",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[3].why_it_matters",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "impact",
+      "before": "bugs",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].agent",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:39fa9ec190eee7b6f4dff1100d6343e10918d044c75eac8f9e9a2596173f80c9",
+      "before": "sha256:02d20bbd7e394ad5999a4cebabac9619732c343a4cac99470c03e23ba2bdc2bc",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].agent_confidence",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7",
+      "before": "sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].category",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:1e29ae017e762f65ab8d1985d30717fa1b68a20a1ec71685a02cfd0c6b2e22eb",
+      "before": "sha256:343edcb43004ce7d34e186a70c22f65473e52e50ea04ecf64c9956387b13b68b",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].fix_hint",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 233,
+      "before": 235,
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].line",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:a19272eb4be1507274c41c7b1aafffde8a6fda2d851aa2e527065a024e866a64",
+      "before": "sha256:89f0eb4030a51c14df2096168b5f20e30d31d01aa1c7c73d949cb78a6fa8c47d",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].problem",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:d625b0a4862c8d006d4f4127466faa252ee20fb2bd91dc76f60ed47824d564ef",
+      "before": "sha256:7134fab34db53552ed56c580651b9825e00144079247ac8ba2605e176adb48d7",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].title",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "sha256:ed81e27a37cc2ca0c17d6307139baa0b6382e1179f09ce7c246910d702122fb7",
+      "before": "sha256:f0e76b30fcea5dc02d97598678dfe99e52f6a01a19c83df65de2656bf1eb251c",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].members[4].why_it_matters",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].orchestrator_score",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[13f543dd935e677b161e80be2f9cca1a70add7bf80ab4a41a48b1b1ae431e6f8].snapshot.band",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
       "after": "sha256:c92d07056c5e95ce361c929303f83e79c07b9ef8698a04f5a2bfd6bf114ce535",
       "before": "sha256:9bd739b43f73f863f8be988a4baacebb5d4283edf8f249fd7f043ecbaeda1c1d",
       "path": "filtered[2].title",
@@ -5123,6 +5279,24 @@
       "before": "sha256:f806b3cc17956b407bbb662336b4c6ef0ff20a513146ffefbd521490eb8da0b4",
       "path": "findings[25b18f8a435341ff50b1c453193970ad9a7e7b12bb022ebf21d90d6da1fd331c].members[4].why_it_matters",
       "run": "runs-v2.10/third-organic-should-catch/run-2"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].band",
+      "run": "runs-v2.10/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].orchestrator_score",
+      "run": "runs-v2.10/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[12fe298fc07e929bf6fd70047bc5e520b172a1c5329544a48022e36ce0c4be82].snapshot.band",
+      "run": "runs-v2.10/triggarr-secret-in-logs/run-1"
     },
     {
       "after": "warning",
