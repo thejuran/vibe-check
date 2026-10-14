@@ -1,0 +1,448 @@
+{
+  "allow": [
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[de932df74922916070143f8ba95b7766ef1b218f58b1d2f8375e96ddec9e3b8b].band",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-2"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[de932df74922916070143f8ba95b7766ef1b218f58b1d2f8375e96ddec9e3b8b].orchestrator_score",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-2"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[de932df74922916070143f8ba95b7766ef1b218f58b1d2f8375e96ddec9e3b8b].snapshot.band",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-2"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].band",
+      "run": "runs-v2.10-phase43/first/should-quiet-6/run-1"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].orchestrator_score",
+      "run": "runs-v2.10-phase43/first/should-quiet-6/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].snapshot.band",
+      "run": "runs-v2.10-phase43/first/should-quiet-6/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].band",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-1"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].orchestrator_score",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].snapshot.band",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[4ac803dd7f3d2d25ef8e361db8752671cd3c02eb4d284c77a2e5c4b5ad30cd0f].band",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-2"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[4ac803dd7f3d2d25ef8e361db8752671cd3c02eb4d284c77a2e5c4b5ad30cd0f].orchestrator_score",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-2"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[4ac803dd7f3d2d25ef8e361db8752671cd3c02eb4d284c77a2e5c4b5ad30cd0f].snapshot.band",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-2"
+    },
+    {
+      "after": "sha256:a0bb4462d8aef8ac8bf37ee7b67c2833b5b99a3e1fdd8466a509ac03b00ed127",
+      "before": "sha256:d18ca883c83e42466bf16393b6709f1753a4c107271581d69629e7632376806f",
+      "path": "filtered[1].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:af16b0a1c9a23a411d700d0bc40de293b66f30823f11bb4e07698578503c6906",
+      "before": "sha256:a0bb4462d8aef8ac8bf37ee7b67c2833b5b99a3e1fdd8466a509ac03b00ed127",
+      "path": "filtered[2].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:d18ca883c83e42466bf16393b6709f1753a4c107271581d69629e7632376806f",
+      "before": "sha256:4e9ee704edf12cf8f86af15c2fcefeae0fd9af171b1dad02008128a09390cc5e",
+      "path": "filtered[3].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:4e9ee704edf12cf8f86af15c2fcefeae0fd9af171b1dad02008128a09390cc5e",
+      "before": "sha256:af16b0a1c9a23a411d700d0bc40de293b66f30823f11bb4e07698578503c6906",
+      "path": "filtered[4].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].band",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "bugs",
+      "before": "impact",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].agent",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:9f14025af0065b30e47e23ebb3b491d39ae8ed17d33739e5ff3827ffb3634953",
+      "before": "sha256:d59eced1ded07f84c145592f65bdf854358e009c5cd705f5215bf18697fed103",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].agent_confidence",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0",
+      "before": "sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].category",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:225b35956b7d7e9a7dd5117abd0f75a9a762dc2b1abc6b90422ba033611b17cb",
+      "before": "sha256:bb6973e5ee262da73b7605d3c5597adde7e61b1c2af822f55b4fef0de5256f31",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].current_code",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:311d3629a76d1f07a8d1c2eec33583d4bc7c764b34836620c13c48fd617fe5b4",
+      "before": "sha256:c443032adf13928079fee988fb81de0e261b9c803014c3ac94f667865a3837dc",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].fix_hint",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:e7ce14e9d03e9d2601dda12a9762967548f18761ccf0f605745f41b0ca8ab4db",
+      "before": "sha256:8243f8ea3d0030ea1ed63c032454d4634bb139e73fbea4c640e5b5e2d8966ac4",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].problem",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:a0bb4462d8aef8ac8bf37ee7b67c2833b5b99a3e1fdd8466a509ac03b00ed127",
+      "before": "sha256:d18ca883c83e42466bf16393b6709f1753a4c107271581d69629e7632376806f",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:a0c52f24305dfe0ff34da996f9b8df15f167c379f37f4ca894c270a60af50b23",
+      "before": "sha256:4e5184d28825d2de202fa79daa91a7e2ee5cb40262b4137d938d0a33666269fc",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[2].why_it_matters",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:624b60c58c9d8bfb6ff1886c2fd605d2adeb6ea4da576068201b6c6958ce93f4",
+      "before": "sha256:9f14025af0065b30e47e23ebb3b491d39ae8ed17d33739e5ff3827ffb3634953",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[3].agent_confidence",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:bb6973e5ee262da73b7605d3c5597adde7e61b1c2af822f55b4fef0de5256f31",
+      "before": "sha256:225b35956b7d7e9a7dd5117abd0f75a9a762dc2b1abc6b90422ba033611b17cb",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[3].current_code",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:fca1167c0d0ad15e688215729b5d64a2789a69ddbb7946e5a674e5690c52ea5e",
+      "before": "sha256:311d3629a76d1f07a8d1c2eec33583d4bc7c764b34836620c13c48fd617fe5b4",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[3].fix_hint",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:e2c77c664493f6bb781826c3a32f23c01ff791133980e3c996742a6ec468cbd6",
+      "before": "sha256:e7ce14e9d03e9d2601dda12a9762967548f18761ccf0f605745f41b0ca8ab4db",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[3].problem",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:af16b0a1c9a23a411d700d0bc40de293b66f30823f11bb4e07698578503c6906",
+      "before": "sha256:a0bb4462d8aef8ac8bf37ee7b67c2833b5b99a3e1fdd8466a509ac03b00ed127",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[3].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:73cefb4dc42cac2f45ebecb808b6d67eb743d44978987b6693d1768c65498aab",
+      "before": "sha256:a0c52f24305dfe0ff34da996f9b8df15f167c379f37f4ca894c270a60af50b23",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[3].why_it_matters",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:d59eced1ded07f84c145592f65bdf854358e009c5cd705f5215bf18697fed103",
+      "before": "sha256:9f14025af0065b30e47e23ebb3b491d39ae8ed17d33739e5ff3827ffb3634953",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[4].agent_confidence",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:bb6973e5ee262da73b7605d3c5597adde7e61b1c2af822f55b4fef0de5256f31",
+      "before": "sha256:98bd5c5216972428106f8543cf654e41b7b568cfeb96eda3f0f4dd554d3d3299",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[4].current_code",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:c443032adf13928079fee988fb81de0e261b9c803014c3ac94f667865a3837dc",
+      "before": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[4].fix_hint",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:8243f8ea3d0030ea1ed63c032454d4634bb139e73fbea4c640e5b5e2d8966ac4",
+      "before": "sha256:9ad902c59b3a16d8e510c532648e267ae29981c54ad822a9212980a2dad3c9d7",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[4].problem",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:d18ca883c83e42466bf16393b6709f1753a4c107271581d69629e7632376806f",
+      "before": "sha256:4e9ee704edf12cf8f86af15c2fcefeae0fd9af171b1dad02008128a09390cc5e",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[4].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:4e5184d28825d2de202fa79daa91a7e2ee5cb40262b4137d938d0a33666269fc",
+      "before": "sha256:f238bad9170d4c1db80fe1a8318a636402bc61f1ed1e38d79dc9ee76b679e70b",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[4].why_it_matters",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "impact",
+      "before": "bugs",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].agent",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:9f14025af0065b30e47e23ebb3b491d39ae8ed17d33739e5ff3827ffb3634953",
+      "before": "sha256:624b60c58c9d8bfb6ff1886c2fd605d2adeb6ea4da576068201b6c6958ce93f4",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].agent_confidence",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7",
+      "before": "sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].category",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:98bd5c5216972428106f8543cf654e41b7b568cfeb96eda3f0f4dd554d3d3299",
+      "before": "sha256:bb6973e5ee262da73b7605d3c5597adde7e61b1c2af822f55b4fef0de5256f31",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].current_code",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "before": "sha256:fca1167c0d0ad15e688215729b5d64a2789a69ddbb7946e5a674e5690c52ea5e",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].fix_hint",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:9ad902c59b3a16d8e510c532648e267ae29981c54ad822a9212980a2dad3c9d7",
+      "before": "sha256:e2c77c664493f6bb781826c3a32f23c01ff791133980e3c996742a6ec468cbd6",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].problem",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:4e9ee704edf12cf8f86af15c2fcefeae0fd9af171b1dad02008128a09390cc5e",
+      "before": "sha256:af16b0a1c9a23a411d700d0bc40de293b66f30823f11bb4e07698578503c6906",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].title",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:f238bad9170d4c1db80fe1a8318a636402bc61f1ed1e38d79dc9ee76b679e70b",
+      "before": "sha256:73cefb4dc42cac2f45ebecb808b6d67eb743d44978987b6693d1768c65498aab",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].members[5].why_it_matters",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].orchestrator_score",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].snapshot.band",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[780e77edbe528e97f714b9c148538f93595e7e6cac04cafdb192ac8383378d4a].band",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-1"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[780e77edbe528e97f714b9c148538f93595e7e6cac04cafdb192ac8383378d4a].orchestrator_score",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[780e77edbe528e97f714b9c148538f93595e7e6cac04cafdb192ac8383378d4a].snapshot.band",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-1"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].band",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-2"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].orchestrator_score",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-2"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[c93be6bfe2511a39a1baeba372e27f4db50b5f3cacbdec3550e6fa0e8f25eb04].snapshot.band",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-2"
+    },
+    {
+      "after": "sha256:4c0967b7043569b09668bb961bfbb34b5e6371db14e03d4f423f53b05555bf94",
+      "before": "sha256:5d903bf28ed8baa23a32348e7d9b5bbacf83164733cea8e20ab7056fc4023759",
+      "path": "filtered[1].title",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:5d903bf28ed8baa23a32348e7d9b5bbacf83164733cea8e20ab7056fc4023759",
+      "before": "sha256:4c0967b7043569b09668bb961bfbb34b5e6371db14e03d4f423f53b05555bf94",
+      "path": "filtered[2].title",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].band",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "bugs",
+      "before": "impact",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].agent",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:9f14025af0065b30e47e23ebb3b491d39ae8ed17d33739e5ff3827ffb3634953",
+      "before": "sha256:d59eced1ded07f84c145592f65bdf854358e009c5cd705f5215bf18697fed103",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].agent_confidence",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0",
+      "before": "sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].category",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:dcbbbab3d8f11b4c44c88fc2f6827701b8ee4a1ecd374ee3236cedb8e19f8d53",
+      "before": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].fix_hint",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "before": "sha256:18f38fab6dc380f22b18de0e43997fc485f049b5a02e740eef573f4a4110edc0",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].intent_doc_match",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:247621a95f9834d33b78eca9c71082d3518afd6f9a502d52b0d3c47284897562",
+      "before": "sha256:406de08b89386b0a9752756ffb246ec5339e7db1da05aa4a3f4812050abb45f1",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].problem",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:4c0967b7043569b09668bb961bfbb34b5e6371db14e03d4f423f53b05555bf94",
+      "before": "sha256:5d903bf28ed8baa23a32348e7d9b5bbacf83164733cea8e20ab7056fc4023759",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].title",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:dd3cdeaec62d06b55b7abcb51314aed70108368669846278389d063fe88ea5c7",
+      "before": "sha256:21b5ab1cc71407254d3b40f6f6c955688c915da115c7b9c197ea1cd402f21d26",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[2].why_it_matters",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "impact",
+      "before": "bugs",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].agent",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:d59eced1ded07f84c145592f65bdf854358e009c5cd705f5215bf18697fed103",
+      "before": "sha256:9f14025af0065b30e47e23ebb3b491d39ae8ed17d33739e5ff3827ffb3634953",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].agent_confidence",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:6096986c0d519cd7673618065e964b05cab28c6b05ea06829e010f404e446ca7",
+      "before": "sha256:d00ee341f03fbc289f298e7ee6d6265205d2d12c2f493bc011b3cecbd28c61a0",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].category",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "before": "sha256:dcbbbab3d8f11b4c44c88fc2f6827701b8ee4a1ecd374ee3236cedb8e19f8d53",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].fix_hint",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:18f38fab6dc380f22b18de0e43997fc485f049b5a02e740eef573f4a4110edc0",
+      "before": "sha256:74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].intent_doc_match",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:406de08b89386b0a9752756ffb246ec5339e7db1da05aa4a3f4812050abb45f1",
+      "before": "sha256:247621a95f9834d33b78eca9c71082d3518afd6f9a502d52b0d3c47284897562",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].problem",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:5d903bf28ed8baa23a32348e7d9b5bbacf83164733cea8e20ab7056fc4023759",
+      "before": "sha256:4c0967b7043569b09668bb961bfbb34b5e6371db14e03d4f423f53b05555bf94",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].title",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "sha256:21b5ab1cc71407254d3b40f6f6c955688c915da115c7b9c197ea1cd402f21d26",
+      "before": "sha256:dd3cdeaec62d06b55b7abcb51314aed70108368669846278389d063fe88ea5c7",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].members[3].why_it_matters",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": 94,
+      "before": 100,
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].orchestrator_score",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": "warning",
+      "before": "critical",
+      "path": "findings[993c32eb9391cd620527d9b63921e2f556ce66a8cd641dd81425e774e71098af].snapshot.band",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    }
+  ]
+}
