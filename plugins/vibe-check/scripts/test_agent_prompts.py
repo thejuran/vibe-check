@@ -580,7 +580,7 @@ def cap_never_warns(cap, consts, severity):
 # --------------------------------------------------------------------------- #
 # Safe-change recognition block (bugs, security, impact)
 # --------------------------------------------------------------------------- #
-# The twenty-one clauses of the shared block, verbatim after whitespace
+# The twenty-six clauses of the shared block, verbatim after whitespace
 # normalization (case-sensitive). Index order is relied on by the tests:
 # [10] is the loosening-is-a-defect clause, [11] the sensitive-area cap
 # sentence, [12] the no-repository-occurrence clause, and the three-branch
@@ -590,7 +590,14 @@ def cap_never_warns(cap, consts, severity):
 # property — leaves the removal rule at honest confidence, uncapped; [19]
 # branch 2, a traced path bypassing a same-purpose replacement is a demonstrated
 # loss, uncapped; [20] branch 3, a same-purpose replacement with unverified
-# coverage leaves the capped note.
+# coverage is an unresolved assessment carrying `needs_verification`, never a
+# capped note. [21:26] are the reachability and conditional-suppression rules:
+# [21] the three-outcome lead for a flaw in unchanged code the diff touches or
+# calls (investigate first, then exactly one outcome); [22] a new caller alone
+# is never a verdict; [23] a staged value's promised wiring is never evidence of
+# harmlessness; [24] old acceptance / missing documentation prove nothing about
+# a rejected legacy value; [25] `needs_verification` is the exception, counted
+# as an alarm, and needs a concrete trigger, path and consequence.
 SAFE_CHANGE_CLAUSES = (
     "A diff that TIGHTENS a control — it reduces what can get through — is presumptively "
     "safe on the axis it tightens.",
@@ -635,25 +642,46 @@ SAFE_CHANGE_CLAUSES = (
     "confidence; no cap applies, because demonstrated loss always takes precedence over the "
     "cap.",
     "When you found and read a same-purpose replacement whose coverage of every formerly "
-    "protected path remains unverified, report the removal as a capped note "
-    "(`agent_confidence ≤ 45`, `severity: low`) with `pending: confirm <file:line> covers "
-    "every path the old check guarded`.",
+    "protected path remains unverified, report an unresolved assessment with "
+    "`needs_verification`: `path` names the formerly protected path you could not confirm, "
+    "`trigger` names the input that would take it, `consequence` names what the removed check "
+    "prevented, and the problem text cites the replacement at `file:line`; it is never a "
+    "capped note.",
+    "For a flaw in unchanged code that this diff touches or calls — a helper it now calls, a "
+    "validator it extends, a default it now reaches — first read the callers, guards, defaults "
+    "and the contract its inputs are held to, then land on exactly one outcome:",
+    "A new caller is evidence to investigate, never a verdict on its own.",
+    "A comment, a plan, a roadmap entry or a commit message promising future wiring is never "
+    "evidence of harmlessness.",
+    "Old acceptance alone does not prove the value is supported; missing documentation alone "
+    "does not prove it is unsupported; a bare \"might break compatibility\" with no named "
+    "value, path and failure does not qualify and stays under the cap.",
+    "`needs_verification` is the exception, not a softer finding: every rendered unresolved "
+    "item is counted as an alarm and must be decided by the owner, so emit it only with a "
+    "concrete `trigger`, `path` and `consequence` tied to this diff; a note with no concrete "
+    "failure stays under the sensitive-area cap.",
 )
 
 # The exact ceilings the block states, in order: the tightened-axis note, the
-# moved-control capped note (branch 3 only), the sensitive-area cap and its
-# Warning-band sentence. Pinning the list means any added cap — however worded,
-# including a re-cap of branch 1 or branch 2 — trips.
-BLOCK_EXPECTED_CAPS = [45, 45, 45, 45]
+# sensitive-area cap and its Warning-band sentence. Branch 3 of the moved-control
+# rule (unverified coverage) is an unresolved `needs_verification` item, not a
+# capped note, so it states no ceiling. Pinning the list means any added cap —
+# however worded, including a re-cap of any moved-control branch — trips.
+BLOCK_EXPECTED_CAPS = [45, 45, 45]
 
 # Substrings the block must never carry: a repository-occurrence requirement
 # ("a concrete in-repo value") would let a traced break of contract-supported
 # configuration be dismissed for lack of a fixture. "not a removal" would
 # reopen the moved-control exemption that drops a claimed move without a trace.
-# The last three would re-cap a move no replacement was found for (a real
-# removal filtered out of the report on the strength of a comment).
+# The next three would re-cap a move no replacement was found for (a real
+# removal filtered out of the report on the strength of a comment). The last
+# two are the retired blanket unchanged-helper rule: a flaw in unchanged code
+# the diff calls is investigated and lands on one of three outcomes, never a
+# pre-existing cap by default.
 BLOCK_FORBIDDEN = ("in-repo", "not a removal", "not named, not read",
-                   "the same capped note applies", "confirm no replacement covers")
+                   "the same capped note applies", "confirm no replacement covers",
+                   "every existing caller of the helper already has it",
+                   "likewise a pre-existing gap")
 
 _CAP45 = re.compile(r"agent_confidence\s*(?:≤|<=)\s*45")
 
@@ -1148,7 +1176,7 @@ class TestLoudLaneBlock(unittest.TestCase):
                                 text.index("## Coverage, not filtering"))
 
     def test_all_clauses_present(self):
-        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 21)
+        self.assertEqual(len(SAFE_CHANGE_CLAUSES), 26)
         for lane in LOUD:
             with self.subTest(lane=lane):
                 self.assertEqual(missing_clauses(_block(lane), SAFE_CHANGE_CLAUSES), [])
@@ -1167,8 +1195,9 @@ class TestLoudLaneBlock(unittest.TestCase):
 
     def test_three_moved_control_branches_present(self):
         # Branch 1 (none found / different property, uncapped), branch 2
-        # (demonstrated loss, uncapped) and branch 3 (unverified coverage,
-        # capped), in that order after the same-purpose definition.
+        # (demonstrated loss, uncapped) and branch 3 (unverified coverage, an
+        # unresolved needs_verification item, uncapped), in that order after
+        # the same-purpose definition.
         definition, b1, b2, b3 = SAFE_CHANGE_CLAUSES[17:21]
         self.assertIn("guards the same property as the removed check", definition)
         self.assertIn("only a comment, docstring or commit message asserts a move", b1)
@@ -1178,7 +1207,11 @@ class TestLoudLaneBlock(unittest.TestCase):
         self.assertIn("no cap applies, because demonstrated loss always takes precedence "
                       "over the cap", b2)
         self.assertIn("remains unverified", b3)
-        self.assertEqual(caps_in(b3), [45])
+        self.assertIn("unresolved assessment", b3)
+        self.assertIn("`needs_verification`", b3)
+        self.assertIn("never a capped note", b3)
+        self.assertNotIn("≤ 45", b3)
+        self.assertEqual(caps_in(b3), [])
         for lane in LOUD:
             with self.subTest(lane=lane):
                 blk = norm(_block(lane))
@@ -1277,11 +1310,11 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
         self.assertEqual(missing_clauses(dropped, SAFE_CHANGE_CLAUSES), [moved])
 
     def test_unnamed_replacement_exemption_is_caught(self):
-        # A found-and-read replacement leaves a capped note, never a full drop.
+        # A found-and-read replacement leaves an unresolved item, never a full drop.
         found, not_found = SAFE_CHANGE_CLAUSES[20], SAFE_CHANGE_CLAUSES[18]
         planted = self.bugs.replace(
-            "report the removal as a capped note",
-            "the removal is not a removal and needs no note")
+            "report an unresolved assessment with `needs_verification`: `path` names",
+            "the removal is not a removal and needs no note; `path` names")
         self.assertNotEqual(planted, self.bugs)
         self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [found])
         self.assertEqual(block_forbidden_hits(planted), ["not a removal"])
@@ -1409,6 +1442,92 @@ class TestLoudLaneBlockMutation(unittest.TestCase):
                    "removal and needs no finding.")
         self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [])
         self.assertEqual(block_forbidden_hits(planted), ["not a removal"])
+
+    # --- three-outcome reachability and conditional suppression ---------------
+    RETIRED_HELPER_RULE = (
+        "When the new check calls an existing validator or helper and the bypass lies in that "
+        "helper's unchanged logic, it is likewise a pre-existing gap: every existing caller of "
+        "the helper already has it, and the diff only extends the helper to one more input. "
+        "Report it under the cap and name the bypass input in the `pending:` note; it lifts the "
+        "cap only when the diff's own changed lines let the input through.")
+
+    def test_live_block_has_no_retired_helper_rule(self):
+        for lane in LOUD:
+            with self.subTest(lane=lane):
+                self.assertEqual(block_forbidden_hits(_block(lane)), [])
+
+    def test_readded_retired_helper_rule_trips(self):
+        # Re-adding the blanket unchanged-helper cap beside intact clauses passes
+        # the presence lock; the forbidden phrases catch it.
+        anchor = norm(SAFE_CHANGE_CLAUSES[7])
+        planted = self.bugs.replace(anchor, anchor + " " + self.RETIRED_HELPER_RULE, 1)
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [])
+        self.assertEqual(block_forbidden_hits(planted),
+                         ["every existing caller of the helper already has it",
+                          "likewise a pre-existing gap"])
+
+    def test_dropped_three_outcome_lead_trips(self):
+        lead = SAFE_CHANGE_CLAUSES[21]
+        planted = self.bugs.replace(norm(lead), "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [lead])
+        # Skipping the investigation step also trips the lead clause.
+        no_investigation = self.bugs.replace(
+            "first read the callers, guards, defaults and the contract its inputs are held to, "
+            "then ", "")
+        self.assertNotEqual(no_investigation, self.bugs)
+        self.assertEqual(missing_clauses(no_investigation, SAFE_CHANGE_CLAUSES), [lead])
+
+    def test_dropped_new_caller_sentence_trips(self):
+        sentence = SAFE_CHANGE_CLAUSES[22]
+        planted = self.bugs.replace(norm(sentence), "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [sentence])
+        verdict = self.bugs.replace("never a verdict on its own", "enough on its own")
+        self.assertEqual(missing_clauses(verdict, SAFE_CHANGE_CLAUSES), [sentence])
+
+    def test_recapped_branch_three_trips(self):
+        # Putting branch 3 back under the cap changes the clause and the pinned list.
+        b3 = SAFE_CHANGE_CLAUSES[20]
+        recapped = self.bugs.replace(
+            "report an unresolved assessment with `needs_verification`: `path` names",
+            "report the removal as a capped note (`agent_confidence ≤ 45`, `severity: low`): "
+            "`path` names")
+        self.assertNotEqual(recapped, self.bugs)
+        self.assertEqual(missing_clauses(recapped, SAFE_CHANGE_CLAUSES), [b3])
+        self.assertNotEqual(caps_in(recapped), BLOCK_EXPECTED_CAPS)
+        # An appended re-cap beside an intact branch 3 still changes the list.
+        appended = self.bugs + (" When replacement coverage stays unverified, keep the removal "
+                                "at `agent_confidence ≤ 45`, `severity: low`.")
+        self.assertEqual(missing_clauses(appended, SAFE_CHANGE_CLAUSES), [])
+        self.assertNotEqual(caps_in(appended), BLOCK_EXPECTED_CAPS)
+
+    def test_dropped_staged_value_non_evidence_trips(self):
+        sentence = SAFE_CHANGE_CLAUSES[23]
+        planted = self.bugs.replace(norm(sentence), "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [sentence])
+        trusted = self.bugs.replace("is never evidence of harmlessness",
+                                    "is evidence of harmlessness")
+        self.assertNotEqual(trusted, self.bugs)
+        self.assertEqual(missing_clauses(trusted, SAFE_CHANGE_CLAUSES), [sentence])
+
+    def test_dropped_legacy_value_non_evidence_trips(self):
+        sentence = SAFE_CHANGE_CLAUSES[24]
+        planted = self.bugs.replace(
+            "; missing documentation alone does not prove it is unsupported", "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [sentence])
+
+    def test_dropped_emission_rule_trips(self):
+        rule = SAFE_CHANGE_CLAUSES[25]
+        planted = self.bugs.replace(norm(rule), "")
+        self.assertNotEqual(planted, self.bugs)
+        self.assertEqual(missing_clauses(planted, SAFE_CHANGE_CLAUSES), [rule])
+        softened = self.bugs.replace("is the exception, not a softer finding",
+                                     "is a softer finding")
+        self.assertEqual(missing_clauses(softened, SAFE_CHANGE_CLAUSES), [rule])
 
 
 # --------------------------------------------------------------------------- #
@@ -2124,20 +2243,24 @@ class TestStaleProseMutation(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 # Retune clauses (the single post-measurement prompt retune)
 # --------------------------------------------------------------------------- #
-# Two rules added after the full measurement, each an abstract class:
-# [0] a bypass that lives in the unchanged logic of an existing validator or
-#     helper the diff only calls is a pre-existing gap (capped), and the cap
-#     lifts only when the diff's own changed lines let the input through;
+# Two rules, each an abstract class:
+# [0] a flaw in unchanged code the diff touches or calls is investigated and
+#     lands on exactly one of three outcomes (finding on demonstrated new
+#     exposure, capped pre-existing note on demonstrated unchanged exposure,
+#     `needs_verification` when neither is established); it replaced the
+#     retired blanket unchanged-helper cap and sits in the same slot;
 # [1] replacing an unconditional protection with one that holds only through a
 #     default, a deprecated path or the installed version is a loss of the
 #     guarantee even when it still holds today: honest confidence, not the
 #     sensitive-area cap, and the title names the attack the control prevents.
 RETUNE_BLOCK_CLAUSES = (
-    "When the new check calls an existing validator or helper and the bypass lies in that "
-    "helper's unchanged logic, it is likewise a pre-existing gap: every existing caller of the "
-    "helper already has it, and the diff only extends the helper to one more input. Report it "
-    "under the cap and name the bypass input in the `pending:` note; it lifts the cap only when "
-    "the diff's own changed lines let the input through.",
+    "(1) new exposure demonstrated — a new caller, a new input or a removed check lets a traced "
+    "input reach the flaw, cited at `file:line` — report a finding at your honest confidence; "
+    "(2) unchanged exposure demonstrated — the same inputs reached the flaw before this diff, "
+    "cited at `file:line` — report it under the cap as pre-existing; (3) neither established — "
+    "report an unresolved assessment: a finding carrying `needs_verification` whose `trigger` "
+    "names the concrete input or value, `path` names how it reaches the changed code "
+    "(`file:line` or a symbol) and `consequence` names the concrete failure.",
     "Replacing a protection that held unconditionally with one that holds only through a "
     "library default, a deprecated path or the currently installed dependency version is a loss "
     "of that guarantee on the changed line even when you verify it still holds today: report it "
@@ -2223,9 +2346,16 @@ class TestRetuneClauses(unittest.TestCase):
             self.assertIn("at your honest confidence, not under the sensitive-area", clause)
             self.assertIn("name in the title the attack the control prevents", clause)
 
-    def test_helper_clause_keeps_the_changed_line_exemption(self):
-        self.assertIn("lifts the cap only when the diff's own changed lines let the input "
-                      "through", RETUNE_BLOCK_CLAUSES[0])
+    def test_reachability_clause_names_three_outcomes(self):
+        clause = RETUNE_BLOCK_CLAUSES[0]
+        at = [clause.index(s) for s in ("(1) new exposure demonstrated",
+                                        "(2) unchanged exposure demonstrated",
+                                        "(3) neither established")]
+        self.assertEqual(at, sorted(at))
+        self.assertIn("report a finding at your honest confidence", clause)
+        self.assertIn("`needs_verification`", clause)
+        for field in ("`trigger`", "`path`", "`consequence`"):
+            self.assertIn(field, clause)
         self.assertIn("only when the lines the change itself adds or edits let the input "
                       "through", RETUNE_FOCUS_TOKENS[0])
 
@@ -2257,11 +2387,17 @@ class TestRetuneClausesMutation(unittest.TestCase):
         planted = self._blk().replace(norm(RETUNE_BLOCK_CLAUSES[0]), "")
         self.assertEqual(retune_block_problems(planted), [RETUNE_BLOCK_CLAUSES[0]])
 
-    def test_helper_clause_widened_to_never_lift_trips(self):
+    def test_unresolved_outcome_collapsed_to_cap_trips(self):
         planted = self._blk().replace(
-            "it lifts the cap only when the diff's own changed lines let the input through",
-            "it never lifts the cap")
-        self.assertNotEqual(retune_block_problems(planted), [])
+            "(3) neither established — report an unresolved assessment:",
+            "(3) neither established — report it under the cap:")
+        self.assertNotEqual(planted, self._blk())
+        self.assertEqual(retune_block_problems(planted), [RETUNE_BLOCK_CLAUSES[0]])
+        new_exposure_capped = self._blk().replace(
+            "report a finding at your honest confidence; (2)",
+            "report it under the cap; (2)")
+        self.assertNotEqual(new_exposure_capped, self._blk())
+        self.assertEqual(retune_block_problems(new_exposure_capped), [RETUNE_BLOCK_CLAUSES[0]])
 
     def test_misplaced_guarantee_clause_trips(self):
         g = norm(RETUNE_BLOCK_CLAUSES[1])

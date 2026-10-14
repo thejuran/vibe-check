@@ -28,11 +28,17 @@ value AND the path by which it defeats the case the new check is written to bloc
 `file:line`. "Could be bypassed", "may be incomplete", "not exhaustive" or "sensitive area" do not
 lift the cap. A bypass input the pre-change code equally allowed — a case the diff never addressed
 — is a pre-existing gap, not a defect of this diff: report it under the cap.
-When the new check calls an existing validator or helper and the bypass lies in that helper's
-unchanged logic, it is likewise a pre-existing gap: every existing caller of the helper already has
-it, and the diff only extends the helper to one more input. Report it under the cap and name the
-bypass input in the `pending:` note; it lifts the cap only when the diff's own changed lines let the
-input through.
+
+For a flaw in unchanged code that this diff touches or calls — a helper it now calls, a validator it
+extends, a default it now reaches — first read the callers, guards, defaults and the contract its
+inputs are held to, then land on exactly one outcome: (1) new exposure demonstrated — a new caller,
+a new input or a removed check lets a traced input reach the flaw, cited at `file:line` — report a
+finding at your honest confidence; (2) unchanged exposure demonstrated — the same inputs reached the
+flaw before this diff, cited at `file:line` — report it under the cap as pre-existing; (3) neither
+established — report an unresolved assessment: a finding carrying `needs_verification` whose
+`trigger` names the concrete input or value, `path` names how it reaches the changed code
+(`file:line` or a symbol) and `consequence` names the concrete failure. A new caller is evidence to
+investigate, never a verdict on its own.
 
 Rejecting an input the old code accepted is the control working, not a regression, when that
 input lies outside what the code's own input contract supports (its typed range, its documented
@@ -43,6 +49,22 @@ this repository; real deployments carry configuration no fixture shows. A value 
 supported, or a failure asserted without tracing it, does not lift the cap. Review the same diff
 normally on every other axis: a new validator that dereferences `None`, mis-parses a valid value or
 crashes on a wrong type is still a defect on that other axis at your honest confidence.
+
+When a stricter check rejects a value the old code accepted and the contract cannot be established
+either way — no documented configuration, public API or persisted data shows whether the rejected
+value is supported — report an unresolved assessment with `needs_verification` that names the
+concrete rejected value (`trigger`), the input path it arrives on (`path`) and the breakage
+(`consequence`). Old acceptance alone does not prove the value is supported; missing documentation
+alone does not prove it is unsupported; a bare "might break compatibility" with no named value, path
+and failure does not qualify and stays under the cap.
+
+A value, field or option added in one step of a staged change whose consumer is not in the diff is
+not a defect by itself and is not harmless by itself. Suppress it only on requirement-based evidence
+that the change's supported behavior does not need it yet — a working optional default, or a
+feature not exposed on any path this diff activates — cited at `file:line`. Report a finding when
+evidence shows current behavior requires it and it is not wired. Report an unresolved assessment
+with `needs_verification` when neither can be established. A comment, a plan, a roadmap entry or a
+commit message promising future wiring is never evidence of harmlessness.
 
 The opposite direction is a defect: a diff that removes, reverts, loosens, disables or bypasses a
 control, or makes it depend on fragile or version-dependent configuration, IS a demonstrated
@@ -64,9 +86,10 @@ text is never evidence of a replacement. When you found and read a same-purpose 
 can trace a formerly protected path that bypasses it, that is a demonstrated protection loss:
 report it at your honest confidence; no cap applies, because demonstrated loss always takes
 precedence over the cap. When you found and read a same-purpose replacement whose coverage of
-every formerly protected path remains unverified, report the removal as a capped note
-(`agent_confidence ≤ 45`, `severity: low`) with
-`pending: confirm <file:line> covers every path the old check guarded`.
+every formerly protected path remains unverified, report an unresolved assessment with
+`needs_verification`: `path` names the formerly protected path you could not confirm, `trigger`
+names the input that would take it, `consequence` names what the removed check prevented, and the
+problem text cites the replacement at `file:line`; it is never a capped note.
 
 **Sensitive area, no demonstrated defect:** when a finding's only basis is that changed code
 touches a sensitive area (auth, secrets, SSRF, injection, logging, validation, serialization) and
@@ -76,11 +99,16 @@ drop. Severity is how bad the finding is if real, and a note with no demonstrate
 demonstrated consequence, so it is `low` until a defect is shown — then raise confidence and
 severity together. At `agent_confidence ≤ 45` and `severity: low` the note never reaches the
 Warning band, even if Codex independently flags the same site while joined and it persists across
-passes (`templates/scoring.md`: at most 45 + 20 + 10 + 15 − 20 = 70, the Medium floor,
-acknowledgeable). Off-hunk is not the same as unverified: repository
+passes (`templates/scoring.md`: a note that does not qualify earns no +10, so at most
+45 + 20 + 15 − 20 = 60, below the Medium floor). Off-hunk is not the same as unverified: repository
 context outside the diff that you have actually read counts as evidence, so an unchanged caller
 that demonstrably feeds attacker-controlled input into a changed sink establishes a defect on the
 changed line — report it at your honest confidence, not under the cap.
+
+`needs_verification` is the exception, not a softer finding: every rendered unresolved item is
+counted as an alarm and must be decided by the owner, so emit it only with a concrete `trigger`,
+`path` and `consequence` tied to this diff; a note with no concrete failure stays under the
+sensitive-area cap.
 
 ## Coverage, not filtering
 
