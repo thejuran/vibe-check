@@ -2197,5 +2197,296 @@ def read_prose(relpath):
         return fh.read()
 
 
+# --------------------------------------------------------------------------- #
+# Needs-verification rows (QUIET-06 / R9 / R10 / D-12 / O-2): an NV row is an
+# open obligation like any other, counted as `undecided_nv` until the owner
+# decides it; its decision is line-insensitive but evidence-sensitive (the
+# whole-snippet `current_code` fingerprint). States are built by the CURRENT
+# score.run so the row shape, the rollback marker and the evidence refresh
+# cannot drift between the writer and this reader.
+# --------------------------------------------------------------------------- #
+_NV_GUARDED = ("def view(req):\n    if req.user.is_admin:\n"
+               "        return secret\n    return None")
+_NV_MOVED = ("def view(req):\n    if req.user.is_admin:\n"
+             "    return secret\n    return None")
+
+
+def _nv_changed_body():
+    """Same first line, same line count; the FOURTH line differs."""
+    return ts._NV_CODE.replace("return Config(limit)",
+                               "return Config(min(limit, 100))")
+
+
+def nv_pass1_state(**kw):
+    """Pass 1: one admitted NV item scored by score.run, persisted."""
+    out = score.run(ts._nv_env([ts._nv(**kw)]))
+    rows = ts._nv_rows(out)
+    assert len(rows) == 1, out
+    return append_pass({"medium_acknowledgments": {}, "passes": []}, out, 1, "h1")
+
+
+def nv_row(state):
+    rows = [f for f in state["passes"][-1]["findings"]
+            if f.get("band") == carry_state.NV_BAND]
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+def nv_next_pass(state, canonical, window, **over):
+    """The next pass: the last NV row carried with the HEAD read the 53-12
+    collector passes (canonical first line + NV-length window, both None when
+    the stored snippet could not be located), scored and persisted."""
+    n = state["passes"][-1]["pass_number"] + 1
+    cf = ts._nv_cf(nv_row(state), canonical, window, **over)
+    out = score.run(ts._nv_env([], carryforward=[cf], pass_number=n))
+    return append_pass(state, out, n, "h%d" % n)
+
+
+def nv_defer(state):
+    return decide(state, state["passes"][-1]["pass_number"],
+                  (nv_row(state)["stable_hash"], "defer"))
+
+
+def nv_hand_state(evidence_over=None, row_over=None, code=None):
+    """A hand-built one-row NV state with a defer whose evidence is the row's
+    own evidence, optionally perturbed."""
+    s = nv_pass1_state() if code is None else nv_pass1_state(code=code)
+    row = nv_row(s)
+    if row_over:
+        row.update(row_over)
+    s = nv_defer(s)
+    if evidence_over:
+        s["decisions"][row["stable_hash"]]["evidence"].update(evidence_over)
+    return s
+
+
+class TestNeedsVerificationCounts(unittest.TestCase):
+    def test_constants(self):
+        self.assertEqual(carry_state.NV_BAND, "needs-verification")
+        self.assertEqual(carry_state.NV_MEMBER_OBLIGATION,
+                         score._NV_MEMBER_OBLIGATION)
+        self.assertEqual(carry_state.NV_BAND, score.NV_BAND)
+        self.assertIn(carry_state.NV_BAND, carry_state.BLOCKING_BANDS)
+        self.assertEqual(carry_state._NV_EVIDENCE_KEYS,
+                         ("file", "canonical_line_content", "band",
+                          "current_code"))
+
+    def test_open_nv_row_is_undecided(self):
+        s = nv_pass1_state()
+        h = nv_row(s)["stable_hash"]
+        self.assertIsNone(carry_state.state_reason(s))
+        c = carry_state.finalize_counts(s)
+        self.assertEqual(c["undecided_nv"], 1)
+        self.assertEqual(c["undecided_nv_hashes"], [h])
+        self.assertEqual(c["outstanding_cw"], 0)
+        self.assertEqual(c["unacknowledged_medium"], 0)
+        self.assertFalse(carry_state.is_closed(nv_row(s), s, None))
+
+    def test_current_decision_closes_nv_row(self):
+        s = nv_defer(nv_pass1_state())
+        c = carry_state.finalize_counts(s)
+        self.assertEqual(c["undecided_nv"], 0)
+        self.assertEqual(c["undecided_nv_hashes"], [])
+        self.assertTrue(carry_state.is_closed(nv_row(s), s, None))
+
+    def test_marker_tolerated_on_nv_row_counted_once(self):
+        s = nv_pass1_state()
+        row = nv_row(s)
+        self.assertEqual(row["members"][0]["obligation"], "needs-verification")
+        recs = carry_state.open_findings(s)
+        self.assertEqual([r["stable_hash"] for r in recs], [row["stable_hash"]])
+        self.assertIs(recs[0], row)
+
+    def test_marker_on_other_band_is_still_malformed(self):
+        # Mutation partner: the tolerance is gated on the NV band, never general.
+        s = nv_pass1_state()
+        row = nv_row(s)
+        row["band"] = "critical"
+        row["snapshot"]["band"] = "critical"
+        self.assertEqual(carry_state.state_reason(s),
+                         carry_state.REASON_OBLIGATION)
+        self.assertIsNone(carry_state.finalize_counts(s))
+
+    def test_nv_does_not_count_as_cw_or_medium(self):
+        s = nv_pass1_state()
+        c = carry_state.finalize_counts(s)
+        self.assertEqual(c["outstanding_cw_hashes"], [])
+        self.assertEqual(c["unacknowledged_medium_hashes"], [])
+
+    def test_counts_cli_reports_undecided_nv(self):
+        s = nv_pass1_state()
+        proc = run_cli(["finalize-counts"], json.dumps(s).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        c = json.loads(proc.stdout)
+        self.assertEqual(c["undecided_nv"], 1)
+        self.assertEqual(c["undecided_nv_hashes"], [nv_row(s)["stable_hash"]])
+
+
+class TestNeedsVerificationCodeKeyMirror(unittest.TestCase):
+    SAMPLES = ("  def f(a):  \n\n    x = a\n    return x \n", _NV_GUARDED,
+               _NV_MOVED, "\tif x:\n\t\ty()\n", "", "   \n\n", None, 7,
+               ts._NV_CODE)
+
+    def test_mirror_lock(self):
+        for s in self.SAMPLES:
+            with self.subTest(sample=s):
+                self.assertEqual(carry_state._nv_code_key(s),
+                                 score._nv_code_key(s))
+
+    def test_relative_indentation_preserved(self):
+        self.assertEqual(carry_state._nv_code_key("  def f(a):  \n\n    x = a\n"),
+                         "def f(a):\n  x = a")
+        self.assertNotEqual(carry_state._nv_code_key(_NV_GUARDED),
+                            carry_state._nv_code_key(_NV_MOVED))
+
+
+class TestNeedsVerificationDecisionEvidence(unittest.TestCase):
+    def test_nv_evidence_has_fingerprint_critical_stays_four_key(self):
+        s = nv_defer(nv_pass1_state())
+        ev = s["decisions"][nv_row(s)["stable_hash"]]["evidence"]
+        self.assertEqual(set(ev), set(carry_state.EVIDENCE_KEYS) | {"current_code"})
+        self.assertEqual(ev["current_code"], score._nv_code_key(ts._NV_CODE))
+        crit = mk_state([mk_pass(1, [mk_finding("critical", "new", HA,
+                                                snapshot=snap(1, band="critical"),
+                                                current_code="x = 1")])])
+        crit = decide(crit, 1, (HA, "defer"))
+        self.assertEqual(set(crit["decisions"][HA]["evidence"]),
+                         set(carry_state.EVIDENCE_KEYS))
+
+    def test_line_only_difference_is_current(self):
+        s = nv_hand_state(evidence_over={"line": 99})
+        self.assertEqual(carry_state.decision_state(nv_row(s), s), "current")
+
+    def test_two_pass_line_shift_is_current(self):
+        s = nv_defer(nv_pass1_state())
+        s = nv_next_pass(s, ts._NV_FIRST, ts._NV_CODE, line=30)
+        row = nv_row(s)
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["snapshot"]["line"], 30)
+        self.assertEqual(carry_state.decision_state(row, s), "current")
+        self.assertEqual(carry_state.finalize_counts(s)["undecided_nv"], 0)
+
+    def test_canonical_difference_is_stale_code(self):
+        s = nv_hand_state(evidence_over={"canonical_line_content": "def other():"})
+        self.assertEqual(carry_state.decision_state(nv_row(s), s), "stale")
+        self.assertEqual(carry_state.stale_cause(nv_row(s), s), "code")
+
+    def test_band_change_is_stale_severity(self):
+        s = nv_defer(nv_pass1_state())
+        row = nv_row(s)
+        row["band"] = "warning"
+        row["snapshot"]["band"] = "warning"
+        row["members"] = []
+        self.assertEqual(carry_state.decision_state(row, s), "stale")
+        self.assertEqual(carry_state.stale_cause(row, s), "severity")
+
+    def test_evidence_without_fingerprint_fails_closed(self):
+        s = nv_defer(nv_pass1_state())
+        del s["decisions"][nv_row(s)["stable_hash"]]["evidence"]["current_code"]
+        self.assertEqual(carry_state.decision_state(nv_row(s), s), "stale")
+
+    def test_whitespace_drift_is_current(self):
+        base = ts._NV_CODE
+        for drift in (base.replace("\n", "  \n"),
+                      base.replace("\n", "\n\n"),
+                      "\n".join("    " + ln for ln in base.split("\n")),
+                      "\n".join("\t" + ln for ln in base.split("\n"))):
+            with self.subTest(drift=drift):
+                s = nv_hand_state()
+                nv_row(s)["current_code"] = drift
+                self.assertEqual(carry_state.decision_state(nv_row(s), s),
+                                 "current")
+
+    def test_critical_line_shift_still_stale(self):
+        crit = mk_state([mk_pass(1, [mk_finding("critical", "new", HA,
+                                                snapshot=snap(1, band="critical"))])])
+        crit = decide(crit, 1, (HA, "defer"))
+        crit["passes"][-1]["findings"][0]["snapshot"]["line"] = 11
+        rec = crit["passes"][-1]["findings"][0]
+        self.assertEqual(carry_state.decision_state(rec, crit), "stale")
+
+    def test_nv_changed_body_re_asks_decision(self):
+        for kw in ({}, {"line": None, "symbol": "load_config"}):
+            with self.subTest(**kw):
+                s = nv_defer(nv_pass1_state(**kw))
+                changed = _nv_changed_body()
+                s = nv_next_pass(s, ts._NV_FIRST, changed)
+                row = nv_row(s)
+                self.assertEqual(row["status"], "needs-recheck")
+                self.assertEqual(row["current_code"], changed)
+                self.assertEqual(carry_state.decision_state(row, s), "stale")
+                self.assertEqual(carry_state.stale_cause(row, s), "code")
+                self.assertEqual(carry_state.finalize_counts(s)["undecided_nv"], 1)
+
+    def test_nv_equal_window_keeps_decision(self):
+        for kw in ({}, {"line": None, "symbol": "load_config"}):
+            with self.subTest(**kw):
+                s = nv_defer(nv_pass1_state(**kw))
+                s = nv_next_pass(s, ts._NV_FIRST, ts._NV_CODE)
+                row = nv_row(s)
+                self.assertEqual(row["status"], "persisted")
+                self.assertEqual(carry_state.decision_state(row, s), "current")
+
+    def test_nv_decision_on_refreshed_evidence_sticks(self):
+        s = nv_defer(nv_pass1_state())
+        changed = _nv_changed_body()
+        s = nv_next_pass(s, ts._NV_FIRST, changed)
+        self.assertEqual(carry_state.decision_state(nv_row(s), s), "stale")
+        s = nv_defer(s)
+        self.assertEqual(carry_state.decision_state(nv_row(s), s), "current")
+        s = nv_next_pass(s, ts._NV_FIRST, changed)
+        row = nv_row(s)
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(carry_state.decision_state(row, s), "current")
+        self.assertEqual(carry_state.finalize_counts(s)["undecided_nv"], 0)
+
+    def test_nv_unlocated_re_asks_decision(self):
+        s = nv_defer(nv_pass1_state())
+        self.assertIsInstance(nv_row(s)["snapshot"]["canonical_line_content"], str)
+        s = nv_next_pass(s, None, None)
+        row = nv_row(s)
+        self.assertEqual(row["status"], "needs-recheck")
+        self.assertEqual(carry_state.decision_state(row, s), "stale")
+        self.assertEqual(carry_state.stale_cause(row, s), "code")
+        s = nv_defer(s)
+        s = nv_next_pass(s, None, None)
+        self.assertEqual(carry_state.decision_state(nv_row(s), s), "current")
+
+    def test_nv_guarded_statement_moved_re_asks_decision(self):
+        s = nv_defer(nv_pass1_state(code=_NV_GUARDED))
+        s = nv_next_pass(s, "def view(req):", _NV_MOVED)
+        row = nv_row(s)
+        self.assertEqual(row["status"], "needs-recheck")
+        self.assertEqual(row["current_code"], _NV_MOVED)
+        self.assertEqual(carry_state.decision_state(row, s), "stale")
+        self.assertEqual(carry_state.stale_cause(row, s), "code")
+
+    def test_nv_relative_indent_key_is_load_bearing_mutation(self):
+        def strip(text):
+            if not isinstance(text, str):
+                return ""
+            return "\n".join(ln.strip() for ln in text.split("\n") if ln.strip())
+        with mock.patch.object(carry_state, "_nv_code_key", strip), \
+                mock.patch.object(score, "_nv_code_key", strip):
+            s = nv_defer(nv_pass1_state(code=_NV_GUARDED))
+            s = nv_next_pass(s, "def view(req):", _NV_MOVED)
+            row = nv_row(s)
+            self.assertEqual(row["status"], "persisted")
+            self.assertEqual(carry_state.decision_state(row, s), "current")
+
+    def test_nv_line_key_excluded_mutation(self):
+        with mock.patch.object(carry_state, "_NV_EVIDENCE_KEYS",
+                               carry_state.EVIDENCE_KEYS):
+            s = nv_hand_state(evidence_over={"line": 99})
+            self.assertEqual(carry_state.decision_state(nv_row(s), s), "stale")
+
+    def test_nv_fingerprint_key_is_load_bearing_mutation(self):
+        with mock.patch.object(carry_state, "_NV_EVIDENCE_KEYS",
+                               ("file", "canonical_line_content", "band")):
+            s = nv_defer(nv_pass1_state())
+            s = nv_next_pass(s, ts._NV_FIRST, _nv_changed_body())
+            self.assertEqual(carry_state.decision_state(nv_row(s), s), "current")
+
+
 if __name__ == "__main__":
     unittest.main()
