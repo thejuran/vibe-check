@@ -79,10 +79,12 @@ Decision = collections.namedtuple(
     "Decision", "answers questions_asked deferred_non_seeded fail")
 Next = collections.namedtuple("Next", "command fail")
 
-_BAND_WORDS = ("critical", "warning", "medium")
+# A needs-verification row is never the seeded finding; finalize defers it by
+# number like any other non-seeded row.
+_BAND_WORDS = ("critical", "warning", "medium", "needs-verification")
 _ROW_RE = re.compile(
-    r"^#([0-9]+) (.+?):([0-9]+|\?) — (.*?) \((critical|warning|medium)\)"
-    r"(?=$|\s)")
+    r"^#([0-9]+) (.+?):([0-9]+|\?) — (.*?) \(("
+    + "|".join(_BAND_WORDS) + r")\)(?=$|\s)")
 _SELECT_LABEL_RE = re.compile(r"^#([0-9]+) (\S+):([0-9]+|\?)$")
 _TRUNCATED_RE = re.compile(r"^… and [0-9]+ more", re.MULTILINE)
 _ELLIPSIS = "…"
