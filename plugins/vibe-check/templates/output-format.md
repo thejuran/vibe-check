@@ -55,6 +55,25 @@ Should fix:
 
 [same table + per-finding format as Critical]
 
+### Needs verification ⚠️
+
+*Unresolved assessments — a concrete failure the change could cause that the reviewer could not confirm or rule out. Every item here is actionable: confirm (send to the fix agent), dismiss or defer it by number on the decision card. This group is never filtered.*
+
+**SELECTION IS BY BAND LITERAL.** Render a row for each finding whose `band == "needs-verification"` — and only those; never from `filtered[]`.
+
+| File:Line | Item | Trigger | Path | Consequence |
+|-----------|------|---------|------|-------------|
+| `{{file}}:{{line}}` (or `{{needs_verification.symbol}}` when `line` is null) | {{title}} | {{needs_verification.trigger}} | {{needs_verification.path}} | {{needs_verification.consequence}} |
+
+Per-row suffix when the row's `status == "needs-recheck"`:
+- ` — code changed since last pass; recheck requested from the {{agent}} lane` when that lane was dispatched this pass;
+- ` — code changed since last pass; awaiting your decision` when it was not (a Codex-raised item, a gated or disabled lane).
+
+*{{nv_dropped_count}} item(s) not admitted at render (no location or no concrete trigger/path/consequence) and
+{{nv_dropped_weak_count}} weak co-located note(s) that neither qualified as findings nor as Needs-verification items — counted, not shown.*
+
+*Render the table only when at least one `band == "needs-verification"` finding is present; render the footer line above ALWAYS, even when both counts are 0, so the count is always published. The group is finalize-BLOCKING: an undecided Needs-verification item holds the ship verdict until it is confirmed, dismissed or deferred.*
+
 ### Medium 🟡 *(deep review only)*
 Consider fixing or acknowledge in `--finalize`:
 
@@ -202,12 +221,13 @@ Assert-by-reading: Y is present, at `low` band, OUTSIDE the Suppression section;
 | Medium (70-79) | ❌ | ✅ |
 | Filtered Issues Summary | ✅ | ✅ |
 | Filtered Issues Details | ❌ | ✅ |
+| Needs verification | ✅ (when ≥1 present; footer always) | ✅ (when ≥1 present; footer always) |
 | Suppression (audit) | ✅ (when ≥1 present) | ✅ (when ≥1 present) |
 | Low / Informational | ✅ (when ≥1 present) | ✅ (when ≥1 present) |
 | Architectural Notes | ❌ | ✅ |
 | Impact Analysis | ❌ | ✅ |
 
-**Suppression (audit)** and **Low / Informational** are both shown in BOTH Quick and Deep review (a bare marker or a low-capped idiom should surface even on a quick review), each rendered only when at least one matching finding is present. **Both are NON-blocking:** neither participates in the ship/fix verdict — they are audit / informational surfaces (a `low`-band finding is outside `outstanding_cw` and `unacknowledged_medium`). The Suppression section selects by `category == "suppression"`; the Low / Informational listing selects the OTHER low-band findings (`band == "low"` AND `category != "suppression"`).
+**Suppression (audit)** and **Low / Informational** are both shown in BOTH Quick and Deep review (a bare marker or a low-capped idiom should surface even on a quick review), each rendered only when at least one matching finding is present. **Both are NON-blocking:** neither participates in the ship/fix verdict — they are audit / informational surfaces (a `low`-band finding is outside `outstanding_cw` and `unacknowledged_medium`). The Suppression section selects by `category == "suppression"`; the Low / Informational listing selects the OTHER low-band findings (`band == "low"` AND `category != "suppression"`). **Needs verification** is also shown in BOTH Quick and Deep review, but unlike Suppression and Low / Informational it IS finalize-blocking: an undecided Needs-verification item holds the ship verdict. It is never filtered, it is selected by `band == "needs-verification"`, and its dropped-count footer renders on every report.
 
 ### Filter Transparency
 
