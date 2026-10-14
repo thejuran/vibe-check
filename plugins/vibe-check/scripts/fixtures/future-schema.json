@@ -24,7 +24,7 @@
                        "band", "attribution", "status", "stable_hash"],
   "finding_optional": ["cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
                        "silenced_marker_nearby", "intent_doc_match", "canonical_line_content",
-                       "members", "snapshot", "kept_open"],
+                       "members", "snapshot", "kept_open", "needs_verification"],
   "finding_closed": true,
   "resolved_required": ["file", "line", "title", "band", "stable_hash", "agent", "resolution"],
   "resolved_optional": [],

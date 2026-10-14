@@ -5569,6 +5569,10 @@ class TestVerdictByteSafety(unittest.TestCase):
     def _strip(self, result):
         for f in result["findings"]:
             f.pop("snapshot", None)
+        # The Needs-verification count keys are a later, additive output (the
+        # only difference the R7 allowance permits); every finding is compared.
+        result.pop("nv_dropped", None)
+        result.pop("nv_dropped_weak", None)
         return json.dumps(result, sort_keys=True)
 
     def test_no_verdict_keys_is_unchanged(self):

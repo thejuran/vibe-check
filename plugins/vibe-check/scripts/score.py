@@ -12,6 +12,14 @@ one row carrying each lane's own record in `members`; the +10 fires only for a
 Codex + Claude pair). No other weight, bonus, band cutoff or threshold is
 retuned.
 
+WHAT IT ALSO DECIDES (QUIET-06/07): Needs-verification admission (nv_admit — a
+mechanical location + concreteness test), the fixed-band row an admitted item
+becomes (band "needs-verification", score 0, never grouped or filtered), its
+carry status across passes (_nv_carry_status — the whole-snippet evidence
+fingerprint; an unconfirmed item is needs-recheck, never fixed-since-last), and
+the two published counts `nv_dropped` (items refused admission) and
+`nv_dropped_weak` (weak notes beside a qualifying lead), each absent when zero.
+
 Pure-function boundary (D-05): the script does NO filesystem, git, or shell-out
 I/O. Every raw fact (changed_line_ranges, source_window, canonical_line_content,
 file_line_totals) arrives PRE-RESOLVED on stdin. Import set is EXACTLY
@@ -89,6 +97,40 @@ _SUPPRESSION_SCORE = 0
 # — ONLY carry-forward inclusion changes, which is the whole point (impact-01).
 _SUPPRESSION_STATUS = "audit"
 
+# QUIET-06/07 (R8) — the Needs-verification item. A lane that has a concrete
+# trigger -> path -> consequence but could not prove the failure marks its
+# finding `needs_verification` instead of guessing a severity. Admission is
+# MECHANICAL (nv_admit) and fixed before measurement; freeze at Phase 54. An
+# admitted item is split out before the min_confidence filter and before site
+# grouping, so it never corroborates, is never corroborated or absorbed, and is
+# never confidence- or threshold-filtered. It is emitted with the fixed band
+# literal below and a fixed score of 0 (never through band_for).
+NV_BAND = "needs-verification"
+_NV_SCORE = 0
+_NV_KEYS = ("trigger", "path", "consequence")
+# Each of the three fields must be a single line of at least this many
+# characters that is not wholly one of the hedge phrases below. Presence and
+# shape are the only mechanical test; semantic concreteness is the lane
+# prompt's job.
+_NV_MIN = 12
+_NV_HEDGES = ("may break", "might break", "might break compatibility", "could be bypassed",
+              "could break", "sensitive area", "not exhaustive", "needs review", "unverified")
+_NV_FIELD_CAP = 300
+_NV_NOT_ADMITTED = "nv-not-admitted"
+# O-2: a carried Needs-verification record whose evidence cannot be confirmed at
+# HEAD is rechecked, never assumed fixed. A rename, a reformat, a move to another
+# file, or a body change under a surviving name can all preserve the failure.
+# It closes only with evidence: a `resolved` recheck verdict from the lane that
+# raised it, a fix-obsolete verdict, or an owner decision.
+_NV_UNLOCATED_STATUS = "needs-recheck"
+# The rollback marker (R10). Every Needs-verification row is emitted with
+# `members` = exactly its own lane ref whose `obligation` is this STRING. A
+# reader without Needs-verification support validates `members[].obligation`
+# as a dict and therefore REFUSES the state (`malformed state: obligation`)
+# instead of counting the undecided item as nothing: an undecided item blocks
+# APPROVED across a plugin rollback. The marker lives and dies with the row.
+_NV_MEMBER_OBLIGATION = NV_BAND
+
 # scoring.md:57-64 — per-command threshold (one parameter selected by `command`).
 THRESHOLDS = {"review": 80, "deep-review": 70}
 
@@ -143,7 +185,7 @@ FINDING_REQUIRED_KEYS = ("id", "file", "line", "title", "category", "severity", 
                          "band", "attribution", "status", "stable_hash")
 FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
                          "silenced_marker_nearby", "intent_doc_match", "canonical_line_content",
-                         "members", "snapshot", "kept_open")
+                         "members", "snapshot", "kept_open", "needs_verification")
 # H-LANE (v2.10 Wave 1, D-14): a surviving row's `members` is a list of member
 # RECORDS — each the finding INPUT key set below, i.e. exactly what a finding
 # arrives with (its ORIGINAL multi-line current_code and its own source_window,
@@ -156,10 +198,12 @@ FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "i
 # shape is this module's own contract (test_score TestSiteGroupingHLane).
 # `snapshot` (the decision snapshot) is a per-row scorer OUTPUT recomputed every
 # pass, never member evidence; `kept_open` (the sub-threshold obligation marker)
-# is likewise a per-row scorer output.
+# is likewise a per-row scorer output. `needs_verification` never rides on a
+# member: a Needs-verification record never joins a site row.
 _MEMBER_EXCLUDED_KEYS = ("id", "orchestrator_score", "band", "attribution", "status",
                          "stable_hash", "members", "in_diff", "silenced_marker_nearby",
-                         "canonical_line_content", "snapshot", "kept_open")
+                         "canonical_line_content", "snapshot", "kept_open",
+                         "needs_verification")
 MEMBER_KEYS = tuple(k for k in FINDING_REQUIRED_KEYS + FINDING_OPTIONAL_KEYS
                     if k not in _MEMBER_EXCLUDED_KEYS)
 _FINDING_KEY_SYNONYMS = {"suggested_fix": "fix_hint"}
@@ -855,6 +899,90 @@ def _carry_key(text):
     return "\n".join(_nonblank_lines(text)[:3])
 
 
+def _nv_code_key(text):
+    """The Needs-verification evidence fingerprint of a code snippet.
+
+    Every non-blank line with trailing whitespace removed, then the snippet's
+    COMMON leading-whitespace prefix removed from every line (character by
+    character — tabs and spaces are distinct, never expanded), joined by "\\n".
+    The WHOLE snippet is kept with its RELATIVE indentation: a uniform dedent of
+    the whole snippet is the only whitespace change ignored, because moving a
+    statement out of its block (a `return` moved outside an authorization
+    guard) changes the code's meaning while leaving every stripped line equal.
+
+    Separate from _carry_key (the first <=3 stripped lines, ROBUST-03) and from
+    the stable_hash path, so ordinary carry-forward and the golden digest do
+    not move. Non-str input -> "" (never raises).
+    """
+    if not isinstance(text, str):
+        return ""
+    lines = [ln.rstrip() for ln in text.split("\n") if ln.strip()]
+    if not lines:
+        return ""
+    leads = [ln[:len(ln) - len(ln.lstrip())] for ln in lines]
+    prefix = leads[0]
+    for lead in leads[1:]:
+        n = 0
+        while n < len(prefix) and n < len(lead) and prefix[n] == lead[n]:
+            n += 1
+        prefix = prefix[:n]
+    return "\n".join(ln[len(prefix):] for ln in lines)
+
+
+def _nv_field(v):
+    """One Needs-verification text field, normalized: its first line,
+    whitespace-collapsed, capped at _NV_FIELD_CAP. Non-str -> ""."""
+    if not isinstance(v, str):
+        return ""
+    lines = v.splitlines()
+    first = lines[0] if lines else ""
+    return " ".join(first.split())[:_NV_FIELD_CAP]
+
+
+def _nv_normalize(nv):
+    """The normalized `needs_verification` dict (the three fields plus an
+    optional non-empty `symbol`), or None for a non-dict."""
+    if not isinstance(nv, dict):
+        return None
+    out = {k: _nv_field(nv.get(k)) for k in _NV_KEYS}
+    symbol = _nv_field(nv.get("symbol"))
+    if symbol:
+        out["symbol"] = symbol
+    return out
+
+
+def _nv_concrete(text):
+    """At least _NV_MIN characters and not wholly a fixed hedge phrase
+    (case-insensitive, surrounding periods ignored)."""
+    return (len(text) >= _NV_MIN
+            and text.lower().strip().strip(".").strip() not in _NV_HEDGES)
+
+
+def nv_admit(f):
+    """Is this finding an admissible Needs-verification item? (QUIET-07, R8)
+
+    Mechanical, fixed before measurement:
+      - location: a non-empty `file` AND (`line` >= 1 OR a non-empty
+        `needs_verification.symbol`);
+      - concreteness: `trigger`, `path` and `consequence` each a non-empty
+        single-line string (after _nv_field) of at least _NV_MIN characters
+        that is not wholly one of _NV_HEDGES.
+    Returns a bool; never raises on malformed input.
+    """
+    if not isinstance(f, dict):
+        return False
+    nv = _nv_normalize(f.get("needs_verification"))
+    if nv is None:
+        return False
+    file = f.get("file")
+    if not (isinstance(file, str) and file.strip()):
+        return False
+    line = _as_line(f.get("line"))
+    if not ((line is not None and line >= 1) or nv.get("symbol")):
+        return False
+    return all(_nv_concrete(nv[k]) for k in _NV_KEYS)
+
+
 def _is_low_entropy(first):
     """Is a (stripped) first line low-entropy — too generic to key on alone?
 
@@ -931,6 +1059,28 @@ def carry_forward_status(finding, canonical_line_content, canonical_window=None)
     if current_first == canonical_first:
         return "persisted"
     return "needs-recheck"
+
+
+def _nv_carry_status(finding, canonical_line_content, canonical_window):
+    """Status of a carried Needs-verification record: the evidence fingerprint.
+
+    "persisted" ONLY when the orchestrator located the stored snippet at HEAD
+    (a str canonical AND a str NV-length window) and the WHOLE stored
+    `current_code` fingerprint (_nv_code_key) is non-empty and equals the
+    window's. Anything else is _NV_UNLOCATED_STATUS (needs-recheck), never
+    fixed-since-last: a surviving first line or symbol name is not evidence; a
+    null canonical (relocation failed, file gone, a definition deleted while a
+    reference survives), an absent window, an empty stored snippet, or any
+    changed line leaves the item open. It closes only through the verdict guard
+    (a `resolved` recheck verdict from the raising lane, a fix-obsolete verdict)
+    or an owner decision (O-2). Pure; never raises.
+    """
+    if isinstance(canonical_line_content, str) and isinstance(canonical_window, str):
+        code = finding.get("current_code") if isinstance(finding, dict) else None
+        stored = _nv_code_key(code)
+        if stored and stored == _nv_code_key(canonical_window):
+            return "persisted"
+    return _NV_UNLOCATED_STATUS
 
 
 def _expand_members(cf):
@@ -1527,14 +1677,33 @@ def run(envelope):
     # below can keep it open instead of letting it vanish.
     carried_obligations = {}
     members_of = {}
+    # id() of every carried Needs-verification working record: never
+    # re-admitted, and its stored stable_hash is kept verbatim.
+    nv_carried_ids = set()
     working = []
     for cf in carryforward:
         rep = {k: v for k, v in cf.items() if k != "members"}
         # A prior pass's obligation marker never rides on a row re-scored normally.
         rep.pop("kept_open", None)
-        status = carry_forward_status(
-            rep, cf.get("canonical_line_content"), cf.get("canonical_window")
-        )
+        nv_carried = cf.get("band") == NV_BAND
+        if nv_carried:
+            # O-2: the whole-snippet evidence fingerprint, never the generic
+            # first-line compare; an unconfirmed record is rechecked, not fixed.
+            canonical = cf.get("canonical_line_content")
+            window = cf.get("canonical_window")
+            status = _nv_carry_status(rep, canonical, window)
+            if (status == "needs-recheck" and isinstance(canonical, str)
+                    and isinstance(window, str)):
+                # Evidence refresh: the owner now sees and decides on the
+                # current code. carry_state's Needs-verification decision
+                # evidence compares this fingerprint, so a decision taken
+                # before the change is re-asked and one taken on the refreshed
+                # evidence sticks.
+                rep["current_code"] = window
+        else:
+            status = carry_forward_status(
+                rep, cf.get("canonical_line_content"), cf.get("canonical_window")
+            )
         stored_hash = cf.get("stable_hash") if isinstance(cf.get("stable_hash"), str) else None
         if status == "fixed-since-last":
             # The line is gone: the verdicts naming it are moot, not rejected.
@@ -1557,6 +1726,8 @@ def run(envelope):
             if status == "persisted":
                 persisted_ids.add(id(rep))
             working.append(rep)
+            if nv_carried:
+                nv_carried_ids.add(id(rep))
             if stored_hash is not None:
                 carried_obligations[id(rep)] = {
                     "obligation": {k: cf.get(k) for k in _OBLIGATION_ROW_KEYS + ("snapshot",)},
@@ -1564,6 +1735,11 @@ def run(envelope):
                     "lead": True,
                 }
                 members_of[id(rep)] = []
+        if nv_carried:
+            # A Needs-verification row absorbs nothing: its single member is its
+            # own ref carrying the rollback marker, never a separate record. The
+            # NV route re-emits the marker on the output row.
+            continue
         expanded, fixed = _expand_members(cf)
         fixed_since_last.extend(fixed)
         for p in expanded:
@@ -1588,6 +1764,35 @@ def run(envelope):
         if id(v) not in consumed_ids:
             _reject_verdict("verdict: record not carried",
                             requests_by_token.get(v.get("token")))
+
+    # --- Needs-verification route (QUIET-06/07, R8) --------------------------- #
+    # BEFORE the min_confidence filter and BEFORE site grouping: a record whose
+    # `needs_verification` is a dict leaves `working` here, so it never
+    # corroborates, is never corroborated or absorbed, and is never confidence-
+    # or threshold-filtered. A carried Needs-verification record is trusted as
+    # written (never re-admitted); a fresh one must pass nv_admit, else it is
+    # reported in filtered[] and counted in `nv_dropped`. Admitted records
+    # become rows after the threshold loop. With no such record `working` is
+    # unchanged, so every archived envelope scores byte-identically.
+    nv_admitted = []
+    nv_dropped = 0
+    nv_dropped_weak = 0
+    if any(isinstance(m.get("needs_verification"), dict) for m in working):
+        rest = []
+        for m in working:
+            if not isinstance(m.get("needs_verification"), dict):
+                rest.append(m)
+            elif id(m) in nv_carried_ids or nv_admit(m):
+                nv_admitted.append(m)
+            else:
+                filtered.append({
+                    "file": m.get("file"),
+                    "line": m.get("line"),
+                    "title": m.get("title"),
+                    "reason": _NV_NOT_ADMITTED,
+                })
+                nv_dropped += 1
+        working = rest
 
     # --- min_confidence pre-scoring filter (CONF-02, D-03) — BEFORE cross-confirm #
     # Drop any working finding (new OR carryforward — NO carve-out, D-03) whose
@@ -1772,6 +1977,16 @@ def run(envelope):
             scored_members = [lead] + [t for t in scored_members if t is not lead]
         best_score, best_member, best_decision, best_band, best_raw = scored_members[0]
         surface_score = best_raw
+        # R5/O-4 weak-note accounting: beside a lead that qualifies on its own
+        # (the row publishes), every other lane's member that does not qualify
+        # stays listed in `members` and never boosts; it is counted in
+        # `nv_dropped_weak`. A fully sub-threshold row counts nothing.
+        if qualifies(best_member):
+            lead_agent = best_member.get("agent")
+            for _, m, _, _, _ in scored_members[1:]:
+                agent = m.get("agent")
+                if isinstance(agent, str) and agent != lead_agent and not qualifies(m):
+                    nv_dropped_weak += 1
         # Members that lost the dedup are absorbed into the survivor; each loser
         # is RECORDED in filtered[] below (Fable A2) once the survivor's
         # stable_hash exists to point at.
@@ -1852,6 +2067,39 @@ def run(envelope):
     kept.extend(_kept_open_rows(dropped, kept, pass_number, carried_obligations,
                                 members_of))
 
+    # --- Needs-verification rows (QUIET-06/07, R8) ----------------------------- #
+    # Appended after the threshold loop, like the suppression rows, so no filter
+    # sees them. Identity is assigned ONCE, at admission: a carried row keeps its
+    # stored stable_hash verbatim (never recomputed from a relocated or null
+    # canonical, so a recorded decision stays attached); a fresh row is hashed
+    # from (file, canonical, title). A carried row and a fresh re-report with the
+    # same hash are one row — the carried one wins (it comes first in working).
+    nv_seen = set()
+    for m in nv_admitted:
+        carried = id(m) in nv_carried_ids
+        stored = m.get("stable_hash")
+        if carried and isinstance(stored, str) and stored:
+            h = stored
+        else:
+            h = stable_hash(m.get("file"), _canonical_for_hash(m), m.get("title"))
+        if h in nv_seen:
+            continue
+        nv_seen.add(h)
+        row = dict(m)
+        row.pop("kept_open", None)
+        row["band"] = NV_BAND
+        row["orchestrator_score"] = _NV_SCORE
+        agent = m.get("agent")
+        row["attribution"] = [agent] if isinstance(agent, str) else []
+        row["stable_hash"] = h
+        if not carried:
+            row["status"] = "new"
+            row["needs_verification"] = _nv_normalize(m.get("needs_verification"))
+        row["snapshot"] = _snapshot_for(row, pass_number)
+        # The rollback marker (_NV_MEMBER_OBLIGATION): see its definition.
+        row["members"] = [dict(_member_ref(row), obligation=_NV_MEMBER_OBLIGATION)]
+        kept.append(row)
+
     # --- Synthetic bare-marker "suppression" audit findings (NOISE-03, A2) ---- #
     # The ONE synthetic finding score.py emits and the ONE exemption from the
     # sub-threshold drop: appended to `kept` HERE, AFTER the threshold loop, so the
@@ -1902,6 +2150,11 @@ def run(envelope):
     # Absent when empty, so every pass-1 / replay envelope is byte-identical.
     if resolved:
         out["resolved"] = resolved
+    # Needs-verification drop counts, published at render; absent when zero.
+    if nv_dropped:
+        out["nv_dropped"] = nv_dropped
+    if nv_dropped_weak:
+        out["nv_dropped_weak"] = nv_dropped_weak
     return _sanitize_nonfinite(out)
 
 
