@@ -913,10 +913,74 @@ class TestCorpusHasNoLeaks(unittest.TestCase):
         self.assertGreaterEqual(len(prose_corpus()), 40)
 
     def test_prompt_corpus_clean(self):
-        ids = b3_identifiers(DIFFS_DIR)
+        ids = all_case_identifiers()
         for relpath, text in sorted(prose_corpus().items()):
             with self.subTest(relpath=relpath):
                 self.assertEqual(leaks(text, ids), [])
+                self.assertEqual(case_id_leaks(text), [])
+
+
+class TestDevCaseLeakScanner(unittest.TestCase):
+    """The dev-case directory is a second identifier source; case ids trip too."""
+
+    def setUp(self):
+        self.bugs = read("agents/bugs.md")
+
+    def test_dev_cases_dir_location(self):
+        self.assertEqual(
+            os.path.relpath(DEV_CASES_DIR, REPO_ROOT),
+            os.path.join("docs", "design", "reachability-dev", "cases"))
+
+    def test_all_case_identifiers_unions_both_sources(self):
+        self.assertTrue(b3_identifiers(DIFFS_DIR) <= all_case_identifiers())
+        self.assertTrue(b3_identifiers(DEV_CASES_DIR) <= all_case_identifiers())
+
+    def test_planted_quiet_case_id_trips(self):
+        planted = self.bugs + "\nAs seen in should-quiet-6, skip it.\n"
+        self.assertEqual(case_id_leaks(self.bugs), [])
+        self.assertEqual(case_id_leaks(planted), ["should-quiet-6"])
+
+    def test_planted_catch_case_id_trips(self):
+        self.assertEqual(case_id_leaks("like should-catch-12 did"),
+                         ["should-catch-12"])
+
+    def test_every_named_b3_id_trips(self):
+        for diff_id in score43.DIFFS:
+            with self.subTest(diff_id=diff_id):
+                planted = self.bugs + "\nsee " + diff_id + " for the shape\n"
+                self.assertEqual(case_id_leaks(planted), [diff_id])
+
+    def test_case_id_whole_token(self):
+        self.assertEqual(case_id_leaks("should-quiet-67x"), [])
+        self.assertEqual(case_id_leaks("xtriggarr-autoescape"), [])
+        self.assertEqual(case_id_leaks("a generic sentence"), [])
+
+    def test_planted_dev_case_identifiers_trip(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(tmp, "reach-new-9.patch"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("--- a/pkg/mod.py\n+++ b/pkg/mod.py\n"
+                         "@@ -1,1 +1,2 @@\n+    def plantedDevHelperName():\n")
+            with open(os.path.join(tmp, "reach-new-9.provenance"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("diff_id: reach-new-9\nsource_repo: ~/plantedrepo\n")
+            ids = b3_identifiers(tmp)
+            lane = self.bugs + "\nprefer plantedDevHelperName in plantedrepo\n"
+            self.assertEqual(leaks(self.bugs, ids), [])
+            found = leaks(lane, ids)
+            self.assertIn("plantedDevHelperName", found)
+            self.assertIn("plantedrepo", found)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_missing_or_empty_dev_dir_is_harmless(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            self.assertEqual(b3_identifiers(tmp), set())
+            self.assertEqual(b3_identifiers(os.path.join(tmp, "absent")), set())
+        finally:
+            shutil.rmtree(tmp)
 
 
 # --------------------------------------------------------------------------- #
