@@ -105,12 +105,12 @@ _DEFAULT_BANDS = {"critical": 95, "warning": 80, "medium": 70}
 # (codex_translate.py AGENT_NAME). The string ALONE proves nothing: a native agent
 # can write it on its own finding. A member counts as Codex's only when the
 # envelope's orchestrator-set `codex` block says the Codex pass joined
-# (_codex_joined) — see _codex_corroborated.
+# (_codex_joined) — see _corroborated_members.
 CODEX_AGENT = "codex-adversarial"
 
 # templates/scoring.md § "Wave 1 (v2.10)" — B-SEV lone-lane ceiling (D-02):
 # critical needs a second opinion; a lone lane tops out at warning. A group with
-# no second opinion (_second_opinion) has its SCORE capped at the critical floor
+# no second opinion (run(): second_opinion_m) has its SCORE capped at the critical floor
 # minus one BEFORE band_for runs, so band_for stays the single band writer. The
 # shipped value is "warning". `None` disables the ceiling and exists ONLY so
 # scripts/replay.py can replay the other Wave-1 candidates ALONE (D-09).
@@ -453,33 +453,64 @@ def _codex_joined(envelope):
     return block.get("status") == "joined"
 
 
-def _codex_corroborated(members, codex_joined):
-    """A Codex member AND a Claude-lane member in one group, Codex verified joined.
+def _member_qualifies(member, changed_line_ranges, reviewed_union, file_line_totals,
+                      all_mode, persisted_ids, threshold):
+    """True iff this member, judged ALONE, clears the per-command cutoff (D-05).
+
+    The member is scored as a lone-lane finding: no +10 (cross_confirmed=False)
+    and no second-opinion credit (second_opinion=False, so its B-REWEIGHT offset
+    applies). Persistence is scored as-is from the carry-forward identity set.
+    A dropped member never qualifies. The SAME cutoff decides the row lead
+    (`passing` in run()), so "qualifying" means one thing in both places.
+    Never raises: _score_member coerces every malformed field.
+    """
+    d = _score_member(member, changed_line_ranges, reviewed_union, file_line_totals,
+                      all_mode, False, persisted_ids, second_opinion=False)
+    return (not d["drop"]) and isinstance(d["score"], int) and d["score"] >= threshold
+
+
+def _corroborated_members(members, codex_joined, qualifies):
+    """The members that earn Codex corroboration, as a set of id(member) (D-05).
 
     Codex is the independent voter (D-01); Claude<->Claude agreement is one
     correlated voter and does NOT count. `codex_joined` must come from
     _codex_joined(envelope) — without it a member labelled CODEX_AGENT is an
     unverified self-report and earns nothing (T1). Only str `agent` values count
     on either side (a missing / non-str agent is neither Codex nor a Claude lane).
+
+    D-05 / R5: a second opinion counts only from an independently qualifying
+    finding. A Codex member and a Claude-lane member corroborate each other only
+    when EACH clears the cutoff on its own lone-lane score (`qualifies`) AND both
+    sit on the same `line`. The same line is a mechanical PROXY for "the same
+    defect, not merely nearby lines" — title matching stays retired (ROBUST-02,
+    agent titles are free text and gameable). A weak co-located note (e.g. a
+    capped 40/low remark) never qualifies, so it can never promote another lane.
+
+    Credit is PER MEMBER, not per row: site grouping joins findings within a few
+    lines, so a row-wide flag would let a qualifying pair at one line lift an
+    unrelated finding two lines away to critical. Only the two members of a
+    qualifying same-line pair are returned; every other member of the row is
+    scored as a lone-lane finding.
     """
     if not codex_joined:
-        return False
-    agents = [m.get("agent") for m in members if isinstance(m, dict)]
-    agents = [a for a in agents if isinstance(a, str)]
-    return (any(a == CODEX_AGENT for a in agents)
-            and any(a != CODEX_AGENT for a in agents))
-
-
-def _second_opinion(members, codex_joined, persisted_ids):
-    """D-01 second opinion: Codex-corroborated, OR persisted from a previous pass.
-
-    Persistence is the identity set the carry-forward loop builds (Fable A5) —
-    never a member's own `status`, which is an agent-writable field. `in_diff` is
-    NOT a corroborator.
-    """
-    if _codex_corroborated(members, codex_joined):
-        return True
-    return any(id(m) in persisted_ids for m in members)
+        return set()
+    cdx = [m for m in members if isinstance(m, dict)
+           and m.get("agent") == CODEX_AGENT and qualifies(m)]
+    if not cdx:
+        return set()
+    lane = [m for m in members if isinstance(m, dict)
+            and isinstance(m.get("agent"), str)
+            and m.get("agent") != CODEX_AGENT and qualifies(m)]
+    credited = set()
+    for a in cdx:
+        a_line = _as_line(a.get("line"))
+        if a_line is None:
+            continue
+        for b in lane:
+            if _as_line(b.get("line")) == a_line:
+                credited.add(id(a))
+                credited.add(id(b))
+    return credited
 
 
 def _agent_offset(member):
@@ -1199,7 +1230,7 @@ def cross_confirm_group(findings):
     component's lowest input index, members in input order within a group:
       {"members": [findings...], "attribution": [unique str agent names]}
     This function only establishes grouping + attribution. Whether a group earns
-    the +10 is decided by the caller from provenance (D-01, _codex_corroborated):
+    the +10 is decided by the caller from provenance (D-01/D-05, _corroborated_members):
     only a Codex member (envelope-verified) plus a Claude-lane member counts —
     Claude<->Claude agreement at one site earns nothing.
 
@@ -1642,25 +1673,38 @@ def run(envelope):
     groups = cross_confirm_group(working)
 
     lone_cap = _lone_lane_cap(thresholds)
+
+    def qualifies(m):
+        # D-05: one member's own lone-lane score against the per-command cutoff.
+        return _member_qualifies(m, changed_line_ranges, reviewed_union,
+                                 file_line_totals, all_mode, persisted_ids, threshold)
+
     survivors = []
     survivor_sources = []
     for g in groups:
         attribution = list(g["attribution"])
-        # scoring.md:18 (D-01): the +10 needs a second opinion — a Codex member
-        # (envelope-verified) AND a Claude-lane member at the site. Claude<->Claude
-        # agreement at one site is one correlated voter and earns nothing.
-        cross_confirmed = _codex_corroborated(g["members"], codex_joined)
-        # D-01 second opinion, computed BEFORE scoring: it gates both the
-        # B-REWEIGHT offset (per member) and the B-SEV ceiling (per group).
-        second_opinion = _second_opinion(g["members"], codex_joined, persisted_ids)
+        # scoring.md:18 (D-01, D-05): the +10 needs a second opinion — a Codex
+        # member (envelope-verified) AND a Claude-lane member that each clear
+        # the cutoff on their own lone-lane score and share one line.
+        # Claude<->Claude agreement is one correlated voter and earns nothing.
+        # Computed ONCE per group, credited PER MEMBER: only the members of a
+        # qualifying same-line pair receive the +10 and the cap release.
+        corroborated = _corroborated_members(g["members"], codex_joined, qualifies)
+        # D-01's second arm (persistence from a previous pass) stays a ROW
+        # property, exactly as before: any persisted member gives every member
+        # of the row a second opinion. Persistence is not a corroboration by
+        # another reviewer, so D-05 does not narrow it.
+        persisted_in_group = any(id(m) in persisted_ids for m in g["members"])
         # Score every member first so the representative (the sort below) is
         # well-defined.
         scored_members = []
         for member in g["members"]:
+            cross_confirmed_m = id(member) in corroborated
+            second_opinion_m = cross_confirmed_m or persisted_in_group
             decision = _score_member(
                 member, changed_line_ranges, reviewed_union, file_line_totals,
-                all_mode, cross_confirmed, persisted_ids,
-                second_opinion=second_opinion,
+                all_mode, cross_confirmed_m, persisted_ids,
+                second_opinion=second_opinion_m,
             )
             if decision["drop"]:
                 filtered.append({
@@ -1671,13 +1715,15 @@ def run(envelope):
                 })
             else:
                 raw = decision["score"]
-                # B-SEV (v2.10 Wave 1, D-02): a group with no second opinion
-                # (Codex-corroborated or persisted, D-01) tops out at critical
-                # floor - 1. The cap is the SCORE, so band_for stays the single
-                # band writer; it is identical for every member because
-                # second_opinion is a group property.
+                # B-SEV (v2.10 Wave 1, D-02): a member with no second opinion
+                # tops out at critical floor - 1. The cap is the SCORE, so
+                # band_for stays the single band writer. It is decided PER
+                # MEMBER from the same flag that gave the +10 (D-05): a member
+                # outside the qualifying pair stays capped even when its row
+                # holds one, so it can never out-rank the pair on borrowed
+                # credit. Persistence still releases it for the whole row.
                 capped = raw
-                if lone_cap is not None and not second_opinion:
+                if lone_cap is not None and not second_opinion_m:
                     capped = min(raw, lone_cap)
                 # Per-member effective band: the idiom cap keyed on THIS member's
                 # own category, so it never leaks onto a co-located non-idiom
@@ -1686,6 +1732,13 @@ def run(envelope):
                 scored_members.append((capped, member, decision, eff, raw))
         if not scored_members:
             continue
+        # D-06 lead: the most severe qualifying member; tie-break (effective
+        # band, capped score, raw score, stable_hash, agent). `passing` below
+        # uses the same cutoff _member_qualifies uses. Credit is per member
+        # (D-05), so a credited member ranked first is the lead and an
+        # uncredited member never out-ranks it on borrowed credit. Owner
+        # decisions bind to each member's own stable_hash, and a member demoted
+        # from lead keeps its obligation identity on its member record below.
         # Representative: the strongest EFFECTIVE band leads, then the highest
         # (capped, then uncapped) score, then the member's OWN stable_hash
         # (Fable A4: the old stable sort kept whichever tied member arrived

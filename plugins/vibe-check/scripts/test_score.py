@@ -52,6 +52,10 @@ PRE_HLANE_SCORER_BLOB = "0f6852ad24a199ee1a556d5595d7f69ce64663cc"
 # run the same envelope through both and compare with `snapshot` popped.
 PRE_SNAPSHOT_SCORER_BLOB = "79593bcb4282d095f9948200e80db215c3897ead"
 
+# The score.py blob before D-05 (per-member second-opinion qualification): the
+# R7 pre-Phase-53 base. The persistence-arm pin compares against it verbatim.
+PRE_D05_SCORER_BLOB = "d4f9fb14aea5f934a12dadf34e357626f7047ba5"
+
 
 # --------------------------------------------------------------------------- #
 # Test fixtures / helpers
@@ -1372,7 +1376,9 @@ class TestCrossConfirmGroup(unittest.TestCase):
         a = make_finding(id="A", file="src/a.py", line=10, category="injection",
                          agent="security", agent_confidence=85, severity="critical",
                          source_window=["a", "b", "c", "d", "e"])
-        b = make_finding(id="B", file="src/a.py", line=11, category="adversarial",
+        # D-05: corroboration needs the pair on the SAME line (the mechanical
+        # "same defect" proxy), so B sits on A's line.
+        b = make_finding(id="B", file="src/a.py", line=10, category="adversarial",
                          agent="codex-adversarial", agent_confidence=85,
                          severity="critical",
                          source_window=["a", "b", "c", "d", "e"])
@@ -1779,13 +1785,15 @@ class TestRunMinConfidence(unittest.TestCase):
         survivor = make_finding(id="mc-surv", agent_confidence=85,
                                 severity="critical", file="src/c.py", line=30,
                                 category="null-access", agent="bugs")
-        low_twin = make_finding(id="mc-twin", agent_confidence=50,
+        # D-05: the twin must qualify on its own (80 >= the /review cutoff 80)
+        # for the sanity arm below to corroborate; min_confidence 85 drops it.
+        low_twin = make_finding(id="mc-twin", agent_confidence=80,
                                 severity="critical", file="src/c.py", line=30,
                                 category="adversarial", agent="codex-adversarial")
         joined = {"status": "joined"}
 
-        # With min_confidence=70 the twin drops -> survivor scores alone (85, no +10).
-        with_drop = score.run(self._envelope(min_confidence=70, codex=joined,
+        # With min_confidence=85 the twin drops -> survivor scores alone (85, no +10).
+        with_drop = score.run(self._envelope(min_confidence=85, codex=joined,
                                              findings=[survivor, low_twin]))
         surv_scores = {g["id"]: g for g in with_drop["findings"]}
         self.assertIn("mc-surv", surv_scores)
@@ -3407,7 +3415,8 @@ class TestLoneLaneCeiling(unittest.TestCase):
         self.assertEqual(g["band"], "warning")
 
     def test_verified_codex_corroboration_reaches_critical(self):
-        res = self._run([self._native(), self._codex()], codex={"status": "joined"})
+        # D-05: a qualifying pair on the SAME line.
+        res = self._run([self._native(), self._codex(line=10)], codex={"status": "joined"})
         g = self._by_id(res)["nat"]
         self.assertEqual(sorted(g["attribution"]), ["bugs", "codex-adversarial"])
         self.assertEqual(g["orchestrator_score"], 100)
@@ -3493,14 +3502,16 @@ class TestLoneLaneCeiling(unittest.TestCase):
                 self.assertEqual(ids["nat"]["orchestrator_score"], 94)
 
     def test_non_str_agents_are_neither_codex_nor_claude(self):
+        yes = lambda m: True  # isolate the agent rule from qualification
         for bad_agent in (None, 7, ["codex-adversarial"], {"a": 1}):
             with self.subTest(agent=repr(bad_agent)):
-                members = [{"agent": bad_agent}, {"agent": "codex-adversarial"}]
-                self.assertFalse(score._codex_corroborated(members, True))
-        self.assertTrue(score._codex_corroborated(
-            [{"agent": "bugs"}, {"agent": "codex-adversarial"}], True))
-        self.assertFalse(score._codex_corroborated(
-            [{"agent": "bugs"}, {"agent": "codex-adversarial"}], False))
+                members = [{"agent": bad_agent, "line": 10},
+                           {"agent": "codex-adversarial", "line": 10}]
+                self.assertEqual(score._corroborated_members(members, True, yes), set())
+        pair = [{"agent": "bugs", "line": 10}, {"agent": "codex-adversarial", "line": 10}]
+        self.assertEqual(score._corroborated_members(pair, True, yes),
+                         {id(pair[0]), id(pair[1])})
+        self.assertEqual(score._corroborated_members(pair, False, yes), set())
         self.assertFalse(score._codex_joined("not-a-dict"))
         self.assertTrue(score._codex_joined({"codex": {"status": "joined"}}))
 
@@ -3666,13 +3677,16 @@ class TestAgentConfidenceOffset(unittest.TestCase):
         self.assertEqual(g["orchestrator_score"], 90)
 
     def test_codex_corroborated_group_gets_no_offset(self):
-        # 60 + in_diff 20 + cross-confirm 10 = 90; Codex joined => second opinion.
-        pair = lambda: self._run([self._native(agent_confidence=60), self._codex()],
+        # 65 + in_diff 20 + cross-confirm 10 = 95; Codex joined => second opinion.
+        # D-05: each member qualifies ALONE (native 65 + 20 + offset >= 70,
+        # codex 60 + 20 = 80) and both sit on line 10, so the pair corroborates.
+        pair = lambda: self._run([self._native(agent_confidence=65),
+                                  self._codex(agent_confidence=60, line=10)],
                                  codex={"status": "joined"})
         g = self._by_id(pair())["nat"]
         plain = self._by_id(self._without_offsets(pair))["nat"]
         self.assertEqual(sorted(g["attribution"]), sorted([self.agent, "codex-adversarial"]))
-        self.assertEqual(g["orchestrator_score"], 90)
+        self.assertEqual(g["orchestrator_score"], 95)
         self.assertEqual(g["orchestrator_score"], plain["orchestrator_score"])
 
     def test_unverified_codex_pair_is_lone_and_offset(self):
@@ -3924,7 +3938,8 @@ class TestSiteGroupingHLane(unittest.TestCase):
 
     def _codex_pair(self, **over):
         sec = _hl("s", "security", "injection", 10, 65, "inj")
-        cdx = _hl("c", "codex-adversarial", "adversarial", 11, 60, "adv")
+        # D-05: both qualify alone (65 + 20, 60 + 20 >= 70) on the SAME line.
+        cdx = _hl("c", "codex-adversarial", "adversarial", 10, 60, "adv")
         return score.run(_hl_env([sec, cdx], {"src/a.py": [[8, 14]]}, **over))["findings"]
 
     def test_codex_plus_claude_plus_ten_with_block(self):
@@ -4071,7 +4086,8 @@ class TestSiteGroupingHLane(unittest.TestCase):
     def test_lone_lane_cap_unchanged_by_per_member_move(self):
         ranges = {"src/a.py": [[8, 14]]}
         nat = lambda **o: dict(_hl("nat", "security", "null-access", 10, 100, "n"), **o)
-        cdx = _hl("cdx", "codex-adversarial", "adversarial", 11, 100, "c")
+        # D-05: the corroborating pair shares line 10 (same-line proxy).
+        cdx = _hl("cdx", "codex-adversarial", "adversarial", 10, 100, "c")
         lone = score.run(_hl_env([nat()], ranges, command="review"))["findings"][0]
         self.assertEqual((lone["orchestrator_score"], lone["band"]), (94, "warning"))
         tuned = score.run(_hl_env([nat()], ranges, command="review",
@@ -4084,6 +4100,275 @@ class TestSiteGroupingHLane(unittest.TestCase):
         cf = nat(id="cf", current_code="q = 1", canonical_line_content="q = 1")
         pers = score.run(_hl_env([], ranges, carryforward=[cf], command="review"))["findings"][0]
         self.assertEqual((pers["status"], pers["band"]), ("persisted", "critical"))
+
+
+# --------------------------------------------------------------------------- #
+# D-05 / D-06 (QUIET-05, R5/R6) — a second opinion counts only from an
+# independently qualifying finding on the same line; credit is per member; the
+# row lead is deterministic and decisions survive regrouping.
+# --------------------------------------------------------------------------- #
+_Q_RANGES = {"src/a.py": [[1, 40]]}
+_JOINED = {"status": "joined"}
+
+
+def _q(id_, agent, line, conf, severity, title=None, category=None, code=None):
+    return _hl(id_, agent, category or ("adversarial" if agent == score.CODEX_AGENT
+                                        else "logic-error"),
+               line, conf, title or ("t-" + id_), code=code, severity=severity)
+
+
+def _lone(conf, severity, agent, in_diff=True):
+    """The lone-lane score: confidence + B-REWEIGHT offset + in_diff + weight."""
+    s = conf + score.AGENT_CONFIDENCE_OFFSET.get(agent, 0)
+    s += 20 if in_diff else 0
+    s += score.SEVERITY_WEIGHT[severity]
+    return max(0, min(100, s))
+
+
+def _rows(result):
+    return {g["id"]: g for g in result["findings"]}
+
+
+class _MemberSpy:
+    """Records each member's (capped score, effective band) as the group loop
+    computes it — the per-member view the output does not carry for absorbed
+    members. Wraps the real _effective_band, so scoring is unchanged."""
+
+    def __init__(self, test):
+        self.seen = {}
+        real = score._effective_band
+
+        def spy(member, capped, thresholds, idiom_floor):
+            band = real(member, capped, thresholds, idiom_floor)
+            self.seen[member.get("id")] = (capped, band)
+            return band
+        patcher = mock.patch.object(score, "_effective_band", spy)
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
+class TestSecondOpinionQualification(unittest.TestCase):
+    """D-05: the +10 and the lone-lane cap release need a Codex member AND a
+    Claude-lane member that each clear the cutoff ALONE and share one line."""
+
+    def _run(self, findings, **over):
+        over.setdefault("codex", _JOINED)
+        return score.run(_hl_env(findings, _Q_RANGES, **over))
+
+    def _weak_pair(self):
+        # The archived should-quiet shape: codex 99/medium + architecture 40/low.
+        return [_q("cdx", score.CODEX_AGENT, 20, 99, "medium"),
+                _q("arch", "architecture", 20, 40, "low")]
+
+    def test_weak_note_never_corroborates(self):
+        self.assertLess(_lone(40, "low", "architecture"), score.THRESHOLDS["deep-review"])
+        r = self._run(self._weak_pair())
+        rows = _rows(r)
+        self.assertEqual(list(rows), ["cdx"])
+        row = rows["cdx"]
+        self.assertEqual((row["orchestrator_score"], row["band"]), (94, "warning"))
+        self.assertEqual(sorted(m["agent"] for m in row["members"]),
+                         ["architecture", score.CODEX_AGENT])
+
+    def test_mutation_always_qualifies_restores_old_promotion(self):
+        # The helper is load-bearing: if every member qualified (the pre-D-05
+        # rule), the weak note would promote Codex to critical again.
+        with mock.patch.object(score, "_member_qualifies", lambda *a, **k: True):
+            row = _rows(self._run(self._weak_pair()))["cdx"]
+        self.assertEqual((row["orchestrator_score"], row["band"]), (100, "critical"))
+
+    def _strong_pair(self, sec_line=20):
+        # codex 70/high alone: 70 + 20 - 3 = 87; security 65/high alone: 82.
+        # Both clear the deep-review cutoff 70 on their own.
+        return [_q("cdx", score.CODEX_AGENT, 20, 70, "high"),
+                _q("sec", "security", sec_line, 65, "high")]
+
+    def test_qualifying_same_line_pair_corroborates(self):
+        lone = _lone(70, "high", score.CODEX_AGENT)
+        self.assertEqual(lone, 87)
+        row = _rows(self._run(self._strong_pair()))["cdx"]
+        self.assertEqual(row["orchestrator_score"], lone + 10)   # +10, cap released
+        self.assertEqual(row["band"], "critical")
+
+    def test_adjacent_line_is_not_the_same_defect(self):
+        r = self._run(self._strong_pair(sec_line=21))
+        self.assertEqual(len(r["findings"]), 1)          # still one site row
+        row = r["findings"][0]
+        self.assertEqual(row["id"], "cdx")
+        self.assertEqual((row["orchestrator_score"], row["band"]), (87, "warning"))
+
+    def test_skipped_codex_never_corroborates(self):
+        row = _rows(self._run(self._strong_pair(), codex={"status": "skipped"}))["cdx"]
+        self.assertEqual((row["orchestrator_score"], row["band"]), (87, "warning"))
+
+    def test_persisted_member_is_still_a_second_opinion(self):
+        # D-01's second arm is unchanged: no Codex, a carried row lifts the cap.
+        cf = make_finding(id="cf", file="src/a.py", line=10, title="t", agent="bugs",
+                          category="null-access", agent_confidence=70,
+                          severity="critical", current_code="return q",
+                          canonical_line_content="return q",
+                          source_window=["a", "b", "c", "d", "e"])
+        r = score.run(_hl_env([], _Q_RANGES, carryforward=[cf], pass_number=2))
+        row = _rows(r)["cf"]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual((row["orchestrator_score"], row["band"]), (100, "critical"))
+
+    def test_member_qualifies_uses_the_lone_lane_score(self):
+        f = _q("x", "impact", 10, 60, "critical")
+        args = ({"src/a.py": [[1, 40]]}, set(), {}, False, set())
+        # 60 - 12 (impact offset) + 20 = 68 < 70; without the offset it is 80.
+        self.assertFalse(score._member_qualifies(f, *args, threshold=70))
+        self.assertTrue(score._member_qualifies(f, *args, threshold=68))
+        self.assertFalse(score._member_qualifies(f, *args, threshold=69))
+
+
+class TestPerMemberCorroboration(unittest.TestCase):
+    """D-05 / R5: corroboration credit goes to the two members of the qualifying
+    same-line pair ONLY. A grouped row is a site, not a defect: an unrelated
+    member two lines away is scored as a lone-lane finding."""
+
+    def _run(self, findings, **over):
+        over.setdefault("codex", _JOINED)
+        return score.run(_hl_env(findings, _Q_RANGES, **over))
+
+    def _pair(self):
+        return [_q("cdx", score.CODEX_AGENT, 10, 70, "high"),   # alone 87, credited 97
+                _q("sec", "security", 10, 65, "high")]           # alone 82, credited 92
+
+    def _bugs(self, conf=100):
+        # alone: 100 - 2 + 20 + 0 = 118 -> clamp 100 -> lone cap 94.
+        return _q("bug", "bugs", 12, conf, "critical")
+
+    def _assert_pair_leads(self, r):
+        self.assertEqual(len(r["findings"]), 1)
+        row = r["findings"][0]
+        self.assertEqual(row["id"], "cdx")
+        self.assertEqual((row["orchestrator_score"], row["band"]), (97, "critical"))
+        self.assertIn("bugs", [m["agent"] for m in row["members"]])
+
+    def test_three_member_regression(self):
+        spy = _MemberSpy(self)
+        r = self._run(self._pair() + [self._bugs()])
+        # The bugs member's raw score (100) is HIGHER than the codex member's
+        # (97), yet it earns no credit: it stays capped at warning, so the
+        # credited pair leads.
+        self._assert_pair_leads(r)
+        self.assertEqual(spy.seen["bug"], (94, "warning"))
+        self.assertEqual(spy.seen["cdx"], (97, "critical"))
+        self.assertEqual(spy.seen["sec"], (92, "warning"))
+
+    def test_control_without_the_pair_partner(self):
+        spy = _MemberSpy(self)
+        self._run(self._pair() + [self._bugs()])
+        with_pair = spy.seen["bug"]
+        spy.seen.clear()
+        r = self._run([self._pair()[0], self._bugs()])
+        self.assertEqual(spy.seen["bug"], with_pair)
+        self.assertEqual(spy.seen["cdx"], (87, "warning"))   # no partner: lone
+        self.assertEqual(r["findings"][0]["id"], "bug")
+
+    def test_isolation_bug_alone_scores_the_same(self):
+        spy = _MemberSpy(self)
+        self._run(self._pair() + [self._bugs()])
+        grouped = spy.seen["bug"]
+        alone = _rows(self._run([self._bugs()]))["bug"]
+        self.assertEqual((alone["orchestrator_score"], alone["band"]), grouped)
+
+    def test_weak_member_listed_and_earns_nothing(self):
+        spy = _MemberSpy(self)
+        weak = _q("arch", "architecture", 10, 40, "low")
+        r = self._run(self._pair() + [weak])
+        row = r["findings"][0]
+        self.assertEqual(row["id"], "cdx")
+        self.assertEqual((row["orchestrator_score"], row["band"]), (97, "critical"))
+        self.assertIn("architecture", [m["agent"] for m in row["members"]])
+        self.assertEqual(spy.seen["arch"][0], _lone(40, "low", "architecture"))
+        base = self._run(self._pair())["findings"][0]
+        for k in ("id", "orchestrator_score", "band", "stable_hash"):
+            self.assertEqual(row[k], base[k], k)
+
+    def test_persistence_arm_is_a_row_property_unchanged(self):
+        # D-01 second arm (outside R5): a carried member releases the cap for
+        # the WHOLE row, exactly as the pre-53 scorer did. Pinned to the pre-53
+        # value AND to the pre-53 blob so any change here is a visible
+        # default-config difference.
+        cf = make_finding(id="cf", file="src/a.py", line=10, title="carried",
+                          agent="bugs", category="null-access", agent_confidence=60,
+                          severity="critical", current_code="return q",
+                          canonical_line_content="return q",
+                          source_window=["a", "b", "c", "d", "e"])
+        new = _q("new", "security", 11, 100, "critical", title="fresh")
+        env = lambda: _hl_env([dict(new)], _Q_RANGES, carryforward=[dict(cf)],
+                              pass_number=2)
+        r = score.run(env())
+        row = r["findings"][0]
+        self.assertEqual(row["id"], "new")
+        self.assertEqual((row["orchestrator_score"], row["band"]), (100, "critical"))
+        pre53 = replay.load_scorer("blob:" + PRE_D05_SCORER_BLOB)
+        self.assertEqual(json.dumps(r, sort_keys=True),
+                         json.dumps(pre53.run(env()), sort_keys=True))
+
+    def test_mutation_row_wide_credit_flips_the_lead(self):
+        # The pre-D-05 rule credited EVERY member of a corroborated row. Under
+        # it the higher-raw bugs member is lifted to critical 100 and out-ranks
+        # the pair, so the three-member assertion fails.
+        real = score._corroborated_members
+
+        def row_wide(members, codex_joined, qualifies):
+            got = real(members, codex_joined, qualifies)
+            return {id(m) for m in members} if got else got
+
+        with mock.patch.object(score, "_corroborated_members", row_wide):
+            r = self._run(self._pair() + [self._bugs()])
+        row = r["findings"][0]
+        self.assertEqual((row["id"], row["orchestrator_score"], row["band"]),
+                         ("bug", 100, "critical"))
+        with self.assertRaises(AssertionError):
+            self._assert_pair_leads(r)
+
+
+class TestLeadDecisionSurvival(unittest.TestCase):
+    """D-06: the lead is the most severe qualifying member; a member demoted
+    from lead keeps its own stable_hash (the decision target)."""
+
+    def test_decision_target_survives_demotion(self):
+        a = _q("A", "security", 10, 60, "critical", title="inj A", code="a_line")
+        r1 = score.run(_hl_env([a], _Q_RANGES))
+        R1 = r1["findings"][0]
+        self.assertEqual(R1["id"], "A")
+        cfA = _carried(R1, {"security": "a_line"})
+        B = _q("B", "bugs", 11, 96, "critical", title="logic B", code="b_line")
+        r2 = score.run(_hl_env([B], _Q_RANGES, carryforward=[cfA], pass_number=2))
+        self.assertEqual(len(r2["findings"]), 1)
+        row = r2["findings"][0]
+        self.assertEqual(row["id"], "B")                       # B now leads
+        self.assertNotEqual(row["stable_hash"], R1["stable_hash"])
+        demoted = [m for m in row["members"] if m["agent"] == "security"]
+        self.assertEqual(len(demoted), 1)
+        self.assertEqual(demoted[0]["obligation"]["stable_hash"], R1["stable_hash"])
+
+    def test_equal_members_lead_by_hash_then_agent_in_every_order(self):
+        tied = [_q("t1", "security", 10, 80, "critical", title="alpha", code="  z()"),
+                _q("t2", "bugs", 10, 82, "critical", title="beta", code="  z()"),
+                _q("t3", "design", 11, 80, "critical", title="alpha", code="  z()")]
+        # All three: alone >= 94 cap -> (94, warning, raw 100). Equal on band,
+        # capped and raw; "alpha" twins share a stable_hash, so agent decides.
+        leads = set()
+        for perm in itertools.permutations(tied):
+            r = score.run(_hl_env([dict(f) for f in perm], _Q_RANGES))
+            self.assertEqual(len(r["findings"]), 1)
+            row = r["findings"][0]
+            leads.add((row["id"], row["stable_hash"],
+                       tuple(m["agent"] for m in row["members"])))
+        self.assertEqual(len(leads), 1, leads)
+        lead_id, lead_hash, _ = leads.pop()
+        hashes = {t["title"]: score.stable_hash(t["file"], score._canonical_for_hash(t),
+                                                t["title"])
+                  for t in tied}
+        want_title = min(hashes, key=lambda k: hashes[k])
+        want = sorted((t for t in tied if t["title"] == want_title),
+                      key=lambda t: t["agent"])[0]
+        self.assertEqual(lead_id, want["id"])
 
 
 class TestMembersAcrossPasses(unittest.TestCase):
