@@ -6213,3 +6213,470 @@ class TestKeptOpenMultiPass(unittest.TestCase):
                         {k: v for k, v in m.items() if k != "obligation"}
                         for m in row["members"]])
                     self.assertEqual(state_shape.check_finding(stripped, self.future), [])
+
+
+# --------------------------------------------------------------------------- #
+# Needs-verification (QUIET-06/07, R8): mechanical admission, the NV route,
+# the evidence-fingerprint carry status, and the published drop counts.
+# --------------------------------------------------------------------------- #
+_NV_FILE = "src/nv.py"
+_NV_TITLE = "legacy parse_limit can abort startup"
+_NV_CODE = ("def load_config(path):\n"
+            "    raw = read(path)\n"
+            "    limit = raw['parse_limit']\n"
+            "    return Config(limit)")
+_NV_FIRST = "def load_config(path):"
+_NV_FIELDS = {"trigger": "parse_limit set to 300 in a legacy config",
+              "path": "src/nv.py:12 via load_config",
+              "consequence": "startup aborts with ValueError on legacy configs"}
+
+
+def _nv(id_="nv-1", agent="bugs", line=12, conf=20, symbol=None, code=_NV_CODE,
+        title=_NV_TITLE, canonical=True, **nv_over):
+    nv = dict(_NV_FIELDS)
+    if symbol is not None:
+        nv["symbol"] = symbol
+    nv.update(nv_over)
+    f = make_finding(id=id_, file=_NV_FILE, line=line, title=title,
+                     category="logic-error", agent=agent, agent_confidence=conf,
+                     severity="high", current_code=code,
+                     source_window=["a", "b", "c", "d", "e"])
+    if canonical:
+        # 30-collect-score.md enriches a fresh finding with its HEAD first line.
+        f["canonical_line_content"] = _score_first(code)
+    f["needs_verification"] = nv
+    return f
+
+
+def _score_first(code):
+    return code.split("\n", 1)[0] if isinstance(code, str) else None
+
+
+def _nv_env(findings, carryforward=None, **over):
+    env = {"command": "review", "all_mode": False, "pass_number": 1,
+           "changed_line_ranges": {_NV_FILE: [[1, 40]]},
+           "carryforward": carryforward if carryforward is not None else [],
+           "findings": findings}
+    env.update(over)
+    return env
+
+
+def _nv_rows(result):
+    return [f for f in result["findings"] if f.get("band") == score.NV_BAND]
+
+
+def _nv_cf(row, canonical, window, **over):
+    """A pass-2 carryforward entry from a pass-1 NV row, with the HEAD read the
+    53-12 collector passes: the located first line and the NV-length window
+    (both null when the stored snippet could not be located)."""
+    e = json.loads(json.dumps(row))
+    e["canonical_line_content"] = canonical
+    e["canonical_window"] = window
+    e.update(over)
+    return e
+
+
+class TestNeedsVerificationAdmission(unittest.TestCase):
+    def _f(self, **over):
+        f = {"file": "a.py", "line": 12,
+             "needs_verification": {"trigger": "t" * 20, "path": "p" * 20,
+                                    "consequence": "c" * 20}}
+        nv_over = over.pop("nv", None)
+        f.update(over)
+        if nv_over is not None:
+            f["needs_verification"] = dict(f["needs_verification"], **nv_over)
+        return f
+
+    def test_admitted_line_anchored(self):
+        self.assertTrue(score.nv_admit(self._f()))
+
+    def test_admitted_symbol_anchored(self):
+        self.assertTrue(score.nv_admit(self._f(line=None, nv={"symbol": "load_config"})))
+
+    def test_rejected_missing_file(self):
+        self.assertFalse(score.nv_admit(self._f(file="")))
+        f = self._f()
+        del f["file"]
+        self.assertFalse(score.nv_admit(f))
+
+    def test_rejected_line_zero_without_symbol(self):
+        self.assertFalse(score.nv_admit(self._f(line=0)))
+        self.assertFalse(score.nv_admit(self._f(line=None)))
+
+    def test_rejected_short_field(self):
+        self.assertFalse(score.nv_admit(self._f(nv={"trigger": "short"})))
+
+    def test_rejected_hedge(self):
+        for hedge in ("may break", "May Break.", "might break compatibility",
+                      "needs review", "UNVERIFIED"):
+            with self.subTest(hedge=hedge):
+                self.assertFalse(score.nv_admit(self._f(nv={"consequence": hedge})))
+
+    def test_rejected_none_field(self):
+        self.assertFalse(score.nv_admit(self._f(nv={"path": None})))
+
+    def test_rejected_non_dict_marker(self):
+        self.assertFalse(score.nv_admit(self._f(needs_verification="yes")))
+        self.assertFalse(score.nv_admit(self._f(needs_verification=["a"])))
+
+    def test_embedded_newline_single_lined_before_length_check(self):
+        self.assertFalse(score.nv_admit(self._f(nv={"trigger": "short\n" + "x" * 40})))
+        self.assertTrue(score.nv_admit(self._f(nv={"trigger": "x" * 20 + "\nmore"})))
+
+    def test_never_raises_on_garbage(self):
+        for junk in (7, None, [], "s", {"file": 3, "line": "x", "needs_verification": 9},
+                     {"file": "a.py", "line": True, "needs_verification": {"trigger": 5}},
+                     self._f(nv={"trigger": "y" * 10000}),
+                     {"file": ["x"], "line": [1], "needs_verification": {"symbol": {}}}):
+            with self.subTest(junk=repr(junk)[:40]):
+                self.assertIn(score.nv_admit(junk), (True, False))
+        self.assertTrue(score.nv_admit(self._f(nv={"trigger": "y" * 10000})))
+
+    def test_admission_constants_fixed(self):
+        self.assertEqual(score.NV_BAND, "needs-verification")
+        self.assertEqual(score._NV_SCORE, 0)
+        self.assertEqual(score._NV_KEYS, ("trigger", "path", "consequence"))
+        self.assertEqual(score._NV_MIN, 12)
+        self.assertEqual(score._NV_FIELD_CAP, 300)
+        self.assertEqual(score._NV_UNLOCATED_STATUS, "needs-recheck")
+        self.assertEqual(score._NV_MEMBER_OBLIGATION, "needs-verification")
+
+
+class TestNeedsVerificationRoute(unittest.TestCase):
+    def test_low_confidence_nv_is_never_confidence_or_threshold_filtered(self):
+        f = _nv(conf=20)
+        f["needs_verification"]["trigger"] = "  parse_limit set to 300   in a legacy config  "
+        r = score.run(_nv_env([f], min_confidence=90))
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["band"], "needs-verification")
+        self.assertEqual(row["orchestrator_score"], 0)
+        self.assertEqual(row["status"], "new")
+        self.assertIn("snapshot", row)
+        self.assertEqual(row["stable_hash"],
+                         score.stable_hash(_NV_FILE, _NV_FIRST, _NV_TITLE))
+        self.assertEqual(row["needs_verification"]["trigger"],
+                         "parse_limit set to 300 in a legacy config")
+        self.assertEqual(row["attribution"], ["bugs"])
+        self.assertEqual([x for x in r["filtered"] if x["reason"] == "below-min-confidence"], [])
+
+    def test_nv_fields_capped(self):
+        f = _nv(consequence="z" * 1000)
+        row = _nv_rows(score.run(_nv_env([f])))[0]
+        self.assertEqual(len(row["needs_verification"]["consequence"]), score._NV_FIELD_CAP)
+
+    def test_nv_row_carries_rollback_marker(self):
+        row = _nv_rows(score.run(_nv_env([_nv()])))[0]
+        self.assertEqual(len(row["members"]), 1)
+        self.assertEqual(row["members"][0]["agent"], row["agent"])
+        self.assertEqual(row["members"][0]["obligation"], score._NV_MEMBER_OBLIGATION)
+        self.assertNotIn("needs_verification", row["members"][0])
+
+    def test_rejected_nv_is_filtered_and_counted(self):
+        f = _nv(consequence="may break")
+        r = score.run(_nv_env([f]))
+        self.assertEqual(r["findings"], [])
+        self.assertEqual([x["reason"] for x in r["filtered"]], ["nv-not-admitted"])
+        self.assertEqual(r["nv_dropped"], 1)
+
+    def test_admission_is_load_bearing_mutation(self):
+        f = _nv(consequence="may break")
+        with mock.patch.object(score, "nv_admit", lambda *a, **k: True):
+            r = score.run(_nv_env([f]))
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("nv_dropped", r)
+
+    def test_nv_never_corroborates_codex(self):
+        cdx = make_finding(id="cdx", file=_NV_FILE, line=12, title="codex says",
+                           category="adversarial", agent=score.CODEX_AGENT,
+                           agent_confidence=70, severity="high",
+                           current_code="    limit = raw['parse_limit']",
+                           source_window=["a", "b", "c", "d", "e"])
+        nv = _nv(agent="security", conf=95)
+        r = score.run(_nv_env([cdx, nv], command="deep-review", codex={"status": "joined"}))
+        rows = {f["id"]: f for f in r["findings"]}
+        self.assertEqual((rows["cdx"]["orchestrator_score"], rows["cdx"]["band"]), (87, "warning"))
+        self.assertEqual([m["agent"] for m in rows["cdx"]["members"]], [score.CODEX_AGENT])
+        self.assertEqual(rows["nv-1"]["band"], "needs-verification")
+        # Partner: the same security finding WITHOUT the marker corroborates.
+        plain = dict(nv)
+        del plain["needs_verification"]
+        r2 = score.run(_nv_env([cdx, plain], command="deep-review", codex={"status": "joined"}))
+        self.assertEqual(r2["findings"][0]["band"], "critical")
+
+    def test_no_nv_keys_means_no_count_keys(self):
+        r = score.run(_nv_env([make_finding(file=_NV_FILE, line=12,
+                                            source_window=["a", "b", "c", "d", "e"])]))
+        self.assertNotIn("nv_dropped", r)
+        self.assertNotIn("nv_dropped_weak", r)
+
+    def test_schema_keys_include_needs_verification(self):
+        self.assertIn("needs_verification", score.FINDING_OPTIONAL_KEYS)
+        self.assertIn("needs_verification", score._MEMBER_EXCLUDED_KEYS)
+        self.assertNotIn("needs_verification", score.MEMBER_KEYS)
+
+
+class TestNeedsVerificationCarry(unittest.TestCase):
+    """Multi-pass Needs-verification carry: identity is assigned once, the item
+    stays open unless its WHOLE recorded snippet is confirmed at HEAD (O-2)."""
+
+    def _pass1(self, **kw):
+        r = score.run(_nv_env([_nv(**kw)]))
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    def _pass2(self, cf, findings=(), **over):
+        return score.run(_nv_env(list(findings), carryforward=[cf], pass_number=2, **over))
+
+    def _assert_open_recheck(self, r, h, refreshed=None, stored=_NV_CODE):
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["status"], "needs-recheck")
+        self.assertEqual(row["stable_hash"], h)
+        self.assertEqual(r["fixed_since_last"], [])
+        self.assertEqual(row["current_code"], refreshed if refreshed is not None else stored)
+        self.assertEqual(row["members"][0]["obligation"], "needs-verification")
+        return row
+
+    def test_unchanged_with_rereport_is_one_persisted_row(self):
+        p1 = self._pass1()
+        r = self._pass2(_nv_cf(p1, _NV_FIRST, _NV_CODE), findings=[_nv()])
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(r["findings"]), 1)
+        row = rows[0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["stable_hash"], p1["stable_hash"])
+        self.assertEqual(row["snapshot"], p1["snapshot"])
+        self.assertEqual(row["current_code"], _NV_CODE)
+        self.assertEqual(row["members"][0]["obligation"], "needs-verification")
+        self.assertEqual(r["filtered"], [])
+
+    def test_carried_nv_is_not_readmitted(self):
+        p1 = self._pass1()
+        cf = _nv_cf(p1, _NV_FIRST, _NV_CODE)
+        cf["needs_verification"]["consequence"] = "may break"   # stored as written
+        r = self._pass2(cf)
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("nv_dropped", r)
+
+    def test_nv_unchanged_fingerprint_is_persisted_no_recheck(self):
+        for kw in ({}, {"line": None, "symbol": "load_config"}):
+            with self.subTest(**kw):
+                p1 = self._pass1(**kw)
+                r = self._pass2(_nv_cf(p1, _NV_FIRST, _NV_CODE))
+                row = _nv_rows(r)[0]
+                self.assertEqual(row["status"], "persisted")
+                self.assertEqual(row["stable_hash"], p1["stable_hash"])
+                self.assertEqual(row["line"], kw.get("line", 12))
+                if "symbol" in kw:
+                    self.assertEqual(row["needs_verification"]["symbol"], "load_config")
+                self.assertEqual(r["fixed_since_last"], [])
+                self.assertNotIn("resolved", r)
+
+    def test_file_move_keeps_nv_open(self):
+        p1 = self._pass1()
+        self._assert_open_recheck(self._pass2(_nv_cf(p1, None, None)), p1["stable_hash"])
+
+    def test_rename_keeps_nv_open(self):
+        p1 = self._pass1()
+        renamed = _NV_CODE.replace("load_config", "load_settings")
+        self._assert_open_recheck(
+            self._pass2(_nv_cf(p1, "def load_settings(path):", renamed)),
+            p1["stable_hash"], refreshed=renamed)
+
+    def test_reformat_keeps_nv_open(self):
+        p1 = self._pass1()
+        rewrapped = ("def load_config(path):\n    raw = read(\n        path)\n"
+                     "    limit = raw['parse_limit']\n    return Config(limit)")
+        self._assert_open_recheck(self._pass2(_nv_cf(p1, _NV_FIRST, rewrapped)),
+                                  p1["stable_hash"], refreshed=rewrapped)
+
+    def _changed_body(self):
+        return _NV_CODE.replace("return Config(limit)", "return Config(min(limit, 100))")
+
+    def test_nv_changed_body_same_first_line_is_recheck(self):
+        for kw in ({}, {"line": None, "symbol": "load_config"}):
+            with self.subTest(**kw):
+                p1 = self._pass1(**kw)
+                changed = self._changed_body()
+                row = self._assert_open_recheck(
+                    self._pass2(_nv_cf(p1, _NV_FIRST, changed)), p1["stable_hash"],
+                    refreshed=changed)
+                self.assertEqual(row["line"], kw.get("line", 12))
+
+    def test_nv_fingerprint_compare_is_load_bearing_mutation(self):
+        p1 = self._pass1()
+        with mock.patch.object(score, "_nv_carry_status", score.carry_forward_status):
+            r = self._pass2(_nv_cf(p1, _NV_FIRST, self._changed_body()))
+        row = _nv_rows(r)[0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["current_code"], _NV_CODE)
+
+    _GUARDED = ("def view(req):\n    if req.user.is_admin:\n"
+                "        return secret\n    return None")
+    _MOVED = ("def view(req):\n    if req.user.is_admin:\n"
+              "    return secret\n    return None")
+
+    def _guarded_pass1(self):
+        return self._pass1(code=self._GUARDED)
+
+    def test_nv_guarded_statement_moved_out_is_recheck(self):
+        p1 = self._guarded_pass1()
+        self._assert_open_recheck(
+            self._pass2(_nv_cf(p1, "def view(req):", self._MOVED)), p1["stable_hash"],
+            refreshed=self._MOVED, stored=self._GUARDED)
+        # A uniform re-indent of the whole snippet is not evidence.
+        shifted = "\n".join("    " + ln for ln in self._GUARDED.split("\n"))
+        r = self._pass2(_nv_cf(p1, "    def view(req):", shifted))
+        row = _nv_rows(r)[0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["current_code"], self._GUARDED)
+
+    def test_nv_relative_indent_is_load_bearing_mutation(self):
+        p1 = self._guarded_pass1()
+        with mock.patch.object(score, "_nv_code_key",
+                               lambda text: "\n".join(score._nonblank_lines(text))):
+            r = self._pass2(_nv_cf(p1, "def view(req):", self._MOVED))
+        row = _nv_rows(r)[0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["current_code"], self._GUARDED)
+
+    def test_deleted_definition_surviving_reference_is_recheck(self):
+        # The collector could not locate the stored first line (the definition
+        # is deleted, a call site still names the symbol): canonical and window
+        # are null. The scorer is never told the name survived.
+        p1 = self._pass1(line=None, symbol="load_config")
+        self._assert_open_recheck(self._pass2(_nv_cf(p1, None, None)), p1["stable_hash"])
+
+    def test_nv_window_absent_is_recheck(self):
+        p1 = self._pass1()
+        self._assert_open_recheck(self._pass2(_nv_cf(p1, _NV_FIRST, None)), p1["stable_hash"])
+
+    def test_nv_empty_snippet_is_unconfirmed_recheck(self):
+        p1 = self._pass1()
+        cf = _nv_cf(p1, _NV_FIRST, _NV_CODE, current_code="")
+        self._assert_open_recheck(self._pass2(cf), p1["stable_hash"], refreshed=_NV_CODE)
+
+    def test_carried_nv_keeps_stored_hash_verbatim(self):
+        p1 = self._pass1()
+        stored = "ab" * 32
+        self.assertNotEqual(stored, score.stable_hash(_NV_FILE, "x = 1", _NV_TITLE))
+        r = self._pass2(_nv_cf(p1, "x = 1", "x = 1", stable_hash=stored))
+        self.assertEqual(_nv_rows(r)[0]["stable_hash"], stored)
+        fresh = _nv_rows(score.run(_nv_env([_nv()])))[0]
+        self.assertEqual(fresh["stable_hash"], score.stable_hash(_NV_FILE, _NV_FIRST, _NV_TITLE))
+
+    def _recheck(self, p1, verdict, agent="bugs", canonical=None, window=None):
+        req = {"token": "T1", "agents": ["bugs"], "stable_hash": p1["stable_hash"],
+               "file": _NV_FILE, "line": p1["line"], "agent": "bugs", "title": _NV_TITLE}
+        v = {"source": "recheck", "token": "T1", "verdict": verdict,
+             "reason": "limit is now clamped before use", "agent": agent}
+        return self._pass2(_nv_cf(p1, canonical, window), recheck_requests=[req],
+                           verdicts=[v], head_sha="c0ffee")
+
+    def test_recheck_verdict_closes_with_evidence(self):
+        p1 = self._pass1()
+        r = self._recheck(p1, "resolved")
+        self.assertEqual(_nv_rows(r), [])
+        self.assertEqual(r["fixed_since_last"], [])
+        self.assertEqual(len(r["resolved"]), 1)
+        res = r["resolved"][0]
+        self.assertEqual(res["stable_hash"], p1["stable_hash"])
+        self.assertEqual(res["resolution"]["source"], "recheck")
+        self.assertEqual(res["resolution"]["agents"], ["bugs"])
+        self.assertEqual(res["resolution"]["head_sha"], "c0ffee")
+        self.assertEqual(res["resolution"]["reason"], "limit is now clamped before use")
+
+    def test_still_applies_keeps_nv_open(self):
+        p1 = self._pass1()
+        r = self._recheck(p1, "still-applies")
+        self._assert_open_recheck(r, p1["stable_hash"])
+        self.assertNotIn("resolved", r)
+
+    def test_unasked_agent_cannot_close_nv(self):
+        p1 = self._pass1()
+        r = self._recheck(p1, "resolved", agent="security")
+        self._assert_open_recheck(r, p1["stable_hash"])
+        self.assertIn("verdict: agent not asked", [x["reason"] for x in r["filtered"]])
+        self.assertNotIn("resolved", r)
+
+    def test_persisted_nv_rejects_resolved(self):
+        p1 = self._pass1()
+        r = self._recheck(p1, "resolved", canonical=_NV_FIRST, window=_NV_CODE)
+        row = _nv_rows(r)[0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertIn("verdict: record not needs-recheck", [x["reason"] for x in r["filtered"]])
+        self.assertNotIn("resolved", r)
+
+    def test_symbol_only_nv_stable_across_passes(self):
+        p1 = self._pass1(line=None, symbol="load_config")
+        r = self._pass2(_nv_cf(p1, _NV_FIRST, _NV_CODE))
+        row = _nv_rows(r)[0]
+        self.assertEqual(row["status"], "persisted")
+        self.assertEqual(row["stable_hash"], p1["stable_hash"])
+        self.assertIsNone(row["line"])
+        self.assertEqual(row["needs_verification"]["symbol"], "load_config")
+        self.assertEqual(r["fixed_since_last"], [])
+
+    def test_symbol_only_nv_removed_is_recheck_not_closed(self):
+        p1 = self._pass1(line=None, symbol="load_config")
+        row = self._assert_open_recheck(self._pass2(_nv_cf(p1, None, None)), p1["stable_hash"])
+        self.assertIsNone(row["line"])
+
+    def test_unlocated_nv_is_never_fixed_since_last_mutation(self):
+        for kw in ({}, {"line": None, "symbol": "load_config"}):
+            with self.subTest(**kw):
+                p1 = self._pass1(**kw)
+                with mock.patch.object(score, "_NV_UNLOCATED_STATUS", "fixed-since-last"):
+                    r = self._pass2(_nv_cf(p1, None, None))
+                self.assertEqual(_nv_rows(r), [])
+                self.assertEqual(len(r["fixed_since_last"]), 1)
+
+
+class TestWeakNoteDropped(unittest.TestCase):
+    """R5/O-4: a weak note beside a qualifying lead is counted, never boosts."""
+
+    def _run(self, findings):
+        return score.run(_hl_env(findings, _Q_RANGES, codex=_JOINED))
+
+    def test_weak_note_beside_qualifying_lead_is_counted(self):
+        r = self._run([_q("cdx", score.CODEX_AGENT, 20, 99, "medium"),
+                       _q("arch", "architecture", 20, 40, "low")])
+        self.assertEqual(r["nv_dropped_weak"], 1)
+        row = _rows(r)["cdx"]
+        self.assertEqual(row["band"], "warning")
+        self.assertIn("architecture", [m["agent"] for m in row["members"]])
+        self.assertNotIn("nv_dropped", r)
+
+    def test_two_qualifying_members_count_nothing(self):
+        r = self._run([_q("sec", "security", 20, 88, "high"),
+                       _q("bug", "bugs", 20, 70, "high")])
+        self.assertEqual(len(r["findings"]), 1)
+        self.assertNotIn("nv_dropped_weak", r)
+
+    def _no_member_qualifies(self):
+        return [_q("arch", "architecture", 20, 40, "low"),
+                _q("bug", "bugs", 20, 35, "low")]
+
+    def test_no_member_qualifies_counts_nothing(self):
+        r = self._run(self._no_member_qualifies())
+        self.assertEqual(r["findings"], [])
+        self.assertNotIn("nv_dropped_weak", r)
+        self.assertNotIn("nv_dropped", r)
+
+    def test_weak_note_lead_precondition_mutation(self):
+        # Remove the qualifies(lead) precondition from the REAL source and run it.
+        import types
+        with open(SCORE_PY, encoding="utf-8") as fh:
+            src = fh.read()
+        guard = "        if qualifies(best_member):\n"
+        self.assertEqual(src.count(guard), 1)
+        mutant = types.ModuleType("score_weak_mutant")
+        exec(compile(src.replace(guard, "        if True:\n"), "score_weak_mutant", "exec"),
+             mutant.__dict__)
+        r = mutant.run(_hl_env(self._no_member_qualifies(), _Q_RANGES, codex=_JOINED))
+        self.assertEqual(r["nv_dropped_weak"], 1)
