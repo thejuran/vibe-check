@@ -30,10 +30,12 @@ carry-forward silently restarts from pass 1."
 import ast
 import hashlib
 import json
+import re
 import os
 import subprocess
 import sys
 import unittest
+import unittest.mock
 
 # Make `import statepath` resolve when unittest discovery runs from the root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -435,6 +437,163 @@ class TestCurrentLocation(unittest.TestCase):
                 with self.subTest(mode=mode):
                     self.assertEqual(statepath.resolve_current(mode, **kw),
                                      statepath.resolve(mode, **kw))
+
+
+PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
+
+
+def read_prose(relpath):
+    with open(os.path.join(PLUGIN_DIR, relpath), "r", encoding="utf-8") as fh:
+        return fh.read()
+
+
+GSD_BINDING = 'STATE_FILE=".turingmind/state/format-53/${PHASE_ID}.json"'
+GSD_LEGACY = 'LEGACY_STATE_FILE=".turingmind/state/${PHASE_ID}.json"'
+REPO_EXPR = "$(git rev-parse --show-toplevel | xargs basename)-${BRANCH_SLUG}"
+FLAT_BINDING = 'STATE_FILE=".turingmind/state/format-53/%s.json"' % REPO_EXPR
+FLAT_LEGACY = 'LEGACY_STATE_FILE=".turingmind/state/%s.json"' % REPO_EXPR
+MIGRATION = ('if [ ! -f "$STATE_FILE" ] && [ -f "$LEGACY_STATE_FILE" ]; then '
+             'mkdir -p "$(dirname "$STATE_FILE")" && '
+             'cp "$LEGACY_STATE_FILE" "$STATE_FILE"')
+ALL_READ = 'print(r["current_path"]) if r["current_path"] else sys.exit('
+ALL_MKDIR = "mkdir -p .turingmind/state/format-53/by-mode/all"
+CONTRACT_PATH = "`.turingmind/state/format-53/<$PHASE_ID>.json`"
+
+
+def _binding_value(text, binding):
+    """The quoted value of a `NAME="..."` binding line, or None."""
+    if binding not in text:
+        return None
+    return binding.split("=", 1)[1].strip('"')
+
+
+def phase05_binds_format53_holds(text):
+    """05-state.md binds `$STATE_FILE` to statepath's current_path (and the
+    shipped key only as `$LEGACY_STATE_FILE`) in the GSD and other modes."""
+    for binding in (GSD_BINDING, GSD_LEGACY, FLAT_BINDING, FLAT_LEGACY):
+        if text.count(binding) != 1:
+            return False
+    # The prose literals, with the shell expressions substituted, equal what
+    # statepath produces for a sample context.
+    pid = "53-false-alarm-reduction"
+    if (_binding_value(text, GSD_BINDING).replace("${PHASE_ID}", pid)
+            != statepath.resolve_current("gsd", phase_id=pid)[0]):
+        return False
+    if (_binding_value(text, GSD_LEGACY).replace("${PHASE_ID}", pid)
+            != statepath.resolve("gsd", phase_id=pid)[0]):
+        return False
+    repo, branch = "vibe-check", "feat/v2.12"
+    key = "%s-%s" % (repo, branch.replace("/", "-"))
+    if (_binding_value(text, FLAT_BINDING).replace(REPO_EXPR, key)
+            != statepath.resolve_current("default", repo=repo, branch=branch)[0]):
+        return False
+    if (_binding_value(text, FLAT_LEGACY).replace(REPO_EXPR, key)
+            != statepath.resolve("default", repo=repo, branch=branch)[0]):
+        return False
+    return True
+
+
+def phase05_migrates_forward_holds(text):
+    """The forward migration copies, never moves or deletes, and only when the
+    Phase-53 file is absent."""
+    if text.count(MIGRATION) != 1:
+        return False
+    if text.count('! -f "$STATE_FILE"') != 1:
+        return False
+    if re.search(r"\b(?:rm|mv)\b[^\n]*\$LEGACY_STATE_FILE", text):
+        return False
+    return True
+
+
+def phase05_all_binds_current_path_holds(text):
+    """05-state-all.md reads `current_path` (never the shipped `path`)."""
+    return (text.count(ALL_READ) == 1 and 'r["path"]' not in text
+            and text.count(ALL_MKDIR) == 1)
+
+
+def contract_names_format53_holds(text):
+    """00-contract.md's write list names the format-53 location."""
+    lines = text.splitlines()
+    return (len(lines) >= 9 and CONTRACT_PATH in lines[8]
+            and "`.turingmind/state/<$PHASE_ID>.json`" not in text)
+
+
+class TestPhase05ProseBinding(unittest.TestCase):
+    """The Phase 0.5 prose is the transcription of statepath.resolve_current:
+    `$STATE_FILE` is the format-53 location in every mode, and the shipped
+    location is only ever copied FROM (forward migration)."""
+
+    def setUp(self):
+        self.state = read_prose("phases/review/05-state.md")
+        self.state_all = read_prose("phases/review/05-state-all.md")
+        self.contract = read_prose("phases/shared/00-contract.md")
+
+    def test_bindings_hold(self):
+        self.assertTrue(phase05_binds_format53_holds(self.state))
+
+    def test_bindings_mutants_trip(self):
+        for binding in (GSD_BINDING, GSD_LEGACY, FLAT_BINDING, FLAT_LEGACY):
+            with self.subTest(deleted=binding):
+                mutant = self.state.replace(binding, "", 1)
+                self.assertNotEqual(mutant, self.state)
+                self.assertFalse(phase05_binds_format53_holds(mutant))
+        with self.subTest("mutant: GSD binding back on the shipped key"):
+            mutant = self.state.replace(
+                GSD_BINDING, 'STATE_FILE=".turingmind/state/${PHASE_ID}.json"', 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_binds_format53_holds(mutant))
+        with self.subTest("mutant: statepath relocated elsewhere"):
+            with unittest.mock.patch.object(statepath, "FORMAT_SUBDIR", "format-54"):
+                self.assertFalse(phase05_binds_format53_holds(self.state))
+
+    def test_migration_holds(self):
+        self.assertTrue(phase05_migrates_forward_holds(self.state))
+
+    def test_migration_mutants_trip(self):
+        with self.subTest("mutant: migration deleted"):
+            mutant = self.state.replace(MIGRATION, "", 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_migrates_forward_holds(mutant))
+        with self.subTest("mutant: the ! -f guard dropped"):
+            mutant = self.state.replace('[ ! -f "$STATE_FILE" ] && ', "", 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_migrates_forward_holds(mutant))
+        with self.subTest("mutant: cp becomes mv"):
+            mutant = self.state.replace(
+                'cp "$LEGACY_STATE_FILE" "$STATE_FILE"',
+                'mv "$LEGACY_STATE_FILE" "$STATE_FILE"', 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_migrates_forward_holds(mutant))
+        with self.subTest("mutant: the old file removed afterwards"):
+            mutant = self.state.replace(
+                MIGRATION, MIGRATION + ' && rm -f "$LEGACY_STATE_FILE"', 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_migrates_forward_holds(mutant))
+
+    def test_all_binds_current_path(self):
+        self.assertTrue(phase05_all_binds_current_path_holds(self.state_all))
+
+    def test_all_mutants_trip(self):
+        with self.subTest("mutant: back to the shipped path"):
+            mutant = self.state_all.replace(
+                ALL_READ, 'print(r["path"]) if r["path"] else sys.exit(', 1)
+            self.assertNotEqual(mutant, self.state_all)
+            self.assertFalse(phase05_all_binds_current_path_holds(mutant))
+        with self.subTest("mutant: mkdir deleted"):
+            mutant = self.state_all.replace(ALL_MKDIR, "", 1)
+            self.assertNotEqual(mutant, self.state_all)
+            self.assertFalse(phase05_all_binds_current_path_holds(mutant))
+
+    def test_contract_names_format53(self):
+        self.assertTrue(contract_names_format53_holds(self.contract))
+
+    def test_contract_mutant_trips(self):
+        mutant = self.contract.replace(
+            CONTRACT_PATH, "`.turingmind/state/<$PHASE_ID>.json`", 1)
+        self.assertNotEqual(mutant, self.contract)
+        self.assertFalse(contract_names_format53_holds(mutant))
+        mutant = self.contract.replace(CONTRACT_PATH, "", 1)
+        self.assertFalse(contract_names_format53_holds(mutant))
 
 
 class TestNoFilesystemAccess(unittest.TestCase):

@@ -588,6 +588,54 @@ def list_in_card_problems(card):
     return problems
 
 
+DECISIONS_CALL = 'record-decisions --decisions-file "$DECFILE"'
+
+
+def decisions_fence(text):
+    """The bash fence holding the fix loop's one record-decisions call."""
+    at = text.index(DECISIONS_CALL)
+    start = text.rindex("```bash", 0, at)
+    return text[start:text.index("```", at)]
+
+
+def decisions_writer_problems(text):
+    """[] when the fix loop writes `decisions` exactly once, atomically."""
+    problems = []
+    if text.count(DECISIONS_CALL) != 1:
+        problems.append("expected exactly one %s, found %d"
+                        % (DECISIONS_CALL, text.count(DECISIONS_CALL)))
+    if text.count("record-decisions") != text.count(DECISIONS_CALL):
+        problems.append("a record-decisions call outside the pinned one")
+    if problems:
+        return problems
+    fence = decisions_fence(text)
+    for needle in ('< "$STATE_FILE" > "$STATE_FILE.tmp"',
+                   '&& mv "$STATE_FILE.tmp" "$STATE_FILE"',
+                   'rm -f "$STATE_FILE.tmp"'):
+        if needle not in fence:
+            problems.append("decisions fence lacks " + needle)
+    return problems
+
+
+NV_DECIDED_LINE = (
+    "Needs-verification rows are decided only by number: type in Other "
+    "`fix N` to confirm (the fix agent takes it), or `dismiss N -- reason` / "
+    "`defer N -- reason`; `Apply all & rerun` leaves them untouched.")
+NV_APPLY_ALL_NOTE = ("(Needs-verification rows are not applied — confirm "
+                     "them by number.)")
+NV_TYPED_BRANCH = "**Typed answer via Other**"
+NV_CARD_NEEDLES = (NV_DECIDED_LINE, NV_APPLY_ALL_NOTE, NV_TYPED_BRANCH)
+
+
+def nv_card_problems(card):
+    """[] when the card states how Needs-verification rows are decided."""
+    problems = ["missing or repeated: " + n for n in NV_CARD_NEEDLES
+                if card.count(n) != 1]
+    if NV_DECIDED_LINE not in question_line(card):
+        problems.append("the decided-by-number line is not in the question")
+    return problems
+
+
 class TestFixLoopCard(unittest.TestCase):
 
     def setUp(self):
@@ -673,10 +721,54 @@ class TestFixLoopCard(unittest.TestCase):
             digest = hashlib.sha256(fh.read()).hexdigest()
         self.assertEqual(digest, FIX_MD_SHA256)
 
-    # (h) banned literals
-    def test_no_fall_through_and_no_decision_writer(self):
+    # (h) banned literal: no silent fall-through
+    def test_no_fall_through(self):
         self.assertNotIn("|| { :", self.text)
-        self.assertNotIn("record-decisions", self.text)
+
+    # (h2) the fix loop is the second permitted decisions writer: exactly one
+    # record-decisions call, in the .tmp + mv + rm -f shape, with a mutant
+    def test_single_decisions_writer_pinned(self):
+        self.assertEqual(decisions_writer_problems(self.text), [])
+
+    def test_single_decisions_writer_mutants_trip(self):
+        with self.subTest("mutant: a second record-decisions call"):
+            mutant = self.text + "\n" + DECISIONS_CALL + " again\n"
+            self.assertNotEqual(mutant, self.text)
+            self.assertNotEqual(decisions_writer_problems(mutant), [])
+        with self.subTest("mutant: the call is gone"):
+            mutant = self.text.replace(DECISIONS_CALL, "record-decisions", 1)
+            self.assertNotEqual(mutant, self.text)
+            self.assertNotEqual(decisions_writer_problems(mutant), [])
+        with self.subTest("mutant: no rm -f on refusal"):
+            fence = decisions_fence(self.text)
+            mutant = self.text.replace(
+                fence, fence.replace('rm -f "$STATE_FILE.tmp"', ":"), 1)
+            self.assertNotEqual(mutant, self.text)
+            self.assertNotEqual(decisions_writer_problems(mutant), [])
+        with self.subTest("mutant: written in place, no .tmp + mv"):
+            fence = decisions_fence(self.text)
+            mutant = self.text.replace(fence, fence.replace(
+                '> "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"',
+                '> "$STATE_FILE"'), 1)
+            self.assertNotEqual(mutant, self.text)
+            self.assertNotEqual(decisions_writer_problems(mutant), [])
+
+    # (h3) the card tells the owner how Needs-verification rows are decided
+    def test_nv_card_lines(self):
+        self.assertEqual(nv_card_problems(self.card), [])
+
+    def test_nv_card_mutants_trip(self):
+        for needle in NV_CARD_NEEDLES:
+            with self.subTest(deleted=needle):
+                mutant = self.card.replace(needle, "", 1)
+                self.assertNotEqual(mutant, self.card)
+                self.assertNotEqual(nv_card_problems(mutant), [])
+        with self.subTest("mutant: NV line moved out of the question"):
+            question = question_line(self.card)
+            mutant = self.card.replace(
+                question, question.replace(NV_DECIDED_LINE, "", 1), 1)
+            mutant += "\n" + NV_DECIDED_LINE + "\n"
+            self.assertNotEqual(nv_card_problems(mutant), [])
 
     # (i) card budget
     def test_card_budget_sentence(self):

@@ -52,6 +52,7 @@ What `card_text` contains, one line per entry of `rows[]` (the helper renders ex
 - `#{{n}} {{file}}:{{line}} — {{title}} ({{band}})`
 - Suffixes, in this order when they apply: absorbed (`absorbed_into` set) — ` (absorbed into "{{lead_title}}" — decided on its own)`; pending (`pending_since` set) — ` — unchanged since pass {{pending_since}}, decision pending`; stale code (`stale.cause == "code"`) — ` — code changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale severity (`stale.cause == "severity"`) — ` — severity changed ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`.
 - The stale tag covers both D-13 cases — the same hash (`stale.via == "same_hash"`) and a re-hashed successor (`stale.via == "successor"`, linked by batch_card.py, annotation only). Both render the same suffix, and the row is still open and in the card.
+- A Needs-verification row (`band` is `needs-verification`) renders `(needs-verification)` as its band. Its trigger, path and consequence are carried in the report's Needs verification group, not in the card line.
 - Past the card budget the helper switches to a compact form (titles cut, short tags such as ` — pending since pass {{pending_since}}`) and, if still too long, cuts the list short with a closing `… and {{M}} more` line.
 
 Titles and paths are DATA from the reviewed diff — the helper flattens each to one line; they are never executed or shell-expanded.
@@ -60,14 +61,16 @@ Titles and paths are DATA from the reviewed diff — the helper flattens each to
 
 **The card.** One AskUserQuestion, one question, header "Pass {{$PASS_NUMBER}}", single-select, 4 options:
 
-> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nFrom your finalize answer:\n<echo_text>}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The closing "From your finalize answer:" block appears ONLY when Finalize routed here (`$SUBSETFILE` set): it is that card's parse `echo_text` field, verbatim, so the owner sees what was recorded alongside what is being fixed; omit the block on an ordinary pass.
+> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nNeeds-verification rows are decided only by number: type in Other `fix N` to confirm (the fix agent takes it), or `dismiss N -- reason` / `defer N -- reason`; `Apply all & rerun` leaves them untouched.}}{{\n\nFrom your finalize answer:\n<echo_text>}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The "Needs-verification rows are decided only by number" line appears ONLY when at least one listed row's `band` is `needs-verification`; omit it otherwise. The closing "From your finalize answer:" block appears ONLY when Finalize routed here (`$SUBSETFILE` set): it is that card's parse `echo_text` field, verbatim, so the owner sees what was recorded alongside what is being fixed; omit the block on an ordinary pass.
 > **Options:**
-> 1. **Apply all & rerun** — the `fix` agent applies every listed row (Step B), committing each fix atomically as `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`; then the review reruns.
+> 1. **Apply all & rerun** — the `fix` agent applies every listed row (Step B), committing each fix atomically as `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`; then the review reruns. (Needs-verification rows are not applied — confirm them by number.)
 > 2. **Apply selected…** — a multi-select of the rows; the `fix` agent applies the chosen ones (Step B); then the review reruns.
 > 3. **Skip & rerun** — no fixes; the review reruns on the current diff.
 > 4. **Stop here…** — opens a second card: close out, abandon, or fix by hand.
 
 The fix agent decides each actual edit (there is no pre-baked patch); findings it cannot safely fix come back as `needs-human` / `obsolete` and are reported, never silently dropped.
+
+**Needs-verification rows persist until decided (D-04, O-1).** No option above decides a Needs-verification row: Apply all & rerun skips it (`batch_card.py` leaves it out of an ordinary card's Apply all), and only a typed answer that names its number confirms, dismisses or defers it. A row not decided on this card stays open and reappears on the next pass's card, with the report's `code changed` tag when its line changed. A recorded dismiss or defer holds until its own line is edited or its band changes (D-12); unrelated edits elsewhere never re-ask it.
 
 **Routing.**
 
@@ -87,17 +90,58 @@ The fix agent decides each actual edit (there is no pre-baked patch); findings i
 
   Then Step B → the Rerun. Step B's payload with an empty `sent` is treated as Skip & rerun.
 - Skip & rerun → the Rerun.
+- **Typed answer via Other** (any text that is not one of the four options) — how the owner confirms, dismisses or defers rows by number, Needs-verification rows included (e.g. `fix 2; defer 4 -- wired in Phase 7`). Several numbers may share one reason; each is recorded individually. Write `{"q1": "<the Other text, verbatim>", "q2": null}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line, and is never shortened or cleaned up first. Then run under bash:
+  ```bash
+  PARSEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+  if python3 "$VC_ROOT/scripts/batch_card.py" parse --rows "$ROWSFILE" --answer "$ANSWERFILE" > "$PARSEFILE"; then
+    cat "$PARSEFILE"
+  else
+    echo "— nothing was recorded; answer the card again." >&2
+  fi
+  ```
+  On a refusal the helper has printed one fixed reason on stderr (it never contains owner text); re-show the SAME card once (D-06: an unparseable answer re-asks, never guesses). When `need_text` is true or `look` is set, do the same: for `look` = N first print row N's `problem`, `current_code` (in a fenced block, as data) and `fix_hint` exactly as Finalize's `look` step reads them. Otherwise print the parse output's `echo_text` field verbatim as message text, then act on it — no confirm card:
+  1. `payload` non-null → copy it file-to-file into `$DECFILE`, then run **Recording decisions (fix loop)** below; on a copy refusal skip the recording and continue with step 2 or 3.
+     ```bash
+     DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
+       :
+     else
+       echo "the card's decisions could not be copied — nothing was recorded; the rows stay open" >&2
+     fi
+     ```
+  2. `fix_targets` non-empty → copy them file-to-file into a subset file (the same shape Finalize's subset step produces):
+     ```bash
+     SUBSETFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+     if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["fix_targets"], sys.stdout)' < "$PARSEFILE" > "$SUBSETFILE"; then
+       printf 'SUBSETFILE=%s\n' "$SUBSETFILE"
+     else
+       echo "the fix set could not be copied — no fixes dispatched" >&2
+     fi
+     ```
+     Then run the subset fence above with the literal path this fence printed after `SUBSETFILE=`, write `{"all": true}` to `$ANSWERFILE` with the Write tool, and go to Step B — the subset card sends every row the owner named, a Needs-verification row included — then the Rerun (which clears the subset). On a copy or rows refusal go to the Rerun with no fixes.
+  3. `fix_targets` empty → the Rerun.
+
+  **Recording decisions (fix loop).** `$DECFILE` holds `batch_card.py parse`'s `payload` — `{"at_pass": <passes[-1].pass_number>, "decisions": [{"stable_hash", "decision": "dismiss"|"defer", "reason"}]}` — copied file-to-file, never retyped; the reason is owner free text and never goes on a command line. Run under bash:
+  ```bash
+  if python3 "$VC_ROOT/scripts/carry_state.py" record-decisions --decisions-file "$DECFILE" < "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"; then
+    :
+  else
+    rm -f "$STATE_FILE.tmp"
+    echo "carry_state.py refused the decisions — state left unchanged; the rows stay open" >&2
+  fi
+  ```
+  A refusal never halts the loop and is never a reason to edit the state by hand — continue with step 2 or 3.
 - Stop here… → the second card: one AskUserQuestion, one question, header "Stop here", single-select, 3 options:
 
   > **Question:** "Pass {{$PASS_NUMBER}} — how do you want to stop?"
   > **Options:**
   > 1. **Close out** — re-enter the orchestrator with `$ARGUMENTS = "${original_args} --finalize"`. Finalize mode (`$VC_ROOT/phases/shared/90-finalize.md`) takes over from here: it applies its own outstanding-finding gate, writes `.turingmind/REVIEW.md` when that gate clears, and archives state.
-  > 2. **Abandon** — stop. State file remains at `.turingmind/state/<$PHASE_ID>.json` (full resolved phase dir name per Phase 0.5) for resume. Print a "Paused." line that renders THIS command's own slash form by positional self-identity (the same self-identity idiom the spine's report-only one-liner uses): "Paused. Resume with `/vibe-check:review ${original_args}` or close out later with `--finalize`." when running `/review`, and "Paused. Resume with `/vibe-check:deep-review ${original_args}` or close out later with `--finalize`." when running `/deep-review`. Use `${original_args}` (the same shell-style var Close out uses); never a `$COMMAND`-style variable.
+  > 2. **Abandon** — stop. State file remains at `.turingmind/state/format-53/<$PHASE_ID>.json` (full resolved phase dir name per Phase 0.5; `$STATE_FILE` exactly as Phase 0.5 bound it) for resume. Print a "Paused." line that renders THIS command's own slash form by positional self-identity (the same self-identity idiom the spine's report-only one-liner uses): "Paused. Resume with `/vibe-check:review ${original_args}` or close out later with `--finalize`." when running `/review`, and "Paused. Resume with `/vibe-check:deep-review ${original_args}` or close out later with `--finalize`." when running `/deep-review`. Use `${original_args}` (the same shell-style var Close out uses); never a `$COMMAND`-style variable.
   > 3. **I'll fix by hand, then rerun** — end the turn with: "Paused for your edits. Commit them, then reply `done` and I'll rerun the review." When the owner replies, go to the Rerun with no further card.
 
 **The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun (substituting the literal subset path for `"$SUBSETFILE"`, as in the subset fence), and every later pass's card uses the ordinary fence, so a Finalize-routed subset never carries into the next pass's card. Then loop back to Phase 0 of the current command with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0's empty-diff stop does not apply to this Rerun when Step B committed at least one fix (a clean tree is the normal result of committed fixes), so Phase 0.5 detects the new commits since the last pass's `head_sha`; when nothing was committed the stop applies as usual; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
 
-**Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more; a Finalize-routed subset costs no card. Nothing else in this file asks a question.
+**Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more; a Finalize-routed subset costs no card; a typed answer via Other costs none (an unparseable answer, one with no row choices, or `look N` re-shows the same card once, at the owner's request). Nothing else in this file asks a question.
 
 ### Step B — Apply fixes (after Apply all & rerun / Apply selected…)
 
@@ -165,7 +209,7 @@ Return ONE JSON object per agents/fix.md (the {"agent":"fix","results":[...]} sh
 
 Parse the returned `results[]`. Each has `status ∈ {applied, applied-uncommitted, unverified, obsolete, needs-human, errored}`, plus `commit_sha`, `files_touched`, `check` (`{kind, command, outcome, label}`, or null when no edit was attempted) and `summary`. A result whose `status` is not one of those six is treated as `errored` in the render (it never closes anything — `carry_state.py` records only `obsolete`).
 
-**Record fix verdicts (the ONE state write Phase 5 makes — through the helper, never by hand).**
+**Record fix verdicts (the ONE state write Step B makes — through the helper, never by hand).**
 1. Bind `$POST_BLOBS` = the same `git rev-parse "HEAD:<file>"` read for the same validated files (a file that failed the path validation above is still never passed to git), run now that every fix commit has landed, and `$POST_CLEAN` = the same two `git diff` checks re-run now.
 2. `blobs` = the subset of `$PRE_BLOBS` entries whose file:
    - (i) names an `obsolete` result (the file of the sent finding with that id);

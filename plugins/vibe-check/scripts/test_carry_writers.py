@@ -133,7 +133,11 @@ FAMILIES = (
             subscript="passes", directive="passes",
             # "append the pass entry to its `passes` array"
             extra=((r"\bappend\b[^\n]*?\b(?:state\.)?passes\b", ()),)),
-    _family("decisions", ("phases/shared/90-finalize.md",),
+    # Two permitted writers, deliberately: Finalize's card and the fix-loop
+    # card (a Needs-verification row is confirmed, dismissed or deferred on
+    # the card of the pass that shows it).
+    _family("decisions", ("phases/shared/90-finalize.md",
+                          "phases/review/50-fix-loop.md"),
             subscript="decisions", directive="decisions",
             helper="record-decisions"),
     _family("fix_verdicts", ("phases/review/50-fix-loop.md",),
@@ -290,6 +294,23 @@ class TestProseWriterLock(unittest.TestCase):
                 texts[self.TARGET] = base + "\n" + clause + "\n"
                 self.assertEqual(list(offenders(family, texts)), [self.TARGET])
 
+    def test_decisions_owners_are_exactly_finalize_and_fix_loop(self):
+        self.assertEqual(FAMILY_BY_NAME["decisions"]["owners"],
+                         ("phases/shared/90-finalize.md",
+                          "phases/review/50-fix-loop.md"))
+        self.assertEqual(offenders(FAMILY_BY_NAME["decisions"], self.texts), {})
+
+    def test_mutation_owners_rollback_reports_the_fix_loop(self):
+        # The extension is load-bearing: with the owners rolled back to the
+        # Finalize-only tuple, the fix loop's real record-decisions call is a
+        # second writer and is reported, for exactly that file.
+        family = dict(FAMILY_BY_NAME["decisions"],
+                      owners=("phases/shared/90-finalize.md",))
+        self.assertNotEqual(family["owners"],
+                            FAMILY_BY_NAME["decisions"]["owners"])
+        self.assertEqual(list(offenders(family, self.texts)),
+                         ["phases/review/50-fix-loop.md"])
+
     def test_negated_injection_is_not_reported(self):
         base = self.texts[self.TARGET]
         for name, clause in (
@@ -310,11 +331,14 @@ class TestProseWriterLock(unittest.TestCase):
     # fails here, so the exemption cannot quietly grow.
     FROZEN_EXEMPTED = {
         ("decisions", "phases/review/05-state.md",
-         "- The state root may also carry `decisions` (Finalize-written via"),
+         "- The state root may also carry `decisions` (written only by Finalize "
+         "and by the fix-loop card via"),
         ("decisions", "phases/review/45-persist.md",
-         "The root may LATER gain `decisions` (written only by Finalize via"),
+         "The root may LATER gain `decisions` (written only by Finalize and by "
+         "the fix-loop card via"),
         ("fix_verdicts", "phases/review/45-persist.md",
-         "The root may LATER gain `decisions` (written only by Finalize via"),
+         "The root may LATER gain `decisions` (written only by Finalize and by "
+         "the fix-loop card via"),
     }
 
     def test_exemptions_are_frozen(self):

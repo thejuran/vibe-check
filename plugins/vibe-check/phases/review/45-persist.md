@@ -57,11 +57,11 @@ If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/45-persist-all.md** with th
 
 `medium_acknowledgments` is a JSON object (never an array, never omitted), keyed by a finding's `stable_hash` — a legacy family that Finalize only reads (`phases/shared/90-finalize.md`; owner decisions now go to root `decisions`). A fresh state starts it as the empty object `{}`.
 
-The root may LATER gain `decisions` (written only by Finalize via `carry_state.py record-decisions`) and `fix_verdicts` (written only by Phase 5 via `carry_state.py record-fix-verdicts`). Phase 4.5 never creates, copies into, or edits either — a fresh root is exactly the two keys above (the schema's `root_required`).
+The root may LATER gain `decisions` (written only by Finalize and by the fix-loop card via `carry_state.py record-decisions`) and `fix_verdicts` (written only by Phase 5 via `carry_state.py record-fix-verdicts`). Phase 4.5 never creates, copies into, or edits either — a fresh root is exactly the two keys above (the schema's `root_required`).
 
 **Existing state file.** Keep every root key it already has, unchanged — never drop, rename, or reset `medium_acknowledgments`, `decisions` or `fix_verdicts`. If an older file lacks `medium_acknowledgments`, add it as `{}`.
 
-Append to `state.passes`, write to state file. Create parent dirs as needed (`.turingmind/state/`).
+Append to `state.passes`, write to state file. Create parent dirs as needed (`.turingmind/state/format-53/`, and `by-mode/all/` under it for `--all`).
 
 Optional: snapshot this run for debugging:
 ```bash
