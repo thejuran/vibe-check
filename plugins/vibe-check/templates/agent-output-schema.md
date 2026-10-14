@@ -27,7 +27,8 @@ Every agent dispatched via `Task` MUST return exactly one JSON object matching t
       "current_code": "string (required) — verbatim offending snippet",
       "fix_hint": "string | null — OPTIONAL one-line sketch of the fix direction (e.g. 'guard user before .email access; throw NotFoundError'). NOT an Edit-ready patch. Leave null if the direction isn't obvious. The fix agent (Phase 5) produces the actual patch.",
       "why_it_matters": "string (required) — 1-2 sentences",
-      "silenced_marker_nearby": "boolean (required) — eslint-disable / # noqa / etc within ±2 lines?"
+      "silenced_marker_nearby": "boolean (required) — eslint-disable / # noqa / etc within ±2 lines?",
+      "needs_verification": "object | null — OPTIONAL; only for an unresolved assessment, see below"
     }
   ],
   "agent_notes": [
@@ -50,6 +51,21 @@ Populated by architecture and compliance only, when intent context provided:
 ```
 
 Orchestrator score impact: confidence >0.9 → −100 (filter entirely); else confidence >0.7 → −30. The two thresholds are mutually exclusive.
+
+### `needs_verification` shape
+
+Set `needs_verification` only when you could neither demonstrate that the change creates the exposure nor that the exposure was already reachable before it:
+
+```json
+{
+  "trigger": "string — the concrete input, value or call that would cause the failure",
+  "path": "string — how it reaches the changed code: file:line or a symbol name",
+  "consequence": "string — the concrete failure (what breaks, for whom)",
+  "symbol": "string | null — a symbol location when no single line applies"
+}
+```
+
+An item is admitted to the Needs-verification group only when `file` + `line` (or `symbol`) and all three of `trigger`, `path` and `consequence` are present and concrete; hedges such as "may break" or "sensitive area" are rejected by the scorer, and the number of dropped items is published with the review. A Needs-verification item never corroborates another finding and is never corroborated by one. The Codex lane emits the same object through the fixed body marker `NEEDS VERIFICATION | Trigger: … | Path: … | Consequence: …`, which `scripts/codex_translate.py` translates into this shape.
 
 ## `fix_hint` — detection agents do NOT write patches
 
