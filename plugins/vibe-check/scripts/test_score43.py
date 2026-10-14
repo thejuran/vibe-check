@@ -243,6 +243,266 @@ class TestPerRun(_TmpDirCase):
                                                                         "--state", path)[1])
 
 
+def _row(band, agent="bugs", file="a.py", line=12, score=70, h="h", title="SECRET-TITLE"):
+    return {"agent": agent, "file": file, "line": line, "band": band,
+            "orchestrator_score": score, "stable_hash": h, "title": title,
+            "members": [{"agent": agent, "title": title}]}
+
+
+FIVE_BANDS = [_row("critical", h="h1"), _row("warning", h="h2"),
+              _row("needs-verification", h="h3", score=0), _row("medium", h="h4"),
+              _row("low", h="h5")]
+
+
+def write_dev_run(root, case, n, rows, fingerprint=None, transcript=None):
+    run_dir = os.path.join(root, case, "run-%d" % n)
+    write_json(os.path.join(run_dir, "state.json"), make_state(rows=rows))
+    if fingerprint is not None:
+        with open(os.path.join(run_dir, "fingerprint.txt"), "w", encoding="utf-8") as fh:
+            fh.write("runtime_fingerprint: %s\nrepo_head: abc\nrepo_dirty: no\n"
+                     "label: development rehearsal\n" % fingerprint)
+    return run_dir
+
+
+class TestDevBurden(_TmpDirCase):
+
+    def test_alarms_nv_and_fired_are_separate(self):
+        b = score43.dev_burden(make_state(rows=FIVE_BANDS))
+        self.assertEqual((b["alarms"], b["nv_items"], b["fired"]), (2, 1, True))
+        self.assertEqual([r["stable_hash"] for r in b["alarm_rows"]], ["h1", "h2"])
+        self.assertEqual([r["stable_hash"] for r in b["nv_rows"]], ["h3"])
+        for r in b["alarm_rows"] + b["nv_rows"]:
+            self.assertEqual(set(r), {"agent", "file", "line", "band", "score",
+                                      "stable_hash"})
+
+    def test_quiet_rows_do_not_fire(self):
+        b = score43.dev_burden(make_state(rows=[_row("medium"), _row("low")]))
+        self.assertEqual((b["alarms"], b["nv_items"], b["fired"]), (0, 0, False))
+
+    def test_nv_alone_fires_burden_but_not_the_archived_guardrail(self):
+        st = make_state(rows=[_row("needs-verification", score=0)])
+        b = score43.dev_burden(st)
+        self.assertEqual((b["alarms"], b["nv_items"], b["fired"]), (0, 1, True))
+        self.assertFalse(score43.fp_verdict(st)["fired"])
+        self.assertNotIn("SECRET-TITLE", str(b))
+
+    def test_cli_counts_only_no_titles(self):
+        path = write_json(self.p("state.json"), make_state(rows=FIVE_BANDS))
+        code, out, _e = self.cli("dev-burden", "--state", path)
+        self.assertEqual(code, 0)
+        self.assertIn("alarms: 2", out)
+        self.assertIn("needs-verification items: 1", out)
+        self.assertIn("fired: yes", out)
+        self.assertIn("| bugs | a.py | 12 | needs-verification | 0 |", out)
+        self.assertNotIn("SECRET-TITLE", out)
+
+
+class TestDevFingerprint(_TmpDirCase):
+
+    def _tree(self, name):
+        root = self.p(name)
+        for d in (".claude-plugin", "agents", "commands", "scripts", "templates",
+                  "hooks", "phases"):
+            os.makedirs(os.path.join(root, d))
+            with open(os.path.join(root, d, "f.txt"), "w", encoding="utf-8") as fh:
+                fh.write("content of %s" % d)
+        return root
+
+    def test_hex_and_content_sensitivity(self):
+        root = self._tree("t")
+        f1 = score43.runtime_fingerprint(root)
+        self.assertRegex(f1, r"^[0-9a-f]{64}$")
+        for d in (".claude-plugin", "agents", "commands", "scripts", "templates",
+                  "hooks", "phases"):
+            path = os.path.join(root, d, "f.txt")
+            with open(path, encoding="utf-8") as fh:
+                orig = fh.read()
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(orig + "!")
+            self.assertNotEqual(score43.runtime_fingerprint(root), f1, d)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(orig)
+        self.assertEqual(score43.runtime_fingerprint(root), f1)
+
+    def test_excluded_paths_do_not_move_it(self):
+        root = self._tree("t")
+        f1 = score43.runtime_fingerprint(root)
+        os.makedirs(os.path.join(root, "scripts", "__pycache__"))
+        for rel in (("scripts", "__pycache__", "x.cpython.pyc"), ("scripts", "y.pyc"),
+                    ("README.md",), ("scripts", ".in_use")):
+            with open(os.path.join(root, *rel), "w", encoding="utf-8") as fh:
+                fh.write("noise")
+        os.makedirs(os.path.join(root, "scripts", ".pytest_cache"))
+        with open(os.path.join(root, "scripts", ".pytest_cache", "v"), "w") as fh:
+            fh.write("noise")
+        self.assertEqual(score43.runtime_fingerprint(root), f1)
+
+    def test_new_file_and_rename_move_it(self):
+        root = self._tree("t")
+        f1 = score43.runtime_fingerprint(root)
+        os.rename(os.path.join(root, "agents", "f.txt"), os.path.join(root, "agents", "g.txt"))
+        f2 = score43.runtime_fingerprint(root)
+        self.assertNotEqual(f2, f1)
+        with open(os.path.join(root, "agents", "new.md"), "w", encoding="utf-8") as fh:
+            fh.write("")
+        self.assertNotEqual(score43.runtime_fingerprint(root), f2)
+
+    def test_identical_content_elsewhere_same_value(self):
+        a, b = self._tree("a"), self._tree("b")
+        os.utime(os.path.join(b, "agents", "f.txt"), (1, 1))
+        self.assertEqual(score43.runtime_fingerprint(a), score43.runtime_fingerprint(b))
+
+    def test_cli_prints_bare_hex(self):
+        root = self._tree("t")
+        code, out, _e = self.cli("fingerprint", "--root", root)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, score43.runtime_fingerprint(root) + "\n")
+
+
+class TestDevTally(_TmpDirCase):
+
+    def test_per_run_totals_missing_and_cards(self):
+        root = self.p("runs")
+        write_dev_run(root, "reach-quiet-1", 1, FIVE_BANDS)
+        write_dev_run(root, "reach-quiet-1", 2, [_row("medium")])
+        write_dev_run(root, "should-quiet-4", 1, [_row("needs-verification", score=0)])
+        os.makedirs(os.path.join(root, "reach-new-1", "run-1"))
+        cards = {"reach-quiet-1/run-1": 2}
+        t = score43.dev_tally(root, lambda d: cards.get(
+            "%s/%s" % (os.path.basename(os.path.dirname(d)), os.path.basename(d))))
+        by = {(r["case"], r["run"]): r for r in t["runs"]}
+        self.assertEqual(by[("reach-quiet-1", 1)],
+                         {"case": "reach-quiet-1", "run": 1, "alarms": 2, "nv_items": 1,
+                          "fired": True, "cards": 2})
+        self.assertEqual(by[("reach-quiet-1", 2)]["fired"], False)
+        self.assertIsNone(by[("reach-quiet-1", 2)]["cards"])
+        self.assertEqual(by[("should-quiet-4", 1)]["fired"], True)
+        self.assertEqual(t["missing"], ["reach-new-1/run-1"])
+        self.assertEqual(t["stale"], [])
+        self.assertEqual({k: t["totals"][k] for k in ("runs", "fired_runs", "alarms",
+                                                      "nv_items", "cards")},
+                         {"runs": 3, "fired_runs": 2, "alarms": 2, "nv_items": 2,
+                          "cards": 2})
+
+    def test_require_fingerprint_lists_stale_and_excludes_them(self):
+        root = self.p("runs")
+        good, bad = "a" * 64, "b" * 64
+        write_dev_run(root, "reach-quiet-1", 1, FIVE_BANDS, fingerprint=good)
+        write_dev_run(root, "reach-quiet-1", 2, FIVE_BANDS, fingerprint=bad)
+        write_dev_run(root, "reach-quiet-2", 1, FIVE_BANDS)
+        t = score43.dev_tally(root, lambda d: None, require_fingerprint=good)
+        self.assertEqual(t["stale"], ["reach-quiet-1/run-2", "reach-quiet-2/run-1"])
+        self.assertEqual(t["totals"]["runs"], 1)
+        self.assertEqual(t["totals"]["alarms"], 2)
+        self.assertEqual(t["totals"]["fingerprints"], [good, bad])
+        unflagged = score43.dev_tally(root, lambda d: None)
+        self.assertEqual(unflagged["stale"], [])
+        self.assertEqual(unflagged["totals"]["runs"], 3)
+
+    def test_cli_exit_codes_and_no_titles(self):
+        root = self.p("runs")
+        good = "c" * 64
+        write_dev_run(root, "reach-quiet-1", 1, FIVE_BANDS, fingerprint=good)
+        code, out, _e = self.cli("dev-tally", "--runs-root", root)
+        self.assertEqual(code, 0)
+        self.assertIn("reach-quiet-1 run-1 alarms=2 nv=1 fired=yes cards=unavailable", out)
+        self.assertNotIn("SECRET-TITLE", out)
+        self.assertEqual(self.cli("dev-tally", "--runs-root", root,
+                                  "--require-fingerprint", good)[0], 0)
+        code, out, err = self.cli("dev-tally", "--runs-root", root,
+                                  "--require-fingerprint", "d" * 64)
+        self.assertEqual(code, 1)
+        self.assertIn("stale: reach-quiet-1/run-1", out + err)
+        os.makedirs(os.path.join(root, "reach-quiet-1", "run-2"))
+        self.assertEqual(self.cli("dev-tally", "--runs-root", root,
+                                  "--require-fingerprint", good)[0], 1)
+        self.assertEqual(self.cli("dev-tally", "--runs-root", root)[0], 0)
+
+    def test_cli_cards_from_bound_transcript(self):
+        root = self.p("runs")
+        run_dir = write_dev_run(root, "reach-quiet-1", 1, [_row("medium")])
+        rec = {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "AskUserQuestion", "input": {}}]}}
+        data = (json.dumps(rec) + "\n").encode()
+        with open(os.path.join(run_dir, "transcript.jsonl"), "wb") as fh:
+            fh.write(data)
+        import hashlib
+        with open(os.path.join(run_dir, "transcript.jsonl.sha256"), "w") as fh:
+            fh.write(hashlib.sha256(data).hexdigest() + "  transcript.jsonl\n")
+        self.assertIn("cards=1", self.cli("dev-tally", "--runs-root", root)[1])
+        with open(os.path.join(run_dir, "transcript.jsonl.sha256"), "w") as fh:
+            fh.write("0" * 64 + "  transcript.jsonl\n")
+        self.assertIn("cards=unavailable", self.cli("dev-tally", "--runs-root", root)[1])
+
+
+class TestDevCatchCandidates(_TmpDirCase):
+
+    ENTRY = {"site": {"file": "a.py", "lines": [[10, 15]]}, "floor": "warning",
+             "defect": "a.py:12 keyed defect sentence"}
+
+    def _rows(self):
+        return [_row("warning", line=12, h="h1", title="alarm at site"),
+                _row("needs-verification", line=14, h="h2", score=0, title="nv at site"),
+                _row("medium", line=13, h="h4", title="below floor"),
+                _row("critical", file="b.py", line=1, h="h3", title="off site"),
+                _row("needs-verification", file="b.py", line=12, h="h5", title="nv off")]
+
+    def test_floor_rows_then_nv_rows_at_site(self):
+        r = score43.dev_catch_candidates(make_state(rows=self._rows()), self.ENTRY)
+        self.assertEqual(r["defect"], self.ENTRY["defect"])
+        self.assertEqual([x["stable_hash"] for x in r["rows"]], ["h1", "h2"])
+        self.assertEqual([x["nv"] for x in r["rows"]], [False, True])
+        self.assertEqual(r["rows"][1]["survivor_title"], "nv at site")
+
+    def test_nv_row_not_duplicated_under_low_floor(self):
+        entry = dict(self.ENTRY, floor="medium")
+        r = score43.dev_catch_candidates(make_state(rows=self._rows()), entry)
+        self.assertEqual([x["stable_hash"] for x in r["rows"]], ["h1", "h4", "h2"])
+
+    def test_load_dev_sites_refusals(self):
+        ok = write_json(self.p("ok.json"), {"catch_cases": {"reach-new-1": self.ENTRY}})
+        self.assertEqual(score43.load_dev_sites(ok), {"reach-new-1": self.ENTRY})
+        bads = [{}, {"catch_cases": []},
+                {"catch_cases": {"reach-new-1": {"site": self.ENTRY["site"], "floor": "warning"}}},
+                {"catch_cases": {"reach-new-1": {"defect": "d", "floor": "warning"}}},
+                {"catch_cases": {"reach-new-1": dict(self.ENTRY, floor="bogus")}},
+                {"catch_cases": {"reach-new-1": dict(self.ENTRY, defect="")}},
+                {"catch_cases": {"reach-new-1": self.ENTRY, "should-quiet-4": self.ENTRY}}]
+        for i, bad in enumerate(bads):
+            path = write_json(self.p("bad-%d.json" % i), bad)
+            with self.assertRaises(score43.ScoreError, msg=str(bad)):
+                score43.load_dev_sites(path)
+
+    def test_cli_lists_defect_and_nv_column(self):
+        sites = write_json(self.p("sites.json"), {"catch_cases": {"reach-new-1": self.ENTRY}})
+        state = write_json(self.p("state.json"), make_state(rows=self._rows()))
+        code, out, _e = self.cli("dev-catch-candidates", "--state", state,
+                                 "--id", "reach-new-1", "--sites", sites)
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith("keyed defect: a.py:12 keyed defect sentence\n"))
+        self.assertIn("alarm at site", out)
+        self.assertIn("nv at site", out)
+        self.assertNotIn("off site", out)
+        self.assertIn("candidates at site: 2 (alarms 1, needs-verification 1)", out)
+
+    def test_cli_refuses_b3_and_unknown_ids_before_reading_state(self):
+        sites = write_json(self.p("sites.json"), {"catch_cases": {"reach-new-1": self.ENTRY}})
+        missing_state = self.p("does-not-exist.json")
+        for case in ("should-quiet-4", "triggarr-autoescape", "reach-new-9"):
+            code, _o, err = self.cli("dev-catch-candidates", "--state", missing_state,
+                                     "--id", case, "--sites", sites)
+            self.assertEqual(code, 1, case)
+            self.assertIn("dev-catch-candidates: not a development case", err)
+
+    def test_cli_refuses_b3_id_listed_in_sites_file(self):
+        with open(self.p("sites.json"), "w", encoding="utf-8") as fh:
+            json.dump({"catch_cases": {"should-quiet-4": self.ENTRY}}, fh)
+        state = write_json(self.p("state.json"), make_state(rows=self._rows()))
+        code, _o, _e = self.cli("dev-catch-candidates", "--state", state,
+                                "--id", "should-quiet-4", "--sites", self.p("sites.json"))
+        self.assertEqual(code, 1)
+
+
 # --------------------------------------------------------------------------
 # Aggregate
 # --------------------------------------------------------------------------
@@ -1133,7 +1393,7 @@ class TestRetuneFull(_RepoCase):
 
 class TestModuleConventions(unittest.TestCase):
 
-    ALLOWED = {"argparse", "json", "os", "re", "subprocess", "sys", "replay"}
+    ALLOWED = {"argparse", "hashlib", "json", "os", "re", "subprocess", "sys", "replay"}
 
     def _tree(self):
         with open(SCORE43_PY, encoding="utf-8") as fh:
