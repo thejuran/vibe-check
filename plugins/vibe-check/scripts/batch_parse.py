@@ -31,10 +31,16 @@ asks once more, and no row is ever decided from the selection alone.
 counts as none, and Q2 applies.
 
 `all` is a synonym of `rest`. `rest` expands after the explicit items, over the unassigned rows whose band is
-in `_rest_bands_for(verb)`: every band for `fix`, MEDIUM only for `dismiss` and
-`defer`. A critical or warning row is therefore dismissed or deferred only when
-the owner names it by number; otherwise it stays undecided and finalize stays
-blocked.
+in `_rest_bands_for(verb)`: critical, warning and medium for `fix`, MEDIUM only
+for `dismiss` and `defer`. A critical or warning row is therefore dismissed or
+deferred only when the owner names it by number; otherwise it stays undecided
+and finalize stays blocked.
+
+A needs-verification row is never reached by `rest` or `all`, for any verb. It
+is confirmed (`fix N`), dismissed or deferred only when the owner names it by
+number. Several numbers may share one clause and one reason (`defer 2,4 --
+reason`); each named row still gets its own decision. An NV row left open stays
+undecided and finalize stays blocked.
 
 The parse never guesses. Anything outside the grammar is refused with one fixed
 string from REASONS, and no refusal ever contains owner text.
@@ -70,7 +76,9 @@ REASONS = (
 )
 
 VERBS = ("fix", "dismiss", "defer")
-_BANDS = ("critical", "warning", "medium")
+_NV_BAND = "needs-verification"
+_BANDS = ("critical", "warning", _NV_BAND, "medium")
+_FIX_REST_BANDS = ("critical", "warning", "medium")
 _CW_BANDS = ("critical", "warning")
 
 # Each button is the same grammar the owner could type.
@@ -99,7 +107,7 @@ class _Refusal(Exception):
 def _rest_bands_for(verb):
     """Bands a `rest` clause may reach. The bulk-safety rule lives here only."""
     if verb == "fix":
-        return _BANDS
+        return _FIX_REST_BANDS
     return ("medium",)
 
 
@@ -123,7 +131,7 @@ def _validate_rows(rows):
         if not isinstance(row.get("stable_hash"), str) or not row["stable_hash"]:
             raise ValueError("row stable_hash must be a non-empty string")
         if row.get("band") not in _BANDS:
-            raise ValueError("row band must be critical, warning or medium")
+            raise ValueError("row band must be critical, warning, needs-verification or medium")
 
 
 def _items(spec, count):
@@ -271,6 +279,10 @@ def _answer(rows, q1, q2):
     if open_medium:
         echo.append("%d medium undecided — still open; finalize stays blocked"
                     % len(open_medium))
+    open_nv = [r for r in undecided if r["band"] == _NV_BAND]
+    if open_nv:
+        echo.append("%d needs-verification undecided — still open;"
+                    " finalize stays blocked" % len(open_nv))
 
     return _empty_result(
         fix=[r["stable_hash"] for r in by_verb["fix"]],
