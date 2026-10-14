@@ -6,7 +6,9 @@ keeps existing) is a test that reads the prose. This module holds those locks:
 * Leakage (D-01/D-02). The prompts may teach generic classes of safe change,
   never the B3 ground-truth diffs they are measured against. The identifier set
   is EXTRACTED from the committed B3 patches and provenance files (never
-  hand-typed), and the whole prompt corpus must scan clean against it.
+  hand-typed), and the whole prompt corpus must scan clean against it. The
+  development rehearsal cases (docs/design/reachability-dev/cases) are a second
+  identifier source, and any B3 case id (numbered or named) trips on sight.
 * Cap math. The confidence ceiling a prompt asks for is only meaningful against
   the scoring template, so the Medium floor, the Warning floor, the bonuses and
   the severity weights are parsed from `templates/scoring.md`; a band retune or
@@ -39,7 +41,8 @@ keeps existing) is a test that reads the prose. This module holds those locks:
 
 Every scanner is a pure function over text. Each lock has a mutation test that
 plants the regression in memory and asserts the scanner trips; no test writes a
-file. A lock with no tripping mutation is decorative and does not count.
+file (the dev-case extraction mutation writes only to a temporary directory
+it removes). A lock with no tripping mutation is decorative and does not count.
 """
 
 import copy
@@ -47,7 +50,9 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -58,11 +63,15 @@ import codex_gate  # noqa: E402  (the focus-unreadable slug and fact)
 import codex_translate  # noqa: E402  (the needs-verification body marker)
 import replay  # noqa: E402  (REPO_ROOT convention)
 import score  # noqa: E402  (read-only: driven, never edited)
+import score43  # noqa: E402  (read-only: the named B3 case ids)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(HERE)
 REPO_ROOT = replay.REPO_ROOT
 DIFFS_DIR = os.path.join(REPO_ROOT, "docs", "design", "b3-ground-truth", "diffs")
+# Development rehearsal cases (real past commits). Never release evidence, but
+# their identifiers must stay out of the prompts exactly like B3's.
+DEV_CASES_DIR = os.path.join(REPO_ROOT, "docs", "design", "reachability-dev", "cases")
 
 LOUD = ("bugs", "security", "impact")
 
@@ -145,6 +154,26 @@ def _raw_b3_identifiers(diffs_dir):
 def b3_identifiers(diffs_dir):
     """B3-specific identifiers, repo names and paths (raw minus GENERIC_API)."""
     return _raw_b3_identifiers(diffs_dir) - set(GENERIC_API)
+
+
+def all_case_identifiers():
+    """Identifiers from the B3 diffs AND the development rehearsal cases."""
+    return b3_identifiers(DIFFS_DIR) | b3_identifiers(DEV_CASES_DIR)
+
+
+# Any B3 case id: the numbered should-quiet/should-catch forms plus every named
+# id in score43.DIFFS. Hyphen and word characters bound the token, so a longer
+# hyphenated name containing an id does not count as that id.
+CASE_ID_RE = re.compile(
+    r"(?<![\w-])(?:"
+    + "|".join(sorted((re.escape(d) for d in score43.DIFFS), key=len, reverse=True))
+    + r"|should-(?:quiet|catch)-\d+)(?![\w-])"
+)
+
+
+def case_id_leaks(text):
+    """Sorted B3 case ids present in `text` as whole tokens."""
+    return sorted(set(CASE_ID_RE.findall(text)))
 
 
 def leaks(text, ids):
@@ -971,6 +1000,11 @@ class TestDevCaseLeakScanner(unittest.TestCase):
             found = leaks(lane, ids)
             self.assertIn("plantedDevHelperName", found)
             self.assertIn("plantedrepo", found)
+            # The corpus check reads the dev dir through all_case_identifiers.
+            with mock.patch.object(sys.modules[__name__], "DEV_CASES_DIR", tmp):
+                wired = leaks(lane, all_case_identifiers())
+            self.assertIn("plantedDevHelperName", wired)
+            self.assertIn("plantedrepo", wired)
         finally:
             shutil.rmtree(tmp)
 
