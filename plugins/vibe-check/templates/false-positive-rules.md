@@ -8,9 +8,9 @@ Use these rules to filter out issues that should not be reported.
 
 ### Always Filter Out
 
-1. **Pre-existing Issues**
-   - Issue exists in lines not modified by this diff
-   - Use `git blame` to verify if uncertain
+1. **Pre-existing issues the diff does not touch or call**
+   - Issue exists in lines this diff neither modifies, touches nor calls — `git blame` to verify
+   - For unchanged code this diff touches or calls (a helper it now calls, a validator it extends), never filter on 'unchanged' alone: apply the three-outcome rule in your Safe-change recognition block — finding on demonstrated new exposure, pre-existing note on demonstrated unchanged exposure, `needs_verification` when neither is established.
 
 2. **Linter/Compiler Territory**
    - Syntax errors

@@ -55,6 +55,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import codex_gate  # noqa: E402  (the focus-unreadable slug and fact)
+import codex_translate  # noqa: E402  (the needs-verification body marker)
 import replay  # noqa: E402  (REPO_ROOT convention)
 import score  # noqa: E402  (read-only: driven, never edited)
 
@@ -326,16 +327,26 @@ FOCUS_TOKENS = (
     "path that bypasses it, that is a demonstrated protection loss: report it at your honest "
     "confidence with no cap, because demonstrated loss always takes precedence over the cap",
     "When you found and read a same-purpose replacement whose coverage of every formerly "
-    "protected path remains unverified, report the removal at or below 0.45 confidence with "
-    "severity low and say to confirm that file:line covers every path the old check guarded",
+    "protected path remains unverified, report an unresolved assessment with the same marker: "
+    "Path names the formerly protected path you could not confirm, Trigger the input that would "
+    "take it, Consequence what the removed check prevented, and the body cites the replacement "
+    "at file:line; it is never a capped note",
+    "NEEDS VERIFICATION | Trigger:",
+    "A new caller is evidence to investigate, never a verdict on its own",
+    "Old acceptance alone does not prove the value is supported; missing documentation alone "
+    "does not prove it is unsupported",
+    "A comment, plan, roadmap entry or commit message promising future wiring is never evidence "
+    "of harmlessness",
+    "The unresolved assessment is the exception, not a softer finding",
 )
 
-# The exact ceilings the literal states, in order (pre-existing gap, moved-control
-# capped note, sensitive-area note), and the exact count of "0.45". Pinning both
-# means any added cap — however worded — trips, including a re-cap of the
-# not-found or demonstrated-loss branch.
-FOCUS_EXPECTED_CAPS = [45, 45, 45]
-FOCUS_045_COUNT = 3
+# The exact ceilings the literal states, in order (pre-existing gap,
+# sensitive-area note), and the exact count of "0.45". Unverified replacement
+# coverage is an unresolved NEEDS VERIFICATION item, not a capped note. Pinning
+# both means any added cap — however worded — trips, including a re-cap of any
+# moved-control branch.
+FOCUS_EXPECTED_CAPS = [45, 45]
+FOCUS_045_COUNT = 2
 
 # The literal is single-quoted in bash: a quote would end it, `$` or a backtick
 # would invite interpolation if it were ever re-quoted. "in-repo" would bring
@@ -343,8 +354,9 @@ FOCUS_045_COUNT = 3
 # the moved-control exemption that drops a claimed move without a trace.
 # "not named, not read" / "the same note applies" would bring back the cap on a
 # move no replacement was found for (a real removal filtered out of the report).
+# The last entry is the retired blanket unchanged-helper cap.
 FOCUS_FORBIDDEN = ("$", "`", "'", "in-repo", "not a removal", "not named, not read",
-                   "the same note applies")
+                   "the same note applies", "every existing caller of that helper already has it")
 
 
 def missing_focus_tokens(literal):
@@ -1715,7 +1727,7 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         # _literal() always returns a str (a missing file raises in read()), so
         # the live check is non-emptiness, not None-ness.
         self.assertTrue(lit.strip())
-        self.assertEqual(len(FOCUS_TOKENS), 21)
+        self.assertEqual(len(FOCUS_TOKENS), 26)
         self.assertEqual(missing_focus_tokens(lit), [])
         self.assertEqual(focus_repeat_shortfalls(lit), [])
 
@@ -1734,7 +1746,10 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         self.assertIn("the cap does not apply", b1)
         self.assertIn("demonstrated protection loss", b2)
         self.assertIn("with no cap, because demonstrated loss always takes precedence", b2)
-        self.assertEqual(caps_in(b3), [45])
+        self.assertIn("unresolved assessment with the same marker", b3)
+        self.assertIn("never a capped note", b3)
+        self.assertEqual(caps_in(b3), [])
+        self.assertNotIn("0.45", b3)
         at = [lit.index(t) for t in (definition, b1, b2, b3)]
         self.assertEqual(at, sorted(at))
 
@@ -1752,6 +1767,23 @@ class TestKickoffCarriesFocus(unittest.TestCase):
         self.assertGreater(lit.index("moved rather than lost"),
                            lit.index("removes, reverts, loosens, disables or bypasses"))
         self.assertIn("shared middleware", lit)
+
+    def test_nv_marker_matches_translator(self):
+        # The focus text teaches the exact prefix the translator parses.
+        lit = _literal()
+        self.assertEqual(codex_translate.NV_MARKER, "NEEDS VERIFICATION")
+        self.assertIn(codex_translate.NV_MARKER + " | Trigger: ", lit)
+        self.assertIn(" | Path: ", lit)
+        self.assertIn(" | Consequence: ", lit)
+        # A body written exactly as instructed parses into the three fields.
+        body = ("NEEDS VERIFICATION | Trigger: legacy value x | Path: cfg.py:12 | "
+                "Consequence: startup aborts")
+        self.assertEqual(codex_translate._needs_verification(body),
+                         {"trigger": "legacy value x", "path": "cfg.py:12",
+                          "consequence": "startup aborts"})
+
+    def test_literal_has_no_retired_helper_rule(self):
+        self.assertNotIn("every existing caller of that helper already has it", _literal())
 
     def test_literal_has_no_shell_metacharacters(self):
         lit = _literal()
@@ -2042,6 +2074,42 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertIs(args_line_ok(text), False)
         self.assertIs(args_line_ok(_kickoff() + "\n" + OLD_ARGS_LINE), False)
 
+    def test_readded_retired_helper_rule_in_literal_trips(self):
+        lit = _literal()
+        retired = ("When the failure lies in the unchanged logic of an existing validator or "
+                   "helper that the change only calls, it is a pre-existing gap instead: every "
+                   "existing caller of that helper already has it, so report it under the "
+                   "pre-existing-gap ceiling above and name the bypass input.")
+        planted = lit + " " + retired
+        self.assertEqual(missing_focus_tokens(planted), [])
+        self.assertEqual(focus_forbidden_hits(planted),
+                         ["every existing caller of that helper already has it"])
+
+    def test_drifted_nv_marker_in_literal_trips(self):
+        lit = _literal()
+        drifted = lit.replace("NEEDS VERIFICATION | Trigger:", "NEEDS-VERIFICATION Trigger:")
+        self.assertNotEqual(drifted, lit)
+        self.assertEqual(missing_focus_tokens(drifted), ["NEEDS VERIFICATION | Trigger:"])
+        self.assertNotIn(codex_translate.NV_MARKER + " | Trigger: ", drifted)
+
+    def test_dropped_focus_rule_tokens_trip(self):
+        lit = _literal()
+        for tok in FOCUS_TOKENS[21:]:
+            with self.subTest(tok=tok):
+                planted = lit.replace(tok, "")
+                self.assertNotEqual(planted, lit)
+                self.assertIn(tok, missing_focus_tokens(planted))
+
+    def test_recapped_branch_three_in_literal_trips(self):
+        lit = _literal()
+        recapped = lit.replace(
+            "report an unresolved assessment with the same marker: Path names",
+            "report the removal at or below 0.45 confidence with severity low: Path names")
+        self.assertNotEqual(recapped, lit)
+        self.assertEqual(missing_focus_tokens(recapped), [FOCUS_TOKENS[20]])
+        self.assertNotEqual(caps_in(recapped), FOCUS_EXPECTED_CAPS)
+        self.assertNotEqual(recapped.count("0.45"), FOCUS_045_COUNT)
+
     def test_planted_repo_occurrence_in_literal_trips(self):
         lit = focus_text("unless you cite a concrete in-repo value\n")
         self.assertIn("in-repo", lit)
@@ -2055,14 +2123,12 @@ class TestKickoffMutation(unittest.TestCase):
         self.assertEqual(missing_focus_tokens(dropped), ["demonstrably fails to block"])
         medium = lit.replace("severity low", "severity medium")
         self.assertNotEqual(medium, lit)
-        # The moved-control capped-note token (branch 3) carries its own severity.
-        self.assertEqual(missing_focus_tokens(medium), ["severity low", FOCUS_TOKENS[20]])
+        self.assertEqual(missing_focus_tokens(medium), ["severity low"])
         self.assertEqual(focus_repeat_shortfalls(medium), ["severity low"])
-        # Raising all but one capped note leaves the token present but short
-        # (and the branch-3 token, raised along the way, missing).
+        # Raising all but one capped note leaves the token present but short.
         one_left = lit.replace("severity low", "severity medium",
                                lit.count("severity low") - 1)
-        self.assertEqual(missing_focus_tokens(one_left), [FOCUS_TOKENS[20]])
+        self.assertEqual(missing_focus_tokens(one_left), [])
         self.assertEqual(focus_repeat_shortfalls(one_left), ["severity low"])
 
 
@@ -2270,11 +2336,13 @@ RETUNE_BLOCK_CLAUSES = (
 )
 
 RETUNE_FOCUS_TOKENS = (
-    "When the failure lies in the unchanged logic of an existing validator or helper that the "
-    "change only calls, it is a pre-existing gap instead: every existing caller of that helper "
-    "already has it, so report it under the pre-existing-gap ceiling above and name the bypass "
-    "input; it is a defect of this change only when the lines the change itself adds or edits "
-    "let the input through.",
+    "For a flaw in unchanged code that the change touches or calls, first read the callers, "
+    "guards, defaults and the contract the inputs are held to, then land on exactly one outcome: "
+    "new exposure demonstrated (a new caller, new input or removed check lets a traced input "
+    "reach the flaw at file:line) is a finding at your honest confidence; unchanged exposure "
+    "demonstrated (the same inputs reached it before the change, at file:line) is a pre-existing "
+    "gap under the ceiling above; neither established is an unresolved assessment, reported by "
+    "starting the body with exactly NEEDS VERIFICATION | Trigger:",
     "Replacing a protection that held unconditionally with one that holds only through a library "
     "default, a deprecated path or the currently installed dependency version is such a loss even "
     "when you verify it still holds today: report it at your honest confidence, not under the "
@@ -2356,8 +2424,13 @@ class TestRetuneClauses(unittest.TestCase):
         self.assertIn("`needs_verification`", clause)
         for field in ("`trigger`", "`path`", "`consequence`"):
             self.assertIn(field, clause)
-        self.assertIn("only when the lines the change itself adds or edits let the input "
-                      "through", RETUNE_FOCUS_TOKENS[0])
+        tok = RETUNE_FOCUS_TOKENS[0]
+        at = [tok.index(s) for s in ("new exposure demonstrated",
+                                     "unchanged exposure demonstrated",
+                                     "neither established")]
+        self.assertEqual(at, sorted(at))
+        self.assertIn("first read the callers, guards, defaults", tok)
+        self.assertTrue(tok.endswith(codex_translate.NV_MARKER + " | Trigger:"))
 
     def test_focus_tokens_obey_literal_quoting(self):
         for tok in RETUNE_FOCUS_TOKENS:
