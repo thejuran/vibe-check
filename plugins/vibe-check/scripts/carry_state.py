@@ -5,14 +5,16 @@ review state needs. Prose supplies inputs and renders; this module decides.
 
 WHAT IT DECIDES
 
-  finalize-counts  The two counts `finalize_gate.py` consumes (90-finalize.md).
-                   The gate itself is unchanged; only where its input counts
-                   come from moved here.
+  finalize-counts  The three counts `finalize_gate.py` consumes (90-finalize.md):
+                   `outstanding_cw`, `unacknowledged_medium` and `undecided_nv`
+                   (open Needs-verification items with no current owner
+                   decision), each with the hash list behind it.
   pending          "Unchanged since pass N, decision pending": every open,
                    unclosed obligation whose decision snapshot is older than
                    the last pass.
   record-decisions     The ONLY write path for the root `decisions` family
-                       (owner dismiss/defer, written by Finalize).
+                       (owner dismiss/defer, written by Finalize and by the
+                       fix-loop card, 50-fix-loop.md).
   record-fix-verdicts  The ONLY write path for the root `fix_verdicts` family
                        (fix-agent `obsolete`, written by Phase 5, 50-fix-loop.md).
 
@@ -36,7 +38,12 @@ WHAT CLOSES. Exactly one of:
     its own file/line/canonical_line_content/band) still equals the finding's
     current evidence on those four keys (`decision_state`). A same-hash band
     change or line move re-opens the finding; an edit to the decided line
-    re-hashes it, so the new hash carries no decision at all. An `evidence`
+    re-hashes it, so the new hash carries no decision at all. A
+    Needs-verification decision is compared on _NV_EVIDENCE_KEYS instead: the
+    line is dropped (a carried item relocated by content keeps its hash, so a
+    pure line shift never re-asks) and the whole-snippet `current_code`
+    fingerprint (_nv_code_key) is added (a changed body under a surviving first
+    line or symbol name re-asks). An `evidence`
     key that is null or malformed never closes (fail closed). A superseded
     record is kept in the new record's `history`; nothing is deleted;
   * a fix-agent `obsolete` verdict recorded on the LATEST pass whose
@@ -95,8 +102,13 @@ import sys
 # Mirror of the 05-state.md `$CARRYFORWARD` allowlist. Never add "audit".
 OPEN_STATUSES = ("new", "persisted", "needs-recheck")
 DECISIONS = ("dismiss", "defer")
-# Lows never block Finalize.
-BLOCKING_BANDS = ("critical", "warning", "medium")
+# score.py's Needs-verification band, and the string obligation its rows carry
+# on their own member ref (mirror of score._NV_MEMBER_OBLIGATION).
+NV_BAND = "needs-verification"
+NV_MEMBER_OBLIGATION = NV_BAND
+# Lows never block Finalize. Needs-verification rows are fix-loop / finalize
+# obligations like critical and warning: open until the owner decides them.
+BLOCKING_BANDS = ("critical", "warning", NV_BAND, "medium")
 _CW_BANDS = ("critical", "warning")
 
 SUBCOMMANDS = ("finalize-counts", "pending", "record-decisions",
@@ -218,6 +230,13 @@ def _member_obligations(row):
         if "obligation" not in m:
             continue
         obl = m["obligation"]
+        if row.get("band") == NV_BAND and obl == NV_MEMBER_OBLIGATION:
+            # Phase 53 rollback marker: a reader without Needs-verification
+            # support refuses this string obligation (REASON_OBLIGATION) so an
+            # older finalize halts instead of counting the item as nothing;
+            # this reader counts the NV row itself. Gated on the row's band:
+            # the same string on any other band stays malformed.
+            continue
         if not (isinstance(obl, dict) and isinstance(obl.get("stable_hash"), str)
                 and isinstance(obl.get("band"), str)):
             return None, REASON_OBLIGATION
@@ -306,14 +325,70 @@ def is_closed(record, state, head_blobs):
 EVIDENCE_KEYS = ("file", "line", "canonical_line_content", "band")
 
 
-def _evidence_of(record):
+# Needs-verification decision evidence (D-12 / O-2). A carried NV item is
+# relocated by content and keeps its hash and snapshot, so a pure line shift is
+# not new evidence and `line` is not compared. An edit to the item's own line, a
+# changed body under a surviving first line or symbol name (score.py refreshes
+# `current_code` to the confirmed HEAD window on a located needs-recheck), a
+# failed relocation (null snapshot canonical) or a band change is new evidence
+# and re-asks the decision.
+_NV_EVIDENCE_KEYS = ("file", "canonical_line_content", "band", "current_code")
+
+
+def _nv_code_key(text):
+    """The Needs-verification evidence fingerprint, mirrored from score.py's
+    `_nv_code_key` so the writer and this reader agree.
+
+    Every non-blank line with trailing whitespace removed, then the common
+    leading-whitespace prefix removed from every line (character by character,
+    no tab expansion), joined by "\n". Relative indentation is preserved and
+    only a uniform dedent is ignored: a per-line strip made a `return` moved
+    outside its authorization guard fingerprint-equal to the guarded one.
+    Non-str input -> "" (never raises).
+    """
+    if not isinstance(text, str):
+        return ""
+    lines = [ln.rstrip() for ln in text.split("\n") if ln.strip()]
+    if not lines:
+        return ""
+    leads = [ln[:len(ln) - len(ln.lstrip())] for ln in lines]
+    prefix = leads[0]
+    for lead in leads[1:]:
+        n = 0
+        while n < len(prefix) and n < len(lead) and prefix[n] == lead[n]:
+            n += 1
+        prefix = prefix[:n]
+    return "\n".join(ln[len(prefix):] for ln in lines)
+
+
+def _is_nv(record):
+    snapshot = record.get("snapshot")
+    return (record.get("band") == NV_BAND
+            or (isinstance(snapshot, dict) and snapshot.get("band") == NV_BAND))
+
+
+def _evidence_of(record, nv=None):
     """The record's current evidence on EVIDENCE_KEYS: from its snapshot when
     that is a dict, else from the record's own fields (score.py builds the
     next snapshot from those same fields, so the two agree when nothing
-    changed). Always a dict."""
+    changed). For a Needs-verification record (or when `nv` is True) it also
+    holds `current_code`: the _nv_code_key fingerprint of the RECORD's own
+    `current_code` (a snapshot never holds code). Always a dict."""
     snapshot = record.get("snapshot")
     source = snapshot if isinstance(snapshot, dict) else record
-    return {k: source.get(k) for k in EVIDENCE_KEYS}
+    evidence = {k: source.get(k) for k in EVIDENCE_KEYS}
+    if nv if nv is not None else _is_nv(record):
+        return dict(evidence,
+                    current_code=_nv_code_key(record.get("current_code")))
+    return evidence
+
+
+def _evidence_keys(evidence, record):
+    """_NV_EVIDENCE_KEYS when either side is a Needs-verification band, else
+    EVIDENCE_KEYS."""
+    if evidence.get("band") == NV_BAND or _is_nv(record):
+        return _NV_EVIDENCE_KEYS
+    return EVIDENCE_KEYS
 
 
 def _full_evidence(evidence):
@@ -342,8 +417,11 @@ def decision_state(record, state):
     evidence = decision["evidence"]
     if not _full_evidence(evidence):
         return "stale"
-    current = _evidence_of(record)
-    if all(evidence[k] == current[k] for k in EVIDENCE_KEYS):
+    keys = _evidence_keys(evidence, record)
+    current = _evidence_of(record, nv=keys is _NV_EVIDENCE_KEYS)
+    # A stored NV evidence dict lacking `current_code` (the writer never
+    # produces one) compares as stale: fail closed.
+    if all(k in evidence and evidence[k] == current[k] for k in keys):
         return "current"
     return "stale"
 
@@ -358,9 +436,12 @@ def stale_cause(record, state):
     evidence = evidence.get("evidence") if isinstance(evidence, dict) else None
     if not _full_evidence(evidence):
         return "code"
-    current = _evidence_of(record)
-    if all(evidence[k] == current[k]
-           for k in ("file", "line", "canonical_line_content")):
+    keys = _evidence_keys(evidence, record)
+    current = _evidence_of(record, nv=keys is _NV_EVIDENCE_KEYS)
+    same = (("file", "canonical_line_content", "current_code")
+            if keys is _NV_EVIDENCE_KEYS
+            else ("file", "line", "canonical_line_content"))
+    if all(k in evidence and evidence[k] == current[k] for k in same):
         return "severity"
     return "code"
 
@@ -385,7 +466,7 @@ def _closed(record, state, last, head_blobs):
 
 
 def finalize_counts(state, head_blobs=None):
-    """The two gate counts plus the hash lists behind them, or None when the
+    """The three gate counts plus the hash lists behind them, or None when the
     state is malformed. `head_blobs` is {file: HEAD blob}; without it a fix
     verdict closes nothing."""
     last, records, reason = _check_state(state)
@@ -393,6 +474,7 @@ def finalize_counts(state, head_blobs=None):
         return None
     cw = []
     medium = []
+    nv = []
     obsolete = []
     for rec in records:
         if _fix_closes(rec, state, last, head_blobs):
@@ -401,13 +483,17 @@ def finalize_counts(state, head_blobs=None):
             continue
         if rec["band"] in _CW_BANDS:
             cw.append(rec["stable_hash"])
+        elif rec["band"] == NV_BAND:
+            nv.append(rec["stable_hash"])
         elif rec["band"] == "medium":
             medium.append(rec["stable_hash"])
     return {
         "outstanding_cw": len(cw),
         "unacknowledged_medium": len(medium),
+        "undecided_nv": len(nv),
         "outstanding_cw_hashes": sorted(cw),
         "unacknowledged_medium_hashes": sorted(medium),
+        "undecided_nv_hashes": sorted(nv),
         "verified_obsolete_hashes": sorted(obsolete),
     }
 
@@ -472,7 +558,8 @@ def record_decisions(state, payload):
     The hash must be an open record of the last pass (a member obligation's own
     hash included); the stored band is that record's band, never the payload's.
     The record also stores `evidence`: the finding's current evidence
-    (`_evidence_of`), always a four-key dict, never null. A later decision for
+    (`_evidence_of`), never null — the four EVIDENCE_KEYS, plus the
+    `current_code` fingerprint for a Needs-verification record. A later decision for
     the same hash replaces the earlier one, and the earlier record (minus its
     own `history`) is kept first in the new record's `history`.
     """

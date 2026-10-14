@@ -6743,10 +6743,11 @@ def _nv_state(rows, decisions=None):
 
 
 def _decision_for(row, reason="owner checked: legacy configs are migrated at install"):
-    snap = row.get("snapshot") or {}
+    """A dismissal as the current writer (carry_state.record_decisions) stores
+    it: the evidence is the reader's own `_evidence_of`, which for a
+    Needs-verification row includes the `current_code` fingerprint."""
     return {"decision": "dismiss", "reason": reason, "at_pass": 1, "band": row["band"],
-            "evidence": {k: snap.get(k) for k in ("file", "line", "canonical_line_content",
-                                                  "band")}}
+            "evidence": json.loads(json.dumps(carry_state._evidence_of(row)))}
 
 
 def _write_json(path, obj):

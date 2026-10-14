@@ -688,7 +688,8 @@ class TestReasonsSealed(unittest.TestCase):
                          ("new", "persisted", "needs-recheck"))
         self.assertEqual(carry_state.DECISIONS, ("dismiss", "defer"))
         self.assertEqual(carry_state.BLOCKING_BANDS,
-                         ("critical", "warning", "medium"))
+                         ("critical", "warning", "needs-verification",
+                          "medium"))
 
 
 class TestImportSet(unittest.TestCase):
