@@ -61,7 +61,23 @@ themselves, not only the version strings.
 
 ## Candidate
 
-(filled from the `candidate-guard` and `identity` block output)
+candidate-guard (2026-10-15T22:08Z, before any block):
+
+```text
+CANDIDATE OK candidate=302df48e1097212aa334a21c8f2683ed810eb496 head=bd5884c3c6d6eba11678d4fd98dbda70cd184891 descendant_commits=4 (reporting-only)
+```
+
+`materialize 302df48e1097212aa334a21c8f2683ed810eb496`: runner copy
+`~/.b3/phase54-runner/plugin/vibe-check` := `302df48e…:plugins/vibe-check` (git archive); runner
+settings from the same commit (`<RUNNER>` -> `~/.b3/phase54-runner`). `identity` (all three clone
+dirs, first attempt, no refusal):
+
+```text
+IDENTITY OK manifest_id=b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7c595755c check_digest=3ce2bac84c3831cc74b538874ddaab0e7c96e539f3b37fb68f3a953c55650f5c candidate_sha=302df48e1097212aa334a21c8f2683ed810eb496
+```
+
+`park-memory`: none of the three fresh clone paths had auto-memory; park record
+`~/.b3/automemory-parked-phase54-live-1792102177`.
 
 ## Cache
 
@@ -73,6 +89,63 @@ Owner config sha256 before: `installed_plugins.json` `6a9cd0aa…`, `known_marke
 
 ## Deviations
 
-(filled during the sweep)
+### SWEEP STOPPED — 2026-10-15T22:11Z — identity check refuses every run once the session is alive
+
+**What happened (first case, `reach-new-1` run-1).** `preflight`, `fresh`, `launch` and the
+in-session `session` check all printed IDENTITY OK (so the 54-09 session-process check works
+live). Claude started in the tmux pane; the one-time folder-trust prompt was accepted for the
+disposable clone; `/clear` was sent. The next check, at `pre`, refused:
+
+```text
+setting differs: enabled_plugins.bm@gsd-plugin
+setting differs: enabled_plugins.codex@openai-codex
+setting differs: enabled_plugins.frontend-design@claude-plugins-official
+setting differs: enabled_plugins.model-gateway@eigenwise-toolshed
+setting differs: enabled_plugins.phi-compli@thejuran
+setting differs: enabled_plugins.superpowers@claude-plugins-official
+setting differs: gateway.tree_sha256
+file differs: codex-companion (manifest 91961610b8da live f88f408c53dd)
+IDENTITY MISMATCH — STOPPING
+IDENTITY MISMATCH (pre) — STOPPING
+```
+
+`run_case.sh` stopped (exit 4 path, `RUN_CASE: STOP — pre`). No keystroke reached a review, no
+run directory was created (`pre` refuses before `mkdir`), so there is nothing to `fail`.
+
+**Cause (investigated, reproduced).** Claude Code 2.1.281 writes a runtime marker
+`.in_use/<pid>` (a directory holding one 52-byte file per running claude process) into the
+install directory of every enabled plugin while a session runs. The measured session (pid 42926)
+added `.in_use/42926` to all six enabled plugins plus the codex companion and the gateway. The
+identity check hashes each enabled plugin's install tree with `freeze_common.live_files`.
+`freeze_common.EXCLUDED_NAMES = (".in_use",)` intends to exclude that marker, but `live_files`
+applies `EXCLUDED_NAMES` to file names only. The directory form `.in_use/` is walked and every
+`.in_use/<pid>` file is hashed. The unit test (`test_freeze_common.py::test_live_files_honors_excludes`)
+writes `.in_use` as a plain file, so it never exercised the real directory shape.
+
+Reproduction: with the measured session exited (`/exit`, pid gone) its marker disappeared and the
+`identity` block printed IDENTITY OK again (same manifest_id/check_digest). Three other
+long-running owner claude processes (pids 44375, 48371, 51562, started 2026-10-12/14) have their
+own markers in the same directories, and these were already present when the draft manifest was
+generated. The identity therefore depends on which claude processes are running: every measured
+session makes `pre` and `post` refuse, and any owner session that starts or exits does too.
+
+**Scope.** The runner copy is not affected: `~/.b3/phase54-runner/plugin/vibe-check` received no
+marker, because the `--plugin-dir` copy is not an installed plugin. `score43.runtime_fingerprint`
+is not affected in practice: it walks only the runtime subfolders, and the marker sits at the
+install root. Only the user-level `enabled_plugins`, gateway and codex-companion identities are
+affected (all three go through `freeze_manifest._plugin_identity` -> `freeze_common.live_files`).
+
+**Not done (D-23 / D-27).** No code change was made. The check was not bypassed. No marker was
+deleted (they belong to live owner sessions). Making the check pass needs a change to a covered
+file (`docs/design/freeze-v2.12/tools/freeze_common.py`: prune `.in_use` directories as well as
+files), so the sweep is stopped and reported. That fix means a new candidate, a regenerated draft
+manifest and a restart from 54-10 Task 1.
+
+**Clean-up.** The measured session was exited (`/exit`) and its tmux session killed. `revert
+reach-new-1` returned the triggarr clone to `main@4a154be`, status clean. No `.planning/HANDOFF.json`
+and no clone auto-memory dir were written. `restore-memory` closed the window (nothing had been
+parked; the park record was removed so a restart can run `park-memory` again). Owner cache at the
+stop (2026-10-15T22:12Z): fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3`,
+equal to the value before; config sha256 `6a9cd0aa…`, `eafbfd5e…`, `3297ded3…`, unchanged.
 
 ## Runs
