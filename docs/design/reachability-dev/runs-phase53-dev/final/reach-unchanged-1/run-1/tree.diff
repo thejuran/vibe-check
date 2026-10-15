@@ -1,0 +1,251 @@
+diff --git a/src/roonseek/web/_filter_overrides.py b/src/roonseek/web/_filter_overrides.py
+index 5e1c011..2eeafa8 100644
+--- a/src/roonseek/web/_filter_overrides.py
++++ b/src/roonseek/web/_filter_overrides.py
+@@ -71,9 +71,3 @@ def merge_overrides(
+ def parse_csv_list(raw: str) -> list[str]:
+     """Split a comma-separated string into a stripped, empty-filtered list (Pitfall 8)."""
+     return [s.strip() for s in raw.split(",") if s.strip()]
+-
+-
+-def parse_optional_int(raw: str) -> int | None:
+-    """Empty string -> None (inherit). Otherwise int() (raises ValueError on bad input). Pitfall 13."""
+-    raw = raw.strip()
+-    return None if raw == "" else int(raw)
+diff --git a/src/roonseek/web/library.py b/src/roonseek/web/library.py
+index 8ed7436..0c0553b 100644
+--- a/src/roonseek/web/library.py
++++ b/src/roonseek/web/library.py
+@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
+ import aiosqlite
+ from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query, Request
+ from fastapi.responses import HTMLResponse, JSONResponse, Response
+-from starlette.datastructures import State
++from starlette.datastructures import FormData, State
+ 
+ from ..artists import get_artist_by_mbid
+ from ..config import RoonseekConfig
+@@ -37,7 +37,7 @@ from ..queue_resolution import RUN_SOURCE_SCAN, run_ready_queue_resolution
+ from ..scanner import ScanError, persist_scan_result, scan_library
+ from ._db_utils import row_factory as _row_factory
+ from ._db_utils import wants_html as _wants_html
+-from ._filter_overrides import merge_overrides, parse_csv_list, parse_optional_int
++from ._filter_overrides import merge_overrides, parse_csv_list
+ from ._mbid import validate_mbid
+ from ._sql import _ARTISTS_LIST_SQL, _DISCOGRAPHY_JOIN_SQL
+ from ._templates import templates
+@@ -627,48 +627,78 @@ _FILTER_OVERRIDE_LIST_FIELDS = ("include_types", "exclude_secondary_types", "for
+ _FILTER_OVERRIDE_INT_FIELDS = ("year_min", "year_max", "min_bitrate_kbps")
+ 
+ 
+-async def _serialize_filter_overrides_from_request(
+-    request: Request,
++def _validate_filter_overrides_payload(
++    parsed: dict[str, Any],
++    config: RoonseekConfig,
++) -> str:
++    """Run merge_overrides as a validation pass and return the serialized JSON.
++
++    Raises HTTPException 400 with the D-17 envelope on validation failure.
++    T-7-04: merge_overrides enforces the ALLOWED_OVERRIDE_KEYS allowlist.
++    """
++    serialized = json.dumps(parsed)
++    try:
++        merge_overrides(config.defaults, serialized)
++    except ValueError as exc:
++        raise HTTPException(
++            status_code=400,
++            detail={"error": {"code": "filter_overrides.invalid", "message": str(exc)}},
++        ) from exc
++    return serialized
++
++
++def _overrides_from_form(
++    form: FormData,
+     config: RoonseekConfig,
+ ) -> str | None:
+-    if request.method.upper() == "POST":
+-        form = await request.form()
+-        if str(form.get("_clear", "")).lower() == "true":
+-            return None
+-
+-        parsed: dict[str, Any] = {}
+-        for key in _FILTER_OVERRIDE_LIST_FIELDS:
+-            raw = str(form.get(key, "")).strip()
+-            if raw:
+-                parsed[key] = parse_csv_list(raw)
+-        for key in _FILTER_OVERRIDE_INT_FIELDS:
+-            raw = str(form.get(key, "")).strip()
+-            if raw:
+-                try:
+-                    parsed[key] = parse_optional_int(raw)
+-                except ValueError as exc:
+-                    raise HTTPException(
+-                        status_code=400,
+-                        detail={
+-                            "error": {
+-                                "code": "filter_overrides.invalid",
+-                                "message": f"filter_overrides[{key}] must be an integer",
+-                            },
+-                        },
+-                    ) from exc
+-
+-        serialized = json.dumps(parsed)
++    """POST path: parse form-encoded fields into the overrides JSON string.
++
++    Sentinel ``_clear=true`` returns None to clear all overrides. Empty fields
++    are omitted (inherit global default). Int parse errors return 400.
++
++    Only fields in ``_FILTER_OVERRIDE_LIST_FIELDS`` and
++    ``_FILTER_OVERRIDE_INT_FIELDS`` are read; unknown form keys are silently
++    dropped because the HTML form only ever submits allowlisted names. The
++    PUT path is stricter — ``merge_overrides`` rejects unknown keys outright.
++    """
++    if str(form.get("_clear", "")).lower() == "true":
++        return None
++
++    parsed: dict[str, Any] = {}
++    for key in _FILTER_OVERRIDE_LIST_FIELDS:
++        raw = str(form.get(key, "")).strip()
++        if raw:
++            parsed[key] = parse_csv_list(raw)
++    for key in _FILTER_OVERRIDE_INT_FIELDS:
++        raw = str(form.get(key, "")).strip()
++        if not raw:
++            continue
+         try:
+-            merge_overrides(config.defaults, serialized)
++            parsed[key] = int(raw)
+         except ValueError as exc:
+             raise HTTPException(
+                 status_code=400,
+-                detail={"error": {"code": "filter_overrides.invalid", "message": str(exc)}},
++                detail={
++                    "error": {
++                        "code": "filter_overrides.invalid",
++                        "message": f"filter_overrides[{key}] must be an integer",
++                    },
++                },
+             ) from exc
+-        return serialized
+ 
+-    # Body parsing — accept JSON object or literal null.
+-    raw_body = (await request.body()).decode("utf-8").strip()
++    return _validate_filter_overrides_payload(parsed, config)
++
++
++def _overrides_from_json_body(
++    body: bytes,
++    config: RoonseekConfig,
++) -> str | None:
++    """PUT path: parse a raw JSON body into the overrides JSON string.
++
++    Accepts an object, ``null``, or an empty body (both clear). Anything else
++    returns 400 with the D-17 envelope.
++    """
++    raw_body = body.decode("utf-8").strip()
+     if raw_body == "" or raw_body == "null":
+         return None
+     try:
+@@ -685,43 +715,17 @@ async def _serialize_filter_overrides_from_request(
+             status_code=400,
+             detail={"error": {"code": "filter_overrides.invalid", "message": "filter_overrides must be a JSON object"}},
+         )
+-    try:
+-        merge_overrides(config.defaults, json.dumps(parsed_json))
+-    except ValueError as exc:
+-        raise HTTPException(
+-            status_code=400,
+-            detail={"error": {"code": "filter_overrides.invalid", "message": str(exc)}},
+-        ) from exc
+-    return json.dumps(parsed_json)
++    return _validate_filter_overrides_payload(parsed_json, config)
+ 
+ 
+-@library_router.post(
+-    "/api/artists/{artist_id}/filter-overrides",
+-    dependencies=[Depends(require_auth)],
+-)
+-@library_router.put(
+-    "/api/artists/{artist_id}/filter-overrides",
+-    dependencies=[Depends(require_auth)],
+-)
+-async def put_artist_filter_overrides(
+-    artist_id: int,
++async def _apply_filter_overrides_update(
+     request: Request,
+-    db_path: Path = Depends(get_db_path),
+-    config: RoonseekConfig = Depends(get_config),
++    artist_id: int,
++    serialized: str | None,
++    db_path: Path,
++    config: RoonseekConfig,
+ ) -> Response:
+-    """D-04: Persist artist filter overrides JSON, or NULL to clear.
+-
+-    Accepts JSON body (object | null). Validates via merge_overrides (raises
+-    ValueError on unknown keys / wrong shape). Returns the panel fragment + OOB
+-    toast on success (HTML callers) or JSON on API callers.
+-
+-    T-7-04: merge_overrides validates all keys against the ALLOWED_OVERRIDE_KEYS
+-    allowlist; unknown keys -> 400 D-17 envelope code='filter_overrides.invalid'.
+-    T-7-16: OriginCheckMiddleware (Plan 02) enforces same-origin on PUT.
+-    T-7-17: Never log the JSON body — only log artist_id (CON-009 compliance).
+-    """
+-    serialized = await _serialize_filter_overrides_from_request(request, config)
+-
++    """Persist serialized overrides and render the panel fragment or JSON."""
+     async with open_database(db_path) as db:
+         await begin_transaction(db)
+         try:
+@@ -781,3 +785,50 @@ async def put_artist_filter_overrides(
+         {"id": artist_id, "filter_overrides": json.loads(serialized) if serialized else None},
+         status_code=200,
+     )
++
++
++@library_router.post(
++    "/api/artists/{artist_id}/filter-overrides",
++    dependencies=[Depends(require_auth)],
++)
++async def post_artist_filter_overrides(
++    artist_id: int,
++    request: Request,
++    db_path: Path = Depends(get_db_path),
++    config: RoonseekConfig = Depends(get_config),
++) -> Response:
++    """D-04 POST: native-form alias for the PUT JSON endpoint.
++
++    HTML forms cannot send PUT, so the filter-overrides editor posts
++    form-encoded fields here. ``_clear=true`` clears all overrides.
++    T-7-16: OriginCheckMiddleware enforces same-origin on POST.
++    """
++    serialized = _overrides_from_form(await request.form(), config)
++    return await _apply_filter_overrides_update(
++        request, artist_id, serialized, db_path, config,
++    )
++
++
++@library_router.put(
++    "/api/artists/{artist_id}/filter-overrides",
++    dependencies=[Depends(require_auth)],
++)
++async def put_artist_filter_overrides(
++    artist_id: int,
++    request: Request,
++    db_path: Path = Depends(get_db_path),
++    config: RoonseekConfig = Depends(get_config),
++) -> Response:
++    """D-04 PUT: JSON-body API for non-HTML callers.
++
++    Accepts a JSON body (object | null | empty). Validates via merge_overrides
++    (raises ValueError on unknown keys / wrong shape).
++    T-7-04: merge_overrides validates all keys against ALLOWED_OVERRIDE_KEYS;
++    unknown keys -> 400 D-17 envelope code='filter_overrides.invalid'.
++    T-7-16: OriginCheckMiddleware enforces same-origin on PUT.
++    T-7-17: Never log the JSON body — only log artist_id (CON-009).
++    """
++    serialized = _overrides_from_json_body(await request.body(), config)
++    return await _apply_filter_overrides_update(
++        request, artist_id, serialized, db_path, config,
++    )

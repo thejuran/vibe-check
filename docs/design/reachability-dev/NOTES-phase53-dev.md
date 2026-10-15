@@ -662,6 +662,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/triggarr-autoescape/run-1 | 1 |
 | final/reach-new-1/run-1 | 1 |
 | final/reach-new-2/run-1 | 0 |
+| final/reach-unchanged-1/run-1 | 0 |
 
 ## Cache
 
@@ -1052,4 +1053,23 @@ candidates at site: 1 (alarms 1, needs-verification 0)
 AXIS: credit — row 3f078fc6d4f6 (alarm, critical 100) at notification-bell.component.html:28 — "Notification text switched from escaped interpolation to [innerHTML], allowing HTML injection from server and remote error strings". Location AND causal failure (HTML injection) match; scored on HTML injection only.
 
 vs entry 1: "catch" -> catch kept. Run 8m13s; fix-loop card after 481s; `Stop here…` -> `Abandon` by label.
+
+
+### final/reach-unchanged-1/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | src/roonseek/web/_filter_overrides.py | 73 | critical | 100 | 2dab2c1b1e61 |
+| architecture | tests/test_filter_overrides.py | 13 | warning | 83 | fe03e1c9ca8c |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+vs entry 1: "quiet" -> FIRED (2 alarms, 0 NV), same as the targeted run: both rows (2dab2c1b1e61 bugs critical at _filter_overrides.py:73; fe03e1c9ca8c architecture warning at tests/test_filter_overrides.py:13) are the one real new defect outside the case key — `parse_optional_int` deleted while `tests/test_filter_overrides.py:13` still imports it (verified at feature 79031dc; see the targeted run). None of the keyed already-reachable weaknesses (a)-(c) raised. Run: fix-loop card after 767s; `Stop here…` -> `Abandon` by label.
 
