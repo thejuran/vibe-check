@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a13dcb-b76f-7121-a732-dfe4359d0d41",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase53-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship yet: a concrete numeric-host bypass defeats the new metadata-address block. All 56 validator tests pass but miss this case.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Numeric IPv4 notation bypasses the metadata SSRF block\",\"body\":\"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) succeeds. The helper at triggarr/web/validation.py:150-173 treats this numeric host as an arbitrary hostname after ipaddress rejects it. Verified that HTTPX preserves the host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. Startup passes the accepted URL into the client at triggarr/startup.py:153-160, permitting requests to the metadata address this new check explicitly intends to block. This is a concrete bypass, independent of the documented DNS-rebinding exception.\",\"file\":\"triggarr/models/config.py\",\"line_start\":108,\"line_end\":111,\"confidence\":0.99,\"recommendation\":\"Reject noncanonical numeric IPv4 hosts or normalize them before applying the blocked-address checks. Add model-level regression tests for decimal, hexadecimal, and shortened IPv4 representations of blocked addresses.\"}],\"next_steps\":[\"Close the numeric-host bypass and rerun validator and configuration tests. Configuration tests could not run with default capture under the read-only sandbox.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship yet: a concrete numeric-host bypass defeats the new metadata-address block. All 56 validator tests pass but miss this case.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Numeric IPv4 notation bypasses the metadata SSRF block",
+        "body": "InstanceConfig(url=\"http://2852039166\", enabled=True) succeeds. The helper at triggarr/web/validation.py:150-173 treats this numeric host as an arbitrary hostname after ipaddress rejects it. Verified that HTTPX preserves the host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. Startup passes the accepted URL into the client at triggarr/startup.py:153-160, permitting requests to the metadata address this new check explicitly intends to block. This is a concrete bypass, independent of the documented DNS-rebinding exception.",
+        "file": "triggarr/models/config.py",
+        "line_start": 108,
+        "line_end": 111,
+        "confidence": 0.99,
+        "recommendation": "Reject noncanonical numeric IPv4 hosts or normalize them before applying the blocked-address checks. Add model-level regression tests for decimal, hexadecimal, and shortened IPv4 representations of blocked addresses."
+      }
+    ],
+    "next_steps": [
+      "Close the numeric-host bypass and rerun validator and configuration tests. Configuration tests could not run with default capture under the read-only sandbox."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship yet: a concrete numeric-host bypass defeats the new metadata-address block. All 56 validator tests pass but miss this case.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Numeric IPv4 notation bypasses the metadata SSRF block\",\"body\":\"InstanceConfig(url=\\\"http://2852039166\\\", enabled=True) succeeds. The helper at triggarr/web/validation.py:150-173 treats this numeric host as an arbitrary hostname after ipaddress rejects it. Verified that HTTPX preserves the host and socket.getaddrinfo with AI_NUMERICHOST resolves it to 169.254.169.254 without DNS. Startup passes the accepted URL into the client at triggarr/startup.py:153-160, permitting requests to the metadata address this new check explicitly intends to block. This is a concrete bypass, independent of the documented DNS-rebinding exception.\",\"file\":\"triggarr/models/config.py\",\"line_start\":108,\"line_end\":111,\"confidence\":0.99,\"recommendation\":\"Reject noncanonical numeric IPv4 hosts or normalize them before applying the blocked-address checks. Add model-level regression tests for decimal, hexadecimal, and shortened IPv4 representations of blocked addresses.\"}],\"next_steps\":[\"Close the numeric-host bypass and rerun validator and configuration tests. Configuration tests could not run with default capture under the read-only sandbox.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
