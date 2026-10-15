@@ -1,0 +1,530 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "345eaaad08d592376897c3d9a5c33ca173fdbbf8",
+      "timestamp": "2026-10-15T02:30:56Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python",
+        "framework-fastapi"
+      ],
+      "findings": [
+        {
+          "agent": "bugs",
+          "id": "bugs-001",
+          "file": "triggarr/web/routes.py",
+          "line": 1581,
+          "title": "mkstemp sits outside the try, so a failed temp-file create turns a minted reset request into a 500",
+          "category": "error-handling",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 85,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` runs before the `try:` block. The docstring promises that an OSError is non-fatal (D-17) and is never re-raised, but the `except OSError` handler does not cover mkstemp. Any of these makes mkstemp raise: a read-only config volume, a full disk, a missing parent directory, or EACCES on the config dir. The error then propagates out of `run_in_executor` in `reset_request_post`, and nothing there catches it. By that point the token has already been stored in `app.state.reset_token` and logged, so the client gets a 500 instead of the neutral confirmation.",
+          "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\n    try:",
+          "fix_hint": "move mkstemp inside the try (initialise fd/tmp_path to None and guard the cleanup on them), or catch OSError around the run_in_executor call",
+          "why_it_matters": "A config dir the app can't write to is a likely setup in exactly the situations where an operator needs recovery. The reset page errors out, even though the token was minted and logged.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "            f.write(token)",
+            "            f.flush()",
+            "            os.fsync(f.fileno())",
+            "        os.replace(tmp_path, path)",
+            "        renamed = True"
+          ],
+          "canonical_line_content": "            os.fsync(f.fileno())",
+          "orchestrator_score": 94,
+          "band": "warning",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "bad49ddb5ff5ab86151d3f11d7726cc35c0e5957522b1913972e7a33fd19f6ba",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1581,
+              "title": "mkstemp sits outside the try, so a failed temp-file create turns a minted reset request into a 500",
+              "category": "error-handling",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 85,
+              "problem": "`fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` runs before the `try:` block. The docstring promises that an OSError is non-fatal (D-17) and is never re-raised, but the `except OSError` handler does not cover mkstemp. Any of these makes mkstemp raise: a read-only config volume, a full disk, a missing parent directory, or EACCES on the config dir. The error then propagates out of `run_in_executor` in `reset_request_post`, and nothing there catches it. By that point the token has already been stored in `app.state.reset_token` and logged, so the client gets a 500 instead of the neutral confirmation.",
+              "source_window": [
+                "            f.write(token)",
+                "            f.flush()",
+                "            os.fsync(f.fileno())",
+                "        os.replace(tmp_path, path)",
+                "        renamed = True"
+              ],
+              "cwe": null,
+              "why_it_matters": "A config dir the app can't write to is a likely setup in exactly the situations where an operator needs recovery. The reset page errors out, even though the token was minted and logged.",
+              "fix_hint": "move mkstemp inside the try (initialise fd/tmp_path to None and guard the cleanup on them), or catch OSError around the run_in_executor call",
+              "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\n    try:",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/routes.py",
+            "line": 1581,
+            "canonical_line_content": "            os.fsync(f.fileno())",
+            "band": "warning"
+          }
+        },
+        {
+          "agent": "security",
+          "id": "sec-001",
+          "file": "triggarr/web/routes.py",
+          "line": 1689,
+          "title": "Password-reset token logged in cleartext, bypassing the app's own secret-redaction sink",
+          "category": "secrets",
+          "cwe": "CWE-532",
+          "severity": "high",
+          "agent_confidence": 88,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The newly minted CSPRNG reset token (full account-takeover credential for /reset/confirm) is passed directly into `logger.warning(...)` as the `{token}` placeholder. Comments state this is deliberate and that the token is intentionally excluded from `collect_secrets()`/the loguru redacting sink that every other secret in this codebase goes through. The same value is also written in plaintext to reset-token.txt.",
+          "current_code": "logger.warning(\n    \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",\n    token=token,\n)",
+          "fix_hint": null,
+          "why_it_matters": "This directly contradicts the project's own 'never log sensitive data' convention. Anyone who can read container stdout/logs (log aggregators, shipped logs, a shared host, support bundles) or the config volume obtains a live token sufficient to reset the admin password and fully take over the application.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        # D-17: log line first, THEN file write \u2014 so a file-write failure still leaves the",
+            "        # token recoverable from the log.",
+            "        logger.warning(",
+            "            \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",",
+            "            token=token,"
+          ],
+          "canonical_line_content": "        logger.warning(",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "security",
+            "impact",
+            "compliance",
+            "codex-adversarial"
+          ],
+          "stable_hash": "453bc76570c924ee3e1ce84cd648f2b6699b8569c854e6934893a0c91f4cdeac",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1689,
+              "title": "Password-reset token logged in cleartext, bypassing the app's own secret-redaction sink",
+              "category": "secrets",
+              "severity": "high",
+              "agent": "security",
+              "agent_confidence": 88,
+              "problem": "The newly minted CSPRNG reset token (full account-takeover credential for /reset/confirm) is passed directly into `logger.warning(...)` as the `{token}` placeholder. Comments state this is deliberate and that the token is intentionally excluded from `collect_secrets()`/the loguru redacting sink that every other secret in this codebase goes through. The same value is also written in plaintext to reset-token.txt.",
+              "source_window": [
+                "        # D-17: log line first, THEN file write \u2014 so a file-write failure still leaves the",
+                "        # token recoverable from the log.",
+                "        logger.warning(",
+                "            \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",",
+                "            token=token,"
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "This directly contradicts the project's own 'never log sensitive data' convention. Anyone who can read container stdout/logs (log aggregators, shipped logs, a shared host, support bundles) or the config volume obtains a live token sufficient to reset the admin password and fully take over the application.",
+              "fix_hint": null,
+              "current_code": "logger.warning(\n    \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",\n    token=token,\n)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1689,
+              "title": "Reset tokens leak through the web log viewer",
+              "category": "adversarial",
+              "severity": "high",
+              "agent": "codex-adversarial",
+              "agent_confidence": 100,
+              "problem": "The warning is sent to every configured logging sink. triggarr/logging.py:71-84 stores its unredacted token in log_buffer; routes.py:1083-1093 then renders it through partials/log_viewer.html:80. Reproduction confirmed the minted token appears in the HTTP response. Production authentication restricts this to authenticated clients, but those clients need no access to the intended operator-only logs or config volume. This is newly introduced secret exposure, not a demonstrated unauthenticated takeover.",
+              "source_window": [
+                "        # D-17: log line first, THEN file write \u2014 so a file-write failure still leaves the",
+                "        # token recoverable from the log.",
+                "        logger.warning(",
+                "            \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",",
+                "            token=token,"
+              ],
+              "cwe": null,
+              "why_it_matters": "The warning is sent to every configured logging sink; the log viewer renders it in an HTTP response to authenticated clients.",
+              "fix_hint": "Mark recovery log records as operator-only and exclude them from the web buffer while retaining stderr output. Test that dashboard and log-viewer responses never contain the token.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1689,
+              "title": "Reset token value is logged in cleartext via logger.warning",
+              "category": "rule-violation",
+              "severity": "high",
+              "agent": "compliance",
+              "agent_confidence": 88,
+              "problem": "Global CLAUDE.md Security section (marked 'absolute') says: 'Never log sensitive data (passwords, tokens, PII, auth headers).' This code does exactly that: `logger.warning(\"Password reset token minted. ... {token}\", token=token)` writes the raw password-reset token value into the application log at warning level.",
+              "source_window": [
+                "        # D-17: log line first, THEN file write \u2014 so a file-write failure still leaves the",
+                "        # token recoverable from the log.",
+                "        logger.warning(",
+                "            \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",",
+                "            token=token,"
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "A reset token grants the ability to take over the admin account, and the project's own established pattern is to keep such secrets out of logs entirely via the redacting sink. Anyone with read access to container logs gets a live account-takeover credential.",
+              "fix_hint": null,
+              "current_code": "logger.warning(\n    \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",\n    token=token,\n)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1688,
+              "title": "Reset token also lands unredacted in the in-app log buffer shown in the web UI, not only in docker logs",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 40,
+              "problem": "`setup_logging` also registers `buffer_sink` (triggarr/logging.py:72-84). It redacts only `collect_secrets` values, and the reset token is deliberately left out of that list. So the warning line with the token goes into `log_buffer`, which the dashboard and log viewer render (routes.py:382, 1083). That is a third sink nobody intended. pending: show a deployment where the dashboard log view is reachable by someone who should not be able to reset the password.",
+              "source_window": [
+                "        # HTTP response. This is the ONLY log line that will ever contain the token value.",
+                "        # D-17: log line first, THEN file write \u2014 so a file-write failure still leaves the",
+                "        # token recoverable from the log.",
+                "        logger.warning(",
+                "            \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\","
+              ],
+              "cwe": "CWE-532",
+              "why_it_matters": "The design says the token appears only in operator-only channels. The web log viewer is a UI-visible channel the design did not account for.",
+              "fix_hint": "Bind an extra flag (e.g. logger.bind(no_buffer=True)) and have buffer_sink skip records carrying it.",
+              "current_code": "logger.warning(\n            \"Password reset token minted. Read from 'docker logs' or reset-token.txt: {token}\",\n            token=token,\n        )",
+              "intent_doc_match": "comment claims the token goes to 'operator-only sinks' (docker logs and the 0600 file)"
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/routes.py",
+            "line": 1689,
+            "canonical_line_content": "        logger.warning(",
+            "band": "critical"
+          }
+        },
+        {
+          "agent": "impact",
+          "id": "impact-1",
+          "file": "triggarr/web/routes.py",
+          "line": 1578,
+          "title": "tempfile.mkstemp sits outside the try block, so an unwritable config dir returns HTTP 500 and breaks the D-17 non-fatal guarantee",
+          "category": "blast-radius",
+          "cwe": "CWE-755",
+          "severity": "medium",
+          "agent_confidence": 80,
+          "in_diff": true,
+          "intent_doc_match": "contradicts D-17 (file write failure is non-fatal) as stated in the function's own docstring",
+          "problem": "`fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` runs before the `try:`. If the config volume is read-only (EROFS), owned by another UID (EACCES) or out of space (ENOSPC), mkstemp raises OSError. The `except OSError` handler never sees it. The exception travels through `run_in_executor` into `reset_request_post`, which has no handler, so the operator gets a 500. Separately, if `os.fchmod(fd, ...)` raises, the raw fd is never closed because `os.fdopen` has not wrapped it yet.",
+          "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\n    try:\n        os.fchmod(fd, 0o600)\n        with os.fdopen(fd, \"w\") as f:",
+          "fix_hint": "Move mkstemp inside the try (with tmp_path initialized to None and the unlink guarded), and close the raw fd in the except path when fdopen has not taken ownership of it.",
+          "why_it_matters": "Docker deployments often mount the config volume with mismatched UIDs or read-only. In those cases the documented recovery flow shows a 500 page.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "        # is already 0600 after os.replace with no post-rename chmod window.",
+            "        os.fchmod(fd, 0o600)",
+            "        with os.fdopen(fd, \"w\") as f:",
+            "            f.write(token)",
+            "            f.flush()"
+          ],
+          "canonical_line_content": "        with os.fdopen(fd, \"w\") as f:",
+          "orchestrator_score": 80,
+          "band": "warning",
+          "attribution": [
+            "impact",
+            "language-python"
+          ],
+          "stable_hash": "ef5e6138d4583e990f1af4cb02adcfe965e6c674c1ec5428a15bf1fe2818d4f5",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1578,
+              "title": "tempfile.mkstemp sits outside the try block, so an unwritable config dir returns HTTP 500 and breaks the D-17 non-fatal guarantee",
+              "category": "blast-radius",
+              "severity": "medium",
+              "agent": "impact",
+              "agent_confidence": 80,
+              "problem": "`fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` runs before the `try:`. If the config volume is read-only (EROFS), owned by another UID (EACCES) or out of space (ENOSPC), mkstemp raises OSError. The `except OSError` handler never sees it. The exception travels through `run_in_executor` into `reset_request_post`, which has no handler, so the operator gets a 500. Separately, if `os.fchmod(fd, ...)` raises, the raw fd is never closed because `os.fdopen` has not wrapped it yet.",
+              "source_window": [
+                "        # is already 0600 after os.replace with no post-rename chmod window.",
+                "        os.fchmod(fd, 0o600)",
+                "        with os.fdopen(fd, \"w\") as f:",
+                "            f.write(token)",
+                "            f.flush()"
+              ],
+              "cwe": "CWE-755",
+              "why_it_matters": "Docker deployments often mount the config volume with mismatched UIDs or read-only. In those cases the documented recovery flow shows a 500 page.",
+              "fix_hint": "Move mkstemp inside the try (with tmp_path initialized to None and the unlink guarded), and close the raw fd in the except path when fdopen has not taken ownership of it.",
+              "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\n    try:\n        os.fchmod(fd, 0o600)\n        with os.fdopen(fd, \"w\") as f:",
+              "intent_doc_match": "contradicts D-17 (file write failure is non-fatal) as stated in the function's own docstring"
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1577,
+              "title": "Raw fd from mkstemp leaks if fchmod raises before fdopen takes ownership",
+              "category": "context-manager",
+              "severity": "low",
+              "agent": "language-python",
+              "agent_confidence": 78,
+              "problem": "`tempfile.mkstemp` returns an open raw fd. It's only closed once `os.fdopen(fd, \"w\")` takes ownership of it inside a `with`. If `os.fchmod(fd, 0o600)` raises `OSError` before `fdopen` is reached, control goes to the `except OSError` branch, which only does `os.unlink(tmp_path)` and never closes the bare integer `fd`.",
+              "source_window": [
+                "        # M1: set 0600 on the temp fd BEFORE writing or replacing, so the final file",
+                "        # is already 0600 after os.replace with no post-rename chmod window.",
+                "        os.fchmod(fd, 0o600)",
+                "        with os.fdopen(fd, \"w\") as f:",
+                "            f.write(token)"
+              ],
+              "cwe": null,
+              "why_it_matters": "A descriptor leak on every fchmod failure is a genuine release-on-every-path gap that would compound under repeated failures.",
+              "fix_hint": "Wrap `os.fchmod(fd, 0o600)` in the same scope as `os.fdopen`, or add an `os.close(fd)` in the except branch when `fdopen` was never reached.",
+              "current_code": "os.fchmod(fd, 0o600)\nwith os.fdopen(fd, \"w\") as f:",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/routes.py",
+            "line": 1578,
+            "canonical_line_content": "        with os.fdopen(fd, \"w\") as f:",
+            "band": "warning"
+          }
+        },
+        {
+          "agent": "language-python",
+          "id": "py-001",
+          "file": "triggarr/web/routes.py",
+          "line": 1573,
+          "title": "mkstemp call sits outside the try/except, breaking the documented non-fatal guarantee",
+          "category": "context-manager",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 80,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` executes before the `try:`, so an `OSError` from `mkstemp` itself (ENOSPC, EACCES, EMFILE) is not caught by the `except OSError` block and propagates out of `_write_reset_token_file`. The call site has no surrounding try/except, so that exception surfaces as an unhandled exception in the route handler.",
+          "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\ntry:\n    os.fchmod(fd, 0o600)",
+          "fix_hint": "Move the mkstemp call inside the try block (or wrap it in its own try/except OSError) so a failure there is handled the same non-fatal way as the rest of the write path.",
+          "why_it_matters": "The docstring and the call-site comment both promise the file write is non-fatal, but a mkstemp failure turns it into an unhandled exception / 500 response for an unauthenticated endpoint.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "    dir_fd = None",
+            "    renamed = False",
+            "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+            "    try:",
+            "        # M1: set 0600 on the temp fd BEFORE writing or replacing, so the final file"
+          ],
+          "canonical_line_content": "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "compliance",
+            "language-python",
+            "framework-fastapi",
+            "codex-adversarial"
+          ],
+          "stable_hash": "7e83d5f23a4a9a1419534c9d2d57cb4698f09cb94c010b47ea521487f87f98f6",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1573,
+              "title": "mkstemp call sits outside the try/except, breaking the documented non-fatal guarantee",
+              "category": "context-manager",
+              "severity": "medium",
+              "agent": "language-python",
+              "agent_confidence": 80,
+              "problem": "`fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` executes before the `try:`, so an `OSError` from `mkstemp` itself (ENOSPC, EACCES, EMFILE) is not caught by the `except OSError` block and propagates out of `_write_reset_token_file`. The call site has no surrounding try/except, so that exception surfaces as an unhandled exception in the route handler.",
+              "source_window": [
+                "    dir_fd = None",
+                "    renamed = False",
+                "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+                "    try:",
+                "        # M1: set 0600 on the temp fd BEFORE writing or replacing, so the final file"
+              ],
+              "cwe": null,
+              "why_it_matters": "The docstring and the call-site comment both promise the file write is non-fatal, but a mkstemp failure turns it into an unhandled exception / 500 response for an unauthenticated endpoint.",
+              "fix_hint": "Move the mkstemp call inside the try block (or wrap it in its own try/except OSError) so a failure there is handled the same non-fatal way as the rest of the write path.",
+              "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\ntry:\n    os.fchmod(fd, 0o600)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1573,
+              "title": "Temporary-file creation errors escape the non-fatal handler",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 100,
+              "problem": "tempfile.mkstemp executes before the try block. A read-only config volume, permission failure, or full disk therefore propagates through run_in_executor and returns HTTP 500 after the token and rate-limit timestamp have already been committed. Injecting PermissionError reproduced this response. The operator receives no recovery confirmation despite the token having been logged; immediate retries return 429.",
+              "source_window": [
+                "    dir_fd = None",
+                "    renamed = False",
+                "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+                "    try:",
+                "        # M1: set 0600 on the temp fd BEFORE writing or replacing, so the final file"
+              ],
+              "cwe": null,
+              "why_it_matters": "The operator receives a 500 instead of the neutral confirmation, and immediate retries return 429.",
+              "fix_hint": "Move temporary-file creation inside the guarded block, initialize cleanup state safely, and verify creation failures still return the neutral confirmation.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1573,
+              "title": "Temp file descriptor leaks if os.fchmod raises before os.fdopen wraps it",
+              "category": "rule-violation",
+              "severity": "low",
+              "agent": "compliance",
+              "agent_confidence": 55,
+              "problem": "Global CLAUDE.md: 'Ensure resources are released on every path.' `fd, tmp_path = tempfile.mkstemp(...)` opens a raw fd before the try block; if `os.fchmod(fd, 0o600)` raises OSError, execution jumps to the except branch, which unlinks `tmp_path` but never closes `fd`. The `finally` only closes `dir_fd`.",
+              "source_window": [
+                "    dir_fd = None",
+                "    renamed = False",
+                "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+                "    try:",
+                "        # M1: set 0600 on the temp fd BEFORE writing or replacing, so the final file"
+              ],
+              "cwe": "CWE-775",
+              "why_it_matters": "On a misconfigured or read-only config volume, each failed attempt leaks one fd; repeated requests could accumulate leaked descriptors toward the process's fd ulimit.",
+              "fix_hint": "wrap fd in os.fdopen (or a try/finally os.close(fd)) immediately after mkstemp, before fchmod, so the fd is always owned by a context manager regardless of which line raises",
+              "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\ntry:\n    os.fchmod(fd, 0o600)\n    with os.fdopen(fd, \"w\") as f:",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/routes.py",
+              "line": 1573,
+              "title": "mkstemp runs before the try block, so its OSError bypasses the D-17 non-fatal guarantee",
+              "category": "response-status",
+              "severity": "medium",
+              "agent": "framework-fastapi",
+              "agent_confidence": 60,
+              "problem": "In `_write_reset_token_file`, `tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")` executes before the `try:` block. If it raises OSError, the exception is not caught by the function's own `except OSError` handler and propagates out of `run_in_executor` through the await in `reset_request_post`, with no surrounding try/except there either.",
+              "source_window": [
+                "    dir_fd = None",
+                "    renamed = False",
+                "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+                "    try:",
+                "        # M1: set 0600 on the temp fd BEFORE writing or replacing, so the final file"
+              ],
+              "cwe": null,
+              "why_it_matters": "The docstring asserts the file write failure is non-fatal, but for this one failure mode the route handler gets an unhandled exception and FastAPI's default handler turns it into a 500.",
+              "fix_hint": "move the mkstemp call inside the try (or wrap the whole function body in one try/except OSError that logs and returns without re-raising)",
+              "current_code": "fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\n    try:\n        os.fchmod(fd, 0o600)",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/routes.py",
+            "line": 1573,
+            "canonical_line_content": "    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")",
+            "band": "critical"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1650,
+          "title": "Unauthenticated /reset/request waits on the shared search_lock, which a scheduler search cycle holds for its full duration, so unauthenticated waiters pile up",
+          "reason": "absorbed-into: 3e99258a7c0c39d95ce31543033af70db3d06a96b8365435dacdaa92812e838a"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1650,
+          "title": "Unauthenticated reset endpoint now waits on the global search_lock, widening its documented scope",
+          "reason": "absorbed-into: 3e99258a7c0c39d95ce31543033af70db3d06a96b8365435dacdaa92812e838a"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1697,
+          "title": "Reset token persisted in cleartext file with no expiry-based cleanup",
+          "reason": "absorbed-into: 9d98ac4c6643f28b278ae5cbe4b2e3ac2390b38c9d7fa22e9dfa4c56ab7a2a85"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1689,
+          "title": "Reset tokens leak through the web log viewer",
+          "reason": "absorbed-into: 453bc76570c924ee3e1ce84cd648f2b6699b8569c854e6934893a0c91f4cdeac"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1689,
+          "title": "Reset token value is logged in cleartext via logger.warning",
+          "reason": "absorbed-into: 453bc76570c924ee3e1ce84cd648f2b6699b8569c854e6934893a0c91f4cdeac"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1688,
+          "title": "Reset token also lands unredacted in the in-app log buffer shown in the web UI, not only in docker logs",
+          "reason": "absorbed-into: 453bc76570c924ee3e1ce84cd648f2b6699b8569c854e6934893a0c91f4cdeac"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1557,
+          "title": "Fourth hand-rolled copy of the mkstemp/fsync/replace/dir-fsync atomic-write block",
+          "reason": "intent-doc-match"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1577,
+          "title": "Raw fd from mkstemp leaks if fchmod raises before fdopen takes ownership",
+          "reason": "absorbed-into: ef5e6138d4583e990f1af4cb02adcfe965e6c674c1ec5428a15bf1fe2818d4f5"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1573,
+          "title": "Temporary-file creation errors escape the non-fatal handler",
+          "reason": "absorbed-into: 7e83d5f23a4a9a1419534c9d2d57cb4698f09cb94c010b47ea521487f87f98f6"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1573,
+          "title": "Temp file descriptor leaks if os.fchmod raises before os.fdopen wraps it",
+          "reason": "absorbed-into: 7e83d5f23a4a9a1419534c9d2d57cb4698f09cb94c010b47ea521487f87f98f6"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1573,
+          "title": "mkstemp runs before the try block, so its OSError bypasses the D-17 non-fatal guarantee",
+          "reason": "absorbed-into: 7e83d5f23a4a9a1419534c9d2d57cb4698f09cb94c010b47ea521487f87f98f6"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1585,
+          "title": "Raw fd leaks when os.fchmod raises before os.fdopen takes ownership",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1650,
+          "title": "Unauthenticated reset request waits on search_lock, which is held for whole search cycles",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 1696,
+          "title": "An earlier run's reset-token.txt stays in place when the new write fails",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 2
+      }
+    }
+  ]
+}

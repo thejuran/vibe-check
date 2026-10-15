@@ -660,6 +660,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/triggarr-secret-in-logs/run-1 | 3 |
 | targeted/triggarr-session-rotation/run-1 | 0 |
 | targeted/triggarr-autoescape/run-1 | 1 |
+| final/reach-new-1/run-1 | 1 |
 
 ## Cache
 
@@ -993,4 +994,34 @@ candidates at site with band >= floor: 1
 AXIS: credit — row 31e9e61f6da3 (alarm, critical 100) at routes.py:45 (keyed bug line) — survivor title names "the XSS autoescape guarantee now rests on the installed Starlette version"; members codex-adversarial "Keep XSS protection independent of deprecated environment options", bugs "Revert makes HTML autoescaping (protection against script injection / XSS) depend on the Starlette version". The escaping/XSS consequence is named at the keyed line, as the key requires. Divergence recorded: the lead mechanism is a TypeError at import on the installed Starlette 1.3.1 (it read `.venv/.../starlette/templating.py`), where the key says autoescape silently no-ops; both are the version-dependent loss the key describes.
 
 Result vs entry 1: pre-registered "catch kept" -> catch kept (Phase 49: 3/3). Run: 10m32s; fix-loop card after 617s; `Stop here…` -> `Abandon` by label. Environment note: this review read the triggarr clone's `.venv`, which did not exist when the clone was made — the previous measured session (`triggarr-session-rotation`) built it by running `uv run pytest` (born 2026-10-15T01:48:40Z). See pre-registration entry 3.
+
+
+### final/reach-new-1/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 4
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | triggarr/web/routes.py | 1581 | warning | 94 | bad49ddb5ff5 |
+| security | triggarr/web/routes.py | 1689 | critical | 100 | 453bc76570c9 |
+| impact | triggarr/web/routes.py | 1578 | warning | 80 | ef5e6138d458 |
+| language-python | triggarr/web/routes.py | 1573 | critical | 100 | 7e83d5f23a4a |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+keyed defect: triggarr/web/routes.py:1689-1692 (reset_request_post) logs the newly minted password-reset token at WARNING into the unchanged logging path: the buffer sink (triggarr/logging.py:72-84) copies it into log_buffer unredacted because the token is not in the collect_secrets redaction list, and the unchanged in-app log viewer (routes.py:1079-1094) and dashboard render that buffer, so anyone who can read the log viewer can read a live reset token and complete a password reset.
+label: development rehearsal - not release evidence
+| agent | file | line | band | score | stable_hash | nv | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|---|
+| security | triggarr/web/routes.py | 1689 | critical | 100 | 453bc76570c9 | no | Password-reset token logged in cleartext, bypassing the app's own secret-redaction sink | security: Password-reset token logged in cleartext, bypassing the app's own secret-redaction sink; codex-adversarial: Reset tokens leak through the web log viewer; compliance: Reset token value is logged in cleartext via logger.warning; impact: Reset token also lands unredacted in the in-app log buffer shown in the web UI, not only in docker logs |  |
+candidates at site: 1 (alarms 1, needs-verification 0)
+
+AXIS: credit — row 453bc76570c9 (alarm, critical 100) at routes.py:1689 — names the reset token logged in cleartext past the app's redaction sink; members codex-adversarial "Reset tokens leak through the web log viewer", impact "lands unredacted in the in-app log buffer shown in the web UI". Location AND causal failure match.
+
+vs entry 1: "catch" -> catch kept. Other alarms are off the keyed defect (mkstemp fd/permission rows at 1573-1581). Run 18m20s; fix-loop card after 1082s; `Stop here…` -> `Abandon` by label.
 
