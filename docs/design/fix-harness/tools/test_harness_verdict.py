@@ -1496,6 +1496,224 @@ class TestConservation(_Conservation):
                       % sha7(self.S), r.reasons)
 
 
+# --------------------------------------------------------------------------- #
+# Condition 3 at the format-53 location: the authoritative state only, no
+# legacy fallback, undecided Needs-verification and vanished obligations fail,
+# reasoned defer/dismiss decisions are kept
+# --------------------------------------------------------------------------- #
+def _legacy_archived_states(copy):
+    """The pre-format-53 glob: every archive anywhere under .turingmind/state."""
+    base = os.path.join(copy.root, ".turingmind", "state")
+    return sorted(hv.glob.glob(os.path.join(hv.glob.escape(base), "**",
+                                            "*.json.archived-*"),
+                               recursive=True))
+
+
+class TestFormat53State(_Conservation):
+    def archive_path(self):
+        return str(self.seed_path) + ".archived-test"
+
+    def legacy_copy(self, move):
+        """Put the archive at the legacy flat location (copy or move)."""
+        src = self.archive_path()
+        name = os.path.basename(src)
+        dst = os.path.join(self.copy.root, ".turingmind", "state", name)
+        (shutil.move if move else shutil.copyfile)(src, dst)
+        return ".turingmind/state/%s" % name
+
+    def nv_row(self, h, line=7):
+        return self.st.finding(h, "needs-verification", UNTOUCHED, line,
+                               status="new", at_pass=2)
+
+    @staticmethod
+    def nv_decision(f, reason=REASON, kind="defer"):
+        cs = hv._carry_state()
+        ev = evidence(f)
+        ev["current_code"] = cs._nv_code_key(f.get("current_code"))
+        return {"decision": kind, "reason": reason, "at_pass": 2,
+                "evidence": ev}
+
+    # -- the seed and archive locations ------------------------------------ #
+    def test_seed_and_archive_live_under_format_53(self):
+        self.assertIn("/.turingmind/state/format-53/", str(self.seed_path))
+        self.happy()
+        self.assertEqual(hv._archived_states(self.copy), [self.archive_path()])
+
+    def test_legacy_only_archive_fails_with_a_named_reason(self):
+        led = self.happy()
+        rel = self.legacy_copy(move=True)
+        r = self.verdict_of(led)
+        self.assertEqual(r.status, "FAILED")
+        self.assertIn("state not archived", r.reasons)
+        self.assertIn(hv.LEGACY_STATE_PROBLEM_PREFIX + rel
+                      + hv.LEGACY_STATE_PROBLEM_SUFFIX, r.reasons)
+
+    def test_legacy_beside_format_53_judges_format_53_only(self):
+        led = self.happy()
+        self.legacy_copy(move=False)
+        r = self.verdict_of(led)
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+
+    def test_mutant_legacy_glob_base_reads_the_stale_archive(self):
+        led = self.happy()
+        self.legacy_copy(move=False)
+        with mock.patch.object(hv, "_archived_states",
+                               _legacy_archived_states):
+            r = self.verdict_of(led)
+        self.assertIn("multiple archived states", r.reasons)
+
+    def test_mutant_legacy_glob_accepts_a_legacy_only_close_out(self):
+        led = self.happy()
+        self.legacy_copy(move=True)
+        with mock.patch.object(hv, "_archived_states",
+                               _legacy_archived_states), \
+                mock.patch.object(hv, "_legacy_state_files",
+                                  lambda copy: []):
+            r = self.verdict_of(led)
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+
+    # -- undecided Needs-verification -------------------------------------- #
+    NV_REASONS = ["outstanding findings at finalize: 1",
+                  "undecided Needs-verification at finalize: 1"]
+
+    def _nv_case(self):
+        nv = self.nv_row(H("NV"))
+        led = self.happy(extra_open=[nv])
+        c = self.counts(self.st.state([self.pass2_resolved(
+            self.fix, findings=[nv])]))
+        self.assertEqual((c["outstanding_cw"], c["unacknowledged_medium"],
+                          c["undecided_nv"]), (0, 0, 1))
+        return led
+
+    def test_undecided_nv_at_finalize_fails(self):
+        led = self._nv_case()
+        r = self.verdict_of(led)
+        self.assertEqual(r.reasons, self.NV_REASONS)
+
+    def test_mutant_outstanding_without_nv_flips(self):
+        led = self._nv_case()
+        with mock.patch.object(
+                hv, "_outstanding",
+                lambda c: int(c["outstanding_cw"])
+                + int(c["unacknowledged_medium"])):
+            r = self.verdict_of(led)
+        self.assertEqual(r.reasons,
+                         ["undecided Needs-verification at finalize: 1"])
+
+    def test_mutant_nv_count_zero_certifies_a_false_close_out(self):
+        led = self._nv_case()
+        real = hv._finalize_counts
+
+        def no_nv(*a):
+            c = real(*a)
+            return None if c is None else dict(c, undecided_nv=0)
+        with mock.patch.object(hv, "_finalize_counts", no_nv):
+            r = self.verdict_of(led)
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+
+    def test_nv_row_is_deferred_through_the_real_finalize_card(self):
+        """The plugin renders the finalize card for an archived-shape state
+        holding the NV row; harness_cards answers it under the harness policy
+        (defer with the harness reason, never a fix); that decision, written
+        back, leaves no undecided NV and the verdict COMPLETE."""
+        import harness_cards as hc
+        nv = self.nv_row(H("NV"))
+        head = self.fix
+        state = self.st.state([self.pass2_resolved(head, findings=[nv])])
+        blobs = os.path.join(self.tmp, "card-blobs.json")
+        with open(blobs, "w", encoding="utf-8") as fh:
+            json.dump({}, fh)
+        proc = subprocess.run(
+            [sys.executable, str(hf.PLUGIN_SCRIPTS_DIR / "batch_card.py"),
+             "rows", "--mode", "finalize", "--head-blobs", blobs],
+            input=json.dumps(state),
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        doc = json.loads(proc.stdout)
+        self.assertIn("(needs-verification)", doc["card_text"])
+        bp = hc.batch_parse
+        card = {"questions": [
+            {"header": "Decide", "multiSelect": False,
+             "question": "Finalize — 1 undecided finding(s) listed below. "
+                         "What should happen to them?\n\n"
+                         + doc["card_text"],
+             "options": [{"label": x, "description": x}
+                         for x in bp.FINALIZE_Q1]},
+            {"header": "Reason", "multiSelect": False,
+             "question": "One reason for everything dismissed or deferred.",
+             "options": [{"label": x, "description": x}
+                         for x in bp.FINALIZE_Q2]}]}
+        self.assertEqual(hc.classify_card(card), hc.FINALIZE)
+        d = hc.answer_card(hc.FINALIZE, card, seeded=self.seed_path
+                           .seeded_identity, seeded_resolved=True)
+        self.assertIsNone(d.fail)
+        q1 = card["questions"][0]["question"]
+        self.assertEqual(d.answers[q1], "defer 1 -- %s" % hc.DEFER_REASON)
+        self.assertEqual(d.deferred_non_seeded, 1)
+        led = self.ledger((state, "turn_end", head))
+        archived = copymod.deepcopy(state)
+        archived["decisions"] = {H("NV"): self.nv_decision(
+            nv, reason=hc.DEFER_REASON)}
+        self.assertEqual(self.counts(archived)["undecided_nv"], 0)
+        self.finalize(archived)
+        r = self.verdict_of(led)
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+        self.assertEqual(r.dispositions[H("NV")], "decided")
+
+    # -- vanished obligations on a format-53 archive ----------------------- #
+    def test_vanished_seeded_obligation_fails(self):
+        head = self.fix
+        state = self.st.state([self.st.pass_entry(2, head, [])])
+        led = self.ledger((state, "turn_end", head))
+        self.finalize(state)
+        self.assertEqual(hv._archived_states(self.copy), [self.archive_path()])
+        r = self.verdict_of(led)
+        self.assertIn("obligation dropped without decision: %s"
+                      % sha7(self.S), r.reasons)
+        self.assertIn("seeded finding not verified resolved: %s"
+                      % sha7(self.S), r.reasons)
+        self.assertEqual(r.dispositions[self.S], "missing")
+
+    def test_vanished_deferred_obligation_fails(self):
+        n1 = self.st.finding(self.N1, "warning", UNTOUCHED, 5)
+        s1, s2 = self.two_passes([n1], [])
+        s1["decisions"] = {self.N1: decision(n1)}
+        led = self.ledger((s1, "card", self.pre), (s2, "turn_end", self.fix))
+        archived = copymod.deepcopy(s2)
+        archived["decisions"] = {self.N1: decision(n1)}
+        self.finalize(archived)
+        r = self.verdict_of(led)
+        self.assertEqual(r.reasons, ["obligation dropped without decision: %s"
+                                     % sha7(self.N1)])
+        self.assertEqual(r.dispositions[self.N1], "missing")
+
+    # -- reasoned defer/dismiss decisions are preserved -------------------- #
+    def _decided_case(self, kind, reason=REASON):
+        n1 = self.st.finding(self.N1, "warning", UNTOUCHED, 5)
+        s1, s2 = self.two_passes([n1], [copymod.deepcopy(n1)])
+        led = self.n_ledger(s1, s2)
+        archived = copymod.deepcopy(s2)
+        archived["decisions"] = {self.N1: decision(n1, reason=reason,
+                                                   kind=kind)}
+        self.finalize(archived)
+        return led
+
+    def test_reasoned_defer_is_preserved_as_decided(self):
+        r = self.verdict_of(self._decided_case("defer"))
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+        self.assertEqual(r.dispositions[self.N1], "decided")
+
+    def test_reasoned_dismiss_is_preserved_as_decided(self):
+        r = self.verdict_of(self._decided_case("dismiss"))
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+        self.assertEqual(r.dispositions[self.N1], "decided")
+
+    def test_mutant_stripped_reason_is_named(self):
+        r = self.verdict_of(self._decided_case("defer", reason=" "))
+        self.assertEqual(r.reasons, ["obligation decision without reason: %s"
+                                     % sha7(self.N1)])
+
+
 class TestBandDowngrade(_Conservation):
     def _n8(self, decided=False, first_band="warning"):
         n3a = self.st.finding(self.N3, first_band, UNTOUCHED, 7)
