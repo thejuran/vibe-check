@@ -46,9 +46,16 @@ carrying DRY-RUN.json accepts. A dry run never takes the 7b stop, never
 retires or replaces to obtain agreement and never opens a generation for it.
 The real run refuses any folder carrying a dry-run marker.
 
+Freeze identity: every session launch, fresh or resumed, first passes the
+freeze kit's identity check under the `holdout-autopilot` runner profile
+against the tuning repo's active freeze manifest (freeze_identity). A
+mismatch stops before the launch with the exact differences; there is no
+override. No manifest, no launch.
+
 I/O: stdlib only, imports exactly {contextlib, json, os, re, shutil, sys,
-time, uuid} plus the kit modules. Every process goes through
-holdout_kit.run_argv (argv list, timeout, never a shell).
+time, uuid} plus the kit modules and the freeze kit's freeze_check. Every
+process goes through holdout_kit.run_argv (argv list, timeout, never a
+shell); the identity check's git calls live in the freeze kit.
 """
 
 import contextlib
@@ -66,6 +73,22 @@ import holdout_manifest
 import holdout_seal
 import holdout_archive
 import holdout_dryrun
+
+# The freeze kit lives in the tuning repo. Run from the repo checkout, it is
+# found next to this tree; run from a holdout folder's kit copy, it is loaded
+# from the --repo the run was given (_freeze_check_module).
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))))
+FREEZE_TOOLS_REL = ("docs", "design", "freeze-v2.12", "tools")
+FREEZE_TOOLS = os.path.join(REPO_ROOT, *FREEZE_TOOLS_REL)
+if os.path.isdir(FREEZE_TOOLS) and FREEZE_TOOLS not in sys.path:
+    sys.path.append(FREEZE_TOOLS)
+try:
+    import freeze_check
+except ModuleNotFoundError as _exc:
+    if _exc.name != "freeze_check":
+        raise
+    freeze_check = None
 
 KitError = holdout_kit.KitError
 
@@ -308,6 +331,11 @@ STOP_INSTRUCTIONS = {
 RUN_SESSION_ARGS_MSG = "run_session needs exactly one of session_id or resume"
 ARGV_MSG = ("a headless session's arguments failed the isolation self-check; "
             "nothing was launched")
+IDENTITY_STOP = "IDENTITY MISMATCH — STOPPING"
+IDENTITY_RUNNER = "holdout-autopilot"
+NO_MANIFEST_MSG = "no active freeze manifest — STOPPING"
+FREEZE_KIT_MISSING_MSG = ("the freeze kit was not found (pass --repo <the "
+                          "tuning repo>) — STOPPING")
 UNJOURNALED_MSG = ("a session id must be journaled before its session is "
                    "launched; nothing was launched")
 JOURNAL_BAD_MSG = ("AUTOPILOT.json is malformed or is not this kit's "
@@ -477,7 +505,7 @@ def _fresh_journal():
                         "prompt_sent": False},
             "input_resets": {},
             "replaced_slots": [], "nonrunnable": 0, "prompted": False,
-            "result_line": None}
+            "identity": [], "result_line": None}
 
 
 def journal_path(folder):
@@ -560,6 +588,64 @@ def _allocate(folder, j, holder, key="session_id"):
 def _assert_journaled(folder, sid):
     if sid is None or sid not in _journaled_ids(journal_load(folder)):
         raise KitError(UNJOURNALED_MSG)
+
+
+# The tuning repo of the current run (--repo), set by _start. None: the
+# checkout this module sits in.
+_RUN_REPO = [None]
+
+
+def _freeze_repo():
+    if _RUN_REPO[0]:
+        return _RUN_REPO[0]
+    if os.path.isdir(FREEZE_TOOLS):
+        return REPO_ROOT
+    raise KitError(FREEZE_KIT_MISSING_MSG)
+
+
+def _freeze_check_module(repo):
+    """freeze_check from this checkout, else from `repo`'s freeze kit."""
+    if freeze_check is not None:
+        return freeze_check
+    tools = os.path.join(repo, *FREEZE_TOOLS_REL)
+    if not os.path.isfile(os.path.join(tools, "freeze_check.py")):
+        raise KitError(FREEZE_KIT_MISSING_MSG)
+    if tools not in sys.path:
+        sys.path.append(tools)
+    return __import__("freeze_check")
+
+
+def freeze_identity(h, j=None, manifest_path=None, verify=None, repo=None):
+    """The freeze identity check every session launch passes first.
+
+    Checks the live environment against the active freeze manifest under the
+    `holdout-autopilot` profile. No manifest, a manifest that does not load,
+    a check that cannot run or any difference raises KitError before
+    anything is launched; there is no override. On a match the identity
+    (manifest_id, check_digest, candidate_sha) is appended to the journal
+    and the CheckResult is returned."""
+    repo = repo or _freeze_repo()
+    fc = _freeze_check_module(repo)
+    verify = verify or fc.verify
+    try:
+        path = manifest_path or fc.active_manifest(repo)
+    except Exception:  # noqa: BLE001 - no manifest, no launch
+        raise KitError(NO_MANIFEST_MSG)
+    try:
+        manifest = fc.load_manifest(path)
+        result = verify(manifest, IDENTITY_RUNNER, repo=repo)
+    except Exception as exc:  # noqa: BLE001 - fail closed on any check error
+        raise KitError("%s\nidentity check could not run: %s: %s"
+                       % (IDENTITY_STOP, type(exc).__name__, exc))
+    if result.problems:
+        raise KitError(IDENTITY_STOP + "\n" + "\n".join(result.problems))
+    if j is not None:
+        j.setdefault("identity", []).append({"identity": {
+            "manifest_id": result.manifest_id,
+            "check_digest": result.check_digest,
+            "candidate_sha": result.candidate_sha}, "at": _now()})
+        journal_save(h, j)
+    return result
 
 
 # ---------------------------------------------------------------- sessions
@@ -785,9 +871,10 @@ def run_session(folder, role, prompt, gen=None, session_id=None, resume=None,
 
 def _launch(h, j, role, prompt, gen=None, session_id=None, resume=None,
             **opts):
-    """run_session, after checking the id is already in the on-disk
-    journal."""
+    """run_session, after checking the id is already in the on-disk journal
+    and the live environment passes the freeze identity check."""
     _assert_journaled(h, session_id if session_id is not None else resume)
+    freeze_identity(h, j)
     return run_session(h, role, prompt, gen=gen, session_id=session_id,
                        resume=resume, **opts)
 
@@ -2002,6 +2089,7 @@ def _start(folder, mode, repo, replace_retired, restart_finder, max_turns,
            budget_usd, session_timeout):
     strip_credentials()
     holdout_kit.refuse_if_claude_spawned(None)
+    _RUN_REPO[0] = os.path.realpath(repo) if repo else None
     h = os.path.realpath(folder)
     if not os.path.isdir(h):
         raise Precondition(SETUP_MSG)

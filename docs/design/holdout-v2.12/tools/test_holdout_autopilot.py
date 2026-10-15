@@ -50,6 +50,26 @@ from test_holdout_dryrun import all_probes, setup_folder  # noqa: E402
 import holdout_autopilot as ap  # noqa: E402
 
 KitError = holdout_kit.KitError
+
+# Every flow test below launches sessions through _launch, which first runs
+# the freeze identity check against the tuning repo's active manifest. The
+# flows are about the autopilot's own machinery, so the check is stubbed to a
+# pass for the whole module; TestFreezeIdentity exercises the real
+# freeze_identity (REAL_FREEZE_IDENTITY) with a mocked freeze kit and never
+# reads the checkout's manifests.
+REAL_FREEZE_IDENTITY = ap.freeze_identity
+_IDENTITY_STUB = mock.patch.object(ap, "freeze_identity",
+                                   lambda h, j=None, **kw: None)
+
+
+def setUpModule():
+    _IDENTITY_STUB.start()
+
+
+def tearDownModule():
+    _IDENTITY_STUB.stop()
+
+
 AUTOPILOT_PY = os.path.join(TOOLS_DIR, "holdout_autopilot.py")
 README = os.path.join(os.path.dirname(TOOLS_DIR), "README.md")
 RESULT_MARK = "[fake-session-result]"
@@ -535,7 +555,8 @@ class TestModuleShape(unittest.TestCase):
                          {"contextlib", "json", "os", "re", "shutil", "sys",
                           "time", "uuid", "holdout_kit", "holdout_validate",
                           "holdout_manifest", "holdout_seal",
-                          "holdout_archive", "holdout_dryrun"})
+                          "holdout_archive", "holdout_dryrun",
+                          "freeze_check"})
 
     def test_forbidden_text_absent(self):
         for bad in ("vibe-check-holdout", "subprocess", "--bare",
@@ -3712,6 +3733,200 @@ class TestKitAdditions(unittest.TestCase):
     def test_load_retired_is_public(self):
         self.assertIs(holdout_manifest.load_retired,
                       holdout_manifest._load_retired)
+
+
+# ================================================================ freeze identity
+
+
+def launch_checks_identity_first(source):
+    """True when `_launch` in `source` calls freeze_identity before it calls
+    run_session (the AST lock behind bypass mutant 17)."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_launch":
+            check = run = None
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    name = _call_name(sub)
+                    if name == "freeze_identity" and check is None:
+                        check = sub.lineno
+                    elif name == "run_session" and run is None:
+                        run = sub.lineno
+            return check is not None and run is not None and check < run
+    return False
+
+
+class _Result:
+    def __init__(self, problems):
+        self.problems = problems
+        self.manifest_id = "a" * 64
+        self.check_digest = "b" * 64
+        self.candidate_sha = "c" * 40
+
+
+class TestFreezeIdentity(unittest.TestCase):
+    """_launch -> freeze_identity -> freeze_check.verify(runner
+    'holdout-autopilot'), with the freeze kit mocked; no real manifest, home
+    or session is ever touched."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.F = os.path.join(self._tmp.name, "h")
+        self.repo = os.path.join(self._tmp.name, "repo")
+        os.makedirs(self.F)
+        os.makedirs(self.repo)
+        self.sid = str(uuid.uuid4())
+        j = ap._fresh_journal()
+        j["finder"]["session_id"] = self.sid
+        ap.journal_save(self.F, j)
+        self.j = ap.journal_load(self.F)
+        self.order = []
+        self.verify_calls = []
+        self.problems = []
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        self.addCleanup(self._tmp.cleanup)
+        self.assertIsNotNone(ap.freeze_check)
+        stack.enter_context(mock.patch.object(
+            ap, "freeze_identity", REAL_FREEZE_IDENTITY))
+        stack.enter_context(mock.patch.object(ap, "_RUN_REPO", [self.repo]))
+        self.active = stack.enter_context(mock.patch.object(
+            ap.freeze_check, "active_manifest",
+            side_effect=lambda repo: os.path.join(repo, "M.json")))
+        stack.enter_context(mock.patch.object(
+            ap.freeze_check, "load_manifest",
+            side_effect=lambda path: {"manifest_id": "a" * 64,
+                                      "path": path}))
+        stack.enter_context(mock.patch.object(
+            ap.freeze_check, "verify", side_effect=self._verify))
+        self.run_session = stack.enter_context(mock.patch.object(
+            ap, "run_session", side_effect=self._run_session))
+
+    def _verify(self, manifest, runner, **kw):
+        self.order.append("verify")
+        self.verify_calls.append((manifest, runner, kw))
+        return _Result(list(self.problems))
+
+    def _run_session(self, *a, **kw):
+        self.order.append("run_session")
+        return "launched"
+
+    def test_fresh_launch_checks_first(self):
+        res = ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        self.assertEqual(res, "launched")
+        self.assertEqual(self.order, ["verify", "run_session"])
+
+    def test_resume_launch_checks_first(self):
+        res = ap._launch(self.F, self.j, "finder", "p", resume=self.sid)
+        self.assertEqual(res, "launched")
+        self.assertEqual(self.order, ["verify", "run_session"])
+
+    def test_verify_profile_and_repo(self):
+        ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        manifest, runner, kw = self.verify_calls[0]
+        self.assertEqual(runner, "holdout-autopilot")
+        self.assertEqual(kw, {"repo": self.repo})
+        self.assertEqual(manifest["path"], os.path.join(self.repo, "M.json"))
+
+    def test_identity_journaled(self):
+        ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        on_disk = ap.journal_load(self.F)
+        self.assertEqual(on_disk["identity"][-1]["identity"], {
+            "manifest_id": "a" * 64, "check_digest": "b" * 64,
+            "candidate_sha": "c" * 40})
+
+    def test_mismatch_stops_before_launch(self):
+        self.problems = ["file differs: plugins/vibe-check/agents/a.md "
+                         "(manifest 111111111111 live 222222222222)",
+                         "version differs: claude-code (manifest 1 live 2)"]
+        for kw in ({"session_id": self.sid}, {"resume": self.sid}):
+            with self.assertRaises(KitError) as cm:
+                ap._launch(self.F, self.j, "finder", "p", **kw)
+            msg = str(cm.exception)
+            self.assertTrue(msg.startswith("IDENTITY MISMATCH — STOPPING\n"))
+            for line in self.problems:
+                self.assertIn(line, msg)
+        self.run_session.assert_not_called()
+        self.assertEqual(ap.journal_load(self.F)["identity"], [])
+
+    def test_no_manifest_stops(self):
+        self.active.side_effect = ap.freeze_check.FreezeError("no manifest")
+        with self.assertRaises(KitError) as cm:
+            ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        self.assertEqual(str(cm.exception), ap.NO_MANIFEST_MSG)
+        self.assertEqual(ap.NO_MANIFEST_MSG,
+                         "no active freeze manifest — STOPPING")
+        self.run_session.assert_not_called()
+
+    def test_check_error_fails_closed(self):
+        with mock.patch.object(ap.freeze_check, "verify",
+                               side_effect=RuntimeError("boom")):
+            with self.assertRaises(KitError) as cm:
+                ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        self.assertTrue(str(cm.exception).startswith(ap.IDENTITY_STOP))
+        self.run_session.assert_not_called()
+
+    def test_freeze_kit_missing_stops(self):
+        with mock.patch.object(ap, "freeze_check", None):
+            with self.assertRaises(KitError) as cm:
+                ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        self.assertEqual(str(cm.exception), ap.FREEZE_KIT_MISSING_MSG)
+        self.run_session.assert_not_called()
+
+    def test_start_records_repo(self):
+        with mock.patch.object(holdout_kit, "refuse_if_claude_spawned"):
+            ap._start(self.F, "dry-run", self.repo, False, False, 1, 1.0, 1)
+        self.assertEqual(ap._RUN_REPO[0], os.path.realpath(self.repo))
+
+    def test_launch_calls_freeze_identity_before_run_session(self):
+        with open(AUTOPILOT_PY, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertTrue(launch_checks_identity_first(text))
+        self.assertEqual(text.count("    freeze_identity(h, j)\n"), 1)
+
+    def test_mutant_17_bypass_removed_call_fails_lock(self):
+        with open(AUTOPILOT_PY, encoding="utf-8") as fh:
+            text = fh.read()
+        mutant = text.replace("    freeze_identity(h, j)\n", "")
+        self.assertNotEqual(mutant, text)
+        self.assertFalse(launch_checks_identity_first(mutant))
+        # Moving the check after the launch fails the lock too.
+        moved = mutant.replace(
+            "    return run_session(h, role, prompt",
+            "    res = run_session(h, role, prompt").replace(
+            "resume=resume, **opts)\n\n\n# ----",
+            "resume=resume, **opts)\n    freeze_identity(h, j)\n"
+            "    return res\n\n\n# ----", 1)
+        self.assertNotEqual(moved, mutant)
+        self.assertFalse(launch_checks_identity_first(moved))
+
+    def test_mutant_noop_identity_lets_mismatch_launch(self):
+        self.problems = ["file differs: x (manifest 1 live 2)"]
+        with self.assertRaises(KitError):
+            ap._launch(self.F, self.j, "finder", "p", session_id=self.sid)
+        with mock.patch.object(ap, "freeze_identity",
+                               lambda h, j=None, **kw: None):
+            res = ap._launch(self.F, self.j, "finder", "p",
+                             session_id=self.sid)
+        self.assertEqual(res, "launched")
+
+    def test_kit_copy_imports_without_freeze_kit(self):
+        # In a holdout folder's kit copy the freeze kit is absent; the module
+        # (and so bin/holdout) must still import, and freeze_identity then
+        # stops with the --repo instruction.
+        dest = os.path.join(self._tmp.name, "H", "kit", "tools")
+        os.makedirs(dest)
+        for name in os.listdir(TOOLS_DIR):
+            if name.endswith(".py") and not name.startswith("test_"):
+                shutil.copy(os.path.join(TOOLS_DIR, name), dest)
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "import sys; sys.path.insert(0, %r); import holdout_autopilot "
+             "as a; print(a.freeze_check is None)" % dest],
+            cwd=dest, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), b"True")
 
 
 if __name__ == "__main__":
