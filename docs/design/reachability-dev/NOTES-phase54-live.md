@@ -201,3 +201,34 @@ stop (2026-10-15T22:12Z): fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f75994
 equal to the value before; config sha256 `6a9cd0aa…`, `eafbfd5e…`, `3297ded3…`, unchanged.
 
 ## Runs
+
+### live/reach-new-1/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 5
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | triggarr/web/routes.py | 1573 | critical | 100 | 25bbb9f3e38a |
+| bugs | triggarr/web/routes.py | 1577 | warning | 94 | 382c05cda080 |
+| codex-adversarial | triggarr/web/routes.py | 1689 | critical | 100 | 1307c74d1331 |
+| impact | triggarr/web/routes.py | 1580 | warning | 80 | 8655981d9c9a |
+| codex-adversarial | triggarr/web/routes.py | 1617 | warning | 94 | 53b1a7cd70a4 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+keyed defect: triggarr/web/routes.py:1689-1692 (reset_request_post) logs the newly minted password-reset token at WARNING into the unchanged logging path: the buffer sink (triggarr/logging.py:72-84) copies it into log_buffer unredacted because the token is not in the collect_secrets redaction list, and the unchanged in-app log viewer (routes.py:1079-1094) and dashboard render that buffer, so anyone who can read the log viewer can read a live reset token and complete a password reset.
+label: development rehearsal - not release evidence
+| agent | file | line | band | score | stable_hash | nv | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|---|
+| codex-adversarial | triggarr/web/routes.py | 1689 | critical | 100 | 1307c74d1331 | no | Reset tokens are disclosed through the web log viewer | codex-adversarial: Reset tokens are disclosed through the web log viewer; compliance: Password reset token logged in cleartext, bypassing the project's secret-redaction sink; security: Reset token leaks into HTTP-rendered log viewer, contradicting the code's own "never in an HTTP response" invariant; security: Plaintext reset token written to general application log stream (docker logs) |  |
+candidates at site: 1 (alarms 1, needs-verification 0)
+
+AXIS: credit — row 1307c74d1331 (alarm, critical 100) at routes.py:1689 — "Reset tokens are disclosed through the web log viewer"; members compliance "Password reset token logged in cleartext, bypassing the project's secret-redaction sink", security "Reset token leaks into HTTP-rendered log viewer". Location AND causal failure match.
+
+vs Phase 53 final: catch kept (credited row now led by codex-adversarial, 1307c74d1331; Phase 53 led by security, 453bc76570c9 — same site, same defect). Alarms 4 -> 5; the extra alarms are off the keyed defect (mkstemp fd/permission rows at 1573-1580, as before, plus a codex warning at 1617). NV 0 -> 0. Cards 2 -> 2 (AskUserQuestion in the main transcript). Weak co-located notes dropped: 2. Run 17m24s; fix-loop card after 1022s; `Stop here…` -> `Abandon` by label. `pre` and `post` IDENTITY OK with the session alive (first live pass of the `.in_use` fix). Statusline: 84 samples, all `claude-fable-5-1[1m]`, context_window_size 1000000.
