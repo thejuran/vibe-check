@@ -134,7 +134,10 @@ def make_manifest(candidate=CAND, previous=None, **edits):
     m = {
         "schema": "freeze-manifest/1",
         "candidate_sha": candidate,
-        "plugin": {"tree_sha256": "1" * 64, "runtime_fingerprint": "9" * 64},
+        "plugin": {"root": "plugins/vibe-check", "tree_sha256": "1" * 64,
+                   "runtime_fingerprint": "9" * 64,
+                   "files": {"README.md": {"sha256": "4" * 64, "mode": "100644"},
+                             "agents/a.md": {"sha256": "7" * 64, "mode": "100644"}}},
         "covered": {"docs/design/fix-harness/tools": {"tree_sha256": "2" * 64}},
         "models": {"top": {"value": "claude-x", "source": "default"}},
         "codex": {"cli_version": "1.2.3", "config": {"model": "gpt-x"}},
@@ -583,6 +586,455 @@ class TestSealOrder(_SealBase):
 
 
 # --------------------------------------------------------------------------- #
+# Eligibility and slot-based gate status (first-series manifest, no git)
+# --------------------------------------------------------------------------- #
+
+def b3_verdicts(fired=(), missed=()):
+    out = {}
+    for d in fp.B3_DIFFS:
+        for n in fp.RUN_NUMBERS:
+            key = "%s/run-%d" % (d, n)
+            if d in fp.B3_CATCH_DIFFS:
+                out[key] = "MISS" if key in missed else "CATCH"
+            else:
+                out[key] = "FIRED" if key in fired else "QUIET"
+    return out
+
+
+def holdout_verdicts(overrides=None):
+    out = {}
+    for cid, role in ROSTER["cases"].items():
+        for n in fp.RUN_NUMBERS:
+            out["%s/run-%d" % (cid, n)] = "CATCH" if role == "catch" else "QUIET"
+    out.update(overrides or {})
+    return out
+
+
+class _GateBase(_Tmp):
+    def setUp(self):
+        super().setUp()
+        self.m = make_manifest(CAND)
+        self.mid = self.m["manifest_id"]
+        self.ev = engineering_evidence_dir(os.path.join(self.tmp, "evidence"), CAND)
+        self.runs = os.path.join(self.tmp, "runs")
+
+    def pre(self, manifest=None, ev=None):
+        return fp.prerequisites_for(manifest or self.m, "/nonexistent-repo",
+                                    ev or self.ev, self.tmp)
+
+    def b3_set(self, skip=()):
+        out = []
+        for d in fp.B3_DIFFS:
+            for n in fp.RUN_NUMBERS:
+                if (d, n) not in skip:
+                    out.append(write_b3_run(self.runs, d, n, self.mid))
+        return out
+
+    def workflow_set(self, skip=(), verdict="COMPLETE"):
+        out = []
+        for slot in sorted(fp.GATE_SLOTS["workflow"](ROSTER)):
+            if slot in skip:
+                continue
+            case, mode, kind = slot
+            if kind == "clean":
+                out.append(write_harness_run(self.runs, "clean-" + mode, "run-1",
+                                             self.mid, mode=mode, kind="clean",
+                                             case_id="triggarr-autoescape",
+                                             verdict=verdict))
+            else:
+                out.append(write_harness_run(self.runs, "%s-%s" % (case, mode), "run-1",
+                                             self.mid, mode=mode, case_id=case,
+                                             verdict=verdict))
+        return out
+
+    def holdout_set(self):
+        return [write_holdout_run(self.runs, cid, n, self.mid)
+                for cid in ROSTER["cases"] for n in fp.RUN_NUMBERS]
+
+    def status(self, gate, dirs, pre=None, **kw):
+        recs = [fp.read_record(d) for d in dirs]
+        return fp.gate_status(gate, recs, self.m, pre or self.pre(), **kw)
+
+
+class TestGateStatus(_GateBase):
+    def test_full_sets_met(self):
+        self.assertEqual(self.status("b3x3", self.b3_set(),
+                                     verdicts=b3_verdicts())["status"], "MET")
+        self.assertEqual(self.status("workflow", self.workflow_set(),
+                                     roster=ROSTER)["status"], "MET")
+        self.assertEqual(self.status("holdoutx3", self.holdout_set(), roster=ROSTER,
+                                     verdicts=holdout_verdicts())["status"], "MET")
+
+    def test_missing_slot_not_filled_by_duplicate(self):
+        dirs = [write_harness_run(self.runs, "triggarr-autoescape", "run-%d" % i,
+                                  self.mid, case_id="triggarr-autoescape")
+                for i in range(1, 19)]
+        res = self.status("workflow", dirs, roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual(len(res["missing"]), 17)
+        self.assertEqual(len(res["duplicates"]), 1)
+        self.assertEqual(res["duplicates"][0]["slot"],
+                         ("triggarr-autoescape", "default", "preservation"))
+        self.assertEqual(len(res["duplicates"][0]["runs"]), 18)
+
+    def test_duplicate_slot_unmet(self):
+        dirs = self.workflow_set()
+        dirs.append(write_harness_run(self.runs, "triggarr-autoescape-default", "run-2",
+                                      self.mid, case_id="triggarr-autoescape"))
+        res = self.status("workflow", dirs, roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual([d["slot"] for d in res["duplicates"]],
+                         [("triggarr-autoescape", "default", "preservation")])
+
+    def test_extra_record_never_counts(self):
+        dirs = self.b3_set()
+        extra4 = write_b3_run(self.runs, "should-quiet-1", 4, self.mid)
+        unknown = write_b3_run(self.runs, "not-a-diff", 1, self.mid)
+        res = self.status("b3x3", dirs + [extra4, unknown], verdicts=b3_verdicts())
+        self.assertEqual(res["status"], "MET")
+        self.assertEqual(sorted(e["run"] for e in res["extras"]),
+                         ["not-a-diff/run-1", "should-quiet-1/run-4"])
+        shutil.rmtree(dirs[0])
+        res = self.status("b3x3", dirs[1:] + [extra4, unknown], verdicts=b3_verdicts())
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual(res["missing"], [(fp.B3_DIFFS[0], 1)])
+
+    def test_catch_slot_miss_unmet(self):
+        res = self.status("b3x3", self.b3_set(),
+                          verdicts=b3_verdicts(missed={"triggarr-autoescape/run-2"}))
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn("catch slot missed: triggarr-autoescape/run-2",
+                      res["rule"]["reasons"])
+
+    def test_quiet_fp_over_bar_unmet(self):
+        dirs = self.b3_set()
+        three = {"should-quiet-1/run-1", "should-quiet-2/run-2", "should-quiet-3/run-3"}
+        self.assertEqual(self.status("b3x3", dirs, verdicts=b3_verdicts(
+            fired=three))["status"], "MET")
+        self.assertEqual(self.status("b3x3", dirs, verdicts=b3_verdicts(
+            fired=three | {"should-quiet-7/run-1", "should-quiet-7/run-2"}))["status"],
+            "MET")
+        res = self.status("b3x3", dirs, verdicts=b3_verdicts(
+            fired=three | {"should-quiet-4/run-1"}))
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn("false alarms 4 over the bar of 3", res["rule"]["reasons"])
+
+    def test_holdout_per_case(self):
+        dirs = self.holdout_set()
+        res = self.status("holdoutx3", dirs, roster=ROSTER, verdicts=holdout_verdicts(
+            {"H-00000001/run-1": "MISS", "H-00000001/run-2": "MISS"}))
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn("holdout catch case H-00000001 caught 1/3", res["rule"]["reasons"])
+        res = self.status("holdoutx3", dirs, roster=ROSTER, verdicts=holdout_verdicts(
+            {"H-00000004/run-1": "FIRED", "H-00000004/run-3": "FIRED"}))
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn("holdout quiet case H-00000004 fired 2/3", res["rule"]["reasons"])
+        # one miss per catch case and one fire per quiet case stays within the bars
+        spread = {"H-0000000%d/run-1" % i: "MISS" for i in (1, 2, 3)}
+        spread.update({"H-0000000%d/run-2" % i: "FIRED" for i in (4, 5, 6)})
+        self.assertEqual(self.status("holdoutx3", dirs, roster=ROSTER,
+                                     verdicts=holdout_verdicts(spread))["status"], "MET")
+
+    def test_roster_and_verdicts_missing_unmet(self):
+        res = self.status("holdoutx3", self.holdout_set(), verdicts=holdout_verdicts())
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn("roster missing", res["rule"]["reasons"])
+        res = self.status("b3x3", self.b3_set())
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn("verdicts missing", res["rule"]["reasons"])
+
+    def test_waiver_never_met(self):
+        slot = ("triggarr-autoescape", "gsd", "preservation")
+        dirs = self.workflow_set(skip={slot})
+        recs = [dict(fp.read_record(d), waiver={"approved_by": "owner"}) for d in dirs]
+        res = fp.gate_status("workflow", recs, self.m, self.pre(), roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual(res["missing"], [slot])
+        import inspect
+        self.assertNotIn("waiver", inspect.signature(fp.gate_status).parameters)
+
+    def test_failed_never_satisfies(self):
+        slot = ("triggarr-autoescape", "gsd", "preservation")
+        dirs = self.workflow_set(skip={slot})
+        dirs.append(write_harness_run(self.runs, "triggarr-autoescape-gsd", "run-1",
+                                      self.mid, mode="gsd", case_id="triggarr-autoescape",
+                                      verdict="FAILED"))
+        res = self.status("workflow", dirs, roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual(res["missing"], [slot])
+        self.assertEqual(res["ineligible"], [{"run": "triggarr-autoescape-gsd/run-1",
+                                              "reason": "verdict FAILED"}])
+        failed = write_b3_run(self.runs, "should-quiet-1", 1, self.mid,
+                              dirname="run-1.failed-x")
+        ok, reason = fp.eligible(fp.read_record(failed), self.m, self.pre())
+        self.assertEqual((ok, reason), (False, "verdict FAILED"))
+
+    def test_superseded_ineligible(self):
+        dirs = self.workflow_set()
+        old = write_harness_run(self.runs, "triggarr-autoescape-default", "run-0",
+                                self.mid, case_id="triggarr-autoescape")
+        with open(os.path.join(old, "SUPERSEDED"), "w") as fh:
+            fh.write("triggarr-autoescape-default/run-1\n")
+        res = self.status("workflow", dirs + [old], roster=ROSTER)
+        self.assertEqual(res["status"], "MET")
+        self.assertEqual(res["duplicates"], [])
+        self.assertEqual(res["ineligible"], [{
+            "run": "triggarr-autoescape-default/run-0",
+            "reason": "superseded by triggarr-autoescape-default/run-1"}])
+
+    def test_manifest_mismatch_and_stale_candidate(self):
+        d = write_b3_run(self.runs, "should-quiet-1", 1, "b" * 64)
+        ok, reason = fp.eligible(fp.read_record(d), self.m, self.pre())
+        self.assertFalse(ok)
+        self.assertTrue(reason.startswith("manifest mismatch (bbbbbbbbbbbb vs active"))
+        d = write_b3_run(self.runs, "should-quiet-1", 2, self.mid, candidate_sha=OTHER)
+        ok, reason = fp.eligible(fp.read_record(d), self.m, self.pre())
+        self.assertFalse(ok)
+        self.assertTrue(reason.startswith("candidate mismatch"), reason)
+        d = write_b3_run(self.runs, "should-quiet-1", 3, self.mid, stamps=False)
+        ok, reason = fp.eligible(fp.read_record(d), self.m, self.pre())
+        self.assertEqual(reason, "identity check not recorded (record lacks manifest_id)")
+
+    def test_reporting_only(self):
+        pm = fp.load_path_map()
+        out = fp.classify(["README.md", "docs/design/freeze-v2.12/evidence/x.json",
+                           "plugins/vibe-check/README.md"], pm)
+        union = set().union(*out.values())
+        self.assertEqual(union, {"reporting"})
+        self.assertEqual(fp.required(union), {})
+        # The covered plugin README changes the plugin tree: a new manifest is
+        # needed, and every measurement gate inherits across it.
+        old = make_manifest(CAND)
+        new = make_manifest(OTHER, previous=old, **{
+            "plugin.files": dict(old["plugin"]["files"],
+                                 **{"README.md": {"sha256": "5" * 64, "mode": "100644"}}),
+            "plugin.tree_sha256": "6" * 64})
+        readme = {"plugins/vibe-check/README.md": {"reporting"}}
+        for gate in ("b3x3", "holdoutx3", "workflow"):
+            self.assertEqual(fp.inherit(old, new, gate, readme), (True, "inheritable"))
+        # A runtime file differing without a reporting classification refuses.
+        agent = make_manifest(OTHER, previous=old, **{
+            "plugin.files": dict(old["plugin"]["files"],
+                                 **{"agents/a.md": {"sha256": "5" * 64, "mode": "100644"}}),
+            "plugin.tree_sha256": "6" * 64})
+        self.assertEqual(fp.inherit(old, agent, "b3x3", readme),
+                         (False, "gate field differs: plugin.tree_sha256"))
+
+
+class TestPrerequisites(_GateBase):
+    def test_engineering_record_eligible_by_candidate_sha_without_manifest_id(self):
+        pre = self.pre()
+        self.assertEqual(pre["problems"], [])
+        for name in fp.ENGINEERING_RECORD_FILES:
+            rec = fp.read_record(os.path.join(self.ev, name))
+            self.assertIsNone(rec["manifest_id"])
+            self.assertEqual(fp.eligible(rec, self.m, pre), (True, "candidate-bound"))
+
+    def test_engineering_gate_met_from_real_shapes(self):
+        recs = [fp.read_record(os.path.join(self.ev, n)) for n in fp.ENGINEERING_RECORD_FILES]
+        res = fp.gate_status("engineering", recs, self.m, self.pre())
+        self.assertEqual(res["status"], "MET", res)
+        self.assertEqual(sorted(res["slots"]), [("deep-review",), ("security",), ("tests",)])
+        self.assertEqual((res["missing"], res["duplicates"]), ([], []))
+
+    def test_engineering_record_wrong_candidate_ineligible(self):
+        ev = engineering_evidence_dir(os.path.join(self.tmp, "ev2"), OTHER)
+        pre = self.pre(ev=ev)
+        rec = fp.read_record(os.path.join(ev, "test-gate.json"))
+        ok, reason = fp.eligible(rec, self.m, pre)
+        self.assertFalse(ok)
+        self.assertTrue(reason.startswith("candidate mismatch"))
+        self.assertIn("prerequisite not candidate-bound: tests (%s vs %s)"
+                      % (OTHER[:12], CAND[:12]), pre["problems"])
+        recs = [fp.read_record(os.path.join(ev, n)) for n in fp.ENGINEERING_RECORD_FILES]
+        self.assertEqual(fp.gate_status("engineering", recs, self.m, pre)["status"],
+                         "UNMET")
+
+    def test_engineering_prerequisite_and_slot_views_agree(self):
+        cases = {"bound-pass": (CAND, "pass"), "unbound": (OTHER, "pass"),
+                 "fail": (CAND, "fail"), "absent": None}
+        for label, spec in cases.items():
+            ev = os.path.join(self.tmp, "agree-" + label)
+            if spec is None:
+                os.makedirs(ev)
+            else:
+                engineering_evidence_dir(ev, spec[0], outcome=spec[1])
+            pre = self.pre(ev=ev)
+            for fname, name in fp.ENGINEERING_RECORD_FILES.items():
+                v = pre["engineering"][name]
+                pre_ok = v["present"] and v["candidate_bound"] and v["passed"]
+                path = os.path.join(ev, fname)
+                slot_ok = os.path.isfile(path) and fp.eligible(
+                    fp.read_record(path), self.m, pre)[0]
+                self.assertEqual(pre_ok, slot_ok, (label, name))
+                self.assertEqual(pre_ok, label == "bound-pass", (label, name))
+
+    def test_unmet_without_engineering_prerequisite(self):
+        dirs = self.workflow_set()
+        self.assertEqual(self.status("workflow", dirs, roster=ROSTER)["status"], "MET")
+        for fname, name in fp.ENGINEERING_RECORD_FILES.items():
+            ev = engineering_evidence_dir(os.path.join(self.tmp, "ev-" + name), CAND)
+            os.remove(os.path.join(ev, fname))
+            res = self.status("workflow", dirs, pre=self.pre(ev=ev), roster=ROSTER)
+            self.assertEqual(res["status"], "UNMET")
+            self.assertEqual(res["prerequisites"], ["prerequisite missing: %s" % name])
+            self.assertEqual(res["missing"], [])
+
+    def test_unmet_prerequisite_not_candidate_bound(self):
+        dirs = self.workflow_set()
+        ev = engineering_evidence_dir(os.path.join(self.tmp, "evx"), CAND, overrides={
+            "test-gate.json": {"candidate_sha": OTHER}})
+        res = self.status("workflow", dirs, pre=self.pre(ev=ev), roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual(res["prerequisites"], [
+            "prerequisite not candidate-bound: tests (%s vs %s)" % (OTHER[:12], CAND[:12])])
+
+    def test_unmet_prerequisite_failed(self):
+        dirs = self.workflow_set()
+        ev = engineering_evidence_dir(os.path.join(self.tmp, "evf"), CAND, overrides={
+            "security-gate.json": {"outcome": "fail"}})
+        res = self.status("workflow", dirs, pre=self.pre(ev=ev), roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+        self.assertEqual(res["prerequisites"], ["prerequisite failed: security"])
+
+    def test_first_series_manifest_owes_only_engineering(self):
+        pre = self.pre()
+        self.assertFalse(pre["seal_order"]["required"])
+        self.assertEqual(pre["lineage"]["required_reruns"], set())
+        self.assertTrue(pre["lineage"]["resolved"])
+        empty = os.path.join(self.tmp, "empty")
+        os.makedirs(empty)
+        self.assertEqual(self.pre(ev=empty)["problems"],
+                         ["prerequisite missing: tests", "prerequisite missing: security",
+                          "prerequisite missing: deep-review"])
+
+    def test_lineage_unresolved_unmet(self):
+        prev = make_manifest(OTHER)
+        m2 = make_manifest(CAND, previous=prev)
+        pre = self.pre(manifest=m2)
+        self.assertIn("lineage unresolved: %s" % prev["manifest_id"][:12], pre["problems"])
+        self.assertTrue(pre["seal_order"]["required"])
+        self.assertEqual(pre["lineage"]["required_reruns"], set(fp.GATES))
+        self.m = m2
+        res = self.status("workflow", self.workflow_set(), pre=pre, roster=ROSTER)
+        self.assertEqual(res["status"], "UNMET")
+
+    def test_eligible_requires_prerequisites_argument(self):
+        d = write_b3_run(self.runs, "should-quiet-1", 1, self.mid)
+        with self.assertRaises(TypeError):
+            fp.eligible(fp.read_record(d), self.m)  # pylint: disable=no-value-for-parameter
+        with self.assertRaises(TypeError):
+            fp.gate_status("b3x3", [], self.m)  # pylint: disable=no-value-for-parameter
+
+
+# --------------------------------------------------------------------------- #
+# Seal order enforced end to end on the git fixture
+# --------------------------------------------------------------------------- #
+
+class TestSealEndToEnd(_SealBase):
+    def setUp(self):
+        super().setUp()
+        self.series = os.path.join(self.tmp, "series")
+        os.makedirs(self.series)
+        self.m1 = make_manifest(self.sr.P)
+        with open(os.path.join(self.series, "FREEZE-MANIFEST-1.json"), "w") as fh:
+            json.dump(self.m1, fh)
+        self.runs = os.path.join(self.tmp, "runs")
+
+    def setup_active(self, active):
+        m2 = make_manifest(active, previous=self.m1)
+        ev = engineering_evidence_dir(os.path.join(self.tmp, "ev-" + active[:8]), active)
+        return m2, ev
+
+    def pre(self, m2, ev):
+        return fp.prerequisites_for(m2, self.sr.repo, ev, self.series)
+
+    def b3_records(self, manifest):
+        return [fp.read_record(write_b3_run(self.runs, d, n, manifest["manifest_id"],
+                                            candidate_sha=manifest["candidate_sha"]))
+                for d in fp.B3_DIFFS for n in fp.RUN_NUMBERS]
+
+    def write_proof(self, path, **edits):
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(self.sr.proof(**edits), fh)
+
+    def test_detection_records_ineligible_without_seal_order(self):
+        m2, ev = self.setup_active(self.sr.A)
+        recs = self.b3_records(m2)
+        pre = self.pre(m2, ev)
+        proof_path = fp.seal_order_proof_path(ev, m2)
+        self.assertTrue(pre["seal_order"]["required"])
+        self.assertEqual(pre["seal_order"]["first_repair_commit"], self.sr.R)
+        for rec in recs:
+            self.assertEqual(fp.eligible(rec, m2, pre),
+                             (False, "seal order not proven: " + proof_path))
+        res = fp.gate_status("b3x3", recs, m2, pre, verdicts=b3_verdicts())
+        self.assertEqual(res["status"], "UNMET")
+        self.assertTrue(any(p.startswith("seal order not proven: ")
+                            for p in res["prerequisites"]))
+        # the valid sequence: previous -> failed -> removal -> replacement -> repair
+        fp.write_seal_order_proof(proof_path, self.sr.repo, self.sr.P, self.sr.A,
+                                  fp.MAP_SELF_PATH, self.sr.S1, ["H-00000001"],
+                                  ["H-0000000a"])
+        pre = self.pre(m2, ev)
+        self.assertEqual(pre["problems"], [])
+        res = fp.gate_status("b3x3", recs, m2, pre, verdicts=b3_verdicts())
+        self.assertEqual(res["status"], "MET", res)
+        for seal, reason in ((self.sr.S0, "replacement seal predates the previous candidate"),
+                             (self.sr.RM, "replacement seal commit does not add SEAL.json")):
+            os.remove(proof_path)
+            self.write_proof(proof_path, replacement_seal_commit=seal)
+            pre = self.pre(m2, ev)
+            self.assertIn("seal order not proven: %s (%s)" % (proof_path, reason),
+                          pre["problems"])
+            self.assertEqual(fp.gate_status("b3x3", recs, m2, pre,
+                                            verdicts=b3_verdicts())["status"], "UNMET")
+        # a replacement sealed after the repair
+        m3, ev3 = self.setup_active(self.sr.A2)
+        late_path = fp.seal_order_proof_path(ev3, m3)
+        self.write_proof(late_path, replacement_seal_commit=self.sr.S2)
+        pre = self.pre(m3, ev3)
+        self.assertIn("seal order not proven: %s (replacement sealed after the repair)"
+                      % late_path, pre["problems"])
+        self.assertEqual(fp.gate_status("b3x3", self.b3_records(m3), m3, pre,
+                                        verdicts=b3_verdicts())["status"], "UNMET")
+
+    def test_workflow_gate_does_not_need_seal_order(self):
+        m2, ev = self.setup_active(self.sr.A)
+        pre = self.pre(m2, ev)
+        self.assertEqual(fp._gate_prerequisite_problems("workflow", pre), [])
+        self.assertTrue(fp._gate_prerequisite_problems("holdoutx3", pre))
+
+    def test_rerun_required_refuses_inherited(self):
+        m2, ev = self.setup_active(self.sr.A)
+        fp.write_seal_order_proof(fp.seal_order_proof_path(ev, m2), self.sr.repo,
+                                  self.sr.P, self.sr.A, fp.MAP_SELF_PATH, self.sr.S1,
+                                  ["H-00000001"], ["H-0000000a"])
+        pre = self.pre(m2, ev)
+        self.assertIn("b3x3", pre["lineage"]["required_reruns"])
+        pre["lineage"]["inheritance"]["b3x3"] = (True, "inheritable")
+        old = fp.read_record(write_b3_run(self.runs, "should-quiet-1", 1,
+                                          self.m1["manifest_id"], candidate_sha=self.sr.P))
+        self.assertEqual(fp.eligible(old, m2, pre),
+                         (False, "rerun required for b3x3: inherited result refused"))
+
+    def test_validated_inheritance_counts(self):
+        m2, ev = self.setup_active(self.sr.A)
+        pre = self.pre(m2, ev)
+        pre["lineage"]["required_reruns"] = set()
+        pre["lineage"]["inheritance"]["workflow"] = (True, "inheritable")
+        old = fp.read_record(write_harness_run(self.runs, "triggarr-autoescape", "run-1",
+                                               self.m1["manifest_id"],
+                                               candidate_sha=self.sr.P))
+        self.assertEqual(fp.eligible(old, m2, pre),
+                         (True, "inherited from %s (validated)"
+                          % self.m1["manifest_id"][:12]))
+        self.assertFalse(fp.eligible(old, m2, pre, lineage={"workflow": "f" * 64})[0])
+        pre["lineage"]["inheritance"]["workflow"] = (False, "gate field differs: models")
+        self.assertTrue(fp.eligible(old, m2, pre)[1].startswith("manifest mismatch"))
+
+
+# --------------------------------------------------------------------------- #
 # Mutants: each guard removed makes its target test fail
 # --------------------------------------------------------------------------- #
 
@@ -660,6 +1112,99 @@ class TestMutants(_SealBase):
         self.assertTrue(self._passes(name, TestSealOrder))
         with mock.patch.object(fp, "_rule_after_previous", lambda *a: None):
             self.assertFalse(self._passes(name, TestSealOrder))
+
+    def test_mutant_a_verdict_check_removed(self):
+        name = "test_failed_never_satisfies"
+        self.assertTrue(self._passes(name, TestGateStatus))
+        with mock.patch.object(fp, "_verdict_problem", lambda r: None):
+            self.assertFalse(self._passes(name, TestGateStatus))
+
+    def test_mutant_c_superseded_check_removed(self):
+        name = "test_superseded_ineligible"
+        self.assertTrue(self._passes(name, TestGateStatus))
+        with mock.patch.object(fp, "_superseded_problem", lambda r: None):
+            self.assertFalse(self._passes(name, TestGateStatus))
+
+    def test_mutant_e_count_instead_of_slots(self):
+        name = "test_missing_slot_not_filled_by_duplicate"
+        self.assertTrue(self._passes(name, TestGateStatus))
+
+        def counted(slots, filled):
+            recs = [r for rs in filled.values() for r in rs]
+            if len(recs) >= len(slots):
+                return [], [], {s: recs[0] for s in slots}
+            return list(slots), [], {}
+        with mock.patch.object(fp, "_coverage", counted):
+            self.assertFalse(self._passes(name, TestGateStatus))
+
+    def test_mutant_f_extras_admitted(self):
+        name = "test_extra_record_never_counts"
+        self.assertTrue(self._passes(name, TestGateStatus))
+        real = fp._bucket
+
+        def admit(gate, records, slots):
+            filled, extras = real(gate, records, slots)
+            free = [s for s in sorted(slots, key=str) if s not in filled]
+            for rec in [r for r in records if fp._slot_key(gate, r["slot"]) not in slots]:
+                if free:
+                    filled[free.pop(0)] = [rec]
+            return filled, []
+        with mock.patch.object(fp, "_bucket", admit):
+            self.assertFalse(self._passes(name, TestGateStatus))
+
+    def test_mutant_g_holdout_aggregated(self):
+        name = "test_holdout_per_case"
+        self.assertTrue(self._passes(name, TestGateStatus))
+
+        def aggregated(filled, verdicts, active, roster=None):
+            vs = [verdicts.get(fp._verdict_key(s)) for s in filled]
+            ok = vs.count("CATCH") >= 6 and vs.count("FIRED") <= 3
+            return ok, [] if ok else ["aggregate bar"]
+        with mock.patch.dict(fp.GATE_RULES, {"holdoutx3": aggregated}):
+            self.assertFalse(self._passes(name, TestGateStatus))
+
+    def test_mutant_h_gate_ignores_prerequisites(self):
+        name = "test_unmet_without_engineering_prerequisite"
+        self.assertTrue(self._passes(name, TestPrerequisites))
+        with mock.patch.object(fp, "_gate_prerequisite_problems", lambda g, p: []):
+            self.assertFalse(self._passes(name, TestPrerequisites))
+
+    def test_mutant_i_eligible_ignores_seal_order(self):
+        name = "test_detection_records_ineligible_without_seal_order"
+        self.assertTrue(self._passes(name, TestSealEndToEnd))
+        with mock.patch.object(fp, "_seal_problem", lambda r, p: None):
+            self.assertFalse(self._passes(name, TestSealEndToEnd))
+
+    def test_mutant_j_prerequisite_presence_only(self):
+        name = "test_unmet_prerequisite_not_candidate_bound"
+        self.assertTrue(self._passes(name, TestPrerequisites))
+
+        def presence(path, active):
+            present = os.path.isfile(path)
+            return {"present": present, "candidate_bound": present, "passed": present,
+                    "path": path, "reason": "present" if present else "absent"}
+        with mock.patch.object(fp, "_engineering_prerequisite", presence):
+            self.assertFalse(self._passes(name, TestPrerequisites))
+
+    def test_mutant_k_eligible_ignores_required_reruns(self):
+        name = "test_rerun_required_refuses_inherited"
+        self.assertTrue(self._passes(name, TestSealEndToEnd))
+        with mock.patch.object(fp, "_rerun_problem", lambda *a: None):
+            self.assertFalse(self._passes(name, TestSealEndToEnd))
+
+    def test_mutant_n_manifest_clause_on_engineering(self):
+        names = ("test_engineering_record_eligible_by_candidate_sha_without_manifest_id",
+                 "test_engineering_gate_met_from_real_shapes")
+        for name in names:
+            self.assertTrue(self._passes(name, TestPrerequisites))
+
+        def by_manifest(record, active):
+            if record.get("manifest_id") != active.get("manifest_id"):
+                return False, "manifest mismatch"
+            return fp.engineering_record_bound(record, active)
+        with mock.patch.object(fp, "_eligible_engineering", by_manifest):
+            for name in names:
+                self.assertFalse(self._passes(name, TestPrerequisites))
 
 
 if __name__ == "__main__":

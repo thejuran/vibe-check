@@ -603,12 +603,49 @@ def _values_differ(a, b):
     return freeze_common.canonical_json(a) != freeze_common.canonical_json(b)
 
 
-def _field_problem(old_manifest, new_manifest, field):
+def _tree_files(manifest, field):
+    """{repo path: sha256} behind a tree-valued field (`plugin.tree_sha256`
+    or `covered[...]`), or None when the manifest does not carry it."""
+    if field == "plugin.tree_sha256":
+        plugin = manifest.get("plugin")
+        if not isinstance(plugin, dict) or not isinstance(plugin.get("files"), dict):
+            return None
+        root = plugin.get("root") or "plugins/vibe-check"
+        return {"%s/%s" % (root, rel): freeze_common.file_sha(v)
+                for rel, v in plugin["files"].items()}
+    present, entries = _field_value(manifest, field)
+    if not field.startswith("covered[") or not present:
+        return None
+    out = {}
+    for key, entry in entries.items():
+        files = entry.get("files") if isinstance(entry, dict) else None
+        if not isinstance(files, dict):
+            return None
+        for rel, v in files.items():
+            single = len(files) == 1 and os.path.basename(key) == rel
+            out[key if single else "%s/%s" % (key, rel)] = freeze_common.file_sha(v)
+    return out
+
+
+def _reporting_only_difference(old_manifest, new_manifest, field, changed):
+    """True when a tree-valued field differs only in files the change
+    classification marks reporting-only (a covered Markdown file such as
+    plugins/vibe-check/README.md): new manifest, inheritance stands."""
+    a, b = _tree_files(old_manifest, field), _tree_files(new_manifest, field)
+    if a is None or b is None:
+        return False
+    diff = {p for p in set(a) | set(b) if a.get(p) != b.get(p)}
+    return bool(diff) and all(set((changed or {}).get(p) or ()) == {"reporting"}
+                              for p in diff)
+
+
+def _field_problem(old_manifest, new_manifest, field, changed=None):
     old_ok, old_v = _field_value(old_manifest, field)
     new_ok, new_v = _field_value(new_manifest, field)
     if not old_ok or not new_ok:
         return "lineage ambiguous: %s" % field
-    if _values_differ(old_v, new_v):
+    if _values_differ(old_v, new_v) and not _reporting_only_difference(
+            old_manifest, new_manifest, field, changed):
         return "gate field differs: %s" % field
     return None
 
@@ -630,7 +667,8 @@ def inherit(old_manifest, new_manifest, gate, changed_cats_by_path):
         if cat in changed_cats_by_path[path]:
             return False, "changed path requires %s rerun: %s" % (gate, path)
     for field in GATE_FIELDS[gate]:
-        problem = _field_problem(old_manifest, new_manifest, field)
+        problem = _field_problem(old_manifest, new_manifest, field,
+                                 changed_cats_by_path)
         if problem:
             return False, problem
     return True, "inheritable"
@@ -829,6 +867,322 @@ def write_seal_order_proof(path, repo, previous_candidate_sha, active_candidate_
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(proof, indent=2, sort_keys=True) + "\n")
     return proof
+
+
+# --------------------------------------------------------------------------- #
+# Prerequisites: candidate-bound evidence, lineage, seal order
+# --------------------------------------------------------------------------- #
+
+MANIFEST_FILE_RE = re.compile(r"^FREEZE-MANIFEST-([0-9]+)\.json$")
+SEAL_PROBLEM_PREFIX = "seal order not proven: "
+
+
+class Prerequisites(dict):
+    """What every gate needs besides its own slots. Built only by
+    `prerequisites_for`; keys: engineering, lineage, seal_order, problems."""
+
+
+def seal_order_proof_path(evidence_dir, active_manifest):
+    return os.path.join(evidence_dir, "seal-order-%s.json"
+                        % str(active_manifest.get("manifest_id"))[:12])
+
+
+def _engineering_prerequisite(path, active_manifest):
+    """The prerequisite view of one engineering evidence file, from the same
+    `engineering_record_bound` rule the slot view uses."""
+    view = {"present": False, "candidate_bound": False, "passed": False,
+            "path": path, "reason": "absent"}
+    if not os.path.isfile(path):
+        return view
+    rec = read_record(path)
+    ok, reason = engineering_record_bound(rec, active_manifest)
+    view.update(present=True, reason=reason)
+    if ok:
+        view.update(candidate_bound=True, passed=True)
+    elif reason.startswith("engineering record failed"):
+        view.update(candidate_bound=True)
+    view["candidate_sha"] = rec.get("candidate_sha")
+    return view
+
+
+def _find_series_manifest(series_dir, manifest_id):
+    if not isinstance(series_dir, str) or not os.path.isdir(series_dir):
+        return None
+    for name in sorted(os.listdir(series_dir)):
+        if not MANIFEST_FILE_RE.match(name):
+            continue
+        m = _read_json_obj(os.path.join(series_dir, name))
+        if m is not None and m.get("manifest_id") == manifest_id \
+                and manifest_content_id(m) == manifest_id:
+            return m
+    return None
+
+
+def prerequisites_for(active_manifest, repo, evidence_dir, series_dir,
+                      path_map_rel=MAP_SELF_PATH):
+    """Prerequisites of every gate under `active_manifest`: the three
+    engineering records (present, bound to this candidate, passed), the
+    lineage (previous manifest resolved, changed categories, owed reruns,
+    validated inheritance) and, when detection changed, the seal-order proof.
+    Reads evidence files by fixed name and the manifest series; never run
+    dirs."""
+    problems = []
+    active_cand = active_manifest.get("candidate_sha")
+    engineering = {}
+    for fname, name in ENGINEERING_RECORD_FILES.items():
+        view = _engineering_prerequisite(os.path.join(evidence_dir, fname),
+                                         active_manifest)
+        engineering[name] = view
+        if not view["present"]:
+            problems.append("prerequisite missing: %s" % name)
+        elif not view["candidate_bound"]:
+            detail = view["reason"]
+            if detail.startswith("candidate mismatch"):
+                detail = "%s vs %s" % (_s12(view.get("candidate_sha")), _s12(active_cand))
+            problems.append("prerequisite not candidate-bound: %s (%s)" % (name, detail))
+        elif not view["passed"]:
+            problems.append("prerequisite failed: %s" % name)
+
+    lin = active_manifest.get("lineage") or {}
+    prev_id = lin.get("previous_manifest_id")
+    prev_cand = lin.get("previous_candidate_sha")
+    lineage = {"previous_manifest_id": prev_id, "previous_candidate_sha": prev_cand,
+               "resolved": True, "changed_cats": {}, "required_reruns": set(),
+               "inheritance": {}}
+    if prev_id:
+        prev = _find_series_manifest(series_dir, prev_id)
+        changed = None
+        if prev is not None and prev.get("candidate_sha") == prev_cand \
+                and _hex40(prev_cand):
+            try:
+                changed = classify_commit_range(repo, prev_cand, active_cand,
+                                                path_map_rel)
+            except FreezeError:
+                changed = None
+        if changed is None:
+            lineage["resolved"] = False
+            lineage["required_reruns"] = set(GATES)
+            problems.append("lineage unresolved: %s" % _s12(prev_id))
+        else:
+            union = set()
+            for cats in changed.values():
+                union |= cats
+            lineage["changed_cats"] = changed
+            lineage["required_reruns"] = {g for g in GATES
+                                          if GATE_CATEGORY[g] in union}
+            lineage["inheritance"] = {g: inherit(prev, active_manifest, g, changed)
+                                      for g in GATES}
+
+    union = set()
+    for cats in lineage["changed_cats"].values():
+        union |= cats
+    proof_path = seal_order_proof_path(evidence_dir, active_manifest)
+    required = bool(prev_id) and (seal_order_required(union) or not lineage["resolved"])
+    seal = {"required": required, "proof_path": proof_path,
+            "first_repair_commit": None, "ok": True, "reasons": []}
+    if required:
+        if lineage["resolved"]:
+            try:
+                seal["first_repair_commit"] = first_repair_commit(
+                    repo, prev_cand, active_cand, path_map_rel)
+            except FreezeError:
+                seal["first_repair_commit"] = None
+            ok, reasons = retune_evidence_ok(proof_path, repo, prev_cand,
+                                             active_cand, path_map_rel)
+        else:
+            ok, reasons = False, ["lineage unresolved"]
+        seal["ok"], seal["reasons"] = ok, reasons
+        if not ok:
+            problems.append("%s%s (%s)" % (SEAL_PROBLEM_PREFIX, proof_path, reasons[0]))
+    return Prerequisites(engineering=engineering, lineage=lineage, seal_order=seal,
+                         problems=problems)
+
+
+# --------------------------------------------------------------------------- #
+# Eligibility
+# --------------------------------------------------------------------------- #
+
+def _verdict_problem(record):
+    if record.get("verdict") == "FAILED":
+        return "verdict FAILED"
+    if record.get("verdict") == "voided":
+        return "verdict voided"
+    return None
+
+
+def _superseded_problem(record):
+    if record.get("superseded_by"):
+        return "superseded by %s" % record["superseded_by"]
+    return None
+
+
+def _seal_problem(record, prerequisites):
+    seal = prerequisites["seal_order"]
+    if record.get("gate") in DETECTION_GATES and seal["required"] and not seal["ok"]:
+        return SEAL_PROBLEM_PREFIX + seal["proof_path"]
+    return None
+
+
+def _rerun_problem(record, prerequisites, active_manifest):
+    gate = record.get("gate")
+    if gate in prerequisites["lineage"]["required_reruns"] \
+            and record.get("manifest_id") != active_manifest.get("manifest_id"):
+        return "rerun required for %s: inherited result refused" % gate
+    return None
+
+
+def _inheritance_ok(record, prerequisites, lineage):
+    lin = prerequisites["lineage"]
+    gate = record.get("gate")
+    if not lin["resolved"] or not lin["previous_manifest_id"]:
+        return False
+    if record.get("manifest_id") != lin["previous_manifest_id"]:
+        return False
+    if record.get("candidate_sha") != lin["previous_candidate_sha"]:
+        return False
+    if not (lin["inheritance"].get(gate) or (False,))[0]:
+        return False
+    if lineage is not None and lineage.get(gate) != record.get("manifest_id"):
+        return False
+    return True
+
+
+def _eligible_engineering(record, active_manifest):
+    return engineering_record_bound(record, active_manifest)
+
+
+def _eligible_run(record, active_manifest, prerequisites, lineage):
+    if not record.get("identity_ok"):
+        return False, "identity check not recorded (%s)" % (
+            record.get("identity_reason") or "no stamp")
+    for problem in (_verdict_problem(record), _superseded_problem(record),
+                    _seal_problem(record, prerequisites)):
+        if problem:
+            return False, problem
+    active_id = active_manifest.get("manifest_id")
+    if record.get("manifest_id") == active_id:
+        if not _candidate_matches(record, active_manifest):
+            return False, "candidate mismatch (%s vs active %s)" % (
+                _s12(record.get("candidate_sha")),
+                _s12(active_manifest.get("candidate_sha")))
+        return True, "manifest match"
+    problem = _rerun_problem(record, prerequisites, active_manifest)
+    if problem:
+        return False, problem
+    if _inheritance_ok(record, prerequisites, lineage):
+        return True, "inherited from %s (validated)" % _s12(record.get("manifest_id"))
+    return False, "manifest mismatch (%s vs active %s)" % (
+        _s12(record.get("manifest_id")), _s12(active_id))
+
+
+def eligible(record, active_manifest, prerequisites, lineage=None):
+    """(ok, reason): may `record` count under `active_manifest`?
+
+    `prerequisites` (from `prerequisites_for`) is required. `lineage`, when
+    given, is a claim {gate: previous manifest_id}; it narrows inheritance
+    and is itself validated against the prerequisites."""
+    # Engineering evidence is bound by candidate, not by manifest id: it is
+    # produced before the manifest exists (D-23).
+    if record.get("kind") == "engineering":
+        return _eligible_engineering(record, active_manifest)
+    return _eligible_run(record, active_manifest, prerequisites, lineage)
+
+
+# --------------------------------------------------------------------------- #
+# Gate status (slot-based)
+# --------------------------------------------------------------------------- #
+
+def _gate_prerequisite_problems(gate, prerequisites):
+    return [p for p in prerequisites["problems"]
+            if gate in DETECTION_GATES or not p.startswith(SEAL_PROBLEM_PREFIX)]
+
+
+def _slot_key(gate, slot):
+    slot = tuple(slot)
+    if gate == "workflow" and len(slot) == 3 and slot[2] == "clean":
+        return (CLEAN_ANY_CASE, slot[1], "clean")
+    return slot
+
+
+def _bucket(gate, records, slots):
+    """({slot: [records]}, extras) — a record whose slot is not mandatory is
+    an extra and never fills another slot."""
+    filled, extras = {}, []
+    for rec in records:
+        key = _slot_key(gate, rec["slot"])
+        if key in slots:
+            filled.setdefault(key, []).append(rec)
+        else:
+            extras.append({"run": rec["run"], "reason": "slot not mandatory: %s"
+                           % "/".join(str(p) for p in key)})
+    return filled, extras
+
+
+def _coverage(slots, filled):
+    """(missing, duplicates, chosen): a slot is filled only by EXACTLY one
+    eligible record."""
+    missing, duplicates, chosen = [], [], {}
+    for slot in sorted(slots, key=lambda s: tuple(str(p) for p in s)):
+        recs = filled.get(slot, [])
+        if not recs:
+            missing.append(slot)
+        elif len(recs) > 1:
+            duplicates.append({"slot": slot, "runs": sorted(r["run"] for r in recs)})
+        else:
+            chosen[slot] = recs[0]
+    return missing, duplicates, chosen
+
+
+def gate_status(gate, records, active_manifest, prerequisites, lineage=None,
+                roster=None, verdicts=None):
+    """MET only when the gate's prerequisites hold, every mandatory slot is
+    filled by exactly one eligible record, and the gate's rule holds.
+    Anything else is UNMET with the reasons listed."""
+    result = {"gate": gate, "status": "UNMET", "prerequisites": [], "slots": {},
+              "missing": [], "duplicates": [], "extras": [], "ineligible": [],
+              "rule": {"ok": False, "reasons": []}}
+    if gate not in GATE_SLOTS:
+        result["rule"]["reasons"].append("unknown gate: %s" % gate)
+        return result
+    result["prerequisites"] = _gate_prerequisite_problems(gate, prerequisites)
+    blockers = []
+    if gate in ROSTER_GATES:
+        try:
+            validate_roster(roster)
+        except FreezeError as exc:
+            blockers.append("roster missing" if roster is None else str(exc))
+    if gate in VERDICT_GATES and not isinstance(verdicts, dict):
+        blockers.append("verdicts missing")
+    try:
+        slots = GATE_SLOTS[gate](roster)
+    except FreezeError:
+        slots = frozenset()
+    ok_records = []
+    for rec in records:
+        if rec.get("gate") != gate:
+            result["extras"].append({"run": rec.get("run"), "reason": "record for gate %s"
+                                     % rec.get("gate")})
+            continue
+        ok, reason = eligible(rec, active_manifest, prerequisites, lineage)
+        if ok:
+            ok_records.append(rec)
+        else:
+            result["ineligible"].append({"run": rec.get("run"), "reason": reason})
+    filled, extras = _bucket(gate, ok_records, slots)
+    result["extras"] += extras
+    missing, duplicates, chosen = _coverage(slots, filled)
+    result["missing"], result["duplicates"] = missing, duplicates
+    result["slots"] = {s: (chosen[s]["run"] if s in chosen else None) for s in slots}
+    if blockers:
+        rule_ok, reasons = False, blockers
+    else:
+        rule_ok, reasons = GATE_RULES[gate](chosen, verdicts, active_manifest,
+                                            roster=roster)
+    result["rule"] = {"ok": rule_ok, "reasons": list(reasons)}
+    met = (not result["prerequisites"] and bool(slots) and not missing
+           and not duplicates and rule_ok)
+    result["status"] = "MET" if met else "UNMET"
+    return result
 
 
 # --------------------------------------------------------------------------- #
