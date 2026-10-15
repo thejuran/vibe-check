@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a13db6-b179-7a32-b725-eeb7af17b3ba",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase53-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke stolen session cookies.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen sessions retain authenticated access after password changes\",\"body\":\"Changing the password now preserves session_secret. An attacker holding a valid pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: triggarr/web/middleware.py:144–148 validates only that cookie against the unchanged secret, and triggarr/auth.py permits it until its 30-day expiry. No replacement revocation check exists on this path. This removes the existing compromise-recovery protection and contradicts the session-eviction tests in tests/test_auth_routes.py:604–707.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1.0,\"recommendation\":\"Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Verify that another device's pre-change cookie is rejected after the change.\"}],\"next_steps\":[\"Restore revocation and run the existing password-change session rotation, cookie reissue, and other-device eviction tests.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: password changes no longer revoke stolen session cookies.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Stolen sessions retain authenticated access after password changes",
+        "body": "Changing the password now preserves session_secret. An attacker holding a valid pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: triggarr/web/middleware.py:144–148 validates only that cookie against the unchanged secret, and triggarr/auth.py permits it until its 30-day expiry. No replacement revocation check exists on this path. This removes the existing compromise-recovery protection and contradicts the session-eviction tests in tests/test_auth_routes.py:604–707.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 1567,
+        "line_end": 1567,
+        "confidence": 1,
+        "recommendation": "Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Verify that another device's pre-change cookie is rejected after the change."
+      }
+    ],
+    "next_steps": [
+      "Restore revocation and run the existing password-change session rotation, cookie reissue, and other-device eviction tests."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke stolen session cookies.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen sessions retain authenticated access after password changes\",\"body\":\"Changing the password now preserves session_secret. An attacker holding a valid pre-change triggarr_session cookie can continue accessing protected routes after the owner changes their password: triggarr/web/middleware.py:144–148 validates only that cookie against the unchanged secret, and triggarr/auth.py permits it until its 30-day expiry. No replacement revocation check exists on this path. This removes the existing compromise-recovery protection and contradicts the session-eviction tests in tests/test_auth_routes.py:604–707.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1567,\"confidence\":1.0,\"recommendation\":\"Restore session-secret rotation alongside the password hash update and reissue the acting user's cookie under the new secret. Verify that another device's pre-change cookie is rejected after the change.\"}],\"next_steps\":[\"Restore revocation and run the existing password-change session rotation, cookie reissue, and other-device eviction tests.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}

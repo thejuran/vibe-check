@@ -670,6 +670,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/should-quiet-1/run-1 | 3 |
 | final/should-quiet-2/run-1 | 0 |
 | final/should-quiet-3/run-1 | 0 |
+| final/triggarr-session-rotation/run-1 | 2 |
 
 ## Cache
 
@@ -1224,4 +1225,31 @@ needs-verification rows:
 |---|---|---|---|---|---|
 
 vs entry 1: "quiet" -> quiet (0 alarms, 0 NV) — PASS (Phase 49: 1/3 fired). Clean review: no fix-loop card, no keystroke after `/vibe-check:deep-review`. Run 6m20s. The roonseek clone had its provisioned `.venv` (entry 3).
+
+
+### final/triggarr-session-rotation/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | triggarr/web/routes.py | 1567 | critical | 100 | 312fd3c4c345 |
+| bugs | triggarr/web/routes.py | 1581 | warning | 90 | 494fa8e8b5c1 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| codex-adversarial | triggarr/web/routes.py | 1567 | critical | 100 | 312fd3c4c345 | Stolen sessions retain authenticated access after password changes | codex-adversarial: Stolen sessions retain authenticated access after password changes; security: Password change no longer invalidates other active sessions (session_secret rotation removed); impact: Password change no longer rotates session_secret, so a stolen session cookie stays valid after the password is changed; compliance: change_password reverts the session-secret-rotation security fix, breaking its documented mirror with reset_confirm_post; bugs: Password change no longer rotates session_secret, so sessions stolen before the change stay valid for 30 days; architecture: change_password no longer follows the credential-change pattern that reset_confirm_post documents as its mirror; architecture: Diff contradicts tested contract in test_auth_routes and test_auth_integration |  |
+| bugs | triggarr/web/routes.py | 1581 | warning | 90 | 494fa8e8b5c1 | Existing tests that assert rotation, cookie re-issue and other-device eviction will now fail | bugs: Existing tests that assert rotation, cookie re-issue and other-device eviction will now fail; impact: Existing tests that assert rotation, cookie re-issue and eviction will fail, which blocks the test gate; impact: The audit log line for session invalidation on password change is removed |  |
+candidates at site with band >= floor: 2
+
+AXIS: credit — row 312fd3c4c345 (alarm, critical 100), listed at the keyed site by `catch-candidates` (routes.py:1567) — "Stolen sessions retain authenticated access after password changes"; members security "no longer invalidates other active sessions", bugs "sessions stolen before the change stay valid for 30 days". Location AND causal failure (session eviction lost) match.
+
+vs entry 1: "catch kept" -> catch kept. Second alarm 494fa8e8b5c1 (bugs warning at routes.py:1581): existing tests asserting rotation will fail — also at the keyed site, a consequence of the same change. Run 9m32s; fix-loop card after 556s; `Stop here…` -> `Abandon` by label.
 
