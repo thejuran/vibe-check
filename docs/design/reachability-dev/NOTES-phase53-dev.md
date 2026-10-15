@@ -615,6 +615,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/should-quiet-4/run-1 | 3 |
 | targeted/should-quiet-6/run-1 | 2 |
 | targeted/should-quiet-7/run-1 | 2 |
+| targeted/triggarr-secret-in-logs/run-1 | 3 |
 
 ## Cache
 
@@ -815,4 +816,32 @@ needs-verification rows:
 |---|---|---|---|---|---|
 
 Result vs entry 1: pre-registered "quiet, or at worst an NV item" (case excluded from the release verdict, SUPERSESSIONS #001) -> FIRED (1 alarm, 0 NV); a fail (Phase 49: 3/3 fired). Source: alarm 2cc6c506b800, bugs critical 100 at web/routes.py:550, "Every settings save overwrites shutdown_drain_timeout with 60.0 because the settings form has no input for it" — a traced data-loss claim on the changed parse line (form field absent -> `safe_float` default 60.0 -> TOML rewritten), so the lane treated it as demonstrated, not as a staged value; members codex-adversarial ("Apply the saved timeout to the shutdown drain"), bugs x2 (3600 cap vs model bound; no runtime effect), impact (same overwrite). The bounded parse the key cites as harmless is the very line the alarm says resets a configured value. Run: 8m04s; fix-loop card after 465s; `Stop here…` -> `Abandon` by label.
+
+
+### targeted/triggarr-secret-in-logs/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 2
+needs-verification items: 1
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| compliance | triggarr/clients/base.py | 235 | warning | 94 | a535863e0066 |
+| codex-adversarial | triggarr/clients/base.py | 252 | critical | 100 | 96232a0aaee9 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| compliance | triggarr/clients/base.py | 254 | needs-verification | 0 | d5a20c80027d |
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| compliance | triggarr/clients/base.py | 235 | warning | 94 | a535863e0066 | validate_connection logs raw httpx exception instead of a sanitized summary | compliance: validate_connection logs raw httpx exception instead of a sanitized summary; security: Revert of security fix reintroduces API-key leak risk via raw httpx exception logging; architecture: validate_connection now logs raw HTTPStatusError, bypassing the repo's established exception-sanitization pattern; bugs: Logging the raw HTTPStatusError can leak URL credentials into logs (sanitization removed); impact: Credential exposure in logs: raw HTTPStatusError text (full request URL) now logged, bypassing the _sanitize_exc convention |  |
+| codex-adversarial | triggarr/clients/base.py | 252 | critical | 100 | 96232a0aaee9 | Raw validation errors disclose sensitive response contents | codex-adversarial: Raw validation errors disclose sensitive response contents; security: Revert of security fix reintroduces verbose response-payload exposure via raw pydantic ValidationError logging; architecture: validate_connection now logs raw pydantic.ValidationError instead of the established error-count summary; bugs: Logging the raw pydantic ValidationError puts untrusted response content into logs (sanitization removed); impact: Upstream data exposure in logs: raw pydantic ValidationError text (input_value excerpts of the *arr response) now logged instead of error count |  |
+candidates at site with band >= floor: 2
+
+AXIS: credit — row a535863e0066 (alarm, warning 94) at clients/base.py:235 (keyed hunk 230-238, bug line 235) — members name the keyed mechanism, not log formatting: security "reintroduces API-key leak risk via raw httpx exception logging", bugs "Logging the raw HTTPStatusError can leak URL credentials into logs", impact "raw HTTPStatusError text (full request URL) now logged". Row 96232a0aaee9 (alarm, critical 100) at base.py:252 (second keyed hunk) also names the pydantic payload echo into logs. Location AND causal failure match.
+
+Result vs entry 1: pre-registered "catch kept" -> catch kept (Phase 49: 3/3). Additionally 1 NV at base.py:254 (compliance). Run: 11m18s; fix-loop card after 661s; `Stop here…` -> `Abandon` by label.
 

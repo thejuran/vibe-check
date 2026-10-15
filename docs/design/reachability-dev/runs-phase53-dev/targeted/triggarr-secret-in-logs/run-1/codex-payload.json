@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a13d34-7a89-74b2-92a6-323945a83529",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase53-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: raw validation errors newly expose upstream response data in logs.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Raw validation errors disclose sensitive response contents\",\"body\":\"A 200 response containing {\\\"password\\\":\\\"upstream-private-secret\\\"} without version reaches SystemStatus.model_validate at line 218. Verified that its ValidationError includes the password in input_value; this change now logs it. The previous error-count message excluded response contents. collect_secrets (startup.py:74–99) collects only configured API/auth secrets, and both logging sinks perform literal replacement (logging.py:36–40,72–76), so unrelated upstream credentials survive into stderr and the web log buffer. A misrouted or malformed upstream response can therefore disclose sensitive data.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":252,\"line_end\":254,\"confidence\":0.99,\"recommendation\":\"Restore count-only logging or emit allowlisted validation metadata without input values or context. Add a regression test asserting that sensitive fields in malformed responses never reach either logging sink.\"}],\"next_steps\":[\"Remove raw validation exception logging and verify response-data redaction before merging.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: raw validation errors newly expose upstream response data in logs.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Raw validation errors disclose sensitive response contents",
+        "body": "A 200 response containing {\"password\":\"upstream-private-secret\"} without version reaches SystemStatus.model_validate at line 218. Verified that its ValidationError includes the password in input_value; this change now logs it. The previous error-count message excluded response contents. collect_secrets (startup.py:74–99) collects only configured API/auth secrets, and both logging sinks perform literal replacement (logging.py:36–40,72–76), so unrelated upstream credentials survive into stderr and the web log buffer. A misrouted or malformed upstream response can therefore disclose sensitive data.",
+        "file": "triggarr/clients/base.py",
+        "line_start": 252,
+        "line_end": 254,
+        "confidence": 0.99,
+        "recommendation": "Restore count-only logging or emit allowlisted validation metadata without input values or context. Add a regression test asserting that sensitive fields in malformed responses never reach either logging sink."
+      }
+    ],
+    "next_steps": [
+      "Remove raw validation exception logging and verify response-data redaction before merging."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: raw validation errors newly expose upstream response data in logs.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Raw validation errors disclose sensitive response contents\",\"body\":\"A 200 response containing {\\\"password\\\":\\\"upstream-private-secret\\\"} without version reaches SystemStatus.model_validate at line 218. Verified that its ValidationError includes the password in input_value; this change now logs it. The previous error-count message excluded response contents. collect_secrets (startup.py:74–99) collects only configured API/auth secrets, and both logging sinks perform literal replacement (logging.py:36–40,72–76), so unrelated upstream credentials survive into stderr and the web log buffer. A misrouted or malformed upstream response can therefore disclose sensitive data.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":252,\"line_end\":254,\"confidence\":0.99,\"recommendation\":\"Restore count-only logging or emit allowlisted validation metadata without input values or context. Add a regression test asserting that sensitive fields in malformed responses never reach either logging sink.\"}],\"next_steps\":[\"Remove raw validation exception logging and verify response-data redaction before merging.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
