@@ -10,8 +10,22 @@ census.
 on (a) the owner-approved reachability cases (`docs/design/reachability-dev/README.md`, approval
 record) and (b) the B3 cases each rule aims at, then one complete sweep on the finished candidate.
 This is the Phase-49 method (`docs/design/b3-ground-truth/RUN-PHASE49-v2.11.md`) cut down to what a
-rehearsal needs, with one change of substance: **the installed plugin cache is what runs** (no
-`--plugin-dir`), so every run is bound to a content fingerprint of that cache.
+rehearsal needs. Every run is bound to a content fingerprint of the plugin copy the measured
+session actually loads.
+
+**Isolation (owner instruction, 2026-10-14).** The rehearsal never touches the owner's working
+repos or the owner's everyday Claude Code setup:
+
+- **Disposable clones.** Cases run in `~/.b3/phase53-clones/<repo>` (`triggarr`, `seedsyncarr`,
+  `roonseek`), cloned from the owner's local repos, push URL disabled. No block here runs
+  `checkout`, `switch`, `stash` or `revert` against `~/triggarr`, `~/seedsyncarr` or `~/roonseek`.
+- **Isolated runner.** The candidate is copied to `~/.b3/phase53-runner/plugin/vibe-check` (the
+  "runner copy" — `CACHE` below) and loaded ONLY by the measured sessions, via `--plugin-dir` plus
+  `--settings ~/.b3/phase53-runner/settings-measured.json`, which disables the installed
+  `vibe-check@thejuran` for that session alone. The owner's `~/.claude` (settings, plugin
+  registry, the installed 2.11.1 cache) is never written, so every other session keeps the
+  released build. `isolation_check` refuses to run if the owner's registry points at the runner
+  copy, and `post` voids a run whose transcript names the installed release cache.
 
 ---
 
@@ -48,7 +62,7 @@ Each run directory holds `state.json`, `lanes.json` (and the other `lanearchive.
 outputs) when produced, `tree.diff`, `clear.txt`, `transcript.jsonl.sha256` and `fingerprint.txt`:
 
 ```text
-runtime_fingerprint: <64 hex — score43.py fingerprint over the INSTALLED cache>
+runtime_fingerprint: <64 hex — score43.py fingerprint over the runner copy the session loaded>
 repo_head: <40 hex>
 repo_dirty: yes|no            (uncommitted changes under plugins/vibe-check)
 stage: targeted|final
@@ -97,9 +111,9 @@ Usage: `STAGE=targeted p53 <block> [case] [run]`, e.g. `STAGE=targeted p53 fresh
 
 | # | what | notes |
 |---|---|---|
-| 1 | `p53 park-memory` | N-02, all three clones |
-| 2 | `p53 resync-cache` | installed cache := candidate tree, compared by content hash |
-| 3 | RELAUNCH | quit every Claude Code process; measured sessions are new processes |
+| 1 | `p53 park-memory` | N-02, all three disposable clones |
+| 2 | `p53 resync-cache` | runner copy := candidate tree, compared by content hash |
+| 3 | (no relaunch) | measured sessions are new processes; the owner's sessions never load the runner copy |
 | 4 | `p53 fingerprint` | `CACHE_FP == TREE_FP`; in stage `final` records `FINAL_FP` |
 | 5 | `p53 preflight <case>` | cache fingerprint unchanged, pins, memory parked, patch applies |
 | 6 | `p53 fresh <case>` | clone at base_sha + case patch, tree-diff sha checked |
@@ -108,11 +122,11 @@ Usage: `STAGE=targeted p53 <block> [case] [run]`, e.g. `STAGE=targeted p53 fresh
 | 9 | `/vibe-check:deep-review`; `Stop here…` then `Abandon` (by label) | |
 | 10 | `p53 post <case> <n>` | archive + fingerprint.txt + burden + catch listing into NOTES |
 | 11 | `/exit`, `tmux kill-session -t p53-<case>`, `p53 revert <case>` | |
-| 12 | after the last case: `p53 restore-memory`, `p53 restore-cache`, RELAUNCH | |
+| 12 | after the last case: `p53 restore-memory`, `p53 restore-cache` | teardown of the runner copy |
 
 A run that crashes, stalls or is refused by `post`: `p53 fail <case> <n>` (moves the partial run
 to `attempts/`), then redo from step 8 with the next run number. After ANY change under
-`plugins/vibe-check/`: `resync-cache`, RELAUNCH, `fingerprint`, and rerun the affected cases from
+`plugins/vibe-check/`: `resync-cache`, `fingerprint`, and rerun the affected cases from
 `preflight` — in stage `final` that is the Final candidate rule.
 
 ---
@@ -134,8 +148,14 @@ SITES=$RD/CATCH-SITES-dev.json
 DEV_SEAL=917bde2
 ENV=$HOME/.b3/phase53-dev.env
 MEMPARK_ENV=$HOME/.b3/phase53-dev-memory-park.env
-CACHE_BAK=$HOME/.b3/vibe-check-cache-bak-pre-phase53-dev
 CLONES='roonseek seedsyncarr triggarr'
+# disposable measurement clones — never the owner's ~/triggarr, ~/seedsyncarr, ~/roonseek
+CLONES_ROOT=$HOME/.b3/phase53-clones
+# the isolated runner: the candidate copy only the measured sessions load (--plugin-dir)
+RUNNER=$HOME/.b3/phase53-runner
+RUNNER_PLUGIN=$RUNNER/plugin/vibe-check
+RUNNER_SETTINGS=$RUNNER/settings-measured.json
+DEFAULT_REG=$HOME/.claude/plugins/installed_plugins.json
 REHEARSAL_LABEL='development rehearsal — not release evidence'
 mkdir -p "$HOME/.b3"
 case "${STAGE:-}" in targeted|final) ;;
@@ -155,18 +175,38 @@ env_set() {
   mv "$tmp" "$ENV"
 }
 
-# the installed vibe-check@thejuran cache dir, from Claude Code's own registry (never a typed version)
-resolve_cache() {
-  CACHE=$(python3 -c '
-import json, os, sys
-d = json.load(open(os.path.expanduser("~/.claude/plugins/installed_plugins.json")))
+# the owner's installed vibe-check@thejuran cache dir, from Claude Code's own registry (read only)
+default_cache() {
+  python3 - "$DEFAULT_REG" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
 d = d.get("plugins", d)
 paths = [e.get("installPath") for e in d.get("vibe-check@thejuran") or []
          if isinstance(e, dict) and e.get("installPath")]
 if len(paths) != 1:
     sys.exit("expected one vibe-check@thejuran install, found %d" % len(paths))
-print(paths[0])') || { echo 'CANNOT RESOLVE THE INSTALLED vibe-check@thejuran CACHE — STOPPING'; exit 1; }
-  test -d "$CACHE" || { echo "THE REGISTERED CACHE DIR IS MISSING: claude plugin uninstall vibe-check@thejuran && claude plugin install vibe-check@thejuran, RELAUNCH, then resync-cache — STOPPING"; exit 1; }
+print(paths[0])
+PY
+}
+
+# the owner's default config never references the runner (the candidate stays out of everyday sessions)
+isolation_check() {
+  local dc
+  dc=$(default_cache) || { echo 'CANNOT RESOLVE THE OWNER INSTALLED vibe-check@thejuran CACHE — STOPPING'; exit 1; }
+  case "$dc" in "$RUNNER"*) echo 'THE OWNER REGISTRY POINTS AT THE RUNNER COPY — STOPPING'; exit 1 ;; esac
+  ! grep -qF "$RUNNER" "$DEFAULT_REG" "$HOME/.claude/settings.json" \
+    || { echo 'THE OWNER DEFAULT CONFIG REFERENCES THE RUNNER — STOPPING'; exit 1; }
+  test -f "$RUNNER_SETTINGS" || { echo "RUNNER SETTINGS $RUNNER_SETTINGS MISSING — STOPPING"; exit 1; }
+  python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if s["enabledPlugins"]["vibe-check@thejuran"] is False else 1)' \
+    "$RUNNER_SETTINGS" || { echo 'RUNNER SETTINGS DO NOT DISABLE THE INSTALLED vibe-check@thejuran — STOPPING'; exit 1; }
+  DEFAULT_CACHE=$dc
+}
+
+# the plugin copy the measured sessions load: the runner copy (never the owner's installed cache)
+resolve_cache() {
+  isolation_check
+  CACHE=$RUNNER_PLUGIN
+  test -f "$CACHE/.claude-plugin/plugin.json" || { echo "RUNNER COPY $CACHE MISSING — run p53 resync-cache — STOPPING"; exit 1; }
 }
 
 # sha256 over the runtime roots' file contents (score43.py fingerprint; caches and .in_use excluded)
@@ -243,7 +283,8 @@ sidecar() {
     '~/roonseek') CN=roonseek ;;
     *) echo 'source_repo IS NOT ONE OF THE THREE CLONES — STOPPING'; exit 1 ;;
   esac
-  CLONE=$HOME/$CN
+  # the disposable measurement clone of source_repo, never the owner's repo itself
+  CLONE=$CLONES_ROOT/$CN
   STATE_DIR=$CLONE/.turingmind/state
   # the candidate keeps live review state under format-53/; a new flat file means an older build ran
   STATE53=$STATE_DIR/format-53
@@ -311,14 +352,14 @@ test ! -e "$MEMPARK_ENV" \
 PARKDIR=$HOME/.b3/automemory-parked-phase53-dev-$STAGE-$(date +%s)
 mkdir -p "$PARKDIR"
 for C in $CLONES; do
-  M=$(proj_dir "$HOME/$C")/memory
+  M=$(proj_dir "$CLONES_ROOT/$C")/memory
   if test -e "$M"; then
     mv "$M" "$PARKDIR/$C"
-    echo "parked ~/$C auto-memory -> $PARKDIR/$C"
+    echo "parked $CLONES_ROOT/$C auto-memory -> $PARKDIR/$C"
   else
-    echo "~/$C has no auto-memory to park"
+    echo "$CLONES_ROOT/$C has no auto-memory to park"
   fi
-  test ! -e "$M" || { echo "~/$C AUTO-MEMORY STILL PRESENT — STOPPING"; exit 1; }
+  test ! -e "$M" || { echo "$CLONES_ROOT/$C AUTO-MEMORY STILL PRESENT — STOPPING"; exit 1; }
 done
 printf 'PARKDIR=%s\n' "$PARKDIR" > "$MEMPARK_ENV"
 echo 'BLOCK OK'
@@ -327,43 +368,33 @@ echo 'BLOCK OK'
 
 ### resync-cache
 
-The installed cache is made content-identical to the candidate tree (`plugins/vibe-check/` in this
-repo, committed or not). Parity is the `score43.py fingerprint` value over the runtime roots on
-both sides — **a version string is never compared** (the candidate and the stale release can
-carry the same version). The thejuran marketplace installs from GitHub `main`, so `claude plugin
-uninstall` + `install` would bring back the released build, not the candidate; it is used only to
-re-materialize a missing registered cache dir (see `resolve_cache`). The candidate is copied in
-with `rsync` (the Phase-49 method), after a one-time backup that `restore-cache` puts back.
+The runner copy (`~/.b3/phase53-runner/plugin/vibe-check`) is made content-identical to the
+candidate tree (`plugins/vibe-check/` in this repo, committed or not). Parity is the `score43.py
+fingerprint` value over the runtime roots on both sides — **a version string is never compared**
+(the candidate and the release carry the same version). Only the measured sessions load the runner
+copy (`--plugin-dir`); the owner's installed cache is read, never written, and keeps the released
+build for every other session.
 
 ```bash
 # BLOCK: resync-cache
 set -euo pipefail
-resolve_cache
+isolation_check
+CACHE=$RUNNER_PLUGIN
+mkdir -p "$CACHE"
 TREE_FP=$(rfp "$PLUGIN_ROOT")
 CACHE_FP=$(rfp "$CACHE")
 if test "$CACHE_FP" = "$TREE_FP"; then
-  echo "installed cache already at content parity with the candidate tree"
+  echo "runner copy already at content parity with the candidate tree"
 else
-  if test -e "$CACHE_BAK"; then
-    test "$(cat "$CACHE_BAK.path")" = "$CACHE" \
-      || { echo 'THE EXISTING CACHE BACKUP IS FOR ANOTHER CACHE DIR — STOPPING'; exit 1; }
-    echo "keeping the existing released-cache backup $CACHE_BAK"
-  else
-    cp -Rp "$CACHE" "$CACHE_BAK"
-    printf '%s\n' "$CACHE" > "$CACHE_BAK.path"
-    diff -rq -x .in_use "$CACHE" "$CACHE_BAK" > /dev/null \
-      || { echo 'CACHE BACKUP DIFFERS FROM THE CACHE — STOPPING'; exit 1; }
-    echo "released cache backed up to $CACHE_BAK"
-  fi
   rsync -a --delete --exclude .in_use --exclude __pycache__ --exclude '*.pyc' \
     --exclude .pytest_cache --exclude .planning "$PLUGIN_ROOT/" "$CACHE/"
   chmod -R u+w "$CACHE"
   CACHE_FP=$(rfp "$CACHE")
-  test "$CACHE_FP" = "$TREE_FP" || { echo 'CACHE NOT AT CONTENT PARITY AFTER RSYNC — STOPPING'; exit 1; }
+  test "$CACHE_FP" = "$TREE_FP" || { echo 'RUNNER COPY NOT AT CONTENT PARITY AFTER RSYNC — STOPPING'; exit 1; }
 fi
-echo "content parity over the runtime roots: cache $CACHE_FP == tree $TREE_FP"
-echo "cache dir: $CACHE (resolved from installed_plugins.json; a version string is never compared)"
-echo 'RELAUNCH CLAUDE CODE (FULL PROCESS EXIT) BEFORE fingerprint — sessions load the cache at start'
+echo "content parity over the runtime roots: runner copy $CACHE_FP == tree $TREE_FP"
+echo "runner copy: $CACHE (loaded only by measured sessions via --plugin-dir)"
+echo "owner installed cache (untouched): $DEFAULT_CACHE fingerprint $(rfp "$DEFAULT_CACHE")"
 echo 'BLOCK OK'
 # END: resync-cache
 ```
@@ -383,7 +414,7 @@ resolve_cache
 CACHE_FP=$(python3 "$PLUGIN_ROOT/scripts/score43.py" fingerprint --root "$CACHE")
 TREE_FP=$(python3 "$PLUGIN_ROOT/scripts/score43.py" fingerprint --root "$PLUGIN_ROOT")
 test "$CACHE_FP" = "$TREE_FP" \
-  || { echo "CACHE_FP $CACHE_FP != TREE_FP $TREE_FP — run p53 resync-cache and RELAUNCH — STOPPING"; exit 1; }
+  || { echo "CACHE_FP $CACHE_FP != TREE_FP $TREE_FP — run p53 resync-cache — STOPPING"; exit 1; }
 if test "$STAGE" = final; then
   test -z "$(git -C "$REPO" status --porcelain -- plugins/vibe-check)" \
     || { echo 'THE FINAL CANDIDATE MUST BE COMMITTED (plugins/vibe-check has changes) — STOPPING'; exit 1; }
@@ -422,10 +453,10 @@ the block prints the current values when a pin is missing.
 ```bash
 # BLOCK: preflight
 set -euo pipefail
-cache_unchanged 'resync, RELAUNCH and fingerprint again'
+cache_unchanged 'resync and fingerprint again'
 TREE_FP=$(rfp "$PLUGIN_ROOT")
 test "$TREE_FP" = "$FP_NOW" \
-  || { echo 'THE CANDIDATE TREE CHANGED SINCE resync-cache — resync, RELAUNCH, fingerprint — STOPPING'; exit 1; }
+  || { echo 'THE CANDIDATE TREE CHANGED SINCE resync-cache — resync, fingerprint — STOPPING'; exit 1; }
 test -z "$(git -C "$REPO" status --porcelain -- "$DD")" \
   || { echo 'docs/design/b3-ground-truth HAS CHANGES — the dev path never writes there — STOPPING'; exit 1; }
 test -f "$REPO/$NOTES" || { echo "NOTES FILE $NOTES MISSING — open it first (53-14) — STOPPING"; exit 1; }
@@ -443,8 +474,8 @@ test "$CX" = "$(pin pin-codex)" || { echo "HARNESS DRIFT — codex '$CX' — STO
 test -n "$TIMEOUT_BIN" || { echo 'NO timeout/gtimeout ON PATH (Codex watchdog) — STOPPING'; exit 1; }
 test -f "$MEMPARK_ENV" || { echo 'MEMORY NOT PARKED — run p53 park-memory — STOPPING'; exit 1; }
 for C in $CLONES; do
-  test ! -e "$(proj_dir "$HOME/$C")/memory" \
-    || { echo "~/$C AUTO-MEMORY IS PRESENT — run p53 park-memory / see mem_evidence — STOPPING"; exit 1; }
+  test ! -e "$(proj_dir "$CLONES_ROOT/$C")/memory" \
+    || { echo "$CLONES_ROOT/$C AUTO-MEMORY IS PRESENT — run p53 park-memory / see mem_evidence — STOPPING"; exit 1; }
 done
 if test -n "$CASE"; then
   sidecar
@@ -531,7 +562,8 @@ echo 'BLOCK OK'
 
 ### launch `<case>`
 
-No `--plugin-dir`: the session loads the installed cache, which is what the fingerprint covers.
+The session loads the runner copy (`--plugin-dir`, which the fingerprint covers) with the installed
+`vibe-check@thejuran` disabled for this session only (`--settings` runner file).
 The model comes from NOTES `pin-model:` and is single-quoted (zsh globs a bare `[1m]`).
 
 ```bash
@@ -549,7 +581,7 @@ printf '%s' "$MODEL" | grep -qE '^[A-Za-z0-9._-]+(\[1m\])?$' \
 if command -v tmux > /dev/null && tmux has-session -t "=p53-$CASE" 2> /dev/null; then
   echo "TMUX SESSION p53-$CASE STILL EXISTS — /exit it and kill it — STOPPING"; exit 1
 fi
-LAUNCH_LINE="claude --permission-mode manual --model '$MODEL' --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\""
+LAUNCH_LINE="claude --permission-mode manual --plugin-dir '$CACHE' --settings '$RUNNER_SETTINGS' --model '$MODEL' --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\""
 echo "Paste form:  cd $CLONE && $LAUNCH_LINE"
 if test "${LAUNCH_VIA_TMUX:-0}" = 1; then
   command -v tmux > /dev/null || { echo 'tmux NOT INSTALLED — STOPPING'; exit 1; }
@@ -648,9 +680,11 @@ git -C "$REPO" check-ignore -q "$RP/transcript.jsonl" \
 grep -q 'vibe-check:deep-review' "$RUN_DIR/transcript.jsonl" \
   || { echo 'THE TRANSCRIPT HOLDS NO /vibe-check:deep-review — STOPPING'; exit 1; }
 grep -qF "$CACHE" "$RUN_DIR/transcript.jsonl" \
-  || { echo 'THE TRANSCRIPT NEVER NAMES THE INSTALLED CACHE — not the fingerprinted build — STOPPING'; exit 1; }
+  || { echo 'THE TRANSCRIPT NEVER NAMES THE RUNNER COPY — not the fingerprinted build — STOPPING'; exit 1; }
+! grep -qF "$DEFAULT_CACHE" "$RUN_DIR/transcript.jsonl" \
+  || { echo 'THE RUN LOADED THE OWNER INSTALLED RELEASE CACHE, NOT THE RUNNER COPY — p53 fail — STOPPING'; exit 1; }
 ! grep -qF "$PLUGIN_ROOT" "$RUN_DIR/transcript.jsonl" \
-  || { echo 'THE RUN LOADED THE REPO PLUGIN TREE, NOT THE INSTALLED CACHE — p53 fail — STOPPING'; exit 1; }
+  || { echo 'THE RUN LOADED THE REPO PLUGIN TREE, NOT THE RUNNER COPY — p53 fail — STOPPING'; exit 1; }
 shasum -a 256 "$RUN_DIR/transcript.jsonl" | awk '{print $1}' > "$RUN_DIR/transcript.jsonl.sha256"
 # lane archive (lanes.json when produced) with its own privacy scan; matched text is never printed
 python3 "$SCRIPTS/lanearchive.py" extract --transcript "$RUN_DIR/transcript.jsonl" \
@@ -779,19 +813,19 @@ test -f "$MEMPARK_ENV" || { echo 'NO MEMORY PARK RECORD — nothing to restore �
 PARKDIR=$(sed -n 's/^PARKDIR=//p' "$MEMPARK_ENV")
 test -n "$PARKDIR" && test -d "$PARKDIR" || { echo 'THE PARK DIR IS MISSING — STOPPING'; exit 1; }
 for C in $CLONES; do
-  test ! -e "$HOME/$C/.turingmind/state/.b3-inprogress" \
-    || { echo "~/$C IS STILL MID-CASE — p53 revert it first — STOPPING"; exit 1; }
+  test ! -e "$CLONES_ROOT/$C/.turingmind/state/.b3-inprogress" \
+    || { echo "$CLONES_ROOT/$C IS STILL MID-CASE — p53 revert it first — STOPPING"; exit 1; }
 done
 STAMP=$(date '+%Y%m%dT%H%M%S')
 for C in $CLONES; do
-  M=$(proj_dir "$HOME/$C")/memory
+  M=$(proj_dir "$CLONES_ROOT/$C")/memory
   if test -e "$M"; then
     mv "$M" "$PARKDIR/$C-written-during-window-$STAMP"
     echo "memory written during the window kept as evidence: $PARKDIR/$C-written-during-window-$STAMP"
   fi
   if test -e "$PARKDIR/$C"; then
     mv "$PARKDIR/$C" "$M"
-    echo "restored ~/$C auto-memory"
+    echo "restored $CLONES_ROOT/$C auto-memory"
   fi
 done
 rm "$MEMPARK_ENV"
@@ -799,23 +833,26 @@ echo 'BLOCK OK'
 # END: restore-memory
 ```
 
-### restore-cache (optional)
+### restore-cache (teardown)
 
-Puts the released build back in the installed cache dir. Run it when the development window
-closes; skip it between the targeted and final stages.
+Removes the runner copy when the development window closes and confirms the owner's installed
+cache still holds the released build (its fingerprint equals the release tag's tree, `RELEASE_TAG`,
+default `v2.11.1`). Skip it between the targeted and final stages.
 
 ```bash
 # BLOCK: restore-cache
 set -euo pipefail
-test -d "$CACHE_BAK" || { echo 'NO CACHE BACKUP — nothing to restore — STOPPING'; exit 1; }
-CACHE=$(cat "$CACHE_BAK.path")
-test -d "$CACHE" || { echo "THE BACKED-UP CACHE DIR $CACHE IS GONE — STOPPING"; exit 1; }
-rsync -a --delete --exclude .in_use "$CACHE_BAK/" "$CACHE/"
-test -z "$(diff -rq -x .in_use "$CACHE" "$CACHE_BAK" || true)" \
-  || { echo 'THE RESTORED CACHE DIFFERS FROM THE BACKUP — backup kept — STOPPING'; exit 1; }
-rm -rf "$CACHE_BAK" "$CACHE_BAK.path"
-echo "restored the released build into $CACHE (fingerprint $(rfp "$CACHE"))"
-echo 'RELAUNCH CLAUDE CODE (FULL PROCESS EXIT) so everyday sessions load the restored cache'
+isolation_check
+REL=${RELEASE_TAG:-v2.11.1}
+TMPREL=$(mktemp -d "$HOME/.b3/p53-rel.XXXXXX")
+git -C "$REPO" archive "$REL" plugins/vibe-check | tar -x -C "$TMPREL"
+REL_FP=$(rfp "$TMPREL/plugins/vibe-check")
+rm -rf "$TMPREL"
+DEF_FP=$(rfp "$DEFAULT_CACHE")
+test "$DEF_FP" = "$REL_FP" \
+  || { echo "THE OWNER INSTALLED CACHE ($DEF_FP) IS NOT THE $REL RELEASE ($REL_FP) — runner copy kept — STOPPING"; exit 1; }
+if test -d "$RUNNER_PLUGIN"; then rm -rf "$RUNNER_PLUGIN"; fi
+echo "owner installed cache $DEFAULT_CACHE == $REL release (fingerprint $DEF_FP); runner copy removed"
 echo 'BLOCK OK'
 # END: restore-cache
 ```
@@ -870,7 +907,7 @@ reachability case, once each. Any change under `plugins/vibe-check/` after the f
 restarts it in full:
 
 1. move `runs-phase53-dev/final/` to `runs-phase53-dev/attempts/final-<FINAL_FP first 12 hex>/`;
-2. `resync-cache`, RELAUNCH, then `RESET_FINAL=1 STAGE=final p53 fingerprint` (prints the old
+2. `resync-cache`, then `RESET_FINAL=1 STAGE=final p53 fingerprint` (prints the old
    value; record the invalidation and the reason in NOTES `## Final candidate`);
 3. rerun the replay checks and the COMPLETE sweep on the new `FINAL_FP`.
 
