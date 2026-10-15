@@ -1,0 +1,209 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-15T03:41:52Z",
+      "mode": "deep",
+      "diff_range": "uncommitted (HEAD + staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [
+        {
+          "id": "arch-001",
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped branch re-checks the address properties but skips the BLOCKED_HOSTS list, so a mapped Alibaba metadata IP passes",
+          "category": "abstraction",
+          "cwe": "CWE-918",
+          "severity": "medium",
+          "agent_confidence": 70,
+          "in_diff": true,
+          "intent_doc_match": {
+            "doc": "59-CONTEXT.md",
+            "section": "D-10",
+            "quote": "Add IPv4-mapped IPv6 address checks to `validate_arr_url`. Check `addr.ipv4_mapped` on IPv6 addresses and validate the mapped address against the same blocklist. Also block multicast addresses.",
+            "confidence": 0.6
+          },
+          "problem": "validate_arr_url blocks addresses in two ways: an exact string match against BLOCKED_HOSTS (line 77), and the ipaddress property checks (line 82). The new mapped-address branch repeats only the property checks. It never compares str(mapped) against BLOCKED_HOSTS. For example, http://[::ffff:100.100.100.200]/ gets hostname '::ffff:100.100.100.200', which does not match the string entry '100.100.100.200'. The mapped address 100.100.100.200 is not link-local, loopback, unspecified or multicast, so the URL is accepted. 169.254.169.254 is still blocked only because it also happens to be link-local. D-10 asks for the mapped address to be checked 'against the same blocklist', so this falls short of the plan.",
+          "current_code": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n                return (False, \"Blocked address\")",
+          "fix_hint": "unwrap ipv4_mapped first, then run one shared check (str(addr) in BLOCKED_HOSTS plus the property checks) on the unwrapped address",
+          "why_it_matters": "BLOCKED_HOSTS exists to stop SSRF against cloud metadata services. The mapped-form path gets around the IP-literal entries in it that are not link-local.",
+          "silenced_marker_nearby": false,
+          "needs_verification": null,
+          "agent": "architecture",
+          "source_window": [
+            "            return (False, \"Blocked address\")",
+            "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+            "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "            mapped = addr.ipv4_mapped",
+            "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+          ],
+          "canonical_line_content": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+          "orchestrator_score": 76,
+          "band": "medium",
+          "attribution": [
+            "bugs",
+            "architecture",
+            "impact"
+          ],
+          "stable_hash": "81fbad85d8894a5f1377139f20b3aa766c356242f84b43b70f2dc5b0b37304c7",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/web/validation.py",
+              "line": 85,
+              "title": "IPv4-mapped branch re-checks the address properties but skips the BLOCKED_HOSTS list, so a mapped Alibaba metadata IP passes",
+              "category": "abstraction",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 70,
+              "problem": "validate_arr_url blocks addresses in two ways: an exact string match against BLOCKED_HOSTS (line 77), and the ipaddress property checks (line 82). The new mapped-address branch repeats only the property checks. It never compares str(mapped) against BLOCKED_HOSTS. For example, http://[::ffff:100.100.100.200]/ gets hostname '::ffff:100.100.100.200', which does not match the string entry '100.100.100.200'. The mapped address 100.100.100.200 is not link-local, loopback, unspecified or multicast, so the URL is accepted. 169.254.169.254 is still blocked only because it also happens to be link-local. D-10 asks for the mapped address to be checked 'against the same blocklist', so this falls short of the plan.",
+              "source_window": [
+                "            return (False, \"Blocked address\")",
+                "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+                "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+                "            mapped = addr.ipv4_mapped",
+                "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+              ],
+              "cwe": "CWE-918",
+              "why_it_matters": "BLOCKED_HOSTS exists to stop SSRF against cloud metadata services. The mapped-form path gets around the IP-literal entries in it that are not link-local.",
+              "fix_hint": "unwrap ipv4_mapped first, then run one shared check (str(addr) in BLOCKED_HOSTS plus the property checks) on the unwrapped address",
+              "current_code": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n                return (False, \"Blocked address\")",
+              "intent_doc_match": {
+                "doc": "59-CONTEXT.md",
+                "section": "D-10",
+                "quote": "Add IPv4-mapped IPv6 address checks to `validate_arr_url`. Check `addr.ipv4_mapped` on IPv6 addresses and validate the mapped address against the same blocklist. Also block multicast addresses.",
+                "confidence": 0.6
+              }
+            },
+            {
+              "file": "triggarr/web/validation.py",
+              "line": 85,
+              "title": "IPv4-mapped branch skips the BLOCKED_HOSTS check, so [::ffff:100.100.100.200] gets through",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 42,
+              "problem": "The new IPv4-mapped branch only re-applies the link-local, loopback, unspecified and multicast checks to the mapped address. BLOCKED_HOSTS (line 18) is matched as an exact string against the raw hostname (line 77), so the mapped form of an entry is not caught. 100.100.100.200 (the Alibaba metadata endpoint) is not link-local, loopback, unspecified or multicast. So http://[::ffff:100.100.100.200]/ passes, even though plain http://100.100.100.200/ is blocked. 169.254.169.254 stays covered through is_link_local. The old code also accepted this input, so the gap was already there and the diff did not add it. It is still an inconsistency inside the new branch. pending: confirm the HTTP client (httpx) actually connects to an IPv4-mapped literal and reaches the IPv4 host in the deployment network stack.",
+              "source_window": [
+                "            return (False, \"Blocked address\")",
+                "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+                "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+                "            mapped = addr.ipv4_mapped",
+                "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+              ],
+              "cwe": null,
+              "why_it_matters": "A metadata IP that is blocked in its IPv4 form can still be reached through its IPv6-mapped form.",
+              "fix_hint": "also check str(mapped) against BLOCKED_HOSTS in the mapped branch",
+              "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n    mapped = addr.ipv4_mapped\n    if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:\n        return (False, \"Blocked address\")",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/validation.py",
+              "line": 85,
+              "title": "Only ::ffff:0:0/96 is handled; IPv4-compatible, NAT64 and 6to4 forms that embed loopback are not unwrapped",
+              "category": "logic-error",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 30,
+              "problem": "ipv4_mapped covers only ::ffff:a.b.c.d. These forms are not unwrapped: the deprecated IPv4-compatible ::127.0.0.1 (ipaddress does not flag it as loopback), NAT64 64:ff9b::7f00:1, and 6to4 2002:7f00:1:: (exposed as addr.sixtofour). All of them pass validation. The old code allowed them too, so this is outside what the diff tightens. pending: show that the host network stack actually routes one of these forms to loopback or link-local (NAT64 needs a translator; ::a.b.c.d is mostly unsupported on modern kernels).",
+              "source_window": [
+                "            return (False, \"Blocked address\")",
+                "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+                "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+                "            mapped = addr.ipv4_mapped",
+                "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+              ],
+              "cwe": null,
+              "why_it_matters": "These are alternate encodings of a blocked address, though whether they can be used depends on the network.",
+              "fix_hint": "optionally also unwrap addr.sixtofour and the 64:ff9b::/96 prefix, then apply the same checks",
+              "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/web/validation.py",
+              "line": 85,
+              "title": "IPv4-mapped check does not cover the Alibaba metadata IP in BLOCKED_HOSTS, so ::ffff:100.100.100.200 still gets through",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 40,
+              "problem": "The new mapped-address branch only re-checks the link-local, loopback, unspecified and multicast flags. BLOCKED_HOSTS (line 18, plain string match at line 77) also lists 100.100.100.200, the Alibaba Cloud metadata address. That address is in shared address space and is not link-local, so `http://[::ffff:100.100.100.200]/` matches no string in BLOCKED_HOSTS and no flag, and validation passes. The old code also let this through, so it is a gap that existed before this diff, not something the diff introduced. pending: confirm the httpx client in a dual-stack container connects to the mapped address. If it does, this reaches Alibaba metadata.",
+              "source_window": [
+                "            return (False, \"Blocked address\")",
+                "        # Check IPv4-mapped IPv6 addresses (e.g., ::ffff:127.0.0.1) per D-10",
+                "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+                "            mapped = addr.ipv4_mapped",
+                "            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:"
+              ],
+              "cwe": "CWE-918",
+              "why_it_matters": "D-10 aims to stop the IPv4-mapped form from getting past the blocklist. That goal is only partly met for the cloud-metadata hosts that BLOCKED_HOSTS lists by name.",
+              "fix_hint": "Check str(mapped) against BLOCKED_HOSTS too, or compare normalized IP objects instead of raw hostname strings.",
+              "current_code": "if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n            mapped = addr.ipv4_mapped\n            if mapped.is_link_local or mapped.is_loopback or mapped.is_unspecified or mapped.is_multicast:",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/web/validation.py",
+            "line": 85,
+            "canonical_line_content": "        if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:",
+            "band": "medium"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped branch skips the BLOCKED_HOSTS check, so [::ffff:100.100.100.200] gets through",
+          "reason": "absorbed-into: 81fbad85d8894a5f1377139f20b3aa766c356242f84b43b70f2dc5b0b37304c7"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "Only ::ffff:0:0/96 is handled; IPv4-compatible, NAT64 and 6to4 forms that embed loopback are not unwrapped",
+          "reason": "absorbed-into: 81fbad85d8894a5f1377139f20b3aa766c356242f84b43b70f2dc5b0b37304c7"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check does not cover the Alibaba metadata IP in BLOCKED_HOSTS, so ::ffff:100.100.100.200 still gets through",
+          "reason": "absorbed-into: 81fbad85d8894a5f1377139f20b3aa766c356242f84b43b70f2dc5b0b37304c7"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 89,
+          "title": "Shorthand IPv4 loopback literals (127.1, 2130706433, 0x7f.1) skip every IP check",
+          "reason": "absorbed-into: a2e647ca1db53c11cd8ef32bfb4eec7925b0c05f0fbc8653db11317d052d4163"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 81,
+          "title": "Other IPv6 encodings and numeric hostname forms of blocked IPv4 addresses are still not normalized",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 89,
+          "title": "Pre-existing SSRF gap: alternate IP literal encodings bypass ipaddress parsing",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}

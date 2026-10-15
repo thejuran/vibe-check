@@ -667,6 +667,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/triggarr-secret-in-logs/run-1 | 3 |
 | final/triggarr-autoescape/run-1 | 0 |
 | final/third-organic-should-catch/run-1 | 0 |
+| final/should-quiet-1/run-1 | 3 |
 
 ## Cache
 
@@ -1170,4 +1171,21 @@ candidates at site with band >= floor: 1
 AXIS: credit — row 2cc1dbe9a612 (alarm, critical 100) at view-file.service.ts:308 (keyed bug lines 307-309) — "Completed extracted files show over 100% and lose completion indicators"; members bugs "Removed clamp lets percentDownloaded exceed 100 ... loses Done/success state", impact "breaks the three-equals 100 checks". Names the missing clamp / out-of-range value. Location AND causal failure match.
 
 vs entry 1: "catch kept" -> catch kept. Run 8m01s; fix-loop card after 466s; `Stop here…` -> `Abandon` by label. The seedsyncarr clone had its provisioned `node_modules` (entry 3).
+
+
+### final/should-quiet-1/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 0
+needs-verification items: 0
+fired: no
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+vs entry 1: "quiet" -> quiet (0 alarms, 0 NV) — PASS (Phase 49: 0/3 fired). The fix-loop card still appeared (rows below the Warning band are listed for fixing); `Stop here…` -> `Abandon` by label. Run 9m09s; card after 527s.
 
