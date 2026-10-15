@@ -598,6 +598,48 @@ before it is counted, and the result is recorded under that run.
 `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`); repo HEAD at this entry
 `45401bb` (runbook change only).
 
+### Entry 3 — 2026-10-15T02:11:10Z (before the final sweep)
+
+Committed before any `final` run. Entries 1-2 stand. Setup only; the candidate and the
+instructions are unchanged, so entry 1's expectations and pass/fail criteria apply unchanged.
+
+**Environment folders in the disposable clones.** The owner's working repos carry ignored
+environment folders that the fresh clones lacked: `~/triggarr/.venv` (Python 3.11),
+`~/roonseek/.venv` (Python 3.13), `~/seedsyncarr/src/angular/node_modules`. During the targeted
+stage a measured session (`triggarr-session-rotation`) ran `uv run pytest`, which built a `.venv`
+in the triggarr clone (born 2026-10-15T01:48:40Z), and the next review (`triggarr-autoescape`) read
+installed Starlette from it. So within the targeted stage: `reach-new-1`, `should-quiet-4/6/7`,
+`triggarr-secret-in-logs` and the start of `triggarr-session-rotation` ran without a triggarr
+`.venv`; `triggarr-autoescape` ran with one; the roonseek and seedsyncarr runs had no
+environment folder. Recorded as a targeted-stage setup difference against Phase 49 (whose reviews
+ran in the owner's repos with these folders present).
+
+For the final sweep every clone carries the environment folder its owner repo has, built before
+the first final run: triggarr and roonseek `.venv` rebuilt from the clone's committed `uv.lock` at
+`main` (`uv sync --frozen --all-extras --all-groups`, same Python minor as the owner's); the
+triggarr package set equals the owner's exactly; roonseek lacks one package the owner installed
+outside the lock (`musicbrainzngs`), left uninstalled; seedsyncarr `src/angular/node_modules` is a
+copy-on-write copy of the owner's (same top-level package list). All three are gitignored in the
+clones (status clean). A measured session may still change them (e.g. `uv run` at an older base
+re-syncing `.venv`), as it could in the owner's repos.
+
+**Other setup changes since entry 2** (all runbook/clone, none in the candidate): `post` no
+longer rescans `tree.diff` (byte-identical to the committed case patch; the email rule misread an added
+decorator line, the diff's plus sign followed by `@router.get`) — `e239760`; `.planning/HANDOFF.json` (written by the owner's bm plugin on tool
+use) is in each clone's local exclude and removed after each run; an empty clone auto-memory dir
+a session creates is moved to the park dir as evidence after each run.
+
+**Final sweep.** No change to `plugins/vibe-check/` since entry 1 (fingerprint
+`5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`, repo HEAD at this entry
+`2863299`). `FINAL_FP` is recorded by `STAGE=final p53 fingerprint` on the runner copy, then the
+replay guard (26/26 required) and the allowance-gated complete-output diff run on that candidate,
+then every `score43.DIFFS` id (12) and the four approved development cases run once, in this
+order: `reach-new-1`, `reach-new-2`, `reach-unchanged-1`, `reach-unchanged-2`, then
+`score43.DIFFS` order (`triggarr-secret-in-logs`, `triggarr-autoescape`,
+`third-organic-should-catch`, `should-quiet-1`, `should-quiet-2`, `should-quiet-3`,
+`triggarr-session-rotation`, `triggarr-settings-form-split`, `should-quiet-4`, `should-quiet-5`,
+`should-quiet-6`, `should-quiet-7`).
+
 ## nv_dropped_weak scope
 
 Current rule (`templates/scoring.md` R5, `score.py`): when a grouped row's lead qualifies on its
