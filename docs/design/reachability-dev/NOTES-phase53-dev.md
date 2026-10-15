@@ -609,6 +609,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | stage/case/run | nv_dropped_weak |
 |---|---|
 | targeted/reach-new-1/run-1 | 1 |
+| targeted/reach-new-2/run-2 | 1 |
 
 ## Cache
 
@@ -690,4 +691,31 @@ candidates at site: 1 (alarms 1, needs-verification 0)
 AXIS: credit — row 64d6c7dbf247 (alarm, critical 100) — names routes.py:1689 (the new reset-token log call) and the causal failure: the token is logged in cleartext into the log buffer and surfaced in the authenticated web UI log viewer (members codex-adversarial "Reset tokens enter the web-visible log buffer", compliance). Location AND causal failure match the keyed defect.
 
 Setup checks (first run after entry 2): effective context window confirmed from Claude Code's own status-line payload for this session — `model.id claude-fable-5-1[1m]`, `context_window.context_window_size 1000000` — the pinned 1M window (the status line's "200k" label is its fallback, see entry 2); effort shown `medium`, the same as every Phase-49 measured session (their transcripts record `"effort":"medium"`), so no confirmed difference from the pinned setup. Before `/clear`, Claude Code showed its one-time folder-trust prompt for the new clone path; it was accepted ("Yes, I trust this folder") as a setup step — expected once per disposable clone. Session: 15m29s to the fix-loop card; `Stop here…` -> `Abandon` by label. Owner questions: the fix-loop card and the stop card (2, measurement keystrokes). Not scored but recorded: other alarms are off the keyed defect (mkstemp fd leak x2, reset flow unfinished, routes.py:1617).
+
+
+### targeted/reach-new-2/run-2 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| security | src/angular/src/app/pages/main/notification-bell.component.html | 28 | critical | 100 | 5d4874b914f1 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+keyed defect: src/angular/src/app/pages/main/notification-bell.component.html:28 now binds unchanged server- and remote-influenced notification text with [innerHTML] instead of {{ notif.text }} interpolation, so markup in those strings is parsed as HTML in every open UI (HTML injection): Angular's sanitizer keeps links, images and formatting, so injected markup can render attacker-controlled links or images in a trusted UI element.
+label: development rehearsal - not release evidence
+| agent | file | line | band | score | stable_hash | nv | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|---|
+| security | src/angular/src/app/pages/main/notification-bell.component.html | 28 | critical | 100 | 5d4874b914f1 | no | Auto-escaped interpolation replaced with raw [innerHTML] binding on notification text | security: Auto-escaped interpolation replaced with raw [innerHTML] binding on notification text; codex-adversarial: HTML injection enables phishing through remote scan errors; bugs: Notification text is now parsed as HTML, so server and remote error strings can inject markup and lose text; impact: HTML injection: server and remote-scan error text is now parsed as HTML, and script blocking depends only on Angular's sanitizer; architecture: Notification.text silently changes from plain text to HTML for every producer, including ones that pass through server-supplied strings; impact: Error text containing angle brackets is silently dropped or mangled for users |  |
+candidates at site: 1 (alarms 1, needs-verification 0)
+
+AXIS: credit — row 5d4874b914f1 (alarm, critical 100) — names notification-bell.component.html:28 and the causal failure: escaped interpolation replaced by [innerHTML] so server- and remote-influenced notification text is parsed as HTML (members codex-adversarial "HTML injection enables phishing through remote scan errors", bugs, impact). Location AND causal failure match the keyed defect (scored on HTML injection only, per the README condition).
+
+Run notes: 8m30s to finish; fix-loop card after 495s; `Stop here…` -> `Abandon` by label; one-time folder-trust prompt accepted for the new seedsyncarr clone path. Harness note: after the review persisted its state, the owner's enabled bm plugin wrote an untracked `.planning/HANDOFF.json` (PostToolUse hook, `source: auto-postool`) into the clone; the case base predates the repo's own `**/HANDOFF.json` ignore rule, so `post` refused on the untracked file. The review's scope was tracked changes only (its one finding sits in the case file) and the file was born after the state was persisted, so the review is unaffected. Setup correction: `.planning/HANDOFF.json` added to each disposable clone's local exclude and removed after each run; the partial archive was cleared and `post` rerun on the same run (state file untouched).
 
