@@ -1688,6 +1688,7 @@ COMMANDS = {
     "dryrun": "holdout_dryrun",
     "autopilot": "holdout_autopilot",
     "denials": "holdout_autopilot",
+    "eval-launch": "holdout_eval_launch",
 }
 # The ONLY commands run() dispatches without --folder. seal-order and publish
 # take --repo; resume-check reads a checkpoint reply from stdin.

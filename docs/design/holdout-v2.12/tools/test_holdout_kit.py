@@ -441,6 +441,10 @@ class TestDispatch(KitCase):
         for name in ("encrypt", "leakscan", "scrub", "decrypt"):
             self.assertEqual(c[name], "holdout_archive")
         self.assertEqual(c["dryrun"], "holdout_dryrun")
+        # The holdout measurement launcher: dispatched by the kit and never
+        # exempt from the Claude-shell refusal.
+        self.assertEqual(c["eval-launch"], "holdout_eval_launch")
+        self.assertNotIn("eval-launch", holdout_kit.NO_REFUSAL_COMMANDS)
         self.assertTrue(holdout_kit.NO_REFUSAL_COMMANDS
                         <= holdout_kit.NO_FOLDER_COMMANDS)
 
