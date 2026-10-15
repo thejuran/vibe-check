@@ -665,6 +665,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/reach-unchanged-1/run-1 | 0 |
 | final/reach-unchanged-2/run-1 | 0 |
 | final/triggarr-secret-in-logs/run-1 | 3 |
+| final/triggarr-autoescape/run-1 | 0 |
 
 ## Cache
 
@@ -1118,4 +1119,29 @@ candidates at site with band >= floor: 2
 AXIS: credit — row 62cb389298ca (alarm, critical 100) at clients/base.py:233 (keyed bug line) — "HTTP error logging exposes proxy credentials"; members bugs "Reverts key-leak fix: raw HTTPStatusError string (full request URL) logged", impact "raw HTTPStatusError text puts the full request URL ... into logs and the web UI log viewer". Row 021700bd8847 (warning) at base.py:252 names the payload echo (bugs/impact members). Location AND causal failure (secret in the exception URL leaked into logs) match.
 
 vs entry 1: "catch kept" -> catch kept. Run 9m17s; fix-loop card after 541s; `Stop here…` -> `Abandon` by label.
+
+
+### final/triggarr-autoescape/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| compliance | triggarr/web/routes.py | 45 | critical | 100 | 02babc676ff2 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| compliance | triggarr/web/routes.py | 45 | critical | 100 | 02babc676ff2 | Diff reverts the exact fix for Jinja2 autoescape not applying | compliance: Diff reverts the exact fix for Jinja2 autoescape not applying; architecture: Diff reverts the supported Jinja2Templates env= API back to a kwarg the locked Starlette no longer accepts; framework-fastapi: Jinja2Templates called with unsupported `autoescape` kwarg, crashes app at import; bugs: Jinja2Templates(autoescape=True) raises TypeError on the installed Starlette, so the app fails at import; impact: Reverting to Jinja2Templates(directory=..., autoescape=True) raises TypeError at import, so the app cannot start (complete outage). It also hands the XSS autoescape guarantee to a removed, version-dependent library path; security: Diff reverts the prior autoescape fix, crashing the app and dropping the forced-autoescape guarantee; codex-adversarial: Template initialization crashes application startup |  |
+candidates at site with band >= floor: 1
+
+AXIS: credit — row 02babc676ff2 (alarm, critical 100) at routes.py:45 (keyed bug line) — survivor "Diff reverts the exact fix for Jinja2 autoescape not applying"; members impact "hands the XSS autoescape guarantee to a removed, version-dependent library path", security "dropping the forced-autoescape guarantee". The escaping/XSS consequence is named at the keyed line. As in the targeted run, the lead mechanism is a TypeError at import on the installed Starlette (the key describes a silent no-op); both are the version-dependent loss of autoescape.
+
+vs entry 1: "catch kept" -> catch kept. Run 10m47s; fix-loop card after 602s; `Stop here…` -> `Abandon` by label. The triggarr clone had its provisioned `.venv` (entry 3).
 
