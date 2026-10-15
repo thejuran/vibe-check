@@ -718,6 +718,24 @@ found; the two harness problems found (`post` rescanning the sha-verified case d
 plugin's `.planning/HANDOFF.json` in the clone) were fixed in the runbook/clone setup, not the
 candidate.
 
+## Final candidate
+
+FINAL_FP: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+repo_head: ebcd3e4fded8f7793abcca005191ea2c182933f1
+recorded (UTC): 2026-10-15T02:11:44Z (`STAGE=final p53 fingerprint` on the runner copy;
+`plugins/vibe-check` clean; runner copy == candidate tree; the owner's installed cache untouched at
+`f2cf0373…` = the v2.11.1 release)
+
+Replay checks on this candidate (scorer `rev:HEAD`, sha256 `525c5e83…`):
+
+- guardrail `replay.py candidate --name phase53-final` — exit 0; protected catch runs 26: kept 25,
+  AMENDED 1 (`runs/triggarr-secret-in-logs/run-2`, baseline basis axis-false, the ledger amendment
+  already in force — identical to the 53-07 guardrail), REGRESSED 0, UNEVALUABLE 0 → all 26
+  accounted for (`REPLAY-REPORT-phase53-final-guardrail.md`).
+- complete-output diff vs `blob:5ca2ddd…` with `ALLOWANCES-phase53-nv.json` — exit 0; runs compared
+  154, differing 65, all allowed; **runs with unallowed differences: 0**; allowances unused 0; no
+  new allowance added (`REPLAY-REPORT-phase53-final-diff.md`).
+
 ## Runs
 
 ### targeted/reach-new-2/run-1 — FAILED ATTEMPT (development rehearsal — not release evidence)
