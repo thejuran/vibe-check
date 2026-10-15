@@ -445,10 +445,22 @@ Procedure:
    budget.
 4. `bin/holdout validate`, then `bin/holdout crosscheck-prepare --case <new ID>` (fresh
    workspace; run the probe first in the new session), reveal, `bin/holdout seal`.
-5. Close every isolated session, then `bin/holdout encrypt`,
+5. In the repo checkout, run `git rm docs/design/holdout-v2.12/SEAL.json` and commit it on its
+   own with a message that names the retired case ids (e.g. `retire holdout <ids>`), BEFORE
+   `publish`. `publish` never overwrites a different committed SEAL.json, and the freeze kit's
+   retune proof (`freeze_policy.py seal-order-proof`, freeze README `## Retune`) names the
+   commit that ADDS the replacement SEAL.json, so the replacement must land as its own commit
+   after this removal commit and before the first repair commit.
+6. Close every isolated session, then `bin/holdout encrypt`,
    `bin/holdout leakscan --repo ~/turingmind-code-review` (expect 0),
-   `bin/holdout publish --repo ~/turingmind-code-review`, `bin/holdout scrub --yes`.
-6. Reply exactly `replaced slots=<slots>` (not `sealed`).
+   `bin/holdout publish --repo ~/turingmind-code-review`, then in the repo checkout
+   `git add docs/design/holdout-v2.12/SEAL.json && git commit` (message
+   `seal replacement holdout <new ids>`), then `bin/holdout scrub --yes`.
+7. Reply exactly `replaced slots=<slots>` (not `sealed`). The reply grammar stays closed (no
+   commit ids); the replacement seal commit from step 6 is in the tuning repo itself, and the
+   tuning side reads it with
+   `git log --diff-filter=A --format=%H -1 -- docs/design/holdout-v2.12/SEAL.json` and passes
+   it to `seal-order-proof --seal-commit`.
 
 If a match is in the current tuning session's own transcript, it is also a 7c incident: end
 that session first and continue in a clean one.
@@ -689,6 +701,20 @@ The seal commit must come before the first Phase 53 commit (D-08); `seal-order -
 - A verdict that steers tuning retires that slot; it needs a fresh replacement before the
   retune.
 - Before any run: `decrypt`, then `rehash`, then `seal-order --before <first 53- commit>`.
+- Every holdout evaluation run (detection x3 and accepted-fix) is started with
+  `python3 docs/design/holdout-v2.12/tools/holdout_eval_launch.py eval-launch --run-dir <new dir>
+  --case <folder> [--model …]` from the owner's plain Terminal. The launcher runs the freeze
+  identity check (runner `holdout-eval`) before EVERY launch, retries included (a retry is a
+  new launch with a new `run-<n>` dir), stops on any mismatch with the exact differences, has
+  no override, builds the plugin copy and the measured runner settings from the candidate
+  commit via git, and writes `identity.json` (manifest_id, check_digest, candidate_sha,
+  case_id, run_name) into the run dir: the eligibility record. The case folder is an opaque
+  argument named by its case id; the launcher never reads anything under it. The sealing
+  autopilot runs the same check under the `holdout-autopilot` profile before every session it
+  launches, so any post-freeze replacement sealing is bound too. The policy is in
+  `docs/design/freeze-v2.12/README.md`.
+- `holdout_eval_launch.py` refuses in a Claude-spawned shell, like the autopilot: the
+  assistant never starts a holdout evaluation run.
 
 STATE.md's v2.12 sequencing note says the same, and Phase 55's plans must repeat it.
 

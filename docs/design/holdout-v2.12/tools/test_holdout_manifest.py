@@ -1438,6 +1438,153 @@ class RetiredCase(SealedCase):
         return m.group(1)
 
 
+# The freeze kit's PATH-MAP and policy, read from this checkout for the
+# replacement-seal sequence test only; holdout modules never import them.
+CHECKOUT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(TOOLS_DIR))))
+FREEZE_TOOLS = os.path.join(CHECKOUT_ROOT, "docs", "design", "freeze-v2.12",
+                            "tools")
+README_PATH = os.path.join(os.path.dirname(TOOLS_DIR), "README.md")
+
+
+def _head_sha(repo):
+    return holdout_fixture.git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def _commit(repo, message, *paths):
+    if paths:
+        holdout_fixture.git(repo, "add", "--", *paths)
+    holdout_fixture.git(repo, "commit", "-q", "-m", message)
+    return _head_sha(repo)
+
+
+class TestPublishReplacement(RetiredCase):
+    """README 7d's replacement sequence against the REAL publish(): the
+    committed seal is removed in its own commit, the replacement seal lands
+    in its own commit, and the freeze kit's retune proof accepts exactly that
+    commit. Synthetic cases in a disposable repo only."""
+
+    def _proof(self, name, seal_commit, previous, active, retired, repl):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w") as fh:
+            json.dump({"schema": self.fp.SEAL_ORDER_SCHEMA,
+                       "previous_candidate_sha": previous,
+                       "retired_case_ids": retired,
+                       "replacement_case_ids": repl,
+                       "replacement_seal_commit": seal_commit,
+                       "first_repair_commit": self.repair}, fh)
+        return path
+
+    def test_replacement_seal_documented_sequence(self):
+        if FREEZE_TOOLS not in sys.path:
+            sys.path.insert(0, FREEZE_TOOLS)
+        import freeze_policy
+        self.fp = freeze_policy
+        map_rel = freeze_policy.MAP_SELF_PATH
+        with open(os.path.join(CHECKOUT_ROOT, *map_rel.split("/")),
+                  "rb") as fh:
+            path_map = fh.read()
+        repo = self.repo
+        holdout_fixture.write(repo, map_rel, path_map)
+        _commit(repo, "path map", map_rel)
+        bugs = "plugins/vibe-check/agents/bugs.md"
+
+        # S0: the original seal, published and committed on its own.
+        original_id = self.ids["C1"]
+        dest = holdout_manifest.publish(self.folder, repo)
+        self.assertEqual(dest, self.dest)
+        with open(self.seal_path, "rb") as fh:
+            original = fh.read()
+        s0 = _commit(repo, "seal holdout", holdout_manifest.SEAL_RELPATH)
+        # P: the previous candidate.
+        holdout_fixture.write(repo, bugs, "bugs agent v1\n")
+        previous = _commit(repo, "previous candidate", bugs)
+
+        # Retire C1 and re-find it: a replacement seal with other bytes.
+        holdout_manifest.retire_case(self.folder, original_id, "owner")
+        new_id = self.replace("C1", key=default_key("C1", tag="b"),
+                              provenance=default_provenance("C1", tag="b"),
+                              diff=make_diff("src/new.py", ["b = 1"],
+                                             ["b = 3"]))
+        with open(self.seal_path, "rb") as fh:
+            replacement = fh.read()
+        self.assertNotEqual(replacement, original)
+
+        # publish_without_rm_refuses: the committed seal is never overwritten.
+        with self.assertRaisesRegex(holdout_kit.KitError,
+                                    "already holds a different SEAL.json"):
+            holdout_manifest.publish(self.folder, repo)
+        with open(self.dest, "rb") as fh:
+            self.assertEqual(fh.read(), original)
+
+        # The documented sequence: git rm + commit (RM), publish + commit (S1),
+        # then the repair (R) = the active candidate A.
+        holdout_fixture.git(repo, "rm", "-q", "--",
+                            holdout_manifest.SEAL_RELPATH)
+        rm = _commit(repo, "retire holdout %s" % original_id)
+        self.assertIn(original_id, holdout_fixture.git(
+            repo, "log", "-1", "--format=%s", rm).stdout)
+        self.assertEqual(holdout_manifest.publish(self.folder, repo),
+                         self.dest)
+        with open(self.dest, "rb") as fh:
+            self.assertEqual(fh.read(), replacement)
+        s1 = _commit(repo, "seal replacement holdout %s" % new_id,
+                     holdout_manifest.SEAL_RELPATH)
+        holdout_fixture.write(repo, bugs, "bugs agent v2 (repair)\n")
+        active = _commit(repo, "repair", bugs)
+        self.repair = active
+        self.assertEqual(freeze_policy.first_repair_commit(
+            repo, previous, active, map_rel), active)
+
+        good = os.path.join(self.tmp, "seal-order-good.json")
+        freeze_policy.write_seal_order_proof(
+            good, repo, previous, active, map_rel,
+            replacement_seal_commit=s1, retired_case_ids=[original_id],
+            replacement_case_ids=[new_id])
+        self.assertEqual(freeze_policy.retune_evidence_ok(
+            good, repo, previous, active, map_rel), (True, []))
+
+        # The removal commit is never the seal.
+        ok, reasons = freeze_policy.retune_evidence_ok(
+            self._proof("rm.json", rm, previous, active, [original_id],
+                        [new_id]), repo, previous, active, map_rel)
+        self.assertFalse(ok)
+        self.assertIn("replacement seal commit does not add SEAL.json",
+                      reasons)
+        # The original seal predates the previous candidate.
+        ok, reasons = freeze_policy.retune_evidence_ok(
+            self._proof("s0.json", s0, previous, active, [original_id],
+                        [new_id]), repo, previous, active, map_rel)
+        self.assertFalse(ok)
+        self.assertIn("replacement seal predates the previous candidate",
+                      reasons)
+        # The writer refuses both as well.
+        for bad in (rm, s0):
+            with self.assertRaises(freeze_policy.FreezeError):
+                freeze_policy.write_seal_order_proof(
+                    os.path.join(self.tmp, "refused-%s.json" % bad[:8]),
+                    repo, previous, active, map_rel,
+                    replacement_seal_commit=bad,
+                    retired_case_ids=[original_id],
+                    replacement_case_ids=[new_id])
+        self.assertEqual(holdout_fixture.git(
+            repo, "status", "--porcelain").stdout, "")
+
+    def test_readme_7d_names_git_rm_step(self):
+        with open(README_PATH, encoding="utf-8") as fh:
+            text = fh.read()
+        start = text.index("### 7d.")
+        end = text.index("\n## ", start)
+        section = text[start:end]
+        proc = section[section.index("Procedure:"):]
+        rm_at = proc.find("git rm docs/design/holdout-v2.12/SEAL.json")
+        pub_at = proc.find("bin/holdout publish --repo")
+        self.assertGreaterEqual(rm_at, 0)
+        self.assertGreaterEqual(pub_at, 0)
+        self.assertLess(rm_at, pub_at)
+        self.assertIn("git add docs/design/holdout-v2.12/SEAL.json", proc)
+
+
 class TestLeakClearance(RetiredCase):
     """A clearance (owner rule 2026-10-09) is an append-only record a later
     kit command writes; it lets a leak-named, leakscan-retired case stay
