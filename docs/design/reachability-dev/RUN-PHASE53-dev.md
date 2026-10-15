@@ -716,7 +716,11 @@ REC=$HOME/.b3/p53-notes-record.md
     echo 'AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>'
   fi
 } > "$REC"
-SCAN="$REC $RUN_DIR/state.json $RUN_DIR/tree.diff $RUN_DIR/fingerprint.txt"
+# tree.diff is not rescanned: its sha256 was checked above to equal the case's
+# EXPECTED_TREE_DIFF_SHA256, i.e. it is byte-identical to the committed, seal-checked case patch,
+# so it discloses nothing the repo does not already hold (and the email rule misreads an added
+# decorator line such as `+@router.get` as an address)
+SCAN="$REC $RUN_DIR/state.json $RUN_DIR/fingerprint.txt"
 python3 "$SCRIPTS/lanearchive.py" scan $SCAN 2> "$HOME/.b3/p53-scan.err" \
   || { tail -1 "$HOME/.b3/p53-scan.err" | cut -c1-80; echo 'PRIVACY SCAN REFUSED — NOTHING APPENDED — STOPPING'; exit 1; }
 cat "$REC" >> "$REPO/$NOTES"
