@@ -66,9 +66,11 @@ REQUIRED_KEYS = (
     "would_be_owner_questions", "execution_seconds", "execution_seconds_label",
     "harness_answer_seconds", "waiting_on_owner_seconds",
     "waiting_on_owner_note", "clean_tree_checkpoint", "containment",
-    "obligations", "verdict", "reasons", "transcript_sha256")
+    "obligations", "verdict", "reasons", "transcript_sha256",
+    "manifest_id", "check_digest", "candidate_sha")
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class RecordError(Exception):
@@ -100,9 +102,11 @@ def build_record(*, case_id, mode, kind, entry, plugin_path,
                  plugin_tree_dirty, copy_root, cli_version, model,
                  setting_sources, decisions, execution_seconds,
                  harness_answer_seconds, clean_tree_checkpoint, containment,
-                 obligations, verdict, reasons, transcript_sha256):
+                 obligations, verdict, reasons, transcript_sha256,
+                 manifest_id, check_digest, candidate_sha):
     """One run record. Keyword arguments only; the honesty fields are fixed
-    here and cannot be passed in."""
+    here and cannot be passed in. `manifest_id`, `check_digest` and
+    `candidate_sha` are the freeze identity the pre-launch check verified."""
     return {
         "case_id": case_id,
         "mode": mode,
@@ -134,6 +138,9 @@ def build_record(*, case_id, mode, kind, entry, plugin_path,
         "reasons": list(reasons) if isinstance(reasons, (list, tuple))
         else reasons,
         "transcript_sha256": transcript_sha256,
+        "manifest_id": manifest_id,
+        "check_digest": check_digest,
+        "candidate_sha": candidate_sha,
     }
 
 
@@ -264,6 +271,13 @@ def _identity_problems(record):
     if not isinstance(record.get("transcript_sha256"), str) \
             or not _SHA256_RE.match(record["transcript_sha256"]):
         problems.append("transcript_sha256 is not a sha256 hex digest")
+    for key in ("manifest_id", "check_digest"):
+        if not isinstance(record.get(key), str) \
+                or not _SHA256_RE.match(record[key]):
+            problems.append("%s is not a sha256 hex digest" % key)
+    if not isinstance(record.get("candidate_sha"), str) \
+            or not _COMMIT_RE.match(record["candidate_sha"]):
+        problems.append("candidate_sha is not a 40-hex commit")
     source = record.get("plugin_source_path")
     copy_root = record.get("copy_root")
     if not isinstance(source, str) or not os.path.isabs(source):

@@ -311,7 +311,34 @@ def _copy_view(core):
             os.stat(os.path.join(root, ".git", "index")).st_mtime_ns)
 
 
-class TestOrderingAndPreflight(unittest.TestCase):
+LAUNCH_MODEL = "claude-frozen-x"
+MANIFEST_ID = "a" * 64
+CHECK_DIGEST = "c" * 64
+
+
+class _Identity:
+    def __init__(self, candidate_sha, problems=()):
+        self.problems = list(problems)
+        self.manifest_id = MANIFEST_ID
+        self.check_digest = CHECK_DIGEST
+        self.candidate_sha = candidate_sha
+
+
+def _head():
+    return _git(harness_sandbox.CHECKOUT_ROOT, "rev-parse", "HEAD").strip()
+
+
+def _manifest(candidate=None, model=LAUNCH_MODEL):
+    runner = {"launch_model": {"value": model}} if model is not None else {}
+    return {"manifest_id": MANIFEST_ID, "candidate_sha": candidate or _head(),
+            "runners": {"fix-harness": runner}}
+
+
+class _RunCase(unittest.TestCase):
+    """fixharness.run on a real copy, with the freeze manifest and identity
+    check replaced by fixtures (no manifest is committed before the
+    freeze)."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -330,10 +357,47 @@ class TestOrderingAndPreflight(unittest.TestCase):
         self.addCleanup(lambda: [shutil.rmtree(w, True)
                                  for w in self.workspaces])
 
+        self.manifest = _manifest()
+        patcher = mock.patch.object(
+            harness_sandbox, "load_freeze_manifest",
+            lambda raw=None: ("/fixture/FREEZE-MANIFEST-1.json",
+                              self.manifest))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(
+            harness_sandbox, "freeze_identity_check",
+            lambda *a, **k: _Identity(self.manifest["candidate_sha"]))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def argv(self, kind="preservation"):
         return ["--case", CASE, "--mode", "default", "--kind", kind,
                 "--out", self.out]
 
+    def fake_drive(self, seen, model=LAUNCH_MODEL):
+        def drive(copy, snapshot, prompt, core, out, settings, **kw):
+            seen["drive_kw"] = kw
+            self.addCleanup(shutil.rmtree, kw["tmp_root"], True)
+            with open(os.path.join(out, "transcript.jsonl"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("{}\n")
+            with open(os.path.join(out, "transcript.jsonl"), "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            return harness_driver_sdk.DriveResult({}, 0, 0, 0, None, digest,
+                                                  None, model)
+        return drive
+
+    def passing_preflight(self):
+        identity = _Identity(self.manifest["candidate_sha"])
+        return mock.patch.object(harness_sandbox, "preflight_with_identity",
+                                 lambda *a, **k: ([], identity))
+
+    def record(self):
+        with open(os.path.join(self.out, "run.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+
+
+class TestOrderingAndPreflight(_RunCase):
     def test_every_copy_writer_runs_before_drive_and_observation_is_a_read(
             self):
         seen = {}
@@ -362,11 +426,12 @@ class TestOrderingAndPreflight(unittest.TestCase):
             with open(os.path.join(out, "transcript.jsonl"), "rb") as fh:
                 digest = hashlib.sha256(fh.read()).hexdigest()
             return harness_driver_sdk.DriveResult({}, 0, 0, 0, None, digest,
-                                                  None, None)
+                                                  None, LAUNCH_MODEL)
 
+        identity = _Identity(self.manifest["candidate_sha"])
         with mock.patch.object(fixharness, "_drive", fake_drive), \
-                mock.patch.object(harness_sandbox, "preflight",
-                                  lambda *a: []), \
+                mock.patch.object(harness_sandbox, "preflight_with_identity",
+                                  lambda *a, **k: ([], identity)), \
                 mock.patch.object(fixharness.Phase, "launch", launch):
             code = fixharness.run(self.argv())
         self.assertEqual(phases, [["make_workspace", "snapshot_plugin",
@@ -412,6 +477,169 @@ class TestOrderingAndPreflight(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.out, "run.json")))
 
 
+class TestRunIdentityWiring(_RunCase):
+    """The freeze identity check gates every run, verifies the session's
+    real env and model, and stamps the record."""
+
+    def test_run_stops_before_drive_on_identity_mismatch(self):
+        drives = []
+        problem = ("freeze identity mismatch: file differs: agents/bugs.md")
+        with mock.patch.object(fixharness, "_drive",
+                               lambda *a, **k: drives.append(a)), \
+                mock.patch.object(harness_sandbox, "preflight_with_identity",
+                                  lambda *a, **k: ([problem], None)), \
+                mock.patch("sys.stderr") as err:
+            code = fixharness.main(["run"] + self.argv(kind="clean"))
+        self.assertEqual(code, 2)
+        self.assertEqual(drives, [])
+        printed = "".join(c.args[0] for c in err.write.call_args_list)
+        self.assertIn("fixharness: preflight: " + problem, printed)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "run.json")))
+
+    def test_mutant_17_bypassed_identity_proceeds_to_drive(self):
+        seen = {}
+        identity = _Identity(self.manifest["candidate_sha"])
+        with mock.patch.object(fixharness, "_drive", self.fake_drive(seen)), \
+                mock.patch.object(harness_sandbox, "preflight_with_identity",
+                                  lambda *a, **k: ([], identity)):
+            fixharness.main(["run"] + self.argv(kind="clean"))
+        self.assertIn("drive_kw", seen)
+
+    def test_real_preflight_refuses_a_planted_mismatch(self):
+        drives = []
+        planted = "file differs: agents/bugs.md (manifest aaa live bbb)"
+        with mock.patch.object(fixharness, "_drive",
+                               lambda *a, **k: drives.append(a)), \
+                mock.patch.object(harness_sandbox, "_sandbox_problems",
+                                  lambda *a: []), \
+                mock.patch.object(
+                    harness_sandbox, "freeze_identity_check",
+                    lambda *a, **k: _Identity(self.manifest["candidate_sha"],
+                                              [planted])), \
+                mock.patch("sys.stderr") as err:
+            code = fixharness.run(self.argv(kind="clean"))
+        self.assertEqual(code, 2)
+        self.assertEqual(drives, [])
+        printed = "".join(c.args[0] for c in err.write.call_args_list)
+        self.assertIn("fixharness: preflight: freeze identity mismatch: "
+                      + planted, printed)
+
+    def test_harness_env_reaches_check_and_session(self):
+        seen = {}
+        identity = _Identity(self.manifest["candidate_sha"])
+
+        def preflight(*a, **kw):
+            seen["check_kw"] = kw
+            return [], identity
+        with mock.patch.dict(os.environ, {"ANTHROPIC_MODEL": "planted"}), \
+                mock.patch.object(fixharness, "_drive", self.fake_drive(seen)), \
+                mock.patch.object(harness_sandbox, "preflight_with_identity",
+                                  preflight):
+            fixharness.run(self.argv(kind="clean"))
+        check, drive = seen["check_kw"], seen["drive_kw"]
+        self.assertIs(check["env"], drive["env"])
+        self.assertEqual(check["env"]["ANTHROPIC_MODEL"], "planted")
+        self.assertNotIn("CLAUDECODE", check["env"])
+        self.assertEqual(check["launch_model"], LAUNCH_MODEL)
+        self.assertEqual(drive["model"], LAUNCH_MODEL)
+        self.assertEqual(check["candidate_sha"], self.manifest["candidate_sha"])
+
+    def test_init_model_mismatch_fails_run(self):
+        seen = {}
+        with self.passing_preflight(), \
+                mock.patch.object(fixharness, "_drive",
+                               self.fake_drive(seen, model="claude-other")):
+            fixharness.run(self.argv(kind="clean"))
+        r = self.record()
+        self.assertEqual(r["verdict"], "FAILED")
+        self.assertIn("model differs: launched %s init claude-other"
+                      % LAUNCH_MODEL, r["reasons"])
+        self.assertEqual(r["model"], "claude-other")
+
+    def test_matching_init_model_adds_no_model_reason(self):
+        seen = {}
+        with self.passing_preflight(), \
+                mock.patch.object(fixharness, "_drive", self.fake_drive(seen)):
+            fixharness.run(self.argv(kind="clean"))
+        self.assertFalse([x for x in self.record()["reasons"]
+                          if x.startswith("model differs")])
+
+    def test_mutant_model_comparison_removed_flips(self):
+        seen = {}
+        with self.passing_preflight(), \
+                mock.patch.object(fixharness, "_drive",
+                               self.fake_drive(seen, model="claude-other")), \
+                mock.patch.object(fixharness, "_model_problems",
+                                  lambda launched, init: []):
+            fixharness.run(self.argv(kind="clean"))
+        self.assertFalse([x for x in self.record()["reasons"]
+                          if x.startswith("model differs")])
+
+    def test_record_carries_the_verified_identity(self):
+        seen = {}
+        with self.passing_preflight(), \
+                mock.patch.object(fixharness, "_drive", self.fake_drive(seen)):
+            fixharness.run(self.argv(kind="clean"))
+        r = self.record()
+        self.assertEqual((r["manifest_id"], r["check_digest"],
+                          r["candidate_sha"]),
+                         (MANIFEST_ID, CHECK_DIGEST,
+                          self.manifest["candidate_sha"]))
+        self.assertEqual(r["plugin_sha"], self.manifest["candidate_sha"])
+        self.assertIs(r["plugin_tree_dirty"], False)
+
+    def test_snapshot_defaults_to_the_manifest_candidate(self):
+        seen = {}
+        calls = []
+        real = harness_sandbox.snapshot_plugin_from_commit
+
+        def spy(root, candidate, dest):
+            calls.append(candidate)
+            return real(root, candidate, dest)
+        with self.passing_preflight(), \
+                mock.patch.object(fixharness, "_drive", self.fake_drive(seen)), \
+                mock.patch.object(harness_sandbox,
+                                  "snapshot_plugin_from_commit", spy):
+            fixharness.run(self.argv(kind="clean"))
+        self.assertEqual(calls, [self.manifest["candidate_sha"]])
+
+    def test_other_candidate_than_the_manifest_is_refused(self):
+        drives = []
+        parent = _git(harness_sandbox.CHECKOUT_ROOT, "rev-parse",
+                      "HEAD~1").strip()
+        with mock.patch.object(fixharness, "_drive",
+                               lambda *a, **k: drives.append(a)), \
+                mock.patch.object(harness_sandbox, "_sandbox_problems",
+                                  lambda *a: []), \
+                mock.patch("sys.stderr") as err:
+            code = fixharness.run(self.argv(kind="clean")
+                                  + ["--candidate", parent])
+        self.assertEqual(code, 2)
+        self.assertEqual(drives, [])
+        printed = "".join(c.args[0] for c in err.write.call_args_list)
+        self.assertIn("is not the manifest candidate", printed)
+
+    def test_no_manifest_refuses_before_any_workspace(self):
+        def none(raw=None):
+            raise harness_sandbox.NoManifestError("none")
+        with mock.patch.object(harness_sandbox, "load_freeze_manifest", none):
+            code = fixharness.run(self.argv(kind="clean"))
+        self.assertEqual(code, 2)
+        self.assertEqual(self.workspaces, [])
+
+    def test_manifest_without_launch_model_is_a_usage_error(self):
+        self.manifest = _manifest(model=None)
+        code = fixharness.run(self.argv(kind="clean"))
+        self.assertEqual(code, 2)
+        self.assertEqual(self.workspaces, [])
+
+    def test_plugin_source_option_is_gone(self):
+        with self.assertRaises(SystemExit) as cm, mock.patch("sys.stderr"):
+            fixharness.run(self.argv(kind="clean")
+                           + ["--plugin-source", "/tmp"])
+        self.assertEqual(cm.exception.code, 2)
+
+
 class TestCli(unittest.TestCase):
     def test_usage_errors_exit_2(self):
         self.assertEqual(fixharness.main([]), 2)
@@ -423,9 +651,14 @@ class TestCli(unittest.TestCase):
         self.assertEqual(fixharness.run(
             ["--case", "nope", "--mode", "default", "--kind", "clean",
              "--out", "/tmp/fixharness-never"]), 2)
-        self.assertEqual(fixharness.run(
-            ["--case", CASE, "--mode", "default", "--kind", "clean",
-             "--out", "/tmp/fixharness-never", "--plugin-source", "/tmp"]), 2)
+        with mock.patch.object(harness_sandbox, "load_freeze_manifest",
+                               lambda raw=None: ("/m.json", _manifest())):
+            for bad in ("0" * 40, "--output=/tmp/x", "no-such-rev"):
+                with self.subTest(candidate=bad):
+                    self.assertEqual(fixharness.run(
+                        ["--case", CASE, "--mode", "default", "--kind",
+                         "clean", "--out", "/tmp/fixharness-never",
+                         "--candidate=" + bad]), 2)
         self.assertFalse(os.path.exists("/tmp/fixharness-never"))
 
     def test_matrix_entries(self):

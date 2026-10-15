@@ -283,7 +283,10 @@ async def _keep_open(_input_data, _tool_use_id, _context):
     return {"continue_": True}
 
 
-def build_options(sdk, session, settings, env, stderr=None, tmp_root=None):
+def build_options(sdk, session, settings, env, stderr=None, tmp_root=None,
+                  model=None):
+    """The session's options. `model` is the frozen launch model; passing it
+    explicitly keeps the CLI from choosing one from its own defaults."""
     return sdk.ClaudeAgentOptions(
         cwd=session.copy.root,
         plugins=[{"type": "local", "path": session.snapshot.path}],
@@ -296,6 +299,7 @@ def build_options(sdk, session, settings, env, stderr=None, tmp_root=None):
         hooks={"PreToolUse": [sdk.HookMatcher(matcher=None,
                                               hooks=[_keep_open])]},
         env=session_env(env, tmp_root=tmp_root),
+        model=model,
         stderr=stderr)
 
 
@@ -305,10 +309,11 @@ def _turn_text(result_msg, last_text):
 
 
 async def _run_session(sdk, session, prompt, settings, env, timeout_s,
-                       tmp_root=None):
+                       tmp_root=None, model=None):
     stderr_tail = collections.deque(maxlen=STDERR_TAIL)
     options = build_options(sdk, session, settings, env,
-                            stderr=stderr_tail.append, tmp_root=tmp_root)
+                            stderr=stderr_tail.append, tmp_root=tmp_root,
+                            model=model)
     try:
         async with asyncio.timeout(timeout_s):
             async with sdk.ClaudeSDKClient(options=options) as client:
@@ -368,7 +373,7 @@ def _transcript_sha256(out_dir):
 
 
 def drive(copy, snapshot, prompt, core, out_dir, settings, env=None,
-          timeout_s=DEFAULT_TIMEOUT_S, tmp_root=None):
+          timeout_s=DEFAULT_TIMEOUT_S, tmp_root=None, model=None):
     """Run one session; return DriveResult. Raises DriverError when the
     session cannot be launched as specified (never falls back)."""
     if not harness_sandbox.settings_is_fail_closed(settings):
@@ -383,7 +388,7 @@ def drive(copy, snapshot, prompt, core, out_dir, settings, env=None,
                      "copy_root": copy.root, "plugin_path": snapshot.path,
                      "session_tmp": tmp_root})
         asyncio.run(_run_session(sdk, session, prompt, settings, env,
-                                 timeout_s, tmp_root=tmp_root))
+                                 timeout_s, tmp_root=tmp_root, model=model))
         session.log({"harness": "end",
                      "seconds": round(time.monotonic() - started, 3)})
     finally:

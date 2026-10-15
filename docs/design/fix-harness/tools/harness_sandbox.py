@@ -641,18 +641,26 @@ def _freeze():
     return freeze_check
 
 
-def freeze_identity_check(snapshot_path, manifest_path=None, env=None,
-                          launch_model=None):
-    """Run `freeze_check.verify` for the fix-harness runner against the
-    manifest at `manifest_path` (default: the active one) and return its
-    CheckResult. Raises NoManifestError when no manifest exists."""
+def load_freeze_manifest(manifest_path=None):
+    """(path, manifest) for `manifest_path` or, by default, the active
+    manifest. Raises NoManifestError when none exists; a tampered or invalid
+    manifest raises the freeze kit's FreezeError (it never loads)."""
     fc = _freeze()
     if manifest_path is None:
         try:
             manifest_path = fc.active_manifest(CHECKOUT_ROOT)
         except fc.FreezeError as exc:
             raise NoManifestError(str(exc)) from exc
-    manifest = fc.load_manifest(manifest_path)
+    return manifest_path, fc.load_manifest(manifest_path)
+
+
+def freeze_identity_check(snapshot_path, manifest_path=None, env=None,
+                          launch_model=None):
+    """Run `freeze_check.verify` for the fix-harness runner against the
+    manifest at `manifest_path` (default: the active one) and return its
+    CheckResult. Raises NoManifestError when no manifest exists."""
+    fc = _freeze()
+    _path, manifest = load_freeze_manifest(manifest_path)
     return fc.verify(manifest, FREEZE_RUNNER, plugin_dir=snapshot_path,
                      launch_model=launch_model, repo=CHECKOUT_ROOT, env=env,
                      harness_venv=HARNESS_VENV)

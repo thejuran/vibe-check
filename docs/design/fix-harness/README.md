@@ -59,17 +59,27 @@ $PY run --case py-clamp-01 --mode default --kind clean        --out <dir>/C-D   
 $PY run --case py-clamp-01 --mode gsd     --kind clean        --out <dir>/C-G   # /vibe-check:review 52-harness-case
 ```
 
-Options: `--plugin-source` (default `plugins/vibe-check`; must be under
-`plugins/`), `--command review|deep-review` (default `review`).
+Options: `--candidate <rev>` (the commit the plugin snapshot is taken from;
+default the active freeze manifest's `candidate_sha`), `--manifest <path>`
+(default the highest-numbered `docs/design/freeze-v2.12/FREEZE-MANIFEST-<N>.json`),
+`--command review|deep-review` (default `review`). There is no option to skip
+or override the identity check.
 
 Each run:
 
-1. creates a workspace under the temp dir and snapshots the plugin into it;
+1. creates a workspace under the temp dir and materializes
+   `plugins/vibe-check` from the candidate commit's tree into it (never from
+   the working tree, so untracked or uncommitted files are not measured);
 2. builds the copy, seeds the pass-1 state and records ledger snapshot 0;
 3. plants the three sentinels (preservation only; `sentinels.json` goes to
    `--out`, never into the copy);
 4. builds the session settings and runs the preflight, which needs a passed
-   probe record for this SDK version and policy fingerprint;
+   probe record for this SDK version and policy fingerprint, and an exact
+   match from the shared freeze identity check (`freeze_check.verify`,
+   runner `fix-harness`) on the snapshot, the session's environment and the
+   manifest's `launch_model`. Any difference, or no manifest at all, stops
+   the run with exit 2. The session is then launched with that model and
+   that environment; an init-reported model that differs fails the run;
 5. drives the session. The plugin's state is read before every card and
    after every turn. In default-diff mode, a loop that ends on "No changes to
    review." (or a sibling one-liner) gets `/vibe-check:review --finalize`
@@ -77,7 +87,8 @@ Each run:
    check `git status` outside `.turingmind/` before Close out or that
    `--finalize` (FLOW-04);
 6. writes `obligations.json`, judges the committed HEAD and writes
-   `run.json`.
+   `run.json`, which carries the verified `manifest_id`, `check_digest` and
+   `candidate_sha`.
 
 The workspace (copy + snapshot) is kept so it can be inspected; its paths
 are in `run.json`. `check --run <dir>` re-validates the record and, while the

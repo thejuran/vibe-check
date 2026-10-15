@@ -52,7 +52,8 @@ def kwargs(**over):
         execution_seconds=123.4, harness_answer_seconds=0.5,
         clean_tree_checkpoint=None, containment=containment(),
         obligations=obligations(), verdict="COMPLETE", reasons=[],
-        transcript_sha256="c" * 64)
+        transcript_sha256="c" * 64, manifest_id="d" * 64,
+        check_digest="e" * 64, candidate_sha="a" * 40)
     k.update(over)
     return k
 
@@ -107,6 +108,55 @@ class TestValidate(unittest.TestCase):
         problems = hr.validate_record(r)
         self.assertTrue(problems, "a bad record was accepted")
         return problems
+
+    def test_freeze_identity_is_stored(self):
+        self.assertEqual((self.good["manifest_id"], self.good["check_digest"],
+                          self.good["candidate_sha"]),
+                         ("d" * 64, "e" * 64, "a" * 40))
+        for key in ("manifest_id", "check_digest", "candidate_sha"):
+            k = kwargs()
+            del k[key]
+            with self.subTest(key), self.assertRaises(TypeError):
+                hr.build_record(**k)
+
+    def test_manifest_id_must_be_sha256(self):
+        for value in (None, "D" * 64, "d" * 63, "g" * 64, 5):
+            with self.subTest(value=value):
+                self.assertIn("manifest_id is not a sha256 hex digest",
+                              self.bad(lambda r: r.update(manifest_id=value)))
+
+    def test_check_digest_must_be_sha256(self):
+        for value in (None, "e" * 65, ""):
+            with self.subTest(value=value):
+                self.assertIn("check_digest is not a sha256 hex digest",
+                              self.bad(lambda r: r.update(check_digest=value)))
+
+    def test_candidate_sha_must_be_a_full_commit(self):
+        for value in (None, "a" * 12, "a" * 64, "HEAD", "A" * 40):
+            with self.subTest(value=value):
+                self.assertIn("candidate_sha is not a 40-hex commit",
+                              self.bad(lambda r: r.update(candidate_sha=value)))
+
+    def test_record_without_identity_reports_three_missing_keys(self):
+        r = copymod.deepcopy(self.good)
+        for key in ("manifest_id", "check_digest", "candidate_sha"):
+            del r[key]
+        problems = hr.validate_record(r)
+        for key in ("manifest_id", "check_digest", "candidate_sha"):
+            self.assertIn("missing key: %s" % key, problems)
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(hr.RecordError):
+                hr.write_record(os.path.join(d, "run.json"), r)
+            self.assertEqual(os.listdir(d), [])
+
+    def test_mutant_identity_lock_removed(self):
+        bad = copymod.deepcopy(self.good)
+        bad["manifest_id"] = "not-a-digest"
+        self.assertTrue(hr.validate_record(bad))
+        with mock.patch.object(hr, "_SHA256_RE",
+                               __import__("re").compile(r".*")):
+            self.assertNotIn("manifest_id is not a sha256 hex digest",
+                             hr.validate_record(bad))
 
     def test_missing_key(self):
         for key in hr.REQUIRED_KEYS:

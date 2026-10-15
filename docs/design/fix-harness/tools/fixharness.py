@@ -2,21 +2,30 @@
 """fixharness.py — one command per accepted-fix harness run.
 
   fixharness.py run --case <id> --mode default|gsd --kind preservation|clean
-                    --out <dir> [--plugin-source <dir>] [--command review|deep-review]
-  fixharness.py probe-sandbox --out <dir> [--plugin-source <dir>]
+                    --out <dir> [--candidate <rev>] [--manifest <path>]
+                    [--command review|deep-review]
+  fixharness.py probe-sandbox --out <dir> [--candidate <rev>]
   fixharness.py replay --case <id> --mode … --kind … --messages <jsonl> --out <dir>
   fixharness.py check --run <dir>
 
 `run` composes, in this order and never otherwise:
 
   workspace → plugin snapshot → copy → seed (+ obligation ledger snapshot 0)
-  → sentinels (preservation) → session settings → preflight
-  → drive (state observed read-only at every card and every turn)
+  → sentinels (preservation) → session settings → preflight (sandbox probe
+  + freeze identity) → drive (state observed read-only at every card and
+  every turn)
   → final ledger observation → obligations.json → verdict → run.json
 
 Everything that writes into the copy happens before `drive`; a phase flag
-refuses any of those writers once the session has launched (D-21). The
-preflight refuses to launch without a passed, current sandbox probe record.
+refuses any of those writers once the session has launched. The preflight
+refuses to launch without a passed, current sandbox probe record, and
+without an exact match against the active freeze manifest.
+
+The plugin snapshot is the candidate commit's tree (`--candidate`, default
+the manifest's `candidate_sha`), never the working tree. The session is
+launched with the manifest's fix-harness `launch_model` and the same
+environment the identity check verified; an init-reported model that
+differs fails the run. Each retry is a new invocation and is checked again.
 
 Exit codes: 0 COMPLETE (or probe passed / replay without failure / check
 clean), 1 FAILED, 2 usage, preflight or driver error (no record written).
@@ -55,8 +64,12 @@ import harness_verdict  # noqa: E402
 HARNESS_DIR = HERE.parent
 PROBE_RECORD_PATH = str(HARNESS_DIR / "fixtures" / "probe" /
                         "sandbox-probe.json")
-DEFAULT_PLUGIN_SOURCE = os.path.join(harness_sandbox.CHECKOUT_ROOT, "plugins",
-                                     "vibe-check")
+# Where the committed plugin tree lives in the checkout. The snapshot itself
+# is materialized from a commit (plugin_sha / candidate_sha in the record).
+PLUGIN_SOURCE_PATH = os.path.join(harness_sandbox.CHECKOUT_ROOT, "plugins",
+                                  "vibe-check")
+PROBE_DEFAULT_CANDIDATE = "HEAD"
+FAIL_MODEL_DIFFERS = "model differs: launched %s init %s"
 # The holdout kit's directory, named only so `--out` can refuse it. Built by
 # concatenation so no harness source spells the name (test_harness_isolation).
 HOLDOUT_DIR = os.path.join(harness_sandbox.CHECKOUT_ROOT, "docs", "design",
@@ -387,13 +400,45 @@ def _out_dir(raw, must_be_empty=True):
     return out
 
 
-def _plugin_source(raw):
-    src = os.path.realpath(raw or DEFAULT_PLUGIN_SOURCE)
-    plugins_root = os.path.join(harness_sandbox.CHECKOUT_ROOT, "plugins")
-    if not src.startswith(plugins_root + "/") or not os.path.isdir(src):
-        raise UsageError("--plugin-source must be a plugin under %s"
-                         % plugins_root)
-    return src
+def _candidate(raw):
+    """The full sha of the commit the plugin snapshot is taken from."""
+    try:
+        return harness_sandbox.resolve_commit(harness_sandbox.CHECKOUT_ROOT,
+                                              raw)
+    except harness_sandbox.SandboxError as exc:
+        raise UsageError("--candidate: %s" % exc)
+
+
+def _launch_model(manifest):
+    """The frozen fix-harness launch model; never defaulted."""
+    try:
+        value = manifest["runners"]["fix-harness"]["launch_model"]["value"]
+    except (KeyError, TypeError):
+        value = None
+    if not isinstance(value, str) or not value:
+        raise UsageError("freeze manifest names no fix-harness launch_model")
+    return value
+
+
+def _model_problems(launched, init_model):
+    """The session must run on the model it was launched with: an init
+    message reporting another model fails the run."""
+    if init_model != launched:
+        return [FAIL_MODEL_DIFFERS % (launched, init_model)]
+    return []
+
+
+def _freeze_manifest(raw):
+    """(path, manifest, launch_model, error line). A missing or unloadable
+    manifest is a preflight refusal, never a pass."""
+    try:
+        path, manifest = harness_sandbox.load_freeze_manifest(raw)
+    except harness_sandbox.NoManifestError:
+        return None, None, None, harness_sandbox.NO_MANIFEST_PROBLEM
+    except Exception as exc:  # noqa: BLE001 - FreezeError and I/O alike
+        return None, None, None, "%s: %s" % (
+            harness_sandbox.FREEZE_MISMATCH_PROBLEM, exc)
+    return path, manifest, _launch_model(manifest), None
 
 
 def _transcript_events(out):
@@ -441,23 +486,33 @@ def run(argv):
     parser.add_argument("--mode", required=True, choices=harness_fixture.MODES)
     parser.add_argument("--kind", required=True, choices=KINDS)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--plugin-source", default=None)
+    parser.add_argument("--candidate", default=None)
+    parser.add_argument("--manifest", default=None)
     parser.add_argument("--command", default="review", choices=COMMANDS)
     args = parser.parse_args(argv)
     try:
         recipe = _check_case(args.case)
         out = _out_dir(args.out)
-        plugin_source = _plugin_source(args.plugin_source)
+        manifest_path, manifest, launch_model, refusal = \
+            _freeze_manifest(args.manifest)
+        if refusal:
+            print("fixharness: preflight: %s" % refusal, file=sys.stderr)
+            return 2
+        candidate = _candidate(args.candidate or manifest.get("candidate_sha"))
     except UsageError as exc:
         print("fixharness: %s" % exc, file=sys.stderr)
         return 2
     key = _load_key(args.case)
     os.makedirs(out, exist_ok=True)
+    # One environment, computed once: the identity check verifies exactly
+    # what the session is handed.
+    session_env = harness_driver_sdk.session_env(os.environ)
     phase = Phase()
 
     ws = phase.pre("make_workspace", harness_sandbox.make_workspace)
-    snapshot = phase.pre("snapshot_plugin", harness_sandbox.snapshot_plugin,
-                         plugin_source, ws)
+    snapshot = phase.pre("snapshot_plugin",
+                         harness_sandbox.snapshot_plugin_from_commit,
+                         harness_sandbox.CHECKOUT_ROOT, candidate, ws)
     copy = phase.pre("build_copy", harness_fixture.build_copy, recipe,
                      args.mode, ws)
     pre_run_head = head_sha(copy.root)
@@ -479,13 +534,18 @@ def run(argv):
                       sentinels.to_json() + "\n")
     settings = harness_sandbox.build_session_settings(copy.root,
                                                       snapshot.path, out)
-    problems = phase.pre("preflight", harness_sandbox.preflight, copy.root,
-                         snapshot.path, settings, PROBE_RECORD_PATH,
-                         sdk_version())
-    if problems:
-        for p in problems:
+    problems, identity = phase.pre(
+        "preflight", harness_sandbox.preflight_with_identity, copy.root,
+        snapshot.path, settings, PROBE_RECORD_PATH, sdk_version(),
+        manifest_path=manifest_path, env=session_env,
+        launch_model=launch_model, candidate_sha=snapshot.git_sha)
+    if problems or identity is None:
+        for p in problems or [harness_sandbox.NO_MANIFEST_PROBLEM]:
             print("fixharness: preflight: %s" % p, file=sys.stderr)
         return 2
+    print("fixharness: identity manifest_id=%s check_digest=%s "
+          "candidate_sha=%s" % (identity.manifest_id, identity.check_digest,
+                                identity.candidate_sha), file=sys.stderr)
     prompt, entry = entry_for(args.mode, args.kind, copy.phase_id,
                               args.command)
 
@@ -496,6 +556,7 @@ def run(argv):
     started = time.monotonic()
     try:
         result = _drive(copy, snapshot, prompt, core, out, settings,
+                        env=session_env, model=launch_model,
                         tmp_root=session_tmp)
     except harness_driver_sdk.DriverError as exc:
         print("fixharness: driver: %s" % exc, file=sys.stderr)
@@ -516,9 +577,12 @@ def run(argv):
             reasons.append(reason)
     if args.kind == "clean" and core.clean_tree_checkpoint is None:
         reasons.append(FAIL_CLEAN_TREE_NEVER)
+    for reason in _model_problems(launch_model, result.model):
+        if reason not in reasons:
+            reasons.append(reason)
     record = harness_record.build_record(
         case_id=args.case, mode=args.mode, kind=args.kind, entry=entry,
-        plugin_path=snapshot.path, plugin_source_path=snapshot.source_path,
+        plugin_path=snapshot.path, plugin_source_path=PLUGIN_SOURCE_PATH,
         plugin_sha=snapshot.git_sha,
         plugin_snapshot_sha256=snapshot.tree_sha256,
         plugin_tree_dirty=snapshot.dirty, copy_root=copy.root,
@@ -538,7 +602,9 @@ def run(argv):
             "protected_path_denials": result.protected_denials},
         obligations=obligation_counts(core.ledger, v.dispositions),
         verdict="FAILED" if reasons else "COMPLETE", reasons=reasons,
-        transcript_sha256=result.transcript_sha256)
+        transcript_sha256=result.transcript_sha256,
+        manifest_id=identity.manifest_id, check_digest=identity.check_digest,
+        candidate_sha=identity.candidate_sha)
     # waiting_on_owner_seconds is fixed to None by build_record (D-13).
     record.update({"pre_run_head": pre_run_head, "phase_id": copy.phase_id,
                    "state_path": str(state_path), "prompt": prompt,
@@ -586,11 +652,12 @@ def probe_script_facts(script_path, expected_text, sha_before):
 def probe_sandbox(argv):
     parser = argparse.ArgumentParser(prog="fixharness.py probe-sandbox")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--plugin-source", default=None)
+    # A capability probe, not measurement evidence: any commit will do.
+    parser.add_argument("--candidate", default=PROBE_DEFAULT_CANDIDATE)
     args = parser.parse_args(argv)
     try:
         out = _out_dir(args.out)
-        plugin_source = _plugin_source(args.plugin_source)
+        candidate = _candidate(args.candidate)
         recipe = _check_case("py-clamp-01")
     except UsageError as exc:
         print("fixharness: %s" % exc, file=sys.stderr)
@@ -600,8 +667,9 @@ def probe_sandbox(argv):
     phase = Phase()
     nonce = secrets.token_hex(8)
     ws = phase.pre("make_workspace", harness_sandbox.make_workspace)
-    snapshot = phase.pre("snapshot_plugin", harness_sandbox.snapshot_plugin,
-                         plugin_source, ws)
+    snapshot = phase.pre("snapshot_plugin",
+                         harness_sandbox.snapshot_plugin_from_commit,
+                         harness_sandbox.CHECKOUT_ROOT, candidate, ws)
     copy = phase.pre("build_copy", harness_fixture.build_copy, recipe,
                      "default", ws)
     protected = os.path.join(out, "protected")
@@ -689,6 +757,9 @@ def probe_sandbox(argv):
               "settings_fingerprint": harness_sandbox.settings_fingerprint(
                   settings),
               "plugin_sha": snapshot.git_sha,
+              # Context only: the probe proves the sandbox policy, so it is
+              # bound to no freeze manifest.
+              "candidate_sha": snapshot.git_sha,
               "host": {"platform": platform.platform(),
                        "sandbox_exec_present": os.access(
                            harness_sandbox.SEATBELT, os.X_OK)}}
@@ -780,7 +851,8 @@ def prepare_copy(case_id, mode, kind, out):
     recipe = _check_case(case_id)
     key = _load_key(case_id)
     ws = harness_sandbox.make_workspace()
-    snapshot = harness_sandbox.snapshot_plugin(DEFAULT_PLUGIN_SOURCE, ws)
+    snapshot = harness_sandbox.snapshot_plugin_from_commit(
+        harness_sandbox.CHECKOUT_ROOT, "HEAD", ws)
     copy = harness_fixture.build_copy(recipe, mode, ws)
     pre_run_head = head_sha(copy.root)
     state_path = harness_seed.seed_state(copy, key, mode)

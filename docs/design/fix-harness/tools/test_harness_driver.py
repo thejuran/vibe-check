@@ -151,12 +151,14 @@ class TestStructure(unittest.TestCase):
         for banned in ("shutil", "harness_seed", "harness_sentinels",
                        "harness_fixture", "harness_verdict",
                        "harness_sandbox.snapshot_plugin",
+                       "harness_sandbox.snapshot_plugin_from_commit",
                        "harness_sandbox.make_workspace"):
             self.assertNotIn(banned, imported)
         attrs = {(n.value.id, n.attr) for n in ast.walk(tree)
                  if isinstance(n, ast.Attribute)
                  and isinstance(n.value, ast.Name)}
         for banned in (("harness_sandbox", "snapshot_plugin"),
+                       ("harness_sandbox", "snapshot_plugin_from_commit"),
                        ("harness_sandbox", "make_workspace"),
                        ("harness_sandbox", "make_session_tmp"),
                        ("os", "remove"), ("os", "unlink"), ("os", "rename"),
@@ -289,6 +291,69 @@ class TestFailClosed(_Case):
         self.assertEqual(captured["mcp_servers"], {})
         self.assertEqual(captured["env"]["ENABLE_CLAUDEAI_MCP_SERVERS"],
                          "false")
+
+
+class TestLaunchModelAndEnv(_Case):
+    """drive() launches the session with the frozen model and the exact env
+    the identity check verified."""
+
+    settings = TestFailClosed.settings
+    tmp_root = TestFailClosed.tmp_root
+
+    def launch(self, env=None, model=None):
+        captured = {}
+
+        class Opts:
+            def __init__(self, **kw):
+                captured.update(kw)
+
+        class Client:
+            def __init__(self, options):
+                pass
+
+            async def __aenter__(self):
+                raise d.DriverError("stop after options")
+
+            async def __aexit__(self, *exc):
+                return False
+
+        sdk = types.SimpleNamespace(
+            ClaudeAgentOptions=Opts, ClaudeSDKClient=Client,
+            HookMatcher=lambda **kw: kw, version="0")
+        with mock.patch.object(d, "_sdk", lambda: sdk):
+            with self.assertRaises(d.DriverError):
+                d.drive(self.copy, self.snapshot, "/vibe-check:review",
+                        self.core, self.out, self.settings(), env=env,
+                        tmp_root=self.tmp_root(), model=model)
+        return captured
+
+    def test_options_carry_the_launch_model(self):
+        self.assertEqual(self.launch(model="claude-x")["model"], "claude-x")
+
+    def test_no_model_means_none_not_a_default(self):
+        self.assertIsNone(self.launch()["model"])
+
+    def test_mutant_build_options_without_model_flips(self):
+        real = d.build_options
+
+        def without_model(*a, **kw):
+            kw.pop("model", None)
+            return real(*a, **kw)
+        self.assertEqual(self.launch(model="claude-x")["model"], "claude-x")
+        with mock.patch.object(d, "build_options", without_model):
+            self.assertIsNone(self.launch(model="claude-x")["model"])
+
+    def test_passed_env_reaches_the_session(self):
+        env = d.session_env({"ANTHROPIC_MODEL": "planted-model",
+                             "PATH": "/bin", "CLAUDECODE": "1"})
+        got = self.launch(env=env, model="claude-x")["env"]
+        self.assertEqual(got["ANTHROPIC_MODEL"], "planted-model")
+        self.assertNotIn("CLAUDECODE", got)
+        # session_env is idempotent on its own output: the check and the
+        # session see the same variables (plus the per-run temp root).
+        expected = dict(env)
+        expected["CLAUDE_CODE_TMPDIR"] = got["CLAUDE_CODE_TMPDIR"]
+        self.assertEqual(got, expected)
 
 
 # --------------------------------------------------------------------------- #

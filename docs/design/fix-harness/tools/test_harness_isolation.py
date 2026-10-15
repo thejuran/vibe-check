@@ -2,7 +2,9 @@
 
 - No tracked file under docs/design/fix-harness/ names the benchmark or
   holdout inputs (the harness is proven on synthetic cases only).
-- Every Phase-52 run record validates and reads COMPLETE.
+- Every Phase-52 run record reads COMPLETE and fails validation only for
+  the three freeze identity keys it predates (the schema is closed: a
+  record without a verified manifest identity can no longer be written).
 
 The forbidden patterns are built by concatenation so this file never spells
 them, and the file excludes itself from the walk by name.
@@ -29,6 +31,12 @@ RUN_IDS = ("P-D", "P-G", "C-D", "C-G")
 PRESERVATION_IDS = ("P-D", "P-G")
 CLEAN_IDS = ("C-D", "C-G")
 SELF_NAME = Path(__file__).name
+PRE_FREEZE_PROBLEMS = [
+    "missing key: manifest_id", "missing key: check_digest",
+    "missing key: candidate_sha",
+    "manifest_id is not a sha256 hex digest",
+    "check_digest is not a sha256 hex digest",
+    "candidate_sha is not a 40-hex commit"]
 
 HOLDOUT = "holdout-" + "v2.12"
 ANSWER_KEY = "ANSWER-KEY-" + "b3"
@@ -137,6 +145,10 @@ class TestRunRecords(unittest.TestCase):
         for run_id in RUN_IDS:
             with self.subTest(run=run_id):
                 r = _load(run_id)
+                self.assertEqual(harness_record.validate_record(r),
+                                 PRE_FREEZE_PROBLEMS)
+                r.update(manifest_id="d" * 64, check_digest="e" * 64,
+                         candidate_sha=r["plugin_sha"])
                 self.assertEqual(harness_record.validate_record(r), [])
                 self.assertEqual(r["verdict"], "COMPLETE")
                 self.assertEqual(r["reasons"], [])
