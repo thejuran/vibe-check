@@ -1,0 +1,394 @@
+{
+  "allow": [
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase40/batch1/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase40/batch2/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase40/batch3/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase40/final/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase40/final/triggarr-secret-in-logs/run-2"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase40/final/triggarr-secret-in-logs/run-3"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase41/final/should-quiet-1/run-1"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase41/final/should-quiet-1/run-2"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase41/final/should-quiet-1/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase41/final/should-quiet-3/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase41/final/should-quiet-3/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase41/final/should-quiet-3/run-3"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-3/run-3"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-1"
+    },
+    {
+      "after": 5,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-2"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-4/run-3"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-6/run-1"
+    },
+    {
+      "after": 5,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-6/run-2"
+    },
+    {
+      "after": 5,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-6/run-3"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-7/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-7/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/should-quiet-7/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/third-organic-should-catch/run-2"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-autoescape/run-1"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-autoescape/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-autoescape/run-3"
+    },
+    {
+      "after": 5,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-secret-in-logs/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/first/triggarr-session-rotation/run-3"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/should-quiet-4/run-1"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/should-quiet-4/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/should-quiet-4/run-3"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-1"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-2"
+    },
+    {
+      "after": 5,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/should-quiet-6/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/triggarr-autoescape/run-1"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/triggarr-autoescape/run-2"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10-phase43/retune/triggarr-autoescape/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-1/run-1"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-2/run-3"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-3/run-1"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-3/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-4/run-1"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-4/run-2"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/should-quiet-7/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.10/triggarr-session-rotation/run-1"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-3/run-1"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-4/run-1"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-4/run-2"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-1"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-6/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-7/run-1"
+    },
+    {
+      "after": 4,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-7/run-2"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/should-quiet-7/run-3"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-secret-in-logs/run-1"
+    },
+    {
+      "after": 3,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-secret-in-logs/run-2"
+    },
+    {
+      "after": 5,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-secret-in-logs/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-session-rotation/run-1"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-session-rotation/run-2"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-session-rotation/run-3"
+    },
+    {
+      "after": 1,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/first/triggarr-settings-form-split/run-2"
+    },
+    {
+      "after": 2,
+      "before": null,
+      "path": "nv_dropped_weak",
+      "run": "runs-v2.11-phase49/rehearsal/rehearsal-scratch/run-1"
+    }
+  ]
+}
