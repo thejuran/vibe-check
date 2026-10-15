@@ -675,6 +675,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/should-quiet-4/run-1 | 3 |
 | final/should-quiet-5/run-1 | 0 |
 | final/should-quiet-6/run-1 | 0 |
+| final/should-quiet-7/run-1 | 4 |
 
 ## Cache
 
@@ -1337,4 +1338,22 @@ needs-verification rows:
 |---|---|---|---|---|---|
 
 vs entry 1: "quiet, or at worst an NV item" -> quiet (0 alarms, 0 NV) — PASS (Phase 49: 3/3 fired). Same fingerprint as the targeted run, which fired (codex critical + bugs NV): run-to-run variance on one build, so one run is weak evidence either way. Clean review: no fix-loop card, no keystroke after `/vibe-check:deep-review`. Run 5m59s.
+
+
+### final/should-quiet-7/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | triggarr/web/routes.py | 550 | critical | 100 | 544b4b23813b |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+vs entry 1: "quiet, or at worst an NV item" (excluded from the release verdict, SUPERSESSIONS #001) -> FIRED (1 alarm, 0 NV); a fail, same shape as the targeted run (Phase 49: 3/3 fired). Source: alarm 544b4b23813b, bugs critical at routes.py:550 — "Saving any setting silently resets shutdown_drain_timeout to 60.0 because the form has no input for it" (a traced overwrite of a hand-configured value on the changed parse line); members codex-adversarial, impact, bugs. Run 11m02s; fix-loop card after 646s; `Stop here…` -> `Abandon` by label.
 
