@@ -1,0 +1,282 @@
+{
+  "codex_lines": 1,
+  "dispatched": 7,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [
+          "fastapi"
+        ],
+        "intent_docs_found": [],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 195
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [\"fastapi\"],\n  \"total_lines\": 195,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_011oGaGf2HoAFwcnn27mLmUn"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "Apart from deleting parse_optional_int, the refactor keeps the old behavior. The int(raw) call on an already-stripped value matches parse_optional_int. POST still always parses form data and PUT still always parses the raw body, which matches the old request.method branch. The merge_overrides validation still runs on both paths through _validate_filter_overrides_payload."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 95,
+            "category": "logic-error",
+            "current_code": "-def parse_optional_int(raw: str) -&gt; int | None:\n-    \"\"\"Empty string -&gt; None (inherit). Otherwise int() (raises ValueError on bad input). Pitfall 13.\"\"\"\n-    raw = raw.strip()\n-    return None if raw == \"\" else int(raw)",
+            "cwe": null,
+            "file": "src/roonseek/web/_filter_overrides.py",
+            "fix_hint": "Either keep parse_optional_int, or remove its import and tests 15-17 from tests/test_filter_overrides.py in the same change.",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 74,
+            "problem": "The diff deletes parse_optional_int from _filter_overrides.py. tests/test_filter_overrides.py:13 still imports it at module level, and tests 15-17 at lines 155-170 call it. When pytest loads that file it raises ImportError and errors on collection. Every test in the module stops running, including the merge_overrides allowlist and type-validation tests (T-7-04) and the parse_csv_list tests. The suite goes red, and the validation logic this refactor depends on loses its unit coverage.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Removing parse_optional_int breaks the import in tests/test_filter_overrides.py, so the whole test module fails to collect",
+            "why_it_matters": "A collection error in this module silently removes all coverage of the filter-override allowlist validation and fails CI."
+          },
+          {
+            "agent_confidence": 30,
+            "category": "null-access",
+            "current_code": "row = await cur.fetchone()\nmerged = merge_overrides(config.defaults, row[\"filter_overrides\"])",
+            "cwe": null,
+            "file": "src/roonseek/web/library.py",
+            "fix_hint": "Raise the same 404 library.artist_not_found envelope when row is None.",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 731,
+            "problem": "_apply_filter_overrides_update commits the UPDATE, closes the connection, then opens a new one and runs SELECT ... WHERE id = ?. It indexes row[\"filter_overrides\"] with no None check. If the artist is deleted between the commit and the re-fetch, this raises TypeError and returns a 500. The code was moved unchanged out of the old single handler, so this is not new exposure. pending: confirm whether artist deletion can run at the same time as this request.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Re-fetched artist row is not checked for None before indexing in the HTML response path (pre-existing)",
+            "why_it_matters": "A rare race turns a successful save into a 500 for HTML callers."
+          },
+          {
+            "agent_confidence": 35,
+            "category": "error-handling",
+            "current_code": "raw_body = body.decode(\"utf-8\").strip()",
+            "cwe": null,
+            "file": "src/roonseek/web/library.py",
+            "fix_hint": "Catch UnicodeDecodeError and return the filter_overrides.invalid 400 envelope.",
+            "id": "bugs-003",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 701,
+            "problem": "_overrides_from_json_body calls body.decode(\"utf-8\") outside any try block. Only json.JSONDecodeError is turned into a 400 response. A PUT body with invalid UTF-8 bytes (for example b\"\\xff\") raises UnicodeDecodeError, which becomes a 500. The old code behaved the same way, so this is pre-existing.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "A non-UTF-8 PUT body raises UnicodeDecodeError and returns 500 instead of the 400 envelope (pre-existing)",
+            "why_it_matters": "Bad client input should get the documented 400 response, not a server error."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"bugs\",\n  \"findings\": [\n    {\n      \"id\": \"bugs-001\",\n      \"file\": \"src/roonseek/web/_filter_overrides.py\",\n      \"line\": 74,\n      \"title\": \"Removing parse_optional_int breaks the import in tests/test_filter_overrides.py, so the whole test module fails to collect\",\n      \"category\": \"logic-error\",\n      \"cwe\": null,\n      \"severity\": \"high\",\n      \"agent_confidence\": 95,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The diff deletes parse_optional_int from _filter_overrides.py. tests/test_filter_overrides.py:13 still imports it at module level, and tests 15-17 at lines 155-170 call it. When pytest loads that file it raises ImportError and errors on collection. Every test in the module stops running, including the merge_overrides allowlist and type-validation tests (T-7-04) and the parse_csv_list tests. The suite goes red, and the validation logic this refactor depends on loses its unit coverage.\",\n      \"current_code\": \"-def parse_optional_int(raw: str) -&gt; int | None:\\n-    \\\"\\\"\\\"Empty string -&gt; None (inherit). Otherwise int() (raises ValueError on bad input). Pitfall 13.\\\"\\\"\\\"\\n-    raw = raw.strip()\\n-    return None if raw == \\\"\\\" else int(raw)\",\n      \"fix_hint\": \"Either keep parse_optional_int, or remove its import and tests 15-17 from tests/test_filter_overrides.py in the same change.\",\n      \"why_it_matters\": \"A collection error in this module silently removes all coverage of the filter-override allowlist validation and fails CI.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"bugs-002\",\n      \"file\": \"src/roonseek/web/library.py\",\n      \"line\": 731,\n      \"title\": \"Re-fetched artist row is not checked for None before indexing in the HTML response path (pre-existing)\",\n      \"category\": \"null-access\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 30,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"_apply_filter_overrides_update commits the UPDATE, closes the connection, then opens a new one and runs SELECT ... WHERE id = ?. It indexes row[\\\"filter_overrides\\\"] with no None check. If the artist is deleted between the commit and the re-fetch, this raises TypeError and returns a 500. The code was moved unchanged out of the old single handler, so this is not new exposure. pending: confirm whether artist deletion can run at the same time as this request.\",\n      \"current_code\": \"row = await cur.fetchone()\\nmerged = merge_overrides(config.defaults, row[\\\"filter_overrides\\\"])\",\n      \"fix_hint\": \"Raise the same 404 library.artist_not_found envelope when row is None.\",\n      \"why_it_matters\": \"A rare race turns a successful save into a 500 for HTML callers.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"bugs-003\",\n      \"file\": \"src/roonseek/web/library.py\",\n      \"line\": 701,\n      \"title\": \"A non-UTF-8 PUT body raises UnicodeDecodeError and returns 500 instead of the 400 envelope (pre-existing)\",\n      \"category\": \"error-handling\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 35,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"_overrides_from_json_body calls body.decode(\\\"utf-8\\\") outside any try block. Only json.JSONDecodeError is turned into a 400 response. A PUT body with invalid UTF-8 bytes (for example b\\\"\\\\xff\\\") raises UnicodeDecodeError, which becomes a 500. The old code behaved the same way, so this is pre-existing.\",\n      \"current_code\": \"raw_body = body.decode(\\\"utf-8\\\").strip()\",\n      \"fix_hint\": \"Catch UnicodeDecodeError and return the filter_overrides.invalid 400 envelope.\",\n      \"why_it_matters\": \"Bad client input should get the documented 400 response, not a server error.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Apart from deleting parse_optional_int, the refactor keeps the old behavior. The int(raw) call on an already-stripped value matches parse_optional_int. POST still always parses form data and PUT still always parses the raw body, which matches the old request.method branch. The merge_overrides validation still runs on both paths through _validate_filter_overrides_payload.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_012bwVTnFCKdLa4NEmjV6KnK"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "Reviewed as a behavior-preserving refactor: the old single handler (stacked @post/@put decorators, branching on request.method) was split into post_artist_filter_overrides and put_artist_filter_overrides, with validation extracted into _validate_filter_overrides_payload. Traced both paths line-by-line against the prior version in git history-equivalent diff context: the allowlist check in merge_overrides (src/roonseek/web/_filter_overrides.py, ALLOWED_OVERRIDE_KEYS) still runs on every write path, require_auth is still a Depends() on both the new POST and PUT routes, the SQL update still uses bound parameters, and the artist_id/body are still excluded from the log line (only artist_id is logged). No new sink, no removed/weakened check, no new unauthenticated route, and no mass-assignment widening were found.",
+          "Non-security note: _filter_overrides.py removed parse_optional_int, but tests/test_filter_overrides.py still imports and tests it (lines 13, 155-170), which will break test collection. This is a correctness/test issue, not a vulnerability, flagging for visibility only."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"security\",\n  \"findings\": [],\n  \"agent_notes\": [\n    \"Reviewed as a behavior-preserving refactor: the old single handler (stacked @post/@put decorators, branching on request.method) was split into post_artist_filter_overrides and put_artist_filter_overrides, with validation extracted into _validate_filter_overrides_payload. Traced both paths line-by-line against the prior version in git history-equivalent diff context: the allowlist check in merge_overrides (src/roonseek/web/_filter_overrides.py, ALLOWED_OVERRIDE_KEYS) still runs on every write path, require_auth is still a Depends() on both the new POST and PUT routes, the SQL update still uses bound parameters, and the artist_id/body are still excluded from the log line (only artist_id is logged). No new sink, no removed/weakened check, no new unauthenticated route, and no mass-assignment widening were found.\",\n    \"Non-security note: _filter_overrides.py removed parse_optional_int, but tests/test_filter_overrides.py still imports and tests it (lines 13, 155-170), which will break test collection. This is a correctness/test issue, not a vulnerability, flagging for visibility only.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_01VKmL1vJwPzxLGkHDT8xEvU"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "The refactor fits the module's existing shape. Splitting the old dual-decorator POST/PUT handler into two thin route functions over shared private helpers (_overrides_from_form, _overrides_from_json_body, _validate_filter_overrides_payload, _apply_filter_overrides_update) reduces branching on request.method, and it keeps every helper module-private inside src/roonseek/web/library.py. It adds no new cross-module coupling or cycles.",
+          "The D-17 error envelope `{\"error\": {\"code\": \"filter_overrides.invalid\", ...}}` is still built inline at 4 sites in library.py (lines ~645, ~683, ~709, ~716). A grep of src/ found no established envelope helper, so this is not a pattern-consistency violation. If more routes adopt D-17, an envelope helper would be a reasonable later extraction.",
+          "Dropping parse_optional_int in favour of an inline `int(raw)` is behaviour-equivalent here: the caller already skips empty strings, so the helper's empty-to-None branch was dead on this path. The helper's only other consumer was its unit test (see arch-001).",
+          "The documented asymmetry between paths is a plausibly deliberate boundary choice, not a defect: POST silently drops unknown form keys, while PUT rejects unknown keys through merge_overrides. The new docstring states it explicitly.",
+          "Other importers of _filter_overrides (pipeline.py, reconciliation.py, request.py, wanted.py) do not reference parse_optional_int according to git grep, so the removal has no production blast radius."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 95,
+            "category": "dependency",
+            "current_code": "from roonseek.web._filter_overrides import (\n    ...\n    parse_csv_list,\n    parse_optional_int,\n)",
+            "cwe": null,
+            "file": "tests/test_filter_overrides.py",
+            "fix_hint": "Delete the parse_optional_int import and its three tests (Tests 15-17), or keep the helper and use it in _overrides_from_form instead of a bare int()",
+            "id": "arch-001",
+            "in_diff": false,
+            "intent_doc_match": null,
+            "line": 13,
+            "needs_verification": null,
+            "problem": "The diff deletes `parse_optional_int` from src/roonseek/web/_filter_overrides.py. tests/test_filter_overrides.py still imports it (line 13) and calls it in three tests (lines 155-170). That import fails at collection time, so the whole test module errors out, including the merge_overrides and parse_csv_list tests that have nothing to do with this change. git grep confirms the test file is now the only remaining reference.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Removed public helper parse_optional_int is still imported by its unit test module",
+            "why_it_matters": "An ImportError at collection turns the module's tests for the allowlist (T-7-04) and merge validation into collection errors rather than test results. That hides coverage for the security-relevant merge_overrides path."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"architecture\",\"findings\":[{\"id\":\"arch-001\",\"file\":\"tests/test_filter_overrides.py\",\"line\":13,\"title\":\"Removed public helper parse_optional_int is still imported by its unit test module\",\"category\":\"dependency\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":95,\"in_diff\":false,\"intent_doc_match\":null,\"problem\":\"The diff deletes `parse_optional_int` from src/roonseek/web/_filter_overrides.py. tests/test_filter_overrides.py still imports it (line 13) and calls it in three tests (lines 155-170). That import fails at collection time, so the whole test module errors out, including the merge_overrides and parse_csv_list tests that have nothing to do with this change. git grep confirms the test file is now the only remaining reference.\",\"current_code\":\"from roonseek.web._filter_overrides import (\\n    ...\\n    parse_csv_list,\\n    parse_optional_int,\\n)\",\"fix_hint\":\"Delete the parse_optional_int import and its three tests (Tests 15-17), or keep the helper and use it in _overrides_from_form instead of a bare int()\",\"why_it_matters\":\"An ImportError at collection turns the module's tests for the allowlist (T-7-04) and merge validation into collection errors rather than test results. That hides coverage for the security-relevant merge_overrides path.\",\"silenced_marker_nearby\":false,\"needs_verification\":null}],\"agent_notes\":[\"The refactor fits the module's existing shape. Splitting the old dual-decorator POST/PUT handler into two thin route functions over shared private helpers (_overrides_from_form, _overrides_from_json_body, _validate_filter_overrides_payload, _apply_filter_overrides_update) reduces branching on request.method, and it keeps every helper module-private inside src/roonseek/web/library.py. It adds no new cross-module coupling or cycles.\",\"The D-17 error envelope `{\\\"error\\\": {\\\"code\\\": \\\"filter_overrides.invalid\\\", ...}}` is still built inline at 4 sites in library.py (lines ~645, ~683, ~709, ~716). A grep of src/ found no established envelope helper, so this is not a pattern-consistency violation. If more routes adopt D-17, an envelope helper would be a reasonable later extraction.\",\"Dropping parse_optional_int in favour of an inline `int(raw)` is behaviour-equivalent here: the caller already skips empty strings, so the helper's empty-to-None branch was dead on this path. The helper's only other consumer was its unit test (see arch-001).\",\"The documented asymmetry between paths is a plausibly deliberate boundary choice, not a defect: POST silently drops unknown form keys, while PUT rejects unknown keys through merge_overrides. The new docstring states it explicitly.\",\"Other importers of _filter_overrides (pipeline.py, reconciliation.py, request.py, wanted.py) do not reference parse_optional_int according to git grep, so the removal has no production blast radius.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01W4A6SqcbcMeUCsLuH3vdQv"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Scope: a pure refactor. It splits one combined POST+PUT handler into `post_artist_filter_overrides` (form) and `put_artist_filter_overrides` (JSON body), shares a persistence helper `_apply_filter_overrides_update`, and inlines `int(raw)` in place of `parse_optional_int`.",
+          "Behavior equivalence (read src/roonseek/web/library.py:650-835): the POST path still parses only the form, still honors `_clear=true`, and still returns the same 400 envelope and message on bad ints. `int(raw)` on an already-stripped non-empty string matches the old `parse_optional_int`. The PUT path still handles empty, null, invalid JSON and non-object bodies the same way, and still validates through merge_overrides. Before, a POST carrying a JSON body went down the form branch, and it still does, so there is no change for mis-typed clients.",
+          "Allowlist control (T-7-04) is kept on both paths through `_validate_filter_overrides_payload`, which calls merge_overrides. No control was loosened. require_auth dependencies are present on both routes, and the routes and paths are unchanged.",
+          "Public API surface: the HTTP routes, methods, status codes and response shapes are unchanged. The internal symbol `_serialize_filter_overrides_from_request` had no other references. `put_artist_filter_overrides` is now bound to PUT only, and the src tree has no url_for references to it by name.",
+          "Library-level blast radius: `parse_optional_int` had no remaining callers in src/. The only consumer is tests/test_filter_overrides.py (lines 13, 155-170), which now fails to import. The other importers of _filter_overrides (pipeline.py, reconciliation.py, request.py, wanted.py, migration tests) use merge_overrides, parse_csv_list or the constants, so they are unaffected.",
+          "No DB, schema or migration change: the UPDATE statement and the column are the same. No performance impact, since the request still does exactly one parse, one validation and one transaction.",
+          "Verdict: safe to ship at runtime. The one blocker is the stale test import (impact-001), which breaks collection of tests/test_filter_overrides.py and has to be fixed in the same change."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 95,
+            "category": "breaking-api",
+            "current_code": "from roonseek.web._filter_overrides import (\n    ALLOWED_OVERRIDE_KEYS,\n    INT_KEYS,\n    LIST_KEYS,\n    merge_overrides,\n    parse_csv_list,\n    parse_optional_int,\n)",
+            "cwe": null,
+            "file": "src/roonseek/web/_filter_overrides.py",
+            "fix_hint": "Either remove the parse_optional_int import and Tests 15-17 (lines 151-170) from tests/test_filter_overrides.py in the same change, or keep the helper and have _overrides_from_form call it",
+            "id": "impact-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 73,
+            "needs_verification": null,
+            "problem": "The diff deletes `parse_optional_int` from `roonseek.web._filter_overrides`. But tests/test_filter_overrides.py:7-14 still imports it at module level, and lines 155-170 still call it. Pytest will fail to collect that module with an ImportError. Every test in the file stops running, including all the merge_overrides and parse_csv_list tests, not just the three parse_optional_int tests, and the suite exits non-zero.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Removing public helper parse_optional_int breaks collection of tests/test_filter_overrides.py with ImportError",
+            "why_it_matters": "CI goes red. The whole merge_overrides test module (the T-7-04 allowlist coverage) silently stops running until the test file is fixed, which removes coverage of the security-relevant validator."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"impact\",\"findings\":[{\"id\":\"impact-001\",\"file\":\"src/roonseek/web/_filter_overrides.py\",\"line\":73,\"title\":\"Removing public helper parse_optional_int breaks collection of tests/test_filter_overrides.py with ImportError\",\"category\":\"breaking-api\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":95,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The diff deletes `parse_optional_int` from `roonseek.web._filter_overrides`. But tests/test_filter_overrides.py:7-14 still imports it at module level, and lines 155-170 still call it. Pytest will fail to collect that module with an ImportError. Every test in the file stops running, including all the merge_overrides and parse_csv_list tests, not just the three parse_optional_int tests, and the suite exits non-zero.\",\"current_code\":\"from roonseek.web._filter_overrides import (\\n    ALLOWED_OVERRIDE_KEYS,\\n    INT_KEYS,\\n    LIST_KEYS,\\n    merge_overrides,\\n    parse_csv_list,\\n    parse_optional_int,\\n)\",\"fix_hint\":\"Either remove the parse_optional_int import and Tests 15-17 (lines 151-170) from tests/test_filter_overrides.py in the same change, or keep the helper and have _overrides_from_form call it\",\"why_it_matters\":\"CI goes red. The whole merge_overrides test module (the T-7-04 allowlist coverage) silently stops running until the test file is fixed, which removes coverage of the security-relevant validator.\",\"silenced_marker_nearby\":false,\"needs_verification\":null}],\"agent_notes\":[\"Scope: a pure refactor. It splits one combined POST+PUT handler into `post_artist_filter_overrides` (form) and `put_artist_filter_overrides` (JSON body), shares a persistence helper `_apply_filter_overrides_update`, and inlines `int(raw)` in place of `parse_optional_int`.\",\"Behavior equivalence (read src/roonseek/web/library.py:650-835): the POST path still parses only the form, still honors `_clear=true`, and still returns the same 400 envelope and message on bad ints. `int(raw)` on an already-stripped non-empty string matches the old `parse_optional_int`. The PUT path still handles empty, null, invalid JSON and non-object bodies the same way, and still validates through merge_overrides. Before, a POST carrying a JSON body went down the form branch, and it still does, so there is no change for mis-typed clients.\",\"Allowlist control (T-7-04) is kept on both paths through `_validate_filter_overrides_payload`, which calls merge_overrides. No control was loosened. require_auth dependencies are present on both routes, and the routes and paths are unchanged.\",\"Public API surface: the HTTP routes, methods, status codes and response shapes are unchanged. The internal symbol `_serialize_filter_overrides_from_request` had no other references. `put_artist_filter_overrides` is now bound to PUT only, and the src tree has no url_for references to it by name.\",\"Library-level blast radius: `parse_optional_int` had no remaining callers in src/. The only consumer is tests/test_filter_overrides.py (lines 13, 155-170), which now fails to import. The other importers of _filter_overrides (pipeline.py, reconciliation.py, request.py, wanted.py, migration tests) use merge_overrides, parse_csv_list or the constants, so they are unaffected.\",\"No DB, schema or migration change: the UPDATE statement and the column are the same. No performance impact, since the request still does exactly one parse, one validation and one transaction.\",\"Verdict: safe to ship at runtime. The one blocker is the stale test import (impact-001), which breaks collection of tests/test_filter_overrides.py and has to be fixed in the same change.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_014oki9nLrcaSgsvkCm94PiZ"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "Rest of the refactor (splitting _serialize_filter_overrides_from_request into _validate_filter_overrides_payload / _overrides_from_form / _overrides_from_json_body / _apply_filter_overrides_update, and splitting the single POST+PUT handler into post_artist_filter_overrides and put_artist_filter_overrides) preserves prior logic faithfully — verified line-by-line against the removed function body (sentinel _clear handling, csv/int field parsing, JSON body null/empty handling, 400 D-17 envelope shape, merge_overrides validation pass) with no behavioral drift.",
+          "No mutable-default-argument, bare-except, is-vs-== comparison, type-hint convention violation, or unreleased-resource issues found in the diff; all new functions carry type hints consistent with the file's existing convention, and the DB connection (async with open_database(...)) usage in _apply_filter_overrides_update is unchanged from before the refactor."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 92,
+            "category": "removed-export",
+            "current_code": "from roonseek.web._filter_overrides import (\n    ALLOWED_OVERRIDE_KEYS,\n    INT_KEYS,\n    LIST_KEYS,\n    merge_overrides,\n    parse_csv_list,\n    parse_optional_int,\n)",
+            "cwe": null,
+            "file": "tests/test_filter_overrides.py",
+            "fix_hint": "Either keep a thin parse_optional_int wrapper in _filter_overrides.py for backward compatibility, or update tests/test_filter_overrides.py to drop the import and the three parse_optional_int tests (they're now effectively covered by the inlined int(raw) logic in _overrides_from_form).",
+            "id": "py-001",
+            "in_diff": false,
+            "intent_doc_match": null,
+            "line": 13,
+            "needs_verification": null,
+            "problem": "The diff deletes parse_optional_int from src/roonseek/web/_filter_overrides.py entirely (and drops it from library.py's import line), but tests/test_filter_overrides.py still does `from roonseek.web._filter_overrides import (... parse_optional_int)` at line 7-14 and has three tests (lines 155-170) that call it directly.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "parse_optional_int removed from _filter_overrides.py but still imported by the test suite",
+            "why_it_matters": "This import is evaluated at module load time, so pytest collection of tests/test_filter_overrides.py will raise ImportError, failing the entire test module (not just the 3 tests that call the function) — likely breaking CI for this change."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\"agent\":\"language-python\",\"findings\":[{\"id\":\"py-001\",\"file\":\"tests/test_filter_overrides.py\",\"line\":13,\"title\":\"parse_optional_int removed from _filter_overrides.py but still imported by the test suite\",\"category\":\"removed-export\",\"cwe\":null,\"severity\":\"high\",\"agent_confidence\":92,\"in_diff\":false,\"intent_doc_match\":null,\"problem\":\"The diff deletes parse_optional_int from src/roonseek/web/_filter_overrides.py entirely (and drops it from library.py's import line), but tests/test_filter_overrides.py still does `from roonseek.web._filter_overrides import (... parse_optional_int)` at line 7-14 and has three tests (lines 155-170) that call it directly.\",\"current_code\":\"from roonseek.web._filter_overrides import (\\n    ALLOWED_OVERRIDE_KEYS,\\n    INT_KEYS,\\n    LIST_KEYS,\\n    merge_overrides,\\n    parse_csv_list,\\n    parse_optional_int,\\n)\",\"fix_hint\":\"Either keep a thin parse_optional_int wrapper in _filter_overrides.py for backward compatibility, or update tests/test_filter_overrides.py to drop the import and the three parse_optional_int tests (they're now effectively covered by the inlined int(raw) logic in _overrides_from_form).\",\"why_it_matters\":\"This import is evaluated at module load time, so pytest collection of tests/test_filter_overrides.py will raise ImportError, failing the entire test module (not just the 3 tests that call the function) — likely breaking CI for this change.\",\"silenced_marker_nearby\":false,\"needs_verification\":null}],\"agent_notes\":[\"Rest of the refactor (splitting _serialize_filter_overrides_from_request into _validate_filter_overrides_payload / _overrides_from_form / _overrides_from_json_body / _apply_filter_overrides_update, and splitting the single POST+PUT handler into post_artist_filter_overrides and put_artist_filter_overrides) preserves prior logic faithfully — verified line-by-line against the removed function body (sentinel _clear handling, csv/int field parsing, JSON body null/empty handling, 400 D-17 envelope shape, merge_overrides validation pass) with no behavioral drift.\",\"No mutable-default-argument, bare-except, is-vs-== comparison, type-hint convention violation, or unreleased-resource issues found in the diff; all new functions carry type hints consistent with the file's existing convention, and the DB connection (async with open_database(...)) usage in _apply_filter_overrides_update is unchanged from before the refactor.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01LndxDMFsCHsi9jGqRkDAhR"
+    },
+    {
+      "parsed": {
+        "agent": "framework-fastapi",
+        "agent_notes": [
+          "tests/test_filter_overrides.py (not in this diff) imports parse_optional_int from ._filter_overrides and has 3 tests that call it directly. This diff removes parse_optional_int from _filter_overrides.py, so that test module will fail at import/collection. This is a plain-Python/test-suite regression, not a FastAPI-mechanism issue, so it's outside this agent's lane -- flagging for the bugs/test-sufficiency lane to pick up.",
+          "Reviewed the POST/PUT split (_overrides_from_form, _overrides_from_json_body, _validate_filter_overrides_payload, _apply_filter_overrides_update) against the original combined _serialize_filter_overrides_from_request + put_artist_filter_overrides and found it behaviorally equivalent: int parsing, ALLOWED_OVERRIDE_KEYS validation via merge_overrides, the _clear sentinel, and the 400/404 D-17 error envelopes are all preserved. Both routes keep dependencies=[Depends(require_auth)], so no auth regression. No response_model is declared and both routes return Response/JSONResponse directly, so the data-exposure response_model rule doesn't apply. No blocking calls or missing awaits introduced."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 55,
+            "category": "openapi-honesty",
+            "current_code": "@library_router.post(\n    \"/api/artists/{artist_id}/filter-overrides\",\n    dependencies=[Depends(require_auth)],\n)\nasync def post_artist_filter_overrides(...)",
+            "cwe": null,
+            "file": "src/roonseek/web/library.py",
+            "fix_hint": "add responses={400: {...}, 404: {...}} to both decorators describing the D-17 error envelope",
+            "id": "fastapi-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 790,
+            "needs_verification": null,
+            "problem": "Both post_artist_filter_overrides (line 794) and put_artist_filter_overrides (line 816) can raise HTTPException(400) via _overrides_from_form/_overrides_from_json_body and HTTPException(404) via _apply_filter_overrides_update, but neither @library_router.post/.put decorator declares responses={}. Generated OpenAPI docs for these newly-split operations show only the 200 success shape, not the documented error envelope shapes callers actually receive.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Split POST/PUT filter-overrides routes raise 400/404 undeclared in responses=",
+            "why_it_matters": "API consumers relying on generated OpenAPI/Swagger docs for this endpoint won't see the 400/404 cases, so client error handling is written blind to documented failure modes."
+          }
+        ]
+      },
+      "raw_return_text": "Final output:\n\n```json\n{\n  \"agent\": \"framework-fastapi\",\n  \"findings\": [\n    {\n      \"id\": \"fastapi-001\",\n      \"file\": \"src/roonseek/web/library.py\",\n      \"line\": 790,\n      \"title\": \"Split POST/PUT filter-overrides routes raise 400/404 undeclared in responses=\",\n      \"category\": \"openapi-honesty\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 55,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"Both post_artist_filter_overrides (line 794) and put_artist_filter_overrides (line 816) can raise HTTPException(400) via _overrides_from_form/_overrides_from_json_body and HTTPException(404) via _apply_filter_overrides_update, but neither @library_router.post/.put decorator declares responses={}. Generated OpenAPI docs for these newly-split operations show only the 200 success shape, not the documented error envelope shapes callers actually receive.\",\n      \"current_code\": \"@library_router.post(\\n    \\\"/api/artists/{artist_id}/filter-overrides\\\",\\n    dependencies=[Depends(require_auth)],\\n)\\nasync def post_artist_filter_overrides(...)\",\n      \"fix_hint\": \"add responses={400: {...}, 404: {...}} to both decorators describing the D-17 error envelope\",\n      \"why_it_matters\": \"API consumers relying on generated OpenAPI/Swagger docs for this endpoint won't see the 400/404 cases, so client error handling is written blind to documented failure modes.\",\n      \"silenced_marker_nearby\": false,\n      \"needs_verification\": null\n    }\n  ],\n  \"agent_notes\": [\n    \"tests/test_filter_overrides.py (not in this diff) imports parse_optional_int from ._filter_overrides and has 3 tests that call it directly. This diff removes parse_optional_int from _filter_overrides.py, so that test module will fail at import/collection. This is a plain-Python/test-suite regression, not a FastAPI-mechanism issue, so it's outside this agent's lane -- flagging for the bugs/test-sufficiency lane to pick up.\",\n    \"Reviewed the POST/PUT split (_overrides_from_form, _overrides_from_json_body, _validate_filter_overrides_payload, _apply_filter_overrides_update) against the original combined _serialize_filter_overrides_from_request + put_artist_filter_overrides and found it behaviorally equivalent: int parsing, ALLOWED_OVERRIDE_KEYS validation via merge_overrides, the _clear sentinel, and the 400/404 D-17 error envelopes are all preserved. Both routes keep dependencies=[Depends(require_auth)], so no auth regression. No response_model is declared and both routes return Response/JSONResponse directly, so the data-exposure response_model rule doesn't apply. No blocking calls or missing awaits introduced.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:framework-fastapi",
+      "tool_use_id": "toolu_014ujpkLxKJLGH4aL5Jvs9VJ"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "Do not ship yet: deleting the helper breaks test collection. Runtime refactoring shows no additional substantive regression. Tests could not run because pytest is unavailable."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 100,
+            "category": "adversarial",
+            "cwe": null,
+            "file": "src/roonseek/web/_filter_overrides.py",
+            "fix_hint": "Update the test imports and replace the deleted helper tests with equivalent coverage of _overrides_from_form, or retain the helper until its callers are migrated.",
+            "id": "codex-001",
+            "intent_doc_match": null,
+            "line": 73,
+            "problem": "tests/test_filter_overrides.py:7–14 still imports parse_optional_int, and three tests call it. Removing the symbol causes ImportError during collection, aborting the default pytest run before tests execute.",
+            "severity": "medium",
+            "title": "Deleted helper remains imported by the test suite",
+            "why_it_matters": "tests/test_filter_overrides.py:7–14 still imports parse_optional_int, and three tests call it. Removing the symbol causes ImportError during collection, aborting the default pytest run before tests execute."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [{\"id\": \"codex-001\", \"file\": \"src/roonseek/web/_filter_overrides.py\", \"line\": 73, \"title\": \"Deleted helper remains imported by the test suite\", \"category\": \"adversarial\", \"cwe\": null, \"severity\": \"medium\", \"agent_confidence\": 100, \"problem\": \"tests/test_filter_overrides.py:7\\u201314 still imports parse_optional_int, and three tests call it. Removing the symbol causes ImportError during collection, aborting the default pytest run before tests execute.\", \"why_it_matters\": \"tests/test_filter_overrides.py:7\\u201314 still imports parse_optional_int, and three tests call it. Removing the symbol causes ImportError during collection, aborting the default pytest run before tests execute.\", \"fix_hint\": \"Update the test imports and replace the deleted helper tests with equivalent coverage of _overrides_from_form, or retain the helper until its callers are migrated.\", \"intent_doc_match\": null}], \"agent_notes\": [\"Do not ship yet: deleting the helper breaks test collection. Runtime refactoring shows no additional substantive regression. Tests could not run because pytest is unavailable.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01BoJFUFQDdMkmwLxcfXG3vt"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 7,
+  "unrecovered": []
+}

@@ -1,0 +1,264 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "754b2f1c4891b3438be5b2208fc6b0b3eb8235bc",
+      "timestamp": "2026-10-15T00:57:04Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python",
+        "framework-fastapi"
+      ],
+      "findings": [
+        {
+          "id": "impact-001",
+          "file": "src/roonseek/web/_filter_overrides.py",
+          "line": 73,
+          "title": "Removing public helper parse_optional_int breaks collection of tests/test_filter_overrides.py with ImportError",
+          "category": "breaking-api",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 95,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The diff deletes `parse_optional_int` from `roonseek.web._filter_overrides`. But tests/test_filter_overrides.py:7-14 still imports it at module level, and lines 155-170 still call it. Pytest will fail to collect that module with an ImportError. Every test in the file stops running, including all the merge_overrides and parse_csv_list tests, not just the three parse_optional_int tests, and the suite exits non-zero.",
+          "current_code": "from roonseek.web._filter_overrides import (\n    ALLOWED_OVERRIDE_KEYS,\n    INT_KEYS,\n    LIST_KEYS,\n    merge_overrides,\n    parse_csv_list,\n    parse_optional_int,\n)",
+          "fix_hint": "Either remove the parse_optional_int import and Tests 15-17 (lines 151-170) from tests/test_filter_overrides.py in the same change, or keep the helper and have _overrides_from_form call it",
+          "why_it_matters": "CI goes red. The whole merge_overrides test module (the T-7-04 allowlist coverage) silently stops running until the test file is fixed, which removes coverage of the security-relevant validator.",
+          "silenced_marker_nearby": false,
+          "needs_verification": null,
+          "agent": "impact",
+          "source_window": [
+            "def parse_csv_list(raw: str) -> list[str]:",
+            "    \"\"\"Split a comma-separated string into a stripped, empty-filtered list (Pitfall 8).\"\"\"",
+            "    return [s.strip() for s in raw.split(\",\") if s.strip()]",
+            "",
+            ""
+          ],
+          "canonical_line_content": "    return [s.strip() for s in raw.split(\",\") if s.strip()]",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs",
+            "impact",
+            "codex-adversarial"
+          ],
+          "stable_hash": "22e86523916ac3a3d290457cbd4b0bc6819eb5d5a75d443324b3286f86b2ee44",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/roonseek/web/_filter_overrides.py",
+              "line": 73,
+              "title": "Removing public helper parse_optional_int breaks collection of tests/test_filter_overrides.py with ImportError",
+              "category": "breaking-api",
+              "severity": "medium",
+              "agent": "impact",
+              "agent_confidence": 95,
+              "problem": "The diff deletes `parse_optional_int` from `roonseek.web._filter_overrides`. But tests/test_filter_overrides.py:7-14 still imports it at module level, and lines 155-170 still call it. Pytest will fail to collect that module with an ImportError. Every test in the file stops running, including all the merge_overrides and parse_csv_list tests, not just the three parse_optional_int tests, and the suite exits non-zero.",
+              "source_window": [
+                "def parse_csv_list(raw: str) -> list[str]:",
+                "    \"\"\"Split a comma-separated string into a stripped, empty-filtered list (Pitfall 8).\"\"\"",
+                "    return [s.strip() for s in raw.split(\",\") if s.strip()]",
+                "",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "CI goes red. The whole merge_overrides test module (the T-7-04 allowlist coverage) silently stops running until the test file is fixed, which removes coverage of the security-relevant validator.",
+              "fix_hint": "Either remove the parse_optional_int import and Tests 15-17 (lines 151-170) from tests/test_filter_overrides.py in the same change, or keep the helper and have _overrides_from_form call it",
+              "current_code": "from roonseek.web._filter_overrides import (\n    ALLOWED_OVERRIDE_KEYS,\n    INT_KEYS,\n    LIST_KEYS,\n    merge_overrides,\n    parse_csv_list,\n    parse_optional_int,\n)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/web/_filter_overrides.py",
+              "line": 73,
+              "title": "Deleted helper remains imported by the test suite",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 100,
+              "problem": "tests/test_filter_overrides.py:7\u201314 still imports parse_optional_int, and three tests call it. Removing the symbol causes ImportError during collection, aborting the default pytest run before tests execute.",
+              "source_window": [
+                "def parse_csv_list(raw: str) -> list[str]:",
+                "    \"\"\"Split a comma-separated string into a stripped, empty-filtered list (Pitfall 8).\"\"\"",
+                "    return [s.strip() for s in raw.split(\",\") if s.strip()]",
+                "",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "tests/test_filter_overrides.py:7\u201314 still imports parse_optional_int, and three tests call it. Removing the symbol causes ImportError during collection, aborting the default pytest run before tests execute.",
+              "fix_hint": "Update the test imports and replace the deleted helper tests with equivalent coverage of _overrides_from_form, or retain the helper until its callers are migrated.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "src/roonseek/web/_filter_overrides.py",
+              "line": 74,
+              "title": "Removing parse_optional_int breaks the import in tests/test_filter_overrides.py, so the whole test module fails to collect",
+              "category": "logic-error",
+              "severity": "high",
+              "agent": "bugs",
+              "agent_confidence": 95,
+              "problem": "The diff deletes parse_optional_int from _filter_overrides.py. tests/test_filter_overrides.py:13 still imports it at module level, and tests 15-17 at lines 155-170 call it. When pytest loads that file it raises ImportError and errors on collection. Every test in the module stops running, including the merge_overrides allowlist and type-validation tests (T-7-04) and the parse_csv_list tests. The suite goes red, and the validation logic this refactor depends on loses its unit coverage.",
+              "source_window": [
+                "    \"\"\"Split a comma-separated string into a stripped, empty-filtered list (Pitfall 8).\"\"\"",
+                "    return [s.strip() for s in raw.split(\",\") if s.strip()]",
+                "",
+                "",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "A collection error in this module silently removes all coverage of the filter-override allowlist validation and fails CI.",
+              "fix_hint": "Either keep parse_optional_int, or remove its import and tests 15-17 from tests/test_filter_overrides.py in the same change.",
+              "current_code": "-def parse_optional_int(raw: str) -> int | None:\n-    \"\"\"Empty string -> None (inherit). Otherwise int() (raises ValueError on bad input). Pitfall 13.\"\"\"\n-    raw = raw.strip()\n-    return None if raw == \"\" else int(raw)",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "src/roonseek/web/_filter_overrides.py",
+            "line": 73,
+            "canonical_line_content": "    return [s.strip() for s in raw.split(\",\") if s.strip()]",
+            "band": "critical"
+          }
+        },
+        {
+          "id": "py-001",
+          "file": "tests/test_filter_overrides.py",
+          "line": 13,
+          "title": "parse_optional_int removed from _filter_overrides.py but still imported by the test suite",
+          "category": "removed-export",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 92,
+          "in_diff": false,
+          "intent_doc_match": null,
+          "problem": "The diff deletes parse_optional_int from src/roonseek/web/_filter_overrides.py entirely (and drops it from library.py's import line), but tests/test_filter_overrides.py still does `from roonseek.web._filter_overrides import (... parse_optional_int)` at line 7-14 and has three tests (lines 155-170) that call it directly.",
+          "current_code": "from roonseek.web._filter_overrides import (\n    ALLOWED_OVERRIDE_KEYS,\n    INT_KEYS,\n    LIST_KEYS,\n    merge_overrides,\n    parse_csv_list,\n    parse_optional_int,\n)",
+          "fix_hint": "Either keep a thin parse_optional_int wrapper in _filter_overrides.py for backward compatibility, or update tests/test_filter_overrides.py to drop the import and the three parse_optional_int tests (they're now effectively covered by the inlined int(raw) logic in _overrides_from_form).",
+          "why_it_matters": "This import is evaluated at module load time, so pytest collection of tests/test_filter_overrides.py will raise ImportError, failing the entire test module (not just the 3 tests that call the function) \u2014 likely breaking CI for this change.",
+          "silenced_marker_nearby": false,
+          "needs_verification": null,
+          "agent": "language-python",
+          "source_window": [
+            "    merge_overrides,",
+            "    parse_csv_list,",
+            "    parse_optional_int,",
+            ")",
+            ""
+          ],
+          "canonical_line_content": "    parse_optional_int,",
+          "orchestrator_score": 89,
+          "band": "warning",
+          "attribution": [
+            "architecture",
+            "language-python"
+          ],
+          "stable_hash": "353203614f96579efb40f4cb9f7be1b2c1325bd67ed24f3040e71cc8f9cf6754",
+          "status": "new",
+          "members": [
+            {
+              "file": "tests/test_filter_overrides.py",
+              "line": 13,
+              "title": "parse_optional_int removed from _filter_overrides.py but still imported by the test suite",
+              "category": "removed-export",
+              "severity": "high",
+              "agent": "language-python",
+              "agent_confidence": 92,
+              "problem": "The diff deletes parse_optional_int from src/roonseek/web/_filter_overrides.py entirely (and drops it from library.py's import line), but tests/test_filter_overrides.py still does `from roonseek.web._filter_overrides import (... parse_optional_int)` at line 7-14 and has three tests (lines 155-170) that call it directly.",
+              "source_window": [
+                "    merge_overrides,",
+                "    parse_csv_list,",
+                "    parse_optional_int,",
+                ")",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "This import is evaluated at module load time, so pytest collection of tests/test_filter_overrides.py will raise ImportError, failing the entire test module (not just the 3 tests that call the function) \u2014 likely breaking CI for this change.",
+              "fix_hint": "Either keep a thin parse_optional_int wrapper in _filter_overrides.py for backward compatibility, or update tests/test_filter_overrides.py to drop the import and the three parse_optional_int tests (they're now effectively covered by the inlined int(raw) logic in _overrides_from_form).",
+              "current_code": "from roonseek.web._filter_overrides import (\n    ALLOWED_OVERRIDE_KEYS,\n    INT_KEYS,\n    LIST_KEYS,\n    merge_overrides,\n    parse_csv_list,\n    parse_optional_int,\n)",
+              "intent_doc_match": null
+            },
+            {
+              "file": "tests/test_filter_overrides.py",
+              "line": 13,
+              "title": "Removed public helper parse_optional_int is still imported by its unit test module",
+              "category": "dependency",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 95,
+              "problem": "The diff deletes `parse_optional_int` from src/roonseek/web/_filter_overrides.py. tests/test_filter_overrides.py still imports it (line 13) and calls it in three tests (lines 155-170). That import fails at collection time, so the whole test module errors out, including the merge_overrides and parse_csv_list tests that have nothing to do with this change. git grep confirms the test file is now the only remaining reference.",
+              "source_window": [
+                "    merge_overrides,",
+                "    parse_csv_list,",
+                "    parse_optional_int,",
+                ")",
+                ""
+              ],
+              "cwe": null,
+              "why_it_matters": "An ImportError at collection turns the module's tests for the allowlist (T-7-04) and merge validation into collection errors rather than test results. That hides coverage for the security-relevant merge_overrides path.",
+              "fix_hint": "Delete the parse_optional_int import and its three tests (Tests 15-17), or keep the helper and use it in _overrides_from_form instead of a bare int()",
+              "current_code": "from roonseek.web._filter_overrides import (\n    ...\n    parse_csv_list,\n    parse_optional_int,\n)",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "tests/test_filter_overrides.py",
+            "line": 13,
+            "canonical_line_content": "    parse_optional_int,",
+            "band": "warning"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/roonseek/web/_filter_overrides.py",
+          "line": 73,
+          "title": "Deleted helper remains imported by the test suite",
+          "reason": "absorbed-into: 22e86523916ac3a3d290457cbd4b0bc6819eb5d5a75d443324b3286f86b2ee44"
+        },
+        {
+          "file": "src/roonseek/web/_filter_overrides.py",
+          "line": 74,
+          "title": "Removing parse_optional_int breaks the import in tests/test_filter_overrides.py, so the whole test module fails to collect",
+          "reason": "absorbed-into: 22e86523916ac3a3d290457cbd4b0bc6819eb5d5a75d443324b3286f86b2ee44"
+        },
+        {
+          "file": "tests/test_filter_overrides.py",
+          "line": 13,
+          "title": "Removed public helper parse_optional_int is still imported by its unit test module",
+          "reason": "absorbed-into: 353203614f96579efb40f4cb9f7be1b2c1325bd67ed24f3040e71cc8f9cf6754"
+        },
+        {
+          "file": "src/roonseek/web/library.py",
+          "line": 731,
+          "title": "Re-fetched artist row is not checked for None before indexing in the HTML response path (pre-existing)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/web/library.py",
+          "line": 701,
+          "title": "A non-UTF-8 PUT body raises UnicodeDecodeError and returns 500 instead of the 400 envelope (pre-existing)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/web/library.py",
+          "line": 790,
+          "title": "Split POST/PUT filter-overrides routes raise 400/404 undeclared in responses=",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ]
+}

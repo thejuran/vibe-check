@@ -610,6 +610,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 |---|---|
 | targeted/reach-new-1/run-1 | 1 |
 | targeted/reach-new-2/run-2 | 1 |
+| targeted/reach-unchanged-1/run-1 | 0 |
 
 ## Cache
 
@@ -718,4 +719,23 @@ candidates at site: 1 (alarms 1, needs-verification 0)
 AXIS: credit — row 5d4874b914f1 (alarm, critical 100) — names notification-bell.component.html:28 and the causal failure: escaped interpolation replaced by [innerHTML] so server- and remote-influenced notification text is parsed as HTML (members codex-adversarial "HTML injection enables phishing through remote scan errors", bugs, impact). Location AND causal failure match the keyed defect (scored on HTML injection only, per the README condition).
 
 Run notes: 8m30s to finish; fix-loop card after 495s; `Stop here…` -> `Abandon` by label; one-time folder-trust prompt accepted for the new seedsyncarr clone path. Harness note: after the review persisted its state, the owner's enabled bm plugin wrote an untracked `.planning/HANDOFF.json` (PostToolUse hook, `source: auto-postool`) into the clone; the case base predates the repo's own `**/HANDOFF.json` ignore rule, so `post` refused on the untracked file. The review's scope was tracked changes only (its one finding sits in the case file) and the file was born after the state was persisted, so the review is unaffected. Setup correction: `.planning/HANDOFF.json` added to each disposable clone's local exclude and removed after each run; the partial archive was cleared and `post` rerun on the same run (state file untouched).
+
+
+### targeted/reach-unchanged-1/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| impact | src/roonseek/web/_filter_overrides.py | 73 | critical | 100 | 22e86523916a |
+| language-python | tests/test_filter_overrides.py | 13 | warning | 89 | 353203614f96 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+Result vs entry 1: pre-registered "quiet: 0 alarms, 0 NV" -> FIRED (2 alarms, 0 NV); a fail under the pre-registered rule. Both alarm rows are one defect, and it is real and new in this commit, outside the case key: the commit deletes `parse_optional_int` from `src/roonseek/web/_filter_overrides.py` while `tests/test_filter_overrides.py:13` (unchanged) still imports it, so pytest cannot collect that module (ImportError) and every test in it stops running. Checked in the clone: at base 754b2f1 the helper is defined and imported by the test; at feature 79031dc it is defined nowhere under `src/` and the test still imports it (the repo fixed the tests in a later commit). Rows: 22e86523916a (impact, critical 100; members codex-adversarial, bugs) and 353203614f96 (language-python, warning 89; member architecture). None of the keyed already-reachable weaknesses (a)-(c) was raised as an alarm or NV item, which is the behaviour the case was built to test. Not a plugin defect, so no change made; the case key (owner-approved) does not cover this break; raised for the owner at sign-off. Run: 13m32s; fix-loop card after 796s; `Stop here…` -> `Abandon` by label; folder-trust prompt accepted once for the roonseek clone; the bm plugin's `.planning/HANDOFF.json` removed after the run.
 
