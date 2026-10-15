@@ -1,6 +1,8 @@
 # Live check — two same-day close-outs keep both reports and both state archives
 
-Requirement: R2 (no-clobber Finalize archive routing, 54-02), live check per D-27 / D-07. Run by 54-10 on candidate `302df48e1097212aa334a21c8f2683ed810eb496` (from `evidence/CANDIDATE.json`).
+Requirement: R2 (no-clobber Finalize archive routing, 54-02), live check per D-27 / D-07. Run by the 54-10 re-run on candidate `24c0c00038f2d15af4b55f178ea44e680c1f2c58` (from `evidence/CANDIDATE.json`).
+
+This replaces the record for the superseded candidate `302df48e1097…`, which is kept unchanged in `evidence/superseded-302df48e1097/live-finalize-archive.md`. The candidate's `90-finalize.md`, `review_archive.py` and `finalize_gate.py` are unchanged from 302df48 (`git diff 302df48 24c0c00 -- plugins/` is empty). Every archive name and every sha256 below matches the superseded run.
 
 ## Result
 
@@ -17,14 +19,14 @@ Both close-out REVIEW.md reports survive: the earlier same-phase report is in `R
 
 ## Method
 
-- Scratch git repos under the session scratchpad (`arch-stamped`, `arch-unstamped`). Not a real project and not the holdout.
-- `VC_ROOT` is a `git archive 302df48e…  plugins/vibe-check` export of the candidate, not the working tree.
+- Scratch git repos under the session scratchpad (`54-10r/arch-stamped`, `54-10r/arch-unstamped`). Not a real project and not the holdout.
+- `VC_ROOT` is a `git archive 24c0c00038f2…  plugins/vibe-check` export of the candidate, not the working tree.
 - The fences were extracted from the candidate's `90-finalize.md` (blob 91d02b45ee60024c1d384bb6e2db6b758e80edfb):
   - prior-REVIEW.md fence (the four-backtick bash block): `awk '/^````bash$/{f=1;next} /^````$/{f=0} f' "$FIN"`
   - state-archive command (the `write` branch's "Archive state" code span): `sed -n 's/.*Archive state: `\(python3 "\$VC_ROOT\/scripts\/review_archive.py" state --state-file "\$STATE_FILE"\)`.*/\1/p' "$FIN"`
 - Each was run with `bash -s`, with `VC_ROOT` set and, for the state fence, `STATE_FILE=.turingmind/state/format-53/54.json` (the GSD-mode format-53 path Phase 0.5 binds for `PHASE_ID=54`).
 - One close-out = the steady-state `write` branch order: prior-REVIEW.md fence, then write a stamped REVIEW.md (`**Final verdict:** ✅ APPROVED` followed by `**State format:** 53`), then the state-archive fence. Before close-out 1 a stamped Phase 54 REVIEW.md from an earlier close-out exists. Between the close-outs the state file is recreated (the same fixture plus one trailing newline, so the two state archives have distinct bytes).
-- State JSON: copied from the committed fixture `plugins/vibe-check/scripts/fixtures/phase45-loop-state.json` (sha256 e82f5bf2…). The fix-harness fixtures hold no state JSON; their state is produced at run time by `harness_seed.seed_state`. Only the archive move is under test here, so the state's content does not matter.
+- State JSON: copied from the fixture `scripts/fixtures/phase45-loop-state.json` in the candidate export (the first run copied it from the working tree; same bytes) (sha256 e82f5bf2…). The fix-harness fixtures hold no state JSON; their state is produced at run time by `harness_seed.seed_state`. Only the archive move is under test here, so the state's content does not matter.
 - Unstamped variant: a REVIEW.md without the `**State format:** 53` line (`review-closed` exit 1), run through the prior-REVIEW.md fence twice on the same day.
 
 ## Script
@@ -33,7 +35,7 @@ Both close-out REVIEW.md reports survive: the earlier same-phase report is in `R
 #!/bin/bash
 set -euo pipefail
 REPO=/Users/julianamacbook/turingmind-code-review
-SP=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/4224a579-78b3-4810-a82f-789b2e360499/scratchpad/54-10
+SP=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/4224a579-78b3-4810-a82f-789b2e360499/scratchpad/54-10r
 C=$(python3 -c "import json;print(json.load(open('$REPO/docs/design/freeze-v2.12/evidence/CANDIDATE.json'))['candidate_sha'])")
 rm -rf "$SP/cand" "$SP/arch-stamped" "$SP/arch-unstamped"
 mkdir -p "$SP/cand"
@@ -53,7 +55,7 @@ echo "--- extracted fence-review.sh ---"; cat "$SP/fence-review.sh"
 echo "--- extracted fence-state.sh ---"; cat "$SP/fence-state.sh"
 test -s "$SP/fence-review.sh"; test "$(wc -l < "$SP/fence-state.sh")" -eq 1
 
-STATE_SRC="$REPO/plugins/vibe-check/scripts/fixtures/phase45-loop-state.json"
+STATE_SRC="$VC_ROOT/scripts/fixtures/phase45-loop-state.json"
 PHASE_ID=54
 DATE=$(date +%Y-%m-%d)
 echo "date=$DATE  PHASE_ID=$PHASE_ID  state fixture=$(basename "$STATE_SRC")"
@@ -111,8 +113,8 @@ done
 ## Transcript
 
 ```
-candidate=302df48e1097212aa334a21c8f2683ed810eb496
-VC_ROOT=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/4224a579-78b3-4810-a82f-789b2e360499/scratchpad/54-10/cand/plugins/vibe-check
+candidate=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+VC_ROOT=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/4224a579-78b3-4810-a82f-789b2e360499/scratchpad/54-10r/cand/plugins/vibe-check
 90-finalize.md blob at candidate: 91d02b45ee60024c1d384bb6e2db6b758e80edfb
 exported 90-finalize.md sha256: 7fe94ac5af7c7ad7d8f7d6f6ff343de2be04d6c4f135788cfd2458d0b32f660f
 --- extracted fence-review.sh ---
@@ -145,17 +147,17 @@ seed review-closed exit: 0
 $ ls -la .turingmind .turingmind/state/format-53
 .turingmind: 
 total 
-drwxr-xr-x@ 160 Oct 15 17:48 .
-drwxr-xr-x@ 128 Oct 15 17:48 ..
--rw-r--r--@ 133 Oct 15 17:48 REVIEW-54-2026-10-15.md
--rw-r--r--@ 102 Oct 15 17:48 REVIEW.md
-drwxr-xr-x@ 96 Oct 15 17:48 state
+drwxr-xr-x@ 160 Oct 15 18:32 .
+drwxr-xr-x@ 128 Oct 15 18:32 ..
+-rw-r--r--@ 133 Oct 15 18:32 REVIEW-54-2026-10-15.md
+-rw-r--r--@ 102 Oct 15 18:32 REVIEW.md
+drwxr-xr-x@ 96 Oct 15 18:32 state
  
 .turingmind/state/format-53: 
 total 
-drwxr-xr-x@ 96 Oct 15 17:48 .
-drwxr-xr-x@ 96 Oct 15 17:48 ..
--rw-r--r--@ 98066 Oct 15 17:48 54.json.archived-2026-10-15
+drwxr-xr-x@ 96 Oct 15 18:32 .
+drwxr-xr-x@ 96 Oct 15 18:32 ..
+-rw-r--r--@ 98066 Oct 15 18:32 54.json.archived-2026-10-15
 $ sha256
 9e0b5ebbbf5b4fddf65061df37ef78775edeb087758d3c9f1be11eec393c873b  .turingmind/REVIEW-54-2026-10-15.md
 b15d26ce59ac00b2755d5a850a6a371b2bc38ca34b665002877a2dc703a8bd26  .turingmind/REVIEW.md
@@ -169,19 +171,19 @@ e82f5bf2fa25322cc04873062d3ee0df1c16994c6cc9b9915512ea6ab63bcd30  .turingmind/st
 $ ls -la .turingmind .turingmind/state/format-53
 .turingmind: 
 total 
-drwxr-xr-x@ 192 Oct 15 17:48 .
-drwxr-xr-x@ 128 Oct 15 17:48 ..
--rw-r--r--@ 102 Oct 15 17:48 REVIEW-54-2026-10-15-2.md
--rw-r--r--@ 133 Oct 15 17:48 REVIEW-54-2026-10-15.md
--rw-r--r--@ 102 Oct 15 17:48 REVIEW.md
-drwxr-xr-x@ 96 Oct 15 17:48 state
+drwxr-xr-x@ 192 Oct 15 18:32 .
+drwxr-xr-x@ 128 Oct 15 18:32 ..
+-rw-r--r--@ 102 Oct 15 18:32 REVIEW-54-2026-10-15-2.md
+-rw-r--r--@ 133 Oct 15 18:32 REVIEW-54-2026-10-15.md
+-rw-r--r--@ 102 Oct 15 18:32 REVIEW.md
+drwxr-xr-x@ 96 Oct 15 18:32 state
  
 .turingmind/state/format-53: 
 total 
-drwxr-xr-x@ 128 Oct 15 17:48 .
-drwxr-xr-x@ 96 Oct 15 17:48 ..
--rw-r--r--@ 98066 Oct 15 17:48 54.json.archived-2026-10-15
--rw-r--r--@ 98067 Oct 15 17:48 54.json.archived-2026-10-15-2
+drwxr-xr-x@ 128 Oct 15 18:32 .
+drwxr-xr-x@ 96 Oct 15 18:32 ..
+-rw-r--r--@ 98066 Oct 15 18:32 54.json.archived-2026-10-15
+-rw-r--r--@ 98067 Oct 15 18:32 54.json.archived-2026-10-15-2
 $ sha256
 b15d26ce59ac00b2755d5a850a6a371b2bc38ca34b665002877a2dc703a8bd26  .turingmind/REVIEW-54-2026-10-15-2.md
 9e0b5ebbbf5b4fddf65061df37ef78775edeb087758d3c9f1be11eec393c873b  .turingmind/REVIEW-54-2026-10-15.md
@@ -196,9 +198,9 @@ unstamped-1 review-closed exit: 1
 An earlier REVIEW.md was written by a plugin version that does not read this review's state; archived aside as REVIEW-unstamped-<date>.md — it did not close this review.
 --- after pass 1 ---
 total 
-drwxr-xr-x@ 96 Oct 15 17:48 .
-drwxr-xr-x@ 128 Oct 15 17:48 ..
--rw-r--r--@ 91 Oct 15 17:48 REVIEW-unstamped-2026-10-15.md
+drwxr-xr-x@ 96 Oct 15 18:32 .
+drwxr-xr-x@ 128 Oct 15 18:32 ..
+-rw-r--r--@ 91 Oct 15 18:32 REVIEW-unstamped-2026-10-15.md
 4656382aa9c8242b7aba0b1a9ea4043df08a3dcb26414aa6aa2a6c2029b45462  .turingmind/REVIEW-unstamped-2026-10-15.md
 unstamped-2 review-closed exit: 1
 >>> pass 2: prior-REVIEW.md fence
@@ -206,10 +208,10 @@ unstamped-2 review-closed exit: 1
 An earlier REVIEW.md was written by a plugin version that does not read this review's state; archived aside as REVIEW-unstamped-<date>.md — it did not close this review.
 --- after pass 2 ---
 total 
-drwxr-xr-x@ 128 Oct 15 17:48 .
-drwxr-xr-x@ 128 Oct 15 17:48 ..
--rw-r--r--@ 91 Oct 15 17:48 REVIEW-unstamped-2026-10-15-2.md
--rw-r--r--@ 91 Oct 15 17:48 REVIEW-unstamped-2026-10-15.md
+drwxr-xr-x@ 128 Oct 15 18:32 .
+drwxr-xr-x@ 128 Oct 15 18:32 ..
+-rw-r--r--@ 91 Oct 15 18:32 REVIEW-unstamped-2026-10-15-2.md
+-rw-r--r--@ 91 Oct 15 18:32 REVIEW-unstamped-2026-10-15.md
 e62b06e465035c963c62296aaf4dd00cde4180b8aeea146bc1c84236ebda1707  .turingmind/REVIEW-unstamped-2026-10-15-2.md
 4656382aa9c8242b7aba0b1a9ea4043df08a3dcb26414aa6aa2a6c2029b45462  .turingmind/REVIEW-unstamped-2026-10-15.md
 ```
