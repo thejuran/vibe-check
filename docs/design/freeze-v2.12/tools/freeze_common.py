@@ -84,7 +84,9 @@ def _ls_tree(repo, rev, prefix, recursive=True):
     argv = ["ls-tree", "-z"]
     if recursive:
         argv.append("-r")
-    argv += [rev, "--", prefix]
+    # Without -r, `prefix/` lists the directory's entries; a bare `prefix`
+    # would list the directory entry itself.
+    argv += [rev, "--", prefix if recursive else prefix + "/"]
     out = git(repo, *argv)
     entries = []
     for raw in out.split(b"\0"):
@@ -155,7 +157,7 @@ def tree_files_at(repo, rev, prefix, pattern=None, recursive=True):
 def blob_at(repo, rev, path):
     """The bytes of `path` at `rev`, or None when the path is absent."""
     validate_rel(path)
-    entries = [e for e in _ls_tree(repo, rev, path, recursive=False)
+    entries = [e for e in _ls_tree(repo, rev, path, recursive=True)
                if e[3] == path]
     if not entries:
         return None

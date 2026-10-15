@@ -88,6 +88,12 @@ class TestGitHelpers(unittest.TestCase):
         self.assertEqual(freeze_common.tree_files_at(
             self.repo.root, "HEAD", "docs/nope"), {})
 
+    def test_tree_files_at_pattern_lists_directory_entries(self):
+        tree = freeze_common.tree_files_at(self.repo.root, "HEAD",
+                                           "plugins/vibe-check", pattern="*.txt",
+                                           recursive=False)
+        self.assertEqual(set(tree), {"empty.txt"})
+
     def test_live_files_honors_excludes(self):
         with tempfile.TemporaryDirectory() as d:
             _write(d, "a.py", "x")
