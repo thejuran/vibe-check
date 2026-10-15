@@ -232,3 +232,28 @@ candidates at site: 1 (alarms 1, needs-verification 0)
 AXIS: credit — row 1307c74d1331 (alarm, critical 100) at routes.py:1689 — "Reset tokens are disclosed through the web log viewer"; members compliance "Password reset token logged in cleartext, bypassing the project's secret-redaction sink", security "Reset token leaks into HTTP-rendered log viewer". Location AND causal failure match.
 
 vs Phase 53 final: catch kept (credited row now led by codex-adversarial, 1307c74d1331; Phase 53 led by security, 453bc76570c9 — same site, same defect). Alarms 4 -> 5; the extra alarms are off the keyed defect (mkstemp fd/permission rows at 1573-1580, as before, plus a codex warning at 1617). NV 0 -> 0. Cards 2 -> 2 (AskUserQuestion in the main transcript). Weak co-located notes dropped: 2. Run 17m24s; fix-loop card after 1022s; `Stop here…` -> `Abandon` by label. `pre` and `post` IDENTITY OK with the session alive (first live pass of the `.in_use` fix). Statusline: 84 samples, all `claude-fable-5-1[1m]`, context_window_size 1000000.
+
+### live/reach-new-2/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | src/angular/src/app/pages/main/notification-bell.component.html | 28 | critical | 100 | 13a2934ef82f |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+keyed defect: src/angular/src/app/pages/main/notification-bell.component.html:28 now binds unchanged server- and remote-influenced notification text with [innerHTML] instead of {{ notif.text }} interpolation, so markup in those strings is parsed as HTML in every open UI (HTML injection): Angular's sanitizer keeps links, images and formatting, so injected markup can render attacker-controlled links or images in a trusted UI element.
+label: development rehearsal - not release evidence
+| agent | file | line | band | score | stable_hash | nv | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|---|
+| bugs | src/angular/src/app/pages/main/notification-bell.component.html | 28 | critical | 100 | 13a2934ef82f | no | Removing text-interpolation escaping lets server and remote-scan error strings inject HTML markup (sanitizer is now the only defense against script execution) | bugs: Removing text-interpolation escaping lets server and remote-scan error strings inject HTML markup (sanitizer is now the only defense against script execution); security: Notification text switched from auto-escaped interpolation to raw [innerHTML], reverting prior XSS hardening; codex-adversarial: Notification HTML injection permits deceptive links; bugs: Notification text containing '<' or '&' is mangled or dropped when parsed as HTML; architecture: Notification.text silently changes from plain text to rendered HTML for every producer; impact: Notification text switched from escaped interpolation to [innerHTML]: server and remote-host error strings are now parsed as HTML (link/image injection); impact: Script-execution protection now depends on Angular's default sanitizer instead of guaranteed escaping |  |
+candidates at site: 1 (alarms 1, needs-verification 0)
+
+AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>

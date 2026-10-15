@@ -1,0 +1,226 @@
+{
+  "codex_lines": 1,
+  "dispatched": 5,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [],
+        "intent_docs_found": [],
+        "languages": [
+          "html"
+        ],
+        "size_tier": "small",
+        "total_lines": 2
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"html\"],\n  \"frameworks\": [],\n  \"total_lines\": 2,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01QdX4T581Ge5ypUuyo11ZWH"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "Checked every Notification producer: header.component.ts:47-49,74-76,96-107; settings-page.component.ts:95-97,167-170,236-239,254-257; file-list.component.ts:577-583; version-check.service.ts:75-78. None of them supplies intentional HTML, so the innerHTML switch has no visible consumer that needs it."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 85,
+            "category": "logic-error",
+            "current_code": "&lt;span class=\"bell-notif-text\" [innerHTML]=\"notif.text\"&gt;&lt;/span&gt;",
+            "cwe": "CWE-79",
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "revert to {{ notif.text }} interpolation; if rich text is really needed, add an explicit html flag on Notification used only for trusted constant strings",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 28,
+            "problem": "The old code used `{{ notif.text }}`, which always escapes text, so any string showed up literally. The new `[innerHTML]` binding parses notif.text as HTML. Every producer of notif.text passes plain text that nobody has escaped. One is `status.server.errorMessage` (header.component.ts:49). Another is `latestRemoteScanError`, which is the raw error output from the remote server; it goes into the notification through Localization.STATUS_REMOTE_SERVER_ERROR (localization.ts:15-16, header.component.ts:96). The settings page passes `reaction.errorMessage` (settings-page.component.ts:170/239/257), and file-list.component.ts:577 passes action summary text. None of these localization strings contains intentional markup, so the change gains nothing and drops an escaping guarantee that held unconditionally. Script execution is now blocked only by Angular's default DomSanitizer. Even with the sanitizer active, an error string can still inject `&lt;a href&gt;` links (phishing), `&lt;img src&gt;` tags that make the browser request outside URLs (tracking/beacon), and arbitrary layout or formatting. If anyone later wraps this binding with bypassSecurityTrustHtml, or a sanitizer gap appears, this becomes full XSS.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Removing text-interpolation escaping lets server and remote-scan error strings inject HTML markup (sanitizer is now the only defense against script execution)",
+            "why_it_matters": "Error text from the remote server or backend now renders as live HTML in the UI instead of inert text."
+          },
+          {
+            "agent_confidence": 80,
+            "category": "logic-error",
+            "current_code": "&lt;span class=\"bell-notif-text\" [innerHTML]=\"notif.text\"&gt;&lt;/span&gt;",
+            "cwe": null,
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "use text interpolation for plain-text notifications",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 28,
+            "problem": "Error messages commonly contain angle brackets or ampersands, such as file paths, `&lt;stdin&gt;`, `a &amp;&amp; b`, or shell/ssh error output in latestRemoteScanError. With innerHTML, a substring like `&lt;foo&gt;` is parsed as an unknown element: the sanitizer strips it and it disappears from the message. `&amp;lt;`-style sequences decode into different characters. The user sees a truncated or altered error message. The old interpolation showed it exactly.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Notification text containing '&lt;' or '&amp;' is mangled or dropped when parsed as HTML",
+            "why_it_matters": "Diagnostic error text the user depends on is silently corrupted."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"bugs\",\"findings\":[{\"id\":\"bugs-001\",\"file\":\"src/angular/src/app/pages/main/notification-bell.component.html\",\"line\":28,\"title\":\"Removing text-interpolation escaping lets server and remote-scan error strings inject HTML markup (sanitizer is now the only defense against script execution)\",\"category\":\"logic-error\",\"cwe\":\"CWE-79\",\"severity\":\"high\",\"agent_confidence\":85,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"The old code used `{{ notif.text }}`, which always escapes text, so any string showed up literally. The new `[innerHTML]` binding parses notif.text as HTML. Every producer of notif.text passes plain text that nobody has escaped. One is `status.server.errorMessage` (header.component.ts:49). Another is `latestRemoteScanError`, which is the raw error output from the remote server; it goes into the notification through Localization.STATUS_REMOTE_SERVER_ERROR (localization.ts:15-16, header.component.ts:96). The settings page passes `reaction.errorMessage` (settings-page.component.ts:170/239/257), and file-list.component.ts:577 passes action summary text. None of these localization strings contains intentional markup, so the change gains nothing and drops an escaping guarantee that held unconditionally. Script execution is now blocked only by Angular's default DomSanitizer. Even with the sanitizer active, an error string can still inject `&lt;a href&gt;` links (phishing), `&lt;img src&gt;` tags that make the browser request outside URLs (tracking/beacon), and arbitrary layout or formatting. If anyone later wraps this binding with bypassSecurityTrustHtml, or a sanitizer gap appears, this becomes full XSS.\",\"current_code\":\"&lt;span class=\\\"bell-notif-text\\\" [innerHTML]=\\\"notif.text\\\"&gt;&lt;/span&gt;\",\"fix_hint\":\"revert to {{ notif.text }} interpolation; if rich text is really needed, add an explicit html flag on Notification used only for trusted constant strings\",\"why_it_matters\":\"Error text from the remote server or backend now renders as live HTML in the UI instead of inert text.\",\"silenced_marker_nearby\":false},{\"id\":\"bugs-002\",\"file\":\"src/angular/src/app/pages/main/notification-bell.component.html\",\"line\":28,\"title\":\"Notification text containing '&lt;' or '&amp;' is mangled or dropped when parsed as HTML\",\"category\":\"logic-error\",\"cwe\":null,\"severity\":\"medium\",\"agent_confidence\":80,\"in_diff\":true,\"intent_doc_match\":null,\"problem\":\"Error messages commonly contain angle brackets or ampersands, such as file paths, `&lt;stdin&gt;`, `a &amp;&amp; b`, or shell/ssh error output in latestRemoteScanError. With innerHTML, a substring like `&lt;foo&gt;` is parsed as an unknown element: the sanitizer strips it and it disappears from the message. `&amp;lt;`-style sequences decode into different characters. The user sees a truncated or altered error message. The old interpolation showed it exactly.\",\"current_code\":\"&lt;span class=\\\"bell-notif-text\\\" [innerHTML]=\\\"notif.text\\\"&gt;&lt;/span&gt;\",\"fix_hint\":\"use text interpolation for plain-text notifications\",\"why_it_matters\":\"Diagnostic error text the user depends on is silently corrupted.\",\"silenced_marker_nearby\":false}],\"agent_notes\":[\"Checked every Notification producer: header.component.ts:47-49,74-76,96-107; settings-page.component.ts:95-97,167-170,236-239,254-257; file-list.component.ts:577-583; version-check.service.ts:75-78. None of them supplies intentional HTML, so the innerHTML switch has no visible consumer that needs it.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_01NXb8TSKaQsqwcdH6eWFyWc"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [],
+        "findings": [
+          {
+            "agent_confidence": 85,
+            "category": "xss",
+            "current_code": "&lt;span class=\"bell-notif-text\" [innerHTML]=\"notif.text\"&gt;&lt;/span&gt;",
+            "cwe": "CWE-79",
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "Revert to text interpolation (`{{ notif.text }}`), which auto-escapes. If rich formatting in notifications is genuinely required, build the content from trusted, hardcoded markup fragments (not raw text that can include externally-influenced error strings) and sanitize explicitly rather than binding the full string via innerHTML.",
+            "id": "sec-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 28,
+            "problem": "The hunk changes `{{ notif.text }}` (Angular text interpolation, which HTML-escapes its output) to `[innerHTML]=\"notif.text\"` (binds the string as markup to be parsed and inserted into the DOM). This is a direct reversal of the auto-escaping protection this exact field previously had. Notably, the commit that originally introduced this component (469a0df) explicitly called out 'Strip HTML from localization strings (XSS hardening)' as deliberate security work on these notification strings — this diff undoes the protective rendering mode for the same field.\n\nI traced a concrete source that reaches this sink unescaped: in src/python/web/handler/controller.py:308, the bulk-command endpoint builds an error response as `\"Invalid action '{}'. Valid actions: {}\".format(action_name, valid_actions)` where `action_name = body.get(\"action\")` is taken verbatim from the POST body with no HTML escaping. That error string flows through src/angular/src/app/services/server/bulk-command.service.ts:121 (`errorMessage = err.error.error`) into src/angular/src/app/pages/files/file-list.component.ts:554 (`Localization.Bulk.ERROR(result.errorMessage ...)`), into `_showNotification`, and ultimately becomes `notif.text` rendered by this template via raw innerHTML. No code in that path HTML-escapes the value.\n\nIn normal UI usage the Angular app only ever sends a fixed enum of action values, so the organic trigger for this exact path is a request issued outside the normal UI flow (e.g. a devtools/console-paste 'self-XSS' scam, a compromised browser extension, or a future/legacy client sending an unexpected action value) — one leg (how the malicious action value gets submitted through the app's own request pipeline) is assumed rather than directly observed in this diff. Angular does apply its built-in DomSanitizer to [innerHTML] bindings (since bypassSecurityTrustHtml is not used here), which strips &lt;script&gt; tags and on*= event-handler attributes, so classic payloads are likely neutralized — but the sanitizer still permits a wide range of markup (links, images, styled elements), so HTML-structure injection, phishing-style links, and hidden/overlay content are not prevented, and no feature here has any functional need to render HTML (every current Localization.* notification string is plain text).",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Notification text switched from auto-escaped interpolation to raw [innerHTML], reverting prior XSS hardening",
+            "why_it_matters": "This field aggregates text from multiple call sites (server status errors, remote-scan error messages, and backend bulk-action error responses), at least one of which (the 'Invalid action' error) echoes raw user-supplied input into the response body with no escaping. Rendering that value via innerHTML instead of auto-escaped interpolation reintroduces the exact HTML/script injection risk this codebase had previously and deliberately hardened against for these strings, and does so with no functional benefit since no notification text is intended to contain markup."
+          }
+        ]
+      },
+      "raw_return_text": "Based on my review, I traced `notif.text` back through the codebase to its sources and confirmed this is a real regression, not a theoretical concern.\n\n```json\n{\n  \"agent\": \"security\",\n  \"findings\": [\n    {\n      \"id\": \"sec-001\",\n      \"file\": \"src/angular/src/app/pages/main/notification-bell.component.html\",\n      \"line\": 28,\n      \"title\": \"Notification text switched from auto-escaped interpolation to raw [innerHTML], reverting prior XSS hardening\",\n      \"category\": \"xss\",\n      \"cwe\": \"CWE-79\",\n      \"severity\": \"high\",\n      \"agent_confidence\": 85,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The hunk changes `{{ notif.text }}` (Angular text interpolation, which HTML-escapes its output) to `[innerHTML]=\\\"notif.text\\\"` (binds the string as markup to be parsed and inserted into the DOM). This is a direct reversal of the auto-escaping protection this exact field previously had. Notably, the commit that originally introduced this component (469a0df) explicitly called out 'Strip HTML from localization strings (XSS hardening)' as deliberate security work on these notification strings — this diff undoes the protective rendering mode for the same field.\\n\\nI traced a concrete source that reaches this sink unescaped: in src/python/web/handler/controller.py:308, the bulk-command endpoint builds an error response as `\\\"Invalid action '{}'. Valid actions: {}\\\".format(action_name, valid_actions)` where `action_name = body.get(\\\"action\\\")` is taken verbatim from the POST body with no HTML escaping. That error string flows through src/angular/src/app/services/server/bulk-command.service.ts:121 (`errorMessage = err.error.error`) into src/angular/src/app/pages/files/file-list.component.ts:554 (`Localization.Bulk.ERROR(result.errorMessage ...)`), into `_showNotification`, and ultimately becomes `notif.text` rendered by this template via raw innerHTML. No code in that path HTML-escapes the value.\\n\\nIn normal UI usage the Angular app only ever sends a fixed enum of action values, so the organic trigger for this exact path is a request issued outside the normal UI flow (e.g. a devtools/console-paste 'self-XSS' scam, a compromised browser extension, or a future/legacy client sending an unexpected action value) — one leg (how the malicious action value gets submitted through the app's own request pipeline) is assumed rather than directly observed in this diff. Angular does apply its built-in DomSanitizer to [innerHTML] bindings (since bypassSecurityTrustHtml is not used here), which strips &lt;script&gt; tags and on*= event-handler attributes, so classic payloads are likely neutralized — but the sanitizer still permits a wide range of markup (links, images, styled elements), so HTML-structure injection, phishing-style links, and hidden/overlay content are not prevented, and no feature here has any functional need to render HTML (every current Localization.* notification string is plain text).\",\n      \"current_code\": \"&lt;span class=\\\"bell-notif-text\\\" [innerHTML]=\\\"notif.text\\\"&gt;&lt;/span&gt;\",\n      \"fix_hint\": \"Revert to text interpolation (`{{ notif.text }}`), which auto-escapes. If rich formatting in notifications is genuinely required, build the content from trusted, hardcoded markup fragments (not raw text that can include externally-influenced error strings) and sanitize explicitly rather than binding the full string via innerHTML.\",\n      \"why_it_matters\": \"This field aggregates text from multiple call sites (server status errors, remote-scan error messages, and backend bulk-action error responses), at least one of which (the 'Invalid action' error) echoes raw user-supplied input into the response body with no escaping. Rendering that value via innerHTML instead of auto-escaped interpolation reintroduces the exact HTML/script injection risk this codebase had previously and deliberately hardened against for these strings, and does so with no functional benefit since no notification text is intended to contain markup.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_01NJV5voqrofxKpa8SMp4AWd"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "No producer currently emits HTML. Localization.Notification.NEW_VERSION_AVAILABLE (localization.ts:18) returns plain text with a bare URL. The likely motivation is to make the version URL clickable, and that is better done with a structured link field on Notification than by turning text into HTML.",
+          "The only other innerHTML site in the Angular app is confirm-modal.service.ts:100, and it escapes every interpolated value first. This diff is the first unescaped HTML sink in the codebase.",
+          "This is primarily a security issue (XSS / HTML injection, CWE-79) that the security and compliance agents should flag independently. The architecture finding above is about the contract change; the CWE is left null to avoid double-counting the security domain.",
+          "No import or dependency changes; no cycles introduced.",
+          "Not checked: whether notification-bell.component.spec.ts asserts on textContent, which would still pass for plain-text inputs and so would not catch this behavior change."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 72,
+            "category": "abstraction",
+            "current_code": "&lt;span class=\"bell-notif-text\" [innerHTML]=\"notif.text\"&gt;&lt;/span&gt;",
+            "cwe": null,
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "revert to {{ notif.text }}; if a rich notification is needed (e.g. clickable version URL), add an explicit optional field such as `link?: {href,label}` to Notification and render it via template binding",
+            "id": "arch-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 28,
+            "needs_verification": null,
+            "problem": "`Notification.text` is typed as a plain `string` (services/utils/notification.ts:5). All producers write it as plain text. Several of them put backend or remote strings into it without escaping: header.component.ts:49 (`status.server.errorMessage`), header.component.ts:96 (`latestRemoteScanError` via STATUS_REMOTE_SERVER_ERROR), settings-page.component.ts:170/239/257 (`reaction.errorMessage`) and file-list.component.ts:554 (`result.errorMessage`). Switching the single consumer to `[innerHTML]` turns that field into an HTML channel for all of those producers at once. Nothing changes on the producer side and no type marks the field as trusted HTML. The codebase's established approach is to escape before an HTML sink: ConfirmModalService.escapeHtml (confirm-modal.service.ts:33) is applied to every interpolated field at lines 51-56. This change drops that discipline.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Notification.text silently changes from plain text to rendered HTML for every producer",
+            "why_it_matters": "Any string the server or a remote host can influence, such as error messages or scan errors with filenames, now renders as markup in the app shell. Angular's sanitizer strips script but still allows injected links, images and layout changes. It also contradicts the user's CLAUDE.md absolute rule against rendering untrusted content via innerHTML."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"architecture\",\n  \"findings\": [\n    {\n      \"id\": \"arch-001\",\n      \"file\": \"src/angular/src/app/pages/main/notification-bell.component.html\",\n      \"line\": 28,\n      \"title\": \"Notification.text silently changes from plain text to rendered HTML for every producer\",\n      \"category\": \"abstraction\",\n      \"cwe\": null,\n      \"severity\": \"medium\",\n      \"agent_confidence\": 72,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"`Notification.text` is typed as a plain `string` (services/utils/notification.ts:5). All producers write it as plain text. Several of them put backend or remote strings into it without escaping: header.component.ts:49 (`status.server.errorMessage`), header.component.ts:96 (`latestRemoteScanError` via STATUS_REMOTE_SERVER_ERROR), settings-page.component.ts:170/239/257 (`reaction.errorMessage`) and file-list.component.ts:554 (`result.errorMessage`). Switching the single consumer to `[innerHTML]` turns that field into an HTML channel for all of those producers at once. Nothing changes on the producer side and no type marks the field as trusted HTML. The codebase's established approach is to escape before an HTML sink: ConfirmModalService.escapeHtml (confirm-modal.service.ts:33) is applied to every interpolated field at lines 51-56. This change drops that discipline.\",\n      \"current_code\": \"&lt;span class=\\\"bell-notif-text\\\" [innerHTML]=\\\"notif.text\\\"&gt;&lt;/span&gt;\",\n      \"fix_hint\": \"revert to {{ notif.text }}; if a rich notification is needed (e.g. clickable version URL), add an explicit optional field such as `link?: {href,label}` to Notification and render it via template binding\",\n      \"why_it_matters\": \"Any string the server or a remote host can influence, such as error messages or scan errors with filenames, now renders as markup in the app shell. Angular's sanitizer strips script but still allows injected links, images and layout changes. It also contradicts the user's CLAUDE.md absolute rule against rendering untrusted content via innerHTML.\",\n      \"silenced_marker_nearby\": false,\n      \"needs_verification\": null\n    }\n  ],\n  \"agent_notes\": [\n    \"No producer currently emits HTML. Localization.Notification.NEW_VERSION_AVAILABLE (localization.ts:18) returns plain text with a bare URL. The likely motivation is to make the version URL clickable, and that is better done with a structured link field on Notification than by turning text into HTML.\",\n    \"The only other innerHTML site in the Angular app is confirm-modal.service.ts:100, and it escapes every interpolated value first. This diff is the first unescaped HTML sink in the codebase.\",\n    \"This is primarily a security issue (XSS / HTML injection, CWE-79) that the security and compliance agents should flag independently. The architecture finding above is about the contract change; the CWE is left null to avoid double-counting the security domain.\",\n    \"No import or dependency changes; no cycles introduced.\",\n    \"Not checked: whether notification-bell.component.spec.ts asserts on textContent, which would still pass for plain-text inputs and so would not catch this behavior change.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_01GK2Sud1nFpF42uM2nZCWWb"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Blast radius: NotificationBellComponent is the single sink for every app notification (header server status, remote-scan errors, settings validation errors, bulk file action results, version check). One template line changes how all of them render.",
+          "Externally influenced producers that reach the sink unescaped: header.component.ts:49 (server.errorMessage), header.component.ts:96 via localization.ts:15-16 (latestRemoteScanError, from remote seedbox output), settings-page.component.ts:170/239/257 (reaction.errorMessage), file-list.component.ts:554 (result.errorMessage). version-check.service.ts restricts the URL to https://github.com/ but interpolates it as plain text.",
+          "No producer in the repo emits intentional HTML, so the change adds no working feature. If Phase 68 'clickable version' is the motivation, the version template still has no &lt;a&gt;, so nothing becomes clickable without a further change, and that change should not rely on HTML in strings.",
+          "Display regression: any notification text containing '&lt;...&gt;' (paths, shell/rsync errors, placeholder tokens) will be partly or fully dropped. In dev builds Angular will also log 'sanitizing HTML stripped some content' warnings.",
+          "Unit tests in tests/unittests/pages/main/notification-bell.component.spec.ts that assert on textContent will likely still pass for plain strings, so they will not catch this.",
+          "No API, schema or performance impact.",
+          "Verdict: not shippable as-is. Revert to interpolation, or render links through a structured field (impact-1)."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 70,
+            "category": "blast-radius",
+            "current_code": "&lt;span class=\"bell-notif-text\" [innerHTML]=\"notif.text\"&gt;&lt;/span&gt;",
+            "cwe": "CWE-80",
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "Revert to `{{ notif.text }}`. If a clickable version link is the goal, add a structured field to Notification (e.g. `linkUrl`) and render a template-controlled &lt;a&gt; instead of parsing the text as HTML.",
+            "id": "impact-1",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 28,
+            "problem": "Before this change, `{{ notif.text }}` always escaped the text, so it rendered as plain text whatever it contained. `[innerHTML]` now hands the same string to the HTML parser, with only Angular's default DomSanitizer as the guard. That sanitizer removes &lt;script&gt;, on* event handlers and javascript: URLs, so direct script execution is still blocked as long as nothing bypasses it (grep found no bypassSecurityTrust* calls). It still lets through &lt;a href=\"https://...\"&gt;, &lt;img src=\"https://...\"&gt;, and markup that changes styling or layout. Several producers put strings from outside the app into notif.text verbatim. (1) header.component.ts:49 uses `status.server.errorMessage` from the backend. (2) header.component.ts:96 uses `status.controller.latestRemoteScanError`, which is interpolated untouched by localization.ts:15-16 and comes from the remote seedbox's scan/SSH output. Remote file or directory names can show up in it, so whoever controls the remote host, or names files there, controls the text. (3) settings-page.component.ts:170/239/257 use `reaction.errorMessage` from the server, which can echo config values the user typed. (4) file-list.component.ts:554 uses `result.errorMessage` from the bulk API. Some examples. A remote file named `&lt;a href=\"https://evil.example/login\"&gt;Click to re-authenticate&lt;/a&gt;` appearing in a scan error would render a clickable phishing link inside a trusted DANGER notification. `&lt;img src=\"https://tracker.example/x\"&gt;` would send a request to an outside host whenever the bell is opened. No producer in the repo emits HTML on purpose: every Localization template (localization.ts:15-19, Bulk.*) is plain text, and NEW_VERSION_AVAILABLE writes the URL as bare text, not as an anchor. So the switch has no current consumer and only widens what can get through. There is also a second regression: legitimate error text containing angle brackets, such as `&lt;path&gt;`, `&lt;none&gt;` or shell/rsync messages with `&lt;...&gt;`, is now swallowed by the parser and disappears from the notification.",
+            "severity": "medium",
+            "silenced_marker_nearby": false,
+            "title": "Notification text switched from escaped interpolation to [innerHTML]: server and remote-host error strings are now parsed as HTML (link/image injection)",
+            "why_it_matters": "This removes the unconditional escaping of every notification, including strings controlled by the remote seedbox. That allows phishing links and outside tracking requests inside trusted UI, and it silently breaks error messages that contain angle brackets. It also violates the user's global rule against rendering user-supplied content via innerHTML."
+          },
+          {
+            "agent_confidence": 40,
+            "category": "blast-radius",
+            "current_code": "&lt;span class=\"bell-notif-text\" [innerHTML]=\"notif.text\"&gt;&lt;/span&gt;",
+            "cwe": "CWE-79",
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "Keep text interpolation so the guarantee does not depend on how the sanitizer is configured.",
+            "id": "impact-2",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 28,
+            "problem": "Interpolation guaranteed that no notification text could run as script. With [innerHTML], that guarantee now rests on DomSanitizer being active and never bypassed for this binding. A future `bypassSecurityTrustHtml` added upstream (e.g. in a Notification constructor or the service), or a custom Sanitizer provider, would turn the server and remote-host strings listed in impact-1 into stored XSS against the app UI. Today no bypass exists (grep of src/angular/src/app found no bypassSecurityTrust*). pending: a code path that wraps notif.text in SafeHtml, or a sanitizer override, would show it can be exploited.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Script-execution protection now depends on Angular's default sanitizer instead of guaranteed escaping",
+            "why_it_matters": "Turns a structural XSS guarantee into one that depends on configuration."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"impact\",\n  \"findings\": [\n    {\n      \"id\": \"impact-1\",\n      \"file\": \"src/angular/src/app/pages/main/notification-bell.component.html\",\n      \"line\": 28,\n      \"title\": \"Notification text switched from escaped interpolation to [innerHTML]: server and remote-host error strings are now parsed as HTML (link/image injection)\",\n      \"category\": \"blast-radius\",\n      \"cwe\": \"CWE-80\",\n      \"severity\": \"medium\",\n      \"agent_confidence\": 70,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"Before this change, `{{ notif.text }}` always escaped the text, so it rendered as plain text whatever it contained. `[innerHTML]` now hands the same string to the HTML parser, with only Angular's default DomSanitizer as the guard. That sanitizer removes &lt;script&gt;, on* event handlers and javascript: URLs, so direct script execution is still blocked as long as nothing bypasses it (grep found no bypassSecurityTrust* calls). It still lets through &lt;a href=\\\"https://...\\\"&gt;, &lt;img src=\\\"https://...\\\"&gt;, and markup that changes styling or layout. Several producers put strings from outside the app into notif.text verbatim. (1) header.component.ts:49 uses `status.server.errorMessage` from the backend. (2) header.component.ts:96 uses `status.controller.latestRemoteScanError`, which is interpolated untouched by localization.ts:15-16 and comes from the remote seedbox's scan/SSH output. Remote file or directory names can show up in it, so whoever controls the remote host, or names files there, controls the text. (3) settings-page.component.ts:170/239/257 use `reaction.errorMessage` from the server, which can echo config values the user typed. (4) file-list.component.ts:554 uses `result.errorMessage` from the bulk API. Some examples. A remote file named `&lt;a href=\\\"https://evil.example/login\\\"&gt;Click to re-authenticate&lt;/a&gt;` appearing in a scan error would render a clickable phishing link inside a trusted DANGER notification. `&lt;img src=\\\"https://tracker.example/x\\\"&gt;` would send a request to an outside host whenever the bell is opened. No producer in the repo emits HTML on purpose: every Localization template (localization.ts:15-19, Bulk.*) is plain text, and NEW_VERSION_AVAILABLE writes the URL as bare text, not as an anchor. So the switch has no current consumer and only widens what can get through. There is also a second regression: legitimate error text containing angle brackets, such as `&lt;path&gt;`, `&lt;none&gt;` or shell/rsync messages with `&lt;...&gt;`, is now swallowed by the parser and disappears from the notification.\",\n      \"current_code\": \"&lt;span class=\\\"bell-notif-text\\\" [innerHTML]=\\\"notif.text\\\"&gt;&lt;/span&gt;\",\n      \"fix_hint\": \"Revert to `{{ notif.text }}`. If a clickable version link is the goal, add a structured field to Notification (e.g. `linkUrl`) and render a template-controlled &lt;a&gt; instead of parsing the text as HTML.\",\n      \"why_it_matters\": \"This removes the unconditional escaping of every notification, including strings controlled by the remote seedbox. That allows phishing links and outside tracking requests inside trusted UI, and it silently breaks error messages that contain angle brackets. It also violates the user's global rule against rendering user-supplied content via innerHTML.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"impact-2\",\n      \"file\": \"src/angular/src/app/pages/main/notification-bell.component.html\",\n      \"line\": 28,\n      \"title\": \"Script-execution protection now depends on Angular's default sanitizer instead of guaranteed escaping\",\n      \"category\": \"blast-radius\",\n      \"cwe\": \"CWE-79\",\n      \"severity\": \"low\",\n      \"agent_confidence\": 40,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"Interpolation guaranteed that no notification text could run as script. With [innerHTML], that guarantee now rests on DomSanitizer being active and never bypassed for this binding. A future `bypassSecurityTrustHtml` added upstream (e.g. in a Notification constructor or the service), or a custom Sanitizer provider, would turn the server and remote-host strings listed in impact-1 into stored XSS against the app UI. Today no bypass exists (grep of src/angular/src/app found no bypassSecurityTrust*). pending: a code path that wraps notif.text in SafeHtml, or a sanitizer override, would show it can be exploited.\",\n      \"current_code\": \"&lt;span class=\\\"bell-notif-text\\\" [innerHTML]=\\\"notif.text\\\"&gt;&lt;/span&gt;\",\n      \"fix_hint\": \"Keep text interpolation so the guarantee does not depend on how the sanitizer is configured.\",\n      \"why_it_matters\": \"Turns a structural XSS guarantee into one that depends on configuration.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Blast radius: NotificationBellComponent is the single sink for every app notification (header server status, remote-scan errors, settings validation errors, bulk file action results, version check). One template line changes how all of them render.\",\n    \"Externally influenced producers that reach the sink unescaped: header.component.ts:49 (server.errorMessage), header.component.ts:96 via localization.ts:15-16 (latestRemoteScanError, from remote seedbox output), settings-page.component.ts:170/239/257 (reaction.errorMessage), file-list.component.ts:554 (result.errorMessage). version-check.service.ts restricts the URL to https://github.com/ but interpolates it as plain text.\",\n    \"No producer in the repo emits intentional HTML, so the change adds no working feature. If Phase 68 'clickable version' is the motivation, the version template still has no &lt;a&gt;, so nothing becomes clickable without a further change, and that change should not rely on HTML in strings.\",\n    \"Display regression: any notification text containing '&lt;...&gt;' (paths, shell/rsync errors, placeholder tokens) will be partly or fully dropped. In dev builds Angular will also log 'sanitizing HTML stripped some content' warnings.\",\n    \"Unit tests in tests/unittests/pages/main/notification-bell.component.spec.ts that assert on textContent will likely still pass for plain strings, so they will not catch this.\",\n    \"No API, schema or performance impact.\",\n    \"Verdict: not shippable as-is. Revert to interpolation, or render links through a structured field (impact-1).\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01LUQuNHDSg7jbeLP8ich932"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "Do not ship: the new binding turns plain-text error content into injected HTML."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 99,
+            "category": "adversarial",
+            "cwe": null,
+            "file": "src/angular/src/app/pages/main/notification-bell.component.html",
+            "fix_hint": "Restore text interpolation. If notifications need links, represent those as separate validated fields and render explicit template anchors. Test markup-containing errors against the actual component template.",
+            "id": "codex-001",
+            "intent_doc_match": null,
+            "line": 28,
+            "problem": "Adding the autoqueue pattern `<a href=\"https://evil.example\">Reconnect account</a>` twice produces a concrete injection: AutoQueueService.add embeds the duplicate pattern in its error message, settings-page.component.ts:236–241 passes that message unchanged to NotificationService, and this binding renders a clickable external link instead of literal text. Angular's sanitizer explicitly allows anchors and HTTPS hrefs; it does not preserve the removed text-only protection. This also misrenders legitimate patterns containing markup. The existing bell tests override the template with the old interpolation, so they cannot catch this regression.",
+            "severity": "medium",
+            "title": "Notification HTML injection permits deceptive links",
+            "why_it_matters": "Adding the autoqueue pattern `<a href=\"https://evil.example\">Reconnect account</a>` twice produces a concrete injection: AutoQueueService.add embeds the duplicate pattern in its error message, settings-page.component.ts:236–241 passes that message unchanged to NotificationService, and this binding renders a clickable external link instead of literal text. Angular's sanitizer explicitly allows anchors and HTTPS hrefs; it does not preserve the removed text-only protection. This also misrenders legitimate patterns containing markup. The existing bell tests override the template with the old interpolation, so they cannot catch this regression."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [{\"id\": \"codex-001\", \"file\": \"src/angular/src/app/pages/main/notification-bell.component.html\", \"line\": 28, \"title\": \"Notification HTML injection permits deceptive links\", \"category\": \"adversarial\", \"cwe\": null, \"severity\": \"medium\", \"agent_confidence\": 99, \"problem\": \"Adding the autoqueue pattern `<a href=\\\"https://evil.example\\\">Reconnect account</a>` twice produces a concrete injection: AutoQueueService.add embeds the duplicate pattern in its error message, settings-page.component.ts:236\\u2013241 passes that message unchanged to NotificationService, and this binding renders a clickable external link instead of literal text. Angular's sanitizer explicitly allows anchors and HTTPS hrefs; it does not preserve the removed text-only protection. This also misrenders legitimate patterns containing markup. The existing bell tests override the template with the old interpolation, so they cannot catch this regression.\", \"why_it_matters\": \"Adding the autoqueue pattern `<a href=\\\"https://evil.example\\\">Reconnect account</a>` twice produces a concrete injection: AutoQueueService.add embeds the duplicate pattern in its error message, settings-page.component.ts:236\\u2013241 passes that message unchanged to NotificationService, and this binding renders a clickable external link instead of literal text. Angular's sanitizer explicitly allows anchors and HTTPS hrefs; it does not preserve the removed text-only protection. This also misrenders legitimate patterns containing markup. The existing bell tests override the template with the old interpolation, so they cannot catch this regression.\", \"fix_hint\": \"Restore text interpolation. If notifications need links, represent those as separate validated fields and render explicit template anchors. Test markup-containing errors against the actual component template.\", \"intent_doc_match\": null}], \"agent_notes\": [\"Do not ship: the new binding turns plain-text error content into injected HTML.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01ANDJRPR5g8e6Avfqn4VSP4"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 5,
+  "unrecovered": []
+}
