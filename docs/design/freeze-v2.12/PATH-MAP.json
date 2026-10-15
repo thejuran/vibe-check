@@ -1,0 +1,359 @@
+{
+  "schema": "freeze-path-map/1",
+  "categories": {
+    "engineering": "tests + security scan + deep review of the change",
+    "detection": "B3 x3 + holdout x3",
+    "workflow": "16 preservation + 2 clean-tree accepted-fix runs",
+    "reporting": "no rerun; identity check must still pass (a covered file still needs a new manifest)"
+  },
+  "rules": [
+    {
+      "glob": "docs/design/freeze-v2.12/evidence/**",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/freeze-v2.12/FREEZE-MANIFEST-*.json",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/REPLAY-REPORT-*",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/runs*/**",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/RUN-METHOD-NOTES*.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/SCORING-*.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/B3-STATUS.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/reachability-dev/NOTES-*.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/reachability-dev/runs-*/**",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/design/holdout-v2.12/RESULTS*",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/docs/efficacy/**",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "README.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "CHANGELOG.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "docs/superpowers/**",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/README.md",
+      "cats": [
+        "reporting"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/.claude-plugin/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/commands/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/agents/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/templates/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/phases/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/hooks/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/skills/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/statepath.py",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/state_shape.py",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/config.py",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/carry_state.py",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/freeze-v2.12/tools/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/freeze-v2.12/PATH-MAP.json",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/freeze-v2.12/README.md",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/holdout-v2.12/tools/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/b3-runner-v2.12/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/score.py",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/score43.py",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/replay.py",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/count_cards.py",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/reachability-dev/cases/**",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/ANSWER-KEY-*.md",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/REPLAY-CATCH-MANIFEST-*.json",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/SUPERSESSIONS-*.md",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/ALLOWANCES-*.json",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/CALIBRATION-*.md",
+      "cats": [
+        "engineering",
+        "detection"
+      ]
+    },
+    {
+      "glob": "docs/design/fix-harness/**",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/batch_card.py",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/finalize_gate.py",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/fixstage.py",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/review_archive.py",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/gitsnap.py",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/gitguard.py",
+      "cats": [
+        "engineering",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "plugins/vibe-check/scripts/test_*.py",
+      "cats": [
+        "engineering"
+      ]
+    }
+  ],
+  "unmapped": [
+    "engineering",
+    "detection",
+    "workflow"
+  ]
+}
