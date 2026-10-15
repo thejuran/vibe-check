@@ -65,7 +65,7 @@ Set `needs_verification` only when you could neither demonstrate that the change
 }
 ```
 
-An item is admitted to the Needs-verification group only when `file` + `line` (or `symbol`) and all three of `trigger`, `path` and `consequence` are present and concrete; hedges such as "may break" or "sensitive area" are rejected by the scorer, and the number of dropped items is published with the review. A Needs-verification item never corroborates another finding and is never corroborated by one. The Codex lane emits the same object through the fixed body marker `NEEDS VERIFICATION | Trigger: … | Path: … | Consequence: …`, which `scripts/codex_translate.py` translates into this shape.
+An item is admitted to the Needs-verification group only when `file` + `line` (or `symbol`) and all three of `trigger`, `path` and `consequence` are present and concrete; hedges such as "may break" or "sensitive area" are rejected by the scorer, and the number of dropped items is published with the review. Blank or placeholder values (`N/A`, `none`, `-`) in these fields count as absent, so a finding whose fields are all blank or placeholders is reported as a normal finding, not a Needs-verification item. A Needs-verification item never corroborates another finding and is never corroborated by one. The Codex lane emits the same object through the fixed body marker `NEEDS VERIFICATION | Trigger: … | Path: … | Consequence: …`, which `scripts/codex_translate.py` translates into this shape.
 
 ## `fix_hint` — detection agents do NOT write patches
 
