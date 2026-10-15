@@ -796,6 +796,7 @@ class TestDiffMode(_TmpDirCase):
         self.assertEqual(int(_header_value(text, "runs compared")),
                          len(replay.iter_runs(roots=replay.DIFF_ROOTS)))
         self.assertRegex(text, r"(?m)^## runs-v2\.1[01]-phase(41|43|49)/")
+        self.assertRegex(text, r"(?m)^## \.\./reachability-dev/runs-phase53-dev/final/")
         self.assertGreater(int(_header_value(text, "runs differing")), 0,
                            "member mutant changed nothing -- test would be vacuous")
         self.assertRegex(text, r"(?m)^- UNALLOWED findings\[[^\]]+\]\.members\[\d+\]\.line: ")
@@ -908,6 +909,28 @@ class TestDiffMode(_TmpDirCase):
         prefixes = {r["rel_path"].split("/", 1)[0] for r in all_runs}
         for root in ("runs-v2.10-phase41", "runs-v2.10-phase43", "runs-v2.11-phase49"):
             self.assertIn(root, prefixes)
+
+    def test_dev_rehearsal_root_is_diff_only(self):
+        # D-19: the signed-off rehearsal outcomes are compared byte-for-byte by
+        # `diff --roots all`, and never enter the census or the guardrail.
+        dev = "docs/design/reachability-dev/runs-phase53-dev/final"
+        self.assertIn(dev, replay.DIFF_ROOTS)
+        self.assertNotIn(dev, replay.ARCHIVE_ROOTS)
+        self.assertEqual(replay._DIFF_ROOT_SETS["manifest"], replay.ARCHIVE_ROOTS)
+        self.assertEqual(replay.EXPECTED_SCOREABLE, 66)
+        self.assertEqual(replay.EXPECTED_PROTECTED, 26)
+        self.assertEqual(len(replay.iter_runs()), replay.EXPECTED_SCOREABLE)
+        base = os.path.join(REPO_ROOT, dev)
+        on_disk = sorted("%s/%s" % (case, run) for case in os.listdir(base)
+                         if os.path.isdir(os.path.join(base, case))
+                         for run in os.listdir(os.path.join(base, case))
+                         if replay.RUN_DIR_RE.match(run)
+                         and os.path.isfile(os.path.join(base, case, run, "state.json")))
+        self.assertGreater(len(on_disk), 0)
+        prefix = "../reachability-dev/runs-phase53-dev/final/"
+        walked = sorted(r["rel_path"][len(prefix):] for r in replay.iter_runs(roots=replay.DIFF_ROOTS)
+                        if r["rel_path"].startswith(prefix))
+        self.assertEqual(walked, on_disk)
 
     def test_report_and_sidecar_have_no_titles(self):
         rc, text, out = self._diff(self._mutant("drop"), roots="all")
