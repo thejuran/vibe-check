@@ -632,6 +632,45 @@ class TestNoOverride(unittest.TestCase):
         self.assertIn("launch_model", fc.PROFILE_CLASSES["fix-harness"])
 
 
+class TestSessionMarkers(_Base):
+    """A running Claude Code session writes `.in_use/<pid>` into every
+    installed plugin's folder; starting or stopping a session is not drift."""
+
+    INSTALLED = ("p", "off", "codex", "gw")
+
+    def _installed(self, d):
+        return os.path.join(self.fx.home, ".claude/plugins/cache", d)
+
+    def _add_markers(self, pid):
+        for d in self.INSTALLED:
+            tfm._write(self._installed(d), ".in_use/%d" % pid, '{"pid":%d}' % pid)
+        tfm._write(self.fx.plugin_dir, ".in_use/%d" % pid, '{"pid":%d}' % pid)
+
+    def test_in_use_dirs_do_not_change_identity(self):
+        before = {r: self.pristine(r).check_digest for r in fc.RUNNERS}
+        self._add_markers(42926)
+        self._add_markers(44375)
+        for runner in fc.RUNNERS:
+            self.assertEqual(self.pristine(runner).check_digest, before[runner],
+                             runner)
+        shutil.rmtree(os.path.join(self._installed("gw"), ".in_use"))
+        for runner in fc.RUNNERS:
+            self.assertEqual(self.pristine(runner).check_digest, before[runner],
+                             runner)
+
+    def test_content_beside_markers_still_stops(self):
+        self._add_markers(42926)
+        self.pristine("b3")
+        tfm._write(self._installed("p"), "README.md", "changed\n")
+        self.stops("b3", "setting differs: enabled_plugins.p@m")
+        tfm._write(self._installed("p"), "README.md", "p@m\n")
+        tfm._write(self._installed("gw"), "extra.js", "x\n")
+        self.stops("b3", "setting differs: gateway.tree_sha256")
+        os.remove(os.path.join(self._installed("gw"), "extra.js"))
+        tfm._write(self._installed("codex"), "README.md", "changed\n")
+        self.stops("b3", "file differs: codex-companion")
+
+
 class TestVersionIsNotIdentity(_Base):
     def test_matching_version_with_differing_byte_stops(self):
         self.pristine("b3")

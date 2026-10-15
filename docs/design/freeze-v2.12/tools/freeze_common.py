@@ -16,9 +16,24 @@ import subprocess
 
 GIT_TIMEOUT = 120
 
-# The exclusions score43.runtime_fingerprint applies to a live plugin copy.
+# What a live-tree hash skips. This is the one list; every walker in the kit
+# reads it through `is_excluded_rel` / `live_files`.
+#
+# EXCLUDED_DIRS: interpreter caches; regenerated, never behavior.
 EXCLUDED_DIRS = ("__pycache__", ".pytest_cache")
+# EXCLUDED_NAMES: session-volatile runtime markers, skipped as a file AND as a
+# directory (with everything under it) at any depth.
+#   `.in_use` - Claude Code (2.1.281) writes `.in_use/<pid>`, one small file
+#   per running claude process, into the install folder of every installed
+#   plugin while a session runs, and removes it when that process exits. It
+#   records which processes hold the plugin; no plugin, hook or model reads
+#   it. Hashing it made the identity depend on which sessions were alive.
+#   Older builds wrote a plain `.in_use` file; both shapes are skipped.
+# A 2026-10-15 sweep of every installed plugin tree (modified files and
+# directories, lock/pid/socket/tmp/log/swap names, sockets and fifos) found
+# no other entry a running session writes there.
 EXCLUDED_NAMES = (".in_use",)
+# EXCLUDED_SUFFIXES: compiled bytecode beside its source.
 EXCLUDED_SUFFIXES = (".pyc",)
 EXCLUDES = (EXCLUDED_DIRS, EXCLUDED_NAMES, EXCLUDED_SUFFIXES)
 
@@ -179,14 +194,27 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def is_excluded_rel(rel, excludes=EXCLUDES):
+    """True when the `/`-separated relative path `rel` falls under an
+    exclusion: any directory segment is an excluded dir or an excluded name,
+    or the last segment is an excluded name or ends in an excluded suffix."""
+    ex_dirs, ex_names, ex_suffixes = excludes
+    segs = rel.split("/")
+    return (any(s in ex_dirs or s in ex_names for s in segs[:-1])
+            or segs[-1] in ex_names
+            or segs[-1].endswith(tuple(ex_suffixes)))
+
+
 def live_files(root, excludes=EXCLUDES):
-    """{rel: sha256} for every regular file under `root`, minus the score43
-    exclusions (cache dirs, the `.in_use` marker, `.pyc`). Symlinks are
-    hashed by their target text, matching a git 120000 blob."""
+    """{rel: sha256} for every regular file under `root`, minus the
+    exclusions (cache dirs, the `.in_use` session marker as a file or a
+    directory, `.pyc`). Symlinks are hashed by their target text, matching a
+    git 120000 blob."""
     ex_dirs, ex_names, ex_suffixes = excludes
     files = {}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in ex_dirs)
+        dirnames[:] = sorted(d for d in dirnames
+                             if d not in ex_dirs and d not in ex_names)
         for name in filenames:
             if name in ex_names or name.endswith(tuple(ex_suffixes)):
                 continue

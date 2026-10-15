@@ -672,10 +672,7 @@ def _is_covered_path(path):
 
 
 def _walk_excluded(path):
-    segs = path.split("/")
-    return (any(s in WALK_EXCLUDES[0] for s in segs[:-1])
-            or segs[-1] in WALK_EXCLUDES[1]
-            or segs[-1].endswith(WALK_EXCLUDES[2]))
+    return freeze_common.is_excluded_rel(path, WALK_EXCLUDES)
 
 
 def _z_paths(raw):

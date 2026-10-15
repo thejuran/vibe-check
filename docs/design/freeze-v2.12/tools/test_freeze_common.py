@@ -103,6 +103,49 @@ class TestGitHelpers(unittest.TestCase):
             _write(d, ".in_use", "x")
             self.assertEqual(set(freeze_common.live_files(d)), {"a.py"})
 
+    def test_live_files_skips_in_use_directory_shape(self):
+        # Claude Code 2.1.281 writes `.in_use/<pid>` (a directory holding one
+        # small file per running claude process) into every enabled plugin's
+        # install folder. The directory and everything under it are skipped,
+        # at the root and at depth, whatever the pid entries are.
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "a.py", "x")
+            _write(d, "sub/b.md", "y")
+            before = freeze_common.live_files(d)
+            _write(d, ".in_use/42926", "{\"pid\":42926}")
+            _write(d, ".in_use/44375/nested", "z")
+            _write(d, "sub/.in_use/51562", "w")
+            os.makedirs(os.path.join(d, "sub/deeper/.in_use/7"))
+            after = freeze_common.live_files(d)
+            self.assertEqual(after, before)
+            self.assertEqual(set(after), {"a.py", "sub/b.md"})
+            self.assertEqual(freeze_common.tree_sha256_of_map(after),
+                             freeze_common.tree_sha256_of_map(before))
+
+    def test_live_files_content_next_to_in_use_still_counts(self):
+        # Non-vacuity: a marker directory beside real content does not hide a
+        # content change, an added file or a removed file.
+        with tempfile.TemporaryDirectory() as d:
+            _write(d, "a.py", "x")
+            _write(d, ".in_use/42926", "m")
+            base = freeze_common.tree_sha256_of_map(freeze_common.live_files(d))
+            _write(d, "a.py", "changed")
+            self.assertNotEqual(
+                freeze_common.tree_sha256_of_map(freeze_common.live_files(d)), base)
+            _write(d, "a.py", "x")
+            _write(d, "in_use_notes.md", "a real file with a similar name")
+            self.assertIn("in_use_notes.md", freeze_common.live_files(d))
+            self.assertNotEqual(
+                freeze_common.tree_sha256_of_map(freeze_common.live_files(d)), base)
+
+    def test_is_excluded_rel_matches_live_files(self):
+        ex = freeze_common.is_excluded_rel
+        for rel in (".in_use", ".in_use/42926", "a/.in_use/1/2",
+                    "__pycache__/x.py", "a/.pytest_cache/v", "a/b.pyc"):
+            self.assertTrue(ex(rel), rel)
+        for rel in ("a.py", "in_use", "a/in_use.md", "a/.in_use.bak"):
+            self.assertFalse(ex(rel), rel)
+
     def test_validate_rev_refuses_leading_dash_and_odd_chars(self):
         for bad in ("-x", "--output=/tmp/x", "a b", "a;b", "", "a$b"):
             with self.assertRaises(FreezeError):

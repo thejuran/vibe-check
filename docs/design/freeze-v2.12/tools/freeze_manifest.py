@@ -550,7 +550,11 @@ def expected_plugin_files(repo, sha):
 def runtime_fingerprint_of_map(files_map):
     """score43.runtime_fingerprint computed from a git file map: sha256 over
     the sorted `<rel>\\0<sha256>\\n` lines of the runtime-root files, minus
-    caches, `.pyc` and the `.in_use` marker."""
+    caches, `.pyc` and the `.in_use` marker.
+
+    This mirrors score43 exactly, so `.in_use` is matched as a file name
+    only here. The live `.in_use/<pid>` directory sits at the install root,
+    outside RUNTIME_ROOTS, so neither formula ever sees it."""
     lines = []
     for rel, entry in files_map.items():
         segs = rel.split("/")

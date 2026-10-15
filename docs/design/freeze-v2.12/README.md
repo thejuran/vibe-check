@@ -51,6 +51,18 @@ mtime:
 - **Lineage:** the previous manifest's id and candidate, or null for the
   first manifest in the series.
 
+Live-tree hashes (installed plugins, the Codex companion, the model
+gateway, the plugin copy a runner loads, covered working-tree paths) skip a
+short, fixed list kept in one place, `freeze_common.EXCLUDED_*`:
+
+| Skipped | Why it is safe to skip |
+| --- | --- |
+| `__pycache__/`, `.pytest_cache/`, `*.pyc` | interpreter caches, regenerated from the hashed sources |
+| `.in_use`, as a file or a directory, at any depth | Claude Code writes `.in_use/<pid>` (one small file per running claude process) into every installed plugin's folder and removes it when the process exits. Nothing reads it for behavior; hashing it made every session start or exit look like drift |
+
+A sweep of every installed plugin tree on 2026-10-15 found no other entry a
+running session writes there. Nothing that can change behavior is skipped.
+
 Secrets never enter a manifest: a closed schema refuses any secret-shaped
 value by dotted path without echoing it.
 
