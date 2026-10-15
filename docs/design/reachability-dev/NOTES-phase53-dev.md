@@ -663,6 +663,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/reach-new-1/run-1 | 1 |
 | final/reach-new-2/run-1 | 0 |
 | final/reach-unchanged-1/run-1 | 0 |
+| final/reach-unchanged-2/run-1 | 0 |
 
 ## Cache
 
@@ -1072,4 +1073,21 @@ needs-verification rows:
 |---|---|---|---|---|---|
 
 vs entry 1: "quiet" -> FIRED (2 alarms, 0 NV), same as the targeted run: both rows (2dab2c1b1e61 bugs critical at _filter_overrides.py:73; fe03e1c9ca8c architecture warning at tests/test_filter_overrides.py:13) are the one real new defect outside the case key — `parse_optional_int` deleted while `tests/test_filter_overrides.py:13` still imports it (verified at feature 79031dc; see the targeted run). None of the keyed already-reachable weaknesses (a)-(c) raised. Run: fix-loop card after 767s; `Stop here…` -> `Abandon` by label.
+
+
+### final/reach-unchanged-2/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 0
+needs-verification items: 0
+fired: no
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+vs entry 1: "quiet" -> quiet (0 alarms, 0 NV) — PASS. Clean review (6m47s, no fix-loop card, no keystroke after `/vibe-check:deep-review`). The driver stopped at the clean finish (its clean-finish detector missed this wording); `post`, `/exit` and `revert` were then run by hand on the same run — no keystroke was sent to the review.
 
