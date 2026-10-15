@@ -1,0 +1,40 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "b853a18ddfb157d3c1d8541bd700a3f24a47cd7a",
+      "timestamp": "2026-10-15T01:06:26Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/python/web/handler/controller.py",
+          "line": 107,
+          "title": "QUEUE/STOP dispatch skips path-safety guard (pre-existing, behavior unchanged by this diff)",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/python/web/handler/controller.py",
+          "line": 82,
+          "title": "Guard policy for single-action dispatch is a per-call boolean, duplicating the existing _GUARDED_ACTIONS source of truth",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
