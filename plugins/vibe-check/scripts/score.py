@@ -113,6 +113,11 @@ _NV_KEYS = ("trigger", "path", "consequence")
 # shape are the only mechanical test; semantic concreteness is the lane
 # prompt's job.
 _NV_MIN = 12
+# D-28: a field whose WHOLE normalized value (first line, whitespace collapsed,
+# case-folded, surrounding periods ignored) is one of these placeholders counts
+# as blank. Whole-field match only: words are never stripped out of prose, so
+# "none of the callers validate the host" stays real text.
+_NV_PLACEHOLDERS = frozenset({"n/a", "none", "-"})
 _NV_HEDGES = ("may break", "might break", "might break compatibility", "could be bypassed",
               "could break", "sensitive area", "not exhaustive", "needs review", "unverified")
 _NV_FIELD_CAP = 300
@@ -937,6 +942,22 @@ def _nv_field(v):
     lines = v.splitlines()
     first = lines[0] if lines else ""
     return " ".join(first.split())[:_NV_FIELD_CAP]
+
+
+def _nv_value(v):
+    """_nv_field(v), or "" when the whole normalized field is a placeholder
+    in _NV_PLACEHOLDERS (case-insensitive, surrounding periods ignored)."""
+    text = _nv_field(v)
+    if text.lower().strip().strip(".").strip() in _NV_PLACEHOLDERS:
+        return ""
+    return text
+
+
+def _nv_marked(m):
+    """True when a record's `needs_verification` is a dict with at least one
+    real (non-blank, non-placeholder) trigger/path/consequence field."""
+    nv = m.get("needs_verification")
+    return isinstance(nv, dict) and any(_nv_value(nv.get(k)) for k in _NV_KEYS)
 
 
 def _nv_normalize(nv):
@@ -1775,13 +1796,13 @@ def run(envelope):
     # become rows after the threshold loop. With no such record `working` is
     # unchanged, so every archived envelope scores byte-identically.
     # The key is OPTIONAL (agent-output-schema.md): a fresh record whose dict
-    # carries no non-empty trigger/path/consequence ({} or blank fields) is
-    # not a Needs-verification claim — the key is stripped and the record is
-    # scored normally, so a lane filling every schema key never loses a
-    # proven finding to the drop path.
-    def _nv_marked(m):
-        nv = m.get("needs_verification")
-        return isinstance(nv, dict) and any(_nv_field(nv.get(k)) for k in _NV_KEYS)
+    # carries no real trigger/path/consequence ({}, blank fields, or fields
+    # that are wholly a placeholder — `N/A`, `none`, `-`, case- and
+    # whitespace-insensitive) is not a Needs-verification claim — the key is
+    # stripped and the record is scored normally, so a lane filling every
+    # schema key never loses a proven finding to the drop path. A record with
+    # at least one real field is marked (_nv_marked) and must pass nv_admit;
+    # it is never promoted to a normal finding.
 
     nv_admitted = []
     nv_dropped = 0

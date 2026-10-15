@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.12
 milestone_name: Quiet without hiding
 status: planning
-stopped_at: Phase 52 context gathered
-last_updated: "2026-10-09T22:57:52.749Z"
-last_activity: 2026-10-09
+stopped_at: Phase 54 context gathered
+last_updated: "2026-10-15T10:41:06.929Z"
+last_activity: 2026-10-15
 progress:
   total_phases: 19
-  completed_phases: 1
-  total_plans: 10
-  completed_plans: 10
-  percent: 5
+  completed_phases: 3
+  total_plans: 38
+  completed_plans: 38
+  percent: 16
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 52 — hardening + accepted fix harness
+**Current focus:** Phase 54 — freeze + release gates + integration audit
 
 ## Current Position
 
-Phase: 52
+Phase: 54
 Plan: Not started
 Status: Ready to plan
-Progress: [█████████░] 90%
-Last activity: 2026-10-09
+Progress: [██████████] 100%
+Last activity: 2026-10-15
 
 ## Performance Metrics
 
@@ -59,6 +59,8 @@ Last activity: 2026-10-09
 | 49 | 9 | - | - |
 | 50 | 2 | - | - |
 | 51 | 10 | - | - |
+| 52 | 14 | - | - |
+| 53 | 14 | - | - |
 
 **Recent Trend:**
 
@@ -165,6 +167,34 @@ Last activity: 2026-10-09
 | Phase 51 P06 | 35min | 2 tasks | 7 files |
 | Phase 51 P08 | 30 min | 3 tasks | 10 files |
 | Phase 51 P10 | 51 min | 3 tasks | 9 files |
+| Phase 52 P01 | 30min | 3 tasks | 4 files |
+| Phase 52 P02 | 15min | 2 tasks | 4 files |
+| Phase 52 P03 | 30min | 2 tasks | 11 files |
+| Phase 52 P04 | 20min | 2 tasks | 4 files |
+| Phase 52 P05 | 25min | 2 tasks | 9 files |
+| Phase 52 P06 | 6min | 2 tasks | 13 files |
+| Phase 52 P07 | 25min | 2 tasks | 4 files |
+| Phase 52 P08 | 13min | 3 tasks | 2 files |
+| Phase 52 P09 | 35min | 3 tasks | 4 files |
+| Phase 52 P12 | 25min | 2 tasks | 4 files |
+| Phase 52 P14 | 12 min | 3 tasks | 2 files |
+| Phase 52 P13 | 15 min | 2 tasks | 4 files |
+| Phase 52 P10 | 40min | 3 tasks | 12 files |
+| Phase 52 P11 | 59min | 3 tasks | 40 files |
+| Phase 53 P01 | 12 min | 2 tasks | 2 files |
+| Phase 53 P02 | 45 min | 2 tasks | 6 files |
+| Phase 53 P03 | 15 min | 2 tasks | 3 files |
+| Phase 53 P04 | 6m | 1 tasks | 2 files |
+| Phase 53 P05 | 3.5h | 3 tasks | 8 files |
+| Phase 53 P06 | 40min | 3 tasks | 6 files |
+| Phase 53 P07 | 25 min | 3 tasks | 11 files |
+| Phase 53 P08 | 55min | 3 tasks | 15 files |
+| Phase 53 P09 | 15min | 3 tasks | 10 files |
+| Phase 53 P10 | 16min | 2 tasks | 5 files |
+| Phase 53 P11 | 20min | 2 tasks | 4 files |
+| Phase 53 P12 | 20min | 3 tasks | 6 files |
+| Phase 53 P13 | 40min | 2 tasks | 9 files |
+| Phase 53 P14 | ~5h15m | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -355,6 +385,52 @@ Earlier decisions (v2.8) still on record:
 - [Phase ?]: 51-10: every headless session id is journaled before launch; continuation only via --resume
 - [Phase ?]: 51-10: a lost UNREVEALED cross-check session is replaced by a fresh session in the same generation; a revealed one stops (burned)
 - [Phase ?]: 51-10: generations minted mid-run are login-checked before their first prompt (dry run asks once for bin/crosscheck-r2)
+- [Phase 52]: 52-01: git -C / cd-then-git accept only . or the repo root spelled absolute and ..-free (lexical _resolve_dir_target, never realpath on the operand); remote show requires -n
+- [Phase 52]: 52-01: cd/git detected after wrapper unwrapping + lowercased basename; only -L/-P are cd flags
+- [Phase 52]: 52-01: symlink fixture is vendor/x.git/link -> R/vendor (link -> R would make realpath(link/..) the parent of R)
+- [Phase 52]: 52-02: gitsnap allows only CREATED refs/tags/* (announced, exit 0); moved/deleted tags, refs/heads/*, HEAD still halt; refs/remotes/* never compared
+- [Phase 52]: 52-03: commit subjects are sanitized into TITLE_ALLOWED (never refused over punctuation, D-08) with a fullmatch belt; fixcommit CLI retired (exits 2)
+- [Phase ?]: 52-05: finalize is decided once as whole-token FINALIZE_MODE in the Phase-0 fence; every finalize branch (spines, carve-outs, 90-finalize) reads it
+- [Phase ?]: 52-05: Phase 0.7 gates itself on repo-top .turingmind/ (FIRST_RUN fence); skip line replaces tip and migration card
+- [Phase 52]: 52-06: py-clamp-01 defect is a two-line hunk (13-14) inside clamp() with base line count preserved; fixed-file sentinel after line 23
+- [Phase 52]: 52-07: harness answers cards only from the seeded (file,title); truncated/ambiguous/unknown cards and prose turn-ends fail closed
+- [Phase 52]: 52-08: guard tokenizer is a bash-quoting lexer; only unquoted/unescaped ;|&()<> are operators (shlex dropped)
+- [Phase 52]: 52-08: cd/sed allowed only via argv validators; resolver reasons split (git dir -> GIT_OTHER_DIR, else CD_FORM); glob/brace/tilde cd operands refused
+- [Phase 52]: 52-08: every REASON_* has a plain explanation on the Blocked notice; repeats collapse with a count that always sums to the records
+- [Phase ?]: 52-09: fixstage EXIT_TABLE is the one exit-code source; prose case arms are byte-locked to render_case_arms
+- [Phase ?]: 52-09: fixstage preflight exits 3 when it cannot run (1 means git too old only)
+- [Phase 52]: 52-12: seed_state returns SeededState (str path + .stable_hash + .seeded_identity); seeding goes through plugin score.py + state_shape --schema future and never overwrites a state
+- [Phase 52]: 52-12: sentinel verify also fails when S1/S2/S3 reach HEAD (a plain git commit would sweep the staged sentinel without changing its index blob)
+- [Phase 52]: 52-14: probe denial counts only on a correlated permission signal (harness deny or pinned 'Permission to use <Tool> has been denied'; Bash non-zero exit + 'Operation not permitted'); other errors inconclusive
+- [Phase 52]: 52-13: ambiguous-match band check compares against bands_seen (every band the ledger saw), not only the first-seen band, so a warning->low re-band reads as downgraded/decided rather than ambiguous
+- [Phase 52]: 52-13: merge commits in the repair range are unexpected commits; ObligationLedger.mark_seeded refuses hashes it never observed
+- [Phase ?]: 52-10: probe.sh write-denied in every session's policy (fingerprints stay equal) + probe_script_intact hash check
+- [Phase ?]: 52-10: account claude.ai MCP connectors load despite setting_sources=[]; sessions disable them 4 ways and the driver refuses any init listing an MCP server; mcp__ calls fail the run
+- [Phase ?]: 52-10: Claude Code 2.1.294 deny-rule results pinned verbatim as permission denials
+- [Phase ?]: 52-10: Core.seeded_resolved is fail-closed (seeded hash gone AND nothing open in the seeded file) because the plugin re-hashes carried findings after the fix commit
+- [Phase ?]: 52-11: default-diff fix-loop Rerun continues to Phase 0.5 after a committed fix (Close-out unchanged, D-24)
+- [Phase 52]: 52-11: every subagent dispatch runs in the foreground (run_in_background: false)
+- [Phase 52]: 52-11: harness sessions get a private CLAUDE_CODE_TMPDIR; shared /tmp/claude-<uid> denied; probe fingerprint 2590e9f6
+- [Phase 52]: 52-11: seeded keys must name a plugin reviewer agent (py-clamp-01 -> bugs)
+- [Phase 53]: 53-01: replay diff compares the complete scorer output; allowances match only on exact run+path+before+after; JSON null in an allowance means absent
+- [Phase ?]: 53-02: D-05 corroboration = two independently qualifying members on the same line; credit per member; persistence stays a row property
+- [Phase 53]: 53-03: Codex NV marker grammar fixed as NEEDS VERIFICATION | Trigger | Path | Consequence (case-sensitive, body-anchored); fields sanitized like titles and capped at 300; non-match is byte-identical
+- [Phase ?]: 53-04: harness _ROW_RE accepts needs-verification band (built from _BAND_WORDS); NV rows deferred by number at finalize
+- [Phase 53]: Phase 53 D-05/D-06: owner approved 27 default-config differences as a SEVERITY CORRECTION with disclosed limitation (not a false-alarm reduction); allowance sha256 b40a06d4...067698; same-line matching documented as a proxy; A2 off-line pair is a known conservative limitation
+- [Phase ?]: 53-06: the retune helper-clause slot now pins the three-outcome reachability rule (retired blanket unchanged-helper cap forbidden in lanes and focus text)
+- [Phase 53]: 53-07: Phase-53 state lives at .turingmind/state/format-53/<shipped key> (statepath.resolve_current); NV constants frozen at Phase 54
+- [Phase 53]: 53-07: downgrade procedure also sets the converted row's snapshot band to warning so the shipped reader re-asks the owner decision (stale)
+- [Phase 53]: 53-08: owner approved four reachability dev cases as development fixtures (not independent/holdout evidence); verdicts rest on before/after code comparison; reach-new-2 scores HTML injection without claiming script execution
+- [Phase ?]: 53-09: NV decisions compare file+canonical+band+current_code fingerprint (no line); a REVIEW.md closes a Phase-53 review only with the State format 53 stamp
+- [Phase 53]: 53-10: dev runs resync the installed cache by rsync + content fingerprint (Phase-49 method), never plugin reinstall (marketplace installs GitHub main)
+- [Phase ?]: 53-11: no bulk verb (fix/dismiss/defer rest|all, Apply all on an ordinary card) reaches a needs-verification row; NV decided by number only; a subset card sends every owner-named row incl. NV
+- [Phase ?]: 53-12: NV evidence-fingerprint window keeps leading indentation (only trailing stripped) to match _nv_code_key relative-indent compare
+- [Phase ?]: 53-13: decisions family has exactly two prose writers (90-finalize.md, 50-fix-loop.md); NV rows decided by number on the fix-loop card
+- [Phase ?]: 53-13: state lives at .turingmind/state/format-53/; copy-only forward migration, skipped once a format-53 state was archived
+- [Phase 53]: FINAL_FP 5bee4c11 approved by owner 2026-10-15 with no further tuning; Phase 54 freezes it, Phase 55 runs on unchanged gates
+- [Phase 53]: nv_dropped_weak scope confirmed; reported as weak co-located remarks dropped (16 across 16 rehearsal runs), separate from NV items and alarms
+- [Phase 53]: should-quiet-4 is a known v2.12 residual: rules and B3 key unchanged, any Phase-55 firing counts as an alarm with no exemption; bypass classification to be revisited
+- [Phase 53]: reach-unchanged-1 keeps its quiet expectation; deleted-helper test-import defect recorded as a dated key correction, never an expected catch
 
 ### Pending Todos
 
@@ -399,13 +475,13 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-09T22:57:52.743Z
+Last session: 2026-10-15T10:41:06.923Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 52 context gathered
+Stopped at: Phase 54 context gathered
 
 v2.12 sequencing notes for whoever plans next (design spec `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-design.md`, phase order 51 → 52 → 53 → 54 → 55 is FIXED by the owner):
 
