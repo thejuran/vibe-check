@@ -1,6 +1,34 @@
 {
-  "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
-  "selected_at": "2026-10-15T21:45:50Z",
+  "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+  "selected_at": "2026-10-15T22:30:22Z",
   "selected_by": "54-10",
-  "path_map_blob": "027bb8567327f78e09cf708e3a7458c22bf982a7"
+  "path_map_blob": "027bb8567327f78e09cf708e3a7458c22bf982a7",
+  "selection": "re-run of 54-10 after the D-23 code fix 24c0c00; the earlier selection is kept below as superseded",
+  "superseded": [
+    {
+      "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
+      "selected_at": "2026-10-15T21:45:50Z",
+      "selected_by": "54-10",
+      "path_map_blob": "027bb8567327f78e09cf708e3a7458c22bf982a7",
+      "status": "superseded",
+      "superseded_at": "2026-10-15T22:30:22Z",
+      "superseded_by_fix_commit": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+      "reason": "54-11 live sweep stopped at the first case's pre check: freeze_common.live_files hashed Claude Code's .in_use/<pid> session-marker directory in installed plugin folders, so the identity check refused whenever a measured session was alive. The fix (24c0c00) changes covered freeze-kit files, so the candidate moved (D-23) and 54-10 restarts on a new candidate.",
+      "candidate_guard_after_fix": "CANDIDATE MOVED — STOPPING (exit 1): 6 covered freeze-kit files differ at HEAD 24c0c00 (README.md, freeze_check.py, freeze_common.py, freeze_manifest.py, test_freeze_check.py, test_freeze_common.py); classify required: engineering, detection, workflow",
+      "stop_evidence": {
+        "notes": "docs/design/reachability-dev/NOTES-phase54-live.md (## Candidate, ## Deviations)",
+        "commits": [
+          "d30f6a9c9645c778f8ec69b1a163bd33a4828ed3",
+          "24894feec215972668c22abf3ab14752fe4522a8"
+        ]
+      },
+      "evidence_commits": [
+        "9901ffe8b7a2aa4429a4c3acc2e83b2789be49ac",
+        "c0c4d91348bfd4070c961b453d5a9afa02ec3e3c",
+        "f1ba53557db61bd999e8c398d354164a12125018",
+        "bd5884c3c6d6eba11678d4fd98dbda70cd184891"
+      ],
+      "draft_manifest_id": "b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7c595755c"
+    }
+  ]
 }
