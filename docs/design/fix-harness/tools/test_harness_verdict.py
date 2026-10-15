@@ -1534,6 +1534,9 @@ class TestFormat53State(_Conservation):
                 "evidence": ev}
 
     # -- the seed and archive locations ------------------------------------ #
+    def test_format_subdir_matches_the_plugin_rule(self):
+        self.assertEqual(hv.FORMAT_SUBDIR, hs.statepath.FORMAT_SUBDIR)
+
     def test_seed_and_archive_live_under_format_53(self):
         self.assertIn("/.turingmind/state/format-53/", str(self.seed_path))
         self.happy()

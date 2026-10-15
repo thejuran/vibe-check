@@ -15,9 +15,13 @@ A run is COMPLETE only when all of these hold (FLOW-02):
      net), and the planted sentinels survive.
   3. Finalize really happened: `.turingmind/REVIEW.md` (the path the plugin's
      Finalize writes — a root-level REVIEW.md does not count), exactly one
-     archived state, zero outstanding per the plugin's own
-     `carry_state.py finalize-counts`, every claimed commit exists, and every
-     obligation that ever entered the workflow is accounted for (below).
+     archived state at the current-format location
+     (`.turingmind/state/format-53/`; a legacy-location state is a named
+     failure, never a fallback), zero outstanding per the plugin's own
+     `carry_state.py finalize-counts` — undecided Needs-verification items
+     included and named — every claimed commit exists, and every obligation
+     that ever entered the workflow is accounted for (below): one that
+     vanished without a decision fails, a reasoned defer/dismiss is kept.
   4. No answer-key material is in the copy.
 
 WHY THE HEAD CHECKS ARE SANDBOXED. `defect_check` imports and calls the
@@ -141,6 +145,13 @@ CLAIM_RE = re.compile(r"commit_sha=([0-9A-Za-z]*)")
 LEDGER_LABELS = ("seed", "card", "turn_end", "owner_command", "final")
 DISPOSITIONS = ("resolved", "fix_verified", "decided", "visible_open",
                 "downgraded", "regression", "missing", "ambiguous")
+# The plugin's current state format lives under .turingmind/state/<this>/
+# (statepath.FORMAT_SUBDIR); only archives there are read as the close-out.
+FORMAT_SUBDIR = "format-53"
+LEGACY_STATE_PROBLEM_PREFIX = "legacy-location state found at "
+LEGACY_STATE_PROBLEM_SUFFIX = (" — the plugin wrote the old format; "
+                               "not accepted")
+NV_PROBLEM = "undecided Needs-verification at finalize: %d"
 
 Verdict = collections.namedtuple("Verdict", "status reasons dispositions")
 Reconciliation = collections.namedtuple("Reconciliation",
@@ -519,11 +530,31 @@ def _review_md_path(copy):
     return os.path.join(copy.root, ".turingmind", "REVIEW.md")
 
 
+def _state_dir(copy):
+    return os.path.join(copy.root, ".turingmind", "state")
+
+
 def _archived_states(copy):
-    base = os.path.join(copy.root, ".turingmind", "state")
+    """Archived states at the current-format location only; a legacy archive
+    is never read as the close-out."""
+    base = os.path.join(_state_dir(copy), FORMAT_SUBDIR)
     return sorted(glob.glob(os.path.join(glob.escape(base), "**",
                                          "*.json.archived-*"),
                             recursive=True))
+
+
+def _legacy_state_files(copy):
+    """Copy-relative paths of state or archive files at the legacy (pre
+    format-53) locations: top-level `state/*.json[.archived-*]` and anything
+    under `state/by-mode/`."""
+    base = _state_dir(copy)
+    esc = glob.escape(base)
+    found = set(glob.glob(os.path.join(esc, "*.json")))
+    found.update(glob.glob(os.path.join(esc, "*.json.archived-*")))
+    found.update(p for p in glob.glob(os.path.join(esc, "by-mode", "**"),
+                                      recursive=True) if os.path.isfile(p))
+    return sorted(os.path.relpath(p, copy.root).replace(os.sep, "/")
+                  for p in found)
 
 
 def _last_pass_records(state):
@@ -601,7 +632,8 @@ def _finalize_counts(copy, state_text, head_blobs):
 
 
 def _outstanding(counts):
-    return int(counts["outstanding_cw"]) + int(counts["unacknowledged_medium"])
+    return (int(counts["outstanding_cw"]) + int(counts["unacknowledged_medium"])
+            + int(counts.get("undecided_nv", 0)))
 
 
 def _claims(events):
@@ -650,6 +682,10 @@ def _finalize_problems(copy, pre_run_head, events):
     state = None
     if not archived:
         problems.append("state not archived")
+        legacy = _legacy_state_files(copy)
+        if legacy:
+            problems.append(LEGACY_STATE_PROBLEM_PREFIX + ", ".join(legacy)
+                            + LEGACY_STATE_PROBLEM_SUFFIX)
     elif len(archived) > 1:
         problems.append("multiple archived states")
     else:
@@ -668,6 +704,9 @@ def _finalize_problems(copy, pre_run_head, events):
             n = _outstanding(counts)
             if n:
                 problems.append("outstanding findings at finalize: %d" % n)
+            nv = int(counts.get("undecided_nv", 0))
+            if nv:
+                problems.append(NV_PROBLEM % nv)
     problems.extend(_claim_problems(copy, pre_run_head, events))
     return problems, state
 
