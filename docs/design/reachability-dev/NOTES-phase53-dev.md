@@ -852,6 +852,30 @@ format-53 state path explicitly (or read `.turingmind/state/format-53/<key>.json
 Observed in this rehearsal: every measured run wrote its state under `format-53/` (the key
 `<repo>-.json`, empty branch slug on the detached case checkout), and `post` refused any flat file.
 
+## Setup differences and teardown
+
+- Context window: every status-line payload of every measured session in both stages (2,166
+  samples) reports `model.id claude-fable-5-1[1m]`, `context_window_size 1000000` — the pinned 1M
+  window. Effort `medium`, as in Phase 49. No confirmed difference from the pins.
+- Setup differences vs entry 1 / Phase 49 (entries 2-3): disposable clones instead of the owner's
+  repos; the candidate loaded from an isolated runner copy via `--plugin-dir` with the installed
+  plugin disabled per session; status-line capture wrapper; a one-time folder-trust prompt per new
+  clone path; environment folders provisioned before the final sweep (roonseek lacks one
+  owner-installed package outside its lock); targeted-stage runs before 01:48Z without a
+  triggarr `.venv`.
+- Teardown (2026-10-15): `restore-memory` (nothing had been parked; the empty clone memory dirs
+  sessions created are kept as evidence in the park dir), `restore-cache` — runner copy removed
+  after confirming the owner's installed cache equals the v2.11.1 release (fingerprint
+  `f2cf0373…`). The owner's `installed_plugins.json`, `known_marketplaces.json` and
+  `settings.json` re-checked against the pre-window sha256 values: all unchanged. The owner's
+  repos were not touched except the one verified stash drop. The disposable clones remain under
+  `~/.b3/phase53-clones/` for a possible restart of the sweep.
+
+## Owner sign-off
+
+Pending (Task 3 checkpoint) — the sign-off and the nv_dropped_weak scope answer are recorded
+here against `FINAL_FP` 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26.
+
 ## Runs
 
 ### targeted/reach-new-2/run-1 — FAILED ATTEMPT (development rehearsal — not release evidence)
