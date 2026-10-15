@@ -105,6 +105,25 @@ IDENTITY OK manifest_id=b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7
 `park-memory`: none of the three fresh clone paths had auto-memory; park record
 `~/.b3/automemory-parked-phase54-live-1792102177`.
 
+### Restart on 24c0c00 (2026-10-15T22:55Z)
+
+candidate-guard (before any block):
+
+```text
+CANDIDATE OK candidate=24c0c00038f2d15af4b55f178ea44e680c1f2c58 head=c8afb944b3da4c927ed1b150c38ddf4e40d9cfe0 descendant_commits=6 (reporting-only)
+```
+
+`materialize 24c0c00038f2d15af4b55f178ea44e680c1f2c58`: runner copy
+`~/.b3/phase54-runner/plugin/vibe-check` := `24c0c00…:plugins/vibe-check` (git archive); runner
+settings from the same commit. `identity` (all three clone dirs, first attempt, no refusal):
+
+```text
+IDENTITY OK manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 check_digest=70560d0938b3615d998851f227f0d2c0d88634757f6c1c155cb8b7de9e5cdd81 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+```
+
+`park-memory`: none of the three clone paths had auto-memory; park record
+`~/.b3/automemory-parked-phase54-live-1792104909`.
+
 ## Cache
 
 owner installed cache (before the sweep, 2026-10-15T22:10Z):
