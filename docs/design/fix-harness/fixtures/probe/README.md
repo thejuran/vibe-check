@@ -14,21 +14,29 @@ record is stale:
 
 ```
 env -u CLAUDECODE docs/design/fix-harness/.venv/bin/python \
-  docs/design/fix-harness/tools/fixharness.py probe-sandbox --out <scratch>/probe
+  docs/design/fix-harness/tools/fixharness.py probe-sandbox --out <scratch>/probe \
+  --candidate HEAD
 ```
+
+This record is a covered file under the freeze. Regenerate it only in the
+code wave, before the freeze candidate is selected; after that, later work
+only confirms it still matches (`harness_sandbox._fingerprint_matches`).
+The `model` it records is the init-observed model, which the freeze manifest
+reads as the fix-harness `launch_model`.
 
 ## Current record
 
 | Field | Value |
 |-------|-------|
-| date | 2026-10-10T05:14:28Z |
-| host | macOS-27.0-arm64 (Darwin 27.0.0), `/usr/bin/sandbox-exec` present |
+| date | 2026-10-15T20:37:46Z |
+| host | macOS-27.0.1-arm64 (Darwin), `/usr/bin/sandbox-exec` present |
 | sdk / cli | claude-agent-sdk 0.2.165 / Claude Code 2.1.294 (bundled) |
 | model | claude-opus-5-5[1m] |
-| settings fingerprint | `2590e9f6ff4722b056122105a49004c92b3359c90144a0927b93e4d2934919f2` |
+| settings fingerprint | `a3b4bfe03c1603dd9c9f265599a233dd704473959d4b1c28bc60a0f124fb2765` |
 | MCP servers loaded | none (init `mcp_servers: []`) |
 | launched from | inside a Claude Code session, with `CLAUDECODE` stripped |
 | checks | 37 of 37 true |
+| candidate sha (context only) | `ea41ac956ad6e5660280a8cf2d212424175a0818` (`--candidate HEAD`; the probe is bound to no freeze manifest) |
 
 ## Observed evidence, all twelve steps
 
@@ -58,7 +66,7 @@ dir. The snapshot tree hash is unchanged and the Edit target still reads
 `HARNESS-EDIT-TARGET-<N>`. probe.sh hashes the same before launch, after
 the session, and as the script the harness generated.
 
-## Probe history (2026-10-10)
+## Probe history (2026-10-10 to 2026-10-15)
 
 1. **Attempt 1 failed closed.** All four file-tool denials were
    classified `inconclusive`, because their wording was not pinned yet (see
@@ -79,7 +87,7 @@ the session, and as the script the harness generated.
    evaluator failed it as a dead session, which is the intended behavior for
    a permitted-only or empty session.
 4. **Attempt 4 passed** under the corrected policy (fingerprint `a0c61bf1…`).
-5. **Attempt 5 passed** (this record). The policy changed again: each
+5. **Attempt 5 passed** (fingerprint `2590e9f6…`). The policy changed again: each
    session now gets its own short temp root (`CLAUDE_CODE_TMPDIR`, created
    0700 before launch), and the shared per-uid Claude temp dir
    (`/tmp/claude-<uid>`, both `/tmp` spellings) is read- and write-denied in
@@ -87,6 +95,17 @@ the session, and as the script the harness generated.
    tools in that shared dir, so the backstop never saw them. The probe does
    not attempt the shared temp dir; the deny is part of the fingerprinted
    policy and locked by `settings_is_fail_closed`.
+
+6. **Attempt 6 passed** (this record, 2026-10-15). The policy changed
+   again: the session settings now carry `env` with
+   `DISABLE_AUTOUPDATER=1` and `DISABLE_UPDATES=1`, so the bundled CLI
+   cannot update itself mid-window. The pins are part of the fingerprint
+   and locked by `settings_is_fail_closed`. The plugin snapshot is now
+   materialized from a commit's tree (`--candidate`), and the record
+   carries that commit as `candidate_sha` for context. All 37 checks
+   passed; the four file-tool denials (steps 7-10) all used the pinned
+   "File is in a directory that is denied by your permission settings."
+   wording.
 
 ## Deny-rule wordings pinned from this probe
 
