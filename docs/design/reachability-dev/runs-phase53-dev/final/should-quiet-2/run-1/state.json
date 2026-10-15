@@ -1,0 +1,100 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-10-15T03:48:08Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "agent": "bugs",
+          "file": "src/angular/src/app/services/utils/rest.service.ts",
+          "line": 59,
+          "title": "New post(url, body) is not used by ConfigService.set, which still sends a GET to the removed /server/config/set/<section>/<option>/<value> route",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 60,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This diff adds an optional JSON body to RestService.post so config-set can move to POST. Nothing calls it with a body. The backend has already moved: src/python/web/handler/config.py:25-28 registers only add_post_handler(\"/server/config/set\", ...), and the integration test at test_config.py:226-231 confirms a GET to that path is rejected. On the frontend, src/angular/src/app/services/settings/config.service.ts:20-22 still builds /server/config/set/${section}/${option}/${value}, and line 68 still calls this._restService.sendRequest(url) (a GET). At this commit, every settings save from the UI goes to a route that no longer exists and fails, and the stored config value is never updated. The one fact I am assuming is that no later wave in this phase is meant to land in the same release; the commit history ('after wave 1') suggests a follow-up is planned, but that is not evidence the gap is harmless. pending: confirm the ConfigService.set migration to post(CONFIG_SET_URL, {section, option, value}) ships together with the backend change.",
+          "current_code": "public post(url: string, body?: object): Observable<WebReaction> {\n        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+          "fix_hint": "switch ConfigService.set to this._restService.post('/server/config/set', {section, option, value}), drop the double-encodeURIComponent, and update config.service spec / MockRestService accordingly",
+          "why_it_matters": "If frontend and backend ship out of sync, users can't save any setting: every save request is refused.",
+          "silenced_marker_nearby": false,
+          "source_window": [
+            "     * @returns {Observable<WebReaction>}",
+            "     */",
+            "    public post(url: string, body?: object): Observable<WebReaction> {",
+            "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+            "            map(this.handleSuccess(url)),"
+          ],
+          "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+          "orchestrator_score": 75,
+          "band": "medium",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "683153aa827f166727b174d6c28b1ddaf05c2d98e0b159deb8d3a43454c2c4c6",
+          "status": "new",
+          "members": [
+            {
+              "file": "src/angular/src/app/services/utils/rest.service.ts",
+              "line": 59,
+              "title": "New post(url, body) is not used by ConfigService.set, which still sends a GET to the removed /server/config/set/<section>/<option>/<value> route",
+              "category": "logic-error",
+              "severity": "high",
+              "agent": "bugs",
+              "agent_confidence": 60,
+              "problem": "This diff adds an optional JSON body to RestService.post so config-set can move to POST. Nothing calls it with a body. The backend has already moved: src/python/web/handler/config.py:25-28 registers only add_post_handler(\"/server/config/set\", ...), and the integration test at test_config.py:226-231 confirms a GET to that path is rejected. On the frontend, src/angular/src/app/services/settings/config.service.ts:20-22 still builds /server/config/set/${section}/${option}/${value}, and line 68 still calls this._restService.sendRequest(url) (a GET). At this commit, every settings save from the UI goes to a route that no longer exists and fails, and the stored config value is never updated. The one fact I am assuming is that no later wave in this phase is meant to land in the same release; the commit history ('after wave 1') suggests a follow-up is planned, but that is not evidence the gap is harmless. pending: confirm the ConfigService.set migration to post(CONFIG_SET_URL, {section, option, value}) ships together with the backend change.",
+              "source_window": [
+                "     * @returns {Observable<WebReaction>}",
+                "     */",
+                "    public post(url: string, body?: object): Observable<WebReaction> {",
+                "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+                "            map(this.handleSuccess(url)),"
+              ],
+              "cwe": null,
+              "why_it_matters": "If frontend and backend ship out of sync, users can't save any setting: every save request is refused.",
+              "fix_hint": "switch ConfigService.set to this._restService.post('/server/config/set', {section, option, value}), drop the double-encodeURIComponent, and update config.service spec / MockRestService accordingly",
+              "current_code": "public post(url: string, body?: object): Observable<WebReaction> {\n        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "src/angular/src/app/services/utils/rest.service.ts",
+            "line": 59,
+            "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+            "band": "medium"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 22,
+          "title": "Settings saves fail at this commit: the backend only accepts POST on /server/config/set, but the frontend still sends GET with values in the URL path",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}

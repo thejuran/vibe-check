@@ -1,0 +1,176 @@
+{
+  "codex_lines": 1,
+  "dispatched": 7,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [
+          "angular"
+        ],
+        "intent_docs_found": [],
+        "languages": [
+          "typescript"
+        ],
+        "size_tier": "small",
+        "total_lines": 5
+      },
+      "raw_return_text": "Looking at the file content and the repo structure:\n\n**Languages &amp; Frameworks:**\n- The file is TypeScript (`.ts` extension)\n- Contains unambiguous Angular imports: `@angular/core` (Injectable decorator), `@angular/common/http` (HttpClient)\n\n**Size:**\n- 3 insertions + 2 deletions = 5 total lines (small tier)\n\n**Files to skip:**\n- None match auto-generated/lockfile patterns\n\n**Intent docs:**\n- Glob search returned no matches for `PLAN.md`, `SPEC.md`, `RESEARCH.md`, `CLAUDE.md`, `AGENTS.md` in repo root\n\n```json\n{\n  \"languages\": [\"typescript\"],\n  \"frameworks\": [\"angular\"],\n  \"total_lines\": 5,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": []\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01VCcVMF1yPVzSUtZeJvGjc8"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "The rest.service.ts change itself is correct. `body ?? null` keeps the existing no-body callers sending null (model-file.service.ts:61/74/87, server-command.service.ts:26), and Angular serializes a plain-object body as application/json.",
+          "MockRestService (src/angular/src/app/tests/mocks/mock-rest.service.ts) only mocks sendRequest. Once ConfigService.set uses post, the config.service specs will need a post mock."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 60,
+            "category": "logic-error",
+            "current_code": "public post(url: string, body?: object): Observable&lt;WebReaction&gt; {\n        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+            "cwe": null,
+            "file": "src/angular/src/app/services/utils/rest.service.ts",
+            "fix_hint": "switch ConfigService.set to this._restService.post('/server/config/set', {section, option, value}), drop the double-encodeURIComponent, and update config.service spec / MockRestService accordingly",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 59,
+            "problem": "This diff adds an optional JSON body to RestService.post so config-set can move to POST. Nothing calls it with a body. The backend has already moved: src/python/web/handler/config.py:25-28 registers only `add_post_handler(\"/server/config/set\", ...)`, and the integration test at test_config.py:226-231 confirms a GET to that path is rejected. On the frontend, src/angular/src/app/services/settings/config.service.ts:20-22 still builds `/server/config/set/${section}/${option}/${value}`, and line 68 still calls `this._restService.sendRequest(url)` (a GET). At this commit, every settings save from the UI goes to a route that no longer exists and fails, and the stored config value is never updated. The one fact I am assuming is that no later wave in this phase is meant to land in the same release; the commit history ('after wave 1') suggests a follow-up is planned, but that is not evidence the gap is harmless. pending: confirm the ConfigService.set migration to post(CONFIG_SET_URL, {section, option, value}) ships together with the backend change.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "New post(url, body) is not used by ConfigService.set, which still sends a GET to the removed /server/config/set/&lt;section&gt;/&lt;option&gt;/&lt;value&gt; route",
+            "why_it_matters": "If frontend and backend ship out of sync, users can't save any setting: every save request is refused."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"bugs\",\n  \"findings\": [\n    {\n      \"id\": \"bugs-001\",\n      \"file\": \"src/angular/src/app/services/utils/rest.service.ts\",\n      \"line\": 59,\n      \"title\": \"New post(url, body) is not used by ConfigService.set, which still sends a GET to the removed /server/config/set/&lt;section&gt;/&lt;option&gt;/&lt;value&gt; route\",\n      \"category\": \"logic-error\",\n      \"cwe\": null,\n      \"severity\": \"high\",\n      \"agent_confidence\": 60,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"This diff adds an optional JSON body to RestService.post so config-set can move to POST. Nothing calls it with a body. The backend has already moved: src/python/web/handler/config.py:25-28 registers only `add_post_handler(\\\"/server/config/set\\\", ...)`, and the integration test at test_config.py:226-231 confirms a GET to that path is rejected. On the frontend, src/angular/src/app/services/settings/config.service.ts:20-22 still builds `/server/config/set/${section}/${option}/${value}`, and line 68 still calls `this._restService.sendRequest(url)` (a GET). At this commit, every settings save from the UI goes to a route that no longer exists and fails, and the stored config value is never updated. The one fact I am assuming is that no later wave in this phase is meant to land in the same release; the commit history ('after wave 1') suggests a follow-up is planned, but that is not evidence the gap is harmless. pending: confirm the ConfigService.set migration to post(CONFIG_SET_URL, {section, option, value}) ships together with the backend change.\",\n      \"current_code\": \"public post(url: string, body?: object): Observable&lt;WebReaction&gt; {\\n        return this._http.post(url, body ?? null, {responseType: \\\"text\\\"}).pipe(\",\n      \"fix_hint\": \"switch ConfigService.set to this._restService.post('/server/config/set', {section, option, value}), drop the double-encodeURIComponent, and update config.service spec / MockRestService accordingly\",\n      \"why_it_matters\": \"If frontend and backend ship out of sync, users can't save any setting: every save request is refused.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"The rest.service.ts change itself is correct. `body ?? null` keeps the existing no-body callers sending null (model-file.service.ts:61/74/87, server-command.service.ts:26), and Angular serializes a plain-object body as application/json.\",\n    \"MockRestService (src/angular/src/app/tests/mocks/mock-rest.service.ts) only mocks sendRequest. Once ConfigService.set uses post, the config.service specs will need a post mock.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_01WtCWc4rj1BdBHpcFHyrfJu"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "Reviewed src/angular/src/app/services/utils/rest.service.ts: the change adds an optional `body?: object` param to RestService.post() and forwards it as `body ?? null` to HttpClient.post(). This is a backward-compatible, additive signature change — existing callers (model-file.service.ts, server-command.service.ts) pass no body and are unaffected. Searched the Angular app for any caller that uses the new body parameter; none exists yet (config.service.ts's CONFIG_SET_URL still builds a double-URL-encoded value and calls sendRequest/GET, not the new post(url, body) form), so no attacker-controlled or sensitive data is currently routed through this new parameter — it is unwired infrastructure for a future caller, not an active path. No injection, XSS, auth, secrets, SSRF, deserialization, or mass-assignment issue is demonstrated in the changed lines."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"security\",\"findings\":[],\"agent_notes\":[\"Reviewed src/angular/src/app/services/utils/rest.service.ts: the change adds an optional `body?: object` param to RestService.post() and forwards it as `body ?? null` to HttpClient.post(). This is a backward-compatible, additive signature change — existing callers (model-file.service.ts, server-command.service.ts) pass no body and are unaffected. Searched the Angular app for any caller that uses the new body parameter; none exists yet (config.service.ts's CONFIG_SET_URL still builds a double-URL-encoded value and calls sendRequest/GET, not the new post(url, body) form), so no attacker-controlled or sensitive data is currently routed through this new parameter — it is unwired infrastructure for a future caller, not an active path. No injection, XSS, auth, secrets, SSRF, deserialization, or mass-assignment issue is demonstrated in the changed lines.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_01HCdLW4AoUn13ybg7XaMgwf"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "The diff adds an optional `body` parameter to the existing `RestService.post`. RestService is already the established HTTP wrapper: callers include services/server/server-command.service.ts:26, services/files/model-file.service.ts:61/74/87, services/settings/config.service.ts and services/autoqueue/autoqueue.service.ts. Extending the wrapper rather than calling HttpClient directly in a consumer follows the existing pattern. The success/error/shareReplay pipeline is identical to sendRequest/delete, so this adds no duplication.",
+          "Backward compatible: `body ?? null` keeps the old null-body wire behavior, and the 4 existing no-arg post() callers (server-command x1, model-file x3) still type-check unchanged.",
+          "No new imports, coupling, or cycles. The dependency surface is unchanged (@angular/common/http, rxjs, logger.service).",
+          "Pending, cross-lane (impact/bugs, not architecture): no caller passes `body` yet. src/angular/src/app/services/settings/config.service.ts:66-68 still double-encodes the value into the URL and calls `sendRequest` (GET), but recent commits (111-01) moved the backend config-set endpoint to POST reading `bottle.request.json`. Until a follow-up plan switches ConfigService.set to `post(url, {value})`, the frontend and backend are out of sync. This looks like a wave-1/wave-2 split in a multi-step plan, so confirm the frontend migration lands before release.",
+          "Test-mock gap (impact/test-sufficiency lane): src/angular/src/app/tests/mocks/mock-rest.service.ts only defines `sendRequest`. When ConfigService migrates to post, specs that use MockRestService will need a `post(url, body?)` stub.",
+          "Minor: `body?: object` is loosely typed, which is consistent with the codebase's untyped WebReaction/string-response style. This is not a finding."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"architecture\",\"findings\":[],\"agent_notes\":[\n\"The diff adds an optional `body` parameter to the existing `RestService.post`. RestService is already the established HTTP wrapper: callers include services/server/server-command.service.ts:26, services/files/model-file.service.ts:61/74/87, services/settings/config.service.ts and services/autoqueue/autoqueue.service.ts. Extending the wrapper rather than calling HttpClient directly in a consumer follows the existing pattern. The success/error/shareReplay pipeline is identical to sendRequest/delete, so this adds no duplication.\",\n\"Backward compatible: `body ?? null` keeps the old null-body wire behavior, and the 4 existing no-arg post() callers (server-command x1, model-file x3) still type-check unchanged.\",\n\"No new imports, coupling, or cycles. The dependency surface is unchanged (@angular/common/http, rxjs, logger.service).\",\n\"Pending, cross-lane (impact/bugs, not architecture): no caller passes `body` yet. src/angular/src/app/services/settings/config.service.ts:66-68 still double-encodes the value into the URL and calls `sendRequest` (GET), but recent commits (111-01) moved the backend config-set endpoint to POST reading `bottle.request.json`. Until a follow-up plan switches ConfigService.set to `post(url, {value})`, the frontend and backend are out of sync. This looks like a wave-1/wave-2 split in a multi-step plan, so confirm the frontend migration lands before release.\",\n\"Test-mock gap (impact/test-sufficiency lane): src/angular/src/app/tests/mocks/mock-rest.service.ts only defines `sendRequest`. When ConfigService migrates to post, specs that use MockRestService will need a `post(url, body?)` stub.\",\n\"Minor: `body?: object` is loosely typed, which is consistent with the codebase's untyped WebReaction/string-response style. This is not a finding.\"\n]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_017krdeWfp7HMtuU74aFEdzZ"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "API compatibility: changing `post(url: string)` to `post(url: string, body?: object)` only adds an optional parameter. All 4 existing callers (model-file.service.ts:61, :74, :87 and server-command.service.ts:26) call post(url) and still compile unchanged. Using `body ?? null` keeps their request byte-for-byte the same as before (null body, no JSON content-type).",
+          "Mocks and tests: src/angular/src/app/tests/mocks/mock-rest.service.ts has no post() method, so nothing changes there. Once config.service starts calling post(url, body), the mock and config.service.spec.ts will need a post stub that records the body.",
+          "Type surface: `object` accepts arrays, FormData and Blob as well as plain objects. Angular HttpClient serializes plain objects and arrays as JSON with Content-Type application/json and sends FormData and Blob as-is, so nothing breaks. The planned config-set body is a plain object, and the backend reads it via bottle.request.json, which requires the application/json content-type that HttpClient sets automatically for plain objects.",
+          "Interaction with shareReplay(1): each post() call still creates its own observable, so request bodies are not shared or cached across calls. There is no new risk of a stale body being replayed.",
+          "Performance: no effect. It is one extra argument and no new requests.",
+          "Database and schema: none on the frontend. The backend contract change (GET path parameters to POST JSON) already landed in commits fffa81a and fe0e07d.",
+          "Blast radius of the changed line: low. It affects the 4 existing POST call sites (bulk file actions and server restart), which behave exactly as before.",
+          "Blast radius of the migration as a whole: settings saves are broken until config.service.ts moves to POST (see finding impact-1). This is the risk of shipping a staged change partway, not a defect in this diff.",
+          "Verdict: the diff itself is safe and backward compatible. Do not release until config.service.ts is migrated to post(url, body)."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 62,
+            "category": "blast-radius",
+            "current_code": "`/server/config/set/${section}/${option}/${value}`;  ...  const obs = this._restService.sendRequest(url);",
+            "cwe": null,
+            "file": "src/angular/src/app/services/settings/config.service.ts",
+            "fix_hint": "Before release, change ConfigService.set to call this._restService.post('/server/config/set', {section, option, value}), and update config.service.spec.ts and mock-rest.service.ts to match.",
+            "id": "impact-1",
+            "in_diff": false,
+            "intent_doc_match": null,
+            "line": 22,
+            "problem": "This diff adds the `body` parameter to RestService.post() as the frontend half of the config-set POST migration. It does not move the one caller that needs it. The backend is already migrated: src/python/web/handler/config.py:25-28 registers '/server/config/set' only via add_post_handler. The integration test at src/python/tests/integration/test_web/test_handler/test_config.py:226-231 confirms a GET to that path is intercepted and rejected. config.service.ts:22 still builds `/server/config/set/${section}/${option}/${value}`, and config.service.ts:68 sends it with `_restService.sendRequest(url)`, which is a GET. No caller passes a body to post() yet: the only callers are model-file.service.ts:61/74/87 and server-command.service.ts:26, and none of them pass one. If this commit ships alone, every settings change in the UI fails. The new parameter itself is correct. This finding is about the migration being unfinished, not about the changed line. Pending: confirm whether the config.service.ts move to `post('/server/config/set', {section, option, value})` is planned for a later wave of phase 111 before release.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Settings saves fail at this commit: the backend only accepts POST on /server/config/set, but the frontend still sends GET with values in the URL path",
+            "why_it_matters": "Users can't save settings from the UI if the frontend and backend halves of the migration ship separately."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"impact\",\n  \"findings\": [\n    {\n      \"id\": \"impact-1\",\n      \"file\": \"src/angular/src/app/services/settings/config.service.ts\",\n      \"line\": 22,\n      \"title\": \"Settings saves fail at this commit: the backend only accepts POST on /server/config/set, but the frontend still sends GET with values in the URL path\",\n      \"category\": \"blast-radius\",\n      \"cwe\": null,\n      \"severity\": \"high\",\n      \"agent_confidence\": 62,\n      \"in_diff\": false,\n      \"intent_doc_match\": null,\n      \"problem\": \"This diff adds the `body` parameter to RestService.post() as the frontend half of the config-set POST migration. It does not move the one caller that needs it. The backend is already migrated: src/python/web/handler/config.py:25-28 registers '/server/config/set' only via add_post_handler. The integration test at src/python/tests/integration/test_web/test_handler/test_config.py:226-231 confirms a GET to that path is intercepted and rejected. config.service.ts:22 still builds `/server/config/set/${section}/${option}/${value}`, and config.service.ts:68 sends it with `_restService.sendRequest(url)`, which is a GET. No caller passes a body to post() yet: the only callers are model-file.service.ts:61/74/87 and server-command.service.ts:26, and none of them pass one. If this commit ships alone, every settings change in the UI fails. The new parameter itself is correct. This finding is about the migration being unfinished, not about the changed line. Pending: confirm whether the config.service.ts move to `post('/server/config/set', {section, option, value})` is planned for a later wave of phase 111 before release.\",\n      \"current_code\": \"`/server/config/set/${section}/${option}/${value}`;  ...  const obs = this._restService.sendRequest(url);\",\n      \"fix_hint\": \"Before release, change ConfigService.set to call this._restService.post('/server/config/set', {section, option, value}), and update config.service.spec.ts and mock-rest.service.ts to match.\",\n      \"why_it_matters\": \"Users can't save settings from the UI if the frontend and backend halves of the migration ship separately.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"API compatibility: changing `post(url: string)` to `post(url: string, body?: object)` only adds an optional parameter. All 4 existing callers (model-file.service.ts:61, :74, :87 and server-command.service.ts:26) call post(url) and still compile unchanged. Using `body ?? null` keeps their request byte-for-byte the same as before (null body, no JSON content-type).\",\n    \"Mocks and tests: src/angular/src/app/tests/mocks/mock-rest.service.ts has no post() method, so nothing changes there. Once config.service starts calling post(url, body), the mock and config.service.spec.ts will need a post stub that records the body.\",\n    \"Type surface: `object` accepts arrays, FormData and Blob as well as plain objects. Angular HttpClient serializes plain objects and arrays as JSON with Content-Type application/json and sends FormData and Blob as-is, so nothing breaks. The planned config-set body is a plain object, and the backend reads it via bottle.request.json, which requires the application/json content-type that HttpClient sets automatically for plain objects.\",\n    \"Interaction with shareReplay(1): each post() call still creates its own observable, so request bodies are not shared or cached across calls. There is no new risk of a stale body being replayed.\",\n    \"Performance: no effect. It is one extra argument and no new requests.\",\n    \"Database and schema: none on the frontend. The backend contract change (GET path parameters to POST JSON) already landed in commits fffa81a and fe0e07d.\",\n    \"Blast radius of the changed line: low. It affects the 4 existing POST call sites (bulk file actions and server restart), which behave exactly as before.\",\n    \"Blast radius of the migration as a whole: settings saves are broken until config.service.ts moves to POST (see finding impact-1). This is the risk of shipping a staged change partway, not a defect in this diff.\",\n    \"Verdict: the diff itself is safe and backward compatible. Do not release until config.service.ts is migrated to post(url, body).\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01FfrXaJaMex6j5jjxdJDrvD"
+    },
+    {
+      "parsed": {
+        "agent": "language-typescript",
+        "agent_notes": [
+          "Diff is a minimal, backward-compatible signature change to RestService.post (adds optional `body?: object`, defaults to `null` via `??`). No untrusted-data cast, no nullable-access, no async/promise issue, no collection-mutation, no hook/perf concern in or around the hunk. `object` is a loose param type but it's outgoing data the caller constructs, not an external/untrusted boundary cast, so it doesn't meet the type-safety check's bar."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"language-typescript\",\"findings\":[],\"agent_notes\":[\"Diff is a minimal, backward-compatible signature change to RestService.post (adds optional `body?: object`, defaults to `null` via `??`). No untrusted-data cast, no nullable-access, no async/promise issue, no collection-mutation, no hook/perf concern in or around the hunk. `object` is a loose param type but it's outgoing data the caller constructs, not an external/untrusted boundary cast, so it doesn't meet the type-safety check's bar.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-typescript",
+      "tool_use_id": "toolu_01CkKu3rjKyefcoCeJQgNXoj"
+    },
+    {
+      "parsed": {
+        "agent": "framework-angular",
+        "agent_notes": [
+          "Diff only changes RestService.post()'s signature (optional body param with `?? null` fallback) in a plain injectable service — no component, no OnPush decorator, no .subscribe() call, no DI registration/scope change, and no lifecycle hook touched. Nothing in this hunk falls into the Angular-mechanism categories (rxjs-leaks, change-detection, di-scope, lifecycle, rxjs-composition); the optional-parameter/nullish-coalescing pattern itself is generic TypeScript, not Angular-specific."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"framework-angular\",\"findings\":[],\"agent_notes\":[\"Diff only changes RestService.post()'s signature (optional body param with `?? null` fallback) in a plain injectable service — no component, no OnPush decorator, no .subscribe() call, no DI registration/scope change, and no lifecycle hook touched. Nothing in this hunk falls into the Angular-mechanism categories (rxjs-leaks, change-detection, di-scope, lifecycle, rxjs-composition); the optional-parameter/nullish-coalescing pattern itself is generic TypeScript, not Angular-specific.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:framework-angular",
+      "tool_use_id": "toolu_01DTQ712EgSWRsRgjfS4aame"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "No substantive defect found. All existing POST callers omit the body and retain the previous null-body behavior; the optional body passes directly to HttpClient without changing response handling or request controls. Review was static; tests were not run."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [], \"agent_notes\": [\"No substantive defect found. All existing POST callers omit the body and retain the previous null-body behavior; the optional body passes directly to HttpClient without changing response handling or request controls. Review was static; tests were not run.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01SwYT8PXBQLBXppxCEcnUKX"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 7,
+  "unrecovered": []
+}
