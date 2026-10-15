@@ -465,6 +465,139 @@ index dade959..a939b0b 100644
  47 files changed, 5759 insertions(+), 299 deletions(-)
 ```
 
+### Entry 2 — 2026-10-15T00:12:09Z (before the targeted restart)
+
+Committed before any run after the interrupted attempt. Entry 1 stands unchanged. This entry
+changes WHERE and HOW the measured sessions run; the candidate, the instructions to the lanes,
+the case list, the expected effects and the pass/fail criteria of entry 1 are unchanged.
+
+**Owner instruction (verbatim, 2026-10-14, at the setup checkpoint).**
+
+> Use separate disposable clones for all rehearsal runs. Record the location change before
+> restarting, and keep the interrupted attempt marked invalid.
+>
+> Also isolate the runner's Claude configuration and plugin installation/cache so other sessions
+> keep using released 2.11.1. Verify that isolation before running; don't assume a separate repo
+> folder isolates the plugin.
+>
+> Check the effective context-window setting before counting the first result. Record any
+> confirmed difference from the pinned setup.
+>
+> You may drop the leftover test stash only after verifying its identity and contents against the
+> test fixture. Use its recorded object ID to locate it again immediately before deletion—don't
+> assume it is still stash@{0}. If it contains anything else, leave it untouched.
+>
+> Once those checks pass, resume automatically. No further approval is needed for routine setup
+> corrections within this scope.
+>
+> The isolated plugin setup needs investigation, but a shared cache shouldn't automatically
+> become a requirement that you stop using vibe-check for seven hours.
+
+Stash answer (verbatim): "Yes, drop it, after verifying it matches the notification-bell test
+patch. Locate it by its recorded object ID before deletion; don't assume it's still stash@{0}.
+Leave every other stash untouched."
+
+**Interrupted attempt — INVALID.** `targeted-reach-new-2-run-1` (kept at
+`runs-phase53-dev/attempts/targeted-reach-new-2-run-1-1792022519/`) is invalid: a separate owner
+session changed the clone mid-run. It is kept for the record, never scored or counted. The
+targeted stage restarts from its first case; `reach-new-2` takes run number 2 so the slot history
+stays unambiguous.
+
+**Leftover stash.** In `~/seedsyncarr`, stash object `282e57031302e3a7f7fd362b7e85c19a28b13176`
+("detached-a6a0c6d notification-bell edit …"): parents = `a6a0c6d…` (the `reach-new-2` base_sha)
+and an index commit with no staged change; no untracked-files part; `git stash show -p` is
+byte-identical to `cases/reach-new-2.patch` (both sha256
+`11414a59b3ec753fb6a1f66485e920731f09856b53af82dfe4331427c050ae3a`, the case's
+`EXPECTED_TREE_DIFF_SHA256`). Re-located by object ID immediately before deletion (it resolved to
+`stash@{0}`), oid re-confirmed, dropped. The one other stash (`e1963da…`, a dependabot WIP) was
+left untouched. Nothing else in the owner's repos was touched.
+
+**Location change — disposable clones.** Every case now runs in
+`~/.b3/phase53-clones/{triggarr,seedsyncarr,roonseek}`, cloned (`--no-hardlinks`) from the
+owner's local repos on 2026-10-14, checked out on `main`, origin fetch URL = the GitHub remote,
+push URL disabled, `.turingmind/` in `.git/info/exclude`. Every case's `base_sha` and
+`feature_sha` resolves in its clone and every case patch applies at its base (16/16 checked). The
+owner's ignored `.claude/settings.local.json` (project permission allowlists) was copied into each
+clone, so permission handling matches the owner's repos; the owner's other ignored local files
+(`.mcp.json`, `.playwright-mcp/`, `.aidesigner/`, `.turingmind/` review state) are NOT in the
+clones. No block runs checkout/switch/stash/revert against `~/triggarr`, `~/seedsyncarr` or
+`~/roonseek` (runbook commit `45401bb`, `fix(53-14): run rehearsal in disposable clones`).
+
+**Isolated runner — method.** A separate `CLAUDE_CONFIG_DIR` was tried first and rejected: a new
+config dir starts logged out (`claude -p` → "Not logged in · Please run /login"), and copying the
+owner's OAuth credentials into it would let the runner rotate the shared refresh token and log the
+owner's own sessions out. Instead the measured sessions keep the owner's login and settings but
+load the candidate from a private copy:
+
+- runner copy `~/.b3/phase53-runner/plugin/vibe-check` (rsync of `plugins/vibe-check`, parity by
+  `score43.py fingerprint`), passed with `--plugin-dir`;
+- `--settings ~/.b3/phase53-runner/settings-measured.json` = `enabledPlugins:
+  {"vibe-check@thejuran": false}` (the installed release is not loaded in that session) plus a
+  status-line wrapper that logs Claude Code's own status-line payload locally (model id and
+  context-window fields) before rendering the owner's normal status line;
+- launch line: `claude --permission-mode manual --plugin-dir '<runner copy>' --settings
+  '<runner settings>' --model 'claude-fable-5-1[1m]' --allowedTools
+  "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"` in the disposable clone.
+
+The owner's `~/.claude` is never written: no resync into the installed cache, no registry edit, no
+relaunch of the owner's sessions. Everything else the measured session sees is the owner's normal
+setup, as in Phase 49 and entry 1: the same login, `~/.claude/settings.json` (env incl. the local
+model gateway, permissions incl. the holdout denies, both holdout-guard hooks, the other enabled
+plugins), the user-level `CLAUDE.md`. The codex lane runs the owner's installed codex plugin 1.0.4
+(vibe-check finds its companion at the fixed path `~/.claude/plugins/cache/openai-codex/codex`),
+read only; its per-project state is keyed by the clone path, so it cannot collide with the owner's
+sessions. Clone auto-memory is parked for the window (the clone paths are new; there is none);
+the owner's auto-memory for the real repos is not touched by any block.
+
+**Isolation — verification (before any run).**
+
+- (a) Owner default unchanged — sha256 before building the runner and after the runbook dry run:
+  `installed_plugins.json` `6a9cd0aa29ceaefa2146f88a7e9b87588b32b05b6dae4ed13f36c2a6f13fc155`,
+  `known_marketplaces.json` `eafbfd5e245d7bbfabb7fb1a6ef00bdf76b22e94d2639daad3b3a3f61fe5e827`,
+  `settings.json` `3297ded3de0ea9ce88176642de1cb4fe9a320778a004e9506f1ad0c298942c2a` (all `OK` on
+  re-check); the registered `vibe-check@thejuran` cache (`…/thejuran/vibe-check/2.11.1`) has
+  fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3`, equal to the
+  fingerprint of the `v2.11.1` tag's `plugins/vibe-check` tree (the released build).
+- (b) A session WITH the runner flags (`claude -p … --output-format stream-json --verbose`) lists
+  in its init metadata exactly one vibe-check plugin: `path
+  /Users/julianamacbook/.b3/phase53-runner/plugin/vibe-check`, `source vibe-check@inline`; the
+  runner copy's fingerprint `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`
+  equals the candidate tree's.
+- (c) A session WITHOUT the flags lists exactly one vibe-check plugin: `path
+  /Users/julianamacbook/.claude/plugins/cache/thejuran/vibe-check/2.11.1`, `source
+  vibe-check@thejuran` — the released build.
+- Guard: the runbook's `isolation_check` refuses when the owner's registry or settings reference
+  the runner, or the runner settings stop disabling the installed plugin (both mutations tripped,
+  the unmodified check passed); `post` voids a run whose transcript names the installed release
+  cache path.
+
+**Context window.** Both probe sessions in (b) and (c) report `contextWindow: 1000000` for
+`claude-fable-5-1[1m]` (`modelUsage` in the result metadata) — the pinned 1M window. The "200k" in
+the interrupted attempt's status line was the owner status-line script's fallback label (it shows
+200k when the payload carries no window and the display name lacks "1M"), not a window: that
+session reached 197,343 context tokens with no auto-compaction. No confirmed difference from the
+pinned setup so far; the first measured run is checked again from the status-line payload log
+before it is counted, and the result is recorded under that run.
+
+**Differences from entry 1 (all setup, none in the candidate or the instructions).**
+
+1. Location: disposable clones instead of the owner's working repos (above).
+2. Plugin load: `--plugin-dir` runner copy with the installed plugin disabled for the session
+   (the Phase-49 load path), instead of the resynced installed cache. The fingerprint now covers
+   the runner copy.
+3. Status line: the measured sessions render the owner's status line through a capture wrapper.
+4. Missing in the clones vs the owner's repos: the ignored `.mcp.json` / MCP state and the repos'
+   old `.turingmind/` review state (the runbook parks review state before every run anyway).
+
+**Order.** All three clones are available, so the targeted stage runs in entry 1's list order:
+`reach-new-1`, `reach-new-2` (run 2), `reach-unchanged-1`, `reach-unchanged-2`, `should-quiet-4`,
+`should-quiet-6`, `should-quiet-7`, `triggarr-secret-in-logs`, `triggarr-session-rotation`,
+`triggarr-autoescape`.
+
+**Candidate.** Unchanged: `plugins/vibe-check` identical to `0a924de` (fingerprint
+`5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`); repo HEAD at this entry
+`45401bb` (runbook change only).
+
 ## nv_dropped_weak scope
 
 Current rule (`templates/scoring.md` R5, `score.py`): when a grouped row's lead qualifies on its
