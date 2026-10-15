@@ -64,6 +64,8 @@ Workflow-prose changes (90-finalize.md archive routing; agent-output-schema.md p
 | check | candidate | outcome | vs Phase 53 | changed? | cause |
 |---|---|---|---|---|---|
 | two same-day close-outs (finalize archive fences; `live-finalize-archive.md`) | 302df48e1097 | PASS: `REVIEW-54-<date>.md` + `-2.md`, `54.json.archived-<date>` + `-2`, `REVIEW-unstamped-<date>.md` + `-2.md`; first-pass bytes intact | Phase 53 finalize used a bare `mv` to a fixed `-<date>` name and skipped archiving a same-phase prior REVIEW.md, so a second same-day close-out lost the first report / state archive | yes (intended) | 54-02 no-clobber `review_archive.py` routing (R2) |
+| fix-harness clean-tree, default-diff (`live-harness-clean-tree.md`) | 302df48e1097 | COMPLETE under the identity check (manifest_id b6abbae38b9c…, draft); model claude-opus-5-5[1m]; undecided_nv 0; state archived under `format-53/`; cards 1 / questions 2 / owner_commands 1 / would-be questions 2 | Phase 52 C-D COMPLETE with the same counts (no Phase 53 clean-tree run) | no | none (the outcome is unchanged; the run now goes through the 54-07 identity preflight and 54-02 archive routing) |
+| fix-harness clean-tree, GSD (`live-harness-clean-tree.md`) | 302df48e1097 | COMPLETE under the identity check; model claude-opus-5-5[1m]; undecided_nv 0; state archived under `format-53/`; cards 1 / questions 1 / owner_commands 1 / would-be questions 1 | Phase 52 C-G COMPLETE with the same counts | no | none (as above) |
 
 ## Owner decision
 
