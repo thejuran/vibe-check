@@ -57,7 +57,7 @@ If Phase 0 printed `FINALIZE_MODE=1`:
   - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
   - The REVIEW.md header carries the line `**State format:** 53` directly under `**Final verdict:** ✅ APPROVED` — the literal `finalize_gate.REVIEW_FORMAT_STAMP`. A REVIEW.md without that line was written by a plugin that never read the Phase-53 state and is NEVER this review's close. The one check any reader uses is `python3 "$VC_ROOT/scripts/finalize_gate.py" review-closed < .turingmind/REVIEW.md` (exit 0 = a Phase-53 close) — never a grep for the verdict line, which the older plugin also writes.
   - APPROVED is never written while `undecided_nv > 0`: the gate decides, and it returns `write` only when every count is 0. The REVIEW.md decisions report (built by `batch_card.py decisions-report`) lists decided Needs-verification items with their reasons.
-  - Archive state: `mv "$STATE_FILE" "$STATE_FILE.archived-$(date +%Y-%m-%d)"` — using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote. The `by-mode/all/<scope-hash>.json` form makes each `--all` archived name unique, so archived snapshots never collide.
+  - Archive state: `python3 "$VC_ROOT/scripts/review_archive.py" state --state-file "$STATE_FILE"` — using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote. The archive name is `<state>.json.archived-<date>`, with a `-N` suffix when that name already exists, so two same-day close-outs keep both archives and an existing archive is never overwritten (the `by-mode/all/<scope-hash>.json` form also keeps each `--all` archived name unique).
   - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
 - `refuse` — print "I'm uncertain about Finalize mode — finalize_gate.py refused its input" and stop. Do NOT write REVIEW.md or archive state.
 
@@ -208,12 +208,12 @@ Fill from state:
 - The helper joins each entry to `state.passes[-1].findings`, else to the matching `members[].obligation`, so an absorbed obligation's decision is listed under its own identity — this file does not re-join.
 - Decided Needs-verification items are listed under **Findings dismissed** / **Findings deferred** like any other band (band `needs-verification`), each with its own reason — items named together with one reason are still one entry each.
 
-Filling REVIEW.md is READ-only over state: Finalize's only state write is the `record-decisions` step above; the archive `mv` follows the write as today.
+Filling REVIEW.md is READ-only over state: Finalize's only state write is the `record-decisions` step above; the state archive move follows the write as today. Every archive move (state file, prior report, unstamped report) goes through `review_archive.py`, which is no-clobber by construction: it never overwrites an existing archive.
 
-If a prior `.turingmind/REVIEW.md` exists, archive it first. An unstamped one (`review-closed` exits non-zero) was written by a plugin version that never read this review's state: move it aside as `REVIEW-unstamped-<date>.md` and print the notice in the fence — it did not close this review. A stamped one is archived only when it belongs to a DIFFERENT phase:
+If a prior `.turingmind/REVIEW.md` exists, archive it first. An unstamped one (`review-closed` exits non-zero) was written by a plugin version that never read this review's state: move it aside as `REVIEW-unstamped-<date>.md` and print the notice in the fence — it did not close this review. A stamped one is always archived aside as `REVIEW-<phase>-<date>[-N].md`, even when it belongs to the same phase, so a same-day second close-out keeps both reports:
 ````bash
 if [ -f .turingmind/REVIEW.md ] && ! python3 "$VC_ROOT/scripts/finalize_gate.py" review-closed < .turingmind/REVIEW.md > /dev/null; then
-  mv .turingmind/REVIEW.md ".turingmind/REVIEW-unstamped-$(date +%Y-%m-%d).md"
+  python3 "$VC_ROOT/scripts/review_archive.py" unstamped --dir .turingmind
   echo "An earlier REVIEW.md was written by a plugin version that does not read this review's state; archived aside as REVIEW-unstamped-<date>.md — it did not close this review."
 fi
 if [ -f .turingmind/REVIEW.md ]; then
@@ -222,8 +222,8 @@ if [ -f .turingmind/REVIEW.md ]; then
   if [[ ! "$PRIOR_PHASE" =~ ^[A-Za-z0-9._-]+$ ]]; then
     PRIOR_PHASE="unknown"
   fi
-  if [ -n "$PRIOR_PHASE" ] && [ "$PRIOR_PHASE" != "$PHASE_ID" ]; then
-    mv .turingmind/REVIEW.md ".turingmind/REVIEW-${PRIOR_PHASE}-$(date +%Y-%m-%d).md"
+  if [ -n "$PRIOR_PHASE" ]; then
+    python3 "$VC_ROOT/scripts/review_archive.py" review-md --phase "$PRIOR_PHASE" --dir .turingmind
   fi
 fi
 ````

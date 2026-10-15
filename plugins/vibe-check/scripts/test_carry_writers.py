@@ -17,7 +17,8 @@ model follows) and by two scripts. Each field family has exactly ONE writer:
   |                        | carry_state.py record-fix-verdicts               |
   | medium_acknowledgments | nobody (legacy, read-only; a fresh root creates  |
   |                        | it empty, which is not an entry write)           |
-  | state archive (mv)     | phases/shared/90-finalize.md                     |
+  | state archive (mv or   | phases/shared/90-finalize.md                     |
+  | review_archive.py state)|                                                 |
 
 Two locks enforce the table:
 
@@ -155,7 +156,8 @@ FAMILIES = (
     _family("obligation", (), subscript="obligation", assign="obligation",
             directive="obligation"),
     _family("archive", ("phases/shared/90-finalize.md",),
-            extra=((r"\bmv\s+\"?\$(?:ALL_)?STATE_FILE\"?\s", ()),)),
+            extra=((r"\bmv\s+\"?\$(?:ALL_)?STATE_FILE\"?\s", ()),
+                   (r"\breview_archive\.py\"?\s+state\b", ()))),
 )
 FAMILY_BY_NAME = {f["name"]: f for f in FAMILIES}
 
@@ -278,6 +280,8 @@ class TestProseWriterLock(unittest.TestCase):
         ("kept_open", 'Set kept_open = "sub-threshold" on the row.'),
         ("obligation", 'Set obligation = {"stable_hash": "x"} on the member.'),
         ("archive", 'mv "$STATE_FILE" elsewhere.'),
+        ("archive",
+         'Run python3 "$VC_ROOT/scripts/review_archive.py" state --state-file "$STATE_FILE" here.'),
     )
     TARGET = "phases/review/40-render.md"
 
