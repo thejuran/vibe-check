@@ -497,3 +497,31 @@ loads the resynced cache at start; the driving session is not a measured session
 - `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26` — candidate `0a924de` (plugin tree unchanged at `a845fe1`)
 
 ## Runs
+
+### targeted/reach-new-2/run-1 — FAILED ATTEMPT (development rehearsal — not release evidence)
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26 (cache resynced; session launched 2026-10-14 19:51 -0400)
+
+Not scored, not counted. While the review agents ran, a separate owner Claude Code session working
+in the same `~/seedsyncarr` clone (a julian-orchestrator milestone run, phase 119) stashed the
+applied case patch (`stash@{0}`: "detached-a6a0c6d notification-bell edit (stashed 2026-10-14
+during v1.7.5 orchestration)"), switched the clone from the detached base to `main` and committed
+`2b1ff53` there (19:57). The candidate's Phase 3 git-safety gate detected the change (HEAD moved,
+branch switched, stash list grew) and halted the pass before scoring or persisting — the gate
+behaved as designed; no plugin defect. No state file was written. The attempt is kept at
+`runs-phase53-dev/attempts/targeted-reach-new-2-run-1-1792022519/` (`reason.txt`).
+
+Cleanup without touching the owner's git state: the 16 parked state files were moved back into
+`~/seedsyncarr/.turingmind/state/`, the sentinel removed; `revert` was NOT run (its
+`git checkout -- .` / branch restore would act on the owner's live clone). `restore-memory` and
+`restore-cache` were run so the owner's live sessions see the released 2.11.1 build and their own
+auto-memory while the window is paused (an empty `seedsyncarr` memory dir created during the
+window is kept as evidence in the park dir). The stash entry holding the case patch is left for
+the owner (it is measurement material, safe to drop).
+
+Observation (harness, unresolved): the measured session's status line showed a 200k window
+(`0/200k` at start, `197.3k/200k` at the halt) although it was launched with
+`--model 'claude-fable-5-1[1m]'`; Phase 49 pinned a 1M window.
+
+Runs paused at this point: `~/seedsyncarr` is in live use by an owner session and `~/triggarr`
+holds uncommitted owner work on branch `search-correctness`; only `~/roonseek` is idle.

@@ -1,0 +1,2 @@
+reason: clone disturbed mid-run: a concurrent owner session in the same clone stashed the case patch and switched to main
+label: development rehearsal
