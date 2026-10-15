@@ -101,7 +101,7 @@ def write_b3_run(root, diff, n, manifest_id, candidate_sha=CAND, stamps=True,
     with open(os.path.join(d, "fingerprint.txt"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
     with open(os.path.join(d, "state.json"), "w", encoding="utf-8") as fh:
-        fh.write("{}")
+        fh.write('{"passes": [{"findings": []}]}')
     return d
 
 
