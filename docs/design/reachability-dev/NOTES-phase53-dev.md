@@ -671,6 +671,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/should-quiet-2/run-1 | 0 |
 | final/should-quiet-3/run-1 | 0 |
 | final/triggarr-session-rotation/run-1 | 2 |
+| final/triggarr-settings-form-split/run-1 | 0 |
 
 ## Cache
 
@@ -1252,4 +1253,31 @@ candidates at site with band >= floor: 2
 AXIS: credit — row 312fd3c4c345 (alarm, critical 100), listed at the keyed site by `catch-candidates` (routes.py:1567) — "Stolen sessions retain authenticated access after password changes"; members security "no longer invalidates other active sessions", bugs "sessions stolen before the change stay valid for 30 days". Location AND causal failure (session eviction lost) match.
 
 vs entry 1: "catch kept" -> catch kept. Second alarm 494fa8e8b5c1 (bugs warning at routes.py:1581): existing tests asserting rotation will fail — also at the keyed site, a consequence of the same change. Run 9m32s; fix-loop card after 556s; `Stop here…` -> `Abandon` by label.
+
+
+### final/triggarr-settings-form-split/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| architecture | triggarr/templates/settings.html | 18 | critical | 100 | 6b98d7648011 |
+| bugs | triggarr/templates/settings.html | 134 | warning | 94 | 69b8cb779a87 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| architecture | triggarr/templates/settings.html | 18 | critical | 100 | 6b98d7648011 | Diff reverts commit 542d5dd, splitting the single save_settings contract back into two forms so Save drops every General field | architecture: Diff reverts commit 542d5dd, splitting the single save_settings contract back into two forms so Save drops every General field; security: Diff reverts a tested fix: General settings silently reset to hardcoded defaults on every instance save; bugs: General settings form has no submit button, so edits to General fields can never be saved; codex-adversarial: Keep General controls associated with the Save Settings form; impact: Reverts the 542d5dd fix: every 'Save Settings' click silently resets all General settings to their defaults |  |
+| bugs | triggarr/templates/settings.html | 134 | warning | 94 | 69b8cb779a87 | Save Settings now posts without General fields, so the handler resets every General setting to its default | bugs: Save Settings now posts without General fields, so the handler resets every General setting to its default |  |
+candidates at site with band >= floor: 2
+
+AXIS: credit — row 6b98d7648011 (alarm, critical 100) at settings.html:18 (keyed hunk 15-28) — "splitting the single save_settings contract back into two forms so Save drops every General field"; members impact "every Save Settings click silently resets all General settings to their defaults", bugs "General settings form has no submit button". Row 69b8cb779a87 (warning) at settings.html:134 (keyed hunk 131-137) names the same fields-not-submitted reset. Location AND causal failure (broken form association, silent data loss on save) match.
+
+vs entry 1: "catch kept" -> catch kept. Run 13m04s; fix-loop card after 752s; `Stop here…` -> `Abandon` by label.
 

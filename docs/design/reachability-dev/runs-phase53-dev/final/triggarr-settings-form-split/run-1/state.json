@@ -1,0 +1,283 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "542d5ddb685c992f94cc18e9c780a176067ddaa7",
+      "timestamp": "2026-10-15T04:18:33Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance"
+      ],
+      "findings": [
+        {
+          "file": "triggarr/templates/settings.html",
+          "line": 18,
+          "source_window": [
+            "{% endif %}",
+            "",
+            "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+            "    <!-- General section -->",
+            "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+          ],
+          "canonical_line_content": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+          "agent": "architecture",
+          "id": "arch-001",
+          "title": "Diff reverts commit 542d5dd, splitting the single save_settings contract back into two forms so Save drops every General field",
+          "category": "pattern-consistency",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 92,
+          "in_diff": true,
+          "intent_doc_match": {
+            "doc": "git commit 542d5dd",
+            "section": "fix(walkthrough): General settings fields lived in a separate form from the Save button, so saving never submitted them",
+            "quote": "clicking Save submitted only the instances form, so every General field was absent from the POST and reset to its form-default on each save.",
+            "confidence": 0.0
+          },
+          "problem": "This diff undoes commit 542d5dd almost line for line. The General section is wrapped again in its own <form action=save_settings> with no submit button (lines 18-90). The only 'Save Settings' button sits in the second, id-less <form action=save_settings> at line 134. The form=\"settings-form\" association is removed. The file already uses the form-attribute approach to avoid nested forms elsewhere: the add-instance inputs use form=\"add-{{ app_name }}\" (lines 230-232) tied to the out-of-form <form id=\"add-...\"> at line 250. The diff drops that approach for General but keeps it for add-instance.",
+          "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">\n    <!-- General section -->\n...\n<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+          "fix_hint": "Revert this working-tree change: restore id=\"settings-form\" on the instances form, form=\"settings-form\" on each General control, and the <div> wrapper with its explanatory comments",
+          "why_it_matters": "save_settings (triggarr/web/routes.py:520-540) builds the whole general block from the form. Missing fields fall back to defaults and skip_unreleased becomes False, so every Save quietly resets all General settings and writes those defaults to config.toml.",
+          "silenced_marker_nearby": false,
+          "needs_verification": null,
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "bugs",
+            "security",
+            "architecture",
+            "impact",
+            "codex-adversarial"
+          ],
+          "stable_hash": "6b98d7648011ba29d3e1176e51c2a5af62f0982ef68c3f3a2b1273b2c82b0e48",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/templates/settings.html",
+              "line": 18,
+              "title": "Diff reverts commit 542d5dd, splitting the single save_settings contract back into two forms so Save drops every General field",
+              "category": "pattern-consistency",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 92,
+              "problem": "This diff undoes commit 542d5dd almost line for line. The General section is wrapped again in its own <form action=save_settings> with no submit button (lines 18-90). The only 'Save Settings' button sits in the second, id-less <form action=save_settings> at line 134. The form=\"settings-form\" association is removed. The file already uses the form-attribute approach to avoid nested forms elsewhere: the add-instance inputs use form=\"add-{{ app_name }}\" (lines 230-232) tied to the out-of-form <form id=\"add-...\"> at line 250. The diff drops that approach for General but keeps it for add-instance.",
+              "source_window": [
+                "{% endif %}",
+                "",
+                "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+                "    <!-- General section -->",
+                "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+              ],
+              "cwe": null,
+              "why_it_matters": "save_settings (triggarr/web/routes.py:520-540) builds the whole general block from the form. Missing fields fall back to defaults and skip_unreleased becomes False, so every Save quietly resets all General settings and writes those defaults to config.toml.",
+              "fix_hint": "Revert this working-tree change: restore id=\"settings-form\" on the instances form, form=\"settings-form\" on each General control, and the <div> wrapper with its explanatory comments",
+              "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">\n    <!-- General section -->\n...\n<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+              "intent_doc_match": {
+                "doc": "git commit 542d5dd",
+                "section": "fix(walkthrough): General settings fields lived in a separate form from the Save button, so saving never submitted them",
+                "quote": "clicking Save submitted only the instances form, so every General field was absent from the POST and reset to its form-default on each save.",
+                "confidence": 0.0
+              }
+            },
+            {
+              "file": "triggarr/templates/settings.html",
+              "line": 18,
+              "title": "Diff reverts a tested fix: General settings silently reset to hardcoded defaults on every instance save",
+              "category": "mass-assignment",
+              "severity": "medium",
+              "agent": "security",
+              "agent_confidence": 97,
+              "problem": "This diff reverts commit 542d5dd, reintroducing the bug that commit fixed and tested against. General-section inputs are back in their own standalone <form> (settings.html:18-90) with no submit control, and id=\"settings-form\" is stripped from the instances form (settings.html:134) along with every form=\"settings-form\" attribute. Clicking 'Save Settings' (settings.html:241-244) submits solely the instances form; none of the General fields are in that POST. In triggarr/web/routes.py save_settings (lines 530-540), every one of those fields is read via form.get(...) with a hardcoded fallback default, so every routine instance save silently overwrites administrator-configured General settings. tests/test_web.py::test_general_fields_submit_with_the_save_settings_form (added in 542d5dd) fails against this markup.",
+              "source_window": [
+                "{% endif %}",
+                "",
+                "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+                "    <!-- General section -->",
+                "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+              ],
+              "cwe": "CWE-915",
+              "why_it_matters": "Silently discards admin-configured resource/behavior controls (hard_max_per_cycle, request_timeout) on every routine settings save, replacing them with hardcoded defaults without warning.",
+              "fix_hint": "Restore the pre-revert structure from commit 542d5dd: keep General fields in a plain <div> with form=\"settings-form\" on each control, and restore id=\"settings-form\" on the instances <form> that holds the 'Save Settings' button.",
+              "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">\n    <!-- General section -->\n    ... (no submit button in this form) ...\n</form>",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/templates/settings.html",
+              "line": 18,
+              "title": "General settings form has no submit button, so edits to General fields can never be saved",
+              "category": "logic-error",
+              "severity": "high",
+              "agent": "bugs",
+              "agent_confidence": 95,
+              "problem": "The diff wraps the General fields in their own <form> (lines 18-90) and removes the form=\"settings-form\" association. That form contains no submit button. The only 'Save Settings' button sits in the second form at lines 134-246. The General form also has many fields, so under the HTML spec pressing Enter does not submit it either. A user who edits log level, hard max, timeouts, page size, tracking window, max failures or skip_unreleased has no way to send those changes. This reverts the fix in commit 542d5dd.",
+              "source_window": [
+                "{% endif %}",
+                "",
+                "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+                "    <!-- General section -->",
+                "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+              ],
+              "cwe": null,
+              "why_it_matters": "The whole General settings section stops working: any change a user makes is silently thrown away.",
+              "fix_hint": "restore form=\"settings-form\" on the General inputs and id=\"settings-form\" on the instances form (or revert this diff)",
+              "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">\n    <!-- General section -->\n    ...\n</form>",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/templates/settings.html",
+              "line": 18,
+              "title": "Keep General controls associated with the Save Settings form",
+              "category": "adversarial",
+              "severity": "high",
+              "agent": "codex-adversarial",
+              "agent_confidence": 100,
+              "problem": "The new General form ends before the form containing Save Settings and has no submit button. Removing the explicit form associations means clicking Save Settings submits only instance fields. save_settings (triggarr/web/routes.py:531-539) interprets missing General fields as defaults, then persists them at lines 608-612. For example, an existing hard_max_per_cycle=10 becomes 0 (unlimited), skip_unreleased=true becomes false, and max_history_rows=10000 becomes 1000. General edits are also discarded.",
+              "source_window": [
+                "{% endif %}",
+                "",
+                "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+                "    <!-- General section -->",
+                "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+              ],
+              "cwe": null,
+              "why_it_matters": "Save Settings now omits every General field and silently overwrites saved configuration with defaults.",
+              "fix_hint": "Restore id=\"settings-form\" on the submitting form and form=\"settings-form\" on every General control. Verify the existing test_general_fields_submit_with_the_save_settings_form regression test passes.",
+              "intent_doc_match": null
+            },
+            {
+              "file": "triggarr/templates/settings.html",
+              "line": 18,
+              "title": "Reverts the 542d5dd fix: every 'Save Settings' click silently resets all General settings to their defaults",
+              "category": "blast-radius",
+              "severity": "high",
+              "agent": "impact",
+              "agent_confidence": 92,
+              "problem": "This diff brings back exactly the bug HEAD commit 542d5dd fixed. The General controls are wrapped in their own <form action=save_settings> again (lines 18-90) with no submit button. The only 'Save Settings' button sits in the separate instances form at line 134, which no longer has id=\"settings-form\". Clicking Save posts only the instance fields. In triggarr/web/routes.py save_settings (:520-540), each missing General field is filled with its fallback and skip_unreleased becomes False. These values pass validation and are written to config.toml. Any custom General value is lost on every save, and skip_unreleased flips from True to False so the daemon starts searching unreleased items. The regression test tests/test_web.py:833-890 will fail.",
+              "source_window": [
+                "{% endif %}",
+                "",
+                "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+                "    <!-- General section -->",
+                "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+              ],
+              "cwe": null,
+              "why_it_matters": "Loses persisted configuration silently on every settings save, affecting every user of the settings page. Flipping skip_unreleased to False changes search behavior against Radarr, Sonarr and Lidarr.",
+              "fix_hint": "Discard this working-tree change: restore id=\"settings-form\" on the instances form, put form=\"settings-form\" back on every General control, and keep the General section in a plain <div>.",
+              "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">\n    <!-- General section -->\n...\n<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+              "intent_doc_match": false
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/templates/settings.html",
+            "line": 18,
+            "canonical_line_content": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8\">",
+            "band": "critical"
+          }
+        },
+        {
+          "file": "triggarr/templates/settings.html",
+          "line": 134,
+          "source_window": [
+            "",
+            "<!-- Per-app sections: Radarr, Sonarr, Lidarr -->",
+            "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+            "    {% for app_name, instances in apps.items() %}",
+            "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+          ],
+          "canonical_line_content": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+          "agent": "bugs",
+          "id": "bugs-002",
+          "title": "Save Settings now posts without General fields, so the handler resets every General setting to its default",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 93,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "After the diff, the instances form (line 134) no longer carries the General fields. save_settings (routes.py:529-540) builds the whole 'general' config from form.get(...), using hard-coded fallbacks when a field is missing. Every 'Save Settings' click therefore writes: log_level='info', hard_max_per_cycle=0, max_history_rows=1000, request_timeout=30, page_size=50, tracking_window_minutes=60, max_consecutive_failures=5. skip_unreleased becomes False because form.get('skip_unreleased') == 'on' is False when the field is absent, flipping the default of True (config.py:114) and making the engine search unreleased movies (engine.py:401). This happens even when the user only changed an instance field.",
+          "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+          "fix_hint": "keep id=\"settings-form\" here and form=\"settings-form\" on the General inputs so both sections post together",
+          "why_it_matters": "Saving an instance quietly overwrites the user's General configuration on disk, including turning skip_unreleased off, which changes how searches run.",
+          "silenced_marker_nearby": false,
+          "orchestrator_score": 94,
+          "band": "warning",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "69b8cb779a87994e469604710ebce3331722562b784f4be8fc34cc4993ee239e",
+          "status": "new",
+          "members": [
+            {
+              "file": "triggarr/templates/settings.html",
+              "line": 134,
+              "title": "Save Settings now posts without General fields, so the handler resets every General setting to its default",
+              "category": "logic-error",
+              "severity": "high",
+              "agent": "bugs",
+              "agent_confidence": 93,
+              "problem": "After the diff, the instances form (line 134) no longer carries the General fields. save_settings (routes.py:529-540) builds the whole 'general' config from form.get(...), using hard-coded fallbacks when a field is missing. Every 'Save Settings' click therefore writes: log_level='info', hard_max_per_cycle=0, max_history_rows=1000, request_timeout=30, page_size=50, tracking_window_minutes=60, max_consecutive_failures=5. skip_unreleased becomes False because form.get('skip_unreleased') == 'on' is False when the field is absent, flipping the default of True (config.py:114) and making the engine search unreleased movies (engine.py:401). This happens even when the user only changed an instance field.",
+              "source_window": [
+                "",
+                "<!-- Per-app sections: Radarr, Sonarr, Lidarr -->",
+                "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+                "    {% for app_name, instances in apps.items() %}",
+                "    <section class=\"bg-triggarr-card rounded-lg border border-triggarr-border p-5\">"
+              ],
+              "cwe": null,
+              "why_it_matters": "Saving an instance quietly overwrites the user's General configuration on disk, including turning skip_unreleased off, which changes how searches run.",
+              "fix_hint": "keep id=\"settings-form\" here and form=\"settings-form\" on the General inputs so both sections post together",
+              "current_code": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "triggarr/templates/settings.html",
+            "line": 134,
+            "canonical_line_content": "<form method=\"post\" action=\"{{ request.url_for('save_settings') }}\" class=\"space-y-8 mt-8\">",
+            "band": "warning"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "triggarr/templates/settings.html",
+          "line": 18,
+          "title": "Diff reverts a tested fix: General settings silently reset to hardcoded defaults on every instance save",
+          "reason": "absorbed-into: 6b98d7648011ba29d3e1176e51c2a5af62f0982ef68c3f3a2b1273b2c82b0e48"
+        },
+        {
+          "file": "triggarr/templates/settings.html",
+          "line": 18,
+          "title": "General settings form has no submit button, so edits to General fields can never be saved",
+          "reason": "absorbed-into: 6b98d7648011ba29d3e1176e51c2a5af62f0982ef68c3f3a2b1273b2c82b0e48"
+        },
+        {
+          "file": "triggarr/templates/settings.html",
+          "line": 18,
+          "title": "Keep General controls associated with the Save Settings form",
+          "reason": "absorbed-into: 6b98d7648011ba29d3e1176e51c2a5af62f0982ef68c3f3a2b1273b2c82b0e48"
+        },
+        {
+          "file": "triggarr/templates/settings.html",
+          "line": 18,
+          "title": "Reverts the 542d5dd fix: every 'Save Settings' click silently resets all General settings to their defaults",
+          "reason": "absorbed-into: 6b98d7648011ba29d3e1176e51c2a5af62f0982ef68c3f3a2b1273b2c82b0e48"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ]
+}
