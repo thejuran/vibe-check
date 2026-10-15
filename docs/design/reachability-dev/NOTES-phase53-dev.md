@@ -666,6 +666,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/reach-unchanged-2/run-1 | 0 |
 | final/triggarr-secret-in-logs/run-1 | 3 |
 | final/triggarr-autoescape/run-1 | 0 |
+| final/third-organic-should-catch/run-1 | 0 |
 
 ## Cache
 
@@ -1144,4 +1145,29 @@ candidates at site with band >= floor: 1
 AXIS: credit — row 02babc676ff2 (alarm, critical 100) at routes.py:45 (keyed bug line) — survivor "Diff reverts the exact fix for Jinja2 autoescape not applying"; members impact "hands the XSS autoescape guarantee to a removed, version-dependent library path", security "dropping the forced-autoescape guarantee". The escaping/XSS consequence is named at the keyed line. As in the targeted run, the lead mechanism is a TypeError at import on the installed Starlette (the key describes a silent no-op); both are the version-dependent loss of autoescape.
 
 vs entry 1: "catch kept" -> catch kept. Run 10m47s; fix-loop card after 602s; `Stop here…` -> `Abandon` by label. The triggarr clone had its provisioned `.venv` (entry 3).
+
+
+### final/third-organic-should-catch/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | src/angular/src/app/services/files/view-file.service.ts | 308 | critical | 100 | 2cc1dbe9a612 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| codex-adversarial | src/angular/src/app/services/files/view-file.service.ts | 308 | critical | 100 | 2cc1dbe9a612 | Completed extracted files show over 100% and lose completion indicators | codex-adversarial: Completed extracted files show over 100% and lose completion indicators; bugs: Removed clamp lets percentDownloaded exceed 100 for extracted files (shows e.g. '199%', loses Done/success state); language-typescript: Removed clamp reintroduces documented >100% progress bug; impact: Removing the percentDownloaded clamp brings back >100% progress (e.g. '199%') and breaks the '=== 100' checks for extracted files; architecture: Removing the clamp breaks the 0-100 contract for percentDownloaded and leaves view code to handle out-of-range values |  |
+candidates at site with band >= floor: 1
+
+AXIS: credit — row 2cc1dbe9a612 (alarm, critical 100) at view-file.service.ts:308 (keyed bug lines 307-309) — "Completed extracted files show over 100% and lose completion indicators"; members bugs "Removed clamp lets percentDownloaded exceed 100 ... loses Done/success state", impact "breaks the three-equals 100 checks". Names the missing clamp / out-of-range value. Location AND causal failure match.
+
+vs entry 1: "catch kept" -> catch kept. Run 8m01s; fix-loop card after 466s; `Stop here…` -> `Abandon` by label. The seedsyncarr clone had its provisioned `node_modules` (entry 3).
 
