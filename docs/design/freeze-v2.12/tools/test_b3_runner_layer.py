@@ -3,8 +3,14 @@
 The B3 runner is shell plus a Markdown runbook, so its identity contract is
 held by text locks rather than unit tests of behavior:
 
-- every launch-bearing runbook block (preflight, launch, pre, post) calls
-  `b3_identity_check`;
+- every launch-bearing runbook block (preflight, launch, session, pre, post)
+  calls `b3_identity_check`;
+- the environment checked is the environment the session gets: `claude`
+  starts only from the `session` block, by `exec`, after that block's own
+  identity check (run in the process that becomes `claude`) agreed with
+  `launch`; `launch` hands the pane the session block as an argv list and
+  never types a launch line into a pane, so which tmux server hosts the
+  pane cannot matter;
 - the runner copy is built with `git archive`, never copied from the working
   tree (no rsync, cp -r, copytree, ditto);
 - no line passes on a version string;
@@ -31,14 +37,20 @@ RUN_CASE = os.path.join(LAYER, "run_case.sh")
 SETTINGS = os.path.join(LAYER, "settings-measured.json")
 RUNBOOK = os.path.join(REPO, "docs", "design", "reachability-dev", "RUN-PHASE54-live.md")
 
-LAUNCH_BEARING = ("preflight", "launch", "pre", "post")
+LAUNCH_BEARING = ("preflight", "launch", "session", "pre", "post")
 RUNBOOK_BLOCKS = ("common", "materialize", "identity", "park-memory", "preflight",
-                  "fresh", "launch", "pre", "post", "fail", "revert", "restore-memory")
+                  "fresh", "launch", "session", "pre", "post", "fail", "revert",
+                  "restore-memory")
 LAYER_FUNCTIONS = ("b3_identity_check", "b3_materialize_runner", "b3_stamp_run", "b3_block")
 FREEZE_CALL = 'freeze_check.py" verify --runner b3'
 SETTINGS_TOKEN = '"$RUNNER_SETTINGS"'
 PLUGIN_TOKEN = '"$RUNNER_PLUGIN"'
 ONLY_WRITE = 'd["statusLine"]["command"] = cmd.replace("<RUNNER>", runner)'
+SESSION_CALL = 'b3_block "$2" session "$3"'
+PANE_ARGV = '"${SESSION[@]}"'
+EXPECT_COMPARE = ('test "$(identity_field manifest_id)" = "${EXPECT_MANIFEST_ID:-}"',
+                  'test "$(identity_field candidate_sha)" = "${EXPECT_CANDIDATE_SHA:-}"')
+_CLAUDE_START = re.compile(r"(?:^|[;&|(]|\bexec)\s*claude\b|\bclaude\s+--")
 
 _ARG_VALUE = r"""("[^"]*"|'[^']*'|[^\s`)'"]+)"""
 
@@ -148,8 +160,8 @@ def same_settings_path_holds(common_text, runbook_text):
     body = function_body(common_text, "b3_identity_check") or ""
     if "--settings " + SETTINGS_TOKEN not in body or "--plugin-dir " + PLUGIN_TOKEN not in body:
         return False
-    launch = block(runbook_text, "launch") or ""
-    launch_lines = [ln for ln in _code_lines(launch) if re.search(r"\bclaude\b.*--permission-mode", ln)]
+    session = block(runbook_text, "session") or ""
+    launch_lines = [ln for ln in _code_lines(session) if re.search(r"\bclaude\b.*--permission-mode", ln)]
     if not launch_lines:
         return False
     return all("--settings " + SETTINGS_TOKEN in ln and "--plugin-dir " + PLUGIN_TOKEN in ln
@@ -168,6 +180,55 @@ def single_substitution_holds(common_text):
     if re.search(r"\bd\.(update|setdefault|pop|clear)\(|\bdel d\b", body):
         return False
     return True
+
+
+def _block_names(text):
+    return re.findall(r"(?m)^# BLOCK: ([a-z0-9-]+)$", text)
+
+
+def session_self_check_holds(runbook_text, run_case_text):
+    """The identity check that vouches for a run executes in the process
+    that becomes `claude`.
+
+    - `session` runs b3_identity_check, then compares the verified
+      manifest_id and candidate_sha with the values `launch` handed it, and
+      only after both starts claude, by `exec` (the one claude start in the
+      runbook);
+    - no other block starts claude, and nothing types a launch line into a
+      pane (`tmux send-keys` with claude or a LAUNCH variable);
+    - `launch` starts the pane with the session block as an argv list
+      (`tmux new-session ... "${SESSION[@]}"`) whose command runs
+      `b3_block "$2" session "$3"`."""
+    session = block(runbook_text, "session")
+    launch = block(runbook_text, "launch")
+    if session is None or launch is None:
+        return False
+    for name in _block_names(runbook_text):
+        if name == "session":
+            continue
+        for ln in _code_lines(block(runbook_text, name) or ""):
+            if _CLAUDE_START.search(ln):
+                return False
+    for text in (runbook_text, run_case_text):
+        for ln in _code_lines(text):
+            if "send-keys" in ln and re.search(r"\bclaude\b|LAUNCH", ln):
+                return False
+    lines = _code_lines(session)
+    starts = [i for i, ln in enumerate(lines) if _CLAUDE_START.search(ln)]
+    if len(starts) != 1 or not re.match(r"\s*exec claude\s", lines[starts[0]]):
+        return False
+    checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
+    if not checks or checks[0] > starts[0]:
+        return False
+    for needle in EXPECT_COMPARE:
+        at = [i for i, ln in enumerate(lines) if needle in ln]
+        if not at or not checks[0] < at[0] < starts[0]:
+            return False
+    launch_lines = _code_lines(launch)
+    panes = [ln for ln in launch_lines if re.search(r"\btmux\s+new-session\b", ln)]
+    if not panes or not all(ln.rstrip().endswith(PANE_ARGV) for ln in panes):
+        return False
+    return SESSION_CALL in launch
 
 
 # --------------------------------------------------------------------------- #
@@ -203,6 +264,14 @@ class TestRealFiles(unittest.TestCase):
 
     def test_single_substitution(self):
         self.assertTrue(single_substitution_holds(self.common))
+
+    def test_session_self_check(self):
+        self.assertTrue(session_self_check_holds(self.runbook, _read(RUN_CASE)))
+
+    def test_b3_block_names_its_runbook(self):
+        body = function_body(self.common, "b3_block")
+        self.assertIn('B3_RUNBOOK=$book bash -c "$script"', body)
+        self.assertIn('test -n "${B3_RUNBOOK:-}"', block(self.runbook, "launch"))
 
     def test_layer_functions_defined(self):
         for name in LAYER_FUNCTIONS:
@@ -275,6 +344,7 @@ class TestMutants(unittest.TestCase):
         self.assertTrue(identity_fails_closed_holds(self.common))
         self.assertTrue(same_settings_path_holds(self.common, self.runbook))
         self.assertTrue(single_substitution_holds(self.common))
+        self.assertTrue(session_self_check_holds(self.runbook, _read(RUN_CASE)))
 
     def _assert_dropping_trips(self, name):
         mutant = _drop_identity_from(self.runbook, name)
@@ -292,6 +362,73 @@ class TestMutants(unittest.TestCase):
 
     def test_mutant_identity_removed_from_post(self):
         self._assert_dropping_trips("post")
+
+    def test_mutant_identity_removed_from_session(self):
+        self._assert_dropping_trips("session")
+        mutant = _drop_identity_from(self.runbook, "session")
+        self.assertFalse(session_self_check_holds(mutant, _read(RUN_CASE)))
+
+    def _session_holds(self, runbook=None, run_case=None):
+        return session_self_check_holds(runbook if runbook is not None else self.runbook,
+                                        run_case if run_case is not None else _read(RUN_CASE))
+
+    def _replace_in_block(self, name, old, new):
+        body = block(self.runbook, name)
+        self.assertIn(old, body)
+        return self.runbook.replace(body, body.replace(old, new, 1), 1)
+
+    def test_mutant_launch_types_claude_into_existing_server(self):
+        # the pre-fix shape: the check ran in the block shell, the pane (env from
+        # whichever shell started the tmux server) got the launch line typed in
+        body = block(self.runbook, "launch")
+        pane = [ln for ln in body.splitlines() if "tmux new-session" in ln][0]
+        old_shape = ('  LAUNCH_LINE=$(printf \'%q \' claude --permission-mode manual '
+                     '--plugin-dir "$RUNNER_PLUGIN" --settings "$RUNNER_SETTINGS" --model "$MODEL")\n'
+                     '  tmux new-session -d -s "p54-$CASE" -c "$CLONE"\n'
+                     '  tmux send-keys -t "p54-$CASE" "$LAUNCH_LINE" Enter')
+        mutant = self.runbook.replace(body, body.replace(pane, old_shape, 1), 1)
+        self.assertNotEqual(mutant, self.runbook)
+        self.assertFalse(self._session_holds(mutant))
+
+    def test_mutant_pane_without_session_argv(self):
+        # a plain shell in the pane (default/existing server env), session block never run there
+        mutant = self._replace_in_block(
+            "launch", 'tmux new-session -d -s "p54-$CASE" -c "$CLONE" "${SESSION[@]}"',
+            'tmux new-session -d -s "p54-$CASE" -c "$CLONE"')
+        self.assertFalse(self._session_holds(mutant))
+
+    def test_mutant_run_case_types_launch_line(self):
+        mutant = _read(RUN_CASE).replace(
+            'sleep 8\n', 'tmux send-keys -t "$S" "$LAUNCH_LINE" Enter\nsleep 8\n', 1)
+        self.assertNotEqual(mutant, _read(RUN_CASE))
+        self.assertFalse(self._session_holds(run_case=mutant))
+
+    def test_mutant_exec_before_session_check(self):
+        body = block(self.runbook, "session")
+        lines = body.splitlines()
+        exec_ln = [ln for ln in lines if ln.startswith("exec claude")][0]
+        lines.remove(exec_ln)
+        lines.insert(lines.index("b3_identity_check 'session'"), exec_ln)
+        mutant = self.runbook.replace(body, "\n".join(lines), 1)
+        self.assertFalse(self._session_holds(mutant))
+
+    def test_mutant_session_skips_launch_identity_compare(self):
+        body = block(self.runbook, "session")
+        mutant = self.runbook.replace(
+            body, "\n".join(ln for ln in body.splitlines() if "EXPECT_MANIFEST_ID" not in ln), 1)
+        self.assertNotEqual(mutant, self.runbook)
+        self.assertFalse(self._session_holds(mutant))
+
+    def test_mutant_claude_without_exec(self):
+        mutant = self._replace_in_block("session", "exec claude ", "claude ")
+        self.assertFalse(self._session_holds(mutant))
+
+    def test_mutant_claude_started_in_launch(self):
+        mutant = self._replace_in_block(
+            "launch", "echo 'BLOCK OK'",
+            'cd "$CLONE" && claude --permission-mode manual --plugin-dir "$RUNNER_PLUGIN" '
+            '--settings "$RUNNER_SETTINGS" --model "$MODEL"\necho \'BLOCK OK\'')
+        self.assertFalse(self._session_holds(mutant))
 
     def test_mutant_identity_commented_out(self):
         body = block(self.runbook, "launch")
@@ -344,7 +481,7 @@ class TestMutants(unittest.TestCase):
         self.assertFalse(identity_fails_closed_holds(mutant))
 
     def test_mutant_launch_settings_other_path(self):
-        body = block(self.runbook, "launch")
+        body = block(self.runbook, "session")
         mutant = self.runbook.replace(
             body, body.replace('--settings "$RUNNER_SETTINGS"', '--settings "$HOME/.b3/other.json"'), 1)
         self.assertNotEqual(mutant, self.runbook)
@@ -358,7 +495,7 @@ class TestMutants(unittest.TestCase):
         self.assertFalse(same_settings_path_holds(mutant, self.runbook))
 
     def test_mutant_launch_plugin_dir_other_path(self):
-        body = block(self.runbook, "launch")
+        body = block(self.runbook, "session")
         mutant = self.runbook.replace(
             body, body.replace('--plugin-dir "$RUNNER_PLUGIN"', '--plugin-dir "$PLUGIN_ROOT"'), 1)
         self.assertNotEqual(mutant, self.runbook)

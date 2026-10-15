@@ -3,8 +3,10 @@
 # (docs/design/reachability-dev/RUN-PHASE54-live.md and the runbooks built from it) and by
 # run_case.sh. The freeze manifest hashes this directory, so an edit here is an identity change.
 #
-# Contract: every launch-bearing runbook block (preflight, launch, pre, post) calls
-# b3_identity_check before it does anything else that matters. The check compares the runner copy,
+# Contract: every launch-bearing runbook block (preflight, launch, session, pre, post) calls
+# b3_identity_check before it does anything else that matters. The `session` block is the process
+# that becomes claude: it runs the check in its own environment and only then execs claude, so the
+# environment checked is the environment the session gets (whatever tmux server hosts the pane). The check compares the runner copy,
 # the runner settings, the launch model, the CLI binaries, the user-level configuration and the
 # repo state against the active freeze manifest (freeze_check.py verify --runner b3). There is no
 # flag or variable that skips it: a mismatch prints the differences and stops the block.
@@ -63,8 +65,9 @@ b3_block() {
     awk -v b="$name" '$0=="# BLOCK: "b{f=1} f{print} $0=="# END: "b{exit}' "$book")
   printf '%s\n' "$script" | grep -qx '# END: common' || { echo 'b3_block: the common block is missing — STOPPING'; return 2; }
   printf '%s\n' "$script" | tail -1 | grep -qx "# END: $name" || { echo "b3_block: no block named '$name' — STOPPING"; return 2; }
-  # bash -c (not bash -s): the block's stdin stays free for typed attestations such as CLEARED
-  if bash -c "$script" "b3:$name" "$@"; then
+  # bash -c (not bash -s): the block's stdin stays free for typed attestations such as CLEARED.
+  # B3_RUNBOOK lets a block name its own runbook (launch hands it to the session block).
+  if B3_RUNBOOK=$book bash -c "$script" "b3:$name" "$@"; then
     echo "b3: BLOCK OK ($name)"
   else
     echo "b3: BLOCK FAILED ($name)"

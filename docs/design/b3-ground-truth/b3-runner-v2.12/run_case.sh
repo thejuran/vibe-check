@@ -3,7 +3,9 @@
 # preflight, fresh, launch (tmux), [one-time folder-trust prompt for a disposable clone], /clear,
 # pre, /vibe-check:deep-review, `Stop here…` then `Abandon` (by label), post, /exit, revert.
 # preflight, launch, pre and post each run the freeze identity check (b3_identity_check) and stop
-# on a mismatch; this driver adds no way around it.
+# on a mismatch; this driver adds no way around it. launch starts the tmux pane on the runbook's
+# `session` block, which re-runs the check inside the pane's own process and only then execs claude,
+# so the checked environment is the session's even when an older tmux server hosts the pane.
 # Any other card, prompt or permission request: STOP (exit 4), the session is left alive.
 #
 # Environment: RUNBOOK (default docs/design/reachability-dev/RUN-PHASE54-live.md), MANIFEST

@@ -25,7 +25,8 @@ of the manifest.
    runner directory. That is the single substitution the manifest's runner-settings record allows
    for.
 2. **Every launch-bearing block calls `b3_identity_check`.** In a runbook, `preflight`, `launch`,
-   `pre` and `post` each call it, so new runs, retries and resumed runs are all re-checked.
+   `session`, `pre` and `post` each call it, so new runs, retries and resumed runs are all
+   re-checked.
    `b3_identity_check` runs:
 
    ```text
@@ -37,9 +38,15 @@ of the manifest.
    included. Any exit other than 0 prints the differences and then
    `IDENTITY MISMATCH (<label>) — STOPPING`. No flag or variable skips the check. It also stops
    when the runner copy was built from a commit other than the manifest candidate.
-3. **The file checked is the file loaded.** The `claude` launch line passes
-   `--settings "$RUNNER_SETTINGS"` and `--plugin-dir "$RUNNER_PLUGIN"`, the same variables the check
-   receives.
+3. **The file checked is the file loaded, in the environment checked.** `claude` starts only from
+   the runbook's `session` block. `launch` hands that block to `tmux new-session` as an argument
+   list (or prints it as the paste form). The block runs `b3_identity_check` inside the process
+   that becomes `claude`. It requires the same `manifest_id` and `candidate_sha` that `launch`
+   verified, and then runs `exec claude` with `--settings "$RUNNER_SETTINGS"` and
+   `--plugin-dir "$RUNNER_PLUGIN"`, the same variables its check received. A tmux pane inherits
+   the environment of whichever shell started the tmux server, not the launching block's. A check
+   run only in the block shell could therefore vouch for a different environment, and this rule
+   closes that gap.
 4. **Every run is stamped.** `b3_stamp_run <run_dir>` writes `fingerprint.txt`:
 
    ```text

@@ -6,7 +6,8 @@ candidate through B3 x3 and the sealed holdout x3.
 
 **Template note.** Phase 55's B3 runbook inherits this one. It keeps the same blocks and the same
 committed runner layer (`docs/design/b3-ground-truth/b3-runner-v2.12/`). **Every launch-bearing
-block (`preflight`, `launch`, `pre`, `post`) must keep its `b3_identity_check` call.**
+block (`preflight`, `launch`, `session`, `pre`, `post`) must keep its `b3_identity_check` call,
+and `claude` starts only from `session`, after its check.**
 `docs/design/freeze-v2.12/tools/test_b3_runner_layer.py` locks this: deleting the call from any one
 of those blocks fails the suite.
 
@@ -26,11 +27,12 @@ table. A lost catch is investigated before the freeze, never closed by rerunning
   (`~/.b3/phase54-runner/settings-measured.json`). Those settings disable the installed `vibe-check@thejuran` for that session alone and pin
   `DISABLE_AUTOUPDATER=1` / `DISABLE_UPDATES=1`. The owner's `~/.claude` is never written.
   `isolation_check` refuses to run if the owner's registry or settings reference the runner.
-- **Identity check before every run.** `preflight`, `launch`, `pre` and `post` each run
+- **Identity check before every run.** `preflight`, `launch`, `session`, `pre` and `post` each run
   `b3_identity_check`, which calls `freeze_check.py verify --runner b3` against the active manifest.
   For 54-11 that is the draft manifest named in `MANIFEST`. Any difference stops the block. There
   is no override. Retries and resumed runs pass through the same blocks, so they are re-checked
-  too.
+  too. `session` is the process that becomes `claude`: it runs the check in its own environment
+  and then `exec`s `claude`, so the environment checked is the environment the session gets.
 
 ---
 
@@ -105,7 +107,7 @@ b3_block "$B" <block> [args…]
 | 1 | `b3_block "$B" materialize <candidate sha>` | runner copy and runner settings from the candidate commit |
 | 2 | `b3_block "$B" identity` | IDENTITY OK line, checked against each clone dir; goes into NOTES `## Candidate` |
 | 3 | `b3_block "$B" park-memory` | N-02, all three disposable clones |
-| 4 | per case: `run_case.sh <case> <n>` | preflight, fresh, launch, /clear, pre, review, post, /exit, revert |
+| 4 | per case: `run_case.sh <case> <n>` | preflight, fresh, launch (starts session), /clear, pre, review, post, /exit, revert |
 | 5 | after the last case: `b3_block "$B" restore-memory` | |
 
 `run_case.sh` lives at `docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh`. Run by hand, the
@@ -313,11 +315,14 @@ echo 'BLOCK OK'
 
 ### launch `<case>`
 
-The session loads the runner copy (`--plugin-dir "$RUNNER_PLUGIN"`) with the runner settings
-(`--settings "$RUNNER_SETTINGS"`). These are the same two variables the identity check just
-verified, so the file checked is the file loaded. The model is NOTES `pin-model:`, which is the
-value the check compares with the manifest's launch model. The line is shell-quoted with
-`printf %q`, because zsh globs a bare `[1m]`.
+`launch` checks the identity, then starts the session. It never starts `claude` itself. The tmux
+pane (or the paste form) runs the `session` block. That block runs the identity check again inside
+the very process that then `exec`s `claude`, and stops unless it verified the same manifest and
+candidate as `launch`. A tmux pane takes its environment from whichever shell started the tmux
+server, not from this block's shell. The check that counts is therefore the one in the session
+process, and that check sees exactly the environment `claude` inherits. The pane's own command is
+the session block, passed to `tmux new-session` as an argument list, so no login shell or tmux
+config runs between the check and `claude`.
 
 ```bash
 # BLOCK: launch
@@ -326,6 +331,7 @@ sidecar
 isolation_check
 resolve_model
 b3_identity_check 'launch'
+test -n "${B3_RUNBOOK:-}" || { echo 'launch RUNS THROUGH b3_block ONLY (no runbook path) — STOPPING'; exit 1; }
 grep -qx "diff_id=$CASE" "$STATE_DIR/.b3-inprogress" 2> /dev/null \
   || { echo "CLONE NOT PREPARED — run fresh $CASE first — STOPPING"; exit 1; }
 mem_evidence launch
@@ -333,17 +339,49 @@ test ! -e "$MEM" || { echo "AUTO-MEMORY FOR $CLONE IS NOT PARKED — STOPPING"; 
 if command -v tmux > /dev/null && tmux has-session -t "=p54-$CASE" 2> /dev/null; then
   echo "TMUX SESSION p54-$CASE STILL EXISTS — /exit it and kill it — STOPPING"; exit 1
 fi
-LAUNCH_LINE=$(printf '%q ' claude --permission-mode manual --plugin-dir "$RUNNER_PLUGIN" --settings "$RUNNER_SETTINGS" --model "$MODEL" --allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent")
-echo "Paste form:  cd $CLONE && $LAUNCH_LINE"
+SESSION_SHELL='source "$1"; set +e; b3_block "$2" session "$3"; echo "b3 session ended (exit $?) — Enter closes this pane"; read -r _ || true'
+SESSION=(env "REPO=$REPO" "MANIFEST=$MANIFEST" "RUNNER=$RUNNER" "RUNNER_PLUGIN=$RUNNER_PLUGIN"
+  "RUNNER_SETTINGS=$RUNNER_SETTINGS" "ENV=$ENV" "FREEZE_TOOLS=$FREEZE_TOOLS"
+  "EXPECT_MANIFEST_ID=$(identity_field manifest_id)" "EXPECT_CANDIDATE_SHA=$(identity_field candidate_sha)"
+  bash -c "$SESSION_SHELL" b3-session "$REPO/$LAYER_REL/common.sh" "$B3_RUNBOOK" "$CASE")
+echo "Paste form (checks the identity in the session process, then starts claude):"
+echo "  $(printf '%q ' "${SESSION[@]}")"
 if test "${LAUNCH_VIA_TMUX:-0}" = 1; then
   command -v tmux > /dev/null || { echo 'tmux NOT INSTALLED — STOPPING'; exit 1; }
-  tmux new-session -d -s "p54-$CASE" -c "$CLONE"
-  tmux send-keys -t "p54-$CASE" "$LAUNCH_LINE" Enter
+  tmux new-session -d -s "p54-$CASE" -c "$CLONE" "${SESSION[@]}"
   echo "launched in tmux session p54-$CASE (read it with: tmux capture-pane -p -t p54-$CASE)"
 fi
 echo "Next: /clear in the session, then printf 'CLEARED\\n' | b3_block \"\$B\" pre $CASE <n>"
 echo 'BLOCK OK'
 # END: launch
+```
+
+### session `<case>` (started by `launch`, never by hand)
+
+This block runs inside the tmux pane, or in the terminal the paste form was pasted into. It loads
+the runner copy (`--plugin-dir "$RUNNER_PLUGIN"`) with the runner settings
+(`--settings "$RUNNER_SETTINGS"`). These are the same two variables its own identity check just
+verified, in the same process, so the file checked is the file loaded. The model is NOTES
+`pin-model:`, the value the check compares with the manifest's launch model. A refusal leaves the
+pane open with the differences on screen; `run_case.sh` then stops on "session did not reach the
+input prompt".
+
+```bash
+# BLOCK: session
+set -euo pipefail
+sidecar
+isolation_check
+resolve_model
+b3_identity_check 'session'
+test "$(identity_field manifest_id)" = "${EXPECT_MANIFEST_ID:-}" \
+  && test "$(identity_field candidate_sha)" = "${EXPECT_CANDIDATE_SHA:-}" \
+  || { echo 'THE SESSION PROCESS VERIFIED ANOTHER MANIFEST OR CANDIDATE THAN launch — STOPPING'; exit 1; }
+grep -qx "diff_id=$CASE" "$STATE_DIR/.b3-inprogress" 2> /dev/null \
+  || { echo "CLONE NOT PREPARED — run fresh $CASE first — STOPPING"; exit 1; }
+test ! -e "$MEM" || { echo "AUTO-MEMORY FOR $CLONE IS NOT PARKED — STOPPING"; exit 1; }
+cd "$CLONE"
+exec claude --permission-mode manual --plugin-dir "$RUNNER_PLUGIN" --settings "$RUNNER_SETTINGS" --model "$MODEL" --allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"
+# END: session
 ```
 
 ### pre `<case> <n>`
