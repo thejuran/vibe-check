@@ -608,6 +608,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 
 | stage/case/run | nv_dropped_weak |
 |---|---|
+| targeted/reach-new-1/run-1 | 1 |
 
 ## Cache
 
@@ -658,3 +659,35 @@ Observation (harness, unresolved): the measured session's status line showed a 2
 
 Runs paused at this point: `~/seedsyncarr` is in live use by an owner session and `~/triggarr`
 holds uncommitted owner work on branch `search-correctness`; only `~/roonseek` is idle.
+
+### targeted/reach-new-1/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 5
+needs-verification items: 1
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | triggarr/web/routes.py | 1580 | warning | 94 | dcd1153127eb |
+| security | triggarr/web/routes.py | 1689 | critical | 100 | 64d6c7dbf247 |
+| compliance | triggarr/web/routes.py | 1573 | critical | 100 | 3f7d999d3032 |
+| language-python | triggarr/web/routes.py | 1577 | warning | 91 | d8d189dacccf |
+| codex-adversarial | triggarr/web/routes.py | 1617 | warning | 94 | 35778acbe810 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| language-python | triggarr/web/routes.py | 1573 | needs-verification | 0 | 0e36cfd6f116 |
+
+keyed defect: triggarr/web/routes.py:1689-1692 (reset_request_post) logs the newly minted password-reset token at WARNING into the unchanged logging path: the buffer sink (triggarr/logging.py:72-84) copies it into log_buffer unredacted because the token is not in the collect_secrets redaction list, and the unchanged in-app log viewer (routes.py:1079-1094) and dashboard render that buffer, so anyone who can read the log viewer can read a live reset token and complete a password reset.
+label: development rehearsal - not release evidence
+| agent | file | line | band | score | stable_hash | nv | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|---|
+| security | triggarr/web/routes.py | 1689 | critical | 100 | 64d6c7dbf247 | no | Password reset token logged in cleartext and surfaced in the authenticated web UI log viewer | security: Password reset token logged in cleartext and surfaced in the authenticated web UI log viewer; codex-adversarial: Reset tokens enter the web-visible log buffer; compliance: Reset token value deliberately written to logs |  |
+candidates at site: 1 (alarms 1, needs-verification 0)
+
+AXIS: credit — row 64d6c7dbf247 (alarm, critical 100) — names routes.py:1689 (the new reset-token log call) and the causal failure: the token is logged in cleartext into the log buffer and surfaced in the authenticated web UI log viewer (members codex-adversarial "Reset tokens enter the web-visible log buffer", compliance). Location AND causal failure match the keyed defect.
+
+Setup checks (first run after entry 2): effective context window confirmed from Claude Code's own status-line payload for this session — `model.id claude-fable-5-1[1m]`, `context_window.context_window_size 1000000` — the pinned 1M window (the status line's "200k" label is its fallback, see entry 2); effort shown `medium`, the same as every Phase-49 measured session (their transcripts record `"effort":"medium"`), so no confirmed difference from the pinned setup. Before `/clear`, Claude Code showed its one-time folder-trust prompt for the new clone path; it was accepted ("Yes, I trust this folder") as a setup step — expected once per disposable clone. Session: 15m29s to the fix-loop card; `Stop here…` -> `Abandon` by label. Owner questions: the fix-loop card and the stop card (2, measurement keystrokes). Not scored but recorded: other alarms are off the keyed defect (mkstemp fd leak x2, reset flow unfinished, routes.py:1617).
+
