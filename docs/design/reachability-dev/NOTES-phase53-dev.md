@@ -616,6 +616,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/should-quiet-6/run-1 | 2 |
 | targeted/should-quiet-7/run-1 | 2 |
 | targeted/triggarr-secret-in-logs/run-1 | 3 |
+| targeted/triggarr-session-rotation/run-1 | 0 |
 
 ## Cache
 
@@ -844,4 +845,29 @@ candidates at site with band >= floor: 2
 AXIS: credit — row a535863e0066 (alarm, warning 94) at clients/base.py:235 (keyed hunk 230-238, bug line 235) — members name the keyed mechanism, not log formatting: security "reintroduces API-key leak risk via raw httpx exception logging", bugs "Logging the raw HTTPStatusError can leak URL credentials into logs", impact "raw HTTPStatusError text (full request URL) now logged". Row 96232a0aaee9 (alarm, critical 100) at base.py:252 (second keyed hunk) also names the pydantic payload echo into logs. Location AND causal failure match.
 
 Result vs entry 1: pre-registered "catch kept" -> catch kept (Phase 49: 3/3). Additionally 1 NV at base.py:254 (compliance). Run: 11m18s; fix-loop card after 661s; `Stop here…` -> `Abandon` by label.
+
+
+### targeted/triggarr-session-rotation/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| architecture | triggarr/web/routes.py | 1567 | critical | 100 | 074ca54aca0e |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| architecture | triggarr/web/routes.py | 1567 | critical | 100 | 074ca54aca0e | change_password no longer follows the session-rotation pattern that reset_confirm_post copies | architecture: change_password no longer follows the session-rotation pattern that reset_confirm_post copies; codex-adversarial: Stolen session cookies retain access after password changes; bugs: Password change no longer rotates session_secret, so a hijacked session cookie stays valid after the password is changed; impact: Changing the password no longer logs out other sessions: a stolen session cookie stays valid for up to 30 days; security: Password-change endpoint no longer rotates session_secret, so stolen/compromised sessions survive a password change; architecture: Diff contradicts the tests that encode the rotation behavior |  |
+candidates at site with band >= floor: 1
+
+AXIS: credit — row 074ca54aca0e (alarm, critical 100), listed at the keyed site by `catch-candidates` (routes.py:1567 at the case's coordinates) — members name the keyed consequence: security "no longer rotates session_secret, so stolen/compromised sessions survive a password change", impact "a stolen session cookie stays valid for up to 30 days", codex-adversarial "Stolen session cookies retain access after password changes". Location AND causal failure (session eviction lost) match; the survivor title alone is architectural, the members carry the mechanism.
+
+Result vs entry 1: pre-registered "catch kept" -> catch kept (Phase 49: 3/3). Run: 11m18s; fix-loop card after 661s; `Stop here…` -> `Abandon` by label.
 
