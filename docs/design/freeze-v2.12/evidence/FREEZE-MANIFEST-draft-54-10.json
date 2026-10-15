@@ -1,11 +1,11 @@
 {
-  "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
-  "candidate_tree": "17554e695d7231c6a815c6e1cfa1fa5fb9cc92d7",
+  "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+  "candidate_tree": "2cc1d60e59125c837f0181a82aaefe9cb6b9be6b",
   "codex": {
     "cli_version": "0.153.4",
     "companion": {
       "gitCommitSha": "807e03ac9d5aa23bc395fdec8c3767500a86b3cf",
-      "tree_sha256": "91961610b8da239b9ac72d8a52bda96edbac39ad4a310059ebf9fedbb1143714",
+      "tree_sha256": "4b179b36b8e0a713a73d0fd1ba509fc396cfc6928cd48ffb3302fb35825071b8",
       "version": "1.0.4"
     },
     "config": {
@@ -385,24 +385,24 @@
       "files": {
         "README.md": {
           "mode": "100644",
-          "sha256": "748c9d7fd7d6976bced3f0348d28a57a3c46d9e9825cafc89cf2af98f34403d9"
+          "sha256": "846586252509816fbc17611502fe5dd2be70cb3abb31e202c60dc5e6a0969a20"
         }
       },
-      "tree_sha256": "bcf04c6edca1c0e4471c32cb5892dafcef61832b72e27f5368b50c2401153a34"
+      "tree_sha256": "a6429a32e14f44b587ad855b708f78fe7ccef6ee58a55fee764ef1b3822f3ac8"
     },
     "docs/design/freeze-v2.12/tools": {
       "files": {
         "freeze_check.py": {
           "mode": "100644",
-          "sha256": "931ec0a404072d60a012cd6f63becea4f57a2f2da7e1d11e28d038a15cdcd0af"
+          "sha256": "52ee7766ca81469c03edfd358b0c3161e40873b5c94c0043d0f5c0892464197c"
         },
         "freeze_common.py": {
           "mode": "100644",
-          "sha256": "6f63bae4246614518393db2dc20d7cf0ad318f411466f98f1a36dd65899aee73"
+          "sha256": "7a6ef649de50e306439cb720f36ce3e3b4039683bbe4c6ac13814cdc6e992568"
         },
         "freeze_manifest.py": {
           "mode": "100644",
-          "sha256": "d896f4b8ef010f046d7f8fa49537cffa597283c0f9044322aeacc40eb9c33d1f"
+          "sha256": "93d13c97b56a6456f5f22d3c9321595a7e4f452708fe535044a7283c947adbeb"
         },
         "freeze_policy.py": {
           "mode": "100644",
@@ -422,11 +422,11 @@
         },
         "test_freeze_check.py": {
           "mode": "100644",
-          "sha256": "92191b2f448799f8fe4b23ecf6e29c5308af739b48efe820a1e0e69f3e20e420"
+          "sha256": "1e4bbeef66b7555d0c249569e1d0da702dc3b32cdb3171689bb6ccb25cf9e7ae"
         },
         "test_freeze_common.py": {
           "mode": "100644",
-          "sha256": "7ad8dd4dcb7662781e4cd2dc79c3f76d1bed50dcb348e50741a986c47f77c51f"
+          "sha256": "478d0839c1ef1cb6fa509de9ac2b8eead408431554b5cbf4a475eb4dc994948c"
         },
         "test_freeze_manifest.py": {
           "mode": "100644",
@@ -445,7 +445,7 @@
           "sha256": "85ce348845d1b62e5f43be8b790eaca2e638a2379989591974ec4a26a115cea7"
         }
       },
-      "tree_sha256": "1b275754f9c0f076bd5ba9edd0f30a486a3cf3b5dbddc0b22daded122fbfe72a"
+      "tree_sha256": "e051c2b5133d37545f51e30ab367224f610f47b65ae647d7dd0066a8d3befb5e"
     },
     "docs/design/holdout-v2.12/tools": {
       "files": {
@@ -626,7 +626,7 @@
       "tree_sha256": "8bcd2879bdeaaa15b59462fa31044da014a01d2a579a9332307b2b3e410011cb"
     }
   },
-  "generated_at": "2026-10-15T21:49:19Z",
+  "generated_at": "2026-10-15T22:33:33Z",
   "limitations": [
     "local hashes cannot prove the remote gateway/model service stayed unchanged",
     "--config auto semgrep rules are fetched live",
@@ -637,7 +637,7 @@
     "previous_candidate_sha": null,
     "previous_manifest_id": null
   },
-  "manifest_id": "b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7c595755c",
+  "manifest_id": "98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99",
   "models": {
     "agent_pins": {
       "architecture": "opus",
@@ -1323,7 +1323,7 @@
       "gateway": {
         "base_url": "http://127.0.0.1:18764",
         "plugin_version": "0.51.2",
-        "tree_sha256": "3d6a71ee0ae4f0abaebf8d37fddb50947e0b8a0bcb2db332a18f6f6498c6004a",
+        "tree_sha256": "7b09b555309b600efc1b67116bde04822af0e50b0ceb6e14d89fee07d5610b35",
         "version_id": null
       },
       "launch_model": {
@@ -1350,17 +1350,17 @@
         "enabled_plugins": {
           "bm@gsd-plugin": {
             "gitCommitSha": "5ff2cb0d147415e68b5dcb7987718ffdac2b40fd",
-            "tree_sha256": "f9abfa90035275b69a9cf53d4e33d4cf40db13a6d412622b4cd9371da43ac6fe",
+            "tree_sha256": "1e7fdaa996d23e0d41b625140bf5caee937e8af6a35e4765edcf46af6888bc37",
             "version": "4.9.1"
           },
           "codex@openai-codex": {
             "gitCommitSha": "807e03ac9d5aa23bc395fdec8c3767500a86b3cf",
-            "tree_sha256": "91961610b8da239b9ac72d8a52bda96edbac39ad4a310059ebf9fedbb1143714",
+            "tree_sha256": "4b179b36b8e0a713a73d0fd1ba509fc396cfc6928cd48ffb3302fb35825071b8",
             "version": "1.0.4"
           },
           "frontend-design@claude-plugins-official": {
             "gitCommitSha": "7746d1d6662b27098d9443651599d5d4fe3efa98",
-            "tree_sha256": "7468a4511bc62a1a97faa2d0dc92254139845b86e1c95f29e455b97237f0becf",
+            "tree_sha256": "e01bc38a750c85dc5270fd3199078d9e0faa2e78b87eea7d9fec6d249fb3cea1",
             "version": "85cce0381e78"
           },
           "julian-orchestrator@julian-orchestrator": {
@@ -1370,12 +1370,12 @@
           },
           "model-gateway@eigenwise-toolshed": {
             "gitCommitSha": "58a657421fe530dcae3f5cfab4cb95bfd09dbca6",
-            "tree_sha256": "3d6a71ee0ae4f0abaebf8d37fddb50947e0b8a0bcb2db332a18f6f6498c6004a",
+            "tree_sha256": "7b09b555309b600efc1b67116bde04822af0e50b0ceb6e14d89fee07d5610b35",
             "version": "0.51.2"
           },
           "phi-compli@thejuran": {
             "gitCommitSha": "0c115b589b1bba984b98bf4d9c7dc3899affcad9",
-            "tree_sha256": "2c24c28a2bfd5eae197d2dbd9321a7834cf51cb1224f474e971afeca70e919ee",
+            "tree_sha256": "ef7737722059644e13b2f7d4fab163958625cbe77d654faebb217ed8c8158dbc",
             "version": "1.2.1"
           },
           "shield@shield-security": {
@@ -1385,12 +1385,12 @@
           },
           "superpowers@claude-plugins-official": {
             "gitCommitSha": "917e5f53b16b115b70a3a355ed5f4993b9f8b73d",
-            "tree_sha256": "98e670ca00686a42a22c75538cc43c9d3eebc330823e4bcd6c35eb4643fb08bd",
+            "tree_sha256": "ddb1ed8d5aeb9da4d57022bde3617bc5feeddafa68630c8530b26fcbd16bdbbe",
             "version": "6.3.0"
           },
           "vibe-check@thejuran": {
             "gitCommitSha": "44c7cbfc85579ea64100ab658176e097a288a0f4",
-            "tree_sha256": "a738ec8e20121122f9b86a72db38da4b280a04c2caf2300bdd0635c4d43058a6",
+            "tree_sha256": "6f728439a6f7faf1d29763fb5a5ca99e49dcbd4d7f26e90ac96d3564c82004d5",
             "version": "2.11.1"
           }
         },
@@ -1514,17 +1514,17 @@
         "enabled_plugins": {
           "bm@gsd-plugin": {
             "gitCommitSha": "5ff2cb0d147415e68b5dcb7987718ffdac2b40fd",
-            "tree_sha256": "f9abfa90035275b69a9cf53d4e33d4cf40db13a6d412622b4cd9371da43ac6fe",
+            "tree_sha256": "1e7fdaa996d23e0d41b625140bf5caee937e8af6a35e4765edcf46af6888bc37",
             "version": "4.9.1"
           },
           "codex@openai-codex": {
             "gitCommitSha": "807e03ac9d5aa23bc395fdec8c3767500a86b3cf",
-            "tree_sha256": "91961610b8da239b9ac72d8a52bda96edbac39ad4a310059ebf9fedbb1143714",
+            "tree_sha256": "4b179b36b8e0a713a73d0fd1ba509fc396cfc6928cd48ffb3302fb35825071b8",
             "version": "1.0.4"
           },
           "frontend-design@claude-plugins-official": {
             "gitCommitSha": "7746d1d6662b27098d9443651599d5d4fe3efa98",
-            "tree_sha256": "7468a4511bc62a1a97faa2d0dc92254139845b86e1c95f29e455b97237f0becf",
+            "tree_sha256": "e01bc38a750c85dc5270fd3199078d9e0faa2e78b87eea7d9fec6d249fb3cea1",
             "version": "85cce0381e78"
           },
           "julian-orchestrator@julian-orchestrator": {
@@ -1534,12 +1534,12 @@
           },
           "model-gateway@eigenwise-toolshed": {
             "gitCommitSha": "58a657421fe530dcae3f5cfab4cb95bfd09dbca6",
-            "tree_sha256": "3d6a71ee0ae4f0abaebf8d37fddb50947e0b8a0bcb2db332a18f6f6498c6004a",
+            "tree_sha256": "7b09b555309b600efc1b67116bde04822af0e50b0ceb6e14d89fee07d5610b35",
             "version": "0.51.2"
           },
           "phi-compli@thejuran": {
             "gitCommitSha": "0c115b589b1bba984b98bf4d9c7dc3899affcad9",
-            "tree_sha256": "2c24c28a2bfd5eae197d2dbd9321a7834cf51cb1224f474e971afeca70e919ee",
+            "tree_sha256": "ef7737722059644e13b2f7d4fab163958625cbe77d654faebb217ed8c8158dbc",
             "version": "1.2.1"
           },
           "shield@shield-security": {
@@ -1549,12 +1549,12 @@
           },
           "superpowers@claude-plugins-official": {
             "gitCommitSha": "917e5f53b16b115b70a3a355ed5f4993b9f8b73d",
-            "tree_sha256": "98e670ca00686a42a22c75538cc43c9d3eebc330823e4bcd6c35eb4643fb08bd",
+            "tree_sha256": "ddb1ed8d5aeb9da4d57022bde3617bc5feeddafa68630c8530b26fcbd16bdbbe",
             "version": "6.3.0"
           },
           "vibe-check@thejuran": {
             "gitCommitSha": "44c7cbfc85579ea64100ab658176e097a288a0f4",
-            "tree_sha256": "a738ec8e20121122f9b86a72db38da4b280a04c2caf2300bdd0635c4d43058a6",
+            "tree_sha256": "6f728439a6f7faf1d29763fb5a5ca99e49dcbd4d7f26e90ac96d3564c82004d5",
             "version": "2.11.1"
           }
         },
