@@ -75,7 +75,10 @@ ARCHIVE_ROOTS = ("docs/design/b3-ground-truth/runs",
 # evidence (`diff`): it never feeds the census, the manifest or the guardrail.
 DIFF_ROOTS = ARCHIVE_ROOTS + ("docs/design/b3-ground-truth/runs-v2.10-phase41",
                               "docs/design/b3-ground-truth/runs-v2.10-phase43",
-                              "docs/design/b3-ground-truth/runs-v2.11-phase49")
+                              "docs/design/b3-ground-truth/runs-v2.11-phase49",
+                              # D-19: signed-off development rehearsal outcomes are compared
+                              # byte-for-byte; diff-only, never the census.
+                              "docs/design/reachability-dev/runs-phase53-dev/final")
 MANIFEST_REL = "docs/design/b3-ground-truth/REPLAY-CATCH-MANIFEST-v2.10.json"
 LEDGER_REL = "docs/design/b3-ground-truth/SUPERSESSIONS-v2.10.md"
 SCORE_REL = "plugins/vibe-check/scripts/score.py"
