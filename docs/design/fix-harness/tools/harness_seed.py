@@ -13,9 +13,13 @@ found exactly the key's defect:
   2. `seed_state(copy, key, mode)` resolves `changed_line_ranges` from the
      copy's last commit, runs the plugin's `score.py` on that envelope, refuses
      unless the finding survives at band warning or above, wraps the scorer's
-     output as pass 1 at the copy's HEAD, writes it atomically to the path the
-     plugin's `statepath.resolve` names for the mode, and runs the plugin's
-     `state_shape.py --schema future` on the written file.
+     output as pass 1 at the copy's HEAD, writes it atomically to the
+     current-format path the plugin's `statepath.resolve_current` names for
+     the mode (`.turingmind/state/format-53/...`), and runs the plugin's
+     `state_shape.py --schema future` on the written file. A state already
+     present at the legacy location (`statepath.resolve`) is refused: the
+     plugin would migrate it forward, and the harness alone controls the
+     pass-1 state a run starts from.
 
 The scored fields (`orchestrator_score`, `band`, `stable_hash`, `snapshot`, ...)
 are therefore the scorer's, never the harness's, and the pass entry is the one
@@ -50,6 +54,9 @@ import statepath  # noqa: E402  (plugin: the one state-filename rule)
 SCORE_PY = PLUGIN_SCRIPTS_DIR / "score.py"
 STATE_SHAPE_PY = PLUGIN_SCRIPTS_DIR / "state_shape.py"
 SUBPROCESS_TIMEOUT = 60
+# A stale old-format state must never be migrated forward into a harness run.
+LEGACY_STATE_PROBLEM = ("legacy-location state present at %s — the harness "
+                        "never seeds over an old-format file")
 
 MODES = harness_fixture.MODES
 # The finding fields an agent would report; the only key fields copied.
@@ -197,16 +204,30 @@ def _changed_ranges(root, base, head, rel):
 
 
 def _resolve_path(copy, mode):
+    """The current-format (format-53) state path the run seeds and observes."""
     if mode == "gsd":
-        rel, reason = statepath.resolve("gsd", phase_id=copy.phase_id)
+        rel, reason = statepath.resolve_current("gsd", phase_id=copy.phase_id)
     else:
         branch = _git(copy.root, "branch", "--show-current").strip()
-        rel, reason = statepath.resolve(
+        rel, reason = statepath.resolve_current(
             "default", repo=os.path.basename(os.path.realpath(copy.root)),
             branch=branch)
     if rel is None:
         raise SeedError("state path could not be resolved: %s" % reason)
     return os.path.join(copy.root, rel)
+
+
+def legacy_path_for(copy, mode):
+    """The legacy-location state path for the mode (the plugin's migration
+    source). Returns the copy-relative path, or None when unresolvable."""
+    if mode == "gsd":
+        rel, _ = statepath.resolve("gsd", phase_id=copy.phase_id)
+    else:
+        branch = _git(copy.root, "branch", "--show-current").strip()
+        rel, _ = statepath.resolve(
+            "default", repo=os.path.basename(os.path.realpath(copy.root)),
+            branch=branch)
+    return rel
 
 
 def _write_new(path, data):
@@ -236,6 +257,9 @@ def seed_state(copy, key, mode):
     path = _resolve_path(copy, mode)
     if os.path.lexists(path):
         raise SeedError("a review state already exists at the seed path")
+    legacy = legacy_path_for(copy, mode)
+    if legacy and os.path.lexists(os.path.join(copy.root, legacy)):
+        raise SeedError(LEGACY_STATE_PROBLEM % legacy)
 
     rel = key.get("file") if isinstance(key, dict) else None
     if not isinstance(rel, str) or not re.match(r"^[A-Za-z0-9._/-]+$", rel) \
