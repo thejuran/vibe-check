@@ -1774,6 +1774,15 @@ def run(envelope):
     # reported in filtered[] and counted in `nv_dropped`. Admitted records
     # become rows after the threshold loop. With no such record `working` is
     # unchanged, so every archived envelope scores byte-identically.
+    # The key is OPTIONAL (agent-output-schema.md): a fresh record whose dict
+    # carries no non-empty trigger/path/consequence ({} or blank fields) is
+    # not a Needs-verification claim — the key is stripped and the record is
+    # scored normally, so a lane filling every schema key never loses a
+    # proven finding to the drop path.
+    def _nv_marked(m):
+        nv = m.get("needs_verification")
+        return isinstance(nv, dict) and any(_nv_field(nv.get(k)) for k in _NV_KEYS)
+
     nv_admitted = []
     nv_dropped = 0
     nv_dropped_weak = 0
@@ -1781,6 +1790,9 @@ def run(envelope):
         rest = []
         for m in working:
             if not isinstance(m.get("needs_verification"), dict):
+                rest.append(m)
+            elif id(m) not in nv_carried_ids and not _nv_marked(m):
+                m.pop("needs_verification", None)
                 rest.append(m)
             elif id(m) in nv_carried_ids or nv_admit(m):
                 nv_admitted.append(m)
