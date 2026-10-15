@@ -139,7 +139,42 @@ class _SeedTests:
         self.assertEqual(os.path.realpath(path),
                          os.path.realpath(os.path.join(self.copy.root,
                                                        self.EXPECTED_REL)))
+        self.assertIn("/.turingmind/state/format-53/", str(path))
         self.assertTrue(os.path.isfile(path))
+
+    def test_state_path_is_the_current_format_rule(self):
+        current = os.path.join(self.copy.root, self._current_rel())
+        self.assertEqual(hs._resolve_path(self.copy, self.MODE), current)
+
+    def test_mutant_legacy_rule_flips_the_path_lock(self):
+        # Seeding through the old flat rule must not pass the path check.
+        with mock.patch.object(hs.statepath, "resolve_current",
+                               hs.statepath.resolve):
+            path = hs._resolve_path(self.copy, self.MODE)
+        self.assertNotIn("/format-53/", path)
+        self.assertNotEqual(os.path.realpath(path),
+                            os.path.realpath(os.path.join(
+                                self.copy.root, self.EXPECTED_REL)))
+
+    def test_legacy_location_state_is_refused(self):
+        legacy = Path(self.copy.root, self.LEGACY_REL)
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text('{"passes": []}\n', encoding="utf-8")
+        with self.assertRaises(hs.SeedError) as cm:
+            hs.seed_state(self.copy, _key(), self.MODE)
+        self.assertIn(self.LEGACY_REL, str(cm.exception))
+        self.assertFalse(Path(self.copy.root, self.EXPECTED_REL).exists())
+
+    def _current_rel(self):
+        if self.MODE == "gsd":
+            rel, _ = hs.statepath.resolve_current(
+                "gsd", phase_id=self.copy.phase_id)
+        else:
+            rel, _ = hs.statepath.resolve_current(
+                "default",
+                repo=os.path.basename(os.path.realpath(self.copy.root)),
+                branch="main")
+        return rel
 
     def test_state_is_plugin_shaped_pass_one(self):
         path, _, _ = self._seed()
@@ -184,7 +219,8 @@ class _SeedTests:
         after = _listing(self.copy.root)
         rel = os.path.relpath(path, self.copy.root)
         added = sorted(set(after) - set(before))
-        expected = sorted({".turingmind", ".turingmind/state", rel}
+        expected = sorted({".turingmind", ".turingmind/state",
+                           ".turingmind/state/format-53", rel}
                           - set(before))
         self.assertEqual(added, expected)
         self.assertEqual(sorted(set(before) - set(after)), [])
@@ -217,12 +253,14 @@ class _SeedTests:
 
 class TestSeedDefault(_SeedTests, _CopyCase):
     MODE = "default"
-    EXPECTED_REL = ".turingmind/state/repo-main.json"
+    EXPECTED_REL = ".turingmind/state/format-53/repo-main.json"
+    LEGACY_REL = ".turingmind/state/repo-main.json"
 
 
 class TestSeedGsd(_SeedTests, _CopyCase):
     MODE = "gsd"
-    EXPECTED_REL = ".turingmind/state/52-harness-case.json"
+    EXPECTED_REL = ".turingmind/state/format-53/52-harness-case.json"
+    LEGACY_REL = ".turingmind/state/52-harness-case.json"
 
 
 class TestSeedRefusals(_CopyCase):
@@ -247,8 +285,8 @@ class TestSeedRefusals(_CopyCase):
             head_sha=_git(self.copy.root, "rev-parse", "HEAD").strip())
         with self.assertRaises(hs.SeedError):
             hs.seed_state(info, k, "default")
-        self.assertFalse(Path(self.copy.root, ".turingmind",
-                              "state", "repo-main.json").exists())
+        self.assertFalse(Path(self.copy.root, ".turingmind", "state",
+                              "format-53", "repo-main.json").exists())
 
 
 class TestSeedGates(_CopyCase):
@@ -264,7 +302,8 @@ class TestSeedGates(_CopyCase):
         return mock.patch.object(hs, "_plugin", side_effect=fake)
 
     def _state(self):
-        return Path(self.copy.root, ".turingmind", "state", "repo-main.json")
+        return Path(self.copy.root, ".turingmind", "state", "format-53",
+                    "repo-main.json")
 
     def test_survivor_below_warning_is_refused(self):
         def demote(name, proc):
