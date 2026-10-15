@@ -664,6 +664,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/reach-new-2/run-1 | 0 |
 | final/reach-unchanged-1/run-1 | 0 |
 | final/reach-unchanged-2/run-1 | 0 |
+| final/triggarr-secret-in-logs/run-1 | 3 |
 
 ## Cache
 
@@ -1090,4 +1091,31 @@ needs-verification rows:
 |---|---|---|---|---|---|
 
 vs entry 1: "quiet" -> quiet (0 alarms, 0 NV) — PASS. Clean review (6m47s, no fix-loop card, no keystroke after `/vibe-check:deep-review`). The driver stopped at the clean finish (its clean-finish detector missed this wording); `post`, `/exit` and `revert` were then run by hand on the same run — no keystroke was sent to the review.
+
+
+### final/triggarr-secret-in-logs/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | triggarr/clients/base.py | 233 | critical | 100 | 62cb389298ca |
+| architecture | triggarr/clients/base.py | 252 | warning | 91 | 021700bd8847 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| codex-adversarial | triggarr/clients/base.py | 233 | critical | 100 | 62cb389298ca | HTTP error logging exposes proxy credentials | codex-adversarial: HTTP error logging exposes proxy credentials; impact: Credential exposure in logs and the web UI log viewer: raw HTTPStatusError text puts the full request URL, including userinfo passwords and ?token= values, into the log output; security: Revert of named security fix reintroduces raw exception logging (CWE-532); architecture: validate_connection now logs the raw HTTPStatusError, bypassing the codebase's established exception-sanitization pattern; bugs: Reverts key-leak fix: raw HTTPStatusError string (full request URL) logged, bypassing _sanitize_exc data-exposure control; compliance: Raw exception logged instead of extracted field, diverging from sibling handler's convention |  |
+| architecture | triggarr/clients/base.py | 252 | warning | 91 | 021700bd8847 | validate_connection now logs the full pydantic ValidationError instead of the established error-count summary | architecture: validate_connection now logs the full pydantic ValidationError instead of the established error-count summary; bugs: Reverts sanitization: raw pydantic ValidationError (including response input values) logged; impact: Data exposure: raw pydantic ValidationError text writes the *arr status response payload (input_value) to logs and the web UI; compliance: Raw pydantic.ValidationError logged instead of extracted count, diverging from prior local convention |  |
+candidates at site with band >= floor: 2
+
+AXIS: credit — row 62cb389298ca (alarm, critical 100) at clients/base.py:233 (keyed bug line) — "HTTP error logging exposes proxy credentials"; members bugs "Reverts key-leak fix: raw HTTPStatusError string (full request URL) logged", impact "raw HTTPStatusError text puts the full request URL ... into logs and the web UI log viewer". Row 021700bd8847 (warning) at base.py:252 names the payload echo (bugs/impact members). Location AND causal failure (secret in the exception URL leaked into logs) match.
+
+vs entry 1: "catch kept" -> catch kept. Run 9m17s; fix-loop card after 541s; `Stop here…` -> `Abandon` by label.
 
