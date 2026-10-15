@@ -1,0 +1,58 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "10276919fc2f1123cf0d8da7c0d43488087f1bc7",
+      "timestamp": "2026-10-15T03:55:40Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "cancel_download treats HTTP 404 (transfer already gone) as a generic 'unavailable' failure instead of an idempotent success",
+          "reason": "absorbed-into: 63f345e4cd2df8981d73a989be7c09f889c7294745e7a9844da628d2294f1eb4"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "An empty success_statuses set silently falls back to the defaults",
+          "reason": "absorbed-into: 3eaf897ea9664bbcddcadaec477256fcf28ba5f5f7f39a5712a5471d41f8402c"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 212,
+          "title": "Cancelling an already-finished or already-removed transfer raises an 'unavailable' error",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 259,
+          "title": "success_statuses uses truthy fallback instead of None check",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/roonseek/transfer.py",
+          "line": 137,
+          "title": "SlskdTransferClient docstring still says it exposes only POST and GET after DELETE was added",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
