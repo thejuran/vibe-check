@@ -1,0 +1,40 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "b853a18ddfb157d3c1d8541bd700a3f24a47cd7a",
+      "timestamp": "2026-10-15T23:52:31Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/python/web/handler/controller.py",
+          "line": 82,
+          "title": "Single-action guard policy is a per-call boolean instead of the class's _GUARDED_ACTIONS set",
+          "reason": "intent-doc-match"
+        },
+        {
+          "file": "src/python/web/handler/controller.py",
+          "line": 82,
+          "title": "Path-traversal guard in _dispatch_command is opt-in (guard=False default) and duplicates _GUARDED_ACTIONS",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
