@@ -276,7 +276,9 @@ class TestImportSet(unittest.TestCase):
 
     def test_freeze_policy_imports(self):
         got = _imports(os.path.join(HERE, "freeze_policy.py"))
-        self.assertTrue(got <= {"fnmatch", "json", "os", "re", "freeze_common"}, got)
+        # argparse + sys serve the classify / seal-order-proof CLI.
+        self.assertTrue(got <= {"argparse", "fnmatch", "json", "os", "re", "sys",
+                                "freeze_common"}, got)
 
 
 if __name__ == "__main__":
