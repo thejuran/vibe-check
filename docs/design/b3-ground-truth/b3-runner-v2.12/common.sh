@@ -55,6 +55,8 @@ b3_block() {
   case "$book" in /*) ;; *) book=$REPO/$book ;; esac
   test -f "$book" || { echo "b3_block: runbook $book not found — STOPPING"; return 2; }
   printf '%s' "$name" | grep -qE '^[a-z0-9-]+$' || { echo "b3_block: bad block name '$name' — STOPPING"; return 2; }
+  git -C "$REPO" ls-files --error-unmatch -- "$book" > /dev/null 2>&1 \
+    || { echo "b3_block: $book IS NOT COMMITTED — blocks run from committed text only — STOPPING"; return 2; }
   git -C "$REPO" diff --quiet HEAD -- "$book" \
     || { echo "b3_block: $book HAS UNCOMMITTED CHANGES — blocks run from committed text only — STOPPING"; return 2; }
   script=$(awk '$0=="# BLOCK: common"{f=1} f{print} $0=="# END: common"{exit}' "$book"
