@@ -661,6 +661,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/triggarr-session-rotation/run-1 | 0 |
 | targeted/triggarr-autoescape/run-1 | 1 |
 | final/reach-new-1/run-1 | 1 |
+| final/reach-new-2/run-1 | 0 |
 
 ## Cache
 
@@ -1024,4 +1025,31 @@ candidates at site: 1 (alarms 1, needs-verification 0)
 AXIS: credit — row 453bc76570c9 (alarm, critical 100) at routes.py:1689 — names the reset token logged in cleartext past the app's redaction sink; members codex-adversarial "Reset tokens leak through the web log viewer", impact "lands unredacted in the in-app log buffer shown in the web UI". Location AND causal failure match.
 
 vs entry 1: "catch" -> catch kept. Other alarms are off the keyed defect (mkstemp fd/permission rows at 1573-1581). Run 18m20s; fix-loop card after 1082s; `Stop here…` -> `Abandon` by label.
+
+
+### final/reach-new-2/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| impact | src/angular/src/app/pages/main/notification-bell.component.html | 28 | critical | 100 | 3f078fc6d4f6 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+keyed defect: src/angular/src/app/pages/main/notification-bell.component.html:28 now binds unchanged server- and remote-influenced notification text with [innerHTML] instead of {{ notif.text }} interpolation, so markup in those strings is parsed as HTML in every open UI (HTML injection): Angular's sanitizer keeps links, images and formatting, so injected markup can render attacker-controlled links or images in a trusted UI element.
+label: development rehearsal - not release evidence
+| agent | file | line | band | score | stable_hash | nv | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|---|
+| impact | src/angular/src/app/pages/main/notification-bell.component.html | 28 | critical | 100 | 3f078fc6d4f6 | no | Notification text switched from escaped interpolation to [innerHTML], allowing HTML injection from server and remote error strings | impact: Notification text switched from escaped interpolation to [innerHTML], allowing HTML injection from server and remote error strings; bugs: Plain-text notification messages now parsed as HTML, so text containing < or & gets garbled or dropped; codex-adversarial: Remote error output can inject phishing links into notifications; security: Interpolation replaced with [innerHTML] binding enables HTML/script injection via remote-influenced notification text; architecture: Notification.text silently changes from a plain-text contract to an HTML contract for every producer; impact: Plain-text error messages containing < or & are now mangled or silently dropped; bugs: Removing output escaping opens HTML/markup injection from remote-server error text into the notification bell |  |
+candidates at site: 1 (alarms 1, needs-verification 0)
+
+AXIS: credit — row 3f078fc6d4f6 (alarm, critical 100) at notification-bell.component.html:28 — "Notification text switched from escaped interpolation to [innerHTML], allowing HTML injection from server and remote error strings". Location AND causal failure (HTML injection) match; scored on HTML injection only.
+
+vs entry 1: "catch" -> catch kept. Run 8m13s; fix-loop card after 481s; `Stop here…` -> `Abandon` by label.
 
