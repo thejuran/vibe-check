@@ -31,7 +31,9 @@ mtime:
   instruction, configuration file, fixture and script the reviewers,
   runners or gate tooling load, including Markdown: the fix-harness tools,
   fixtures, keys and requirements; the holdout kit tools; this kit's tools,
-  PATH-MAP.json and this README; the B3 runner; the reachability cases; the
+  PATH-MAP.json and this README; the B3 runner and the live-check runbook
+  whose blocks it executes (`reachability-dev/RUN-PHASE54-live.md`); the
+  reachability cases; the
   B3 answer keys, catch manifests, supersessions, allowances and
   calibration notes.
 - **Models:** agent pins, the top-level routing and its source, per-call

@@ -28,6 +28,7 @@ REAL_MAP = os.path.join(os.path.dirname(HERE), "PATH-MAP.json")
 HEX64 = r"[0-9a-f]{64}"
 HEX40 = r"[0-9a-f]{40}"
 B3_MODEL = "claude-fable-5-1[1m]"
+RUNBOOK = "docs/design/reachability-dev/RUN-PHASE54-live.md"
 HARNESS_MODEL = "claude-fixture-1[1m]"
 
 # The exact identity-bearing CLI shapes each production launcher runs. No
@@ -87,6 +88,7 @@ class _CheckFixture(tfm._Fixture):
             m["rules"] = path_map
         tfm._write(r, "docs/design/freeze-v2.12/PATH-MAP.json", json.dumps(m))
         tfm._write(r, fm.RUNNER_TEMPLATE, json.dumps(RUNNER_TEMPLATE, indent=2))
+        tfm._write(r, RUNBOOK, "# BLOCK: common\nset -e\n# END: common\n")
         _git(r, "add", "-A")
         _git(r, "commit", "-q", "-m", "candidate")
         self.candidate = _git(r, "rev-parse", "HEAD")
@@ -666,6 +668,79 @@ class TestCLI(_Base):
             "FREEZE-MANIFEST-10.json"))
         with self.assertRaises(FreezeError):
             fc.active_manifest(os.path.join(self.fx._tmp.name, "empty"))
+
+
+# --------------------------------------------------------------------------- #
+# The B3 live-check runbook is covered (D-18: Markdown the runner executes)
+# --------------------------------------------------------------------------- #
+
+class TestRunbookCovered(_Base):
+    def test_runbook_in_covered_file_map(self):
+        self.assertIn((RUNBOOK, None), fm.COVERED)
+        self.assertIn(RUNBOOK, fc.B3_COVERED_KEYS)
+        files = self.fx.manifest["covered"][RUNBOOK]["files"]
+        self.assertEqual(set(files), {"RUN-PHASE54-live.md"})
+        self.assertRegex(files["RUN-PHASE54-live.md"]["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_real_runbook_hashed_from_git(self):
+        if tfm.REAL_REPO is None:
+            self.skipTest("not in a git checkout")
+        cov = fm.covered_tree_files(tfm.REAL_REPO, "HEAD")
+        self.assertEqual(set(cov[RUNBOOK]["files"]), {"RUN-PHASE54-live.md"})
+
+    def test_real_map_classifies_runbook_like_the_runner_layer(self):
+        import freeze_policy
+        with open(REAL_MAP, "r", encoding="utf-8") as fh:
+            pm = freeze_policy.validate_path_map(json.load(fh))
+        got = freeze_policy.classify(
+            [RUNBOOK, "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh",
+             "docs/design/reachability-dev/NOTES-phase54-live.md",
+             "docs/design/reachability-dev/runs-phase54-live/c/run-1/state.json",
+             "docs/design/freeze-v2.12/evidence/x.json"], pm)
+        self.assertEqual(got[RUNBOOK],
+                         got["docs/design/b3-ground-truth/b3-runner-v2.12/common.sh"])
+        self.assertTrue(got[RUNBOOK] & set(freeze_policy.RERUN_CATEGORIES))
+        for path in ("docs/design/reachability-dev/NOTES-phase54-live.md",
+                     "docs/design/reachability-dev/runs-phase54-live/c/run-1/state.json",
+                     "docs/design/freeze-v2.12/evidence/x.json"):
+            self.assertEqual(got[path], {"reporting"}, path)
+        rules = [r["glob"] for r in json.load(open(REAL_MAP, encoding="utf-8"))["rules"]]
+        self.assertIn(RUNBOOK, rules)
+
+    def test_committed_runbook_change_stops(self):
+        self.pristine("b3")
+        _commit(self.fx.repo, RUNBOOK, "# BLOCK: common\nset +e\n# END: common\n")
+        problems = self.fx.check("b3").problems
+        self.assertIn("repo: covered artifact differs at HEAD: " + RUNBOOK, problems)
+        self.assertTrue(any(p.startswith("repo: non-reporting change after candidate: "
+                                         + RUNBOOK) for p in problems), problems)
+        self.assertTrue(any(p.startswith("file differs: reachability-dev/RUN-PHASE54-live.md")
+                            for p in problems), problems)
+        self.assertIn("repo: covered artifact differs at HEAD: " + RUNBOOK,
+                      fc.candidate_guard(self.fx.repo, self.fx.candidate))
+
+    def test_runbook_change_stops_even_under_a_lax_map(self):
+        fx = _CheckFixture(path_map=[{"glob": "**", "cats": ["reporting"]}])
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.check("b3").problems, [])
+        _commit(fx.repo, RUNBOOK, "# BLOCK: common\nset +e\n# END: common\n")
+        problems = fx.check("b3").problems
+        self.assertFalse(any(p.startswith("repo: non-reporting") for p in problems))
+        self.assertIn("repo: covered artifact differs at HEAD: " + RUNBOOK, problems)
+
+    def test_uncommitted_runbook_edit_stops(self):
+        self.pristine("b3")
+        with open(os.path.join(self.fx.repo, RUNBOOK), "ab") as fh:
+            fh.write(b"#")
+        problems = self.fx.check("b3").problems
+        self.assertIn("repo: uncommitted change in covered path: " + RUNBOOK, problems)
+
+    def test_reporting_neighbours_stay_exempt(self):
+        self.pristine("b3")
+        _commit(self.fx.repo, "docs/design/reachability-dev/NOTES-phase54-live.md", "n\n")
+        _commit(self.fx.repo,
+                "docs/design/reachability-dev/runs-phase54-live/c/run-1/state.json", "{}\n")
+        self.pristine("b3")
 
 
 class TestImportSet(unittest.TestCase):

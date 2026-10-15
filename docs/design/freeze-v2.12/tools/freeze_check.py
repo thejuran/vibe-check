@@ -69,6 +69,7 @@ WALK_EXCLUDES = (freeze_common.EXCLUDED_DIRS + (".venv",),
 
 B3_COVERED_KEYS = (
     "docs/design/b3-ground-truth/b3-runner-v2.12",
+    "docs/design/reachability-dev/RUN-PHASE54-live.md",
     "docs/design/reachability-dev/cases",
     "docs/design/b3-ground-truth/ANSWER-KEY-*.md",
     "docs/design/b3-ground-truth/REPLAY-CATCH-MANIFEST-*.json",

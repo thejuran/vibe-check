@@ -3,7 +3,10 @@
 This directory is the committed runner layer that every v2.12 B3 measurement run goes through.
 The freeze manifest covers it (`docs/design/b3-ground-truth/b3-runner-v2.12` is a covered path in
 `freeze_manifest.COVERED`). Editing any file here after the freeze is an identity change: the next
-`b3_identity_check` stops until a new manifest is issued.
+`b3_identity_check` stops until a new manifest is issued. The runbook whose blocks `b3_block` runs,
+`docs/design/reachability-dev/RUN-PHASE54-live.md`, is covered the same way. A runbook built from
+it for a later window must be added to `freeze_manifest.COVERED` and `PATH-MAP.json` before its
+first run.
 
 `~/.b3/b3` and the Phase-53 runner (`~/.b3/phase53-runner/`) are superseded for v2.12 measurement.
 Both were uncommitted, and both compared a cache fingerprint recorded in a local env file instead

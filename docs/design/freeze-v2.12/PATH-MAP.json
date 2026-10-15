@@ -226,6 +226,14 @@
       ]
     },
     {
+      "glob": "docs/design/reachability-dev/RUN-PHASE54-live.md",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
       "glob": "plugins/vibe-check/scripts/score.py",
       "cats": [
         "engineering",

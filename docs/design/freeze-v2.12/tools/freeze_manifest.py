@@ -62,6 +62,8 @@ COVERED = (
     ("docs/design/freeze-v2.12/PATH-MAP.json", None),
     ("docs/design/freeze-v2.12/README.md", None),
     ("docs/design/b3-ground-truth/b3-runner-v2.12", None),
+    # the B3 live-check runbook: b3_block executes its blocks (D-18: Markdown, still covered)
+    ("docs/design/reachability-dev/RUN-PHASE54-live.md", None),
     ("docs/design/reachability-dev/cases", None),
     ("docs/design/b3-ground-truth", "ANSWER-KEY-*.md"),
     ("docs/design/b3-ground-truth", "REPLAY-CATCH-MANIFEST-*.json"),
