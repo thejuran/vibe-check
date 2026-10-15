@@ -59,6 +59,32 @@ themselves, not only the version strings.
   (`NOTES-phase53-dev.md` `## Tally`); every changed outcome goes into the R4 before/after table.
   A lost catch is investigated, never rerun.
 
+## Pre-registration — restart on candidate 24c0c00 — 2026-10-15T22:52Z (before the first run)
+
+The 302df48 attempt above stopped at its first case (`## Deviations`, SWEEP STOPPED). Commit
+24c0c00 fixed the cause (`.in_use/` session-marker directories are no longer hashed) and changed
+covered freeze-kit files, so 54-10 selected a new candidate and regenerated the draft manifest.
+This sweep starts over on that candidate. The 302df48 entries above stay as the record of the
+first attempt; nothing from it counts here (it produced no run directory).
+
+- **Candidate:** `24c0c00038f2d15af4b55f178ea44e680c1f2c58`, read from
+  `docs/design/freeze-v2.12/evidence/CANDIDATE.json` (never `HEAD`). It equals the draft
+  manifest's `candidate_sha`.
+- **Manifest:** the regenerated draft at the same path,
+  `docs/design/freeze-v2.12/evidence/FREEZE-MANIFEST-draft-54-10.json`, `manifest_id`
+  `98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99`, used as `MANIFEST` for the
+  whole sweep. Its B3 launch model is `claude-fable-5-1[1m]` (`models.launch_model.b3`), equal to
+  `pin-model:` above, so the pins are unchanged (`claude --version` 2.1.281, `codex --version`
+  0.153.4, checked live 2026-10-15T22:52Z).
+- **Everything else as the first pre-registration:** the same three disposable clones (re-used;
+  each on its start branch and `git status` clean at 22:52Z: roonseek `2370f0b`, seedsyncarr
+  `3dc75c7`, triggarr `4a154be`), the isolated runner re-materialized from 24c0c00, memory parked
+  again, owner cache untouched, one run per case in the same order, no retune, the same fixed
+  keystrokes, the same comparison and lost-catch rule.
+- **First live test of the `.in_use` fix:** the `pre` and `post` checks run while the measured
+  session is alive. If either refuses again, the sweep stops with the exact difference list; no
+  marker is deleted and nothing is patched.
+
 ## Candidate
 
 candidate-guard (2026-10-15T22:08Z, before any block):
@@ -85,6 +111,13 @@ owner installed cache (before the sweep, 2026-10-15T22:10Z):
 `~/.claude/plugins/cache/thejuran/vibe-check/2.11.1` fingerprint
 `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3` (= the v2.11.1 release).
 Owner config sha256 before: `installed_plugins.json` `6a9cd0aa…`, `known_marketplaces.json`
+`eafbfd5e…`, `settings.json` `3297ded3…`.
+
+### Restart on 24c0c00 — owner cache before the sweep (2026-10-15T22:52Z)
+
+`~/.claude/plugins/cache/thejuran/vibe-check/2.11.1` fingerprint
+`f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3` (unchanged since the first
+attempt). Owner config sha256: `installed_plugins.json` `6a9cd0aa…`, `known_marketplaces.json`
 `eafbfd5e…`, `settings.json` `3297ded3…`.
 
 ## Deviations
