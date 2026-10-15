@@ -91,6 +91,36 @@ without the SDK, and writes `replay.json`.
 Exit codes: `0` COMPLETE (probe passed, replay clean, check clean), `1`
 FAILED, `2` usage, preflight or driver error. No record is written on `2`.
 
+### State location (format-53)
+
+The harness seeds and judges the review state at the path the plugin's
+`statepath.resolve_current` names: `.turingmind/state/format-53/<key>`.
+The legacy location (`statepath.resolve`) is never a fallback:
+
+- seeding refuses when a legacy-location state already exists for the key
+  (`legacy-location state present at <path> — the harness never seeds over an old-format file`),
+  so the plugin cannot migrate a stale file into the run;
+- the verdict reads only archives under `.turingmind/state/format-53/`. With
+  no archive there, a legacy-location state or archive adds the FAILED reason
+  `legacy-location state found at <paths> — the plugin wrote the old format; not accepted`
+  beside `state not archived`. A legacy file next to a
+  format-53 archive is ignored.
+
+Condition 3 (Finalize) fails a claimed successful close-out on:
+
+- undecided Needs-verification items:
+  `undecided Needs-verification at finalize: N`
+  (they are also counted in `outstanding findings at finalize: N`);
+- any obligation that left the state without a decision:
+  `obligation dropped without decision: <hash7>`
+  (a seeded finding also adds `seeded finding not verified resolved: <hash7>`).
+
+A defer or dismiss decision with a non-blank reason is kept as disposition
+`decided` and is not a problem; one without a reason fails as
+`obligation decision without reason: <hash7>`. Needs-verification rows reach Finalize
+through the real cards and are deferred by number with the harness reason,
+never fixed in place of the seeded finding.
+
 ### Sandbox probe
 
 ```
