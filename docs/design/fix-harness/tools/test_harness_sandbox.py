@@ -30,6 +30,27 @@ def _sample_settings(copy_root=COPY, snapshot=SNAP, out=OUT):
     return h.build_session_settings(copy_root, snapshot, out, CHECKOUT, KEYS)
 
 
+MANIFEST_ID = "a" * 64
+CHECK_DIGEST = "c" * 64
+CANDIDATE = "d" * 40
+
+
+class _Identity:
+    """A stand-in for freeze_check.CheckResult."""
+
+    def __init__(self, problems, manifest_id, check_digest, candidate_sha):
+        self.problems = list(problems)
+        self.manifest_id = manifest_id
+        self.check_digest = check_digest
+        self.candidate_sha = candidate_sha
+
+
+def _identity_stub(*problems, candidate=CANDIDATE):
+    def check(snapshot_path, manifest_path=None, env=None, launch_model=None):
+        return _Identity(problems, MANIFEST_ID, CHECK_DIGEST, candidate)
+    return check
+
+
 def _git(repo, *args):
     env = dict(os.environ)
     env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
@@ -130,36 +151,96 @@ class TestSnapshot(_TmpCase):
         _git(repo, "commit", "-q", "-m", "init")
         return repo, src
 
-    def test_snapshot_copies_without_caches_and_records_provenance(self):
-        repo, src = self._fake_checkout()
+    def head(self, repo):
+        return _git(repo, "rev-parse", "HEAD").strip()
+
+    def files(self, snap):
+        return sorted(os.path.relpath(os.path.join(r, f), snap.path)
+                      for r, _d, fs in os.walk(snap.path) for f in fs)
+
+    def test_snapshot_comes_from_the_commit_tree_and_records_provenance(self):
+        repo, _src = self._fake_checkout()
         dest = self.mkdtemp()
-        snap = h.snapshot_plugin(src, dest, checkout_root=repo)
+        snap = h.snapshot_plugin_from_commit(repo, "HEAD", dest)
         self.assertEqual(snap.path, os.path.join(dest, "plugin"))
-        files = sorted(os.path.relpath(os.path.join(r, f), snap.path)
-                       for r, _d, fs in os.walk(snap.path) for f in fs)
-        self.assertEqual(files, ["README.md", "scripts/a.py"])
-        self.assertEqual(snap.git_sha, _git(repo, "rev-parse", "HEAD").strip())
-        self.assertFalse(snap.dirty)
-        self.assertEqual(snap.source_path, src)
+        self.assertEqual(self.files(snap), ["README.md", "scripts/a.py"])
+        sha = self.head(repo)
+        self.assertEqual(snap.git_sha, sha)
+        self.assertEqual(snap.source_path, "git:" + sha)
+        self.assertIs(snap.dirty, False)
         self.assertEqual(len(snap.tree_sha256), 64)
 
-    def test_tree_hash_is_content_sensitive_and_dirty_is_recorded(self):
+    def test_untracked_stray_not_in_snapshot(self):
         repo, src = self._fake_checkout()
-        a = h.snapshot_plugin(src, self.mkdtemp(), checkout_root=repo)
-        b = h.snapshot_plugin(src, self.mkdtemp(), checkout_root=repo)
+        with open(os.path.join(src, "STRAY.md"), "w") as fh:
+            fh.write("untracked\n")
+        with open(os.path.join(src, "README.md"), "a") as fh:
+            fh.write("uncommitted edit\n")
+        snap = h.snapshot_plugin_from_commit(repo, "HEAD", self.mkdtemp())
+        self.assertNotIn("STRAY.md", self.files(snap))
+        with open(os.path.join(snap.path, "README.md")) as fh:
+            self.assertEqual(fh.read(), "hello\n")
+        self.assertIs(snap.dirty, False)
+
+    def test_snapshot_is_the_candidate_not_head(self):
+        repo, src = self._fake_checkout()
+        first = self.head(repo)
+        with open(os.path.join(src, "README.md"), "a") as fh:
+            fh.write("later\n")
+        _git(repo, "commit", "-q", "-am", "later")
+        snap = h.snapshot_plugin_from_commit(repo, first, self.mkdtemp())
+        self.assertEqual(snap.git_sha, first)
+        with open(os.path.join(snap.path, "README.md")) as fh:
+            self.assertEqual(fh.read(), "hello\n")
+
+    def test_executable_mode_is_kept(self):
+        repo, src = self._fake_checkout()
+        os.chmod(os.path.join(src, "scripts", "a.py"), 0o755)
+        _git(repo, "commit", "-q", "-am", "exec")
+        snap = h.snapshot_plugin_from_commit(repo, "HEAD", self.mkdtemp())
+        mode = os.stat(os.path.join(snap.path, "scripts", "a.py")).st_mode
+        self.assertTrue(mode & 0o100)
+        mode = os.stat(os.path.join(snap.path, "README.md")).st_mode
+        self.assertFalse(mode & 0o111)
+
+    def test_tree_hash_is_content_sensitive(self):
+        repo, src = self._fake_checkout()
+        a = h.snapshot_plugin_from_commit(repo, "HEAD", self.mkdtemp())
+        b = h.snapshot_plugin_from_commit(repo, "HEAD", self.mkdtemp())
         self.assertEqual(a.tree_sha256, b.tree_sha256)
         with open(os.path.join(src, "README.md"), "a") as fh:
             fh.write("more\n")
-        c = h.snapshot_plugin(src, self.mkdtemp(), checkout_root=repo)
+        _git(repo, "commit", "-q", "-am", "more")
+        c = h.snapshot_plugin_from_commit(repo, "HEAD", self.mkdtemp())
         self.assertNotEqual(a.tree_sha256, c.tree_sha256)
-        self.assertTrue(c.dirty)
+
+    def test_not_a_commit_is_refused(self):
+        repo, _src = self._fake_checkout()
+        for bad in ("0" * 40, "no-such-branch", "--output=/tmp/x", "",
+                    "HEAD;rm"):
+            with self.subTest(candidate=bad):
+                with self.assertRaises(h.SandboxError):
+                    h.snapshot_plugin_from_commit(repo, bad, self.mkdtemp())
+
+    def test_symlink_in_the_tree_is_refused(self):
+        repo, src = self._fake_checkout()
+        os.symlink("/etc/hosts", os.path.join(src, "link"))
+        _git(repo, "add", "plugins/vibe-check/link")
+        _git(repo, "commit", "-q", "-m", "link")
+        with self.assertRaises(h.SandboxError):
+            h.snapshot_plugin_from_commit(repo, "HEAD", self.mkdtemp())
 
     def test_snapshot_under_checkout_is_refused(self):
-        repo, src = self._fake_checkout()
+        repo, _src = self._fake_checkout()
         with self.assertRaises(h.SandboxError):
-            h.snapshot_plugin(src, os.path.join(repo, "inside"),
-                              checkout_root=repo)
+            h.snapshot_plugin_from_commit(repo, "HEAD",
+                                          os.path.join(repo, "inside"))
         self.assertFalse(os.path.exists(os.path.join(repo, "inside", "plugin")))
+
+    def test_no_working_tree_copy_path_remains(self):
+        self.assertFalse(hasattr(h, "snapshot_plugin"))
+        with open(h.__file__, encoding="utf-8") as fh:
+            self.assertNotIn("copytree", fh.read())
 
 
 class TestSessionSettings(unittest.TestCase):
@@ -201,6 +282,7 @@ class TestSessionSettings(unittest.TestCase):
                 "defaultMode": "default",
             },
             "disableClaudeAiConnectors": True,
+            "env": {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"},
         }
         self.assertEqual(_sample_settings(), expected)
         self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
@@ -259,6 +341,9 @@ class TestSessionSettings(unittest.TestCase):
                 "Edit(//private/tmp/w/repo/probe.sh)"),
             lambda s: s.pop("disableClaudeAiConnectors"),
             lambda s: s.update(disableClaudeAiConnectors=False),
+            lambda s: s.pop("env"),
+            lambda s: s["env"].pop("DISABLE_AUTOUPDATER"),
+            lambda s: s["env"].update(DISABLE_UPDATES="0"),
         ] + [
             (lambda key, p: lambda s: s["sandbox"]["filesystem"][key].remove(p))(
                 key, p)
@@ -293,6 +378,17 @@ class TestSessionSettings(unittest.TestCase):
         self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
         s = self._mutant(lambda s: s.pop("disableClaudeAiConnectors"))
         self.assertFalse(h.settings_is_fail_closed(s))
+
+    def test_m15_update_pins_dropped_flips(self):
+        self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
+        s = self._mutant(lambda s: s.pop("env"))
+        self.assertFalse(h.settings_is_fail_closed(s))
+
+    def test_update_pins_change_the_fingerprint(self):
+        a = _sample_settings()
+        b = copy.deepcopy(a)
+        b.pop("env")
+        self.assertNotEqual(h.settings_fingerprint(a), h.settings_fingerprint(b))
 
     def test_m1_dropping_fail_if_unavailable_flips(self):
         self.assertTrue(h.settings_is_fail_closed(_sample_settings()))
@@ -444,7 +540,7 @@ class TestPathBackstop(_TmpCase):
         self.assertTrue(r.ok)
 
 
-class TestPreflight(_TmpCase):
+class _PreflightBase(_TmpCase):
     SDK = "0.2.165"
 
     def setUp(self):
@@ -468,11 +564,14 @@ class TestPreflight(_TmpCase):
 
     def run_preflight(self, settings=None):
         return h.preflight(self.copy, self.snap, settings or self.settings,
-                           self.record_path, self.SDK)
+                           self.record_path, self.SDK,
+                           identity_check=_identity_stub())
 
     def assert_probe_problem(self, problems):
         self.assertIn(h.PROBE_STALE_PROBLEM, problems)
 
+
+class TestPreflight(_PreflightBase):
     def test_all_good(self):
         self.assertEqual(self.run_preflight(), [])
 
@@ -519,7 +618,8 @@ class TestPreflight(_TmpCase):
 
     def test_copy_under_checkout(self):
         problems = h.preflight(h.CHECKOUT_ROOT + "/x", self.snap,
-                               self.settings, self.record_path, self.SDK)
+                               self.settings, self.record_path, self.SDK,
+                               identity_check=_identity_stub())
         self.assertTrue(any("inside the checkout" in p for p in problems),
                         problems)
 
@@ -554,6 +654,139 @@ class TestPreflight(_TmpCase):
         self.assertTrue(self.run_preflight())
         with mock.patch.object(h, "_fingerprint_matches", lambda r, s: True):
             self.assertEqual(self.run_preflight(), [])
+
+
+class TestPreflightIdentity(_PreflightBase):
+    """The freeze identity check inside preflight (no override)."""
+
+    def identity(self, *problems, candidate=CANDIDATE):
+        return _identity_stub(*problems, candidate=candidate)
+
+    def with_identity(self, check, **kw):
+        return h.preflight_with_identity(self.copy, self.snap, self.settings,
+                                         self.record_path, self.SDK,
+                                         identity_check=check, **kw)
+
+    def test_clean_identity_launches_and_is_returned(self):
+        problems, result = self.with_identity(self.identity())
+        self.assertEqual(problems, [])
+        self.assertEqual(result.manifest_id, MANIFEST_ID)
+        self.assertEqual(result.check_digest, CHECK_DIGEST)
+        self.assertEqual(result.candidate_sha, CANDIDATE)
+
+    def test_preflight_reports_freeze_mismatch(self):
+        planted = "file differs: agents/bugs.md (manifest aaa live bbb)"
+        problems = h.preflight(self.copy, self.snap, self.settings,
+                               self.record_path, self.SDK,
+                               identity_check=self.identity(planted))
+        self.assertEqual(problems,
+                         [h.FREEZE_MISMATCH_PROBLEM + ": " + planted])
+
+    def test_every_identity_problem_is_reported(self):
+        lines = ["version differs: claude-agent-sdk (manifest 1 live 2)",
+                 "setting differs: env.ANTHROPIC_MODEL (manifest a live b) "
+                 "[process env]"]
+        problems, _ = self.with_identity(self.identity(*lines))
+        self.assertEqual(problems, [h.FREEZE_MISMATCH_PROBLEM + ": " + l
+                                    for l in lines])
+
+    def test_preflight_no_manifest_is_a_problem(self):
+        def no_manifest(*_a, **_k):
+            raise h.NoManifestError("no freeze manifest")
+        problems, result = self.with_identity(no_manifest)
+        self.assertEqual(problems, [h.NO_MANIFEST_PROBLEM])
+        self.assertIsNone(result)
+
+    def test_default_check_without_a_manifest_is_a_problem(self):
+        empty = self.mkdtemp()
+        with mock.patch.object(h, "CHECKOUT_ROOT", empty):
+            problems = h.preflight(self.copy, self.snap, self.settings,
+                                   self.record_path, self.SDK)
+        self.assertIn(h.NO_MANIFEST_PROBLEM, problems)
+
+    def test_check_error_fails_closed(self):
+        def broken(*_a, **_k):
+            raise ValueError("boom")
+        problems, result = self.with_identity(broken)
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith(h.FREEZE_MISMATCH_PROBLEM))
+        self.assertIsNone(result)
+
+    def test_snapshot_commit_must_be_the_manifest_candidate(self):
+        problems, _ = self.with_identity(self.identity(),
+                                         candidate_sha="b" * 40)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("is not the manifest candidate", problems[0])
+        self.assertEqual(self.with_identity(self.identity(),
+                                            candidate_sha=CANDIDATE)[0], [])
+
+    def test_env_and_model_reach_the_check(self):
+        seen = {}
+
+        def check(snapshot_path, manifest_path=None, env=None,
+                  launch_model=None):
+            seen.update(snapshot=snapshot_path, manifest=manifest_path,
+                        env=env, model=launch_model)
+            return self.identity()(snapshot_path)
+        env = {"ANTHROPIC_MODEL": "planted"}
+        self.with_identity(check, env=env, launch_model="claude-x",
+                           manifest_path="/m.json")
+        self.assertIs(seen["env"], env)
+        self.assertEqual((seen["snapshot"], seen["manifest"], seen["model"]),
+                         (self.snap, "/m.json", "claude-x"))
+
+    def test_default_check_calls_verify_for_the_harness_runner(self):
+        calls = {}
+
+        class FakeFreeze:
+            FreezeError = RuntimeError
+
+            @staticmethod
+            def active_manifest(repo):
+                calls["active_repo"] = repo
+                return "/active.json"
+
+            @staticmethod
+            def load_manifest(path):
+                calls["loaded"] = path
+                return {"manifest_id": MANIFEST_ID}
+
+            @staticmethod
+            def verify(manifest, runner, **kw):
+                calls["verify"] = (manifest, runner, kw)
+                return _Identity([], MANIFEST_ID, CHECK_DIGEST, CANDIDATE)
+        env = {"X": "1"}
+        with mock.patch.object(h, "_freeze", lambda: FakeFreeze):
+            result = h.freeze_identity_check(self.snap, env=env,
+                                             launch_model="claude-x")
+        self.assertEqual(result.manifest_id, MANIFEST_ID)
+        self.assertEqual(calls["active_repo"], h.CHECKOUT_ROOT)
+        self.assertEqual(calls["loaded"], "/active.json")
+        manifest, runner, kw = calls["verify"]
+        self.assertEqual(runner, "fix-harness")
+        self.assertEqual(kw["plugin_dir"], self.snap)
+        self.assertIs(kw["env"], env)
+        self.assertEqual(kw["launch_model"], "claude-x")
+        self.assertEqual(kw["repo"], h.CHECKOUT_ROOT)
+        self.assertEqual(kw["harness_venv"], h.HARNESS_VENV)
+
+    def test_preflight_has_no_override_parameter(self):
+        import inspect
+        for fn in (h.preflight, h.preflight_with_identity):
+            params = set(inspect.signature(fn).parameters)
+            for word in ("force", "skip", "override", "allow", "ignore"):
+                self.assertFalse(any(word in p for p in params), (fn, params))
+
+    def test_mutant_identity_call_removed(self):
+        planted = "file differs: agents/bugs.md (manifest aaa live bbb)"
+        check = self.identity(planted)
+        pristine, _ = self.with_identity(check)
+        self.assertIn(h.FREEZE_MISMATCH_PROBLEM + ": " + planted, pristine)
+        with mock.patch.object(h, "_identity_or_problems",
+                               lambda *a, **k: ([], None)):
+            mutant, _ = self.with_identity(check)
+        self.assertNotIn(h.FREEZE_MISMATCH_PROBLEM + ": " + planted, mutant)
+        self.assertEqual(mutant, [])
 
 
 # ---------------------------------------------------------------------------

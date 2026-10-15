@@ -13,8 +13,19 @@ The disposable copy and the plugin snapshot live in a per-run workspace under
 the per-user temp dir, OUTSIDE the source checkout. The checkout is denied with
 `//`-anchored permission rules, and such a deny cannot be carved back open for
 a subdirectory — a copy placed inside the checkout would be denied to the very
-session that has to work in it. `make_workspace`, `snapshot_plugin` and
-`build_session_settings` therefore refuse any placement under the checkout.
+session that has to work in it. `make_workspace`, `snapshot_plugin_from_commit`
+and `build_session_settings` therefore refuse any placement under the checkout.
+
+The plugin snapshot is materialized from a commit's tree (`git ls-tree` +
+`git cat-file`), never copied from the working tree, so an untracked or
+uncommitted file in `plugins/vibe-check` can never enter the measured copy.
+
+Freeze identity
+---------------
+`preflight` also runs the shared freeze identity check
+(`docs/design/freeze-v2.12/tools/freeze_check.py`, runner `fix-harness`)
+against the active freeze manifest. Every difference it names is a launch
+problem; a missing manifest is a problem too. There is no override.
 
 Three independent layers
 ------------------------
@@ -119,8 +130,16 @@ SESSION_TMP_PARENT = "/tmp"
 SESSION_TMP_MAX_LEN = 30
 
 GIT_TIMEOUT = 60
-SNAPSHOT_SKIP_DIRS = frozenset({"__pycache__", ".pytest_cache", ".venv"})
-SNAPSHOT_SKIP_SUFFIXES = (".pyc",)
+PLUGIN_REL = "plugins/vibe-check"
+# Blob modes a plugin snapshot may contain (regular, executable). A symlink
+# could point outside the snapshot, so it is refused.
+_SNAPSHOT_MODES = {"100644": 0o644, "100755": 0o755}
+_REV_RE = re.compile(r"^[A-Za-z0-9._/~^@{}-]+$")
+
+FREEZE_TOOLS_DIR = os.path.join(CHECKOUT_ROOT, "docs", "design",
+                                "freeze-v2.12", "tools")
+HARNESS_VENV = os.path.join(CHECKOUT_ROOT, "docs", "design", "fix-harness",
+                            ".venv")
 
 PluginSnapshot = collections.namedtuple(
     "PluginSnapshot", "path tree_sha256 source_path git_sha dirty")
@@ -139,18 +158,24 @@ def _is_under(path, root):
     return path == root or path.startswith(root + "/")
 
 
-def _git(checkout_root, *args):
+def _git_bytes(checkout_root, *args, stdin=None):
     env = dict(os.environ)
     env["GIT_OPTIONAL_LOCKS"] = "0"
     try:
         proc = subprocess.run(["git", "-C", checkout_root, *args], env=env,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              text=True, timeout=GIT_TIMEOUT, check=False)
+                              input=stdin, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=GIT_TIMEOUT,
+                              check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SandboxError("git %s could not run: %s" % (args[0], exc)) from exc
     if proc.returncode != 0:
-        raise SandboxError("git %s failed: %s" % (args[0], proc.stderr.strip()))
+        raise SandboxError("git %s failed: %s" % (
+            args[0], proc.stderr.decode("utf-8", "replace").strip()))
     return proc.stdout
+
+
+def _git(checkout_root, *args):
+    return _git_bytes(checkout_root, *args).decode("utf-8", "replace")
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +218,6 @@ def make_session_tmp():
     return path
 
 
-def _snapshot_ignore(_dir, names):
-    return [n for n in names
-            if n in SNAPSHOT_SKIP_DIRS or n.endswith(SNAPSHOT_SKIP_SUFFIXES)]
-
-
 def _tree_sha256(top):
     entries = []
     for root, dirs, files in os.walk(top):
@@ -221,19 +241,95 @@ def tree_sha256(top):
     return _tree_sha256(top)
 
 
-def snapshot_plugin(source_dir, dest, checkout_root=None):
-    """Copy the plugin to `<dest>/plugin` and record where it came from."""
-    checkout_root = checkout_root or CHECKOUT_ROOT
-    source_dir = os.path.realpath(source_dir)
+def resolve_commit(checkout_root, candidate):
+    """The full 40-hex sha of the commit `candidate` names; SandboxError when
+    it is not a commit (or not a safe revision string)."""
+    if not isinstance(candidate, str) or not candidate \
+            or candidate.startswith("-") or not _REV_RE.match(candidate):
+        raise SandboxError("candidate is not a revision: %r" % (candidate,))
+    try:
+        sha = _git(checkout_root, "rev-parse", "--verify", "--quiet",
+                   candidate + "^{commit}").strip()
+    except SandboxError as exc:
+        raise SandboxError("candidate is not a commit: %s" % candidate) from exc
+    if not re.match(r"^[0-9a-f]{40}$", sha):
+        raise SandboxError("candidate is not a commit: %s" % candidate)
+    return sha
+
+
+def _tree_entries(checkout_root, sha, prefix):
+    """(mode, oid, path relative to `prefix`) for every blob under `prefix`
+    at commit `sha`."""
+    raw = _git_bytes(checkout_root, "ls-tree", "-r", "-z", "--full-tree",
+                     sha, "--", prefix)
+    entries = []
+    for item in raw.split(b"\0"):
+        if not item:
+            continue
+        meta, _, path = item.partition(b"\t")
+        mode, kind, oid = meta.decode("ascii").split(" ")
+        rel_full = path.decode("utf-8", "surrogateescape")
+        if kind != "blob" or mode not in _SNAPSHOT_MODES:
+            raise SandboxError("plugin tree at %s holds an unsupported entry: "
+                               "%s %s %s" % (sha[:12], mode, kind, rel_full))
+        if not rel_full.startswith(prefix + "/"):
+            raise SandboxError("ls-tree returned a path outside %s: %s"
+                               % (prefix, rel_full))
+        rel = rel_full[len(prefix) + 1:]
+        parts = rel.split("/")
+        if any(p in ("", ".", "..") for p in parts):
+            raise SandboxError("unsafe path in the plugin tree: %r" % rel_full)
+        entries.append((mode, oid, rel))
+    return entries
+
+
+def _cat_blobs(checkout_root, oids):
+    """{oid: bytes} through one `git cat-file --batch`."""
+    if not oids:
+        return {}
+    out = _git_bytes(checkout_root, "cat-file", "--batch",
+                     stdin=("\n".join(oids) + "\n").encode("ascii"))
+    blobs, pos = {}, 0
+    for oid in oids:
+        nl = out.index(b"\n", pos)
+        header = out[pos:nl].decode("ascii").split(" ")
+        if len(header) != 3 or header[0] != oid or header[1] != "blob":
+            raise SandboxError("git cat-file returned an unexpected header: %r"
+                               % header)
+        size = int(header[2])
+        blobs[oid] = out[nl + 1:nl + 1 + size]
+        pos = nl + 1 + size + 1
+    return blobs
+
+
+def snapshot_plugin_from_commit(checkout_root, candidate, dest):
+    """Materialize `plugins/vibe-check` at commit `candidate` into
+    `<dest>/plugin` and return its PluginSnapshot.
+
+    The files come from the commit's tree, never the working tree, so an
+    untracked stray or an uncommitted edit cannot enter the measured copy:
+    `source_path` is `git:<sha>` and `dirty` is False by construction.
+    """
+    checkout_root = os.path.realpath(checkout_root or CHECKOUT_ROOT)
     path = os.path.join(os.path.realpath(dest), "plugin")
-    if _is_under(path, os.path.realpath(checkout_root)):
+    if _is_under(path, checkout_root):
         raise SandboxError("plugin snapshot would sit inside the checkout: %s"
                            % path)
-    git_sha = _git(checkout_root, "rev-parse", "HEAD").strip()
-    dirty = bool(_git(checkout_root, "status", "--porcelain", "--",
-                      source_dir).strip())
-    shutil.copytree(source_dir, path, ignore=_snapshot_ignore)
-    return PluginSnapshot(path, _tree_sha256(path), source_dir, git_sha, dirty)
+    if os.path.lexists(path):
+        raise SandboxError("plugin snapshot path already exists: %s" % path)
+    sha = resolve_commit(checkout_root, candidate)
+    entries = _tree_entries(checkout_root, sha, PLUGIN_REL)
+    if not entries:
+        raise SandboxError("%s is empty or absent at %s" % (PLUGIN_REL, sha))
+    blobs = _cat_blobs(checkout_root, sorted({oid for _m, oid, _r in entries}))
+    os.makedirs(path)
+    for mode, oid, rel in entries:
+        full = os.path.join(path, *rel.split("/"))
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as fh:
+            fh.write(blobs[oid])
+        os.chmod(full, _SNAPSHOT_MODES[mode])
+    return PluginSnapshot(path, _tree_sha256(path), "git:" + sha, sha, False)
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +362,11 @@ PROBE_SCRIPT_NAME = "probe.sh"
 
 def probe_script_path(copy_root):
     return os.path.join(copy_root, PROBE_SCRIPT_NAME)
+
+
+# The Claude Code CLI must not update itself during a measured session: the
+# frozen build is the one the freeze manifest pins.
+SESSION_ENV_PINS = {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
 
 
 def _credential_rule(entry):
@@ -329,6 +430,7 @@ def build_session_settings(copy_root, snapshot_path, out_dir,
         # Account (claude.ai) MCP connectors load regardless of
         # setting_sources and run in the CLI process, outside Seatbelt.
         "disableClaudeAiConnectors": True,
+        "env": dict(SESSION_ENV_PINS),
     }
 
 
@@ -350,8 +452,11 @@ def settings_is_fail_closed(settings):
         for key in ("checkout", "out", "keys", "copy", "snapshot"):
             if not isinstance(paths[key], str) or not os.path.isabs(paths[key]):
                 return False
+        env = settings.get("env")
         return bool(
             settings.get("disableClaudeAiConnectors") is True
+            and isinstance(env, dict)
+            and all(env.get(k) == v for k, v in SESSION_ENV_PINS.items())
             and sb.get("enabled") is True
             and sb.get("failIfUnavailable") is True
             and sb.get("allowUnsandboxedCommands") is False
@@ -518,6 +623,60 @@ SETTINGS_MISMATCH_PROBLEM = ("session settings were built for a different "
                              "copy or plugin snapshot")
 PROBE_STALE_PROBLEM = ("sandbox probe missing or stale — run fixharness.py "
                        "probe-sandbox")
+FREEZE_MISMATCH_PROBLEM = "freeze identity mismatch"
+NO_MANIFEST_PROBLEM = "no active freeze manifest"
+FREEZE_RUNNER = "fix-harness"
+
+
+class NoManifestError(SandboxError):
+    """No freeze manifest exists, so nothing can be verified: no launch."""
+
+
+def _freeze():
+    """The shared freeze identity check (imported lazily, so the sandbox
+    policy stays usable — and unit-testable — without the freeze kit)."""
+    if FREEZE_TOOLS_DIR not in sys.path:
+        sys.path.insert(0, FREEZE_TOOLS_DIR)
+    import freeze_check
+    return freeze_check
+
+
+def freeze_identity_check(snapshot_path, manifest_path=None, env=None,
+                          launch_model=None):
+    """Run `freeze_check.verify` for the fix-harness runner against the
+    manifest at `manifest_path` (default: the active one) and return its
+    CheckResult. Raises NoManifestError when no manifest exists."""
+    fc = _freeze()
+    if manifest_path is None:
+        try:
+            manifest_path = fc.active_manifest(CHECKOUT_ROOT)
+        except fc.FreezeError as exc:
+            raise NoManifestError(str(exc)) from exc
+    manifest = fc.load_manifest(manifest_path)
+    return fc.verify(manifest, FREEZE_RUNNER, plugin_dir=snapshot_path,
+                     launch_model=launch_model, repo=CHECKOUT_ROOT, env=env,
+                     harness_venv=HARNESS_VENV)
+
+
+def _identity_or_problems(identity_check, snapshot_path, manifest_path, env,
+                          launch_model, candidate_sha):
+    """(problems, CheckResult|None) from one identity check. Fails closed:
+    a missing manifest, an unreadable one or any error is a problem."""
+    try:
+        result = identity_check(snapshot_path, manifest_path=manifest_path,
+                                env=env, launch_model=launch_model)
+    except NoManifestError:
+        return [NO_MANIFEST_PROBLEM], None
+    except Exception as exc:  # noqa: BLE001 - fail closed on any check error
+        return ["%s: check failed: %s: %s" % (FREEZE_MISMATCH_PROBLEM,
+                                              type(exc).__name__, exc)], None
+    problems = ["%s: %s" % (FREEZE_MISMATCH_PROBLEM, line)
+                for line in result.problems]
+    if candidate_sha is not None and candidate_sha != result.candidate_sha:
+        problems.append("%s: snapshot commit %s is not the manifest candidate "
+                        "%s" % (FREEZE_MISMATCH_PROBLEM, candidate_sha,
+                                result.candidate_sha))
+    return problems, result
 
 def _fingerprint_matches(record, settings):
     return record.get("settings_fingerprint") == settings_fingerprint(settings)
@@ -542,8 +701,34 @@ def _probe_record_ok(record_path, settings, sdk_version):
 
 
 def preflight(copy_root, snapshot_path, settings, probe_record_path,
-              sdk_version):
+              sdk_version, manifest_path=None, identity_check=None):
     """Return the reasons a session must not launch ([] = launch)."""
+    problems, _identity = preflight_with_identity(
+        copy_root, snapshot_path, settings, probe_record_path, sdk_version,
+        manifest_path=manifest_path, identity_check=identity_check)
+    return problems
+
+
+def preflight_with_identity(copy_root, snapshot_path, settings,
+                            probe_record_path, sdk_version, manifest_path=None,
+                            identity_check=None, env=None, launch_model=None,
+                            candidate_sha=None):
+    """(problems, CheckResult|None): the reasons a session must not launch
+    ([] = launch) and the freeze identity the run is stamped with.
+
+    `env` and `launch_model` are the exact environment and model the session
+    is launched with; the identity check verifies those, not a stand-in.
+    """
+    problems = _sandbox_problems(copy_root, snapshot_path, settings,
+                                 probe_record_path, sdk_version)
+    found, identity = _identity_or_problems(
+        identity_check or freeze_identity_check, snapshot_path, manifest_path,
+        env, launch_model, candidate_sha)
+    return problems + found, identity
+
+
+def _sandbox_problems(copy_root, snapshot_path, settings, probe_record_path,
+                      sdk_version):
     problems = []
     if sys.platform != "darwin":
         problems.append(UNSUPPORTED_HOST_PROBLEM)

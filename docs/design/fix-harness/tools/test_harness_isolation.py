@@ -20,6 +20,7 @@ if str(HERE) not in sys.path:
 
 import harness_fixture  # noqa: E402
 import harness_record  # noqa: E402
+import harness_sandbox  # noqa: E402
 
 HARNESS_DIR = HERE.parent
 REPO_ROOT = HARNESS_DIR.parent.parent.parent
@@ -100,6 +101,35 @@ class TestIsolation(unittest.TestCase):
         self.assertEqual(isolation_hits(planted), [HOLDOUT])
         self.assertEqual(isolation_hits(ANSWER_KEY + ".md"), [ANSWER_KEY])
         self.assertEqual(isolation_hits("synthetic py-clamp-01"), [])
+
+
+class TestSnapshotProvenance(unittest.TestCase):
+    """The measured plugin copy is the commit's tree, outside the checkout."""
+
+    def test_snapshot_source_is_the_commit(self):
+        import shutil
+        import tempfile
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT),
+                              capture_output=True, check=True, timeout=60,
+                              text=True).stdout.strip()
+        dest = os.path.realpath(tempfile.mkdtemp(prefix="isolation-snap-"))
+        self.addCleanup(shutil.rmtree, dest, True)
+        snap = harness_sandbox.snapshot_plugin_from_commit(
+            str(REPO_ROOT), "HEAD", dest)
+        self.assertEqual(snap.source_path, "git:" + head)
+        self.assertEqual(snap.git_sha, head)
+        self.assertIs(snap.dirty, False)
+        self.assertFalse(harness_sandbox._is_under(
+            snap.path, os.path.realpath(str(REPO_ROOT))))
+        listed = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "-z", "HEAD", "--",
+             harness_sandbox.PLUGIN_REL], cwd=str(REPO_ROOT),
+            capture_output=True, check=True, timeout=60).stdout
+        want = sorted(n.decode("utf-8")[len(harness_sandbox.PLUGIN_REL) + 1:]
+                      for n in listed.split(b"\0") if n)
+        got = sorted(os.path.relpath(os.path.join(r, f), snap.path)
+                     for r, _d, fs in os.walk(snap.path) for f in fs)
+        self.assertEqual(got, want)
 
 
 class TestRunRecords(unittest.TestCase):
