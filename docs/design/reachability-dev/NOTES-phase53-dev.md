@@ -617,6 +617,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/should-quiet-7/run-1 | 2 |
 | targeted/triggarr-secret-in-logs/run-1 | 3 |
 | targeted/triggarr-session-rotation/run-1 | 0 |
+| targeted/triggarr-autoescape/run-1 | 1 |
 
 ## Cache
 
@@ -637,6 +638,43 @@ loads the resynced cache at start; the driving session is not a measured session
 ## Targeted-stage fingerprints
 
 - `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26` — candidate `0a924de` (plugin tree unchanged at `a845fe1`)
+
+## Targeted-stage tally (development rehearsal — not release evidence)
+
+`score43.py dev-tally --runs-root docs/design/reachability-dev/runs-phase53-dev/targeted` (exit 0),
+all ten runs on fingerprint `5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26`:
+
+```text
+reach-new-1 run-1 alarms=5 nv=1 fired=yes cards=2
+reach-new-2 run-2 alarms=1 nv=0 fired=yes cards=2
+reach-unchanged-1 run-1 alarms=2 nv=0 fired=yes cards=2
+reach-unchanged-2 run-1 alarms=0 nv=0 fired=no cards=0
+should-quiet-4 run-1 alarms=1 nv=1 fired=yes cards=2
+should-quiet-6 run-1 alarms=1 nv=1 fired=yes cards=2
+should-quiet-7 run-1 alarms=1 nv=0 fired=yes cards=2
+triggarr-autoescape run-1 alarms=1 nv=0 fired=yes cards=2
+triggarr-secret-in-logs run-1 alarms=2 nv=1 fired=yes cards=2
+triggarr-session-rotation run-1 alarms=1 nv=0 fired=yes cards=2
+runs: 10 · fired runs: 9 · alarms: 15 · needs-verification items: 4 · owner questions: 18
+```
+
+Against entry 1: catches 5/5 kept (`reach-new-1`, `reach-new-2`, `triggarr-secret-in-logs`,
+`triggarr-session-rotation`, `triggarr-autoescape`; every credit from an alarm row, none from an
+NV row). Quiet-shaped: 1/5 quiet (`reach-unchanged-2`); `reach-unchanged-1` fired on a real new
+defect outside its key (deleted helper still imported by the tests); `should-quiet-4` (codex
+bypass alarm + legacy-value NV), `should-quiet-6` (codex critical + staged-value NV),
+`should-quiet-7` (bugs critical, settings save resets a configured value) fired as in Phase 49.
+Cards: 2 per run that showed the fix-loop card (the measurement keystrokes), 0 for the clean run.
+
+**Decision: no rule rewording in this stage.** Each quiet fail is one run and traces to a named
+rule branch where the case key and the rule as written disagree (codex rule 1 on an input the new
+check is written to block, the staged-value "current behavior requires it" branch, the
+legacy-value NV branch), and one is a true positive. A generic rewording on that evidence would be
+a scope decision, not a defect fix, so the candidate goes to the final sweep unchanged and the
+disagreements go to the owner at sign-off. No plugin defect (crash, card misfire, refusal) was
+found; the two harness problems found (`post` rescanning the sha-verified case diff; another
+plugin's `.planning/HANDOFF.json` in the clone) were fixed in the runbook/clone setup, not the
+candidate.
 
 ## Runs
 
@@ -870,4 +908,29 @@ candidates at site with band >= floor: 1
 AXIS: credit — row 074ca54aca0e (alarm, critical 100), listed at the keyed site by `catch-candidates` (routes.py:1567 at the case's coordinates) — members name the keyed consequence: security "no longer rotates session_secret, so stolen/compromised sessions survive a password change", impact "a stolen session cookie stays valid for up to 30 days", codex-adversarial "Stolen session cookies retain access after password changes". Location AND causal failure (session eviction lost) match; the survivor title alone is architectural, the members carry the mechanism.
 
 Result vs entry 1: pre-registered "catch kept" -> catch kept (Phase 49: 3/3). Run: 11m18s; fix-loop card after 661s; `Stop here…` -> `Abandon` by label.
+
+
+### targeted/triggarr-autoescape/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| impact | triggarr/web/routes.py | 45 | critical | 100 | 31e9e61f6da3 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| impact | triggarr/web/routes.py | 45 | critical | 100 | 31e9e61f6da3 | Reverting to Jinja2Templates(directory=..., autoescape=True) raises a TypeError at import on Starlette 1.x, so the app and container fail to start, and the XSS autoescape guarantee now rests on the installed Starlette version | impact: Reverting to Jinja2Templates(directory=..., autoescape=True) raises a TypeError at import on Starlette 1.x, so the app and container fail to start, and the XSS autoescape guarantee now rests on the installed Starlette version; bugs: Jinja2Templates(autoescape=True) raises TypeError at import: the installed Starlette no longer accepts **env_options, so the app fails to start; architecture: Reverts the supported env= Jinja2Templates form for a removed kwargs passthrough, undoing commit e11187e; compliance: Reverts the project's own fix for broken Jinja2 autoescape config; codex-adversarial: Keep XSS protection independent of deprecated environment options; framework-fastapi: Jinja2Templates(autoescape=True) kwarg is unsupported by the installed Starlette and will raise TypeError at import time; bugs: Revert makes HTML autoescaping (protection against script injection / XSS) depend on the Starlette version; security: Autoescape control reverted to a deprecated starlette code path |  |
+candidates at site with band >= floor: 1
+
+AXIS: credit — row 31e9e61f6da3 (alarm, critical 100) at routes.py:45 (keyed bug line) — survivor title names "the XSS autoescape guarantee now rests on the installed Starlette version"; members codex-adversarial "Keep XSS protection independent of deprecated environment options", bugs "Revert makes HTML autoescaping (protection against script injection / XSS) depend on the Starlette version". The escaping/XSS consequence is named at the keyed line, as the key requires. Divergence recorded: the lead mechanism is a TypeError at import on the installed Starlette 1.3.1 (it read `.venv/.../starlette/templating.py`), where the key says autoescape silently no-ops; both are the version-dependent loss the key describes.
+
+Result vs entry 1: pre-registered "catch kept" -> catch kept (Phase 49: 3/3). Run: 10m32s; fix-loop card after 617s; `Stop here…` -> `Abandon` by label. Environment note: this review read the triggarr clone's `.venv`, which did not exist when the clone was made — the previous measured session (`triggarr-session-rotation`) built it by running `uv run pytest` (born 2026-10-15T01:48:40Z). See pre-registration entry 3.
 
