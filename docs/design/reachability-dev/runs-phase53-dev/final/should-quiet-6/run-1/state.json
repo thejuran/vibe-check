@@ -1,0 +1,47 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "9bfd4a63dcac983a544a651d53d76612d08a4933",
+      "timestamp": "2026-10-15T04:41:31Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "Comment claims a 3600s ceiling, but the model has no upper bound",
+          "reason": "absorbed-into: a35af0d5058e0dc101646821434f37b67da86e64894b7fb3806f4ce50cca3469"
+        },
+        {
+          "file": "triggarr/models/config.py",
+          "line": 139,
+          "title": "shutdown_drain_timeout field has no consumer yet: a value set in TOML is silently ignored",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/routes.py",
+          "line": 539,
+          "title": "Saving settings in the UI rebuilds [general] without shutdown_drain_timeout, so a value set in the TOML file goes back to 60.0",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
