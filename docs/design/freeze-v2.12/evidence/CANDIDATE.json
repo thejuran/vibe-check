@@ -28,7 +28,8 @@
         "f1ba53557db61bd999e8c398d354164a12125018",
         "bd5884c3c6d6eba11678d4fd98dbda70cd184891"
       ],
-      "draft_manifest_id": "b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7c595755c"
+      "draft_manifest_id": "b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7c595755c",
+      "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-302df48e1097/ (byte-identical copies; see INDEX.md)"
     }
   ]
 }
