@@ -613,6 +613,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | targeted/reach-unchanged-1/run-1 | 0 |
 | targeted/reach-unchanged-2/run-1 | 0 |
 | targeted/should-quiet-4/run-1 | 3 |
+| targeted/should-quiet-6/run-1 | 2 |
 
 ## Cache
 
@@ -776,4 +777,23 @@ needs-verification rows:
 | bugs | triggarr/models/config.py | 108 | needs-verification | 0 | 9ed3915425d3 |
 
 Result vs entry 1: pre-registered "quiet" (QUIET-03: a stricter validator rejecting a legacy value needs evidence the value exists) -> FIRED (1 alarm, 1 NV); a fail under the pre-registered rule (Phase 49: 1/3 fired). Sources: (1) alarm 987137d5869a, codex-adversarial warning 94 at models/config.py:108, "Alternate numeric hosts bypass metadata SSRF protection" — a decimal host (`http://2852039166` -> 169.254.169.254) passes the new metadata block because the shared, unchanged `web/validation.py:150-171` helper misses it; the Claude-lane members at the row (bugs, impact) call it a pre-existing gap in the shared helper. Codex's own instruction (codex-focus rule 1) treats an input the new check is written to block and fails to block as a defect of the change, so this alarm follows the rule as written; whether the case key or that rule should decide is for the owner. (2) NV 9ed3915425d3, bugs lane, at models/config.py:108 — the QUIET-03 legacy-value shape exactly: trigger a disabled instance with a scheme-less URL (`192.168.1.10:7878`) that loaded before, path ensure_config -> load_settings -> Settings(**data) -> validate_url_ssrf, consequence an uncaught ValidationError at startup. This is the new rule's "contract cannot be established -> NV" outcome firing on a quiet case; under R13 it counts as fired. Run: 8m34s; fix-loop card after 496s; `Stop here…` -> `Abandon` by label.
+
+
+### targeted/should-quiet-6/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 1
+needs-verification items: 1
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | triggarr/models/config.py | 139 | critical | 100 | c93be6bfe251 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | triggarr/models/config.py | 139 | needs-verification | 0 | b6a6ad20d4b5 |
+
+Result vs entry 1: pre-registered "quiet, or at worst an NV item (which still counts as fired)" -> FIRED (1 alarm, 1 NV); a fail, and worse than the "at worst" bound because the alarm is a critical (Phase 49: 3/3 fired, codex critical at config.py:135/139 — the same shape). Sources: (1) alarm c93be6bfe251, codex-adversarial critical 100 at models/config.py:139, "Wire the new timeout setting into the shutdown drain" — argues the field is already exposed (accepted by tests, serialized at routes.py:227) while scheduler.py:70-81/634 still uses the env/hard-coded 60s, i.e. it reads the staged-value rule's "evidence shows current behavior requires it" branch; members bugs (x2) and impact (impact: "no consumer yet"). (2) NV b6a6ad20d4b5, bugs lane: "New config field is never read" with trigger `shutdown_drain_timeout = 300`, consequence the configured value is ignored. The NV text itself states "the default (60.0) matches the env default, so behavior does not change unless someone sets the field" — the "working optional default" evidence the staged-value rule names as grounds to suppress — and it carries a `pending: confirm the scheduler refactor lands in this phase's next plan` note (a plan promise, which the rule says is never evidence). So the Claude lane landed on the NV outcome while citing the suppression evidence. Run: 7m20s; fix-loop card after 421s; `Stop here…` -> `Abandon` by label.
 
