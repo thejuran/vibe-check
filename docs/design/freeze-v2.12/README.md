@@ -32,8 +32,11 @@ mtime:
   runners or gate tooling load, including Markdown: the fix-harness tools,
   fixtures, keys and requirements; the holdout kit tools; this kit's tools,
   PATH-MAP.json and this README; the B3 runner and the live-check runbook
-  whose blocks it executes (`reachability-dev/RUN-PHASE54-live.md`); the
-  reachability cases; the
+  whose blocks it executes (`reachability-dev/RUN-PHASE54-live.md`), the
+  Phase-53 runbook carrying the verdict rules it points to, the
+  reachability README approval record (`check_case`), the keyed catch
+  sites (`CATCH-SITES-dev.json`) and the B3 case diffs
+  (`b3-ground-truth/diffs`); the reachability cases; the
   B3 answer keys, catch manifests, supersessions, allowances and
   calibration notes.
 - **Models:** agent pins, the top-level routing and its source, per-call

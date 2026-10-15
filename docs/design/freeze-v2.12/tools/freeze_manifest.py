@@ -62,8 +62,15 @@ COVERED = (
     ("docs/design/freeze-v2.12/PATH-MAP.json", None),
     ("docs/design/freeze-v2.12/README.md", None),
     ("docs/design/b3-ground-truth/b3-runner-v2.12", None),
-    # the B3 live-check runbook: b3_block executes its blocks (D-18: Markdown, still covered)
+    # read by the B3 runner at run time (D-18: Markdown included): the live-check runbook whose
+    # blocks b3_block executes, the Phase-53 runbook holding the verdict rules it points to, the
+    # README approval record check_case reads, the keyed sites post scores against, and the B3
+    # case patches / provenance sidecar applies
     ("docs/design/reachability-dev/RUN-PHASE54-live.md", None),
+    ("docs/design/reachability-dev/RUN-PHASE53-dev.md", None),
+    ("docs/design/reachability-dev/README.md", None),
+    ("docs/design/reachability-dev/CATCH-SITES-dev.json", None),
+    ("docs/design/b3-ground-truth/diffs", None),
     ("docs/design/reachability-dev/cases", None),
     ("docs/design/b3-ground-truth", "ANSWER-KEY-*.md"),
     ("docs/design/b3-ground-truth", "REPLAY-CATCH-MANIFEST-*.json"),

@@ -29,6 +29,17 @@ HEX64 = r"[0-9a-f]{64}"
 HEX40 = r"[0-9a-f]{40}"
 B3_MODEL = "claude-fable-5-1[1m]"
 RUNBOOK = "docs/design/reachability-dev/RUN-PHASE54-live.md"
+# B3-runner run-time inputs beyond the runbook: covered key -> (fixture file, its name in the map)
+RUNNER_INPUTS = {
+    "docs/design/reachability-dev/RUN-PHASE53-dev.md":
+        ("docs/design/reachability-dev/RUN-PHASE53-dev.md", "RUN-PHASE53-dev.md"),
+    "docs/design/reachability-dev/README.md":
+        ("docs/design/reachability-dev/README.md", "README.md"),
+    "docs/design/reachability-dev/CATCH-SITES-dev.json":
+        ("docs/design/reachability-dev/CATCH-SITES-dev.json", "CATCH-SITES-dev.json"),
+    "docs/design/b3-ground-truth/diffs":
+        ("docs/design/b3-ground-truth/diffs/case-a.patch", "case-a.patch"),
+}
 HARNESS_MODEL = "claude-fixture-1[1m]"
 
 # The exact identity-bearing CLI shapes each production launcher runs. No
@@ -89,6 +100,8 @@ class _CheckFixture(tfm._Fixture):
         tfm._write(r, "docs/design/freeze-v2.12/PATH-MAP.json", json.dumps(m))
         tfm._write(r, fm.RUNNER_TEMPLATE, json.dumps(RUNNER_TEMPLATE, indent=2))
         tfm._write(r, RUNBOOK, "# BLOCK: common\nset -e\n# END: common\n")
+        for rel, _ in RUNNER_INPUTS.values():
+            tfm._write(r, rel, "original\n")
         _git(r, "add", "-A")
         _git(r, "commit", "-q", "-m", "candidate")
         self.candidate = _git(r, "rev-parse", "HEAD")
@@ -734,6 +747,53 @@ class TestRunbookCovered(_Base):
             fh.write(b"#")
         problems = self.fx.check("b3").problems
         self.assertIn("repo: uncommitted change in covered path: " + RUNBOOK, problems)
+
+    def test_runner_inputs_in_covered_file_map(self):
+        for key, (_, name) in RUNNER_INPUTS.items():
+            self.assertIn((key, None), fm.COVERED, key)
+            self.assertIn(key, fc.B3_COVERED_KEYS, key)
+            self.assertEqual(set(self.fx.manifest["covered"][key]["files"]), {name}, key)
+
+    def test_real_runner_inputs_hashed_from_git(self):
+        if tfm.REAL_REPO is None:
+            self.skipTest("not in a git checkout")
+        cov = fm.covered_tree_files(tfm.REAL_REPO, "HEAD")
+        for key in RUNNER_INPUTS:
+            self.assertTrue(cov[key]["files"], key)
+        self.assertTrue(any(n.endswith(".provenance")
+                            for n in cov["docs/design/b3-ground-truth/diffs"]["files"]))
+
+    def test_real_map_classifies_runner_inputs_like_the_runner_layer(self):
+        import freeze_policy
+        with open(REAL_MAP, "r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        pm = freeze_policy.validate_path_map(json.loads(json.dumps(raw)))
+        layer = "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh"
+        paths = [rel for rel, _ in RUNNER_INPUTS.values()] + [layer]
+        got = freeze_policy.classify(paths, pm)
+        globs = [r["glob"] for r in raw["rules"]]
+        for key, (rel, _) in RUNNER_INPUTS.items():
+            self.assertEqual(got[rel], got[layer], rel)
+            self.assertTrue(key in globs or key + "/**" in globs, key)
+
+    def test_committed_runner_input_change_stops(self):
+        self.pristine("b3")
+        for key, (rel, _) in RUNNER_INPUTS.items():
+            _commit(self.fx.repo, rel, "edited\n")
+            problems = self.fx.check("b3").problems
+            self.assertIn("repo: covered artifact differs at HEAD: " + rel, problems)
+            self.assertTrue(any(p.startswith("file differs: " + fc._label(rel))
+                                for p in problems), (rel, problems))
+
+    def test_runner_input_change_stops_even_under_a_lax_map(self):
+        fx = _CheckFixture(path_map=[{"glob": "**", "cats": ["reporting"]}])
+        self.addCleanup(fx.close)
+        self.assertEqual(fx.check("b3").problems, [])
+        for rel, _ in RUNNER_INPUTS.values():
+            _commit(fx.repo, rel, "edited\n")
+        problems = fx.check("b3").problems
+        for rel, _ in RUNNER_INPUTS.values():
+            self.assertIn("repo: covered artifact differs at HEAD: " + rel, problems)
 
     def test_reporting_neighbours_stay_exempt(self):
         self.pristine("b3")

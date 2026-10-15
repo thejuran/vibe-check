@@ -234,6 +234,38 @@
       ]
     },
     {
+      "glob": "docs/design/reachability-dev/RUN-PHASE53-dev.md",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/reachability-dev/README.md",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/reachability-dev/CATCH-SITES-dev.json",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
+      "glob": "docs/design/b3-ground-truth/diffs/**",
+      "cats": [
+        "engineering",
+        "detection",
+        "workflow"
+      ]
+    },
+    {
       "glob": "plugins/vibe-check/scripts/score.py",
       "cats": [
         "engineering",
