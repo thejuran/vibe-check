@@ -673,6 +673,7 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/triggarr-session-rotation/run-1 | 2 |
 | final/triggarr-settings-form-split/run-1 | 0 |
 | final/should-quiet-4/run-1 | 3 |
+| final/should-quiet-5/run-1 | 0 |
 
 ## Cache
 
@@ -1301,4 +1302,21 @@ needs-verification rows:
 | impact | triggarr/models/config.py | 91 | needs-verification | 0 | 5ded17410c7d |
 
 vs entry 1: "quiet" (QUIET-03) -> FIRED (1 alarm, 2 NV); a fail (Phase 49: 1/3 fired; targeted run: 1 alarm + 1 NV, same shape). Sources: alarm 37b2056f0936, codex-adversarial warning at models/config.py:108 — "Numeric IPv4 notation bypasses the metadata SSRF block" (the bypass sits in the unchanged shared helper; an impact member calls it pre-existing; codex rule 1 treats an input the new check is written to block as a defect of the change). NV b04b099a1960 (bugs) — legacy scheme-less URL in a disabled instance now aborts startup; NV 5ded17410c7d (impact, config.py:91) — `http://0.0.0.0:7878` / `http://[::]:7878` hand-edited URLs now rejected. Both NV items are the new legacy-value rule's "contract cannot be established -> NV" outcome. Run 8m06s; fix-loop card after 466s; `Stop here…` -> `Abandon` by label.
+
+
+### final/should-quiet-5/run-1 — development rehearsal — not release evidence
+
+fingerprint: 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+
+alarms: 0
+needs-verification items: 0
+fired: no
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+vs entry 1: "quiet" -> quiet (0 alarms, 0 NV) — PASS (Phase 49: 0/3 fired). Clean review: no fix-loop card, no keystroke after `/vibe-check:deep-review`. Run 6m16s.
 

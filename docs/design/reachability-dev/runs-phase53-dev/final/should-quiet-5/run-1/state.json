@@ -1,0 +1,40 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "70354771a331f7def6c8116556f58d865f644cd9",
+      "timestamp": "2026-10-15T04:34:54Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/python/model/model.py",
+          "line": 97,
+          "title": "A non-string filename passed to remove_file now crashes in the debug log before the ModelError check",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "src/python/model/model.py",
+          "line": 81,
+          "title": "Sanitizer now runs on every add/remove/update even when DEBUG logging is off",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
