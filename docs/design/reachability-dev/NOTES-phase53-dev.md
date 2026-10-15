@@ -871,10 +871,95 @@ Observed in this rehearsal: every measured run wrote its state under `format-53/
   repos were not touched except the one verified stash drop. The disposable clones remain under
   `~/.b3/phase53-clones/` for a possible restart of the sweep.
 
-## Owner sign-off
+## Owner sign-off — 2026-10-15
 
-Pending (Task 3 checkpoint) — the sign-off and the nv_dropped_weak scope answer are recorded
-here against `FINAL_FP` 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26.
+Approved fingerprint: `FINAL_FP` 5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26
+(equal to `## Final candidate`; `repo_head` ebcd3e4). No change to `plugins/vibe-check/` was made
+after this sign-off; Phase 54 freezes this candidate.
+
+Owner's words, verbatim:
+
+> "Approve the recommendations with these records:
+> - reach-unchanged-1: retain the original quiet expectation and record the missed test-import defect as a key correction. Separately record that the intended pre-existing weaknesses were correctly suppressed. Don't retroactively count this as an expected catch.
+> - should-quiet-4: leave the rules and B3 key unchanged. Count its alarms honestly in Phase 55. Document the URL-bypass disagreement and the compatibility uncertainty separately; neither gets an exemption.
+> - should-quiet-7: retain its previously recorded exclusion, with no new exclusions.
+> - should-quiet-6: publish both outcomes. Same-build variability is precisely why Phase 55 repeats cases.
+> - nv_dropped_weak: keep the implementation, but label the count accurately as dropped weak remarks—not necessarily dropped Needs-verification candidates.
+> The 24 owner questions across 16 runs are a useful burden baseline, not evidence that interruptions decreased. Likewise, 1/6 quiet cases alarming is encouraging but cannot establish improvement over 5/18 repeated runs.
+> No further tuning from this checkpoint. Complete Phase 54's required checks, freeze the verified artifact, then run Phase 55 against the unchanged gates."
+
+should-quiet-4 (additional, verbatim):
+
+> "Record the residual for this release. Keep the rule and B3 key unchanged. If it fires in Phase 55, count it as an alarm on a should-quiet case, with no exemption. Document why the reviewer disputes that classification. This preserves measurement integrity; it doesn't settle whether the bypass is a real defect. Revisit that"
+
+nv_dropped_weak (additional, verbatim):
+
+> "Keep current scope. Label it "weak co-located remarks dropped", and report 16 across 16 rehearsal runs. Keep it separate from visible Needs-verification items and alarms. That preserves the measured build while making the number honest and understandable."
+
+**nv_dropped_weak scope answer: confirmed (current scope kept, not narrowed).** No change to
+`score.py`; no re-sweep.
+
+### Records from the sign-off
+
+**reach-unchanged-1.**
+- Expectation: the original **quiet** expectation is RETAINED. This case is not, and is not
+  retroactively counted as, an expected catch. Both runs (targeted and final) stay recorded as
+  FIRED against a quiet expectation.
+- Key correction: the commit deletes `parse_optional_int` from
+  `src/roonseek/web/_filter_overrides.py` while `tests/test_filter_overrides.py:13` still imports
+  it (verified at feature `79031dc`). That is a legitimate new defect the case key did not cover;
+  both alarm rows on the final run (`2dab2c1b1e61` bugs critical at `_filter_overrides.py:73`,
+  `fe03e1c9ca8c` architecture warning at `tests/test_filter_overrides.py:13`) are this one
+  defect. Recorded as a dated key correction in `cases/reach-unchanged-1.expected.md`; the
+  original expectation text, `.patch` and `.provenance` are unchanged.
+- Separately: the intended pre-existing reachability weaknesses (a) unguarded UTF-8 decode,
+  (b) bare `int()` coercion with no range bound, (c) re-fetched row with no None check were
+  correctly suppressed on both runs — none raised an alarm or a Needs-verification item.
+
+**should-quiet-4 — known residual for this release.**
+- The rules and the B3 key are unchanged. In Phase 55 any firing counts as an alarm on a
+  should-quiet case, with no exemption.
+- (a) URL numeric-host bypass disagreement. The codex lane raises a warning that a numeric IPv4
+  host (decimal `http://2852039166` = 169.254.169.254) passes the new metadata block, because the
+  shared, unchanged `web/validation.py` helper does not normalize it. The B3 key reads the change
+  as quiet. The reviewer disputes the quiet classification under codex-focus rule 1: an input the
+  new check is written to block, and that it fails to block, is a defect of the change, not a
+  pre-existing gap. The Claude-lane members at the same row call it a pre-existing gap in the
+  shared helper. Recorded as a disagreement; it gets no exemption.
+- (b) Compatibility (legacy URL rejection) uncertainty. The bugs and impact lanes raise
+  Needs-verification items that hand-edited legacy values (a scheme-less URL in a disabled
+  instance; `http://0.0.0.0:7878` / `http://[::]:7878`) that loaded before are now rejected at
+  startup. Whether such values exist in real configs cannot be established from the diff, which
+  is the legacy-value rule's NV outcome. Recorded separately from (a); it gets no exemption.
+- Whether the bypass is a real defect: to be revisited (owner). This record preserves measurement
+  integrity and does not settle that question. Also listed in
+  `.planning/phases/53-false-alarm-reduction/deferred-items.md`.
+
+**should-quiet-7.** Its previously recorded exclusion (SUPERSESSIONS #001) is retained. No new
+exclusions are made from this rehearsal.
+
+**should-quiet-6 — both outcomes published.** Targeted run: FIRED (codex critical
+`c93be6bfe251` + bugs NV `b6a6ad20d4b5`). Final run: quiet (0 alarms, 0 NV). Same fingerprint
+`5bee4c11…` for both. Same-build variability is why Phase 55 repeats each case; neither single
+run is evidence on its own.
+
+**nv_dropped_weak.** Label: **weak co-located remarks dropped** — 16 across 16 rehearsal runs
+(final sweep). It is reported separately from visible Needs-verification items (2) and alarms
+(17), and never summed with them. It counts lower-lane remarks beside a qualifying lead; these
+are not necessarily dropped Needs-verification candidates. Wording check on the frozen build
+(read-only): the rendered footer (`templates/output-format.md`, bound in
+`phases/review/40-render.md`) reads "N weak co-located note(s) that neither qualified as findings
+nor as Needs-verification items — counted, not shown", and `templates/scoring.md` R5 calls them
+weak notes. Neither calls them dropped Needs-verification candidates, so there is no wording
+mismatch to carry. The only residue is the internal output key name `nv_dropped_weak`, which is
+not shown to the user.
+
+**Burden framing.** The 24 owner questions across 16 runs are a burden baseline, not evidence
+that interruptions decreased. 1/6 headline quiet cases alarming on single runs is encouraging but
+cannot establish improvement over Phase 49's 5/18 repeated runs. Phase 55 measures that.
+
+**Next.** No further tuning from this checkpoint. Phase 54 completes its required checks and
+freezes the verified artifact; Phase 55 runs against the unchanged gates.
 
 ## Runs
 

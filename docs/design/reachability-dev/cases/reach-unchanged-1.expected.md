@@ -58,3 +58,18 @@ introduced by Phase 29; all predate the Safari activation audit. Low-severity
 (authenticated operator surface only)". They were fixed later in `ac56cc9`
 ("fix: harden filter override inputs"). This history agrees with the verdict but
 does not establish it; the before/after comparison above does.
+
+## Key correction (owner, 2026-10-15)
+
+Added after the Phase-53 development rehearsal; the expectation and analysis above are unchanged.
+
+- The expected verdict stays **quiet**. This case is not counted as an expected catch,
+  retroactively or in later runs.
+- The key above did not cover one legitimate new defect in this commit: `parse_optional_int` is
+  deleted from `src/roonseek/web/_filter_overrides.py` while `tests/test_filter_overrides.py:13`
+  still imports it (verified at feature_sha 79031dc), so the test module fails at import. Both
+  rehearsal runs raised it (bugs critical at `_filter_overrides.py:73`, architecture warning at
+  `tests/test_filter_overrides.py:13`). A finding on it is a real defect, but a run that raises
+  it still counts as fired against the quiet expectation.
+- Separately: the intended pre-existing weaknesses (a)-(c) above were correctly suppressed on
+  both rehearsal runs.
