@@ -1,0 +1,40 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a13d2d-0608-77d1-8f90-1f546b8da699",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase53-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship yet: the newly accepted shutdown timeout is persisted but never applied.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Apply the saved timeout to the shutdown drain\",\"body\":\"POST /settings with shutdown_drain_timeout=120.5 now saves that value successfully, but triggarr/search/scheduler.py:70–81 still derives the timeout exclusively from the environment, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds even when the saved setting requests 120.5 seconds. Restarting does not apply it either. This newly enabled configuration path has no runtime consumer.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from app.state.settings.general.shutdown_drain_timeout at shutdown, applying the environment override when present. Add a shutdown test proving a value saved through POST /settings controls the actual timeout.\"}],\"next_steps\":[]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship yet: the newly accepted shutdown timeout is persisted but never applied.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Apply the saved timeout to the shutdown drain",
+        "body": "POST /settings with shutdown_drain_timeout=120.5 now saves that value successfully, but triggarr/search/scheduler.py:70–81 still derives the timeout exclusively from the environment, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds even when the saved setting requests 120.5 seconds. Restarting does not apply it either. This newly enabled configuration path has no runtime consumer.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 550,
+        "line_end": 550,
+        "confidence": 0.99,
+        "recommendation": "Resolve the drain timeout from app.state.settings.general.shutdown_drain_timeout at shutdown, applying the environment override when present. Add a shutdown test proving a value saved through POST /settings controls the actual timeout."
+      }
+    ],
+    "next_steps": []
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship yet: the newly accepted shutdown timeout is persisted but never applied.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Apply the saved timeout to the shutdown drain\",\"body\":\"POST /settings with shutdown_drain_timeout=120.5 now saves that value successfully, but triggarr/search/scheduler.py:70–81 still derives the timeout exclusively from the environment, and line 634 uses that constant. With no environment override, shutdown therefore forces resource closure after 60 seconds even when the saved setting requests 120.5 seconds. Restarting does not apply it either. This newly enabled configuration path has no runtime consumer.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from app.state.settings.general.shutdown_drain_timeout at shutdown, applying the environment override when present. Add a shutdown test proving a value saved through POST /settings controls the actual timeout.\"}],\"next_steps\":[]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
