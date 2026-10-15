@@ -6421,6 +6421,118 @@ class TestNeedsVerificationRoute(unittest.TestCase):
         self.assertNotIn("needs_verification", score.MEMBER_KEYS)
 
 
+class TestNeedsVerificationPlaceholders(unittest.TestCase):
+    """A fresh `needs_verification` dict whose fields are blank, `{}`, or wholly
+    a placeholder (`N/A`, `none`, `-`) is not a Needs-verification claim: the
+    finding scores exactly like the same finding without the key. A record with
+    at least one real field must pass nv_admit and is never promoted."""
+
+    _PLACEHOLDERS = {"trigger": "N/A", "path": "none", "consequence": "-"}
+
+    def _proven(self, **nv_over):
+        return _nv(conf=90, **nv_over)
+
+    def _plain(self):
+        p = self._proven()
+        del p["needs_verification"]
+        return p
+
+    def _assert_scores_as_plain(self, f):
+        r = score.run(_nv_env([f]))
+        r_plain = score.run(_nv_env([self._plain()]))
+        self.assertEqual(len(r_plain["findings"]), 1)
+        self.assertEqual(len(r["findings"]), 1)
+        row, plain = r["findings"][0], r_plain["findings"][0]
+        self.assertEqual(row["band"], plain["band"])
+        self.assertNotEqual(row["band"], score.NV_BAND)
+        self.assertEqual(row["orchestrator_score"], plain["orchestrator_score"])
+        self.assertEqual(r["filtered"], [])
+        self.assertNotIn("nv_dropped", r)
+        self.assertNotIn("needs_verification", row)
+
+    def test_placeholder_values_score_as_normal_finding(self):
+        self._assert_scores_as_plain(self._proven(**self._PLACEHOLDERS))
+        for v in ("N/A", " none ", "NONE", "-", "n/a."):
+            with self.subTest(value=v):
+                self._assert_scores_as_plain(
+                    self._proven(trigger=v, path=v, consequence=v))
+
+    def test_blank_dict_bcd15ef_rule(self):
+        blank_fields = self._proven(trigger="", path="  ", consequence="")
+        self._assert_scores_as_plain(blank_fields)
+        empty = self._proven()
+        empty["needs_verification"] = {}
+        self._assert_scores_as_plain(empty)
+
+    def test_genuine_nv_still_takes_nv_route(self):
+        r = score.run(_nv_env([_nv()]))
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["band"], "needs-verification")
+        self.assertEqual(len(r["findings"]), 1)
+
+    def test_partial_placeholder_is_not_promoted(self):
+        f = self._proven(path="none", consequence="-")   # real trigger only
+        self.assertTrue(score._nv_marked(f))
+        r = score.run(_nv_env([f]))
+        self.assertEqual(r["findings"], [])
+        self.assertEqual([x["reason"] for x in r["filtered"]], ["nv-not-admitted"])
+        self.assertEqual(r["nv_dropped"], 1)
+
+    def test_substantive_text_is_not_a_placeholder(self):
+        text = "none of the callers validate the host header"
+        self.assertEqual(score._nv_value(text), text)
+        f = self._proven(trigger=text)
+        rows = _nv_rows(score.run(_nv_env([f])))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["needs_verification"]["trigger"], text)
+
+    def test_placeholder_set_is_exactly_locked(self):
+        self.assertEqual(score._NV_PLACEHOLDERS, frozenset({"n/a", "none", "-"}))
+        for v in ("na", "null", "—", "None given"):
+            with self.subTest(value=v):
+                self.assertEqual(score._nv_value(v), v)
+
+    def test_carried_unaffected(self):
+        p1 = _nv_rows(score.run(_nv_env([_nv()])))[0]
+        # A fresh re-report carrying only placeholders does not disturb the carry.
+        r = score.run(_nv_env([_nv(**self._PLACEHOLDERS)],
+                              carryforward=[_nv_cf(p1, _NV_FIRST, _NV_CODE)],
+                              pass_number=2))
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "persisted")
+        self.assertEqual(rows[0]["stable_hash"], p1["stable_hash"])
+        self.assertNotIn("nv_dropped", r)
+        # A carried record is trusted as written, placeholders included.
+        cf = _nv_cf(p1, _NV_FIRST, _NV_CODE)
+        cf["needs_verification"].update(self._PLACEHOLDERS)
+        r = score.run(_nv_env([], carryforward=[cf], pass_number=2))
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "persisted")
+        self.assertNotIn("nv_dropped", r)
+
+    def _assert_mutant_drops_placeholder(self, target, replacement):
+        f = self._proven(**self._PLACEHOLDERS)
+        # Pristine: scored as a normal finding.
+        pristine = score.run(_nv_env([json.loads(json.dumps(f))]))
+        self.assertEqual(len(pristine["findings"]), 1)
+        self.assertNotIn("nv_dropped", pristine)
+        # Mutant: the placeholder record is marked, fails admission and is dropped.
+        with mock.patch.object(score, target, replacement):
+            mutant = score.run(_nv_env([json.loads(json.dumps(f))]))
+        self.assertEqual(mutant["findings"], [])
+        self.assertEqual([x["reason"] for x in mutant["filtered"]], ["nv-not-admitted"])
+        self.assertEqual(mutant["nv_dropped"], 1)
+
+    def test_mutant_nv_value_reverted_to_nv_field(self):
+        self._assert_mutant_drops_placeholder("_nv_value", score._nv_field)
+
+    def test_mutant_empty_placeholder_set(self):
+        self._assert_mutant_drops_placeholder("_NV_PLACEHOLDERS", frozenset())
+
+
 class TestNeedsVerificationCarry(unittest.TestCase):
     """Multi-pass Needs-verification carry: identity is assigned once, the item
     stays open unless its WHOLE recorded snippet is confirmed at HEAD (O-2)."""
