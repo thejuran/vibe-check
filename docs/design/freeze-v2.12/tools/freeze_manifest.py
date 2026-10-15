@@ -70,7 +70,7 @@ COVERED = (
     ("docs/design/b3-ground-truth", "CALIBRATION-*.md"),
 )
 # Generated freeze data never enters a map it is checked against.
-COVERED_EXCLUDED_GLOBS = ("docs/design/freeze-v2.12/FREEZE-MANIFEST-*.json",
+COVERED_EXCLUDED_GLOBS = ("docs/design/freeze-v2.12/**/FREEZE-MANIFEST-*.json",
                           "docs/design/freeze-v2.12/evidence/**")
 
 HARNESS_KIT_PREFIXES = ("docs/design/fix-harness/tools",
