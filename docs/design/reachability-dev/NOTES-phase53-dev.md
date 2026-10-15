@@ -677,6 +677,13 @@ runs complete (Task 3 sign-off item 7 reads it).
 | final/should-quiet-6/run-1 | 0 |
 | final/should-quiet-7/run-1 | 4 |
 
+Read from each run's rendered review footer ("N weak co-located note(s) ... counted, not shown";
+the key is absent when zero, so a run with no footer count is 0). Final sweep: 16 weak notes over
+16 runs, 9 runs at 0; the largest counts are on rows that were already alarms or already quiet
+(should-quiet-7 4, should-quiet-1 3 with 0 alarms, should-quiet-4 3, triggarr-secret-in-logs 3).
+Under the current rule these notes never raise a band and never render; the number only reports
+how many lower-lane remarks sat beside a qualifying lead.
+
 ## Cache
 
 resync-cache (2026-10-14, stage targeted): installed cache
@@ -751,6 +758,99 @@ Replay checks on this candidate (scorer `rev:HEAD`, sha256 `525c5e83…`):
 - complete-output diff vs `blob:5ca2ddd…` with `ALLOWANCES-phase53-nv.json` — exit 0; runs compared
   154, differing 65, all allowed; **runs with unallowed differences: 0**; allowances unused 0; no
   new allowance added (`REPLAY-REPORT-phase53-final-diff.md`).
+
+## Tally
+
+Final stage, bound to `FINAL_FP` (development rehearsal — not release evidence):
+
+`python3 plugins/vibe-check/scripts/score43.py dev-tally --runs-root
+docs/design/reachability-dev/runs-phase53-dev/final --require-fingerprint
+5bee4c114038e737da9553262b1702c656f2ab14f9bf1d78f7dd22406b85ec26` — exit 0; stale: 0, missing: 0
+(the command prints a `stale:`/`missing:` line per affected run and exits 1 on any; none printed);
+fingerprints seen: exactly `FINAL_FP`; every `final/*/run-1/fingerprint.txt` names it.
+
+```text
+reach-new-1 run-1 alarms=4 nv=0 fired=yes cards=2
+reach-new-2 run-1 alarms=1 nv=0 fired=yes cards=2
+reach-unchanged-1 run-1 alarms=2 nv=0 fired=yes cards=2
+reach-unchanged-2 run-1 alarms=0 nv=0 fired=no cards=0
+should-quiet-1 run-1 alarms=0 nv=0 fired=no cards=2
+should-quiet-2 run-1 alarms=0 nv=0 fired=no cards=2
+should-quiet-3 run-1 alarms=0 nv=0 fired=no cards=0
+should-quiet-4 run-1 alarms=1 nv=2 fired=yes cards=2
+should-quiet-5 run-1 alarms=0 nv=0 fired=no cards=0
+should-quiet-6 run-1 alarms=0 nv=0 fired=no cards=0
+should-quiet-7 run-1 alarms=1 nv=0 fired=yes cards=2
+third-organic-should-catch run-1 alarms=1 nv=0 fired=yes cards=2
+triggarr-autoescape run-1 alarms=1 nv=0 fired=yes cards=2
+triggarr-secret-in-logs run-1 alarms=2 nv=0 fired=yes cards=2
+triggarr-session-rotation run-1 alarms=2 nv=0 fired=yes cards=2
+triggarr-settings-form-split run-1 alarms=2 nv=0 fired=yes cards=2
+runs: 16 · fired runs: 10
+```
+
+Three totals, never summed (R13): **visible alarms 17 · Needs-verification items 2 · owner
+questions 24** (24 = 2 measurement cards on each of the 12 runs that showed the fix-loop card;
+the 4 clean runs showed none).
+
+| case | role | fired | catch (hand AXIS) | credited row | entry-1 expectation | Phase 49 |
+|---|---|---|---|---|---|---|
+| reach-new-1 | catch (dev) | yes | credit | 453bc76570c9 alarm | catch | not run |
+| reach-new-2 | catch (dev) | yes | credit | 3f078fc6d4f6 alarm | catch | not run |
+| triggarr-secret-in-logs | catch | yes | credit | 62cb389298ca alarm | catch kept | 3/3 |
+| triggarr-autoescape | catch | yes | credit | 02babc676ff2 alarm | catch kept | 3/3 |
+| third-organic-should-catch | catch | yes | credit | 2cc1dbe9a612 alarm | catch kept | 3/3 |
+| triggarr-session-rotation | catch | yes | credit | 312fd3c4c345 alarm | catch kept | 3/3 |
+| triggarr-settings-form-split | catch | yes | credit | 6b98d7648011 alarm | catch kept | 3/3 |
+| reach-unchanged-1 | quiet (dev) | **yes** (2 alarms) | — | — | quiet | not run |
+| reach-unchanged-2 | quiet (dev) | no | — | — | quiet | not run |
+| should-quiet-1 | quiet | no | — | — | quiet | 0/3 |
+| should-quiet-2 | quiet | no | — | — | quiet | 0/3 |
+| should-quiet-3 | quiet | no | — | — | quiet | 1/3 |
+| should-quiet-4 | quiet | **yes** (1 alarm, 2 NV) | — | — | quiet | 1/3 |
+| should-quiet-5 | quiet | no | — | — | quiet | 0/3 |
+| should-quiet-6 | quiet | no | — | — | quiet or at worst NV | 3/3 |
+| should-quiet-7 | quiet (excluded, SUPERSESSIONS #001) | **yes** (1 alarm) | — | — | quiet or at worst NV | 3/3 |
+
+Catches: 7/7 kept (5/5 B3, 2/2 development), every credit from an alarm row, none from an NV row.
+Quiet-shaped: 6/9 quiet. Headline B3 quiet set (should-quiet-1..6): 1/6 fired on this single run
+(Phase 49: 5/18 runs fired). Unexpected against entry 1: `reach-unchanged-1` fired on a real new
+defect outside its key (deleted helper still imported by the tests — verified at feature_sha);
+`should-quiet-4` fired (codex alarm on a numeric-host bypass in the unchanged shared helper + two
+legacy-value NV items); `should-quiet-7` fired (bugs critical: a settings save overwrites a
+hand-configured value). `should-quiet-6` was quiet here but fired in the targeted run on the same
+build — single runs vary.
+
+## Lost catch investigation
+
+No catch was lost on the final candidate: every B3 catch case in `score43.DIFFS`
+(`triggarr-secret-in-logs`, `triggarr-autoescape`, `third-organic-should-catch`,
+`triggarr-session-rotation`, `triggarr-settings-form-split`) has a `catch-candidates` row at the
+keyed site naming the keyed causal failure (hand AXIS lines under each run), and the replay guard
+kept every protected catch (25 kept + 1 ledger-amended, 0 regressed). Nothing is carried into
+Phase 54 on this account. One recorded divergence, not a loss: on `triggarr-autoescape` both runs
+lead with a TypeError at import on the installed Starlette 1.3.1, where the key describes a silent
+autoescape no-op; both name the autoescape/XSS consequence the key requires.
+
+## Pitfall 11
+
+Two julian-orchestrator limitations for the Phase 54 audit (milestone-audit reading caveats, not
+vibe-check defects; the orchestrator plugin is out of v2.12 scope):
+
+1. `count_unfixed_cw` counts only critical/warning bands and ignores Needs-verification
+   obligations, so a review whose finalize is blocked only by undecided NV items can look clean to
+   the orchestrator.
+2. After 53-13 moved live review state to `.turingmind/state/format-53/<key>.json`,
+   `mf_vibecheck_state_file` still resolves the legacy flat `.turingmind/state/<phase-dir-basename>.json`,
+   so it finds either no state file or the frozen pre-migration copy — never the live format-53
+   file — and its `UNFIXED_CW` reads the wrong file, not just an undercount. A blocked finalize can
+   therefore be misread by the milestone audit.
+
+Operating instruction: once the plugin cache is resynced to the Phase-53 candidate, the
+milestone's own orchestrator deep-review gates for Phase 53 and Phase 54 must be told the
+format-53 state path explicitly (or read `.turingmind/state/format-53/<key>.json` directly).
+Observed in this rehearsal: every measured run wrote its state under `format-53/` (the key
+`<repo>-.json`, empty branch slug on the detached case checkout), and `post` refused any flat file.
 
 ## Runs
 
