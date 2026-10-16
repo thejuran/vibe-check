@@ -1,0 +1,52 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a141ff-6a6c-7ca0-8c13-6a4e4fc8c52a",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase54-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: raw exception logging newly exposes credentials and response contents.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Raw HTTP exceptions expose URL credentials in logs\",\"body\":\"A configured URL such as http://alice:proxy-password@localhost:7878 passes InstanceConfig validation and reaches validate_connection through startup.py:153–160. On a 502, the new exception formatting includes the complete URL, including proxy-password; reproduced with the installed httpx and logging sink. collect_secrets (startup.py:74–100) collects API keys and auth secrets, but not URL credentials, so both logging sinks retain the password. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":233,\"line_end\":235,\"confidence\":1,\"recommendation\":\"Restore status-code-only logging, or explicitly sanitize URL credentials before formatting exceptions.\"},{\"severity\":\"medium\",\"title\":\"Validation errors disclose upstream response data\",\"body\":\"When system/status returns 200 with a malformed body such as {\\\"token\\\":\\\"proxy-secret\\\"}, the missing version field produces a ValidationError containing that body. The new log statement exposes proxy-secret; reproduced with SystemStatus and the configured redacting sink. Redaction only replaces known configured secrets, so arbitrary upstream credentials or private response fields reach stderr and the web log buffer. The previous error-count logging excluded response contents.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":252,\"line_end\":254,\"confidence\":1,\"recommendation\":\"Keep error-count-only logging or emit validation metadata with input values and context excluded.\"}],\"next_steps\":[\"Restore payload-free exception logging and add regression checks for URL credentials and malformed responses containing secrets.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: raw exception logging newly exposes credentials and response contents.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Raw HTTP exceptions expose URL credentials in logs",
+        "body": "A configured URL such as http://alice:proxy-password@localhost:7878 passes InstanceConfig validation and reaches validate_connection through startup.py:153–160. On a 502, the new exception formatting includes the complete URL, including proxy-password; reproduced with the installed httpx and logging sink. collect_secrets (startup.py:74–100) collects API keys and auth secrets, but not URL credentials, so both logging sinks retain the password. Previously this branch logged only the status code.",
+        "file": "triggarr/clients/base.py",
+        "line_start": 233,
+        "line_end": 235,
+        "confidence": 1,
+        "recommendation": "Restore status-code-only logging, or explicitly sanitize URL credentials before formatting exceptions."
+      },
+      {
+        "severity": "medium",
+        "title": "Validation errors disclose upstream response data",
+        "body": "When system/status returns 200 with a malformed body such as {\"token\":\"proxy-secret\"}, the missing version field produces a ValidationError containing that body. The new log statement exposes proxy-secret; reproduced with SystemStatus and the configured redacting sink. Redaction only replaces known configured secrets, so arbitrary upstream credentials or private response fields reach stderr and the web log buffer. The previous error-count logging excluded response contents.",
+        "file": "triggarr/clients/base.py",
+        "line_start": 252,
+        "line_end": 254,
+        "confidence": 1,
+        "recommendation": "Keep error-count-only logging or emit validation metadata with input values and context excluded."
+      }
+    ],
+    "next_steps": [
+      "Restore payload-free exception logging and add regression checks for URL credentials and malformed responses containing secrets."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: raw exception logging newly exposes credentials and response contents.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Raw HTTP exceptions expose URL credentials in logs\",\"body\":\"A configured URL such as http://alice:proxy-password@localhost:7878 passes InstanceConfig validation and reaches validate_connection through startup.py:153–160. On a 502, the new exception formatting includes the complete URL, including proxy-password; reproduced with the installed httpx and logging sink. collect_secrets (startup.py:74–100) collects API keys and auth secrets, but not URL credentials, so both logging sinks retain the password. Previously this branch logged only the status code.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":233,\"line_end\":235,\"confidence\":1,\"recommendation\":\"Restore status-code-only logging, or explicitly sanitize URL credentials before formatting exceptions.\"},{\"severity\":\"medium\",\"title\":\"Validation errors disclose upstream response data\",\"body\":\"When system/status returns 200 with a malformed body such as {\\\"token\\\":\\\"proxy-secret\\\"}, the missing version field produces a ValidationError containing that body. The new log statement exposes proxy-secret; reproduced with SystemStatus and the configured redacting sink. Redaction only replaces known configured secrets, so arbitrary upstream credentials or private response fields reach stderr and the web log buffer. The previous error-count logging excluded response contents.\",\"file\":\"triggarr/clients/base.py\",\"line_start\":252,\"line_end\":254,\"confidence\":1,\"recommendation\":\"Keep error-count-only logging or emit validation metadata with input values and context excluded.\"}],\"next_steps\":[\"Restore payload-free exception logging and add regression checks for URL credentials and malformed responses containing secrets.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}

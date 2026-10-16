@@ -288,3 +288,28 @@ alarm rows:
 needs-verification rows:
 | agent | file | line | band | score | stable_hash |
 |---|---|---|---|---|---|
+
+### live/triggarr-secret-in-logs/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | triggarr/clients/base.py | 233 | critical | 100 | 7867fa5685ed |
+| architecture | triggarr/clients/base.py | 252 | critical | 100 | 0dbc67cd110e |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| codex-adversarial | triggarr/clients/base.py | 233 | critical | 100 | 7867fa5685ed | Raw HTTP exceptions expose URL credentials in logs | codex-adversarial: Raw HTTP exceptions expose URL credentials in logs; bugs: Reverts security fix d47b4c2: raw HTTPStatusError logged, exposing the full instance URL (and any URL credentials) in logs and the web UI log viewer; architecture: Diff exactly reverts security fix d47b4c2 and drops the established exception-sanitization pattern; compliance: Reverts named security fix, reintroduces raw exception logging; impact: Reverts security fix d47b4c2: raw HTTPStatusError logged again, which can expose credentials in the URL in stderr and the in-UI log viewer; security: Exception objects now logged verbatim in error/warning paths |  |
+| architecture | triggarr/clients/base.py | 252 | critical | 100 | 0dbc67cd110e | ValidationError now logged raw instead of as an error count, unlike every other pydantic log site | architecture: ValidationError now logged raw instead of as an error count, unlike every other pydantic log site; codex-adversarial: Validation errors disclose upstream response data; compliance: Reverts named security fix, reintroduces raw ValidationError logging; bugs: Reverts sanitized ValidationError log: raw pydantic error text, including input values from the response body, now reaches logs and the web UI buffer; impact: Reverts sanitization of pydantic.ValidationError: response body values now logged verbatim (data exposure / log injection) |  |
+candidates at site with band >= floor: 2
+
+AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
