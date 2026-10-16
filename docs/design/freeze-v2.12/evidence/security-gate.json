@@ -1278,22 +1278,75 @@
     "tier": "red"
   },
   "head_sha": "7784c5ed7cf48a94d4434490d37a40a3400fa737",
-  "outcome": "fail",
+  "outcome": "awaiting-owner-gate-change",
   "owner_decisions": {
     "advisories": "1 \u2014 Accept the triage, provided each of the 48 findings has its own recorded location and rationale\u2014not just a blanket \u201ctest code\u201d exemption. The stated explanations support acceptance. Keep it scoped to candidate 24c0c00; new or changed occurrences need fresh triage. No code changes are needed.",
     "recorded_at": "2026-10-16",
     "relayed_by": "coordinator message to the 54-12 executor",
     "seal_json": "1 \u2014 Accept as false positive. A SHA-256 commitment to the randomly generated holdout key is intentionally public; it isn\u2019t the key itself. Record the disposition against this exact finding and candidate, referencing the Phase 51 rationale. Keep the exception narrow\u2014don\u2019t suppress all findings in SEAL.json.",
+    "shell_parse_ruling": "Don\u2019t mark the security gate passed yet. Capture and pin the intended ruleset, then rerun against the unchanged candidate with rule identities and parse failures recorded. Supplementary scans must use those exact rules. For the unparsed shell sections, inspect the actual three rule definitions and document an equivalent targeted review of the complete affected files. Absence of a few literal strings and successful Bash parsing alone don\u2019t establish security coverage. Keep the parser limitation explicit. If equivalent review substitutes for scanner coverage, record that as a change to the gate requiring my approval\u2014not as a clean scan. No source rewrite or detection-rehearsal restart is needed merely to collect better evidence. The candidate can stay 24c0c00; any changes to covered scan tooling must follow the existing manifest policy.",
     "timeout": "1 \u2014 Supplementary full scan. A completed scan can close the coverage gap without changing the candidate. Record the candidate/file hash, scanner version, exact ruleset, command and clean result. Confirm the original scan\u2019s only missing coverage was that file/rule combination. Keep the original timeout recorded as a failed attempt. The gate can pass on the combined coverage evidence, once finding triage is complete; don\u2019t relabel the original scan as clean or waive the error. No source change or detection rerun is needed."
+  },
+  "parser_limitation": {
+    "equivalent_review": "docs/design/freeze-v2.12/evidence/semgrep-shell-equivalent-review.md",
+    "equivalent_review_result": "no instance of any of the 3 rules, nor of the broader risk class (network fetch into a shell, eval or other exec sink fed by external data, IFS changes), in either complete file",
+    "explicit": true,
+    "gate_change": "Substituting the equivalent review for scanner coverage is a CHANGE TO THE GATE requiring owner approval. It is not a clean scan and is not recorded as one.",
+    "statement": "semgrep 1.136.0's bash parser cannot parse docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh (whole file) and leaves common.sh lines 29, 57, 188-213, 222, 238 unparsed. The 3 bash rules of the pinned ruleset (curl-pipe-bash, curl-eval, ifs-tampering) never ran on those lines in any run. This is uncovered by the scanner.",
+    "uncovered_pairs": [
+      {
+        "cause": "semgrep 1.136.0 bash parser cannot parse the file; no time limit changes it",
+        "extent": "whole file (124 lines)",
+        "file": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+        "rules": [
+          "bash.curl.security.curl-pipe-bash.curl-pipe-bash",
+          "bash.curl.security.curl-eval.curl-eval",
+          "bash.lang.security.ifs-tampering.ifs-tampering"
+        ]
+      },
+      {
+        "cause": "semgrep 1.136.0 bash parser PartialParsing",
+        "extent": "lines 29, 57, 188-213, 222, 238 only",
+        "file": "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh",
+        "rules": [
+          "bash.curl.security.curl-pipe-bash.curl-pipe-bash",
+          "bash.curl.security.curl-eval.curl-eval",
+          "bash.lang.security.ifs-tampering.ifs-tampering"
+        ]
+      }
+    ]
+  },
+  "pinned": {
+    "full_run": {
+      "errors": [
+        "run_case.sh Syntax error (whole file)",
+        "common.sh PartialParsing (29, 57, 188-213, 222, 238)"
+      ],
+      "results": 53,
+      "rules_applied": 349,
+      "scanned": 489,
+      "timeout": "none on this run"
+    },
+    "rule_count": 1074,
+    "rule_ids_sorted_sha256": "7b34b88c81d7360c23d8f46ec4d365e6a624dd52bf93f5ebafb038f4ef297a0d",
+    "ruleset_file": "docs/design/freeze-v2.12/evidence/semgrep-pinned-ruleset.json",
+    "ruleset_sha256": "19c843d4805089fac5361e6214c11f3aac61e8c3dd8514fde0b427a4ca0d6490",
+    "scan_record": "docs/design/freeze-v2.12/evidence/semgrep-pinned-scan.json",
+    "supplementary": {
+      "shell files --timeout 0": "same 2 parse failures; bash rules cannot run on run_case.sh",
+      "test_carry_state.py --timeout 0": "0 results, 0 errors; timed-out rule completed"
+    },
+    "tooling_note": "semgrep CLI run directly from a scratch dir; no covered scan tooling (semgrep_replica.py, harness) changed"
   },
   "ran_at": "2026-10-16T22:48:39Z",
   "range": "bbec70414466dd4f34dd81f6ca2a5807ee6000eb..24c0c00038f2d15af4b55f178ea44e680c1f2c58",
   "range_base_ref": "v2.11.1",
   "reasons": [
-    "OPEN (blocks pass): owner decision 1 requires confirming the original scan's only missing coverage was the (test_carry_state.py, python.boto3.security.hardcoded-token.hardcoded-token) pair. It is the only FATAL error, but the two benign shell-parse errors are also coverage limits: semgrep's bash parser fails on all of docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh (3 bash rules never ran there) and on 5 spans of common.sh. Evidence that this hid nothing: semgrep-supplementary-shell-parse.json (0 curl/wget/eval/IFS= tokens). Owner ruling requested; the executor does not decide it.",
-    "CLOSED: timeout pair \u2014 supplementary scan clean (semgrep-supplementary-timeout.json); both original attempts kept as failed attempts.",
-    "CLOSED: triage \u2014 49/49 findings carry a disposition and a per-site rationale (1 gitleaks false-positive per owner decision 2; 48 semgrep accepted per owner decision 3), scoped to candidate 24c0c00.",
-    "unchanged: gitleaks ran, dependencies ran (1 unit, 0 vulns), coverage 489/489 missing_paths [] in both original attempts."
+    "AWAITING OWNER: scanner coverage is missing for 3 bash rules \u00d7 run_case.sh (whole file) and \u00d7 common.sh lines 29, 57, 188-213, 222, 238 (semgrep bash parser limit, reproduced on the pinned ruleset with no time limit). A targeted equivalent review found no instance (semgrep-shell-equivalent-review.md). Accepting it in place of scanner coverage is a gate change that only the owner can approve.",
+    "CLOSED: timeout pair (test_carry_state.py, python.boto3.security.hardcoded-token.hardcoded-token) \u2014 pinned full run completed it and the pinned --timeout 0 supplementary completed it (0 results, 0 errors). The 5 auto-config runs that timed out stay recorded as failed attempts.",
+    "CLOSED: triage 49/49 with per-site rationale (owner decisions 2 and 3), scoped to candidate 24c0c00.",
+    "pinned ruleset: semgrep-pinned-ruleset.json sha256 19c843d4805089fac5361e6214c11f3aac61e8c3dd8514fde0b427a4ca0d6490, 1074 rules; the pinned full run equals the auto capture (349 rules applied, 53 results).",
+    "unchanged: gitleaks ran, dependencies ran (0 vulns), coverage 489/489 missing_paths [] on every full run."
   ],
   "replica": {
     "errors_count": 3,
@@ -1325,9 +1378,10 @@
     "shell_parse": {
       "evidence": "docs/design/freeze-v2.12/evidence/semgrep-supplementary-shell-parse.json",
       "result": "run_case.sh: bash parse fails for the whole file, so the 3 bash-grammar rules never ran on it (no time limit; parser limit, reproduces); common.sh: 5 spans unparsed. Neither file contains curl/wget/eval/IFS= tokens those rules need (0 grep matches), so no finding could have been hidden; bash -n accepts run_case.sh.",
-      "status": "open: owner premise check"
+      "status": "superseded by the pinned-ruleset runs and the equivalent review; awaiting owner gate-change decision"
     },
     "timeout": {
+      "correction": "its ruleset caveat ('--config auto selects rules by target set') is superseded: the downloaded config is target-independent (byte-identical fetches); per-run counts are local language filtering. See semgrep-pinned-scan.json pinned_ruleset.correction.",
       "evidence": "docs/design/freeze-v2.12/evidence/semgrep-supplementary-timeout.json",
       "file_blob": "627df6b5a415e661c50436b44b088c75f6807598",
       "file_sha256": "33897ae9bee6d0aa34af50a391fb08c4c3d773432708cef0407652704b45779f",
