@@ -1,0 +1,106 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "84aff278f2b735dffef0e91d58bb597b1986caf2",
+      "timestamp": "2026-10-16T00:38:11Z",
+      "mode": "deep",
+      "diff_range": "HEAD (uncommitted: staged + unstaged)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-typescript",
+        "framework-angular"
+      ],
+      "findings": [
+        {
+          "id": "bugs-001",
+          "file": "src/angular/src/app/services/utils/rest.service.ts",
+          "line": 59,
+          "title": "New POST body parameter has no caller: ConfigService.set still sends GET to a route that is now POST-only, so saving settings fails",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 60,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "This diff adds an optional JSON `body` to RestService.post, which is the staged frontend half of the config-set GET->POST migration. Nothing in the frontend uses it yet. The backend half is already merged at HEAD (b55339a): src/python/web/handler/config.py:25-28 registers `/server/config/set` only through `add_post_handler`, with no path segments. The frontend still calls `this._restService.sendRequest(url)`, which is a GET, against `/server/config/set/${section}/${option}/${value}` (src/angular/src/app/services/settings/config.service.ts:22 and :68), and still double-URL-encodes the value (:66). Every settings save from the UI will therefore get a 404/405 back, so ConfigService never updates its local config copy. If ConfigService is not switched to `post(CONFIG_SET_URL, {section, option, value})` in this same change, the settings page stays broken. pending: confirm whether the ConfigService migration is planned as a separate commit in this wave. Until it lands, HEAD ships with config set broken.",
+          "current_code": "public post(url: string, body?: object): Observable<WebReaction> {\n        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+          "fix_hint": "in ConfigService.set, replace sendRequest(GET path URL) with _restService.post('/server/config/set', {section, option, value}) and drop the double encodeURIComponent; update config.service spec accordingly",
+          "why_it_matters": "Users cannot save any settings in the deployed app until the frontend caller matches the POST-only backend route.",
+          "silenced_marker_nearby": false,
+          "needs_verification": {
+            "trigger": "user edits any setting, e.g. ConfigService.set('general', 'debug', true)",
+            "path": "config.service.ts:68 sendRequest (GET /server/config/set/general/debug/true) -> config.py:25 add_post_handler('/server/config/set')",
+            "consequence": "request is rejected (404/405), WebReaction is unsuccessful and the setting is never persisted"
+          },
+          "agent": "bugs",
+          "source_window": [
+            "     * @returns {Observable<WebReaction>}",
+            "     */",
+            "    public post(url: string, body?: object): Observable<WebReaction> {",
+            "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+            "            map(this.handleSuccess(url)),"
+          ],
+          "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+          "band": "needs-verification",
+          "orchestrator_score": 0,
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "f2c7d4d9ed8355f42eb17aae54c54a4346de8272562b19bd191e4c38ee771ae3",
+          "status": "new",
+          "snapshot": {
+            "at_pass": 1,
+            "file": "src/angular/src/app/services/utils/rest.service.ts",
+            "line": 59,
+            "canonical_line_content": "    public post(url: string, body?: object): Observable<WebReaction> {",
+            "band": "needs-verification"
+          },
+          "members": [
+            {
+              "file": "src/angular/src/app/services/utils/rest.service.ts",
+              "line": 59,
+              "title": "New POST body parameter has no caller: ConfigService.set still sends GET to a route that is now POST-only, so saving settings fails",
+              "category": "logic-error",
+              "severity": "high",
+              "agent": "bugs",
+              "agent_confidence": 60,
+              "problem": "This diff adds an optional JSON `body` to RestService.post, which is the staged frontend half of the config-set GET->POST migration. Nothing in the frontend uses it yet. The backend half is already merged at HEAD (b55339a): src/python/web/handler/config.py:25-28 registers `/server/config/set` only through `add_post_handler`, with no path segments. The frontend still calls `this._restService.sendRequest(url)`, which is a GET, against `/server/config/set/${section}/${option}/${value}` (src/angular/src/app/services/settings/config.service.ts:22 and :68), and still double-URL-encodes the value (:66). Every settings save from the UI will therefore get a 404/405 back, so ConfigService never updates its local config copy. If ConfigService is not switched to `post(CONFIG_SET_URL, {section, option, value})` in this same change, the settings page stays broken. pending: confirm whether the ConfigService migration is planned as a separate commit in this wave. Until it lands, HEAD ships with config set broken.",
+              "source_window": [
+                "     * @returns {Observable<WebReaction>}",
+                "     */",
+                "    public post(url: string, body?: object): Observable<WebReaction> {",
+                "        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+                "            map(this.handleSuccess(url)),"
+              ],
+              "cwe": null,
+              "why_it_matters": "Users cannot save any settings in the deployed app until the frontend caller matches the POST-only backend route.",
+              "fix_hint": "in ConfigService.set, replace sendRequest(GET path URL) with _restService.post('/server/config/set', {section, option, value}) and drop the double encodeURIComponent; update config.service spec accordingly",
+              "current_code": "public post(url: string, body?: object): Observable<WebReaction> {\n        return this._http.post(url, body ?? null, {responseType: \"text\"}).pipe(",
+              "intent_doc_match": null,
+              "obligation": "needs-verification"
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/angular/src/app/services/settings/config.service.ts",
+          "line": 68,
+          "title": "Saving settings is broken until ConfigService.set uses the new post(url, body) overload",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
