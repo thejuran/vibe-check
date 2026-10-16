@@ -405,3 +405,28 @@ alarm rows:
 needs-verification rows:
 | agent | file | line | band | score | stable_hash |
 |---|---|---|---|---|---|
+
+### live/triggarr-session-rotation/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| impact | triggarr/web/routes.py | 1567 | critical | 100 | 1ad9703f6d61 |
+| bugs | triggarr/web/routes.py | 1581 | warning | 90 | 50816525e11a |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| impact | triggarr/web/routes.py | 1567 | critical | 100 | 1ad9703f6d61 | Password change no longer rotates session_secret, so stolen or old session cookies stay valid for up to 30 days (session hijack persists) | impact: Password change no longer rotates session_secret, so stolen or old session cookies stay valid for up to 30 days (session hijack persists); codex-adversarial: Stolen session cookies retain access after password changes; architecture: change_password no longer follows the credential-change pattern that reset_confirm_post mirrors; bugs: Password change no longer rotates session_secret, so other sessions stay valid after the change; security: Password change no longer invalidates existing sessions (revert of documented session-secret rotation); impact: Password change and reset now handle existing sessions differently |  |
+| bugs | triggarr/web/routes.py | 1581 | warning | 90 | 50816525e11a | Existing rotation and eviction tests will fail against this change | bugs: Existing rotation and eviction tests will fail against this change; impact: Removing the rotation and re-issue breaks five existing auth tests that assert eviction behavior; security: Removed security-relevant audit log line for password change |  |
+candidates at site with band >= floor: 2
+
+AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>

@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1422f-a727-7052-bbb1-9a66974f97bf",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase54-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen session cookies retain access after password changes\",\"body\":\"A stolen, unexpired triggarr_session cookie remains usable after POST /settings/password succeeds because this update preserves session_secret. AuthMiddleware accepts that cookie at triggarr/web/middleware.py:144–148 without checking the password hash; validate_session only checks its signature and 30-day age. An attacker therefore retains authenticated access for the cookie's remaining lifetime despite the owner's password change. The removed secret rotation previously blocked this exact path; rotation in the separate reset endpoint does not protect password changes. Existing test_password_change_invalidates_old_sessions explicitly requires rejection of the old cookie.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1568,\"confidence\":1.0,\"recommendation\":\"Restore session-secret rotation alongside the password-hash update and reissue the acting user's cookie under the new secret. Verify that a second client's pre-change cookie is rejected.\"}],\"next_steps\":[\"Restore revocation and run the password-change session lifecycle tests.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship: password changes no longer revoke compromised sessions.",
+    "findings": [
+      {
+        "severity": "high",
+        "title": "Stolen session cookies retain access after password changes",
+        "body": "A stolen, unexpired triggarr_session cookie remains usable after POST /settings/password succeeds because this update preserves session_secret. AuthMiddleware accepts that cookie at triggarr/web/middleware.py:144–148 without checking the password hash; validate_session only checks its signature and 30-day age. An attacker therefore retains authenticated access for the cookie's remaining lifetime despite the owner's password change. The removed secret rotation previously blocked this exact path; rotation in the separate reset endpoint does not protect password changes. Existing test_password_change_invalidates_old_sessions explicitly requires rejection of the old cookie.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 1567,
+        "line_end": 1568,
+        "confidence": 1,
+        "recommendation": "Restore session-secret rotation alongside the password-hash update and reissue the acting user's cookie under the new secret. Verify that a second client's pre-change cookie is rejected."
+      }
+    ],
+    "next_steps": [
+      "Restore revocation and run the password-change session lifecycle tests."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship: password changes no longer revoke compromised sessions.\",\"findings\":[{\"severity\":\"high\",\"title\":\"Stolen session cookies retain access after password changes\",\"body\":\"A stolen, unexpired triggarr_session cookie remains usable after POST /settings/password succeeds because this update preserves session_secret. AuthMiddleware accepts that cookie at triggarr/web/middleware.py:144–148 without checking the password hash; validate_session only checks its signature and 30-day age. An attacker therefore retains authenticated access for the cookie's remaining lifetime despite the owner's password change. The removed secret rotation previously blocked this exact path; rotation in the separate reset endpoint does not protect password changes. Existing test_password_change_invalidates_old_sessions explicitly requires rejection of the old cookie.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":1567,\"line_end\":1568,\"confidence\":1.0,\"recommendation\":\"Restore session-secret rotation alongside the password-hash update and reissue the acting user's cookie under the new secret. Verify that a second client's pre-change cookie is rejected.\"}],\"next_steps\":[\"Restore revocation and run the password-change session lifecycle tests.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
