@@ -1,0 +1,65 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "98eb4196e2c060b38775ab40d6d23e2dc2bee024",
+      "timestamp": "2026-10-16T00:32:10Z",
+      "mode": "deep",
+      "diff_range": "HEAD..working-tree (uncommitted)",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "compliance",
+        "language-python"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped check skips BLOCKED_HOSTS, so ::ffff:100.100.100.200 still reaches the Alibaba metadata IP",
+          "reason": "absorbed-into: 668dffb685782c57de10962c3d6c57f3b9704fe3f337e5d35c280c5ce0d4d8fe"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped IPv6 check misses deprecated non-ffff IPv4-compatible form",
+          "reason": "absorbed-into: 668dffb685782c57de10962c3d6c57f3b9704fe3f337e5d35c280c5ce0d4d8fe"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 86,
+          "title": "ipv4_mapped property computed twice",
+          "reason": "absorbed-into: 668dffb685782c57de10962c3d6c57f3b9704fe3f337e5d35c280c5ce0d4d8fe"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 85,
+          "title": "IPv4-mapped form of a BLOCKED_HOSTS IP literal bypasses the metadata blocklist",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 89,
+          "title": "Non-canonical IPv4 forms (127.1, 2130706433, 0x7f.0.0.1) fall through as hostnames and are accepted",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "triggarr/web/validation.py",
+          "line": 82,
+          "title": "Other IPv6 encodings of loopback and DNS-resolved hostnames still pass validation",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "approve",
+        "findings": 0
+      }
+    }
+  ]
+}
