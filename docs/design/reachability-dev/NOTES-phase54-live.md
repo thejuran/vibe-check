@@ -336,3 +336,26 @@ needs-verification rows:
 candidates at site with band >= floor: 1
 
 AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
+
+### live/third-organic-should-catch/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| codex-adversarial | src/angular/src/app/services/files/view-file.service.ts | 307 | critical | 100 | 752a9cf1ec7f |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| codex-adversarial | src/angular/src/app/services/files/view-file.service.ts | 307 | critical | 100 | 752a9cf1ec7f | Completed extracted files display progress above 100% and lose completion indicators | codex-adversarial: Completed extracted files display progress above 100% and lose completion indicators; architecture: Removing the service-layer clamp breaks the 0-100 contract that view consumers depend on; language-typescript: Math.min(100, ...) clamp removed from percentDownloaded, reverting a deliberate fix and failing existing regression tests; bugs: Removing the 100% clamp lets extracted files show progress above 100% and lose their Done state; impact: Removing the Math.min(100, ...) clamp brings back the >100% progress display (e.g. '199%') and breaks the 'Done' and success states for extracted archives; bugs: Downstream checks for exactly 100 never match once the value can go above 100 |  |
+candidates at site with band >= floor: 1
+
+AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
