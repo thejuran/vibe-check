@@ -28,7 +28,7 @@ Report: `docs/design/b3-ground-truth/REPLAY-REPORT-phase54-freeze-guardrail.md`
 | unevaluable | 0 |
 | baseline reproduction | REPRODUCED 25 / 26, AMENDED 1, UNEVALUABLE 0 |
 
-No lost protected catch, so no BLOCKING section is needed. The report body matches the superseded 302df48 report byte for byte, apart from the candidate, HEAD and timestamp lines.
+No lost protected catch, so no blocking section is needed. The report body matches the superseded 302df48 report byte for byte, apart from the candidate, HEAD and timestamp lines.
 
 ## Complete-output diff
 
@@ -48,16 +48,39 @@ No allowances were added.
 
 ## Before/after
 
-**No changed outcomes.** Re-scoring all 170 archived and signed-off rehearsal runs through the candidate scorer gives output byte-identical to the Phase 53 final scorer (ebcd3e4). `.changes.json` lists no entries (`"allow": []`), so the table has zero rows.
+**Archived replay: no changed outcomes.** Re-scoring all 170 archived and signed-off rehearsal runs through the candidate scorer gives output byte-identical to the Phase 53 final scorer (ebcd3e4). `.changes.json` lists no entries (`"allow": []`), so replay contributes zero rows.
+
+**Live rehearsal (54-11, one run per case on 24c0c00): 8 changed outcomes, one row each below.** Before = the Phase-53 signed-off final run (fingerprint `5bee4c11…`); after = the live run on candidate 24c0c00 (fingerprint `c046f0cf…`, manifest `98af8754…`). Per-run detail and the investigation are in `docs/design/reachability-dev/NOTES-phase54-live.md` (`## Per case`, `## Changed quiet-shaped outcomes`, `## Lost catch investigation`).
+
+**Cause, for every live row:** none identified among the Phase-54 changes. All 16 live runs were re-scored through both the Phase-53 scorer and the candidate scorer: 0 of 16 differ, so the R1 scorer change caused none of them. No lane wrote a placeholder NV value, so neither R1 nor the schema sentence had anything to act on. Finalize routing (R2) runs only at close-out, which no measured run reaches. The differences are in what the lanes wrote on the same review path. This is a statement of what was tested; each row is the owner's decision.
 
 | Run | Finding (file:line, stable_hash short) | Before | After | Cause (54-NN change) | Severity effect | Alarm status effect (fires/quiet) | Catch credit effect | Owner burden effect (cards/NV items) |
 |---|---|---|---|---|---|---|---|---|
+| live/should-quiet-2/run-1 (should-quiet) | rest.service.ts:59, f2c7d4d9ed83 (bugs, NV): saving settings fails because `ConfigService.set` still sends GET to a POST-only route | quiet: 0 alarms, 0 NV | 0 alarms, 1 NV | none identified (see above). The NV fields are concrete. The item describes a GET/POST mismatch already present at the case base `84aff27`, which the diff does not touch | none (NV band, no alarm) | quiet -> **fires** (a should-quiet fail; first fire on this case: Phase 49 0/3, Phase 53 quiet) | none | NV items +1; cards 2 -> 2 |
+| live/should-quiet-6/run-1 (should-quiet) | models/config.py:139, 5646e628420f (codex-adversarial warning 94): new timeout field has no consumer | quiet: 0 alarms, 0 NV, no card | 1 alarm, 0 NV | none identified (see above). The Phase-53 targeted run on the signed-off build fired the same way (codex critical + bugs NV) | new warning row | quiet -> **fires** (Phase 49 3/3; Phase 53 targeted fired, final quiet) | none | alarms +1; cards 0 -> 2 |
+| live/should-quiet-7/run-1 (should-quiet, excluded #001) | routes.py:550, fcc0b38c0558 (bugs, NV): saved timeout has no consumer | 1 alarm, 0 NV | 1 alarm, 1 NV | none identified (see above) | none (alarm row unchanged: settings-save overwrite, critical 100) | fires -> fires (exclusion retained) | none | NV items +1; cards 2 -> 2 |
+| live/should-quiet-4/run-1 (should-quiet, known residual) | models/config.py:108, edb7d2b25e80 (bugs, NV) — before: b04b099a1960 (bugs) + 5ded17410c7d (impact) | 1 alarm, 2 NV | 1 alarm, 1 NV | none identified (see above). The two legacy-value NV items now arrive as one item naming both shapes | none (numeric-host bypass alarm unchanged, codex warning 94) | fires -> fires | none | NV items -1; cards 2 -> 2 |
+| live/reach-unchanged-1/run-1 (dev quiet) | _filter_overrides.py:73, b1c765a372c6 (codex-adversarial critical 100) — before: 2dab2c1b1e61 (bugs critical) + fe03e1c9ca8c (architecture warning, test import) | 2 alarms | 1 alarm | none identified (see above). It is the same key-correction defect (deleted `parse_optional_int` still imported by the tests), now one merged row | the warning row is gone; critical stays | fires -> fires (quiet expectation retained) | none | alarms -1; cards 2 -> 2 |
+| live/reach-new-1/run-1 (dev catch) | routes.py:1617, 53b1a7cd70a4 (codex-adversarial warning 94): "The newly exposed recovery flow has no token consumer" | 4 alarms | 5 alarms | none identified (see above) | new warning row, off the keyed defect | fires -> fires | none (catch kept: 1307c74d1331, critical 100, routes.py:1689) | alarms +1; cards 2 -> 2 |
+| live/triggarr-secret-in-logs/run-1 (B3 catch) | base.py:252, 0dbc67cd110e (architecture) — before: 021700bd8847: raw pydantic ValidationError logged | warning 91 | critical 100 | none identified (see above) | warning -> critical on the non-credited row | fires -> fires | none (catch kept: 7867fa5685ed, critical 100, base.py:233) | none (alarms 2 -> 2) |
+| live/should-quiet-1/run-1 (should-quiet) | no row (the card listed sub-Warning rows) | quiet; fix-loop card shown (2 cards) | quiet; clean review, no card | none identified (see above) | none | quiet -> quiet | none | cards 2 -> 0 |
 
 Phase 54 makes one scorer change, 54-01 (R1): a `needs_verification` field whose whole value is a placeholder (`n/a`, `none`, `-`) is treated as blank. It changes no archived outcome, because no archived or rehearsal lane output has a placeholder-only NV field that reaches the scorer. The rule is proven by `TestNeedsVerificationPlaceholders` in `plugins/vibe-check/scripts/test_score.py` (including the bcd15ef blank case), not by replay.
 
 ## Unchanged
 
-170 of 170 runs are byte-identical between base and candidate (0 more fall within existing allowances).
+- Archived replay: 170 of 170 runs are byte-identical between base and candidate (0 more fall within existing allowances).
+- Live rehearsal: 8 of 16 cases are unchanged in every tracked outcome (fired/quiet, catch credit, severity band of the keyed finding, NV item count, owner questions): `reach-new-2`, `reach-unchanged-2`, `triggarr-autoescape`, `third-organic-should-catch`, `triggarr-session-rotation`, `triggarr-settings-form-split`, `should-quiet-3`, `should-quiet-5`. In all 7 catch cases the credited row has a new stable hash (a different lead lane, or another line in the keyed hunk), but it is at the same keyed site, names the same defect and is critical 100 on both sides.
+- Catches: 7 of 7 kept (5 B3 + 2 development). No lost catch, no protected catch at risk.
+
+Live totals, reported separately and never summed (R13). Before (Phase 53 final) -> after (24c0c00):
+- visible alarms 17 -> 18
+- Needs-verification items 2 -> 3
+- owner questions 24 -> 24
+- fired runs 10 -> 12
+- headline quiet set (should-quiet-1..6) fired 1/6 -> 3/6
+
+Weak co-located remarks dropped: 16 -> 12 (separate count). These are single runs, so they are not evidence of improvement or regression. Phase 55 repeats each case x3 on the frozen build.
 
 ## Live checks (54-10/54-11)
 
@@ -68,6 +91,10 @@ The workflow-prose changes (90-finalize.md archive routing; agent-output-schema.
 | two same-day close-outs (finalize archive fences; `live-finalize-archive.md`) | 24c0c00038f2 | PASS: `REVIEW-54-<date>.md` + `-2.md`, `54.json.archived-<date>` + `-2`, `REVIEW-unstamped-<date>.md` + `-2.md`; first-pass bytes intact (all sha256 values equal the superseded 302df48 run) | Phase 53 finalize used a bare `mv` to a fixed `-<date>` name and skipped archiving a same-phase prior REVIEW.md, so a second same-day close-out lost the first report / state archive | yes (intended) | 54-02 no-clobber `review_archive.py` routing (R2) |
 | fix-harness clean-tree, default-diff (`live-harness-clean-tree.md`) | 24c0c00038f2 | COMPLETE under the identity check (manifest_id 98af8754d5ae…, draft); model claude-opus-5-5[1m]; undecided_nv 0; state archived under `format-53/`; cards 1 / questions 2 / owner_commands 1 / would-be questions 2 | Phase 52 C-D COMPLETE with the same counts (no Phase 53 clean-tree run) | no | none (the outcome is unchanged; the run now goes through the 54-07 identity preflight and 54-02 archive routing) |
 | fix-harness clean-tree, GSD (`live-harness-clean-tree.md`) | 24c0c00038f2 | COMPLETE under the identity check; model claude-opus-5-5[1m]; undecided_nv 0; state archived under `format-53/`; cards 1 / questions 1 / owner_commands 1 / would-be questions 1 | Phase 52 C-G COMPLETE with the same counts | no | none (as above) |
+
+| live sweep, 16 signed-off dev cases through the B3 runner layer (`NOTES-phase54-live.md`) | 24c0c00038f2 | 16/16 runs completed, one run each; every run stamped manifest_id 98af8754… + candidate 24c0c00…; `freeze_tally.py dev-tally --manifest <draft>` exit 0, stale 0, missing 0, runs 16; no exit-4 stop | Phase 53 final sweep: 16/16 on fingerprint 5bee4c11… | outcomes: see `## Before/after` (8 rows) | — |
+| B3 identity layer live, with the measured session running | 24c0c00038f2 | IDENTITY OK at `preflight`, `launch`, in-pane `session`, `pre` and `post` on all 16 cases; the 32 `pre`/`post` checks ran while the session was alive | the 302df48 attempt refused at its first `pre` (`.in_use/<pid>` markers hashed) | yes (intended) | 24c0c00 `.in_use` directory exclusion (D-23 fix) |
+| schema sentence / R1 placeholder rule, live | 24c0c00038f2 | not exercised: 0 placeholder NV fields and 0 empty NV dicts across 16 transcripts; the 3 NV dicts that reached the scorer are concrete; live runs re-scored with the ebcd3e4 and 24c0c00 scorers differ in 0 of 16 | — | no | proven by `TestNeedsVerificationPlaceholders` (54-01), not live |
 
 ## Owner decision
 
