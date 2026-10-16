@@ -1,0 +1,55 @@
+{
+  "bash_rules_with_match_time": {
+    "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh": [
+      "bash.curl.security.curl-pipe-bash.curl-pipe-bash",
+      "bash.curl.security.curl-eval.curl-eval"
+    ],
+    "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh": []
+  },
+  "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+  "command": "semgrep scan --json --time --config auto --timeout 0 -- docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh docs/design/b3-ground-truth/b3-runner-v2.12/common.sh",
+  "consequence_check": {
+    "matches": 0,
+    "method": "grep -nE '\\bcurl\\b|\\bwget\\b|\\beval\\b|\\bIFS=' on both candidate blobs",
+    "reading": "the 3 bash rules (curl-pipe-bash, curl-eval, ifs-tampering) need curl / eval / IFS tokens; neither file contains any, so the parse gap could not have hidden a finding from this ruleset. bash -n accepts run_case.sh (valid bash; the gap is semgrep's grammar, here case-pattern syntax such as \"'' | /*)\")."
+  },
+  "errors": [
+    {
+      "code": 3,
+      "level": "warn",
+      "path": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+      "type": "Syntax error"
+    },
+    {
+      "code": 3,
+      "level": "warn",
+      "path": "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh",
+      "type": "PartialParsing"
+    }
+  ],
+  "exit_code": 0,
+  "files": {
+    "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh": {
+      "git_blob_sha": "8734188faf8fe7fb30f7082e2db421f804eacec5",
+      "lines": 309
+    },
+    "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh": {
+      "git_blob_sha": "de28f0966cba85e5d656feb5641b71b51e1783c3",
+      "lines": 124
+    }
+  },
+  "finding": "run_case.sh: semgrep's bash parser fails on the whole file (the same Syntax error as the original scans), so the 3 bash-grammar rules never run on it. common.sh: they run on everything except the 5 unparsed spans. Both repeat with no time limit, so this is a parser limit, not a timeout.",
+  "purpose": "Checks what the two benign shell-parse errors of the 54-12 scans leave unscanned, for the owner's condition that the timeout pair was the only missing coverage.",
+  "results": [],
+  "ruleset": {
+    "bash_rules": [
+      "bash.curl.security.curl-pipe-bash.curl-pipe-bash",
+      "bash.curl.security.curl-eval.curl-eval",
+      "bash.lang.security.ifs-tampering.ifs-tampering"
+    ],
+    "rule_count": 103,
+    "rule_ids_sorted_sha256": "cd400e162f1ca15c326812be7b8071aba97d17b4ee6016e5defdcd576614f2b9"
+  },
+  "semgrep_version": "1.136.0",
+  "status": "open: classed benign by the harness and replica rules, but it contradicts the owner's stated premise; owner ruling requested"
+}
