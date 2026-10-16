@@ -430,3 +430,28 @@ needs-verification rows:
 candidates at site with band >= floor: 2
 
 AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
+
+### live/triggarr-settings-form-split/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 2
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| bugs | triggarr/templates/settings.html | 134 | warning | 94 | 0d791969c869 |
+| impact | triggarr/templates/settings.html | 18 | critical | 100 | 0aa760122e32 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| bugs | triggarr/templates/settings.html | 134 | warning | 94 | 0d791969c869 | Save Settings now posts without the General fields, so every save silently resets General settings to defaults | bugs: Save Settings now posts without the General fields, so every save silently resets General settings to defaults |  |
+| impact | triggarr/templates/settings.html | 18 | critical | 100 | 0aa760122e32 | This diff undoes fix 542d5dd: clicking 'Save Settings' resets every General setting to its default | impact: This diff undoes fix 542d5dd: clicking 'Save Settings' resets every General setting to its default; compliance: Reverts General-section form to the exact broken pattern CLAUDE.md's own convention and a prior fix commit rejected; architecture: This change undoes fix 542d5dd: General fields are back in a form with no Save button, so saving never sends them; codex-adversarial: Restore General fields to the Save Settings submission; bugs: General settings form has no submit button and cannot be submitted |  |
+candidates at site with band >= floor: 2
+
+AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
