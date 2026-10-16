@@ -1,0 +1,291 @@
+{
+  "codex_lines": 1,
+  "dispatched": 8,
+  "lanes": [
+    {
+      "parsed": {
+        "files_to_skip": [],
+        "frameworks": [
+          "fastapi"
+        ],
+        "intent_docs_found": [
+          "CLAUDE.md"
+        ],
+        "languages": [
+          "python"
+        ],
+        "size_tier": "small",
+        "total_lines": 4
+      },
+      "raw_return_text": "```json\n{\n  \"languages\": [\"python\"],\n  \"frameworks\": [\"fastapi\"],\n  \"total_lines\": 4,\n  \"files_to_skip\": [],\n  \"size_tier\": \"small\",\n  \"intent_docs_found\": [\"CLAUDE.md\"]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:triage",
+      "tool_use_id": "toolu_01NBTrfTrGh7Y7JZgCicTG8z"
+    },
+    {
+      "parsed": {
+        "agent": "bugs",
+        "agent_notes": [
+          "safe_float (validation.py:203) documents a non-finite guard via math.isfinite; GeneralConfig also sets allow_inf_nan=False, so NaN/inf form input is handled twice."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 90,
+            "category": "logic-error",
+            "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "add the settings.html input in the same change, and/or use current_settings.general.shutdown_drain_timeout as the safe_float default so a missing field preserves the stored value",
+            "id": "bugs-001",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 550,
+            "problem": "save_settings reads form.get(\"shutdown_drain_timeout\") and falls back to the hardcoded 60.0 default when the value is missing. triggarr/templates/settings.html has no input named shutdown_drain_timeout. A grep of the templates finds only max_consecutive_failures at settings.html:74. The test at tests/test_web.py:694 expecting the input is the committed failing test (ce567d3). So form.get returns None on every POST /settings, safe_float (validation.py:224) returns 60.0, and that value is written to config. An operator who set shutdown_drain_timeout = 300 in config.toml loses it the next time they save any unrelated setting. The fallback is the literal 60.0 rather than current_settings.general.shutdown_drain_timeout. Compare tracking_delay_seconds two lines above, which preserves the current value for a field the form does not expose.",
+            "severity": "high",
+            "silenced_marker_nearby": false,
+            "title": "Every settings save silently resets shutdown_drain_timeout to 60.0 because the form has no such input",
+            "why_it_matters": "Saving any setting from the UI quietly overwrites an operator's configured drain timeout. Shutdown can then SIGKILL in-flight work earlier than they configured."
+          },
+          {
+            "agent_confidence": 55,
+            "category": "logic-error",
+            "current_code": "safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0)",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "align the UI max with the model (add le=3600 to the Field, or raise or remove the route max)",
+            "id": "bugs-002",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 550,
+            "problem": "The model field in triggarr/models/config.py:139 is Field(default=60.0, ge=1.0, allow_inf_nan=False), with no upper bound. The route clamps to 3600.0. A config.toml value such as 7200 (valid under the contract) is reduced to 3600 the next time it is round-tripped through the settings form. The UI bound and the model contract disagree. This is distinct from bugs-001 and applies once the input exists.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "UI clamp max of 3600 cuts valid config values above 3600 on save",
+            "why_it_matters": "A valid stored value is quietly changed by an unrelated save."
+          },
+          {
+            "agent_confidence": 35,
+            "category": "logic-error",
+            "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "read the configured value at scheduler or lifespan setup, with the env override on top, before shipping the UI field",
+            "id": "bugs-003",
+            "in_diff": true,
+            "intent_doc_match": null,
+            "line": 550,
+            "needs_verification": {
+              "consequence": "the drain still uses 60s (or the env value), so shutdown may cancel in-flight searches earlier than the configured timeout",
+              "path": "routes.save_settings -&gt; config.toml -&gt; (no reader); scheduler._read_shutdown_drain_timeout reads only the env var at scheduler.py:70",
+              "trigger": "operator sets shutdown_drain_timeout = 300 via the settings UI and restarts"
+            },
+            "problem": "triggarr/search/scheduler.py:58-81 computes _SHUTDOWN_DRAIN_TIMEOUT once at import from TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT only. A grep finds no reference to settings.general.shutdown_drain_timeout outside the model, the routes and the tests. Once this diff exposes the setting in the UI, a user can change it with no effect. The design doc (docs/superpowers/specs/2026-06-02-recovery-counts-config-design.md:175) plans this as a later wiring step. pending: confirm whether a later plan in phase 75 wires the scheduler before release.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Saved shutdown_drain_timeout has no consumer; the scheduler still uses only the env var read at import",
+            "why_it_matters": "A setting shown in the UI that does nothing is misleading to operators."
+          }
+        ]
+      },
+      "raw_return_text": "The diff introduces two defects in `/Users/julianamacbook/.b3/phase54-clones/triggarr/triggarr/web/routes.py`, both confirmed against files I read:\n\n1. **Every settings save resets the drain timeout (high, confidence 90).** The settings template has no input for the new field, so any non-default value in `config.toml` is overwritten with 60.0.\n2. **Values above 3600 are cut down on save (low, confidence 55).** The web form caps the value at 3600, but the config model sets no upper limit.\n\nA third finding (low, confidence 35) needs verification: the setting is saved but nothing in the scheduler reads it yet.\n\n```json\n{\n  \"agent\": \"bugs\",\n  \"findings\": [\n    {\n      \"id\": \"bugs-001\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 550,\n      \"title\": \"Every settings save silently resets shutdown_drain_timeout to 60.0 because the form has no such input\",\n      \"category\": \"logic-error\",\n      \"cwe\": null,\n      \"severity\": \"high\",\n      \"agent_confidence\": 90,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"save_settings reads form.get(\\\"shutdown_drain_timeout\\\") and falls back to the hardcoded 60.0 default when the value is missing. triggarr/templates/settings.html has no input named shutdown_drain_timeout. A grep of the templates finds only max_consecutive_failures at settings.html:74. The test at tests/test_web.py:694 expecting the input is the committed failing test (ce567d3). So form.get returns None on every POST /settings, safe_float (validation.py:224) returns 60.0, and that value is written to config. An operator who set shutdown_drain_timeout = 300 in config.toml loses it the next time they save any unrelated setting. The fallback is the literal 60.0 rather than current_settings.general.shutdown_drain_timeout. Compare tracking_delay_seconds two lines above, which preserves the current value for a field the form does not expose.\",\n      \"current_code\": \"\\\"shutdown_drain_timeout\\\": safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0),\",\n      \"fix_hint\": \"add the settings.html input in the same change, and/or use current_settings.general.shutdown_drain_timeout as the safe_float default so a missing field preserves the stored value\",\n      \"why_it_matters\": \"Saving any setting from the UI quietly overwrites an operator's configured drain timeout. Shutdown can then SIGKILL in-flight work earlier than they configured.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"bugs-002\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 550,\n      \"title\": \"UI clamp max of 3600 cuts valid config values above 3600 on save\",\n      \"category\": \"logic-error\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 55,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"The model field in triggarr/models/config.py:139 is Field(default=60.0, ge=1.0, allow_inf_nan=False), with no upper bound. The route clamps to 3600.0. A config.toml value such as 7200 (valid under the contract) is reduced to 3600 the next time it is round-tripped through the settings form. The UI bound and the model contract disagree. This is distinct from bugs-001 and applies once the input exists.\",\n      \"current_code\": \"safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0)\",\n      \"fix_hint\": \"align the UI max with the model (add le=3600 to the Field, or raise or remove the route max)\",\n      \"why_it_matters\": \"A valid stored value is quietly changed by an unrelated save.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"bugs-003\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 550,\n      \"title\": \"Saved shutdown_drain_timeout has no consumer; the scheduler still uses only the env var read at import\",\n      \"category\": \"logic-error\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 35,\n      \"in_diff\": true,\n      \"intent_doc_match\": null,\n      \"problem\": \"triggarr/search/scheduler.py:58-81 computes _SHUTDOWN_DRAIN_TIMEOUT once at import from TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT only. A grep finds no reference to settings.general.shutdown_drain_timeout outside the model, the routes and the tests. Once this diff exposes the setting in the UI, a user can change it with no effect. The design doc (docs/superpowers/specs/2026-06-02-recovery-counts-config-design.md:175) plans this as a later wiring step. pending: confirm whether a later plan in phase 75 wires the scheduler before release.\",\n      \"current_code\": \"\\\"shutdown_drain_timeout\\\": safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0),\",\n      \"fix_hint\": \"read the configured value at scheduler or lifespan setup, with the env override on top, before shipping the UI field\",\n      \"why_it_matters\": \"A setting shown in the UI that does nothing is misleading to operators.\",\n      \"silenced_marker_nearby\": false,\n      \"needs_verification\": {\n        \"trigger\": \"operator sets shutdown_drain_timeout = 300 via the settings UI and restarts\",\n        \"path\": \"routes.save_settings -&gt; config.toml -&gt; (no reader); scheduler._read_shutdown_drain_timeout reads only the env var at scheduler.py:70\",\n        \"consequence\": \"the drain still uses 60s (or the env value), so shutdown may cancel in-flight searches earlier than the configured timeout\"\n      }\n    }\n  ],\n  \"agent_notes\": [\n    \"safe_float (validation.py:203) documents a non-finite guard via math.isfinite; GeneralConfig also sets allow_inf_nan=False, so NaN/inf form input is handled twice.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:bugs",
+      "tool_use_id": "toolu_018z6n1hhGU84gc8WtztBhKQ"
+    },
+    {
+      "parsed": {
+        "agent": "security",
+        "agent_notes": [
+          "Diff wires the pre-existing safe_float() helper (added in commit 462f621, not part of this diff) into save_settings() for a new shutdown_drain_timeout form field, following the identical safe_int() clamping pattern used by every other numeric field in this function. Verified safe_float() rejects None/empty/unparseable/non-finite input and clamps to [1.0, 3600.0], and the Pydantic model (triggarr/models/config.py:139) independently re-validates with ge=1.0, allow_inf_nan=False. The template context addition (settings.general.shutdown_drain_timeout) is a plain float rendered with default Jinja2 autoescaping, no |safe filter, no innerHTML/document.write sink. No injection, XSS, secrets, auth, or data-exposure issue found in this diff."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"security\",\"findings\":[],\"agent_notes\":[\"Diff wires the pre-existing safe_float() helper (added in commit 462f621, not part of this diff) into save_settings() for a new shutdown_drain_timeout form field, following the identical safe_int() clamping pattern used by every other numeric field in this function. Verified safe_float() rejects None/empty/unparseable/non-finite input and clamps to [1.0, 3600.0], and the Pydantic model (triggarr/models/config.py:139) independently re-validates with ge=1.0, allow_inf_nan=False. The template context addition (settings.general.shutdown_drain_timeout) is a plain float rendered with default Jinja2 autoescaping, no |safe filter, no innerHTML/document.write sink. No injection, XSS, secrets, auth, or data-exposure issue found in this diff.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:security",
+      "tool_use_id": "toolu_01PVfbUevxaXJDoq7bfJNjWs"
+    },
+    {
+      "parsed": {
+        "agent": "architecture",
+        "agent_notes": [
+          "Change matches the intent docs: 75-CONTEXT.md D-02 (GET render var next to the sibling fields) and D-03 (safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0) in the POST block) authorize this exact code, so it is consistent with the established safe_* form-parse pattern in triggarr/web/validation.py.",
+          "Adding safe_float next to safe_int is not duplication under the rule of three. It is the second numeric parse helper, it is explicitly authorized (D-03), and it is justified by float semantics plus the isfinite guard.",
+          "Mid-plan state: at HEAD, triggarr/templates/settings.html has no shutdown_drain_timeout input yet (75-02 Task 2 is pending), so the GET render var is not consumed and the POST field is always absent from real browser submissions. Because of that, every settings save currently writes 60.0 (the safe_float default) over any TOML-configured value. This is expected to resolve when Task 2 lands. Confirm before release that the template input ships in the same release as this route change.",
+          "Runtime wiring gap (planned): triggarr/search/scheduler.py:58-81 still reads the drain timeout only from the TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env var at import time (module constant _SHUTDOWN_DRAIN_TIMEOUT) and never reads settings.general.shutdown_drain_timeout. Until 75-03 (D-04/D-05 local-resolve at shutdown) lands, the UI-saved value is persisted but has no effect. The plan sequencing covers this; it is not a finding against this diff.",
+          "No new import cycles: routes.py only adds a name to an existing import from triggarr.web.validation. The existing lazy imports from triggarr/search/scheduler.py into triggarr.web.routes (scheduler.py:544, 550) are unchanged.",
+          "Pre-existing wrinkle the plan deliberately does not propagate: request_timeout is a float field in the model but is parsed with safe_int at routes.py:545 (D-03 calls this out)."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 45,
+            "category": "pattern-consistency",
+            "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "either add le=3600.0 to the GeneralConfig field so model and form agree, or keep the stored value when the submitted value equals the rendered out-of-range value",
+            "id": "arch-001",
+            "in_diff": true,
+            "intent_doc_match": {
+              "confidence": 0.75,
+              "doc": "75-CONTEXT.md",
+              "quote": "No upper bound on the model field itself; the form-parse clamp (D-03) supplies a practical UI ceiling.",
+              "section": "D-01 / D-03"
+            },
+            "line": 550,
+            "needs_verification": null,
+            "problem": "The sibling bounded knob uses the same bounds in the model and the form (max_consecutive_failures: Field(ge=1, le=100) at models/config.py:134, and safe_int(..., 1, 100) at routes.py:549). shutdown_drain_timeout breaks that pattern: the model allows any finite value of 1.0 or more (models/config.py:139), but the POST clamps it to 3600.0. An operator who sets shutdown_drain_timeout = 7200 in TOML will have it lowered to 3600 the next time anyone saves the settings page for an unrelated change. If the planned 75-02 Task 2 input carries max=\"3600\", the browser may refuse to submit the form at all while the rendered value is above 3600. pending: confirm the final settings.html markup (input not yet present at HEAD).",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Form clamp ceiling 3600.0 is not on the config model, so saving settings can quietly lower a larger configured drain timeout",
+            "why_it_matters": "A save on the settings page can quietly change a value the operator never touched, which conflicts with the config-preservation expectations in this codebase's config-write discipline."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\":\"architecture\",\"findings\":[{\"id\":\"arch-001\",\"file\":\"triggarr/web/routes.py\",\"line\":550,\"title\":\"Form clamp ceiling 3600.0 is not on the config model, so saving settings can quietly lower a larger configured drain timeout\",\"category\":\"pattern-consistency\",\"cwe\":null,\"severity\":\"low\",\"agent_confidence\":45,\"in_diff\":true,\"intent_doc_match\":{\"doc\":\"75-CONTEXT.md\",\"section\":\"D-01 / D-03\",\"quote\":\"No upper bound on the model field itself; the form-parse clamp (D-03) supplies a practical UI ceiling.\",\"confidence\":0.75},\"problem\":\"The sibling bounded knob uses the same bounds in the model and the form (max_consecutive_failures: Field(ge=1, le=100) at models/config.py:134, and safe_int(..., 1, 100) at routes.py:549). shutdown_drain_timeout breaks that pattern: the model allows any finite value of 1.0 or more (models/config.py:139), but the POST clamps it to 3600.0. An operator who sets shutdown_drain_timeout = 7200 in TOML will have it lowered to 3600 the next time anyone saves the settings page for an unrelated change. If the planned 75-02 Task 2 input carries max=\\\"3600\\\", the browser may refuse to submit the form at all while the rendered value is above 3600. pending: confirm the final settings.html markup (input not yet present at HEAD).\",\"current_code\":\"\\\"shutdown_drain_timeout\\\": safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0),\",\"fix_hint\":\"either add le=3600.0 to the GeneralConfig field so model and form agree, or keep the stored value when the submitted value equals the rendered out-of-range value\",\"why_it_matters\":\"A save on the settings page can quietly change a value the operator never touched, which conflicts with the config-preservation expectations in this codebase's config-write discipline.\",\"silenced_marker_nearby\":false,\"needs_verification\":null}],\"agent_notes\":[\"Change matches the intent docs: 75-CONTEXT.md D-02 (GET render var next to the sibling fields) and D-03 (safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0) in the POST block) authorize this exact code, so it is consistent with the established safe_* form-parse pattern in triggarr/web/validation.py.\",\"Adding safe_float next to safe_int is not duplication under the rule of three. It is the second numeric parse helper, it is explicitly authorized (D-03), and it is justified by float semantics plus the isfinite guard.\",\"Mid-plan state: at HEAD, triggarr/templates/settings.html has no shutdown_drain_timeout input yet (75-02 Task 2 is pending), so the GET render var is not consumed and the POST field is always absent from real browser submissions. Because of that, every settings save currently writes 60.0 (the safe_float default) over any TOML-configured value. This is expected to resolve when Task 2 lands. Confirm before release that the template input ships in the same release as this route change.\",\"Runtime wiring gap (planned): triggarr/search/scheduler.py:58-81 still reads the drain timeout only from the TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT env var at import time (module constant _SHUTDOWN_DRAIN_TIMEOUT) and never reads settings.general.shutdown_drain_timeout. Until 75-03 (D-04/D-05 local-resolve at shutdown) lands, the UI-saved value is persisted but has no effect. The plan sequencing covers this; it is not a finding against this diff.\",\"No new import cycles: routes.py only adds a name to an existing import from triggarr.web.validation. The existing lazy imports from triggarr/search/scheduler.py into triggarr.web.routes (scheduler.py:544, 550) are unchanged.\",\"Pre-existing wrinkle the plan deliberately does not propagate: request_timeout is a float field in the model but is parsed with safe_int at routes.py:545 (D-03 calls this out).\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:architecture",
+      "tool_use_id": "toolu_011kRgjMmrXPwXcqFa4K1Pvu"
+    },
+    {
+      "parsed": {
+        "agent": "impact",
+        "agent_notes": [
+          "Scope: two additive lines in triggarr/web/routes.py: a GET render-context key (446) and a POST parse line (550), plus the safe_float import. No public function signature changes. All 17 importers of routes.py import the router or app, not these handler internals, so nothing breaks for them.",
+          "Schema and persistence: no database change. The TOML config gains a persisted `general.shutdown_drain_timeout` key on the next settings save. Before this diff, saves already wrote the model default 60.0 for this key, because `_settings_to_dict` serializes the whole validated model. The on-disk shape is unchanged; only the source of the value changes.",
+          "Validation chain is tighter (safe change): safe_float rejects non-finite values (validation.py:203-223) and clamps to [1, 3600]. The model then re-checks with ge=1.0 and allow_inf_nan=False. inf, nan, -inf, 0 and negative values from the form all end up finite and at least 1.0. I found no bypass.",
+          "Staged change: the config value has no runtime consumer yet. scheduler.py:58-81 reads only TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT, once at import. The 75-03 plan does the wiring. Because settings.html has no drain input yet (75-02 Task 2 is pending), the UI does not expose the field on any path, so a missing consumer is not a defect at this step.",
+          "Tests: test_web.py:694 (the settings page shows the drain input) will keep failing until 75-02 Task 2 adds the template input. That is expected under the red-first TDD sequence (commit ce567d3). test_web.py:737 and :773 (round trip, and the floor clamp at 0.5 -&gt; 1.0) should pass with this diff.",
+          "Performance: none. One float parse per settings POST.",
+          "Main follow-up: the model has no upper bound but the form caps at 3600 (impact-1). Decide on one range before the template's max=3600 ships, or a TOML value above 3600 will block form submission.",
+          "Verdict: shippable as one step of the staged phase. No blocking issues. The bound mismatch (impact-1) is worth resolving within phase 75."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 55,
+            "category": "blast-radius",
+            "current_code": "\"shutdown_drain_timeout\": safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0),",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "Make the model and the form agree on the range: either add le=3600.0 to the GeneralConfig field so a TOML value above 3600 is rejected at load, or raise or remove the form ceiling.",
+            "id": "impact-1",
+            "in_diff": true,
+            "intent_doc_match": "partial",
+            "line": 550,
+            "problem": "The config model only sets a lower bound: `shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)` at triggarr/models/config.py:139. So a TOML value such as 7200.0 is valid, and the comment at config.py:138 calls 3600 only the 'UI ceiling'. The trace: GET /settings renders the configured value (routes.py:446). When the user saves any unrelated setting, POST /settings sends that value back through `safe_float(..., 60.0, 1.0, 3600.0)` (routes.py:550). The value 7200 is clamped to 3600, then `_atomic_toml_write` (routes.py:620-622) writes it to disk. The user is not told, and the operator's configured value is gone. When the planned template input lands (75-02 Task 2: `max=\"3600\"`, `value=\"{{ shutdown_drain_timeout }}\"`), browser form validation will instead block the whole settings form whenever the configured value is above 3600. The user then cannot save any setting until they lower the drain value by hand. Runtime effect today is nil, because the scheduler does not read the config field yet (scheduler.py:58-81 reads only the env var at import time).",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "Saving any setting silently lowers a configured drain timeout above 3600s to 3600s",
+            "why_it_matters": "An operator who set a long drain in TOML for slow indexers loses it without notice the next time anyone saves settings in the UI. Once the template ships, the settings form may become impossible to submit."
+          },
+          {
+            "agent_confidence": 35,
+            "category": "blast-radius",
+            "current_code": "safe_float(form.get(\"shutdown_drain_timeout\"), 60.0, 1.0, 3600.0)",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "Consider using current_settings.general.shutdown_drain_timeout as the fallback default.",
+            "id": "impact-2",
+            "in_diff": true,
+            "intent_doc_match": "unknown",
+            "line": 550,
+            "problem": "When `shutdown_drain_timeout` is missing from the form, `safe_float` returns the hard-coded 60.0 rather than `current_settings.general.shutdown_drain_timeout`. Right now settings.html has no drain input (grep of triggarr/templates shows none), so every settings save between this commit and 75-02 Task 2 writes 60.0. This is not new exposure. Before this diff the key was missing from `new_config['general']`, so the pydantic default of 60.0 was written through `_settings_to_dict` (routes.py:610, 621) anyway. The general fields that use safe_int (routes.py:543-549) behave the same way; only `tracking_delay_seconds` (routes.py:548) keeps its current value. pending: a client or partial form that POSTs /settings without this field after the template ships would show the reset.",
+            "severity": "low",
+            "silenced_marker_nearby": false,
+            "title": "A POST without the drain field resets the timeout to 60.0 instead of keeping the current value (pre-existing pattern)",
+            "why_it_matters": "A configured value is lost silently on a form save that does not include the field."
+          }
+        ]
+      },
+      "raw_return_text": "```json\n{\n  \"agent\": \"impact\",\n  \"findings\": [\n    {\n      \"id\": \"impact-1\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 550,\n      \"title\": \"Saving any setting silently lowers a configured drain timeout above 3600s to 3600s\",\n      \"category\": \"blast-radius\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 55,\n      \"in_diff\": true,\n      \"intent_doc_match\": \"partial\",\n      \"problem\": \"The config model only sets a lower bound: `shutdown_drain_timeout: float = Field(default=60.0, ge=1.0, allow_inf_nan=False)` at triggarr/models/config.py:139. So a TOML value such as 7200.0 is valid, and the comment at config.py:138 calls 3600 only the 'UI ceiling'. The trace: GET /settings renders the configured value (routes.py:446). When the user saves any unrelated setting, POST /settings sends that value back through `safe_float(..., 60.0, 1.0, 3600.0)` (routes.py:550). The value 7200 is clamped to 3600, then `_atomic_toml_write` (routes.py:620-622) writes it to disk. The user is not told, and the operator's configured value is gone. When the planned template input lands (75-02 Task 2: `max=\\\"3600\\\"`, `value=\\\"{{ shutdown_drain_timeout }}\\\"`), browser form validation will instead block the whole settings form whenever the configured value is above 3600. The user then cannot save any setting until they lower the drain value by hand. Runtime effect today is nil, because the scheduler does not read the config field yet (scheduler.py:58-81 reads only the env var at import time).\",\n      \"current_code\": \"\\\"shutdown_drain_timeout\\\": safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0),\",\n      \"fix_hint\": \"Make the model and the form agree on the range: either add le=3600.0 to the GeneralConfig field so a TOML value above 3600 is rejected at load, or raise or remove the form ceiling.\",\n      \"why_it_matters\": \"An operator who set a long drain in TOML for slow indexers loses it without notice the next time anyone saves settings in the UI. Once the template ships, the settings form may become impossible to submit.\",\n      \"silenced_marker_nearby\": false\n    },\n    {\n      \"id\": \"impact-2\",\n      \"file\": \"triggarr/web/routes.py\",\n      \"line\": 550,\n      \"title\": \"A POST without the drain field resets the timeout to 60.0 instead of keeping the current value (pre-existing pattern)\",\n      \"category\": \"blast-radius\",\n      \"cwe\": null,\n      \"severity\": \"low\",\n      \"agent_confidence\": 35,\n      \"in_diff\": true,\n      \"intent_doc_match\": \"unknown\",\n      \"problem\": \"When `shutdown_drain_timeout` is missing from the form, `safe_float` returns the hard-coded 60.0 rather than `current_settings.general.shutdown_drain_timeout`. Right now settings.html has no drain input (grep of triggarr/templates shows none), so every settings save between this commit and 75-02 Task 2 writes 60.0. This is not new exposure. Before this diff the key was missing from `new_config['general']`, so the pydantic default of 60.0 was written through `_settings_to_dict` (routes.py:610, 621) anyway. The general fields that use safe_int (routes.py:543-549) behave the same way; only `tracking_delay_seconds` (routes.py:548) keeps its current value. pending: a client or partial form that POSTs /settings without this field after the template ships would show the reset.\",\n      \"current_code\": \"safe_float(form.get(\\\"shutdown_drain_timeout\\\"), 60.0, 1.0, 3600.0)\",\n      \"fix_hint\": \"Consider using current_settings.general.shutdown_drain_timeout as the fallback default.\",\n      \"why_it_matters\": \"A configured value is lost silently on a form save that does not include the field.\",\n      \"silenced_marker_nearby\": false\n    }\n  ],\n  \"agent_notes\": [\n    \"Scope: two additive lines in triggarr/web/routes.py: a GET render-context key (446) and a POST parse line (550), plus the safe_float import. No public function signature changes. All 17 importers of routes.py import the router or app, not these handler internals, so nothing breaks for them.\",\n    \"Schema and persistence: no database change. The TOML config gains a persisted `general.shutdown_drain_timeout` key on the next settings save. Before this diff, saves already wrote the model default 60.0 for this key, because `_settings_to_dict` serializes the whole validated model. The on-disk shape is unchanged; only the source of the value changes.\",\n    \"Validation chain is tighter (safe change): safe_float rejects non-finite values (validation.py:203-223) and clamps to [1, 3600]. The model then re-checks with ge=1.0 and allow_inf_nan=False. inf, nan, -inf, 0 and negative values from the form all end up finite and at least 1.0. I found no bypass.\",\n    \"Staged change: the config value has no runtime consumer yet. scheduler.py:58-81 reads only TRIGGARR_SHUTDOWN_DRAIN_TIMEOUT, once at import. The 75-03 plan does the wiring. Because settings.html has no drain input yet (75-02 Task 2 is pending), the UI does not expose the field on any path, so a missing consumer is not a defect at this step.\",\n    \"Tests: test_web.py:694 (the settings page shows the drain input) will keep failing until 75-02 Task 2 adds the template input. That is expected under the red-first TDD sequence (commit ce567d3). test_web.py:737 and :773 (round trip, and the floor clamp at 0.5 -&gt; 1.0) should pass with this diff.\",\n    \"Performance: none. One float parse per settings POST.\",\n    \"Main follow-up: the model has no upper bound but the form caps at 3600 (impact-1). Decide on one range before the template's max=3600 ships, or a TOML value above 3600 will block form submission.\",\n    \"Verdict: shippable as one step of the staged phase. No blocking issues. The bound mismatch (impact-1) is worth resolving within phase 75.\"\n  ]\n}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:impact",
+      "tool_use_id": "toolu_01MAWH6dDMsRoPqpt7tFG1Ru"
+    },
+    {
+      "parsed": {
+        "agent": "compliance",
+        "agent_notes": [
+          "Diff matches the documented plan in .planning/phases/75-drain-timeout-config-parity-deferred-record-correction/75-PATTERNS.md (D-02/D-03) line-for-line: safe_float import, GET render key, and POST safe_float(form.get(...), 60.0, 1.0, 3600.0) all mirror the sibling request_timeout/max_consecutive_failures fields per the root CLAUDE.md convention of following existing codebase patterns.",
+          "safe_float (triggarr/web/validation.py) predates this diff and already implements the finite-only guard (math.isfinite before clamp) and (ValueError, TypeError) catch required by the project's no-bare-except convention; this diff only wires it into routes.py.",
+          "Surrounding save_settings handler (unchanged by this diff) validates via pydantic.ValidationError before the atomic TOML write (_atomic_toml_write) and chmod 0o600, consistent with project CLAUDE.md's config/atomic-write and deep-review conventions."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"compliance\",\"findings\":[],\"agent_notes\":[\"Diff matches the documented plan in .planning/phases/75-drain-timeout-config-parity-deferred-record-correction/75-PATTERNS.md (D-02/D-03) line-for-line: safe_float import, GET render key, and POST safe_float(form.get(...), 60.0, 1.0, 3600.0) all mirror the sibling request_timeout/max_consecutive_failures fields per the root CLAUDE.md convention of following existing codebase patterns.\",\"safe_float (triggarr/web/validation.py) predates this diff and already implements the finite-only guard (math.isfinite before clamp) and (ValueError, TypeError) catch required by the project's no-bare-except convention; this diff only wires it into routes.py.\",\"Surrounding save_settings handler (unchanged by this diff) validates via pydantic.ValidationError before the atomic TOML write (_atomic_toml_write) and chmod 0o600, consistent with project CLAUDE.md's config/atomic-write and deep-review conventions.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:compliance",
+      "tool_use_id": "toolu_01CgyTpqqQXKXHfRfT6y9D8k"
+    },
+    {
+      "parsed": {
+        "agent": "language-python",
+        "agent_notes": [
+          "Diff only wires the already-existing safe_float helper (defined in a prior commit, triggarr/web/validation.py:203-232) into triggarr/web/routes.py: import, settings-page context dict, and save_settings form parsing. safe_float itself has type hints, no mutable defaults, bounded try/except (ValueError, TypeError) with no swallowing, and an explicit math.isfinite guard against nan/inf. The two routes.py call sites mirror the adjacent safe_int(...) calls in the same literal — no new pattern introduced, nothing to flag."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "{\"agent\":\"language-python\",\"findings\":[],\"agent_notes\":[\"Diff only wires the already-existing safe_float helper (defined in a prior commit, triggarr/web/validation.py:203-232) into triggarr/web/routes.py: import, settings-page context dict, and save_settings form parsing. safe_float itself has type hints, no mutable defaults, bounded try/except (ValueError, TypeError) with no swallowing, and an explicit math.isfinite guard against nan/inf. The two routes.py call sites mirror the adjacent safe_int(...) calls in the same literal — no new pattern introduced, nothing to flag.\"]}",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:language-python",
+      "tool_use_id": "toolu_01MAy8X6pFJ4VC5AcF2RHZpY"
+    },
+    {
+      "parsed": {
+        "agent": "framework-fastapi",
+        "agent_notes": [
+          "Diff adds a single new settings field (shutdown_drain_timeout) to the existing /settings GET+POST routes, following the exact established pattern used for every other general-settings field in this file (safe_float mirrors safe_int, with explicit min/max bounds: 1.0-3600.0).",
+          "Checked auth: routes.py has no Depends anywhere; auth is enforced by SecurityHeadersMiddleware/session middleware (triggarr/web/middleware.py) via an EXEMPT_PREFIXES allowlist that does not include /settings, so middleware-based auth already covers both routes unchanged by this diff -- no auth-security finding.",
+          "Checked data-exposure: the new value is a plain float from server-side Settings (triggarr/models/config.py:139, Field(default=60.0, ge=1.0, allow_inf_nan=False)), rendered via Jinja2 with autoescape=True into settings.html -- not an ORM row, not sensitive.",
+          "Checked pydantic-validation: the new form field already has explicit bounds via safe_float and is re-validated by SettingsModel(**new_config) before the atomic TOML write -- this is the 'has constraints' case, not a missing-constraint finding.",
+          "No new routes, Depends, uploads, BaseSettings fields, response_model changes, or blocking calls introduced -- async-blocking/routing/lifecycle-background/file-upload-safety/settings-app-construction/response-status/openapi-honesty/dependency-injection checks all N/A for this diff."
+        ],
+        "findings": []
+      },
+      "raw_return_text": "```json\n{\"agent\":\"framework-fastapi\",\"findings\":[],\"agent_notes\":[\"Diff adds a single new settings field (shutdown_drain_timeout) to the existing /settings GET+POST routes, following the exact established pattern used for every other general-settings field in this file (safe_float mirrors safe_int, with explicit min/max bounds: 1.0-3600.0).\",\"Checked auth: routes.py has no Depends anywhere; auth is enforced by SecurityHeadersMiddleware/session middleware (triggarr/web/middleware.py) via an EXEMPT_PREFIXES allowlist that does not include /settings, so middleware-based auth already covers both routes unchanged by this diff -- no auth-security finding.\",\"Checked data-exposure: the new value is a plain float from server-side Settings (triggarr/models/config.py:139, Field(default=60.0, ge=1.0, allow_inf_nan=False)), rendered via Jinja2 with autoescape=True into settings.html -- not an ORM row, not sensitive.\",\"Checked pydantic-validation: the new form field already has explicit bounds via safe_float and is re-validated by SettingsModel(**new_config) before the atomic TOML write -- this is the 'has constraints' case, not a missing-constraint finding.\",\"No new routes, Depends, uploads, BaseSettings fields, response_model changes, or blocking calls introduced -- async-blocking/routing/lifecycle-background/file-upload-safety/settings-app-construction/response-status/openapi-honesty/dependency-injection checks all N/A for this diff.\"]}\n```",
+      "returns_seen": 1,
+      "source_channel": "task-result",
+      "subagent_type": "vibe-check:framework-fastapi",
+      "tool_use_id": "toolu_01H6gMAy6cT2M7ic5ye4HwCx"
+    },
+    {
+      "parsed": {
+        "agent": "codex-adversarial",
+        "agent_notes": [
+          "Do not ship yet: the newly saved shutdown timeout does not control shutdown behavior."
+        ],
+        "findings": [
+          {
+            "agent_confidence": 99,
+            "category": "adversarial",
+            "cwe": null,
+            "file": "triggarr/web/routes.py",
+            "fix_hint": "Resolve the drain timeout from the current application settings at shutdown, applying the documented environment override, and verify that saving 120.5 changes the timeout used by the drain.",
+            "id": "codex-001",
+            "intent_doc_match": null,
+            "line": 550,
+            "problem": "POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58–81. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it.",
+            "severity": "medium",
+            "title": "Wire the saved timeout into the shutdown drain",
+            "why_it_matters": "POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58–81. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it."
+          }
+        ]
+      },
+      "raw_return_text": "{\"agent\": \"codex-adversarial\", \"findings\": [{\"id\": \"codex-001\", \"file\": \"triggarr/web/routes.py\", \"line\": 550, \"title\": \"Wire the saved timeout into the shutdown drain\", \"category\": \"adversarial\", \"cwe\": null, \"severity\": \"medium\", \"agent_confidence\": 99, \"problem\": \"POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58\\u201381. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it.\", \"why_it_matters\": \"POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58\\u201381. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it.\", \"fix_hint\": \"Resolve the drain timeout from the current application settings at shutdown, applying the documented environment override, and verify that saving 120.5 changes the timeout used by the drain.\", \"intent_doc_match\": null}], \"agent_notes\": [\"Do not ship yet: the newly saved shutdown timeout does not control shutdown behavior.\"]}",
+      "returns_seen": 1,
+      "source_channel": "codex-line",
+      "subagent_type": "codex-adversarial",
+      "tool_use_id": "toolu_01Lc5R2xx6Ybi44aAvmiRjtw"
+    }
+  ],
+  "malformed": 0,
+  "recovered": 8,
+  "unrecovered": []
+}

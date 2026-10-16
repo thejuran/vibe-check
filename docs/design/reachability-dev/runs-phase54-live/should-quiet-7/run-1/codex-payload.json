@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a1425b-d3bd-71d2-a9c1-39d00aefe723",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase54-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship yet: the newly saved shutdown timeout does not control shutdown behavior.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the saved timeout into the shutdown drain\",\"body\":\"POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58–81. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from the current application settings at shutdown, applying the documented environment override, and verify that saving 120.5 changes the timeout used by the drain.\"}],\"next_steps\":[\"Connect persistence to the shutdown consumer and test the saved value through shutdown.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "Do not ship yet: the newly saved shutdown timeout does not control shutdown behavior.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the saved timeout into the shutdown drain",
+        "body": "POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58–81. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it.",
+        "file": "triggarr/web/routes.py",
+        "line_start": 550,
+        "line_end": 550,
+        "confidence": 0.99,
+        "recommendation": "Resolve the drain timeout from the current application settings at shutdown, applying the documented environment override, and verify that saving 120.5 changes the timeout used by the drain."
+      }
+    ],
+    "next_steps": [
+      "Connect persistence to the shutdown consumer and test the saved value through shutdown."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"Do not ship yet: the newly saved shutdown timeout does not control shutdown behavior.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the saved timeout into the shutdown drain\",\"body\":\"POST /settings with shutdown_drain_timeout=120.5 now persists and installs that value, but shutdown still uses _SHUTDOWN_DRAIN_TIMEOUT (triggarr/search/scheduler.py:634,648), initialized exclusively from the environment or 60.0 at lines 58–81. With no environment override, a search needing 90 seconds to drain still times out after 60 seconds despite the accepted 120.5-second setting. This change exposes a writable setting whose runtime consumer ignores it.\",\"file\":\"triggarr/web/routes.py\",\"line_start\":550,\"line_end\":550,\"confidence\":0.99,\"recommendation\":\"Resolve the drain timeout from the current application settings at shutdown, applying the documented environment override, and verify that saving 120.5 changes the timeout used by the drain.\"}],\"next_steps\":[\"Connect persistence to the shutdown consumer and test the saved value through shutdown.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
