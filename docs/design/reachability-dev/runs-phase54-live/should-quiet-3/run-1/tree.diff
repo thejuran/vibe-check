@@ -1,0 +1,41 @@
+diff --git a/src/roonseek/transfer.py b/src/roonseek/transfer.py
+index 20de672..07d5dd6 100644
+--- a/src/roonseek/transfer.py
++++ b/src/roonseek/transfer.py
+@@ -201,6 +201,18 @@ class SlskdTransferClient:
+             return [result]
+         return []
+ 
++    def cancel_download(self, username: str, transfer_id: str) -> dict[str, Any]:
++        """DELETE /api/v0/transfers/downloads/{username}/{id} to cancel a transfer."""
++        encoded_username = quote(username, safe="")
++        encoded_transfer_id = quote(transfer_id, safe="")
++        path = f"{_TRANSFERS_DOWNLOAD_ROOT}/{encoded_username}/{encoded_transfer_id}"
++        result = self._request_json(
++            "DELETE",
++            path,
++            success_statuses={200, 202, 204},
++        )
++        return result if isinstance(result, dict) else {}
++
+     def _request_json(
+         self,
+         method: str,
+@@ -208,6 +220,7 @@ class SlskdTransferClient:
+         *,
+         json_body: list[Any] | dict[str, Any] | None = None,
+         params: dict[str, str] | None = None,
++        success_statuses: set[int] | None = None,
+     ) -> Any:
+         # T-02-03: API key never logged or echoed in error messages.
+         api_key = self._config.api_key.strip() if self._config.api_key else ""
+@@ -243,7 +256,8 @@ class SlskdTransferClient:
+                 message,
+                 reason,
+             )
+-        if response.status_code not in {200, 201}:
++        expected_statuses = success_statuses or {200, 201}
++        if response.status_code not in expected_statuses:
+             raise TransferEnqueueError(
+                 f"slskd transfer request failed with HTTP {response.status_code}",
+                 "unavailable",
