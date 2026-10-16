@@ -267,6 +267,8 @@ the tally's `cards`). Separately: **weak co-located remarks dropped 12** across 
 
 Phase 53 final for comparison: alarms 17 · NV 2 · owner questions 24 · fired runs 10.
 
+**Burden (owner correction, 2026-10-16):** This rehearsal shows no owner-burden improvement (owner questions 24 → 24; headline quiet cases alarmed 3/6 vs 1/6) and a substantial risk of missing Phase 55's false-alarm target (≤3/18). should-quiet-2 stays counted as a fire on a should-quiet case (no exemption).
+
 Catches: 7/7 kept (5/5 B3, 2/2 development), every credit from an alarm row, none from an NV row.
 Quiet-shaped: 4/9 quiet (Phase 53: 6/9). Headline B3 quiet set (should-quiet-1..6): 3/6 fired on
 this single run (Phase 53 final: 1/6; Phase 49: 5/18 runs).
@@ -308,12 +310,12 @@ from the one scorer change (R1 placeholder rule); every difference is in what th
 `needs_verification` field whose value is wholly `N/A`, `none` or `-`, and none carries an empty
 `{}`; lanes that had nothing to verify wrote `null` (not touched by R1). The three NV dicts that
 reached the scorer (should-quiet-2, -4, -7) have concrete trigger/path/consequence values. So the
-R1 rule had nothing to act on in this sweep, and the one-sentence schema addition (placeholders
-count as absent) had no placeholder to govern. The finalize-routing change (R2) runs only in
-Finalize mode, which no measured run reaches (`Stop here…` -> `Abandon`). **No Phase-54 change is
-identified as the cause of any changed outcome**; they are differences in lane output on the same
-review path. That is a statement of what was tested, not a dismissal: each change is reported
-below and in the R4 table for the owner's decision.
+R1 rule had nothing to act on in this sweep. The one-sentence schema addition (placeholders
+count as absent) is in the prompt every lane reads; one run per case cannot isolate its influence
+on what the lanes wrote. The finalize-routing change (R2) runs only in Finalize mode, which no
+measured run reaches (`Stop here…` -> `Abandon`). **Conclusion (wording corrected by the owner,
+2026-10-16): no difference attributable to Phase 54 was demonstrated; identical re-scoring rules out scorer effects, but the runtime schema-wording change (agent-output-schema.md) is not isolated from lane behavior.** Each change is reported below and in the R4 table for the owner's
+decision.
 
 ## Lost catch investigation
 
@@ -368,6 +370,12 @@ No live run exercised a placeholder NV value (see `## Per case`, cause test): 0 
 0 empty dicts across 16 transcripts; 3 NV dicts reached the scorer, all concrete. The R1 rule
 therefore did not fire live; it remains proven by `TestNeedsVerificationPlaceholders` (54-01) and
 by this sweep's 0-of-16 scorer-difference result.
+
+## Owner decision — 2026-10-16 (R4, candidate 24c0c00038f2)
+
+Verbatim, as recorded in `R4-BEFORE-AFTER.md` `## Owner decision`:
+
+> “1 — Approve the R4 comparison and continue to the release gates, with two corrections to the record.- “No difference attributable to Phase 54 was demonstrated” is supported. “None was caused by Phase 54” is too strong: identical rescoring rules out scorer effects, but doesn’t isolate the runtime schema wording’s influence on what reviewers wrote.- 3/6 quiet cases alarmed, and owner questions stayed at 24. Record that plainly: this rehearsal shows no burden improvement and a substantial risk of missing Phase 55’s false-alarm target.Keep should-quiet-2 counted as an alarm; its pre-existing nature earns no exemption. Don’t change keys, tune prompts, or rerun selectively for better results.This approves proceeding—not declaring the milestone met. The remaining release gates, including the separate live close-out checks, must still pass before freeze.”
 
 ## Runs
 
