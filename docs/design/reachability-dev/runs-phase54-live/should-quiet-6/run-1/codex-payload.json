@@ -1,0 +1,42 @@
+{
+  "review": "Adversarial Review",
+  "target": {
+    "mode": "working-tree",
+    "label": "working tree diff",
+    "explicit": true
+  },
+  "threadId": "01a14254-00e0-7370-ad98-57d9159dc872",
+  "context": {
+    "repoRoot": "/Users/julianamacbook/.b3/phase54-clones/triggarr",
+    "branch": "HEAD",
+    "summary": "Reviewing 0 staged, 1 unstaged, and 0 untracked file(s)."
+  },
+  "codex": {
+    "status": 0,
+    "stderr": "",
+    "stdout": "{\"verdict\":\"needs-attention\",\"summary\":\"The validator passes its targeted test, but the newly accepted timeout setting does not control shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the accepted timeout into the shutdown drain\",\"body\":\"Setting [general].shutdown_drain_timeout = 120.5 is now accepted and preserved by the model, but with no environment override the scheduler still selects the hardcoded 60.0 default (triggarr/search/scheduler.py:70–81). Shutdown uses that constant at line 634 and closes resources after expiry, ignoring the configured drain budget. The TOML loading path in triggarr/config.py:load_settings exposes this setting now; this is more than an unused internal field.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.97,\"recommendation\":\"Resolve the drain timeout from the current settings at shutdown, applying the environment override with finite-value validation. Add an integration test proving a nondefault TOML timeout reaches asyncio.timeout.\"}],\"next_steps\":[\"Connect the field to shutdown before shipping it as a configuration option.\"]}",
+    "reasoning": []
+  },
+  "result": {
+    "verdict": "needs-attention",
+    "summary": "The validator passes its targeted test, but the newly accepted timeout setting does not control shutdown.",
+    "findings": [
+      {
+        "severity": "medium",
+        "title": "Wire the accepted timeout into the shutdown drain",
+        "body": "Setting [general].shutdown_drain_timeout = 120.5 is now accepted and preserved by the model, but with no environment override the scheduler still selects the hardcoded 60.0 default (triggarr/search/scheduler.py:70–81). Shutdown uses that constant at line 634 and closes resources after expiry, ignoring the configured drain budget. The TOML loading path in triggarr/config.py:load_settings exposes this setting now; this is more than an unused internal field.",
+        "file": "triggarr/models/config.py",
+        "line_start": 139,
+        "line_end": 139,
+        "confidence": 0.97,
+        "recommendation": "Resolve the drain timeout from the current settings at shutdown, applying the environment override with finite-value validation. Add an integration test proving a nondefault TOML timeout reaches asyncio.timeout."
+      }
+    ],
+    "next_steps": [
+      "Connect the field to shutdown before shipping it as a configuration option."
+    ]
+  },
+  "rawOutput": "{\"verdict\":\"needs-attention\",\"summary\":\"The validator passes its targeted test, but the newly accepted timeout setting does not control shutdown.\",\"findings\":[{\"severity\":\"medium\",\"title\":\"Wire the accepted timeout into the shutdown drain\",\"body\":\"Setting [general].shutdown_drain_timeout = 120.5 is now accepted and preserved by the model, but with no environment override the scheduler still selects the hardcoded 60.0 default (triggarr/search/scheduler.py:70–81). Shutdown uses that constant at line 634 and closes resources after expiry, ignoring the configured drain budget. The TOML loading path in triggarr/config.py:load_settings exposes this setting now; this is more than an unused internal field.\",\"file\":\"triggarr/models/config.py\",\"line_start\":139,\"line_end\":139,\"confidence\":0.97,\"recommendation\":\"Resolve the drain timeout from the current settings at shutdown, applying the environment override with finite-value validation. Add an integration test proving a nondefault TOML timeout reaches asyncio.timeout.\"}],\"next_steps\":[\"Connect the field to shutdown before shipping it as a configuration option.\"]}",
+  "parseError": null,
+  "reasoningSummary": []
+}
