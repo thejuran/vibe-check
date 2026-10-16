@@ -313,3 +313,26 @@ needs-verification rows:
 candidates at site with band >= floor: 2
 
 AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
+
+### live/triggarr-autoescape/run-1 — targeted live check — not release evidence
+
+fingerprint: c046f0cf0b4d702fabd7e35aa7cd3ec12501fa9e12542f1e649a0668228f5fb9
+identity: manifest_id=98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99 candidate_sha=24c0c00038f2d15af4b55f178ea44e680c1f2c58
+
+alarms: 1
+needs-verification items: 0
+fired: yes
+alarm rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+| architecture | triggarr/web/routes.py | 45 | critical | 100 | 1a9bf42cf875 |
+needs-verification rows:
+| agent | file | line | band | score | stable_hash |
+|---|---|---|---|---|---|
+
+| agent | file | line | band | score | stable_hash | survivor title | member titles | AXIS |
+|---|---|---|---|---|---|---|---|---|
+| architecture | triggarr/web/routes.py | 45 | critical | 100 | 1a9bf42cf875 | Reverts to the Jinja2Templates **env_options form, which the pinned Starlette no longer accepts | architecture: Reverts to the Jinja2Templates **env_options form, which the pinned Starlette no longer accepts; codex-adversarial: Template constructor crashes application startup; language-python: Jinja2Templates() call passes unsupported autoescape kwarg, crashes on import; compliance: Revert of autoescape fix passes unsupported kwarg, crashing app at import; bugs: Jinja2Templates(autoescape=True) raises TypeError at import: the installed Starlette no longer accepts **env_options; impact: Reverting to Jinja2Templates(autoescape=True) raises TypeError at import, so the app cannot start; framework-fastapi: Jinja2Templates() passed unsupported autoescape kwarg, crashes app at import; security: Reverted Jinja2 autoescape fix reintroduces XSS exposure (and breaks startup on the pinned Starlette version); impact: Autoescape (the XSS protection) now relies on an old Starlette API instead of an explicit jinja2.Environment |  |
+candidates at site with band >= floor: 1
+
+AXIS: <credit | no credit> — row <stable_hash[:12]> (<alarm | needs-verification>) — <reason against the keyed defect>
