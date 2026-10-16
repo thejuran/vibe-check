@@ -6,6 +6,28 @@
     "missing_paths": [],
     "scanned_count": 489
   },
+  "gate_change": {
+    "approved_at": "2026-10-16",
+    "approved_by": "owner",
+    "nature": "documented manual review substituting for scanner coverage of only the scoped (rule, file, lines) above; NOT a clean automated scan",
+    "relayed_by": "coordinator",
+    "renewal": "any change to either file, or to any of the three rules (a different pinned ruleset), requires renewed coverage",
+    "scope": {
+      "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+      "files": {
+        "docs/design/b3-ground-truth/b3-runner-v2.12/common.sh": "lines 29, 57, 188-213, 222, 238",
+        "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh": "all 124 lines"
+      },
+      "pinned_ruleset_sha256": "19c843d4805089fac5361e6214c11f3aac61e8c3dd8514fde0b427a4ca0d6490",
+      "rule_ids": [
+        "bash.curl.security.curl-pipe-bash.curl-pipe-bash",
+        "bash.curl.security.curl-eval.curl-eval",
+        "bash.lang.security.ifs-tampering.ifs-tampering"
+      ]
+    },
+    "substitute": "docs/design/freeze-v2.12/evidence/semgrep-shell-equivalent-review.md",
+    "waives_nothing_else": "this approval waives no other gate and no other coverage; every other half, finding and gate stands as recorded"
+  },
   "halves": {
     "dependencies": "ran",
     "gitleaks": "ran",
@@ -1278,9 +1300,10 @@
     "tier": "red"
   },
   "head_sha": "7784c5ed7cf48a94d4434490d37a40a3400fa737",
-  "outcome": "awaiting-owner-gate-change",
+  "outcome": "pass",
   "owner_decisions": {
     "advisories": "1 \u2014 Accept the triage, provided each of the 48 findings has its own recorded location and rationale\u2014not just a blanket \u201ctest code\u201d exemption. The stated explanations support acceptance. Keep it scoped to candidate 24c0c00; new or changed occurrences need fresh triage. No code changes are needed.",
+    "gate_change_approval": "1 \u2014 Approve the gate change, based on the evidence presented.Record it narrowly: for candidate 24c0c00 and the pinned ruleset, the documented manual review substitutes for only those three shell rules on the specified files and sections.The security gate may read \u201cPASS \u2014 documented manual substitution for shell-parser gaps,\u201d not \u201cclean automated scan.\u201d Preserve the failed attempts, corrections, triage and review evidence.Changes to those files or relevant rules require renewed coverage. Proceed to 54-13, release deep review; this does not waive any remaining gate.",
     "recorded_at": "2026-10-16",
     "relayed_by": "coordinator message to the 54-12 executor",
     "seal_json": "1 \u2014 Accept as false positive. A SHA-256 commitment to the randomly generated holdout key is intentionally public; it isn\u2019t the key itself. Record the disposition against this exact finding and candidate, referencing the Phase 51 rationale. Keep the exception narrow\u2014don\u2019t suppress all findings in SEAL.json.",
@@ -1291,7 +1314,7 @@
     "equivalent_review": "docs/design/freeze-v2.12/evidence/semgrep-shell-equivalent-review.md",
     "equivalent_review_result": "no instance of any of the 3 rules, nor of the broader risk class (network fetch into a shell, eval or other exec sink fed by external data, IFS changes), in either complete file",
     "explicit": true,
-    "gate_change": "Substituting the equivalent review for scanner coverage is a CHANGE TO THE GATE requiring owner approval. It is not a clean scan and is not recorded as one.",
+    "gate_change": "Approved by the owner 2026-10-16 as a narrow gate change (see gate_change). Still not a clean scan.",
     "statement": "semgrep 1.136.0's bash parser cannot parse docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh (whole file) and leaves common.sh lines 29, 57, 188-213, 222, 238 unparsed. The 3 bash rules of the pinned ruleset (curl-pipe-bash, curl-eval, ifs-tampering) never ran on those lines in any run. This is uncovered by the scanner.",
     "uncovered_pairs": [
       {
@@ -1342,11 +1365,12 @@
   "range": "bbec70414466dd4f34dd81f6ca2a5807ee6000eb..24c0c00038f2d15af4b55f178ea44e680c1f2c58",
   "range_base_ref": "v2.11.1",
   "reasons": [
-    "AWAITING OWNER: scanner coverage is missing for 3 bash rules \u00d7 run_case.sh (whole file) and \u00d7 common.sh lines 29, 57, 188-213, 222, 238 (semgrep bash parser limit, reproduced on the pinned ruleset with no time limit). A targeted equivalent review found no instance (semgrep-shell-equivalent-review.md). Accepting it in place of scanner coverage is a gate change that only the owner can approve.",
+    "PASS \u2014 documented manual substitution for shell-parser gaps (owner-approved gate change, scope in gate_change); not a clean automated scan.",
     "CLOSED: timeout pair (test_carry_state.py, python.boto3.security.hardcoded-token.hardcoded-token) \u2014 pinned full run completed it and the pinned --timeout 0 supplementary completed it (0 results, 0 errors). The 5 auto-config runs that timed out stay recorded as failed attempts.",
     "CLOSED: triage 49/49 with per-site rationale (owner decisions 2 and 3), scoped to candidate 24c0c00.",
     "pinned ruleset: semgrep-pinned-ruleset.json sha256 19c843d4805089fac5361e6214c11f3aac61e8c3dd8514fde0b427a4ca0d6490, 1074 rules; the pinned full run equals the auto capture (349 rules applied, 53 results).",
-    "unchanged: gitleaks ran, dependencies ran (0 vulns), coverage 489/489 missing_paths [] on every full run."
+    "unchanged: gitleaks ran, dependencies ran (0 vulns), coverage 489/489 missing_paths [] on every full run.",
+    "Scanner coverage gap retained on record: 3 bash rules \u00d7 run_case.sh (whole file) and \u00d7 common.sh 29, 57, 188-213, 222, 238; covered by the approved manual review only."
   ],
   "replica": {
     "errors_count": 3,
@@ -1374,6 +1398,7 @@
   },
   "rerun_at": "2026-10-16T22:51:37Z",
   "standalone": "pgrep -fl pytest empty before both runs; harness and replica run sequentially, never concurrently",
+  "status_label": "PASS \u2014 documented manual substitution for shell-parser gaps",
   "supplementary": {
     "shell_parse": {
       "evidence": "docs/design/freeze-v2.12/evidence/semgrep-supplementary-shell-parse.json",
