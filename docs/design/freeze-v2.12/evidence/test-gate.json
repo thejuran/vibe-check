@@ -1,0 +1,49 @@
+{
+  "candidate_guard": "CANDIDATE OK candidate=24c0c00038f2d15af4b55f178ea44e680c1f2c58 head=e58c463d90d34c7fe8722acc98604cb147c000bb descendant_commits=27 (reporting-only)",
+  "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+  "head_sha": "e58c463d90d34c7fe8722acc98604cb147c000bb",
+  "outcome": "pass",
+  "ran_at": "2026-10-16T22:32:25Z",
+  "suites": [
+    {
+      "command": "pytest -q",
+      "duration_s": 147,
+      "failed": 0,
+      "name": "plugin",
+      "passed": 2830,
+      "pytest": "pytest 9.0.3 (~/.local/bin/pytest)",
+      "python": "Python 3.14.5 (/usr/bin/env python3, host)",
+      "workdir": "plugins/vibe-check/scripts"
+    },
+    {
+      "command": "pytest -q",
+      "duration_s": 409,
+      "failed": 0,
+      "name": "holdout-kit",
+      "passed": 1169,
+      "pytest": "pytest 9.0.3 (~/.local/bin/pytest)",
+      "python": "Python 3.14.5 (/usr/bin/env python3, host)",
+      "workdir": "docs/design/holdout-v2.12/tools"
+    },
+    {
+      "command": "pytest -q",
+      "duration_s": 70,
+      "failed": 0,
+      "name": "fix-harness",
+      "passed": 460,
+      "pytest": "pytest 9.0.3 (~/.local/bin/pytest)",
+      "python": "Python 3.14.5 (/usr/bin/env python3, host)",
+      "workdir": "docs/design/fix-harness/tools"
+    },
+    {
+      "command": "pytest -q",
+      "duration_s": 106,
+      "failed": 0,
+      "name": "freeze-kit",
+      "passed": 308,
+      "pytest": "pytest 9.0.3 (~/.local/bin/pytest)",
+      "python": "Python 3.14.5 (/usr/bin/env python3, host)",
+      "workdir": "docs/design/freeze-v2.12/tools"
+    }
+  ]
+}
