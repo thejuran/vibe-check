@@ -179,8 +179,8 @@ ENGINEERING_RECORD_FILES = {"test-gate.json": "tests",
 
 # The invalid-run rule (owner condition). A measured review run is INVALID —
 # never a quiet result, never a detection miss — when its session hit a
-# permission failure, its review did not complete, or the scorer left no
-# output. `run-validity` judges a run from its transcript and review state
+# permission failure or raised a permission prompt (approved or denied), its
+# review did not complete, or the scorer left no output. `run-validity` judges a run from its transcript and review state
 # and writes VALIDITY_NAME into the run dir; a b3 or holdout-eval record
 # without a valid record is ineligible, so its slot stays missing.
 VALIDITY_NAME = "validity.json"
@@ -197,6 +197,26 @@ PERMISSION_FAILURE_RES = (
 )
 # The OS sandbox reports a refused operation in this block of ANY tool result.
 SANDBOX_VIOLATION_RE = re.compile(r"<sandbox_violations>")
+# Both measured runners start the session in `--permission-mode manual` with
+# `--allowedTools` naming exactly PREAPPROVED_TOOLS (the runner settings'
+# permissions.allow; tests hold the three equal). Any other tool raises a
+# permission prompt in front of the owner. PROMPTLESS_TOOLS are the review
+# flow's own interactive tools (the fix-loop card): answering one is not a
+# permission prompt.
+PREAPPROVED_TOOLS = ("Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task",
+                     "Agent")
+PROMPTLESS_TOOLS = ("AskUserQuestion",)
+# `permissionDecision.source` values that are not the owner (newer CLIs
+# record one per tool result; 2.1.281 records none).
+RULE_DECISION_SOURCES = ("config", "hook")
+# `toolDenialKind` values of a prompt the owner refused, and the refusal
+# wordings (matched only in tool results marked as errors).
+OWNER_DENIAL_KINDS = ("user-rejected", "cancelled")
+OWNER_DENIAL_RES = (
+    re.compile(r"The user doesn't want to proceed with this tool use"),
+    re.compile(r"The user doesn't want to take this action right now"),
+    re.compile(r"The user did not allow"),
+)
 
 RUN_DIR_RE = re.compile(r"^run-([0-9]+)(?:\.(failed|voided)-.+)?$")
 SUPERSEDED_MARKER = "SUPERSEDED"
@@ -340,11 +360,82 @@ def _tool_results(events):
                 yield bool(part.get("is_error")), "\n".join(texts)
 
 
+def subagent_transcripts(transcript_path):
+    """The subagent transcripts Claude Code keeps beside a session transcript
+    (`<dir>/<session>/subagents/*.jsonl`), sorted; [] when none."""
+    stem = os.path.splitext(transcript_path)[0]
+    sub = os.path.join(stem, "subagents")
+    if not os.path.isdir(sub):
+        return []
+    return sorted(os.path.join(sub, n) for n in os.listdir(sub)
+                  if n.endswith(".jsonl"))
+
+
+def subagent_events(transcript_path):
+    events = []
+    for path in subagent_transcripts(transcript_path):
+        events += _transcript_events(path) or []
+    return events
+
+
 def run_validity(transcript_path, state_path):
     """Every reason the run is invalid ([] = valid), from the session
-    transcript and the review state the scorer wrote."""
-    return (transcript_validity(_transcript_events(transcript_path))
-            + state_validity(state_path))
+    transcript, its subagent transcripts (a subagent's permission prompt is
+    shown to the owner too) and the review state the scorer wrote."""
+    reasons = transcript_validity(_transcript_events(transcript_path))
+    for r in permission_prompt_reasons(subagent_events(transcript_path)):
+        if r not in reasons:
+            reasons.append(r)
+    return reasons + state_validity(state_path)
+
+
+def _tool_names(events):
+    names = {}
+    for ev in events:
+        msg = ev.get("message") if isinstance(ev, dict) else None
+        content = msg.get("content") if isinstance(msg, dict) else None
+        for part in content if isinstance(content, list) else ():
+            if isinstance(part, dict) and part.get("type") == "tool_use":
+                names[part.get("id")] = str(part.get("name"))
+    return names
+
+
+def permission_prompt_reasons(events):
+    """Every permission prompt the session raised: a tool outside
+    PREAPPROVED_TOOLS + PROMPTLESS_TOOLS was called (the prompt was shown;
+    on 2.1.281 an approval leaves no other trace), a tool result the owner
+    approved (permissionDecision from a non-rule source), or a tool call the
+    owner refused at a prompt. The fix-loop card's answers are not prompts."""
+    reasons = []
+
+    def add(reason):
+        if reason not in reasons:
+            reasons.append(reason)
+    names = _tool_names(events or [])
+    for name in names.values():
+        if name not in PREAPPROVED_TOOLS + PROMPTLESS_TOOLS:
+            add("permission prompt: %s is outside the pre-approved tools" % name)
+    for ev in events or []:
+        msg = ev.get("message") if isinstance(ev, dict) else None
+        content = msg.get("content") if isinstance(msg, dict) else None
+        for part in content if isinstance(content, list) else ():
+            if not isinstance(part, dict) or part.get("type") != "tool_result":
+                continue
+            name = names.get(part.get("tool_use_id"), "unknown tool")
+            if name in PROMPTLESS_TOOLS:
+                continue
+            decision = ev.get("permissionDecision")
+            if isinstance(decision, dict) \
+                    and decision.get("source") not in RULE_DECISION_SOURCES:
+                add("permission prompt approved: %s" % name)
+            texts = []
+            _flatten(part.get("content"), texts)
+            text = "\n".join(texts)
+            if ev.get("toolDenialKind") in OWNER_DENIAL_KINDS or (
+                    part.get("is_error")
+                    and any(rx.search(text) for rx in OWNER_DENIAL_RES)):
+                add("permission prompt denied: %s" % name)
+    return reasons
 
 
 def transcript_validity(events):
@@ -372,6 +463,9 @@ def transcript_validity(events):
                     if reason not in reasons:
                         reasons.append(reason)
                     break
+        for reason in permission_prompt_reasons(events):
+            if reason not in reasons:
+                reasons.append(reason)
     return reasons
 
 

@@ -53,9 +53,11 @@ every one of these holds:
   - every review session (each transcript, from its /vibe-check:deep-review
     on) is a VALID measured run under the same invalid-run rule the real
     runs are judged by (`freeze_policy.transcript_validity` plus
-    `state_validity`): no permission failure (a tool refused under the
-    holdout launcher's dontAsk mode included), no sandbox violation, a
-    complete review, scorer output;
+    `state_validity`, subagent transcripts included for prompts): no
+    permission failure, no permission prompt (a tool outside the
+    pre-approved list, or a prompt the owner approved or denied; the
+    fix-loop card is not a prompt), no sandbox violation, a complete review,
+    scorer output;
   - every review session showed the fix-loop card and it was answered
     `Stop here…`, then `Abandon` on the second card (the workflow ran to
     its end; a card refused or never shown is not a completed review).
@@ -429,8 +431,12 @@ def review_problems(transcripts, state_path):
         if events is None:
             continue
         name = os.path.basename(path)
-        reasons = (freeze_policy.transcript_validity(events)
-                   + freeze_policy.state_validity(state_path))
+        reasons = freeze_policy.transcript_validity(events)
+        for r in freeze_policy.permission_prompt_reasons(
+                freeze_policy.subagent_events(path)):
+            if r not in reasons:
+                reasons.append(r)
+        reasons += freeze_policy.state_validity(state_path)
         problems += ["review session invalid: %s (%s)" % (r, name) for r in reasons]
         if not stop_abandon_answered(events):
             problems.append("review session did not show and answer the "
