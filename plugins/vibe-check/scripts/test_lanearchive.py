@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -280,6 +281,149 @@ class TestLocateAndContext(_TmpDirCase):
     def test_peak_context_zero_without_usage(self):
         t = self.write_transcript([_assistant([])])
         self.assertEqual(lanearchive.peak_context(t), 0)
+
+
+# A temp dir no test creates: with gettempdir pinned to it, only the fixed
+# roots and the sandbox root decide, whether or not the suite itself runs in a
+# sandbox whose TMPDIR is /tmp/claude-<uid>.
+_NO_TEMPDIR = "/nonexistent-vc-lanearchive-test-tempdir"
+
+
+class TestSandboxTempRoot(_TmpDirCase):
+    """A sandboxed session's TMPDIR is /tmp/claude-<uid> (macOS realpath
+    /private/tmp/claude-<uid>); the plugin's `mktemp -d "${TMPDIR:-/tmp}/vc-codex.XXXXXX"`
+    puts the Codex dir there. Only the current uid's root is accepted."""
+
+    def setUp(self):
+        super().setUp()
+        self.uid = os.getuid()
+        self.fake_tmp = os.path.join(self.tmp, "fake-tmp")
+        os.makedirs(self.fake_tmp)
+        self.patches = [
+            mock.patch.object(lanearchive, "_SANDBOX_TMP_PARENT", self.fake_tmp, create=True),
+            mock.patch.object(lanearchive.tempfile, "gettempdir", return_value=_NO_TEMPDIR),
+            # The fixtures live under the user's /var/folders temp dir; with the
+            # fixed roots emptied, only the sandbox-root rule can accept them.
+            mock.patch.object(lanearchive, "_FIXED_TEMP_ROOTS", (), create=True),
+        ]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in reversed(self.patches):
+            p.stop()
+        super().tearDown()
+
+    def transcript_printing(self, path):
+        recs = self.records(codex_dir_line=False) + [
+            _assistant([_tool_use("tu_sb", "Bash", {"command": "mktemp -d"})]),
+            _result("tu_sb", "CODEX_DIR=%s" % path)]
+        return self.write_transcript(recs)
+
+    def codex_dir_under(self, parent):
+        d = tempfile.mkdtemp(prefix="vc-codex.", dir=parent)
+        with open(os.path.join(d, "payload.json"), "w") as fh:
+            fh.write('{"result": {"verdict": "approve", "findings": []}}\n')
+        with open(os.path.join(d, "rc"), "w") as fh:
+            fh.write("0\n")
+        return d
+
+    def own_root(self):
+        root = os.path.join(self.fake_tmp, "claude-%d" % self.uid)
+        os.makedirs(root, mode=0o700)
+        return root
+
+    def test_own_uid_sandbox_dir_is_accepted(self):
+        d = self.codex_dir_under(self.own_root())
+        t = self.transcript_printing(d)
+        self.assertEqual(lanearchive.locate_codex_dir(t), os.path.realpath(d))
+
+    def test_own_uid_sandbox_dir_extracts_the_payload(self):
+        d = self.codex_dir_under(self.own_root())
+        t = self.transcript_printing(d)
+        code, _out, err = self.extract(t, self.write_state("joined"))
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, lanearchive.OUT_PAYLOAD)))
+
+    def test_other_uid_sandbox_dir_is_refused(self):
+        other = os.path.join(self.fake_tmp, "claude-%d" % (self.uid + 1))
+        os.makedirs(other)
+        t = self.transcript_printing(self.codex_dir_under(other))
+        with self.assertRaises(ValueError):
+            lanearchive.locate_codex_dir(t)
+
+    def test_uid_prefix_lookalike_is_refused(self):
+        lookalike = os.path.join(self.fake_tmp, "claude-%d0" % self.uid)
+        os.makedirs(lookalike)
+        self.own_root()
+        t = self.transcript_printing(self.codex_dir_under(lookalike))
+        with self.assertRaises(ValueError):
+            lanearchive.locate_codex_dir(t)
+
+    def test_own_name_owned_by_another_uid_is_refused(self):
+        # The root's name matches the (pretended) current uid, but the real
+        # owner differs: never a root.
+        pretend = self.uid + 7
+        root = os.path.join(self.fake_tmp, "claude-%d" % pretend)
+        os.makedirs(root)
+        t = self.transcript_printing(self.codex_dir_under(root))
+        with mock.patch.object(lanearchive.os, "getuid", return_value=pretend):
+            with self.assertRaises(ValueError):
+                lanearchive.locate_codex_dir(t)
+
+    def test_arbitrary_tmp_path_is_refused(self):
+        self.own_root()
+        t = self.transcript_printing(self.codex_dir_under(self.fake_tmp))
+        with self.assertRaises(ValueError):
+            lanearchive.locate_codex_dir(t)
+
+    def test_real_tmp_outside_the_uid_root_is_refused(self):
+        with mock.patch.object(lanearchive, "_SANDBOX_TMP_PARENT", "/tmp"):
+            t = self.transcript_printing("/tmp/vc-codex.notaroot")
+            with self.assertRaises(ValueError):
+                lanearchive.locate_codex_dir(t)
+            t = self.transcript_printing("/private/tmp/vc-codex.notaroot")
+            with self.assertRaises(ValueError):
+                lanearchive.locate_codex_dir(t)
+
+    def test_symlink_escape_out_of_the_root_is_refused(self):
+        root = self.own_root()
+        outside = os.path.join(self.tmp, "outside")
+        os.makedirs(outside)
+        link = os.path.join(root, "vc-codex.link")
+        os.symlink(outside, link)
+        t = self.transcript_printing(link)
+        with self.assertRaises(ValueError):
+            lanearchive.locate_codex_dir(t)
+
+    def test_root_that_is_a_symlink_is_refused(self):
+        elsewhere = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(elsewhere)
+        os.symlink(elsewhere, os.path.join(self.fake_tmp, "claude-%d" % self.uid))
+        t = self.transcript_printing(self.codex_dir_under(elsewhere))
+        with self.assertRaises(ValueError):
+            lanearchive.locate_codex_dir(t)
+
+    def test_missing_root_adds_nothing(self):
+        t = self.transcript_printing(
+            os.path.join(self.fake_tmp, "claude-%d" % self.uid, "vc-codex.gone"))
+        with self.assertRaises(ValueError):
+            lanearchive.locate_codex_dir(t)
+
+    def test_real_sandbox_root_tmp_and_private_tmp_forms(self):
+        root = "/tmp/claude-%d" % self.uid
+        if not os.path.isdir(root) or os.path.islink(root):
+            self.skipTest("no sandbox temp root on this machine")
+        with mock.patch.object(lanearchive, "_SANDBOX_TMP_PARENT", "/tmp"):
+            d = self.codex_dir_under(root)
+            try:
+                name = os.path.basename(d)
+                real = os.path.realpath(d)
+                for printed in (os.path.join("/tmp", "claude-%d" % self.uid, name), real):
+                    t = self.transcript_printing(printed)
+                    self.assertEqual(lanearchive.locate_codex_dir(t), real)
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
 
 
 class TestPrivacyScan(unittest.TestCase):
