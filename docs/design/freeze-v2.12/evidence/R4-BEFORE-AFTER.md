@@ -91,6 +91,7 @@ Archived-output replay covers scorer changes only (D-07). The workflow-prose and
 
 | check | candidate | outcome | vs Phase 53 | changed? | cause |
 |---|---|---|---|---|---|
+| two same-day close-outs (finalize archive fences; `live-finalize-archive.md`) | 2a6dbb4874b7 | PASS: `REVIEW-54-<date>.md` + `-2.md`, `54.json.archived-<date>` + `-2`, `REVIEW-unstamped-<date>.md` + `-2.md`; first-pass bytes intact; every fence exit 0; every sha256 equals the 24c0c00 run. The fences were re-extracted from the changed `90-finalize.md` (blob 91dfc729), where the state archive is now a stop-on-failure bash fence | Phase 53 finalize used a bare `mv` to a fixed `-<date>` name and skipped archiving a same-phase prior REVIEW.md, so a second same-day close-out lost the first report / state archive | yes (intended) | 54-02 no-clobber `review_archive.py` routing (R2); 54-16 stop-on-archive-failure fences and no-hard-link fallback (the failure branch is not exercised live; tests cover it) |
 
 ## Owner decision
 
