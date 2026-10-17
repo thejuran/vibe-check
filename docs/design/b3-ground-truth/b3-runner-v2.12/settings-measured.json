@@ -16,7 +16,8 @@
       "Grep",
       "Glob",
       "Task",
-      "Agent"
+      "Agent",
+      "AskUserQuestion"
     ],
     "deny": [
       "WebFetch",

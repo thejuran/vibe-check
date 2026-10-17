@@ -328,7 +328,7 @@ control below; `test_b3_runner_layer.containment_problems` locks each one.
 | WebFetch / WebSearch (in-process network) | denied |
 | Model calls | made by the Claude Code process itself through the local gateway (`ANTHROPIC_BASE_URL`, `127.0.0.1:18764`), outside the sandbox; sandboxed code cannot reach the gateway |
 | Session environment | an allowlist (`freeze_manifest.SESSION_ENV_NAMES`): the identity-checked names plus PATH, HOME, terminal, locale, temp dir and Codex config dir; B3 execs `claude` under `env -i`, the holdout launcher builds the same set |
-| Pre-approved tools | `Bash, Read, Write, Edit, Grep, Glob, Task, Agent` (the plugin's `python3` scorer needs Bash; the holdout `dontAsk` session refuses anything else) |
+| Pre-approved tools | `Bash, Read, Write, Edit, Grep, Glob, Task, Agent, AskUserQuestion`: exactly the tools the review commands' `allowed-tools` name (plus Task's alias Agent). The plugin's `python3` scorer needs Bash; the fix-loop card is AskUserQuestion. The holdout `dontAsk` session refuses anything not listed here, because a command's `allowed-tools` does not pre-approve a tool in that mode. Nothing broader: no WebFetch/WebSearch, no TodoWrite/Skill (`test_holdout_eval_launch.dontask_gaps` locks it) |
 
 Residuals, stated precisely:
 

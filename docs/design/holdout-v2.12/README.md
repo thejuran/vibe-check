@@ -718,7 +718,8 @@ The seal commit must come before the first Phase 53 commit (D-08); `seal-order -
 - The session the launcher starts is contained like the B3 session (same pinned runner settings:
   OS sandbox around every Bash command and its `python3`/`node` children, network only to the
   Codex endpoints, credential read/edit denies, WebFetch/WebSearch denied, the pre-approved tool
-  set the plugin's scorer needs) and gets an environment allowlist, never the shell's whole
+  set the review needs: the scorer's Bash and the fix-loop card's AskUserQuestion, which
+  `dontAsk` would otherwise refuse) and gets an environment allowlist, never the shell's whole
   environment. The update pins live in the runner settings, not the process environment. See
   `docs/design/freeze-v2.12/README.md` ("Measured-session containment").
 - Every holdout run is judged with `freeze_policy.py run-validity` (transcript + review state)

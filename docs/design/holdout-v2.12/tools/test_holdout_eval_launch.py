@@ -588,6 +588,97 @@ class TestShape(unittest.TestCase):
         self.assertNotIn("eval-launch", holdout_kit.NO_REFUSAL_COMMANDS)
 
 
+# --------------------------------------------------------------------------- #
+# dontAsk pre-approval: every tool the review commands use is pre-approved
+# --------------------------------------------------------------------------- #
+
+REAL_REPO = os.path.normpath(os.path.join(TOOLS_DIR, "..", "..", "..", ".."))
+REAL_TEMPLATE = os.path.join(REAL_REPO, el.RUNNER_TEMPLATE)
+REVIEW_COMMANDS = tuple(os.path.join(REAL_REPO, "plugins", "vibe-check",
+                                     "commands", n)
+                        for n in ("deep-review.md", "review.md"))
+# Task's current name; the subagent dispatch is pre-approved under both.
+ALIASES = {"Agent"}
+# In-process network tools: never pre-approved, always denied.
+NEVER_ALLOWED = ("WebFetch", "WebSearch")
+
+
+def allowed_tool_names(command_text):
+    """Base tool names a command's `allowed-tools` frontmatter names
+    (`Bash(git:*)` -> `Bash`)."""
+    m = re.search(r"(?m)^allowed-tools:\s*(.+)$", command_text)
+    if not m:
+        return set()
+    return {re.sub(r"\(.*\)$", "", t.strip()) for t in m.group(1).split(",")
+            if t.strip()}
+
+
+def dontask_gaps(settings, command_texts):
+    """Every problem with the measured settings for a `--permission-mode
+    dontAsk` session: a tool the review commands use that the settings do not
+    pre-approve (dontAsk refuses it), a pre-approval broader than the
+    commands need, or an in-process network tool not denied."""
+    perms = settings.get("permissions") or {}
+    allow = perms.get("allow") or []
+    deny = perms.get("deny") or []
+    needed = set()
+    for text in command_texts:
+        needed |= allowed_tool_names(text)
+    out = ["not pre-approved under dontAsk: %s" % t
+           for t in sorted(needed - set(allow))]
+    out += ["pre-approved beyond the review commands: %s" % t
+            for t in allow if t not in needed | ALIASES]
+    out += ["%s not denied" % t for t in NEVER_ALLOWED if t not in deny]
+    out += ["%s pre-approved" % t for t in NEVER_ALLOWED if t in allow]
+    return out
+
+
+class TestDontAskPreApproval(unittest.TestCase):
+    """The launcher runs the session in dontAsk mode, where a command's
+    `allowed-tools` does not pre-approve anything: the measured settings
+    must pre-approve every tool the review flow uses (the fix-loop card is
+    AskUserQuestion) and nothing broader."""
+
+    def setUp(self):
+        with open(REAL_TEMPLATE, encoding="utf-8") as fh:
+            self.settings = json.load(fh)
+        self.commands = []
+        for path in REVIEW_COMMANDS:
+            with open(path, encoding="utf-8") as fh:
+                self.commands.append(fh.read())
+
+    def test_commands_name_the_card_tool(self):
+        for text in self.commands:
+            self.assertIn("AskUserQuestion", allowed_tool_names(text))
+
+    def test_real_template_pre_approves_the_review_tools(self):
+        self.assertEqual(dontask_gaps(self.settings, self.commands), [])
+        self.assertIn("AskUserQuestion", self.settings["permissions"]["allow"])
+
+    def test_launcher_reads_this_template(self):
+        self.assertEqual(el.RUNNER_TEMPLATE,
+                         "docs/design/b3-ground-truth/b3-runner-v2.12/"
+                         "settings-measured.json")
+        self.assertIn(("--permission-mode", "dontAsk"),
+                      list(zip(el.LAUNCH_ARGV, el.LAUNCH_ARGV[1:])))
+
+    def test_mutant_card_tool_removed_trips(self):
+        d = json.loads(json.dumps(self.settings))
+        d["permissions"]["allow"].remove("AskUserQuestion")
+        self.assertIn("not pre-approved under dontAsk: AskUserQuestion",
+                      dontask_gaps(d, self.commands))
+
+    def test_mutant_broader_allow_trips(self):
+        for extra in ("WebFetch", "TodoWrite", "Skill"):
+            with self.subTest(extra=extra):
+                d = json.loads(json.dumps(self.settings))
+                d["permissions"]["allow"].append(extra)
+                self.assertNotEqual(dontask_gaps(d, self.commands), [])
+        d = json.loads(json.dumps(self.settings))
+        d["permissions"]["deny"].remove("WebSearch")
+        self.assertIn("WebSearch not denied", dontask_gaps(d, self.commands))
+
+
 class TestMutants(LaunchCase):
 
     def test_mutant_a_problems_mean_no_spawn(self):

@@ -40,8 +40,10 @@ table. A lost catch is investigated before the freeze, never closed by rerunning
     `~/.config/gh`, `~/.netrc`, `~/.gnupg`, `~/Library/Keychains`, `~/.claude/.credentials.json`,
     `~/.claude.json`, the holdout folder, `.env` files and the proof canary;
   - WebFetch and WebSearch denied (in-process network the sandbox does not cover);
-  - the pre-approved tool set `Bash, Read, Write, Edit, Grep, Glob, Task, Agent` (S7: the
-    plugin's `python3` scorer needs Bash; holdout-eval's `dontAsk` refuses anything else);
+  - the pre-approved tool set `Bash, Read, Write, Edit, Grep, Glob, Task, Agent,
+    AskUserQuestion` (S7: the plugin's `python3` scorer needs Bash; holdout-eval's `dontAsk`
+    refuses anything else, the fix-loop card included, and a command's `allowed-tools` does not
+    pre-approve it there; B3's manual mode never prompted for the card, so B3 is unchanged);
   - the codex plugin disabled for the session only: its SessionStart hook points the companion at
     a plugin-data dir under `~/.claude`, which the sandbox never lets a command write. With the
     hook off, the companion keeps its state in the sandbox temp dir. The plugin finds the companion

@@ -281,7 +281,14 @@ def session_env_allowlist_holds(runbook_text, common_text):
 # Containment the shared measured-session settings must carry (S5/S6/S7). The
 # template is pinned by the freeze manifest (runner_settings canonical hash),
 # so the identity check binds every key below for both measured runners.
-TOOL_SET = ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task", "Agent"]
+# AskUserQuestion is in the set because the holdout measurement launcher runs
+# the session with `--permission-mode dontAsk`, which refuses every tool the
+# settings do not pre-approve: without it the review's fix-loop card is
+# refused and every holdout review reaching the card is an invalid run. (A
+# command's `allowed-tools` frontmatter does not pre-approve it there.) In
+# B3's manual mode the card never needed an approval, so B3 is unchanged.
+TOOL_SET = ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task", "Agent",
+            "AskUserQuestion"]
 CODEX_DOMAINS = {"chatgpt.com", "auth.openai.com", "api.openai.com"}
 CREDENTIAL_PATHS = ("~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.gnupg",
                     "~/Library/Keychains", "~/.claude/.credentials.json",
@@ -339,7 +346,8 @@ def containment_problems(d):
         if rule not in deny:
             out.append("deny rule missing: %s" % rule)
     if perms.get("allow") != TOOL_SET:
-        out.append("pre-approved tool set is not the B3 set (python3 scorer needs Bash)")
+        out.append("pre-approved tool set is not the measured set (python3 scorer "
+                   "needs Bash; the fix-loop card needs AskUserQuestion under dontAsk)")
     plugins = d.get("enabledPlugins") or {}
     if plugins.get("codex@openai-codex") is not False:
         out.append("codex plugin hooks enabled (its plugin-data dir is unwritable "
@@ -644,6 +652,7 @@ class TestMutants(unittest.TestCase):
                      ("permissions", ("deny", "Read(~/.ssh/**)")),
                      ("permissions", ("deny", "WebFetch")),
                      ("permissions", ("allow", "Bash")),
+                     ("permissions", ("allow", "AskUserQuestion")),
                      ("enabledPlugins", "codex@openai-codex"),
                      ("disableClaudeAiConnectors",)):
             with self.subTest(path=path):
