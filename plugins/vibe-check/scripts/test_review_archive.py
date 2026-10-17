@@ -4,7 +4,9 @@ reports and both state archives).
 """
 
 import ast
+import errno
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -163,7 +165,9 @@ class TestMutants(TmpCase):
         with open(REVIEW_ARCHIVE_PY, "r", encoding="utf-8") as fh:
             src = fh.read()
         mutated = src.replace("os.link(src, target)", "os.replace(src, target)")
-        mutated = mutated.replace("    os.unlink(src)\n", "")
+        mutated = mutated.replace(
+            "    try:\n        os.unlink(src)\n    except OSError as exc:\n"
+            "        _release(target, src, exc)\n", "")
         self.assertNotEqual(mutated, src)
         mod = types.ModuleType("review_archive_replace_mutant")
         exec(compile(mutated, "review_archive_mutant", "exec"), mod.__dict__)
@@ -187,6 +191,250 @@ class TestMutants(TmpCase):
         for f in os.listdir(self.dir):
             os.unlink(os.path.join(self.dir, f))
         self.assertFalse(self._never_overwrites(self._replace_copy()))
+
+
+def _no_link(*_a, **_k):
+    raise OSError(errno.EPERM, "Operation not permitted")
+
+
+class TestNoHardLinkFallback(TmpCase):
+    """Filesystems without hard links (exFAT/FAT, SMB, many FUSE mounts):
+    os.link raises a non-FileExistsError OSError. The move falls back to an
+    exclusive-create copy, never overwrites, and removes the source only
+    after the copy is verified."""
+
+    BASE = "REVIEW-54-" + DATE
+
+    def test_fallback_archives_without_links(self):
+        for err in (errno.EPERM, errno.ENOTSUP, errno.EXDEV, errno.EOPNOTSUPP,
+                    errno.EMLINK, errno.ENOSYS):
+            with self.subTest(errno=errno.errorcode[err]):
+                src = os.path.join(self.dir, "REVIEW.md")
+                _write(src, "report %d" % err)
+                with mock.patch.object(review_archive.os, "link",
+                                       side_effect=OSError(err, "no links")):
+                    path = review_archive.archive(src, self.dir,
+                                                  self.BASE + "-%d" % err, ".md")
+                self.assertFalse(os.path.exists(src))
+                self.assertEqual(_read(path), "report %d" % err)
+
+    def test_fallback_two_same_day_both_preserved(self):
+        src = os.path.join(self.dir, "REVIEW.md")
+        with mock.patch.object(review_archive.os, "link", _no_link):
+            _write(src, "first")
+            p1 = review_archive.archive(src, self.dir, self.BASE, ".md")
+            _write(src, "second")
+            p2 = review_archive.archive(src, self.dir, self.BASE, ".md")
+        self.assertEqual(os.path.basename(p1), self.BASE + ".md")
+        self.assertEqual(os.path.basename(p2), self.BASE + "-2.md")
+        self.assertEqual((_read(p1), _read(p2)), ("first", "second"))
+
+    def test_fallback_never_overwrites(self):
+        taken = os.path.join(self.dir, self.BASE + ".md")
+        _write(taken, "keep me")
+        src = os.path.join(self.dir, "REVIEW.md")
+        _write(src, "new")
+        with mock.patch.object(review_archive.os, "link", _no_link), \
+                mock.patch.object(review_archive, "archive_name",
+                                  lambda d, b, s: b + s):
+            with self.assertRaises(FileExistsError):
+                review_archive.archive(src, self.dir, self.BASE, ".md")
+        self.assertEqual(_read(taken), "keep me")
+        self.assertEqual(_read(src), "new")
+
+    def test_fallback_race_picks_next_name(self):
+        """The chosen name is created by someone else between selection and
+        the exclusive create: the next free name is used."""
+        src = os.path.join(self.dir, "REVIEW.md")
+        _write(src, "mine")
+        real = review_archive.archive_name
+        calls = []
+
+        def racing(d, b, s):
+            name = real(d, b, s)
+            if not calls:
+                _write(os.path.join(d, name), "theirs")  # the race
+            calls.append(name)
+            return name
+
+        with mock.patch.object(review_archive.os, "link", _no_link), \
+                mock.patch.object(review_archive, "archive_name", racing):
+            path = review_archive.archive(src, self.dir, self.BASE, ".md")
+        self.assertEqual(os.path.basename(path), self.BASE + "-2.md")
+        self.assertEqual(_read(os.path.join(self.dir, self.BASE + ".md")),
+                         "theirs")
+        self.assertEqual(_read(path), "mine")
+        self.assertFalse(os.path.exists(src))
+
+    def test_fallback_preserves_mode_and_bytes(self):
+        src = os.path.join(self.dir, "feat.json")
+        data = bytes(range(256)) * 41
+        with open(src, "wb") as fh:
+            fh.write(data)
+        os.chmod(src, 0o640)
+        with mock.patch.object(review_archive.os, "link", _no_link):
+            path = review_archive.archive(src, self.dir, "feat.json.archived-"
+                                          + DATE, "")
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), data)
+        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o640)
+
+    def test_copy_mismatch_removes_copy_and_keeps_source(self):
+        src = os.path.join(self.dir, "REVIEW.md")
+        _write(src, "the report")
+        real_write = os.write
+
+        def short_write(fd, data):
+            return real_write(fd, bytes(data)[:3])  # silently truncated
+
+        with mock.patch.object(review_archive.os, "link", _no_link), \
+                mock.patch.object(review_archive, "_write_all", short_write):
+            with self.assertRaises(OSError):
+                review_archive.archive(src, self.dir, self.BASE, ".md")
+        self.assertEqual(_read(src), "the report")
+        self.assertEqual(sorted(os.listdir(self.dir)), ["REVIEW.md"])
+
+    def test_total_failure_keeps_source(self):
+        src = os.path.join(self.dir, "REVIEW.md")
+        _write(src, "the report")
+        with mock.patch.object(review_archive.os, "link", _no_link), \
+                mock.patch.object(review_archive.os, "open",
+                                  side_effect=OSError(errno.EACCES, "denied")):
+            with self.assertRaises(OSError):
+                review_archive.archive(src, self.dir, self.BASE, ".md")
+        self.assertEqual(_read(src), "the report")
+        self.assertEqual(os.listdir(self.dir), ["REVIEW.md"])
+
+
+class TestSourceRemovalFailure(TmpCase):
+    """bugs-007: when the source cannot be removed after the archive name was
+    claimed, the archive name is released again so exactly one live copy
+    remains; if that also fails, the error names both paths."""
+
+    BASE = "feat.json.archived-" + DATE
+
+    def _unlink_fails_for(self, victim):
+        real = os.unlink
+
+        def unlink(path, *a, **k):
+            if os.path.abspath(path) == os.path.abspath(victim):
+                raise OSError(errno.EBUSY, "busy")
+            return real(path, *a, **k)
+        return unlink
+
+    def test_link_path_undoes_archive(self):
+        src = os.path.join(self.dir, "feat.json")
+        _write(src, "{}")
+        with mock.patch.object(review_archive.os, "unlink",
+                               self._unlink_fails_for(src)):
+            with self.assertRaises(OSError) as cm:
+                review_archive.archive(src, self.dir, self.BASE, "")
+        self.assertEqual(os.listdir(self.dir), ["feat.json"])
+        self.assertIn(src, str(cm.exception))
+
+    def test_copy_path_undoes_archive(self):
+        src = os.path.join(self.dir, "feat.json")
+        _write(src, "{}")
+        with mock.patch.object(review_archive.os, "link", _no_link), \
+                mock.patch.object(review_archive.os, "unlink",
+                                  self._unlink_fails_for(src)):
+            with self.assertRaises(OSError):
+                review_archive.archive(src, self.dir, self.BASE, "")
+        self.assertEqual(os.listdir(self.dir), ["feat.json"])
+        self.assertEqual(_read(src), "{}")
+
+    def test_both_removals_fail_names_both_paths(self):
+        src = os.path.join(self.dir, "feat.json")
+        _write(src, "{}")
+        target = os.path.join(self.dir, self.BASE)
+
+        def unlink(path, *a, **k):
+            raise OSError(errno.EBUSY, "busy")
+
+        with mock.patch.object(review_archive.os, "unlink", unlink):
+            with self.assertRaises(OSError) as cm:
+                review_archive.archive(src, self.dir, self.BASE, "")
+        msg = str(cm.exception)
+        self.assertIn(src, msg)
+        self.assertIn(target, msg)
+        self.assertIn("both", msg)
+
+
+class TestFallbackMutants(TmpCase):
+    """Each new guard trips when removed."""
+
+    def _mutant(self, old, new):
+        with open(REVIEW_ARCHIVE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        mutated = src.replace(old, new)
+        self.assertNotEqual(mutated, src)
+        mod = types.ModuleType("review_archive_mutant")
+        exec(compile(mutated, "review_archive_mutant", "exec"), mod.__dict__)
+        return mod
+
+    def _fallback_works(self, mod):
+        src = os.path.join(self.dir, "REVIEW.md")
+        _write(src, "x")
+        try:
+            with mock.patch.object(mod.os, "link", _no_link):
+                path = mod.archive(src, self.dir, "R", ".md")
+        except OSError:
+            return False
+        return _read(path) == "x" and not os.path.exists(src)
+
+    def _fallback_no_clobber(self, mod):
+        taken = os.path.join(self.dir, "R.md")
+        _write(taken, "keep me")
+        src = os.path.join(self.dir, "REVIEW.md")
+        _write(src, "new")
+        with mock.patch.object(mod.os, "link", _no_link), \
+                mock.patch.object(mod, "archive_name", lambda d, b, s: b + s):
+            try:
+                mod.archive(src, self.dir, "R", ".md")
+            except OSError:
+                pass
+        return _read(taken) == "keep me"
+
+    def _undo_on_unlink_failure(self, mod):
+        src = os.path.join(self.dir, "feat.json")
+        _write(src, "{}")
+        real = os.unlink
+
+        def unlink(path, *a, **k):
+            if os.path.abspath(path) == os.path.abspath(src):
+                raise OSError(errno.EBUSY, "busy")
+            return real(path, *a, **k)
+        with mock.patch.object(mod.os, "unlink", unlink):
+            try:
+                mod.archive(src, self.dir, "feat.json.archived", "")
+            except OSError:
+                pass
+        return os.listdir(self.dir) == ["feat.json"]
+
+    def _clear(self):
+        for f in os.listdir(self.dir):
+            os.unlink(os.path.join(self.dir, f))
+
+    def test_mutant_no_fallback(self):
+        self.assertTrue(self._fallback_works(review_archive))
+        self._clear()
+        mod = self._mutant("        _copy_no_clobber(src, target)\n",
+                           "        raise\n")
+        self.assertFalse(self._fallback_works(mod))
+
+    def test_mutant_fallback_without_excl(self):
+        self.assertTrue(self._fallback_no_clobber(review_archive))
+        self._clear()
+        mod = self._mutant("os.O_CREAT | os.O_EXCL | os.O_WRONLY",
+                           "os.O_CREAT | os.O_TRUNC | os.O_WRONLY")
+        self.assertFalse(self._fallback_no_clobber(mod))
+
+    def test_mutant_no_undo_on_unlink_failure(self):
+        self.assertTrue(self._undo_on_unlink_failure(review_archive))
+        self._clear()
+        mod = self._mutant("        _release(target, src, exc)\n",
+                           "        raise\n")
+        self.assertFalse(self._undo_on_unlink_failure(mod))
 
 
 class TestCLI(TmpCase):
@@ -260,6 +508,25 @@ class TestCLI(TmpCase):
                 self.assertEqual(proc.returncode, 1)
                 self.assertEqual(proc.stdout, b"")
                 self.assertEqual(len(proc.stderr.decode().strip().splitlines()), 1)
+
+    def test_unarchivable_exits_one_and_keeps_source(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores directory permissions")
+        tm = os.path.join(self.dir, "ro")
+        os.mkdir(tm)
+        src = os.path.join(tm, "REVIEW.md")
+        _write(src, "prior report")
+        os.chmod(tm, 0o555)
+        try:
+            proc = self._run(["review-md", "--phase", "54", "--dir", tm,
+                              "--date", DATE])
+        finally:
+            os.chmod(tm, 0o755)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, b"")
+        self.assertIn("left in place", proc.stderr.decode())
+        self.assertEqual(os.listdir(tm), ["REVIEW.md"])
+        self.assertEqual(_read(src), "prior report")
 
     def test_usage_errors_exit_two(self):
         for argv in (["bogus"], [], ["review-md"], ["state"],

@@ -10,11 +10,25 @@ The move is os.link (which fails when the target exists) followed by
 os.unlink of the source, so an existing archive can never be replaced even if
 another process creates the chosen name between selection and move.
 
+Some filesystems have no hard links (exFAT/FAT drives, SMB shares, many FUSE
+mounts): os.link raises an OSError other than FileExistsError there. The move
+then falls back to a copy that is just as no-clobber: the target is created
+with O_CREAT|O_EXCL (it fails when the name exists, and the next free name is
+tried), the bytes are written and fsynced, and the copy is read back and
+compared before the source is removed. A copy that does not match is removed
+again and the source is left in place.
+
+If the source cannot be removed after the archive name was claimed, the
+archive name is released again (the second link or the copy is removed), so
+exactly one live copy remains and a retry is safe. If that also fails, the
+error names both paths. Every failure leaves the source where it was.
+
 CLI (prints the archived path on success):
   review_archive.py review-md --phase P [--dir .turingmind] [--date YYYY-MM-DD]
   review_archive.py unstamped [--dir .turingmind] [--date YYYY-MM-DD]
   review_archive.py state --state-file F [--date YYYY-MM-DD]
-Exit 0 = archived; 1 = source missing or the move failed; 2 = usage error.
+Exit 0 = archived; 1 = source missing or the move failed (the source is left
+in place, and stderr says so); 2 = usage error.
 The date defaults to the local date, matching `$(date +%Y-%m-%d)`.
 """
 
@@ -46,11 +60,79 @@ def archive_name(dir_, base, suffix):
     return name
 
 
+def _write_all(fd, data):
+    """os.write until every byte is written; returns the count written."""
+    view = memoryview(data)
+    total = 0
+    while total < len(data):
+        n = os.write(fd, view[total:])
+        if n <= 0:
+            break
+        total += n
+    return total
+
+
+def _copy_no_clobber(src, target):
+    """Copy src to a NEW file at target, for filesystems without hard links.
+
+    Raises FileExistsError when target exists (never overwritten). On any
+    other failure the partial copy is removed and the error propagates; src
+    is never touched.
+    """
+    with open(src, "rb") as fh:
+        data = fh.read()
+    mode = os.stat(src).st_mode & 0o777
+    fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                 | getattr(os, "O_BINARY", 0), mode)
+    try:
+        try:
+            _write_all(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        with open(target, "rb") as fh:
+            if fh.read() != data:
+                raise OSError("the archive copy %s does not match %s"
+                              % (target, src))
+    except BaseException:
+        try:
+            os.unlink(target)
+        except OSError:
+            pass
+        raise
+
+
+def _place(src, target):
+    """Claim target as a second name for src's bytes; never overwrites."""
+    try:
+        os.link(src, target)
+    except FileExistsError:
+        raise
+    except OSError:
+        # No hard links on this filesystem: exclusive-create copy instead.
+        _copy_no_clobber(src, target)
+
+
+def _release(target, src, cause):
+    """The source could not be removed: give the archive name back so that
+    exactly one live copy remains, then raise."""
+    try:
+        os.unlink(target)
+    except OSError as exc:
+        raise OSError(
+            "archived %s as %s but could not remove the source (%s), and could "
+            "not remove the archive again (%s): both files exist; keep %s and "
+            "delete %s by hand" % (src, target, cause, exc, src, target))
+    raise OSError("could not remove %s after archiving it (%s); the archive was "
+                  "removed again" % (src, cause))
+
+
 def archive(src, dir_, base, suffix):
     """Move src into dir_ under a free archive name; return the final path.
 
-    Raises FileNotFoundError when src is missing and FileExistsError when no
-    free name could be claimed. Never overwrites an existing file.
+    Raises FileNotFoundError when src is missing, FileExistsError when no
+    free name could be claimed, and OSError when the move failed. Never
+    overwrites an existing file; on every failure src is left in place.
     """
     if not os.path.isfile(src):
         raise FileNotFoundError("no file to archive: %s" % src)
@@ -58,13 +140,16 @@ def archive(src, dir_, base, suffix):
     for _ in range(MAX_ATTEMPTS):
         target = os.path.join(dir_, archive_name(dir_, base, suffix))
         try:
-            os.link(src, target)
+            _place(src, target)
         except FileExistsError:
             continue  # claimed by someone else since selection: pick again
         break
     else:
         raise FileExistsError("no free archive name for %s" % base)
-    os.unlink(src)
+    try:
+        os.unlink(src)
+    except OSError as exc:
+        _release(target, src, exc)
     return target
 
 
@@ -123,7 +208,8 @@ def main(argv):
     try:
         target = archive(src, dir_, base, suffix)
     except OSError as exc:
-        sys.stderr.write("review_archive: %s\n" % exc)
+        sys.stderr.write("review_archive: could not archive %s: %s; %s was left "
+                         "in place\n" % (src, exc, src))
         return 1
     sys.stdout.write(target + "\n")
     return 0

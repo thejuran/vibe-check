@@ -57,7 +57,16 @@ If Phase 0 printed `FINALIZE_MODE=1`:
   - Write `.turingmind/REVIEW.md` per `templates/review-md-schema.md`.
   - The REVIEW.md header carries the line `**State format:** 53` directly under `**Final verdict:** ✅ APPROVED` — the literal `finalize_gate.REVIEW_FORMAT_STAMP`. A REVIEW.md without that line was written by a plugin that never read the Phase-53 state and is NEVER this review's close. The one check any reader uses is `python3 "$VC_ROOT/scripts/finalize_gate.py" review-closed < .turingmind/REVIEW.md` (exit 0 = a Phase-53 close) — never a grep for the verdict line, which the older plugin also writes.
   - APPROVED is never written while `undecided_nv > 0`: the gate decides, and it returns `write` only when every count is 0. The REVIEW.md decisions report (built by `batch_card.py decisions-report`) lists decided Needs-verification items with their reasons.
-  - Archive state: `python3 "$VC_ROOT/scripts/review_archive.py" state --state-file "$STATE_FILE"` — using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote. The archive name is `<state>.json.archived-<date>`, with a `-N` suffix when that name already exists, so two same-day close-outs keep both archives and an existing archive is never overwritten (the `by-mode/all/<scope-hash>.json` form also keeps each `--all` archived name unique).
+  - Archive state, under bash, using the Phase-0.5-resolved state path (`$STATE_FILE`), the same file Phase 4.5 wrote:
+    ```bash
+    if ARCHIVED_STATE=$(python3 "$VC_ROOT/scripts/review_archive.py" state --state-file "$STATE_FILE"); then
+      printf 'state archived as %s\n' "$ARCHIVED_STATE"
+    else
+      echo "Finalize stopped — REVIEW.md was written, but the review state could not be archived and is still live at $STATE_FILE (the line above says why). Do not start a new review on this scope until it is archived: re-run --finalize once the cause is fixed, or move the file aside by hand." >&2
+      exit 1
+    fi
+    ```
+    The archive name is `<state>.json.archived-<date>`, with a `-N` suffix when that name already exists, so two same-day close-outs keep both archives and an existing archive is never overwritten (the `by-mode/all/<scope-hash>.json` form also keeps each `--all` archived name unique). On a filesystem without hard links the helper copies instead, still never overwriting. On a non-zero exit print the fence's message as message text and STOP: the state file stays where it is, nothing else is moved, and a re-run of `--finalize` is safe (it archives this REVIEW.md aside like any earlier report and tries the state again).
   - Print summary to user: path to `.turingmind/REVIEW.md` and reminder that it's gitignored — user must `cp` if they want it tracked.
 - `refuse` — print "I'm uncertain about Finalize mode — finalize_gate.py refused its input" and stop. Do NOT write REVIEW.md or archive state.
 
@@ -210,10 +219,13 @@ Fill from state:
 
 Filling REVIEW.md is READ-only over state: Finalize's only state write is the `record-decisions` step above; the state archive move follows the write as today. Every archive move (state file, prior report, unstamped report) goes through `review_archive.py`, which is no-clobber by construction: it never overwrites an existing archive.
 
-If a prior `.turingmind/REVIEW.md` exists, archive it first. An unstamped one (`review-closed` exits non-zero) was written by a plugin version that never read this review's state: move it aside as `REVIEW-unstamped-<date>.md` and print the notice in the fence — it did not close this review. A stamped one is always archived aside as `REVIEW-<phase>-<date>[-N].md`, even when it belongs to the same phase, so a same-day second close-out keeps both reports:
+If a prior `.turingmind/REVIEW.md` exists, archive it first — run the fence below BEFORE the Write. An unstamped one (`review-closed` exits non-zero) was written by a plugin version that never read this review's state: move it aside as `REVIEW-unstamped-<date>.md` and print the notice in the fence — it did not close this review. A stamped one is always archived aside as `REVIEW-<phase>-<date>[-N].md`, even when it belongs to the same phase, so a same-day second close-out keeps both reports:
 ````bash
 if [ -f .turingmind/REVIEW.md ] && ! python3 "$VC_ROOT/scripts/finalize_gate.py" review-closed < .turingmind/REVIEW.md > /dev/null; then
-  python3 "$VC_ROOT/scripts/review_archive.py" unstamped --dir .turingmind
+  if ! python3 "$VC_ROOT/scripts/review_archive.py" unstamped --dir .turingmind; then
+    echo "Finalize stopped — the earlier REVIEW.md could not be archived (the line above says why). Nothing was written and the review state was not archived: the earlier report and the live state are both kept." >&2
+    exit 1
+  fi
   echo "An earlier REVIEW.md was written by a plugin version that does not read this review's state; archived aside as REVIEW-unstamped-<date>.md — it did not close this review."
 fi
 if [ -f .turingmind/REVIEW.md ]; then
@@ -223,7 +235,12 @@ if [ -f .turingmind/REVIEW.md ]; then
     PRIOR_PHASE="unknown"
   fi
   if [ -n "$PRIOR_PHASE" ]; then
-    python3 "$VC_ROOT/scripts/review_archive.py" review-md --phase "$PRIOR_PHASE" --dir .turingmind
+    if ! python3 "$VC_ROOT/scripts/review_archive.py" review-md --phase "$PRIOR_PHASE" --dir .turingmind; then
+      echo "Finalize stopped — the earlier REVIEW.md could not be archived (the line above says why). Nothing was written and the review state was not archived: the earlier report and the live state are both kept." >&2
+      exit 1
+    fi
   fi
 fi
 ````
+
+On a non-zero exit from this fence, print its message as message text and STOP: do NOT write REVIEW.md and do NOT archive state — the earlier report and the live state are both kept, so nothing is lost and `--finalize` can simply be re-run once the cause is fixed. On a filesystem without hard links (exFAT/FAT drives, SMB shares, many FUSE mounts) the helper copies instead of linking, still never overwriting; it fails only when it cannot place a verified copy, and then it leaves the report where it was.
