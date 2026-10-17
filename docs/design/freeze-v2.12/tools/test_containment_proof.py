@@ -182,6 +182,32 @@ class TestVerify(_Base):
         t = self.transcript(_events(cp.canary_path()))
         self.assertIn("no scorer output", " ".join(cp.verify(self.fx, t)))
 
+    def test_probe_and_review_in_two_transcripts(self):
+        """`/clear` between the probe and the review starts a new transcript:
+        verify judges both together."""
+        self.state()
+        events = _events(cp.canary_path())
+        probe = self.transcript(events[:4])
+        review = os.path.join(self._tmp.name, "t2.jsonl")
+        with open(review, "w", encoding="utf-8") as fh:
+            for ev in events[4:]:
+                fh.write(json.dumps(ev) + "\n")
+        self.assertEqual(cp.verify(self.fx, [probe, review]), [])
+        self.assertNotEqual(cp.verify(self.fx, [review]), [])
+
+    def test_cli_finds_every_fixture_transcript(self):
+        self.state()
+        proj = cp.project_dir(self.fx)
+        os.makedirs(proj)
+        events = _events(cp.canary_path())
+        for name, part in (("a.jsonl", events[:4]), ("b.jsonl", events[4:])):
+            with open(os.path.join(proj, name), "w", encoding="utf-8") as fh:
+                for ev in part:
+                    fh.write(json.dumps(ev) + "\n")
+        self.assertEqual(len(cp.find_transcripts(self.fx)), 2)
+        with mock.patch("sys.stdout"):
+            self.assertEqual(cp.main(["verify", "--dir", self.fx]), 0)
+
     def test_cli_fails_loudly(self):
         self.state(codex="skipped")
         t = self.transcript(_events(cp.canary_path()))

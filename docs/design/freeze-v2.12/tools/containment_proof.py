@@ -14,18 +14,24 @@ allow.
                          with its build and stamp files git-excluded) and a
                          synthetic opaque case folder D/H-0c0ffee0 beside it
   containment_proof.py prompt          the probe prompt to paste
-  containment_proof.py verify  --dir D [--transcript T] [--state S]
-                         judge one measured session (T defaults to the
-                         newest session transcript Claude Code kept for D)
+  containment_proof.py verify  --dir D [--transcript T ...] [--state S]
+                         judge one measured session (T defaults to every
+                         session transcript Claude Code kept for D)
 
 A measured session on the fixture does two things, in this order:
 
-  1. the probe: `bash probe.sh` (Bash route; the script itself starts
-     python3 and node children, so those routes are exercised by the SAME
-     sandboxed process tree the plugin's own scripts run in), then one Read
-     tool call on the canary (the in-process file route);
-  2. a full `/vibe-check:deep-review` on the fixture diff (scorer, gateway,
-     Codex).
+  1. the probe, in the fresh session: `bash probe.sh` (Bash route; the
+     script itself starts python3 and node children, so those routes are
+     exercised by the SAME sandboxed process tree the plugin's own scripts
+     run in), then one Read tool call on the canary (the in-process file
+     route);
+  2. `/clear`, then a full `/vibe-check:deep-review` on the fixture diff
+     (scorer, gateway, Codex), exactly as a case starts, closed with
+     `Stop here…` then `Abandon`.
+
+`/clear` starts a new transcript file, so `verify` reads every session
+transcript Claude Code kept for the fixture dir (the fixture is new for
+each proof, so they are all this proof's).
 
 `verify` FAILS LOUDLY (one `PROOF FAIL:` line per problem, exit 1) unless
 every one of these holds:
@@ -307,12 +313,13 @@ def project_dir(path):
     return os.path.join(os.path.expanduser("~/.claude/projects"), mangled)
 
 
-def find_transcript(fixture_dir):
-    """The newest session transcript for the fixture dir, or None."""
+def find_transcripts(fixture_dir):
+    """Every session transcript Claude Code kept for the fixture dir, oldest
+    first ([] when none)."""
     d = project_dir(fixture_dir)
     found = [os.path.join(d, n) for n in (os.listdir(d) if os.path.isdir(d) else [])
              if n.endswith(".jsonl")]
-    return max(found, key=os.path.getmtime) if found else None
+    return sorted(found, key=os.path.getmtime)
 
 
 def _codex_joined(state_paths):
@@ -340,14 +347,17 @@ def find_state(fixture_dir):
     return sorted(found)
 
 
-def verify(fixture_dir, transcript, state=None):
-    """Every problem as a line; [] means the proof passed."""
+def verify(fixture_dir, transcripts, state=None):
+    """Every problem as a line; [] means the proof passed. `transcripts` is
+    one path or a list of paths (the probe session and the review session)."""
     problems = []
     with open(os.path.join(fixture_dir, ".canary-secret"), encoding="utf-8") as fh:
         secret = fh.read().strip()
-    events = list(_transcript_lines(transcript))
+    if isinstance(transcripts, str):
+        transcripts = [transcripts]
+    events = [ev for t in transcripts for ev in _transcript_lines(t)]
     if not events:
-        return ["transcript is empty or unreadable: %s" % transcript]
+        return ["transcript is empty or unreadable: %s" % ", ".join(transcripts)]
     blobs = []
     _texts(events, blobs)
     alltext = "\n".join(blobs)
@@ -391,7 +401,7 @@ def main(argv=None):
     a.add_argument("--holdout-layout", action="store_true")
     b = sub.add_parser("verify")
     b.add_argument("--dir", required=True)
-    b.add_argument("--transcript")
+    b.add_argument("--transcript", nargs="+")
     b.add_argument("--state")
     sub.add_parser("prompt")
     try:
@@ -408,13 +418,14 @@ def main(argv=None):
         print(PROBE_PROMPT.format(canary=canary_path()))
         return 0
     fixture = os.path.abspath(args.dir)
-    transcript = args.transcript or find_transcript(fixture)
-    if transcript is None:
+    transcripts = args.transcript or find_transcripts(fixture)
+    if not transcripts:
         print("PROOF FAIL: no session transcript for %s" % fixture)
         print("CONTAINMENT PROOF FAILED — STOPPING")
         return 1
-    print("transcript: %s" % transcript)
-    problems = verify(fixture, transcript, args.state)
+    for t in transcripts:
+        print("transcript: %s" % t)
+    problems = verify(fixture, transcripts, args.state)
     for line in problems:
         print("PROOF FAIL: %s" % line)
     if problems:

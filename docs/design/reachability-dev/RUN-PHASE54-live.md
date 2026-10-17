@@ -701,8 +701,10 @@ bash docs/design/b3-ground-truth/b3-runner-v2.12/proof_case.sh
 ```
 
 It runs `proof-prepare`, `proof-launch` (which starts `proof-session`: the same identity check, the
-same `env -i` allowlist and the same `claude` launch line as `session`), pastes the probe prompt,
-runs `/vibe-check:deep-review`, picks `Stop here…` then `Abandon`, exits, and runs `proof-verify`.
+same `env -i` allowlist and the same `claude` launch line as `session`), pastes the probe prompt in
+the fresh session, sends `/clear`, runs `/vibe-check:deep-review` (so the review starts exactly like
+a case), picks `Stop here…` then `Abandon`, exits, and runs `proof-verify`, which reads both session
+transcripts of the fixture.
 
 **Holdout measurement launcher** (the owner, from a plain Terminal; the launcher refuses a
 Claude-spawned shell):
@@ -711,8 +713,8 @@ Claude-spawned shell):
 python3 docs/design/freeze-v2.12/tools/containment_proof.py prepare --holdout-layout --dir ~/.b3/containment-proof/holdout-1
 VC_CONTAINMENT_ENV_CANARY=planted python3 docs/design/holdout-v2.12/tools/holdout_eval_launch.py eval-launch \
   --run-dir ~/.b3/containment-proof/holdout-1/run-1 --case ~/.b3/containment-proof/holdout-1/H-0c0ffee0 [--manifest <draft>]
-# in the session: paste the output of `containment_proof.py prompt`, then /vibe-check:deep-review,
-# then Stop here… and Abandon, then /exit
+# in the session: paste the output of `containment_proof.py prompt`; when it is done, /clear;
+# then /vibe-check:deep-review, then Stop here… and Abandon, then /exit
 python3 docs/design/freeze-v2.12/tools/containment_proof.py verify --dir ~/.b3/containment-proof/holdout-1/run-1
 ```
 

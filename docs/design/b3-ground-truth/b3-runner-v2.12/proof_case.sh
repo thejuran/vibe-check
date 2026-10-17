@@ -3,8 +3,8 @@
 # run before the sweep). It drives the runbook's proof blocks through b3_block: proof-prepare (a
 # throwaway fixture repo with one synthetic defect, plus a planted fake credential canary),
 # proof-launch (tmux pane running proof-session: the same identity check, env allowlist and claude
-# launch line as `session`), the probe prompt, /vibe-check:deep-review, `Stop here…` then `Abandon`,
-# /exit, and proof-verify (containment_proof.py verify). No holdout or B3 case is involved.
+# launch line as `session`), the probe prompt, /clear, /vibe-check:deep-review, `Stop here…` then
+# `Abandon`, /exit, and proof-verify (containment_proof.py verify over both transcripts). No holdout or B3 case is involved.
 # Any failure: STOP (exit 4) with the pane tail; a failed verify prints PROOF FAIL lines.
 #
 # Environment: RUNBOOK (default docs/design/reachability-dev/RUN-PHASE54-live.md), MANIFEST
@@ -64,10 +64,13 @@ for i in $(seq 1 12); do
   sleep 5
 done
 pane | grep -q 'manual mode on' || die "session did not reach the input prompt"
+# the probe first, in the fresh session; then /clear so the review starts exactly like a case
 PROMPT=$(python3 "$FREEZE_TOOLS/containment_proof.py" prompt) || die "no probe prompt"
 B=$(last_done)
 tmux send-keys -t "$S" -l "$PROMPT"; sleep 1; tmux send-keys -t "$S" Enter
 wait_turn 900 "$B"
+tmux send-keys -t "$S" '/clear' Enter
+sleep 6
 B=$(last_done)
 tmux send-keys -t "$S" '/vibe-check:deep-review'; sleep 1; tmux send-keys -t "$S" Enter
 wait_turn 4200 "$B"
