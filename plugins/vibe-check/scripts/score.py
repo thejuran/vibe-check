@@ -126,8 +126,12 @@ _NV_NOT_ADMITTED = "nv-not-admitted"
 # HEAD is rechecked, never assumed fixed. A rename, a reformat, a move to another
 # file, or a body change under a surviving name can all preserve the failure.
 # It closes only with evidence: a `resolved` recheck verdict from the lane that
-# raised it, a fix-obsolete verdict, or an owner decision.
+# raised it, a fix-obsolete or confirmed-fix verdict, or an owner decision.
 _NV_UNLOCATED_STATUS = "needs-recheck"
+# Fix-agent verdict sources. `confirmed-fix` is the evidence-bound close of an
+# owner-named Needs-verification fix (carry_state records it only with a fix
+# commit touching the file, the fix agent's check, and the repaired blob).
+_FIX_SOURCES = ("fix-obsolete", "confirmed-fix")
 # The rollback marker (R10). Every Needs-verification row is emitted with
 # `members` = exactly its own lane ref whose `obligation` is this STRING. A
 # reader without Needs-verification support validates `members[].obligation`
@@ -1201,6 +1205,11 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
     the file blob the fix agent verified equals the blob at HEAD now — an
     intervening edit means the verdict judged code that no longer exists. Its
     evidence keeps the verdict's own head_sha: the revision actually verified.
+
+    A confirmed-fix verdict (an owner-named fix of a Needs-verification item,
+    committed and verified against the repaired file — carry_state records it
+    only with that evidence) is judged by the same rule and resolves only a
+    Needs-verification record; its evidence also keeps the fix commit.
     Records that are fixed-since-last are consumed by the caller, never here.
     """
     consumed = []
@@ -1237,6 +1246,10 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         if v["stable_hash"] != stored_hash:
             continue
         consumed.append(v)
+        confirmed = v["source"] == "confirmed-fix"
+        if confirmed and record.get("band") != NV_BAND:
+            rejected.append((v, "verdict: confirmed fix on a non-needs-verification record"))
+            continue
         if v["at_pass"] != pass_number - 1:
             rejected.append((v, "verdict: stale fix verdict"))
             continue
@@ -1247,14 +1260,16 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         if resolution is None:
             verdict_head = v.get("head_sha")
             resolution = {
-                "source": "fix-obsolete",
+                "source": v["source"],
                 "agents": [v["agent"] if isinstance(v.get("agent"), str) else "fix"],
-                "verdict": "obsolete",
+                "verdict": v["verdict"],
                 "head_sha": verdict_head if isinstance(verdict_head, str) else None,
                 "at_pass": pass_number,
                 "reason": v["reason"] if isinstance(v.get("reason"), str) else "",
                 "verified_blob": verified,
             }
+            if confirmed:
+                resolution["commit_sha"] = v["commit_sha"]
     return resolution, consumed, rejected
 
 
@@ -1605,10 +1620,14 @@ def run(envelope):
              and v.get("verdict") in ("resolved", "still-applies"))
             or (v.get("source") == "fix-obsolete" and isinstance(v.get("stable_hash"), str)
                 and _as_line(v.get("at_pass")) is not None
-                and v.get("verdict") == "obsolete"))
+                and v.get("verdict") == "obsolete")
+            or (v.get("source") == "confirmed-fix" and isinstance(v.get("stable_hash"), str)
+                and _as_line(v.get("at_pass")) is not None
+                and v.get("verdict") == "applied"
+                and _nonempty_str(v.get("commit_sha"))))
         if not well_formed:
             _reject_verdict("verdict: malformed")
-        elif v["source"] == "fix-obsolete":
+        elif v["source"] in _FIX_SOURCES:
             fix_verdicts.append(v)
         elif v["token"] not in requests_by_token:
             _reject_verdict("verdict: unrequested token")
@@ -1735,7 +1754,7 @@ def run(envelope):
                 id(v) for v in recheck_verdicts + fix_verdicts
                 if (v["source"] == "recheck"
                     and _request_matches(requests_by_token[v["token"]], rep, stored_hash))
-                or (v["source"] == "fix-obsolete" and stored_hash is not None
+                or (v["source"] in _FIX_SOURCES and stored_hash is not None
                     and v["stable_hash"] == stored_hash))
             fixed_since_last.append({
                 "file": cf.get("file"),

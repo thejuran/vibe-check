@@ -30,8 +30,8 @@
   "resolved_optional": [],
   "resolved_closed": true,
   "resolution_required": ["source", "agents", "verdict", "head_sha", "at_pass", "reason"],
-  "resolution_optional": ["verified_blob"],
-  "resolution_source_enum": ["recheck", "fix-obsolete"],
+  "resolution_optional": ["verified_blob", "commit_sha"],
+  "resolution_source_enum": ["recheck", "fix-obsolete", "confirmed-fix"],
   "_rollback": {
     "procedure": "To run a plugin older than Phase 46 against a Phase-46-produced state, first copy the state file to `<state>.pre-downgrade.bak`, then remove exactly the keys listed in `phase46_added`: the root keys from the root object, the pass keys from every `passes[]` entry, and the finding keys from every finding in every pass. Nothing else changes: every scored field and every pass is preserved, and the `.pre-downgrade.bak` copy keeps the Phase-46 evidence (decisions, resolutions, snapshots), so re-upgrading is a copy back. The older plugin's Finalize reads only `medium_acknowledgments`, so it will re-ask about findings whose owner decision lived in `decisions`; that is the only behavioral loss and it is non-destructive. For a Phase-53-produced state, run `phase53_nv_downgrade` FIRST (it removes the `phase53_added` key from the Needs-verification rows it converts), then this procedure.",
     "phase46_added": {"root": ["decisions", "fix_verdicts"], "pass": ["resolved"], "finding": ["snapshot", "kept_open"]},

@@ -144,6 +144,7 @@ REASON_DECISIONS_PAYLOAD = "refused: malformed decisions payload\n"
 REASON_VERDICTS_FILE = "refused: verdicts file is missing or not valid JSON\n"
 REASON_VERDICTS_PAYLOAD = "refused: malformed verdicts payload\n"
 REASON_NO_FINGERPRINT = "fix verdict skipped: no file fingerprint\n"
+REASON_NO_FIX_EVIDENCE = "fix verdict skipped: no verification evidence\n"
 
 REASONS = (
     REASON_STATE_JSON,
@@ -161,6 +162,7 @@ REASONS = (
     REASON_VERDICTS_FILE,
     REASON_VERDICTS_PAYLOAD,
     REASON_NO_FINGERPRINT,
+    REASON_NO_FIX_EVIDENCE,
 )
 
 
@@ -300,9 +302,29 @@ def open_findings(state):
     return _check_state(state)[1]
 
 
-def _fix_closes(record, state, last, head_blobs):
+def _sha40(value):
+    """A full 40-hex lowercase commit id."""
+    return (isinstance(value, str) and len(value) == 40
+            and all(c in _HEX for c in value))
+
+
+def _verdict_kind_valid(verdict, record):
+    """`obsolete` closes any record; `applied` (a confirmed fix) closes only a
+    Needs-verification record and only with its commit recorded. Any other
+    verdict closes nothing."""
+    kind = verdict.get("verdict")
+    if kind == "obsolete":
+        return True
+    if kind == "applied":
+        return (record.get("band") == NV_BAND and _sha40(verdict.get("commit_sha")))
+    return False
+
+
+def _fix_closes(record, state, last, head_blobs, kind=None):
     verdict = state.get("fix_verdicts", {}).get(record["stable_hash"])
-    if not isinstance(verdict, dict):
+    if not isinstance(verdict, dict) or not _verdict_kind_valid(verdict, record):
+        return False
+    if kind is not None and verdict.get("verdict") != kind:
         return False
     blob = verdict.get("verified_blob")
     return (verdict.get("at_pass") == last["pass_number"]
@@ -476,9 +498,12 @@ def finalize_counts(state, head_blobs=None):
     medium = []
     nv = []
     obsolete = []
+    confirmed = []
     for rec in records:
-        if _fix_closes(rec, state, last, head_blobs):
+        if _fix_closes(rec, state, last, head_blobs, kind="obsolete"):
             obsolete.append(rec["stable_hash"])
+        if _fix_closes(rec, state, last, head_blobs, kind="applied"):
+            confirmed.append(rec["stable_hash"])
         if _closed(rec, state, last, head_blobs):
             continue
         if rec["band"] in _CW_BANDS:
@@ -495,6 +520,7 @@ def finalize_counts(state, head_blobs=None):
         "unacknowledged_medium_hashes": sorted(medium),
         "undecided_nv_hashes": sorted(nv),
         "verified_obsolete_hashes": sorted(obsolete),
+        "verified_confirmed_fix_hashes": sorted(confirmed),
     }
 
 
@@ -527,7 +553,12 @@ def pending(state):
 _DECISION_PAYLOAD_KEYS = ("at_pass", "decisions")
 _DECISION_ENTRY_KEYS = ("stable_hash", "decision", "reason")
 _VERDICT_PAYLOAD_REQUIRED = ("at_pass", "head_sha", "sent", "results")
-_VERDICT_PAYLOAD_OPTIONAL = ("blobs",)
+_VERDICT_PAYLOAD_OPTIONAL = ("blobs", "commits", "clean_head_blobs")
+# The fix agent's after-check outcomes that stand behind an `applied` result:
+# a check that ran and passed, or no automated check (the agent's own re-check
+# of the cited condition). failed / timeout / unavailable never do.
+_CONFIRMED_CHECK_OUTCOMES = ("passed", "not-run")
+_HEX = frozenset("0123456789abcdef")
 
 
 def _valid_decision_entries(payload, open_hashes):
@@ -598,6 +629,9 @@ def _valid_verdict_payload(payload):
             <= set(_VERDICT_PAYLOAD_REQUIRED + _VERDICT_PAYLOAD_OPTIONAL)):
         return False
     head = payload["head_sha"]
+    for key in ("commits", "clean_head_blobs"):
+        if key in payload and not isinstance(payload[key], dict):
+            return False
     return (_is_count(payload["at_pass"])
             and (head is None or isinstance(head, str))
             and isinstance(payload["sent"], list)
@@ -606,15 +640,66 @@ def _valid_verdict_payload(payload):
             and all(isinstance(r, dict) for r in payload["results"]))
 
 
-def record_fix_verdicts(state, payload, skipped=None):
-    """Record fix-agent `obsolete` verdicts; the new state, or None on refusal.
+def _confirmed_fix_evidence(result, record, payload):
+    """(commit_sha, blob) when an `applied` result on a Needs-verification
+    record carries evidence tied to the finding and the repaired code, else
+    None.
 
-    `payload` = {"at_pass", "head_sha", "sent", "results", "blobs"}. A verdict
-    is written only for an `obsolete` result whose id is a FULL hash that was
-    sent to the fix agent AND is an open record of the last pass AND whose file
-    has a blob in `blobs` (the code the fix agent saw). Without that
-    fingerprint the verdict could never close anything, so it is not recorded;
-    its id is appended to `skipped` when a list is given.
+    Required, all of:
+      - `commit_sha` is a full 40-hex id the orchestrator found as a commit
+        reachable from HEAD (`commits[sha]` present);
+      - that commit touches the finding's file (`commits[sha].files`), and the
+        result's `files_touched` names it;
+      - the fix agent's re-check and after-check stand behind it (`check` is
+        an object whose `outcome` is in _CONFIRMED_CHECK_OUTCOMES);
+      - the repaired code is what HEAD holds: the file's blob in that commit
+        (`commits[sha].blobs[file]`) equals `clean_head_blobs[file]`, HEAD's
+        blob read after the batch for a file that was clean (HEAD = index =
+        working tree) both before and after it.
+    """
+    sha = result.get("commit_sha")
+    file = record.get("file")
+    if not (_sha40(sha) and isinstance(file, str) and file):
+        return None
+    touched = result.get("files_touched")
+    if not (isinstance(touched, list) and file in touched):
+        return None
+    check = result.get("check")
+    if not isinstance(check, dict) or check.get("outcome") not in _CONFIRMED_CHECK_OUTCOMES:
+        return None
+    commit = (payload.get("commits") or {}).get(sha)
+    if not isinstance(commit, dict) or not isinstance(commit.get("files"), list):
+        return None
+    if file not in commit.get("files"):
+        return None
+    blobs = commit.get("blobs")
+    blob = blobs.get(file) if isinstance(blobs, dict) else None
+    clean = payload.get("clean_head_blobs") or {}
+    if not isinstance(blob, str) or clean.get(file) != blob:
+        return None
+    return sha, blob
+
+
+def record_fix_verdicts(state, payload, skipped=None):
+    """Record fix-agent verdicts; the new state, or None on refusal.
+
+    `payload` = {"at_pass", "head_sha", "sent", "results", "blobs",
+    "commits", "clean_head_blobs"}. Every verdict needs a result whose id is a
+    FULL hash that was sent to the fix agent AND is an open record of the last
+    pass.
+
+    `obsolete`: written only when the record's file has a blob in `blobs`
+    (the code the fix agent saw). Without that fingerprint the verdict could
+    never close anything, so it is not recorded.
+
+    `applied` on a Needs-verification record (a confirmed fix: Needs-
+    verification rows are sent only when the owner names them): written only
+    with the evidence `_confirmed_fix_evidence` requires, as verdict `applied`
+    with `verified_blob` = the repaired file's blob and `commit_sha`. An
+    applied result on any other band records nothing (those findings close
+    through the rerun as before).
+
+    A skipped verdict's id is appended to `skipped` when a list is given.
 
     `at_pass` must equal the last pass's `pass_number`: a verdict stamped with
     any other pass (e.g. Finalize's next-pass `$PASS_NUMBER`, for which no pass
@@ -632,26 +717,40 @@ def record_fix_verdicts(state, payload, skipped=None):
     new = json.loads(json.dumps(state))
     for result in payload["results"]:
         h = result.get("id")
-        if not (result.get("status") == "obsolete" and isinstance(h, str)
+        status = result.get("status")
+        if not (status in ("obsolete", "applied") and isinstance(h, str)
                 and h in sent and h in by_hash):
             continue
-        blob = blobs.get(by_hash[h].get("file")) if isinstance(blobs,
-                                                               dict) else None
-        if not isinstance(blob, str):
-            if isinstance(skipped, list):
-                skipped.append(h)
-            continue
         summary = result.get("summary")
-        if not isinstance(new.get("fix_verdicts"), dict):
-            new["fix_verdicts"] = {}
-        new["fix_verdicts"][h] = {
-            "verdict": "obsolete",
+        entry = {
             "agent": "fix",
             "head_sha": payload["head_sha"],
             "at_pass": payload["at_pass"],
-            "verified_blob": blob,
             "reason": "" if summary is None else str(summary),
         }
+        if status == "applied":
+            if not by_hash[h].get("band") == NV_BAND:
+                continue
+            evidence = _confirmed_fix_evidence(result, by_hash[h], payload)
+            if evidence is None:
+                if isinstance(skipped, list):
+                    skipped.append(h)
+                continue
+            entry = dict(entry, verdict="applied", verified_blob=evidence[1],
+                         commit_sha=evidence[0])
+        else:
+            blob = blobs.get(by_hash[h].get("file")) if isinstance(
+                blobs, dict) else None
+            if not isinstance(blob, str):
+                if isinstance(skipped, list):
+                    skipped.append(h)
+                continue
+            entry = dict(entry, verdict="obsolete", verified_blob=blob)
+        if not isinstance(new.get("fix_verdicts"), dict):
+            new["fix_verdicts"] = {}
+        new["fix_verdicts"][h] = {k: entry[k] for k in (
+            "verdict", "agent", "head_sha", "at_pass", "verified_blob",
+            "commit_sha", "reason") if k in entry}
     return new
 
 
@@ -748,7 +847,12 @@ def run(argv, stdin_text):
         if result is None:
             return _refuse(REASON_VERDICTS_PAYLOAD), ""
         if skipped:
-            sys.stderr.write(REASON_NO_FINGERPRINT)
+            statuses = {r.get("id"): r.get("status") for r in payload["results"]
+                        if isinstance(r, dict)}
+            if any(statuses.get(h) == "obsolete" for h in skipped):
+                sys.stderr.write(REASON_NO_FINGERPRINT)
+            if any(statuses.get(h) == "applied" for h in skipped):
+                sys.stderr.write(REASON_NO_FIX_EVIDENCE)
 
     if result is None:
         return _refuse(REASON_STATE), ""
