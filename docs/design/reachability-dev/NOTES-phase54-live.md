@@ -804,3 +804,28 @@ the draft manifest; this sweep starts over on it.
 Owner config sha256: `installed_plugins.json` `962a26ec…`, `known_marketplaces.json` `bf22ccb2…`,
 `settings.json` `012ecb8d…` (different from the 2026-10-15/16 values; the owner's config changed
 between sweeps; the identity check binds the effective settings either way).
+
+## Candidate — restart on 2a6dbb4 (2026-10-17T15:16Z)
+
+candidate-guard (before any block):
+
+```text
+CANDIDATE OK candidate=2a6dbb4874b7521b66d53b2fbb1406dfb46dc230 head=d3af6ad01f73f5d56dbf1b986880456d267465dc descendant_commits=8 (reporting-only)
+```
+
+(re-run after the pre-registration and the run-dir move: head `1ba9c79`, 10 descendants,
+reporting-only.)
+
+`materialize 2a6dbb4874b7521b66d53b2fbb1406dfb46dc230`: runner copy
+`~/.b3/phase54-runner/plugin/vibe-check` := `2a6dbb4…:plugins/vibe-check` (git archive); runner
+settings `~/.b3/phase54-runner/settings-measured.json` := `2a6dbb4…:docs/design/b3-ground-truth/b3-runner-v2.12/settings-measured.json`.
+`identity` (all three clone dirs, first attempt, no refusal):
+
+```text
+IDENTITY OK manifest_id=3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc check_digest=829e68ccddf9df112d61a03ac565c0813e6864584ac6d3ca7de9ba8b009a1794 candidate_sha=2a6dbb4874b7521b66d53b2fbb1406dfb46dc230
+```
+
+`park-memory`: none of the three clone paths had auto-memory; park record
+`~/.b3/automemory-parked-phase54-live-1792250123`.
+
+## Runs — restart on 2a6dbb4 (`post` appends each run record below)
