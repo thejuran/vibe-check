@@ -143,10 +143,17 @@ def make_manifest(candidate=CAND, previous=None, **edits):
         "codex": {"cli_version": "1.2.3", "config": {"model": "gpt-x"}},
         "runners": {
             "b3": {"cli": {"version": "9.9.9"}, "user_level": {"h": "3" * 64},
-                   "launch_model": {"value": "claude-fable-5-1[1m]"}},
+                   "launch_model": {"value": "claude-fable-5-1[1m]"},
+                   "runner_settings": {"template_canonical_sha256": "5" * 64},
+                   "gateway": {"plugin_version": "0.51.2", "tree_sha256": "6" * 64,
+                               "base_url": "http://127.0.0.1:18764",
+                               "version_id": "0.51.2"}},
             "holdout-eval": {"cli": {"version": "9.9.9"}, "user_level": {"h": "3" * 64},
-                             "launch_model": {"value": "claude-fable-5-1[1m]"}},
-            "fix-harness": {"sdk_version": "0.2.165"},
+                             "launch_model": {"value": "claude-fable-5-1[1m]"},
+                             "runner_settings": {"template_canonical_sha256": "5" * 64}},
+            "fix-harness": {"sdk_version": "0.2.165",
+                            "env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5[1m]",
+                                    "ANTHROPIC_BASE_URL": None}},
         },
         "lineage": {"previous_manifest_id": previous["manifest_id"] if previous else None,
                     "previous_candidate_sha": previous["candidate_sha"] if previous else None},
@@ -373,6 +380,60 @@ class TestInherit(unittest.TestCase):
         self.assertTrue(fp.inherit(old, new, "workflow",
                                    {"plugins/vibe-check/scripts/score.py":
                                     {"engineering", "detection"}})[0])
+
+    def test_detection_gates_bind_gateway_and_process_env(self):
+        """A gateway update or an allowlisted model-env change between
+        manifests blocks inheritance of both detection gates (D-17: the
+        model routing they were measured under changed)."""
+        old = make_manifest(CAND)
+        edits = {
+            "gateway": {"runners.b3.gateway": {
+                "plugin_version": "0.52.0", "tree_sha256": "8" * 64,
+                "base_url": "http://127.0.0.1:18764", "version_id": "0.52.0"}},
+            "process env": {"runners.fix-harness.env": {
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-6[1m]",
+                "ANTHROPIC_BASE_URL": None}},
+            "runner settings b3": {"runners.b3.runner_settings": {
+                "template_canonical_sha256": "c" * 64}},
+        }
+        for label, edit in edits.items():
+            new = make_manifest(OTHER, previous=old, **edit)
+            field = next(iter(edit))
+            for gate in ("b3x3", "holdoutx3"):
+                with self.subTest(label=label, gate=gate):
+                    ok, reason = fp.inherit(old, new, gate, {})
+                    if gate == "holdoutx3" and field == "runners.b3.runner_settings":
+                        self.assertTrue(ok)
+                        continue
+                    self.assertEqual((ok, reason),
+                                     (False, "gate field differs: %s" % field))
+        held = make_manifest(OTHER, previous=old, **{
+            "runners.holdout-eval.runner_settings": {
+                "template_canonical_sha256": "c" * 64}})
+        self.assertEqual(fp.inherit(old, held, "holdoutx3", {}),
+                         (False, "gate field differs: "
+                                 "runners.holdout-eval.runner_settings"))
+
+    def test_detection_gate_fields_cover_every_identity_class(self):
+        """Every identity class the runner's own check binds maps to a
+        manifest field, and that field is in the gate's GATE_FIELDS (classes
+        bound by the changed-path classification map to None)."""
+        import freeze_check
+        self.assertEqual(fp.PROCESS_ENV_FIELD,
+                         "runners.fix-harness.env")
+        for gate, runner in fp.DETECTION_RUNNER.items():
+            for cls in freeze_check.PROFILE_CLASSES[runner]:
+                with self.subTest(gate=gate, cls=cls):
+                    self.assertIn(cls, fp.CLASS_FIELDS)
+                    field = fp.class_field(cls, runner)
+                    if field is not None:
+                        self.assertIn(field, fp.GATE_FIELDS[gate])
+
+    def test_check_reads_the_policy_env_baseline(self):
+        import freeze_check
+        m = make_manifest(CAND)
+        self.assertEqual(freeze_check._process_env_baseline(m),
+                         m["runners"]["fix-harness"]["env"])
 
     def test_engineering_never_inherits(self):
         old = make_manifest(CAND)
@@ -1062,6 +1123,19 @@ class TestMutants(_SealBase):
         self.assertTrue(self._passes(name, TestInherit))
         with mock.patch.object(fp, "_values_differ", lambda a, b: False):
             self.assertFalse(self._passes(name, TestInherit))
+
+    def test_mutant_a2_detection_fields_without_gateway_or_env(self):
+        name = "test_detection_gates_bind_gateway_and_process_env"
+        cover = "test_detection_gate_fields_cover_every_identity_class"
+        self.assertTrue(self._passes(name, TestInherit))
+        self.assertTrue(self._passes(cover, TestInherit))
+        for drop in (fp.GATEWAY_FIELD, fp.PROCESS_ENV_FIELD):
+            mutant = {g: tuple(f for f in fields if f != drop)
+                      for g, fields in fp.GATE_FIELDS.items()}
+            with self.subTest(drop=drop), \
+                    mock.patch.object(fp, "GATE_FIELDS", mutant):
+                self.assertFalse(self._passes(name, TestInherit))
+                self.assertFalse(self._passes(cover, TestInherit))
 
     def test_mutant_d_classify_range_new_map_only(self):
         name = "test_map_edit_cannot_reduce"

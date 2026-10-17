@@ -16,7 +16,8 @@ Runner profiles (the identity classes each runner actually loads):
                     projection, gateway, process env, `.vibe-check.toml`
                     absence, runner settings, launch model, Codex, covered
                     trees, repo state
-  holdout-eval      as b3 minus the gateway, plus the holdout kit tree
+  holdout-eval      as b3, plus the holdout kit tree (the session routes
+                    through the same model gateway)
   fix-harness       plugin snapshot, SDK version, bundled CLI, kit tree,
                     requirements.txt, process env handed to the SDK, launch
                     model, repo state
@@ -87,7 +88,7 @@ PROFILE_CLASSES = {
            "gateway", "process_env", "toml_absent", "runner_settings",
            "launch_model", "codex", "covered_trees", "repo_state"),
     "holdout-eval": ("plugin_files", "runtime_fingerprint", "native_cli",
-                     "user_level", "process_env", "toml_absent",
+                     "user_level", "gateway", "process_env", "toml_absent",
                      "runner_settings", "launch_model", "codex",
                      "covered_trees", "kit_tree", "repo_state"),
     "fix-harness": ("plugin_files", "sdk_version", "bundled_cli", "kit_tree",
@@ -447,9 +448,15 @@ def _check_gateway(manifest, live):
 
 
 def _process_env_baseline(manifest):
-    # The manifest records the generator's process-env projection once, under
-    # the fix-harness profile; every runner's process env is held to it.
-    return manifest["runners"]["fix-harness"]["env"]
+    # The manifest records the generator's process-env projection once
+    # (freeze_policy.PROCESS_ENV_FIELD); every runner's process env is held to
+    # it, and the detection gates' inheritance binds the same field.
+    present, value = freeze_policy._field_value(manifest,
+                                                freeze_policy.PROCESS_ENV_FIELD)
+    if not present or not isinstance(value, dict):
+        raise FreezeError("manifest has no process-env baseline (%s)"
+                          % freeze_policy.PROCESS_ENV_FIELD)
+    return value
 
 
 def _check_process_env(manifest, live):

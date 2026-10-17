@@ -98,7 +98,7 @@ an installed or home location is bound by the check:
 | Runner | Inputs consumed at launch | How the check binds them |
 |--------|---------------------------|--------------------------|
 | B3 | `$RUNNER_SETTINGS` passed to `claude --settings`; `~/.claude` user level; native CLI; Codex `config.toml` and companion | the SAME `$RUNNER_SETTINGS` path is given to `verify --settings` and compared by content after the single `<RUNNER>` statusLine substitution; user-level projection; CLI version + binary sha256; `config.toml` whole-file hash + companion tree |
-| Holdout measurement launcher | the settings file it materializes from the candidate template; user level; native CLI | the same path goes to `verify` and to the spawn argv; user-level projection; CLI version + binary |
+| Holdout measurement launcher | the settings file it materializes from the candidate template; user level; native CLI; the model gateway | the same path goes to `verify` and to the spawn argv; user-level projection; CLI version + binary; gateway identity |
 | Fix harness | inline `build_session_settings`; inherited process env; launch model; Agent SDK and its bundled CLI | settings fingerprint vs the committed probe record (in the hashed kit tree); allowlisted env projection; explicit `launch_model`; SDK version + bundled CLI version and binary |
 | Holdout autopilot | no plugin; kit tree; native CLI | kit tree hash; CLI version + binary |
 
@@ -180,8 +180,14 @@ may inherit a gate's results only when BOTH hold:
 - the classification of the commit range previous candidate -> new
   candidate leaves the gate's category untouched; and
 - every gate-relevant manifest field is present and equal in both
-  manifests: for B3 and holdout, the plugin tree, models, Codex, and the
-  runner's CLI, user level and launch model; for the workflow gate, the
+  manifests: for B3 and holdout, the plugin tree, models, Codex, the
+  runner's CLI, user level, launch model and runner settings, the model
+  gateway identity (`runners.b3.gateway`) and the process-env baseline the
+  identity check binds (`runners.fix-harness.env`, recorded once and held
+  against every runner). A gateway update or a change to an allowlisted
+  model-routing variable therefore blocks detection inheritance. A test holds
+  every identity class of each detection runner's profile to a field in
+  that gate's list (`freeze_policy.CLASS_FIELDS`); for the workflow gate, the
   plugin tree, the fix-harness runner profile and the covered fix-harness
   tree.
 

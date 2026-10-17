@@ -179,15 +179,57 @@ ENGINEERING_RECORD_FILES = {"test-gate.json": "tests",
 RUN_DIR_RE = re.compile(r"^run-([0-9]+)(?:\.(failed|voided)-.+)?$")
 SUPERSEDED_MARKER = "SUPERSEDED"
 
+# The process-env projection the identity check holds every runner to. The
+# manifest records it once, under the fix-harness profile; freeze_check reads
+# it through this field, so the check and inheritance bind the same value.
+PROCESS_ENV_FIELD = "runners.fix-harness.env"
+# The model gateway identity (it carries the effective model routing, D-24).
+GATEWAY_FIELD = "runners.b3.gateway"
+
+# The manifest field each identity class of freeze_check.PROFILE_CLASSES
+# reads, per runner (`{runner}` is filled in). None = bound by the changed-
+# path classification instead (covered trees, kit tree, repo state). A test
+# holds every class of each detection runner's profile to a field listed in
+# that gate's GATE_FIELDS, so a class added to a profile cannot be skipped by
+# inheritance.
+CLASS_FIELDS = {
+    "plugin_files": "plugin.tree_sha256",
+    "runtime_fingerprint": "plugin.tree_sha256",
+    "native_cli": "runners.{runner}.cli",
+    "user_level": "runners.{runner}.user_level",
+    "gateway": GATEWAY_FIELD,
+    "process_env": PROCESS_ENV_FIELD,
+    "toml_absent": "models",
+    "runner_settings": "runners.{runner}.runner_settings",
+    "launch_model": "runners.{runner}.launch_model",
+    "codex": "codex",
+    "covered_trees": None,
+    "kit_tree": None,
+    "repo_state": None,
+}
+DETECTION_RUNNER = {"b3x3": "b3", "holdoutx3": "holdout-eval"}
+
+
+def class_field(cls, runner):
+    """The manifest field identity class `cls` binds for `runner`, or None."""
+    field = CLASS_FIELDS[cls]
+    return None if field is None else field.format(runner=runner)
+
+
 # Manifest fields a gate's result depends on; inheritance needs every one
 # present and equal in both manifests. `covered[<prefix>]` = every covered
-# entry under that prefix.
+# entry under that prefix. The detection gates carry every field their
+# runner's identity check binds (CLASS_FIELDS), including the gateway and the
+# process-env baseline: results never carry over a change in model routing.
 GATE_FIELDS = {
     "b3x3": ("plugin.tree_sha256", "models", "codex", "runners.b3.cli",
-             "runners.b3.user_level", "runners.b3.launch_model"),
+             "runners.b3.user_level", "runners.b3.launch_model",
+             "runners.b3.runner_settings", GATEWAY_FIELD, PROCESS_ENV_FIELD),
     "holdoutx3": ("plugin.tree_sha256", "models", "codex",
                   "runners.holdout-eval.cli", "runners.holdout-eval.user_level",
-                  "runners.holdout-eval.launch_model"),
+                  "runners.holdout-eval.launch_model",
+                  "runners.holdout-eval.runner_settings", GATEWAY_FIELD,
+                  PROCESS_ENV_FIELD),
     "workflow": ("plugin.tree_sha256", "runners.fix-harness",
                  "covered[docs/design/fix-harness/]"),
     "engineering": ("candidate_sha",),
