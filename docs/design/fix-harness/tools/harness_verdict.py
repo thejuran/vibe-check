@@ -14,7 +14,9 @@ A run is COMPLETE only when all of these hold (FLOW-02):
      outside the recipe's `hunk_lines`, no other file changes (per commit and
      net), and the planted sentinels survive.
   3. Finalize really happened: `.turingmind/REVIEW.md` (the path the plugin's
-     Finalize writes — a root-level REVIEW.md does not count), exactly one
+     Finalize writes — a root-level REVIEW.md does not count) passes the
+     plugin's own close-out test, `finalize_gate.review_closed` (the APPROVED
+     line and the `**State format:** 53` stamp as whole lines), exactly one
      archived state at the current-format location
      (`.turingmind/state/format-53/`; a legacy-location state is a named
      failure, never a fallback), zero outstanding per the plugin's own
@@ -122,6 +124,8 @@ CHECKOUT_ROOT = os.path.realpath(
     os.path.join(str(harness_fixture.PLUGIN_SCRIPTS_DIR), "..", "..", ".."))
 CARRY_STATE_PY = os.path.join(str(harness_fixture.PLUGIN_SCRIPTS_DIR),
                               "carry_state.py")
+FINALIZE_GATE_PY = os.path.join(str(harness_fixture.PLUGIN_SCRIPTS_DIR),
+                                "finalize_gate.py")
 DEFAULT_DENIED_ROOTS = (
     CHECKOUT_ROOT,
     os.path.realpath(str(harness_fixture.KEYS_DIR)),
@@ -152,6 +156,9 @@ LEGACY_STATE_PROBLEM_PREFIX = "legacy-location state found at "
 LEGACY_STATE_PROBLEM_SUFFIX = (" — the plugin wrote the old format; "
                                "not accepted")
 NV_PROBLEM = "undecided Needs-verification at finalize: %d"
+# The plugin's own close-out test failed on .turingmind/REVIEW.md: no
+# APPROVED line plus `**State format:** 53` stamp as whole lines.
+REVIEW_NOT_CLOSED = "REVIEW.md not a Phase-53 close"
 
 Verdict = collections.namedtuple("Verdict", "status reasons dispositions")
 Reconciliation = collections.namedtuple("Reconciliation",
@@ -182,6 +189,23 @@ def _carry_state():
         spec.loader.exec_module(module)
         _CARRY_STATE = module
     return _CARRY_STATE
+
+
+_FINALIZE_GATE = None
+
+
+def _finalize_gate():
+    """The plugin's finalize_gate module; `review_closed(text)` is the one
+    test of a real close-out that the plugin's Finalize tells every reader
+    to use."""
+    global _FINALIZE_GATE
+    if _FINALIZE_GATE is None:
+        spec = importlib.util.spec_from_file_location("finalize_gate",
+                                                      FINALIZE_GATE_PY)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _FINALIZE_GATE = module
+    return _FINALIZE_GATE
 
 
 # --------------------------------------------------------------------------- #
@@ -678,6 +702,10 @@ def _finalize_problems(copy, pre_run_head, events):
     if not (os.path.isfile(review) and not os.path.islink(review)
             and os.path.getsize(review) > 0):
         problems.append(".turingmind/REVIEW.md missing")
+    else:
+        with open(review, "r", encoding="utf-8", errors="replace") as fh:
+            if not _finalize_gate().review_closed(fh.read()):
+                problems.append(REVIEW_NOT_CLOSED)
     archived = _archived_states(copy)
     state = None
     if not archived:

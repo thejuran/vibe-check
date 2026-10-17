@@ -39,6 +39,10 @@ with open(hf.KEYS_DIR / ("%s.json" % CASE), "r", encoding="utf-8") as _fh:
 SANDBOX_OK = (sys.platform == "darwin"
               and os.access("/usr/bin/sandbox-exec", os.X_OK))
 STATE_SHAPE = hf.PLUGIN_SCRIPTS_DIR / "state_shape.py"
+# A REVIEW.md a real Finalize writes: the plugin's own close-out test
+# (finalize_gate.review_closed) needs the APPROVED line and the format stamp.
+STAMPED_REVIEW = ("# Review\n\n**Final verdict:** \u2705 APPROVED\n"
+                  "**State format:** 53\n\nfinalized\n")
 CARRY = hf.PLUGIN_SCRIPTS_DIR / "carry_state.py"
 PY = os.path.realpath(sys.executable)
 
@@ -305,12 +309,13 @@ class _Case(unittest.TestCase):
 
     def finalize(self, archived, review=True, root_review=False):
         self.write_state(archived)  # shape-check before use
+        text = review if isinstance(review, str) else STAMPED_REVIEW
         if review:
             Path(self.copy.root, ".turingmind", "REVIEW.md").write_text(
-                "# Review\n\nfinalized\n", encoding="utf-8")
+                text, encoding="utf-8")
         if root_review:
             Path(self.copy.root, "REVIEW.md").write_text(
-                "# Review\n\nfinalized\n", encoding="utf-8")
+                STAMPED_REVIEW, encoding="utf-8")
         with open(str(self.seed_path) + ".archived-test", "w",
                   encoding="utf-8") as fh:
             json.dump(archived, fh, indent=2, sort_keys=True)
@@ -1163,6 +1168,66 @@ class TestFinalize(_Case):
         with self.head_stub_if_no_sandbox(), mock.patch.object(
                 hv, "_review_md_path",
                 lambda copy: os.path.join(copy.root, "REVIEW.md")):
+            r = self.run_verdict(led)
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+
+    def _closed_run(self, review):
+        self.commit_fix()
+        head = _git(self.copy.root, "rev-parse", "HEAD").strip()
+        state = self.st.state([self.pass2_resolved(head)])
+        led = self.ledger((state, "turn_end", head))
+        self.finalize(state, review=review)
+        return led
+
+    def test_review_md_without_the_close_stamps_fails(self):
+        """A REVIEW.md written from memory (no APPROVED line, no format
+        stamp) is not a Phase-53 close: FAILED with the fixed reason."""
+        led = self._closed_run("# Review\n\nfinalized\n")
+        with self.head_stub_if_no_sandbox():
+            r = self.run_verdict(led)
+        self.assertEqual((r.status, r.reasons),
+                         ("FAILED", [hv.REVIEW_NOT_CLOSED]))
+
+    def test_review_md_needs_both_stamps(self):
+        approved_only = "# Review\n\n**Final verdict:** \u2705 APPROVED\n"
+        stamp_only = "# Review\n\n**State format:** 53\n"
+        quoted = ("# Review\n\n`**Final verdict:** \u2705 APPROVED`\n"
+                  "  **State format:** 53\n")
+        for text in (approved_only, stamp_only, quoted):
+            with self.subTest(text=text):
+                led = self._closed_run(text)
+                with self.head_stub_if_no_sandbox():
+                    r = self.run_verdict(led)
+                self.assertEqual(r.reasons, [hv.REVIEW_NOT_CLOSED])
+                self.tearDown()
+                self.setUp()
+
+    def test_stamped_review_md_completes(self):
+        led = self._closed_run(STAMPED_REVIEW)
+        with self.head_stub_if_no_sandbox():
+            r = self.run_verdict(led)
+        self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
+
+    def test_close_check_is_the_plugins_own(self):
+        """The test is finalize_gate.review_closed from the plugin scripts
+        dir, loaded the way carry_state is, never a harness copy."""
+        fg = hv._finalize_gate()
+        self.assertEqual(os.path.realpath(fg.__file__),
+                         os.path.realpath(hv.FINALIZE_GATE_PY))
+        self.assertEqual(os.path.dirname(hv.FINALIZE_GATE_PY),
+                         os.path.dirname(hv.CARRY_STATE_PY))
+
+    def test_mutant_close_check_removed_counts_unstamped_complete(self):
+        """Mutant: without the review_closed call an unstamped REVIEW.md
+        counts COMPLETE, so the guard is load-bearing."""
+        led = self._closed_run("# Review\n\nfinalized\n")
+
+        class _Always:
+            @staticmethod
+            def review_closed(text):
+                return True
+        with self.head_stub_if_no_sandbox(), \
+                mock.patch.object(hv, "_finalize_gate", lambda: _Always):
             r = self.run_verdict(led)
         self.assertEqual((r.status, r.reasons), ("COMPLETE", []))
 
