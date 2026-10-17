@@ -829,3 +829,63 @@ IDENTITY OK manifest_id=3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1
 `~/.b3/automemory-parked-phase54-live-1792250123`.
 
 ## Runs — restart on 2a6dbb4 (`post` appends each run record below)
+
+## Deviations — restart on 2a6dbb4
+
+### SWEEP STOPPED — 2026-10-17T15:32Z — `post` cannot archive a Codex-joined run under the sandbox
+
+**What happened (first case, `reach-new-1` run-1).** `preflight`, `fresh`, `launch`, the in-pane
+`session` check and `pre` all printed IDENTITY OK (manifest_id 3491dd4c…, candidate 2a6dbb4…).
+The review ran under the S5/S6 containment for 16m 5s with no unexpected card or permission
+prompt; the fix-loop card came after 947 s and was answered `Stop here…` then `Abandon` by label.
+`post` then ran:
+
+```text
+IDENTITY OK manifest_id=3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc check_digest=37304d49e3b00a043d3864c7dbe01765057b3b9b7238e518b93e71ef29d473c2 candidate_sha=2a6dbb4874b7521b66d53b2fbb1406dfb46dc230 (post)
+OK one isolated pass at 345eaaad08d592376897c3d9a5c33ca173fdbbf8
+captured 9 transcript file(s)
+VALID RUN
+unreadable input: ValueError
+LANE ARCHIVE REFUSED OR FAILED — STOPPING
+b3: BLOCK FAILED (post)
+```
+
+`run_case.sh` stopped (`RUN_CASE: STOP — post refused`, exit 4). `freeze_policy.py run-validity`
+judged the run VALID (reasons [], `validity.json` written); the refusal is the next step,
+`lanearchive.py extract`.
+
+**Cause (reproduced, read-only).** Calling the `lanearchive` functions on the captured transcript
+and state: `extract_lanes`, `peak_context` and `_state_codex` (status `joined`) succeed;
+`locate_codex_dir` raises `ValueError("codex directory outside the temp root")`. The plugin's
+Codex collector makes its dir with `mktemp -d "${TMPDIR:-/tmp}/vc-codex.XXXXXX"`. Inside the
+measured session's sandbox, `TMPDIR` is Claude Code's sandbox temp dir, so the printed dir was
+`/tmp/claude-501/vc-codex.AdNHkG` (`payload.json` present, `rc` = `0`). `lanearchive._temp_roots()`
+accepts only the `post` process's own `tempfile.gettempdir()`
+(`/private/var/folders/xq/…/T`), `/private/var/folders` and `/var/folders`. `/private/tmp/claude-501`
+is outside them, so the safety check refuses. This happens for every Codex-joined run under the
+S5/S6 containment, so no Codex-joined case can be archived: the sweep cannot complete on this
+candidate. The containment proofs did not reach this step: `proof-verify` judges the proof
+transcript, not the `post` lane archive.
+
+**Not done (standing rule, D-23 / D-27).** No code change, no bypass, no hand-built archive. The
+fix touches `plugins/vibe-check/scripts/lanearchive.py` (unmapped in PATH-MAP, so covered: a new
+candidate) and possibly the runner layer. Candidate fix, not applied: accept the measured
+session's sandbox temp root (for example the sandbox `TMPDIR` the session was given, recorded by
+the runner) as a temp root in `locate_codex_dir`, with a test using the `/tmp/claude-<uid>/` shape
+and a mutant showing it trips.
+
+**The attempt (not a result).** `fail` moved the run to
+`runs-phase54-live/attempts/live-reach-new-1-run-1-1792251211/` (state, stamps, `validity.json`
+VALID, `tree.diff`, and the state file the run wrote; the transcript stays local and gitignored).
+`lanearchive.py scan` on its committed files: clean. It is not counted as a result, not as a miss,
+and not rerun; the slot stays open for the restart on a new candidate.
+
+**Clean-up.** `/exit`, tmux session killed (no tmux server left). `revert reach-new-1`: triggarr
+clone back on `main@4a154be`, status clean. The empty memory dir the session created (0 files) was
+moved to the park dir as evidence; `restore-memory`: BLOCK OK. The empty `runs-phase54-live/reach-new-1/`
+left by `fail` was removed (`rmdir`).
+
+### Owner cache — after the stop (2026-10-17T15:33Z)
+
+Fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3`, equal to the value
+before. Owner config sha256 `962a26ec…`, `bf22ccb2…`, `012ecb8d…`, unchanged.

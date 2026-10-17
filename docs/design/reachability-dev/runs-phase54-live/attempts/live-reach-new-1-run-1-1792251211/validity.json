@@ -1,0 +1,8 @@
+{
+  "checked_at": "2026-10-17T15:32:29Z",
+  "reasons": [],
+  "schema": "freeze-run-validity/1",
+  "state_sha256": "d458113bb9744232dc7df7c4d0c2c987f7d0d7658f270ba4ed64fb12305b1697",
+  "transcript_sha256": "4c3860caf8467e570c1a90f68bbaba499d2719c530b835ebeda0f69abe775092",
+  "valid": true
+}
