@@ -2,35 +2,37 @@
 
 Requirement: FRZ-01 / R4 (D-05, D-06, D-07, D-19, D-27). Built in 54-10; the live-check rows and the owner decision are completed in 54-11.
 
-This is 54-10 re-run #4, on candidate `2a6dbb4874b7`. Earlier candidates were superseded in this order:
+This is 54-10 re-run #5, on candidate `22ef678fb884`. Earlier candidates were superseded in this order:
 
 - `302df48e1097`: the `.in_use` identity defect, fixed in 24c0c00.
 - `24c0c00038f2`: the owner-approved batched fix from the release deep review.
 - `535f48861cd8`: the holdout card was denied under `dontAsk`, fixed by follow-up 2b.
 - `14808a961d02`: 2b's premise was wrong, so follow-up 2c moved the holdout launcher to manual mode.
+- `2a6dbb4874b7`: the 54-11 sweep's lane archive refused the sandbox Codex temp dir, fixed by follow-up 2d.
 
 The superseded tables are kept unchanged:
 
 - `evidence/superseded-302df48e1097/R4-BEFORE-AFTER.md`;
-- `evidence/superseded-24c0c00038f2/R4-BEFORE-AFTER.md`, which holds the 54-11 live rehearsal on 24c0c00 and the owner's R4 decision for that candidate.
+- `evidence/superseded-24c0c00038f2/R4-BEFORE-AFTER.md`, which holds the 54-11 live rehearsal on 24c0c00 and the owner's R4 decision for that candidate;
+- `evidence/superseded-2a6dbb4874b7/R4-BEFORE-AFTER.md`, the 54-10 draft on 2a6dbb4 with its three live-check rows (the 54-11 sweep on it stopped at its first case and added no row).
 
 The 535f488 and 14808a9 re-runs stopped before this step and wrote no table.
 
 ## Candidate
 
-- candidate: `2a6dbb4874b7521b66d53b2fbb1406dfb46dc230` (from `evidence/CANDIDATE.json`, selected once by 54-10 re-run #4; every superseded selection is recorded in the same file)
+- candidate: `22ef678fb88418f22419867bed81ff89283fa7fb` (from `evidence/CANDIDATE.json`, selected once by 54-10 re-run #5; every superseded selection is recorded in the same file)
 - PATH-MAP blob at candidate: `0966dc263d9170d0fa94a4952909a8def82dc305`
 - candidate guard (before the replay commands):
-  `CANDIDATE OK candidate=2a6dbb4874b7521b66d53b2fbb1406dfb46dc230 head=696bed6fbf4ac6a793510872d9efa7b7dabb787f descendant_commits=5 (reporting-only)`
+  `CANDIDATE OK candidate=22ef678fb88418f22419867bed81ff89283fa7fb head=87f4d7b3c7a9f85dbcbc65cfa86a62d268c90796 descendant_commits=5 (reporting-only)`
 - scorer base for the complete-output diff: `rev:ebcd3e4` (Phase 53 FINAL_HEAD; score.py sha256 525c5e83…)
-- candidate score.py sha256: 8b8839a4c25aa0dc9f4218fad13af578010692d8db092d4cd3d336384ba7088e (git blob ebad9ba9).
+- candidate score.py sha256: 8b8839a4c25aa0dc9f4218fad13af578010692d8db092d4cd3d336384ba7088e (git blob ebad9ba9), the same blob as at 2a6dbb4 (follow-up 2d changed only `lanearchive.py` and its test).
   - This differs from 24c0c00 (blob b9a1e900). Four 54-16 commits from the batched fix changed it: 1af4f53 and 1d71044 (the placeholder NV rule matches only the whole field, and ignores trailing periods only); 1394c75 and 09bdf61 (a Needs-verification item closes on an evidence-bound confirmed fix, only after an independent re-check of the repaired code).
 - supersedes the Phase 53 dev-rehearsal fingerprint `5bee4c11…`
 
 ## Replay guard
 
 Report: `docs/design/b3-ground-truth/REPLAY-REPORT-phase54-freeze-guardrail.md`
-(`replay.py candidate --name phase54-freeze --scorer rev:2a6dbb4874b7521b66d53b2fbb1406dfb46dc230`; exit 0)
+(`replay.py candidate --name phase54-freeze --scorer rev:22ef678fb88418f22419867bed81ff89283fa7fb`; exit 0)
 
 | measure | value |
 |---|---|
@@ -41,12 +43,12 @@ Report: `docs/design/b3-ground-truth/REPLAY-REPORT-phase54-freeze-guardrail.md`
 | unevaluable | 0 |
 | baseline reproduction | REPRODUCED 25 / 26, AMENDED 1, UNEVALUABLE 0 |
 
-No lost protected catch, so no blocking section is needed. The report body matches the superseded 24c0c00 report byte for byte, apart from the candidate scorer, its sha256, the HEAD line and the timestamp. That includes the headline quiet-set FP prediction, baseline 16/18 -> candidate 14/18.
+No lost protected catch, so no blocking section is needed. The report body matches the superseded 2a6dbb4 and 24c0c00 reports byte for byte, apart from the candidate scorer, its sha256, the HEAD line and the timestamp. That includes the headline quiet-set FP prediction, baseline 16/18 -> candidate 14/18.
 
 ## Complete-output diff
 
 Report: `docs/design/b3-ground-truth/REPLAY-REPORT-phase54-freeze-diff.md` (+ `.changes.json`)
-(`replay.py diff --base rev:ebcd3e4 --scorer rev:2a6dbb4874b7… --roots all --allow docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json`; exit 0)
+(`replay.py diff --base rev:ebcd3e4 --scorer rev:22ef678fb884… --roots all --allow docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json`; exit 0)
 
 | measure | value |
 |---|---|
@@ -57,7 +59,7 @@ Report: `docs/design/b3-ground-truth/REPLAY-REPORT-phase54-freeze-diff.md` (+ `.
 | runs with unallowed differences | 0 |
 | allowances unused | 65 (expected: the Phase 53 NV allowances describe changes between the v2.10 baseline and ebcd3e4; ebcd3e4 is now the base, so none of them is exercised) |
 
-No allowances were added. `.changes.json` is `{"allow": []}`, with the same bytes as the 24c0c00 run.
+No allowances were added. `.changes.json` is `{"allow": []}`, with the same bytes as the 24c0c00 and 2a6dbb4 runs.
 
 ## Before/after
 
@@ -89,11 +91,10 @@ The live rehearsal rows (one run per case on the candidate) are added by 54-11. 
 
 Archived-output replay covers scorer changes only (D-07). The workflow-prose and close-out changes are checked live: 90-finalize.md archive routing, the agent-output-schema.md placeholder sentence, and the 54-16 batched-fix changes to 90-finalize.md, `review_archive.py` and `carry_state.py`.
 
+The follow-up 2d change (`lanearchive.py` accepts the current uid's sandbox Codex temp dir) is measurement tooling, not review output. It was checked live on both containment-proof runs of this candidate (`archive_step_check` in `containment-proof-b3.json` and `containment-proof-holdout.json`: extract succeeds, while the pre-fix tool refuses the same input).
+
 | check | candidate | outcome | vs Phase 53 | changed? | cause |
 |---|---|---|---|---|---|
-| two same-day close-outs (finalize archive fences; `live-finalize-archive.md`) | 2a6dbb4874b7 | PASS: `REVIEW-54-<date>.md` + `-2.md`, `54.json.archived-<date>` + `-2`, `REVIEW-unstamped-<date>.md` + `-2.md`; first-pass bytes intact; every fence exit 0; every sha256 equals the 24c0c00 run. The fences were re-extracted from the changed `90-finalize.md` (blob 91dfc729), where the state archive is now a stop-on-failure bash fence | Phase 53 finalize used a bare `mv` to a fixed `-<date>` name and skipped archiving a same-phase prior REVIEW.md, so a second same-day close-out lost the first report / state archive | yes (intended) | 54-02 no-clobber `review_archive.py` routing (R2); 54-16 stop-on-archive-failure fences and no-hard-link fallback (the failure branch is not exercised live; tests cover it) |
-| fix-harness clean-tree, default-diff (`live-harness-clean-tree.md`) | 2a6dbb4874b7 | COMPLETE under the identity check (manifest_id 3491dd4c5712…, draft); model claude-opus-5-5[1m]; undecided_nv 0; confirmed_fix_awaiting_recheck []; state archived under `format-53/`; cards 1 / questions 2 / owner_commands 1 / would-be questions 2 | Phase 52 C-D COMPLETE with the same counts (no Phase 53 clean-tree run) | no | none (the outcome is unchanged on the batched-fix plugin; the run goes through the 54-07 identity preflight and the 54-02/54-16 archive routing) |
-| fix-harness clean-tree, GSD (`live-harness-clean-tree.md`) | 2a6dbb4874b7 | COMPLETE under the identity check; model claude-opus-5-5[1m]; undecided_nv 0; confirmed_fix_awaiting_recheck []; state archived under `format-53/`; cards 1 / questions 1 / owner_commands 1 / would-be questions 1 | Phase 52 C-G COMPLETE with the same counts | no | none (as above) |
 
 ## Owner decision
 
