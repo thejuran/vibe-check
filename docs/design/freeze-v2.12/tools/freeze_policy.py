@@ -343,8 +343,14 @@ def _tool_results(events):
 def run_validity(transcript_path, state_path):
     """Every reason the run is invalid ([] = valid), from the session
     transcript and the review state the scorer wrote."""
+    return (transcript_validity(_transcript_events(transcript_path))
+            + state_validity(state_path))
+
+
+def transcript_validity(events):
+    """The transcript half of the invalid-run rule over parsed transcript
+    events (None or [] = unreadable)."""
     reasons = []
-    events = _transcript_events(transcript_path)
     if not events:
         reasons.append("incomplete review: transcript empty or unreadable")
     else:
@@ -366,6 +372,12 @@ def run_validity(transcript_path, state_path):
                     if reason not in reasons:
                         reasons.append(reason)
                     break
+    return reasons
+
+
+def state_validity(state_path):
+    """The review-state half of the invalid-run rule."""
+    reasons = []
     state = _read_json_obj(state_path) if state_path else None
     if state is None:
         reasons.append("no scorer output: state missing")

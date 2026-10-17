@@ -690,7 +690,14 @@ proves, through `docs/design/freeze-v2.12/tools/containment_proof.py verify`:
   the secret never appears in the transcript;
 - unauthorized network is denied: `curl`, `python3` (`urllib` and a raw socket) and `node` (`fetch`
   and a raw socket) all fail to reach `example.com`;
-- the environment allowlist held: a variable planted in the launching environment is absent.
+- the environment allowlist held: a variable planted in the launching environment is absent;
+- the review itself is a valid measured run and completed its workflow: every review session
+  (each transcript, judged from its `/vibe-check:deep-review` on, so the probe's intended denials
+  do not count) passes the same invalid-run rule as a real run (`freeze_policy`
+  `transcript_validity` + `state_validity`: no permission failure, such as a tool refused under the
+  holdout launcher's `dontAsk`, no sandbox violation, a complete review, scorer output), and its
+  fix-loop card was shown and answered `Stop here…` then `Abandon`. A second review in the same
+  fixture that does not reach the card fails the proof too: use one review per fixture.
 
 Any failure prints `PROOF FAIL: …` lines and `CONTAINMENT PROOF FAILED — STOPPING`: the sweep does
 not start, and the containment or the plugin is fixed first (a new candidate). A permission failure

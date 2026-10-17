@@ -49,12 +49,23 @@ every one of these holds:
   - the gateway worked: the transcript holds a completed model turn after
     the review started;
   - Codex worked: a pass of the review state records codex status
-    `joined` (the plugin's own provenance record).
+    `joined` (the plugin's own provenance record);
+  - every review session (each transcript, from its /vibe-check:deep-review
+    on) is a VALID measured run under the same invalid-run rule the real
+    runs are judged by (`freeze_policy.transcript_validity` plus
+    `state_validity`): no permission failure (a tool refused under the
+    holdout launcher's dontAsk mode included), no sandbox violation, a
+    complete review, scorer output;
+  - every review session showed the fix-loop card and it was answered
+    `Stop here…`, then `Abandon` on the second card (the workflow ran to
+    its end; a card refused or never shown is not a completed review).
 
 A permission failure, an incomplete review or missing scorer output makes
-the proof FAIL; it is never read as "contained" or "quiet".
+the proof FAIL; it is never read as "contained" or "quiet". The probe
+session's intended denials are not the review's: the review is judged
+from its command on.
 
-Stdlib only.
+Stdlib plus the sibling freeze_policy (the invalid-run rule).
 """
 
 import argparse
@@ -64,6 +75,12 @@ import re
 import secrets
 import subprocess
 import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import freeze_policy  # noqa: E402
 
 CANARY_DIR = "~/.vibe-check-measured-canary"
 CANARY_NAME = "secret.txt"
@@ -99,6 +116,10 @@ READ_DENIAL_PATTERNS = (
     re.compile(r"File is covered by a Read deny rule"),
     re.compile(r"denied by your permission settings"),
 )
+# The fix-loop card's answers the review session must show, in order.
+CARD_STOP_PREFIX = "Stop here"
+CARD_ABANDON = "Abandon"
+_ANSWER_RE = re.compile(r'"=\"([^"]*)\"')
 HOLDOUT_RUN = "run-1"
 HOLDOUT_CASE = "H-0c0ffee0"
 # Files the holdout launcher writes into its run dir; excluded so the review
@@ -347,6 +368,76 @@ def find_state(fixture_dir):
     return sorted(found)
 
 
+def _parts(ev):
+    msg = ev.get("message") if isinstance(ev, dict) else None
+    content = msg.get("content") if isinstance(msg, dict) else None
+    return [p for p in content if isinstance(p, dict)] \
+        if isinstance(content, list) else []
+
+
+def review_session(events):
+    """The events from the first user turn that starts the review on, or
+    None when the transcript holds no review."""
+    for i, ev in enumerate(events):
+        if not isinstance(ev, dict) or ev.get("type") != "user":
+            continue
+        blobs = []
+        _texts(ev.get("message"), blobs)
+        if any(freeze_policy.REVIEW_COMMAND in b for b in blobs):
+            return events[i:]
+    return None
+
+
+def card_answers(events):
+    """The answers to every AskUserQuestion call that was answered (never
+    refused), in transcript order."""
+    ids = set()
+    out = []
+    for ev in events:
+        for part in _parts(ev):
+            if part.get("type") == "tool_use" and part.get("name") == "AskUserQuestion":
+                ids.add(part.get("id"))
+            elif part.get("type") == "tool_result" \
+                    and part.get("tool_use_id") in ids and not part.get("is_error"):
+                tur = ev.get("toolUseResult")
+                answers = tur.get("answers") if isinstance(tur, dict) else None
+                if isinstance(answers, dict) and answers:
+                    out.extend(str(v) for v in answers.values())
+                    continue
+                blobs = []
+                _texts(part.get("content"), blobs)
+                out.extend(_ANSWER_RE.findall(" ".join(blobs)))
+    return out
+
+
+def stop_abandon_answered(events):
+    """The fix-loop card was shown and answered `Stop here…`, and a later
+    card was answered `Abandon`."""
+    answers = card_answers(events)
+    for i, a in enumerate(answers):
+        if a.startswith(CARD_STOP_PREFIX):
+            return CARD_ABANDON in answers[i + 1:]
+    return False
+
+
+def review_problems(transcripts, state_path):
+    """Every reason a review session is not a valid, completed measured run,
+    judged per transcript from its review command on."""
+    problems = []
+    for path in transcripts:
+        events = review_session(list(_transcript_lines(path)))
+        if events is None:
+            continue
+        name = os.path.basename(path)
+        reasons = (freeze_policy.transcript_validity(events)
+                   + freeze_policy.state_validity(state_path))
+        problems += ["review session invalid: %s (%s)" % (r, name) for r in reasons]
+        if not stop_abandon_answered(events):
+            problems.append("review session did not show and answer the "
+                            "fix-loop card (Stop here… then Abandon) (%s)" % name)
+    return problems
+
+
 def verify(fixture_dir, transcripts, state=None):
     """Every problem as a line; [] means the proof passed. `transcripts` is
     one path or a list of paths (the probe session and the review session)."""
@@ -386,6 +477,9 @@ def verify(fixture_dir, transcripts, state=None):
                         "codex status joined)")
     if "vibe-check:deep-review" not in alltext:
         problems.append("the transcript holds no /vibe-check:deep-review")
+    scored = [p for p in states if _state_ok(p)]
+    problems += review_problems(transcripts, scored[0] if scored
+                                else (states[0] if states else None))
     turns = [ev for ev in events if isinstance(ev, dict)
              and ev.get("type") == "assistant"]
     if not turns:

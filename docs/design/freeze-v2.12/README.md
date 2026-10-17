@@ -10,7 +10,7 @@ results may count toward a release gate. Four tools live in `tools/`:
 | `freeze_check.py` | the pre-run identity check (`verify --runner <r>`) and the candidate guard (`candidate-guard`) |
 | `freeze_policy.py` | path classification, eligibility, inheritance, slot-based gate status, the retune seal-order proof (`classify`, `seal-order-proof`) |
 | `freeze_tally.py` | the one entry point in front of every tally (`list`, `b3-aggregate`, `dev-tally`, `harness-verdicts`, `gate`) |
-| `containment_proof.py` | the synthetic live proof that each measured session type can score, reach the gateway and Codex, and is denied credential reads and unauthorized network on every route (`prepare`, `prompt`, `verify`) |
+| `containment_proof.py` | the synthetic live proof that each measured session type can score, reach the gateway and Codex, and is denied credential reads and unauthorized network on every route, and that its review session is a valid run under the invalid-run rule that completed the fix-loop card (`Stop here…` then `Abandon`) (`prepare`, `prompt`, `verify`) |
 
 `PATH-MAP.json` maps changed paths to the checks they require. `evidence/`
 holds gate evidence and proofs; it is reporting-only and never moves the
@@ -229,6 +229,9 @@ across that manifest, because the only differing file is reporting-only.
   archive an invalid run (it is failed and redone); for B3 the record must
   also match the archived `state.json`. Each Phase-55 holdout run must be
   judged the same way, on the owner's side, before its verdict is used.
+  `containment_proof.py verify` applies the same rule (its
+  `transcript_validity` + `state_validity` halves) to the proof's review
+  session, so a proof whose review was refused a tool cannot pass.
 - Missing or failed mandatory evidence = UNMET. An owner waiver may
   authorize shipping, but it is never MET: `gate_status` has no waiver
   input and never converts UNMET to MET.
