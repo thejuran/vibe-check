@@ -330,6 +330,22 @@ class TestGenerate(_Base):
         self.assertEqual(u["modelSettings"]["effort"], {"claude-fable-5-1": "medium"})
         self.assertIs(u["alwaysThinkingEnabled"], False)
 
+    def test_malformed_enabled_plugins_is_a_freeze_error(self):
+        """A non-object enabledPlugins stops generation with a named
+        FreezeError (never a traceback from .items())."""
+        for bad in (["p@m"], "p@m", 3, True):
+            with self.subTest(bad=bad):
+                s = self.fx.settings()
+                s["enabledPlugins"] = bad
+                self.fx.write_settings(s)
+                with self.assertRaises(fm.FreezeError) as cm:
+                    fm.user_level(self.fx.home, self.fx.repo)
+                self.assertIn("enabledPlugins is not a JSON object", str(cm.exception))
+        s = self.fx.settings()
+        s["enabledPlugins"] = None
+        self.fx.write_settings(s)
+        self.assertEqual(fm.user_level(self.fx.home, self.fx.repo)[0]["enabled_plugins"], {})
+
     def test_limitations_and_manifest_id_stable(self):
         a, b = self.gen(), self.gen()
         self.assertTrue(a["limitations"])

@@ -889,7 +889,12 @@ def user_level(home, repo):
     claude_md = os.path.join(home, ".claude", "CLAUDE.md")
     installed = _installed_plugins(home)
     enabled = {}
-    for name, on in sorted((settings.get("enabledPlugins") or {}).items()):
+    plugins = settings.get("enabledPlugins")
+    if plugins is None:
+        plugins = {}
+    if not isinstance(plugins, dict):
+        raise FreezeError("settings.json enabledPlugins is not a JSON object")
+    for name, on in sorted(plugins.items()):
         if on is not True:
             continue
         identity = _plugin_identity(installed, name)
