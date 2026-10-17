@@ -6531,11 +6531,58 @@ class TestNeedsVerificationPlaceholders(unittest.TestCase):
 
     # -- whole-field only (owner ratification of S11) ----------------------- #
     _WHOLE_FIELD_VARIANTS = ("N/A", "n/a", " NONE ", "-", "N/A.", "none.", "-.",
-                             "n/a..", "  None.  ", "N/A\n", "\n none \n")
+                             "n/a..", "none..", "  None.  ", "N/A\n", "\n none \n",
+                             "NONE...")
     _NOT_PLACEHOLDERS = ("none of the callers.", "None\nthe callers never validate",
                          "N/A\nreached from the public handler", "-\nsee below",
                          "na", "null", "—", "n.a.", "N / A", "n/a,", "'none'",
                          "None given")
+    # Owner decision (fix-1 follow-ups, S11): trailing periods only. A leading
+    # period makes the field real text.
+    _LEADING_PERIOD = ("...none", ".n/a", ".-", ".none.", ".-.", "..N/A..")
+
+    def test_owner_named_trailing_variants_match(self):
+        for v in ("N/A.", "none..", "-."):
+            with self.subTest(value=v):
+                self.assertEqual(score._nv_value(v), "")
+
+    def test_leading_periods_are_not_a_placeholder(self):
+        for v in self._LEADING_PERIOD:
+            with self.subTest(value=v):
+                self.assertEqual(score._nv_value(v), v)
+
+    def test_leading_period_field_is_judged_by_admission(self):
+        """`...none` is not a placeholder, and "not a placeholder" is not "a
+        valid claim": the record is a Needs-verification claim that must pass
+        the normal admission rule (here: too short), so it is dropped as
+        nv-not-admitted, never auto-admitted and never scored as a plain
+        finding."""
+        f = self._proven(trigger="...none", path="...none", consequence="...none")
+        self.assertTrue(score._nv_marked(f))
+        r = score.run(_nv_env([f]))
+        self.assertEqual(r["findings"], [])
+        self.assertEqual([x["reason"] for x in r["filtered"]], ["nv-not-admitted"])
+        self.assertEqual(r["nv_dropped"], 1)
+        # One leading-period field among two real ones: still admission's call.
+        real = "the parser trusts the header length field"
+        g = self._proven(trigger="...none", path=real, consequence=real)
+        r = score.run(_nv_env([g]))
+        self.assertEqual(r["findings"], [])
+        self.assertEqual([x["reason"] for x in r["filtered"]], ["nv-not-admitted"])
+
+    def test_mutant_surrounding_periods_trips(self):
+        def surrounding(v):
+            text = score._nv_field(v)
+            whole = " ".join(v.split()) if isinstance(v, str) else ""
+            if whole.lower().strip(".").strip() in score._NV_PLACEHOLDERS:
+                return ""
+            return text
+        self.assertEqual(score._nv_value("...none"), "...none")
+        with mock.patch.object(score, "_nv_value", surrounding):
+            self.assertEqual(score._nv_value("...none"), "")
+            f = self._proven(trigger="...none", path="...none",
+                             consequence="...none")
+            self.assertFalse(score._nv_marked(f))
 
     def test_whole_field_variants_are_placeholders(self):
         for v in self._WHOLE_FIELD_VARIANTS:

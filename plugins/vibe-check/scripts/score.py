@@ -113,9 +113,10 @@ _NV_KEYS = ("trigger", "path", "consequence")
 # shape are the only mechanical test; semantic concreteness is the lane
 # prompt's job.
 _NV_MIN = 12
-# D-28: a field whose WHOLE normalized value (all lines, whitespace collapsed,
-# case-folded, surrounding periods ignored) is one of these placeholders counts
-# as blank. Whole-field match only: words are never stripped out of prose, so
+# D-28: a field whose WHOLE normalized value (all lines, whitespace collapsed
+# and trimmed, case-folded, trailing periods ignored) is one of these
+# placeholders counts as blank. A leading period makes it real text ("...none"),
+# which then has to meet admission like any other field. Whole-field match only: words are never stripped out of prose, so
 # "none of the callers validate the host" stays real text.
 _NV_PLACEHOLDERS = frozenset({"n/a", "none", "-"})
 _NV_HEDGES = ("may break", "might break", "might break compatibility", "could be bypassed",
@@ -950,12 +951,13 @@ def _nv_field(v):
 
 def _nv_value(v):
     """_nv_field(v), or "" when the WHOLE field — every line, whitespace
-    collapsed — is a placeholder in _NV_PLACEHOLDERS (case-insensitive,
-    surrounding periods ignored). A placeholder line followed by more text
-    ("None\n<text>") is a real field."""
+    collapsed and trimmed — is a placeholder in _NV_PLACEHOLDERS
+    (case-insensitive, trailing periods ignored). A placeholder line followed
+    by more text ("None\n<text>") or preceded by periods ("...none") is a
+    real field."""
     text = _nv_field(v)
     whole = " ".join(v.split()) if isinstance(v, str) else ""
-    if whole.lower().strip(".").strip() in _NV_PLACEHOLDERS:
+    if whole.lower().rstrip(".").strip() in _NV_PLACEHOLDERS:
         return ""
     return text
 
