@@ -437,6 +437,233 @@ class TestFallbackMutants(TmpCase):
         self.assertFalse(self._undo_on_unlink_failure(mod))
 
 
+class TestMigrate(TmpCase):
+    """Forward migration of a previous-format state: copy to the current
+    location, verify, then archive the old file no-clobber as
+    `<key>.json.migrated-format-53[-N]` so the previous plugin's resolver
+    no longer finds it. Every interruption is safe to retry: the current
+    file is never copied over, and no byte of either file is lost."""
+
+    def setUp(self):
+        super().setUp()
+        self.state = os.path.join(self.dir, "state")
+        self.cur_dir = os.path.join(self.state, "format-53")
+        os.makedirs(self.state)
+        self.legacy = os.path.join(self.state, "54-x.json")
+        self.current = os.path.join(self.cur_dir, "54-x.json")
+        self.archived = self.legacy + ".migrated-format-53"
+        self.body = '{"passes": [{"pass_number": 3}]}\n'
+
+    def _legacy(self, body=None):
+        _write(self.legacy, self.body if body is None else body)
+
+    def _current(self, body):
+        os.makedirs(self.cur_dir, exist_ok=True)
+        _write(self.current, body)
+
+    def _names(self):
+        return sorted(os.listdir(self.state))
+
+    def test_suffix_matches_statepath(self):
+        import statepath
+        self.assertEqual(review_archive.MIGRATED_SUFFIX,
+                         ".migrated-" + statepath.FORMAT_SUBDIR)
+
+    def test_fresh_copy_then_archive(self):
+        self._legacy()
+        msg = review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.current), self.body)
+        self.assertFalse(os.path.exists(self.legacy))
+        self.assertEqual(_read(self.archived), self.body)
+        self.assertIn(self.archived, msg)
+
+    def test_copy_is_independent_of_archive(self):
+        """Writing the current file in place never changes the archive."""
+        self._legacy()
+        review_archive.migrate(self.legacy, self.current)
+        with open(self.current, "w", encoding="utf-8") as fh:
+            fh.write("advanced")
+        self.assertEqual(_read(self.archived), self.body)
+
+    def test_no_legacy_is_a_noop(self):
+        self.assertIsNone(review_archive.migrate(self.legacy, self.current))
+        self.assertFalse(os.path.exists(self.cur_dir))
+        self.assertEqual(self._names(), [])
+
+    def test_closed_review_is_not_copied_but_archived(self):
+        self._legacy()
+        os.makedirs(self.cur_dir)
+        _write(self.current + ".archived-" + DATE, "closed")
+        msg = review_archive.migrate(self.legacy, self.current)
+        self.assertFalse(os.path.exists(self.current))
+        self.assertFalse(os.path.exists(self.legacy))
+        self.assertEqual(_read(self.archived), self.body)
+        self.assertIn("closed", msg)
+
+    def test_current_present_is_never_copied_over(self):
+        self._legacy()
+        self._current("advanced state")
+        review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.current), "advanced state")
+        self.assertEqual(_read(self.archived), self.body)
+        self.assertFalse(os.path.exists(self.legacy))
+
+    def test_archive_name_never_overwrites(self):
+        _write(self.archived, "older archive")
+        self._legacy()
+        review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.archived), "older archive")
+        self.assertEqual(_read(self.archived + "-2"), self.body)
+
+    def test_without_hard_links(self):
+        self._legacy()
+        with mock.patch.object(review_archive.os, "link", _no_link):
+            review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.current), self.body)
+        self.assertEqual(_read(self.archived), self.body)
+        self.assertFalse(os.path.exists(self.legacy))
+
+    # -- interruption at each step, then a plain retry --------------------- #
+    def test_interrupted_before_copy_then_retry(self):
+        self._legacy()
+        with mock.patch.object(review_archive, "_copy_no_clobber",
+                               side_effect=OSError(errno.EIO, "io")):
+            with self.assertRaises(OSError):
+                review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.legacy), self.body)
+        self.assertFalse(os.path.exists(self.current))
+        review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.current), self.body)
+        self.assertEqual(_read(self.archived), self.body)
+
+    def test_interrupted_mid_copy_then_retry(self):
+        """A kill mid-copy leaves a truncated current file (a strict prefix of
+        the old one). It holds nothing the old file lacks, so the retry
+        replaces it with a verified copy."""
+        for partial in ("", self.body[:7]):
+            with self.subTest(partial=len(partial)):
+                self._legacy()
+                self._current(partial)
+                review_archive.migrate(self.legacy, self.current)
+                self.assertEqual(_read(self.current), self.body)
+                self.assertFalse(os.path.exists(self.legacy))
+                for n in os.listdir(self.state):
+                    if n.startswith("54-x.json.migrated"):
+                        self.assertEqual(_read(os.path.join(self.state, n)),
+                                         self.body)
+                os.unlink(self.current)
+
+    def test_interrupted_after_copy_then_retry(self):
+        self._legacy()
+        with mock.patch.object(review_archive, "archive",
+                               side_effect=OSError(errno.EIO, "io")):
+            with self.assertRaises(OSError):
+                review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.legacy), self.body)
+        self.assertEqual(_read(self.current), self.body)
+        # The current-format review moves on before the retry.
+        _write(self.current, "advanced state")
+        review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.current), "advanced state")
+        self.assertEqual(_read(self.archived), self.body)
+        self.assertFalse(os.path.exists(self.legacy))
+
+    def test_interrupted_inside_archive_then_retry(self):
+        """The archive copy exists but the old file could not be removed: the
+        archive name is released, both originals stay, the retry finishes."""
+        self._legacy()
+        real = os.unlink
+
+        def unlink(path, *a, **k):
+            if os.path.abspath(path) == os.path.abspath(self.legacy):
+                raise OSError(errno.EBUSY, "busy")
+            return real(path, *a, **k)
+
+        with mock.patch.object(review_archive.os, "unlink", unlink):
+            with self.assertRaises(OSError):
+                review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.legacy), self.body)
+        self.assertEqual(_read(self.current), self.body)
+        self.assertFalse(os.path.exists(self.archived))
+        review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.archived), self.body)
+        self.assertFalse(os.path.exists(self.legacy))
+
+    def test_archive_failure_keeps_both(self):
+        self._legacy()
+        with mock.patch.object(review_archive.os, "link", _no_link), \
+                mock.patch.object(review_archive, "archive_name",
+                                  side_effect=OSError(errno.EACCES, "denied")):
+            with self.assertRaises(OSError):
+                review_archive.migrate(self.legacy, self.current)
+        self.assertEqual(_read(self.legacy), self.body)
+        self.assertEqual(_read(self.current), self.body)
+
+
+class TestMigrateMutants(TmpCase):
+    def _mutant(self, old, new):
+        with open(REVIEW_ARCHIVE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        mutated = src.replace(old, new)
+        self.assertNotEqual(mutated, src)
+        mod = types.ModuleType("review_archive_migrate_mutant")
+        exec(compile(mutated, "review_archive_mutant", "exec"), mod.__dict__)
+        return mod
+
+    def _paths(self):
+        state = os.path.join(self.dir, "s%d" % len(os.listdir(self.dir)))
+        os.makedirs(os.path.join(state, "format-53"))
+        return (os.path.join(state, "k.json"),
+                os.path.join(state, "format-53", "k.json"))
+
+    def _legacy_leaves_active_path(self, mod):
+        legacy, current = self._paths()
+        _write(legacy, "old")
+        mod.migrate(legacy, current)
+        return not os.path.exists(legacy) and _read(current) == "old"
+
+    def _advanced_current_kept(self, mod):
+        legacy, current = self._paths()
+        _write(legacy, "old state, longer")
+        _write(current, "old state")  # a real file that happens to be shorter
+        _write(current, "new state")
+        try:
+            mod.migrate(legacy, current)
+        except OSError:
+            pass
+        return _read(current) == "new state"
+
+    def _copy_precedes_archive(self, mod):
+        legacy, current = self._paths()
+        _write(legacy, "old")
+        with mock.patch.object(mod, "_copy_no_clobber",
+                               side_effect=OSError(errno.EIO, "io")):
+            try:
+                mod.migrate(legacy, current)
+            except OSError:
+                pass
+        return os.path.exists(legacy)
+
+    def test_mutant_archive_step_removed(self):
+        self.assertTrue(self._legacy_leaves_active_path(review_archive))
+        mod = self._mutant("    target = archive(legacy,", "    target = legacy\n    _ = (legacy,")
+        self.assertFalse(self._legacy_leaves_active_path(mod))
+
+    def test_mutant_prefix_check_widened(self):
+        self.assertTrue(self._advanced_current_kept(review_archive))
+        mod = self._mutant("return len(head) < len(whole) and whole.startswith(head)",
+                           "return True")
+        self.assertFalse(self._advanced_current_kept(mod))
+
+    def test_mutant_archive_before_copy(self):
+        self.assertTrue(self._copy_precedes_archive(review_archive))
+        mod = self._mutant("    copied = _bring_forward(legacy, current)\n",
+                           "    archive(legacy, os.path.dirname(legacy) or '.', "
+                           "os.path.basename(legacy) + '.x', '')\n"
+                           "    copied = _bring_forward(legacy, current)\n")
+        self.assertFalse(self._copy_precedes_archive(mod))
+
+
 class TestCLI(TmpCase):
     def _run(self, argv):
         return subprocess.run(
@@ -528,11 +755,44 @@ class TestCLI(TmpCase):
         self.assertEqual(os.listdir(tm), ["REVIEW.md"])
         self.assertEqual(_read(src), "prior report")
 
+    def test_migrate_cli(self):
+        state = os.path.join(self.dir, "state")
+        os.makedirs(state)
+        legacy = os.path.join(state, "k.json")
+        current = os.path.join(state, "format-53", "k.json")
+        _write(legacy, "{}")
+        proc = self._run(["migrate", "--legacy", legacy, "--current", current])
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertIn("migrated forward", proc.stdout.decode())
+        self.assertEqual(_read(current), "{}")
+        self.assertEqual(_read(legacy + ".migrated-format-53"), "{}")
+        again = self._run(["migrate", "--legacy", legacy, "--current", current])
+        self.assertEqual((again.returncode, again.stdout), (0, b""))
+
+    def test_migrate_cli_failure_exits_one_keeps_both(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores directory permissions")
+        state = os.path.join(self.dir, "state")
+        os.makedirs(os.path.join(state, "format-53"))
+        legacy = os.path.join(state, "k.json")
+        current = os.path.join(state, "format-53", "k.json")
+        _write(legacy, "old")
+        _write(current, "new")
+        os.chmod(state, 0o555)
+        try:
+            proc = self._run(["migrate", "--legacy", legacy, "--current", current])
+        finally:
+            os.chmod(state, 0o755)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("left in place", proc.stderr.decode())
+        self.assertEqual((_read(legacy), _read(current)), ("old", "new"))
+
     def test_usage_errors_exit_two(self):
         for argv in (["bogus"], [], ["review-md"], ["state"],
                      ["unstamped", "--date", "15-10-2026"],
                      ["unstamped", "--date", "2026-13-01"],
-                     ["review-md", "--phase", "54", "--extra"]):
+                     ["review-md", "--phase", "54", "--extra"],
+                     ["migrate", "--legacy", "a"], ["migrate", "--current", "b"]):
             with self.subTest(argv=argv):
                 proc = self._run(argv)
                 self.assertEqual(proc.returncode, 2)

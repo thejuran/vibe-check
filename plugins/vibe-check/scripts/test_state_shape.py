@@ -1190,6 +1190,12 @@ class TestPhase46Rollback(unittest.TestCase):
         self.assertEqual(json.dumps(stripped, sort_keys=True),
                          json.dumps(load_phase45_fixture(), sort_keys=True))
 
+    def test_nv_downgrade_names_the_migrated_archive(self):
+        text = FUTURE["_rollback"]["phase53_nv_downgrade"]
+        self.assertIn("`<old>.migrated-format-53[-N]`", text)
+        self.assertIn("has NOT closed", text)
+        self.assertIn("never copies over an existing `format-53/` file", text)
+
     def test_procedure_names_the_backup(self):
         procedure = FUTURE["_rollback"]["procedure"]
         self.assertIsInstance(procedure, str)

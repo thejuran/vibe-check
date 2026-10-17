@@ -23,10 +23,23 @@ archive name is released again (the second link or the copy is removed), so
 exactly one live copy remains and a retry is safe. If that also fails, the
 error names both paths. Every failure leaves the source where it was.
 
-CLI (prints the archived path on success):
+Forward migration (`migrate`) moves a previous-format state out of the older
+plugin's reach. The old file is copied to the current-format location, the copy
+is verified byte for byte, and only then is the old file archived, no-clobber,
+as `<key>.json.migrated-format-53[-N]` next to where it was. An older plugin's
+resolver builds only `<key>.json`, so it no longer finds the review, and the
+archive is the recoverable original. Retrying after any interruption is safe:
+an existing current-format file is never copied over (the one exception is a
+truncated copy left by an interrupted migration, which is a strict prefix of
+the old file and so holds nothing the old file lacks), and the old file leaves
+its place only through the no-clobber archive move.
+
+CLI (prints the archived path on success; `migrate` prints one line when it
+did something and nothing when there was nothing to migrate):
   review_archive.py review-md --phase P [--dir .turingmind] [--date YYYY-MM-DD]
   review_archive.py unstamped [--dir .turingmind] [--date YYYY-MM-DD]
   review_archive.py state --state-file F [--date YYYY-MM-DD]
+  review_archive.py migrate --legacy OLD --current NEW
 Exit 0 = archived; 1 = source missing or the move failed (the source is left
 in place, and stderr says so); 2 = usage error.
 The date defaults to the local date, matching `$(date +%Y-%m-%d)`.
@@ -41,6 +54,8 @@ PHASE_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
 UNKNOWN_PHASE = "unknown"
 MAX_ATTEMPTS = 1000
+# Equals ".migrated-" + statepath.FORMAT_SUBDIR (a test pins the two together).
+MIGRATED_SUFFIX = ".migrated-format-53"
 
 
 def safe_phase(raw):
@@ -153,6 +168,70 @@ def archive(src, dir_, base, suffix):
     return target
 
 
+def _strict_prefix(head_path, whole_path):
+    """True iff head_path's bytes are a strict prefix of whole_path's."""
+    with open(head_path, "rb") as fh:
+        head = fh.read()
+    with open(whole_path, "rb") as fh:
+        whole = fh.read()
+    return len(head) < len(whole) and whole.startswith(head)
+
+
+def _closed_under_current(current):
+    """True iff the current-format state for this key was archived by a
+    close-out (`<current>.archived-<date>[-N]` exists)."""
+    dir_ = os.path.dirname(current) or "."
+    prefix = os.path.basename(current) + ".archived-"
+    try:
+        names = os.listdir(dir_)
+    except FileNotFoundError:
+        return False
+    return any(n.startswith(prefix) for n in names)
+
+
+def _bring_forward(legacy, current):
+    """Make sure the current-format file exists; True iff it was copied now.
+
+    An existing current-format file is kept as it is, unless it is a strict
+    prefix of the old file (a copy cut short by an interruption), which is
+    replaced by a verified copy. A review that was already closed under the
+    current format is never brought back.
+    """
+    if os.path.lexists(current):
+        if not _strict_prefix(current, legacy):
+            return False
+        os.unlink(current)  # a truncated copy: everything in it is in legacy
+    elif _closed_under_current(current):
+        return False
+    os.makedirs(os.path.dirname(current) or ".", exist_ok=True)
+    _copy_no_clobber(legacy, current)
+    return True
+
+
+def migrate(legacy, current):
+    """Forward-migrate `legacy` to `current`; a one-line report, or None when
+    there is nothing to migrate.
+
+    Order: copy, verify, then archive the old file no-clobber. Raises OSError
+    on failure; the old file is then still in place, and `current`, if it
+    exists, is a verified copy or the untouched current-format state.
+    """
+    if not os.path.isfile(legacy):
+        return None
+    copied = _bring_forward(legacy, current)
+    target = archive(legacy, os.path.dirname(legacy) or ".",
+                     os.path.basename(legacy) + MIGRATED_SUFFIX, "")
+    if copied:
+        return ("state migrated forward to %s; the previous file was archived "
+                "as %s" % (current, target))
+    if os.path.lexists(current):
+        return ("the previous-format state was archived as %s; the "
+                "current-format state %s is used" % (target, current))
+    return ("the previous-format state was archived as %s; this review was "
+            "already closed in the current format, so it was not copied"
+            % target)
+
+
 def _date_arg(value):
     try:
         parsed = datetime.datetime.strptime(value, "%Y-%m-%d")
@@ -182,6 +261,9 @@ def _parse(argv):
     p_s = sub.add_parser("state")
     p_s.add_argument("--state-file", required=True)
     p_s.add_argument("--date", type=_date_arg, default=None)
+    p_m = sub.add_parser("migrate")
+    p_m.add_argument("--legacy", required=True)
+    p_m.add_argument("--current", required=True)
     return parser, parser.parse_args(argv)
 
 
@@ -193,6 +275,19 @@ def main(argv):
     if not args.cmd:
         parser.print_usage(sys.stderr)
         return 2
+    if args.cmd == "migrate":
+        try:
+            report = migrate(args.legacy, args.current)
+        except OSError as exc:
+            sys.stderr.write(
+                "review_archive: migration stopped: %s; %s was left in place%s\n"
+                % (exc, args.legacy,
+                   " and %s was kept" % args.current
+                   if os.path.lexists(args.current) else ""))
+            return 1
+        if report:
+            sys.stdout.write(report + "\n")
+        return 0
     date = args.date or datetime.date.today().strftime("%Y-%m-%d")
     if args.cmd == "review-md":
         src = os.path.join(args.dir, "REVIEW.md")

@@ -9,7 +9,7 @@ State file path. Bind the resolved path to ONE canonical variable, `$STATE_FILE`
   LEGACY_STATE_FILE=".turingmind/state/${PHASE_ID}.json"
   STATE_FILE=".turingmind/state/format-53/${PHASE_ID}.json"
   ```
-  `$LEGACY_STATE_FILE` is the shipped key, read ONLY as a migration source (below).
+  `$LEGACY_STATE_FILE` is the shipped key, used ONLY by the forward migration (below), which copies it forward and then archives it.
   - ✓ Correct: `.turingmind/state/format-53/02-real-data-path.json`, `.turingmind/state/format-53/31-cache-invalidation-renderer-config-epoch-and-awaited-purge-a.json`
   - 🚫 Wrong: `.turingmind/state/format-53/02.json`, `.turingmind/state/format-53/31.json`
 - Other modes (no args / PR / range): `.turingmind/state/format-53/<repo>-<branch-slug>.json`, where `<branch-slug>` is the current branch with every `/` replaced by `-`. **The slug step is MANDATORY (Fable A9/B1):** branch names legally contain `/` (`feat/x`, `release/1.2`), and interpolating the raw name (the old form) produced a SLASHED path — not "a FLAT filename directly under `.turingmind/state/`" — which (a) broke the flat-vs-`by-mode/` disjointness guarantee below (counter-example: repo `by`, branch `mode/all/<12hex>` collided byte-for-byte with the reserved `--all` key grammar), (b) ENOENT'd on write since Phase 0.7 only creates `.turingmind/state/` itself, and (c) diverged from the dash-named files actually on disk, silently restarting carry-forward from pass 1. Bind:
@@ -25,11 +25,21 @@ If `$ALL_MODE` is set, **Read $VC_ROOT/phases/review/05-state-all.md** with the 
 
 **Forward migration (non-`--all` modes only).** When `$ALL_MODE` is NOT set, run under bash before step 1:
 ```bash
-ARCHIVED=$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name "$(basename "$STATE_FILE").archived-*" 2>/dev/null | head -n 1)
-if [ -n "$ARCHIVED" ]; then :
-elif [ ! -f "$STATE_FILE" ] && [ -f "$LEGACY_STATE_FILE" ]; then mkdir -p "$(dirname "$STATE_FILE")" && cp "$LEGACY_STATE_FILE" "$STATE_FILE" && echo "state migrated forward to $STATE_FILE (the previous file is kept unchanged)"; fi
+if python3 "$VC_ROOT/scripts/review_archive.py" migrate --legacy "$LEGACY_STATE_FILE" --current "$STATE_FILE"; then
+  :
+else
+  echo "Review stopped — the previous-format state could not be moved out of the old location (the line above says why). Both files are kept unchanged; re-run the review once the cause is fixed." >&2
+  exit 1
+fi
 ```
-The old-location file is NEVER deleted, moved or modified: it stays readable by an older plugin and is the downgrade procedure's target. The copy happens ONLY when `$STATE_FILE` is absent, so a Phase-53 file always wins over an old-location copy (a downgrade's converted file never overrides it). Once Finalize has archived a Phase-53 file for this key (`$STATE_FILE.archived-<date>` exists), the old-location file is never copied again: it is a frozen pre-migration snapshot, and copying it would reopen a review that was closed. After a copy, step 1 below sees "state file present" and the run continues as a carried review. The `--all` branch has no migration: every `--all` run is a fresh snapshot.
+On a non-zero exit print the fence's message as message text and STOP the review: do not continue to step 1. Both files are kept unchanged, and re-running is safe.
+
+What the helper does, in this order: when `$STATE_FILE` is absent, the old-location file is copied, the copy is verified byte for byte, and only then is the old file moved aside — under the no-clobber archive name `<key>.json.migrated-format-53` next to it (`-2`, `-3`, … when that name exists; a copy on filesystems without hard links). The old location is empty only after the archive exists. A 2.11.x plugin builds only the plain `<key>.json` name, so after a downgrade it can no longer resume this review or approve over it: it starts a fresh pass 1. The archive is the recoverable original (`fixtures/future-schema.json` `_rollback.phase53_nv_downgrade` says how to restore it). It prints one line when it migrated or archived something and nothing otherwise.
+- A Phase-53 file always wins: when `$STATE_FILE` already exists it is never copied over; an old-location file found next to it (for example one a downgraded plugin wrote) is only archived. The one exception is a truncated copy left by an interrupted migration — a strict prefix of the old file, so it holds nothing the old file lacks — which is replaced by a verified copy.
+- Once Finalize has archived a Phase-53 file for this key (`$STATE_FILE.archived-<date>` exists), the old-location file is never copied again (copying it would reopen a review that was closed); it is only archived.
+- Any interruption is safe to retry: before the archive step the old file is still in place, and after it the archive holds its bytes.
+
+After a copy, step 1 below sees "state file present" and the run continues as a carried review. The `--all` branch has no migration: every `--all` run is a fresh snapshot.
 
 1. If state file absent: pass 1, `$LAST_REVIEWED_SHA = null`. **Run Phase 0.6 (Resolve config) FIRST** (it is unconditional — the `$CONFIG_*` vars MUST be bound before any consumer), THEN proceed to Phase 0.7 (first-run setup will create `.turingmind/state/` if needed; Phase 4.5 creates `format-53/` parents), then to Phase 1. Skip the rest of Phase 0.5.
 

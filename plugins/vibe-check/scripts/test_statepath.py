@@ -452,9 +452,14 @@ GSD_LEGACY = 'LEGACY_STATE_FILE=".turingmind/state/${PHASE_ID}.json"'
 REPO_EXPR = "$(git rev-parse --show-toplevel | xargs basename)-${BRANCH_SLUG}"
 FLAT_BINDING = 'STATE_FILE=".turingmind/state/format-53/%s.json"' % REPO_EXPR
 FLAT_LEGACY = 'LEGACY_STATE_FILE=".turingmind/state/%s.json"' % REPO_EXPR
-MIGRATION = ('if [ ! -f "$STATE_FILE" ] && [ -f "$LEGACY_STATE_FILE" ]; then '
-             'mkdir -p "$(dirname "$STATE_FILE")" && '
-             'cp "$LEGACY_STATE_FILE" "$STATE_FILE"')
+MIGRATION = ('if python3 "$VC_ROOT/scripts/review_archive.py" migrate '
+             '--legacy "$LEGACY_STATE_FILE" --current "$STATE_FILE"; then')
+OLD_MIGRATION = ('if [ ! -f "$STATE_FILE" ] && [ -f "$LEGACY_STATE_FILE" ]; then '
+                 'mkdir -p "$(dirname "$STATE_FILE")" && '
+                 'cp "$LEGACY_STATE_FILE" "$STATE_FILE"')
+MIGRATION_STOP = "Both files are kept unchanged"
+MIGRATION_ORDER = ("copied, the copy is verified byte for byte, and only then is "
+                   "the old file moved aside")
 ALL_READ = 'print(r["current_path"]) if r["current_path"] else sys.exit('
 ALL_MKDIR = "mkdir -p .turingmind/state/format-53/by-mode/all"
 CONTRACT_PATH = "`.turingmind/state/format-53/<$PHASE_ID>.json`"
@@ -493,16 +498,31 @@ def phase05_binds_format53_holds(text):
     return True
 
 
+def _migration_fence(text):
+    fences = re.findall(r"```bash\n(.*?)\n[ \t]*```", text, re.S)
+    hits = [f for f in fences if "$LEGACY_STATE_FILE" in f and "migrate" in f]
+    return hits[0] if len(hits) == 1 else None
+
+
 def phase05_migrates_forward_holds(text):
-    """The forward migration copies, never moves or deletes, and only when the
-    Phase-53 file is absent."""
+    """The forward migration goes through `review_archive.py migrate` (copy,
+    verify, then archive the old file no-clobber), branches on its exit code
+    and stops on failure. The shell never copies, moves or deletes the old
+    file itself."""
     if text.count(MIGRATION) != 1:
         return False
-    if text.count('! -f "$STATE_FILE"') != 1:
+    fence = _migration_fence(text)
+    if fence is None or MIGRATION not in fence:
         return False
-    if re.search(r"\b(?:rm|mv)\b[^\n]*\$LEGACY_STATE_FILE", text):
+    lines = [l.strip() for l in fence.split("\n")]
+    if lines[0] != MIGRATION or "else" not in lines or lines[-1] != "fi":
         return False
-    return True
+    fail = lines[lines.index("else") + 1:-1]
+    if "exit 1" not in fail or not any(l.startswith("echo ") for l in fail):
+        return False
+    if re.search(r"\b(?:cp|rm|mv)\b[^\n]*\$LEGACY_STATE_FILE", text):
+        return False
+    return MIGRATION_STOP in text and MIGRATION_ORDER in text
 
 
 def phase05_all_binds_current_path_holds(text):
@@ -554,19 +574,28 @@ class TestPhase05ProseBinding(unittest.TestCase):
             mutant = self.state.replace(MIGRATION, "", 1)
             self.assertNotEqual(mutant, self.state)
             self.assertFalse(phase05_migrates_forward_holds(mutant))
-        with self.subTest("mutant: the ! -f guard dropped"):
-            mutant = self.state.replace('[ ! -f "$STATE_FILE" ] && ', "", 1)
+        with self.subTest("mutant: exit code not checked"):
+            mutant = self.state.replace(
+                MIGRATION, MIGRATION[3:-len("; then")] + "\nif true; then", 1)
             self.assertNotEqual(mutant, self.state)
             self.assertFalse(phase05_migrates_forward_holds(mutant))
-        with self.subTest("mutant: cp becomes mv"):
-            mutant = self.state.replace(
-                'cp "$LEGACY_STATE_FILE" "$STATE_FILE"',
-                'mv "$LEGACY_STATE_FILE" "$STATE_FILE"', 1)
+        with self.subTest("mutant: failure does not stop"):
+            fence = _migration_fence(self.state)
+            mutant = self.state.replace(fence, fence.replace("exit 1", ":"), 1)
             self.assertNotEqual(mutant, self.state)
             self.assertFalse(phase05_migrates_forward_holds(mutant))
-        with self.subTest("mutant: the old file removed afterwards"):
+        with self.subTest("mutant: back to the shell copy"):
+            mutant = self.state.replace(MIGRATION, OLD_MIGRATION + "; fi\nif true; then", 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_migrates_forward_holds(mutant))
+        with self.subTest("mutant: the old file moved by hand"):
+            fence = _migration_fence(self.state)
             mutant = self.state.replace(
-                MIGRATION, MIGRATION + ' && rm -f "$LEGACY_STATE_FILE"', 1)
+                fence, fence.replace("  :", '  mv "$LEGACY_STATE_FILE" x', 1), 1)
+            self.assertNotEqual(mutant, self.state)
+            self.assertFalse(phase05_migrates_forward_holds(mutant))
+        with self.subTest("mutant: order sentence removed"):
+            mutant = self.state.replace(MIGRATION_ORDER, "", 1)
             self.assertNotEqual(mutant, self.state)
             self.assertFalse(phase05_migrates_forward_holds(mutant))
 
@@ -594,6 +623,60 @@ class TestPhase05ProseBinding(unittest.TestCase):
         self.assertFalse(contract_names_format53_holds(mutant))
         mutant = self.contract.replace(CONTRACT_PATH, "", 1)
         self.assertFalse(contract_names_format53_holds(mutant))
+
+
+class TestMigrationFenceRuns(unittest.TestCase):
+    """Run the real Phase 0.5 migration fence with the real helper."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self._rm = shutil.rmtree
+        self.tmp = tempfile.mkdtemp()
+        self.state = os.path.join(self.tmp, ".turingmind", "state")
+        os.makedirs(self.state)
+        self.fence = _migration_fence(read_prose("phases/review/05-state.md"))
+        self.legacy = os.path.join(self.state, "54-x.json")
+        self.current = os.path.join(self.state, "format-53", "54-x.json")
+
+    def tearDown(self):
+        os.chmod(self.state, 0o755)
+        self._rm(self.tmp)
+
+    def _run(self):
+        script = ('LEGACY_STATE_FILE=".turingmind/state/54-x.json"\n'
+                  'STATE_FILE=".turingmind/state/format-53/54-x.json"\n'
+                  + self.fence)
+        return subprocess.run(["bash", "-c", script], cwd=self.tmp,
+                              env=dict(os.environ, VC_ROOT=PLUGIN_DIR),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=60)
+
+    def test_migrates_and_moves_old_file_aside(self):
+        with open(self.legacy, "w") as fh:
+            fh.write("{}")
+        proc = self._run()
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertFalse(os.path.exists(self.legacy))
+        with open(self.current) as fh:
+            self.assertEqual(fh.read(), "{}")
+        with open(self.legacy + ".migrated-format-53") as fh:
+            self.assertEqual(fh.read(), "{}")
+
+    def test_failure_stops_and_keeps_both(self):
+        if os.geteuid() == 0:
+            self.skipTest("root ignores directory permissions")
+        os.makedirs(os.path.dirname(self.current))
+        for path, body in ((self.legacy, "old"), (self.current, "new")):
+            with open(path, "w") as fh:
+                fh.write(body)
+        os.chmod(self.state, 0o555)
+        proc = self._run()
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("Review stopped", proc.stderr.decode())
+        for path, body in ((self.legacy, "old"), (self.current, "new")):
+            with open(path) as fh:
+                self.assertEqual(fh.read(), body)
 
 
 class TestNoFilesystemAccess(unittest.TestCase):
