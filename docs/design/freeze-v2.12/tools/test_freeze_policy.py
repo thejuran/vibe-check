@@ -54,8 +54,9 @@ def engineering_evidence_dir(tmp_path, candidate_sha, outcome="pass", overrides=
     `tmp_path` and return it. `overrides` = {file name: {key: value}} (a value
     of None removes the key). The one place the shapes are built."""
     os.makedirs(tmp_path, exist_ok=True)
-    guard = "CANDIDATE OK %s head %s reporting-only" % (candidate_sha[:12],
-                                                       candidate_sha[:12])
+    # The exact line `freeze_check.py candidate-guard` prints.
+    guard = ("CANDIDATE OK candidate=%s head=%s descendant_commits=3 "
+             "(reporting-only)" % (candidate_sha, "e" * 40))
     review_outcome = "blocked" if outcome == "fail" else outcome
     docs = {
         "test-gate.json": {
@@ -284,6 +285,38 @@ class TestEngineeringRecords(_Tmp):
             self.assertFalse(rec["identity_ok"])
             self.assertEqual(rec["identity_reason"],
                              "engineering record lacks candidate_guard")
+
+    def test_engineering_guard_must_name_the_records_candidate(self):
+        """The guard line is the candidate-guard output for THIS record's
+        candidate: a copied line naming another commit, or one naming none,
+        is not the record's guard."""
+        copied = ("CANDIDATE OK candidate=%s head=%s descendant_commits=1 "
+                  "(reporting-only)" % (OTHER, "e" * 40))
+        cases = {"copied": copied, "no candidate": "CANDIDATE OK",
+                 "short sha": "CANDIDATE OK candidate=%s head=x" % CAND[:12],
+                 "two candidates": copied.replace(
+                     "head=", "candidate=%s head=" % CAND)}
+        for label, line in cases.items():
+            with self.subTest(label=label):
+                ev = engineering_evidence_dir(self.tmp, CAND, overrides={
+                    "test-gate.json": {"candidate_guard": line}})
+                rec = fp.read_record(os.path.join(ev, "test-gate.json"))
+                self.assertFalse(rec["identity_ok"])
+                self.assertEqual(rec["identity_reason"],
+                                 "engineering record guard names another candidate")
+
+    def test_real_engineering_evidence_records_still_read(self):
+        """The committed test/security/deep-review records name their own
+        candidate in the guard line."""
+        ev = os.path.join(HERE, "..", "evidence")
+        for name in ("test-gate.json", "security-gate.json",
+                     "deep-review-release.json"):
+            path = os.path.join(ev, name)
+            if not os.path.isfile(path):
+                continue
+            with self.subTest(name=name):
+                rec = fp.read_record(path)
+                self.assertTrue(rec["identity_ok"], rec["identity_reason"])
 
     def test_engineering_record_bound_wrong_candidate(self):
         ev = engineering_evidence_dir(self.tmp, OTHER)
@@ -943,8 +976,12 @@ class TestPrerequisites(_GateBase):
 
     def test_unmet_prerequisite_not_candidate_bound(self):
         dirs = self.workflow_set()
+        # A well-formed record for another candidate: its own guard line names
+        # that candidate, so only the candidate binding refuses it.
         ev = engineering_evidence_dir(os.path.join(self.tmp, "evx"), CAND, overrides={
-            "test-gate.json": {"candidate_sha": OTHER}})
+            "test-gate.json": {"candidate_sha": OTHER, "candidate_guard": (
+                "CANDIDATE OK candidate=%s head=%s descendant_commits=1 "
+                "(reporting-only)" % (OTHER, "e" * 40))}})
         res = self.status("workflow", dirs, pre=self.pre(ev=ev), roster=ROSTER)
         self.assertEqual(res["status"], "UNMET")
         self.assertEqual(res["prerequisites"], [
@@ -1136,6 +1173,13 @@ class TestMutants(_SealBase):
                     mock.patch.object(fp, "GATE_FIELDS", mutant):
                 self.assertFalse(self._passes(name, TestInherit))
                 self.assertFalse(self._passes(cover, TestInherit))
+
+    def test_mutant_b7_guard_prefix_only(self):
+        name = "test_engineering_guard_must_name_the_records_candidate"
+        self.assertTrue(self._passes(name, TestEngineeringRecords))
+        with mock.patch.object(fp, "_guard_names_candidate",
+                               lambda guard, sha: True):
+            self.assertFalse(self._passes(name, TestEngineeringRecords))
 
     def test_mutant_d_classify_range_new_map_only(self):
         name = "test_map_edit_cannot_reduce"

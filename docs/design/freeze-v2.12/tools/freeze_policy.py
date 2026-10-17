@@ -298,14 +298,31 @@ def _run_identity(rec):
     return None
 
 
+# `candidate=<40 hex>` in the `freeze_check.py candidate-guard` output line.
+_GUARD_CANDIDATE_RE = re.compile(r"(?:^|\s)candidate=([0-9a-f]{40})(?=\s|$)")
+
+
+def _guard_candidate(guard):
+    """The one candidate a guard line names, or None (none, or several)."""
+    found = _GUARD_CANDIDATE_RE.findall(guard)
+    return found[0] if len(found) == 1 else None
+
+
+def _guard_names_candidate(guard, candidate_sha):
+    return _guard_candidate(guard) == candidate_sha
+
+
 def _engineering_identity(rec, data):
     """Identity rule for engineering evidence: candidate_sha + candidate_guard
-    + outcome. manifest_id / check_digest are absent by design."""
+    (the guard line names exactly that candidate) + outcome. manifest_id /
+    check_digest are absent by design."""
     if not _hex40(rec["candidate_sha"]):
         return "engineering record lacks candidate_sha"
     guard = data.get("candidate_guard")
     if not isinstance(guard, str) or not guard.startswith("CANDIDATE OK"):
         return "engineering record lacks candidate_guard"
+    if not _guard_names_candidate(guard, rec["candidate_sha"]):
+        return "engineering record guard names another candidate"
     if not _str_or_none(data.get("outcome")):
         return "engineering record lacks outcome"
     return None
