@@ -333,3 +333,18 @@ What this decides:
 - **S9:** the fix agent's own check is recorded evidence and never closes a Needs-verification item alone. On the next pass, inside the ordinary rerun, a reviewer other than the fixer re-checks the item against the repaired code: the raising lane when it is dispatched, otherwise a deterministic eligible native lane that is dispatched (Codex-raised items and items from a lane that is not running). The verdict is bound to the finding's `stable_hash` and the code snapshot. A verified item closes automatically as "Resolved by verification (confirmed-fix)", with no owner card. Unavailable or inconclusive verification keeps the item open with a stated reason.
 - **S11:** placeholder matching ignores trailing periods only, keeps case normalization and surrounding-space trimming, and stays whole-field. `N/A.`, `none..` and `-.` match; `...none` does not. A field that is not a placeholder is still a Needs-verification claim and must meet the normal admission and evidence rules.
 - **Carried, recorded as known behavior (standing rule):** a field such as `None` followed by more text is a real field. When that text is too short for admission, the record is dropped as `nv-not-admitted` instead of being scored as a normal finding. This is not changed.
+
+## Owner decision (holdout launch procedure)
+
+Candidate `535f48861cd8ce09d4e67c00319ea023de294e70`. Relayed by the coordinator on 2026-10-17, after the owner's holdout-launcher containment proof (Step A refused with the 9 process-env lines; Step B, with the settings env exported, passed the identity check). Verbatim:
+
+> "1 — Accept Step B for Phase 55. This is a setup inconvenience, not a correctness gap, provided the check validates the effective settings the launched session uses, rather than merely trusting the exported declarations.Put the exact export-and-launch commands together in one copy-paste block, with no secrets. State clearly that a refused launch requires a fresh run-<n> folder and produces no eligible result.Backlog automatic derivation. Don’t restart the candidate just to remove this manual setup step"
+
+What this decides:
+
+- **Step B is the Phase 55 holdout launch procedure:** export the 9 `env` values from `~/.claude/settings.json`, then run the launcher. This holds on one condition: the identity check must validate the effective settings the session uses.
+- **Proviso check (54-10 re-run #2, `containment-proof-holdout.json` `owner_proviso_check`):** the condition is met.
+  - The holdout-eval profile compares the real `~/.claude/settings.json` env projection (`user_level`, `[user settings]`) and the exported process env (`process_env`) with the same manifest values, independently. It also checks the gateway and the materialized `--settings` file (`runner_settings`).
+  - So an export that differs from settings.json fails, and so does a settings.json that differs from the exports.
+- **The copy-paste block** (no secrets; it states that a refused launch needs a fresh `run-<n>` folder and yields no eligible result) is recorded in `containment-proof-holdout.json` `phase55_block` for Phase 55's runbook. It is not written into a covered file now.
+- **Backlog:** automatic derivation of the export line. No candidate restart for this step alone.
