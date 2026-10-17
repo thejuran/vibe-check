@@ -1,0 +1,655 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "472e910add538dbb1aeb7426343352a81580ccf0",
+      "timestamp": "2026-10-16T23:47:22Z",
+      "mode": "deep",
+      "diff_range": "7115f405e6e3e516ffac815ce43865351b50473f..24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "language-python",
+        "framework-skill"
+      ],
+      "findings": [
+        {
+          "id": "bugs-002",
+          "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+          "line": 268,
+          "title": "--manifest is required for gate/dev-tally/b3-aggregate/harness-verdicts, so the documented commands exit 2 and the active-manifest fallback never runs",
+          "category": "logic-error",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 82,
+          "in_diff": true,
+          "intent_doc_match": "docs/design/freeze-v2.12/README.md: `freeze_tally.py gate --gate engineering --runs-root evidence/`, `freeze_tally.py gate --gate <gate> --runs-root <R>`",
+          "problem": "_common(p, manifest_required=True) is the default, and only `list` passes False. The README documents `freeze_tally.py gate --gate <gate> --runs-root <R>` without --manifest; argparse rejects that and main() returns 2. _context() has `args.manifest or _active_manifest_path(series_dir)`, which is meant to pick the highest-N manifest, but it cannot be reached for these subcommands. It fails closed, but the documented release-gate invocation does not work.",
+          "current_code": "def _common(p, manifest_required=True):\n    p.add_argument(\"--runs-root\", required=True)\n    p.add_argument(\"--manifest\", required=manifest_required, default=None)",
+          "fix_hint": "make --manifest optional for every subcommand (_context already resolves the active manifest), or fix the README commands",
+          "why_it_matters": "The gate command as documented always exits with a usage error.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "source_window": [
+            "# --------------------------------------------------------------------------- #",
+            "",
+            "def _common(p, manifest_required=True):",
+            "    p.add_argument(\"--runs-root\", required=True)",
+            "    p.add_argument(\"--manifest\", required=manifest_required, default=None)"
+          ],
+          "canonical_line_content": "def _common(p, manifest_required=True):",
+          "orchestrator_score": 92,
+          "band": "warning",
+          "attribution": [
+            "bugs"
+          ],
+          "stable_hash": "f4fa1bdac08b536c8754ff3dba35d6ad4359c34ff599a994a3a228458694d570",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+              "line": 268,
+              "title": "--manifest is required for gate/dev-tally/b3-aggregate/harness-verdicts, so the documented commands exit 2 and the active-manifest fallback never runs",
+              "category": "logic-error",
+              "severity": "medium",
+              "agent": "bugs",
+              "agent_confidence": 82,
+              "problem": "_common(p, manifest_required=True) is the default, and only `list` passes False. The README documents `freeze_tally.py gate --gate <gate> --runs-root <R>` without --manifest; argparse rejects that and main() returns 2. _context() has `args.manifest or _active_manifest_path(series_dir)`, which is meant to pick the highest-N manifest, but it cannot be reached for these subcommands. It fails closed, but the documented release-gate invocation does not work.",
+              "source_window": [
+                "# --------------------------------------------------------------------------- #",
+                "",
+                "def _common(p, manifest_required=True):",
+                "    p.add_argument(\"--runs-root\", required=True)",
+                "    p.add_argument(\"--manifest\", required=manifest_required, default=None)"
+              ],
+              "cwe": null,
+              "why_it_matters": "The gate command as documented always exits with a usage error.",
+              "fix_hint": "make --manifest optional for every subcommand (_context already resolves the active manifest), or fix the README commands",
+              "current_code": "def _common(p, manifest_required=True):\n    p.add_argument(\"--runs-root\", required=True)\n    p.add_argument(\"--manifest\", required=manifest_required, default=None)",
+              "intent_doc_match": "docs/design/freeze-v2.12/README.md: `freeze_tally.py gate --gate engineering --runs-root evidence/`, `freeze_tally.py gate --gate <gate> --runs-root <R>`"
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+            "line": 268,
+            "canonical_line_content": "def _common(p, manifest_required=True):",
+            "band": "warning"
+          }
+        },
+        {
+          "id": "bugs-005",
+          "file": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+          "line": 120,
+          "title": "Auto-memory move uses an unvalidated, hardcoded PARKDIR; an empty value moves the memory dir to /<repo>-written-...",
+          "category": "error-handling",
+          "cwe": null,
+          "severity": "low",
+          "agent_confidence": 72,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "PD comes from sed over a hardcoded ~/.b3/phase54-live-memory-park.env, with no check that the file exists or that PD is non-empty and a directory. If restore-memory already ran, or the env file is missing, PD is empty and the mv target becomes '/<CP>-written-during-live-...': the move fails on macOS or misplaces the evidence. mem_evidence in common.sh does validate PD. Hardcoding the phase54 filename instead of $MEMPARK_ENV also breaks the Phase-55 runbooks that inherit this driver.",
+          "current_code": "PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")\n...\nmv \"$M\" \"$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)\"",
+          "fix_hint": "guard `test -n \"$PD\" && test -d \"$PD\"` (die otherwise) and read the park env path from the runbook rather than hardcoding phase54",
+          "why_it_matters": "Evidence of memory written during a measured session can be lost or misplaced.",
+          "silenced_marker_nearby": false,
+          "agent": "bugs",
+          "source_window": [
+            "M=\"$(proj_dir \"$CLONES_ROOT/$CP\")/memory\"",
+            "if test -n \"$CP\" && test -e \"$M\"; then",
+            "  PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")",
+            "  echo \"RUN_CASE: clone auto-memory dir created by the session ($(find \"$M\" -type f | wc -l | tr -d ' ') files) moved to evidence\"",
+            "  mv \"$M\" \"$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)\""
+          ],
+          "canonical_line_content": "  PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")",
+          "orchestrator_score": 70,
+          "band": "medium",
+          "attribution": [
+            "bugs",
+            "impact"
+          ],
+          "stable_hash": "f34de23053ad73fed11e8b8304dd4de61c715359b736aea29f469342c318e364",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+              "line": 120,
+              "title": "Auto-memory move uses an unvalidated, hardcoded PARKDIR; an empty value moves the memory dir to /<repo>-written-...",
+              "category": "error-handling",
+              "severity": "low",
+              "agent": "bugs",
+              "agent_confidence": 72,
+              "problem": "PD comes from sed over a hardcoded ~/.b3/phase54-live-memory-park.env, with no check that the file exists or that PD is non-empty and a directory. If restore-memory already ran, or the env file is missing, PD is empty and the mv target becomes '/<CP>-written-during-live-...': the move fails on macOS or misplaces the evidence. mem_evidence in common.sh does validate PD. Hardcoding the phase54 filename instead of $MEMPARK_ENV also breaks the Phase-55 runbooks that inherit this driver.",
+              "source_window": [
+                "M=\"$(proj_dir \"$CLONES_ROOT/$CP\")/memory\"",
+                "if test -n \"$CP\" && test -e \"$M\"; then",
+                "  PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")",
+                "  echo \"RUN_CASE: clone auto-memory dir created by the session ($(find \"$M\" -type f | wc -l | tr -d ' ') files) moved to evidence\"",
+                "  mv \"$M\" \"$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)\""
+              ],
+              "cwe": null,
+              "why_it_matters": "Evidence of memory written during a measured session can be lost or misplaced.",
+              "fix_hint": "guard `test -n \"$PD\" && test -d \"$PD\"` (die otherwise) and read the park env path from the runbook rather than hardcoding phase54",
+              "current_code": "PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")\n...\nmv \"$M\" \"$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)\"",
+              "intent_doc_match": null
+            },
+            {
+              "file": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+              "line": 120,
+              "title": "Frozen run_case.sh hard-codes Phase-54 memory-park and transcript paths, so later windows break unless a new manifest is issued",
+              "category": "blast-radius",
+              "severity": "low",
+              "agent": "impact",
+              "agent_confidence": 50,
+              "problem": "run_case.sh takes RUNBOOK from the environment, and its README says later-window runbooks will be built from RUN-PHASE54-live.md. But the post-run memory move reads the hard-coded `$HOME/.b3/phase54-live-memory-park.env`, not the runbook's MEMPARK_ENV. The NVW grep reads the hard-coded `runs-phase54-live/` (line 106). In a Phase-55 window that env file may not exist, PD is then empty and `mv \"$M\" \"/$CP-written-...\"` targets the filesystem root. That fails under `set +e`, so the clone's auto-memory is left in place, which is the known measurement confound. The next pre block's mem_evidence partly mitigates this. The directory is in freeze_manifest.COVERED, so fixing it after freeze is an identity change that needs a new manifest.",
+              "source_window": [
+                "M=\"$(proj_dir \"$CLONES_ROOT/$CP\")/memory\"",
+                "if test -n \"$CP\" && test -e \"$M\"; then",
+                "  PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")",
+                "  echo \"RUN_CASE: clone auto-memory dir created by the session ($(find \"$M\" -type f | wc -l | tr -d ' ') files) moved to evidence\"",
+                "  mv \"$M\" \"$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)\""
+              ],
+              "cwe": null,
+              "why_it_matters": "Phase 55 measurement depends on this runner. A late fix forces a manifest reissue, and an unfixed one risks auto-memory contaminating measured runs.",
+              "fix_hint": "use $MEMPARK_ENV and $ARCHIVE from the runbook's common block, and refuse when PD is empty, before the Phase-55 manifest is issued",
+              "current_code": "  PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")\n  ...\n  mv \"$M\" \"$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)\"",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+            "line": 120,
+            "canonical_line_content": "  PD=$(sed -n 's/^PARKDIR=//p' \"$HOME/.b3/phase54-live-memory-park.env\")",
+            "band": "medium"
+          }
+        },
+        {
+          "id": "sec-001",
+          "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+          "line": 90,
+          "title": "Holdout measurement session launches with full-env inheritance, auto-approve permissions and no OS sandbox",
+          "category": "secrets",
+          "cwe": "CWE-200",
+          "severity": "high",
+          "agent_confidence": 58,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`LAUNCH_ARGV` launches the measured `claude` session with `--permission-mode dontAsk` (line 90), so Bash/Write/Edit tool calls execute without any permission prompt. `session_environment()` (docs/design/holdout-v2.12/tools/holdout_eval_launch.py ~line 185-191) builds the session's environment as `os.environ` minus only `STRIPPED_ENV` \u2014 a 6-item Anthropic-auth-specific denylist defined in holdout_autopilot.py:110-112 (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`). Any other secret the owner's Terminal environment carries (GitHub tokens, cloud credentials, SSH agent vars, unrelated API keys) is passed through unfiltered. The settings file used for this launch (`docs/design/b3-ground-truth/b3-runner-v2.12/settings-measured.json`) carries no `sandbox`/network-blocking key at all (contrast with the fix-harness's explicit `network: {allowedDomains: [], strictAllowlist: true}` Seatbelt policy). The session reviews holdout case content that is, by the kit's own design, security/vulnerability-themed material.",
+          "current_code": "LAUNCH_ARGV = (\"claude\",\n               \"--plugin-dir\", \"{plugin_dir}\",\n               \"--settings\", \"{settings_path}\",\n               \"--model\", \"{model}\",\n               \"--add-dir\", \"{case}\",\n               \"--permission-mode\", \"dontAsk\",\n               \"--session-id\", \"{session_id}\")",
+          "fix_hint": "switch session_environment() to an explicit allowlist of the env keys the session actually needs (mirroring freeze_manifest.ENV_ALLOWLIST) rather than a denylist of Anthropic-auth keys only, and add an explicit sandbox/network-block policy (as harness_sandbox.build_session_settings does) to the runner settings template used for this launch.",
+          "why_it_matters": "If the reviewed content manages to prompt-inject the model into running a Bash command (no permission gate blocks this under `dontAsk`), any non-Anthropic secret present in the owner's environment can be read and, absent a network sandbox, exfiltrated \u2014 a class of attack indirect prompt injection against LLM review agents is known to enable.",
+          "silenced_marker_nearby": false,
+          "agent": "security",
+          "source_window": [
+            "               \"--model\", \"{model}\",",
+            "               \"--add-dir\", \"{case}\",",
+            "               \"--permission-mode\", \"dontAsk\",",
+            "               \"--session-id\", \"{session_id}\")",
+            ""
+          ],
+          "canonical_line_content": "               \"--permission-mode\", \"dontAsk\",",
+          "orchestrator_score": 75,
+          "band": "medium",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "5dc57bdc7f7ee33d7f4887d79c496bb85b4364f65ec47fd09190c59f44f32e14",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+              "line": 90,
+              "title": "Holdout measurement session launches with full-env inheritance, auto-approve permissions and no OS sandbox",
+              "category": "secrets",
+              "severity": "high",
+              "agent": "security",
+              "agent_confidence": 58,
+              "problem": "`LAUNCH_ARGV` launches the measured `claude` session with `--permission-mode dontAsk` (line 90), so Bash/Write/Edit tool calls execute without any permission prompt. `session_environment()` (docs/design/holdout-v2.12/tools/holdout_eval_launch.py ~line 185-191) builds the session's environment as `os.environ` minus only `STRIPPED_ENV` \u2014 a 6-item Anthropic-auth-specific denylist defined in holdout_autopilot.py:110-112 (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`). Any other secret the owner's Terminal environment carries (GitHub tokens, cloud credentials, SSH agent vars, unrelated API keys) is passed through unfiltered. The settings file used for this launch (`docs/design/b3-ground-truth/b3-runner-v2.12/settings-measured.json`) carries no `sandbox`/network-blocking key at all (contrast with the fix-harness's explicit `network: {allowedDomains: [], strictAllowlist: true}` Seatbelt policy). The session reviews holdout case content that is, by the kit's own design, security/vulnerability-themed material.",
+              "source_window": [
+                "               \"--model\", \"{model}\",",
+                "               \"--add-dir\", \"{case}\",",
+                "               \"--permission-mode\", \"dontAsk\",",
+                "               \"--session-id\", \"{session_id}\")",
+                ""
+              ],
+              "cwe": "CWE-200",
+              "why_it_matters": "If the reviewed content manages to prompt-inject the model into running a Bash command (no permission gate blocks this under `dontAsk`), any non-Anthropic secret present in the owner's environment can be read and, absent a network sandbox, exfiltrated \u2014 a class of attack indirect prompt injection against LLM review agents is known to enable.",
+              "fix_hint": "switch session_environment() to an explicit allowlist of the env keys the session actually needs (mirroring freeze_manifest.ENV_ALLOWLIST) rather than a denylist of Anthropic-auth keys only, and add an explicit sandbox/network-block policy (as harness_sandbox.build_session_settings does) to the runner settings template used for this launch.",
+              "current_code": "LAUNCH_ARGV = (\"claude\",\n               \"--plugin-dir\", \"{plugin_dir}\",\n               \"--settings\", \"{settings_path}\",\n               \"--model\", \"{model}\",\n               \"--add-dir\", \"{case}\",\n               \"--permission-mode\", \"dontAsk\",\n               \"--session-id\", \"{session_id}\")",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+            "line": 90,
+            "canonical_line_content": "               \"--permission-mode\", \"dontAsk\",",
+            "band": "medium"
+          }
+        },
+        {
+          "id": "sec-002",
+          "file": "docs/design/reachability-dev/RUN-PHASE54-live.md",
+          "line": 383,
+          "title": "B3 measured review session pre-authorizes Bash/Write/Edit via --allowedTools with inherited shell environment and no OS sandbox",
+          "category": "secrets",
+          "cwe": "CWE-200",
+          "severity": "high",
+          "agent_confidence": 55,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "The `session` block execs `claude --permission-mode manual ... --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"`. `--allowedTools` pre-authorizes those tools, so despite `--permission-mode manual`, Bash/Write/Edit calls do not raise a permission card for `run_case.sh`'s die()-on-unexpected-card logic to catch. The `launch` block starts this process with `env \"REPO=$REPO\" ... bash -c \"$SESSION_SHELL\" ...` (common.sh, `launch` block) \u2014 `env` without `-i` adds those vars on top of, rather than replacing, whatever environment the tmux-server-launching shell already had, which the runbook itself documents at length (\"a tmux pane inherits the environment of whichever shell started the tmux server\"). Unlike the fix-harness (harness_sandbox.build_session_settings, which sets `network: {allowedDomains: [], strictAllowlist: true}` and a custom per-call `can_use_tool` gate), no OS-level sandbox or outbound-network restriction is configured anywhere in settings-measured.json or this runbook for the B3 session.",
+          "current_code": "exec claude --permission-mode manual --plugin-dir \"$RUNNER_PLUGIN\" --settings \"$RUNNER_SETTINGS\" --model \"$MODEL\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"",
+          "fix_hint": "give the B3 measured session the same kind of OS-level sandbox/network-block policy the fix-harness uses, and/or scope its environment to an explicit allowlist instead of inheriting the launching shell's environment plus overrides.",
+          "why_it_matters": "A B3 case that successfully prompt-injects the reviewing model gets unprompted Bash execution in an environment that includes whatever the owner's shell/tmux server environment holds, with no sandbox blocking outbound network \u2014 a realistic path to secret exfiltration from the operator's own machine.",
+          "silenced_marker_nearby": false,
+          "agent": "security",
+          "source_window": [
+            "test ! -e \"$MEM\" || { echo \"AUTO-MEMORY FOR $CLONE IS NOT PARKED \u2014 STOPPING\"; exit 1; }",
+            "cd \"$CLONE\"",
+            "exec claude --permission-mode manual --plugin-dir \"$RUNNER_PLUGIN\" --settings \"$RUNNER_SETTINGS\" --model \"$MODEL\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"",
+            "# END: session",
+            "```"
+          ],
+          "canonical_line_content": "exec claude --permission-mode manual --plugin-dir \"$RUNNER_PLUGIN\" --settings \"$RUNNER_SETTINGS\" --model \"$MODEL\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"",
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "security"
+          ],
+          "stable_hash": "6f4ce129479be24e3967fb3909a3dda85740a9c9bb5759b14fa59d7cb189fad6",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/reachability-dev/RUN-PHASE54-live.md",
+              "line": 383,
+              "title": "B3 measured review session pre-authorizes Bash/Write/Edit via --allowedTools with inherited shell environment and no OS sandbox",
+              "category": "secrets",
+              "severity": "high",
+              "agent": "security",
+              "agent_confidence": 55,
+              "problem": "The `session` block execs `claude --permission-mode manual ... --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"`. `--allowedTools` pre-authorizes those tools, so despite `--permission-mode manual`, Bash/Write/Edit calls do not raise a permission card for `run_case.sh`'s die()-on-unexpected-card logic to catch. The `launch` block starts this process with `env \"REPO=$REPO\" ... bash -c \"$SESSION_SHELL\" ...` (common.sh, `launch` block) \u2014 `env` without `-i` adds those vars on top of, rather than replacing, whatever environment the tmux-server-launching shell already had, which the runbook itself documents at length (\"a tmux pane inherits the environment of whichever shell started the tmux server\"). Unlike the fix-harness (harness_sandbox.build_session_settings, which sets `network: {allowedDomains: [], strictAllowlist: true}` and a custom per-call `can_use_tool` gate), no OS-level sandbox or outbound-network restriction is configured anywhere in settings-measured.json or this runbook for the B3 session.",
+              "source_window": [
+                "test ! -e \"$MEM\" || { echo \"AUTO-MEMORY FOR $CLONE IS NOT PARKED \u2014 STOPPING\"; exit 1; }",
+                "cd \"$CLONE\"",
+                "exec claude --permission-mode manual --plugin-dir \"$RUNNER_PLUGIN\" --settings \"$RUNNER_SETTINGS\" --model \"$MODEL\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"",
+                "# END: session",
+                "```"
+              ],
+              "cwe": "CWE-200",
+              "why_it_matters": "A B3 case that successfully prompt-injects the reviewing model gets unprompted Bash execution in an environment that includes whatever the owner's shell/tmux server environment holds, with no sandbox blocking outbound network \u2014 a realistic path to secret exfiltration from the operator's own machine.",
+              "fix_hint": "give the B3 measured session the same kind of OS-level sandbox/network-block policy the fix-harness uses, and/or scope its environment to an explicit allowlist instead of inheriting the launching shell's environment plus overrides.",
+              "current_code": "exec claude --permission-mode manual --plugin-dir \"$RUNNER_PLUGIN\" --settings \"$RUNNER_SETTINGS\" --model \"$MODEL\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/reachability-dev/RUN-PHASE54-live.md",
+            "line": 383,
+            "canonical_line_content": "exec claude --permission-mode manual --plugin-dir \"$RUNNER_PLUGIN\" --settings \"$RUNNER_SETTINGS\" --model \"$MODEL\" --allowedTools \"Bash,Read,Write,Edit,Grep,Glob,Task,Agent\"",
+            "band": "medium"
+          }
+        },
+        {
+          "id": "arch-001",
+          "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+          "line": 154,
+          "title": "Holdout launcher calls the freeze kit's private git helpers _ls_tree and _cat_blobs",
+          "category": "abstraction",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 78,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "`materialize_plugin_from_candidate` lives in the holdout kit but calls `freeze_common._ls_tree` and `freeze_common._cat_blobs`, both underscore-private helpers of a different kit. The freeze kit's public helpers are `tree_files_at` and `blob_at`, and neither returns blob bytes for a whole tree. So the launcher depends on the freeze kit's internal batch format: the `(mode, kind, oid, path)` tuple order and the `--batch` parser.",
+          "current_code": "    entries = fcm._ls_tree(repo, sha, PLUGIN_REL)\n...\n    blobs = fcm._cat_blobs(repo, [oid for _m, _k, oid, _p in entries])",
+          "fix_hint": "add a public freeze_common helper (e.g. tree_blobs_at(repo, rev, prefix) -> {rel: (mode, bytes)}) and have the launcher call that",
+          "why_it_matters": "Any refactor of freeze_common's private tuple order or parser breaks the holdout measurement launcher. A change to freeze-kit tools also counts as engineering+detection+workflow under PATH-MAP, so the breakage would only show up as a new candidate and a full rerun.",
+          "silenced_marker_nearby": false,
+          "agent": "architecture",
+          "source_window": [
+            "        raise KitError(\"the build dir already exists: %s\" % dest)",
+            "    sha, _tree = fcm.resolve_rev(repo, candidate)",
+            "    entries = fcm._ls_tree(repo, sha, PLUGIN_REL)",
+            "    if not entries:",
+            "        raise KitError(\"%s is empty or absent at %s\" % (PLUGIN_REL, sha))"
+          ],
+          "canonical_line_content": "    entries = fcm._ls_tree(repo, sha, PLUGIN_REL)",
+          "orchestrator_score": 89,
+          "band": "warning",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "0072a6820b1ac72a03a8970d19a275e4686f30a86a0bb83bcf57feca86dd3def",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+              "line": 154,
+              "title": "Holdout launcher calls the freeze kit's private git helpers _ls_tree and _cat_blobs",
+              "category": "abstraction",
+              "severity": "high",
+              "agent": "architecture",
+              "agent_confidence": 78,
+              "problem": "`materialize_plugin_from_candidate` lives in the holdout kit but calls `freeze_common._ls_tree` and `freeze_common._cat_blobs`, both underscore-private helpers of a different kit. The freeze kit's public helpers are `tree_files_at` and `blob_at`, and neither returns blob bytes for a whole tree. So the launcher depends on the freeze kit's internal batch format: the `(mode, kind, oid, path)` tuple order and the `--batch` parser.",
+              "source_window": [
+                "        raise KitError(\"the build dir already exists: %s\" % dest)",
+                "    sha, _tree = fcm.resolve_rev(repo, candidate)",
+                "    entries = fcm._ls_tree(repo, sha, PLUGIN_REL)",
+                "    if not entries:",
+                "        raise KitError(\"%s is empty or absent at %s\" % (PLUGIN_REL, sha))"
+              ],
+              "cwe": null,
+              "why_it_matters": "Any refactor of freeze_common's private tuple order or parser breaks the holdout measurement launcher. A change to freeze-kit tools also counts as engineering+detection+workflow under PATH-MAP, so the breakage would only show up as a new candidate and a full rerun.",
+              "fix_hint": "add a public freeze_common helper (e.g. tree_blobs_at(repo, rev, prefix) -> {rel: (mode, bytes)}) and have the launcher call that",
+              "current_code": "    entries = fcm._ls_tree(repo, sha, PLUGIN_REL)\n...\n    blobs = fcm._cat_blobs(repo, [oid for _m, _k, oid, _p in entries])",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+            "line": 154,
+            "canonical_line_content": "    entries = fcm._ls_tree(repo, sha, PLUGIN_REL)",
+            "band": "warning"
+          }
+        },
+        {
+          "id": "arch-002",
+          "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+          "line": 174,
+          "title": "freeze_tally drives score43 through its private _require_complete and _cmd_dev_tally",
+          "category": "abstraction",
+          "cwe": null,
+          "severity": "high",
+          "agent_confidence": 72,
+          "in_diff": true,
+          "intent_doc_match": null,
+          "problem": "freeze_tally is the one gate in front of every release tally, and it lives in docs/design. It calls `score43._require_complete(ledger)` and `score43._cmd_dev_tally(view, require_fingerprint=want)`, which are underscore-private internals of a plugin script. `b3-aggregate` goes through the public `score43.run([...])`, but the completeness gate and dev-tally bypass it. pending: confirm score43 has no public equivalent of these two functions (score43.py was not readable from this lane).",
+          "current_code": "        try:\n            score43._require_complete(ledger)\n        except score43.ScoreError as exc:\n...\n        rc = score43._cmd_dev_tally(view, require_fingerprint=want)",
+          "fix_hint": "expose public score43 entry points (e.g. require_complete, dev_tally) or route through score43.run([...]) with an argv",
+          "why_it_matters": "A private rename in score43 silently breaks the release-gate tally path. The freeze README names this as the only path that may count runs.",
+          "silenced_marker_nearby": false,
+          "agent": "architecture",
+          "source_window": [
+            "        ledger = score43.completeness_ledger(view)",
+            "        try:",
+            "            score43._require_complete(ledger)",
+            "        except score43.ScoreError as exc:",
+            "            print(\"refused: %s\" % exc)"
+          ],
+          "canonical_line_content": "            score43._require_complete(ledger)",
+          "orchestrator_score": 83,
+          "band": "warning",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "88df8011d309bd153aa19ff45d97b116badf3d67302911f84f0fa1355fee7fd7",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+              "line": 174,
+              "title": "freeze_tally drives score43 through its private _require_complete and _cmd_dev_tally",
+              "category": "abstraction",
+              "severity": "high",
+              "agent": "architecture",
+              "agent_confidence": 72,
+              "problem": "freeze_tally is the one gate in front of every release tally, and it lives in docs/design. It calls `score43._require_complete(ledger)` and `score43._cmd_dev_tally(view, require_fingerprint=want)`, which are underscore-private internals of a plugin script. `b3-aggregate` goes through the public `score43.run([...])`, but the completeness gate and dev-tally bypass it. pending: confirm score43 has no public equivalent of these two functions (score43.py was not readable from this lane).",
+              "source_window": [
+                "        ledger = score43.completeness_ledger(view)",
+                "        try:",
+                "            score43._require_complete(ledger)",
+                "        except score43.ScoreError as exc:",
+                "            print(\"refused: %s\" % exc)"
+              ],
+              "cwe": null,
+              "why_it_matters": "A private rename in score43 silently breaks the release-gate tally path. The freeze README names this as the only path that may count runs.",
+              "fix_hint": "expose public score43 entry points (e.g. require_complete, dev_tally) or route through score43.run([...]) with an argv",
+              "current_code": "        try:\n            score43._require_complete(ledger)\n        except score43.ScoreError as exc:\n...\n        rc = score43._cmd_dev_tally(view, require_fingerprint=want)",
+              "intent_doc_match": null
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+            "line": 174,
+            "canonical_line_content": "            score43._require_complete(ledger)",
+            "band": "warning"
+          }
+        },
+        {
+          "id": "arch-004",
+          "file": "docs/design/fix-harness/tools/harness_sandbox.py",
+          "line": 305,
+          "title": "Third implementation of building the plugin copy from the candidate commit, with diverging rules",
+          "category": "duplication",
+          "cwe": null,
+          "severity": "medium",
+          "agent_confidence": 66,
+          "in_diff": true,
+          "intent_doc_match": {
+            "doc": "docs/design/freeze-v2.12/README.md",
+            "section": "Runner contract",
+            "quote": "Every runner materializes its plugin copy from the candidate commit via git (`git archive` or a worktree at the candidate), never from the working tree.",
+            "confidence": 0.4
+          },
+          "problem": "The diff writes the same operation three times. (1) common.sh `b3_materialize_runner` uses `git archive | tar -x`. (2) harness_sandbox.py `snapshot_plugin_from_commit` has its own `_tree_entries` and a second `_cat_blobs` parser (freeze_common already has one). (3) holdout_eval_launch.py `materialize_plugin_from_candidate` uses freeze_common's private helpers. The copies already behave differently: the harness and holdout copies refuse symlinks and keep only 100644/100755, while the B3 tar extraction accepts symlinks. The holdout docstring also claims 'no export attribute can alter it', a property the B3 git-archive path does not have (no .gitattributes is tracked today).",
+          "current_code": "def snapshot_plugin_from_commit(checkout_root, candidate, dest):\n    \"\"\"Materialize `plugins/vibe-check` at commit `candidate` into\n    `<dest>/plugin` and return its PluginSnapshot.",
+          "fix_hint": "one public freeze_common materializer (ls-tree + cat-file, regular files only) used by the harness and the holdout launcher, with B3 calling it via python3 instead of git archive",
+          "why_it_matters": "Three runners produce the measured copy under three slightly different rules. A future .gitattributes or symlink in plugins/vibe-check would change only the B3 copy, and the identity check would then refuse B3 alone.",
+          "silenced_marker_nearby": false,
+          "agent": "architecture",
+          "source_window": [
+            "",
+            "",
+            "def snapshot_plugin_from_commit(checkout_root, candidate, dest):",
+            "    \"\"\"Materialize `plugins/vibe-check` at commit `candidate` into",
+            "    `<dest>/plugin` and return its PluginSnapshot."
+          ],
+          "canonical_line_content": "def snapshot_plugin_from_commit(checkout_root, candidate, dest):",
+          "orchestrator_score": 72,
+          "band": "medium",
+          "attribution": [
+            "architecture"
+          ],
+          "stable_hash": "eeb8d761b34d6c15aa98786653fb36db8486d4bf25dc6037db2bb568cd0c294c",
+          "status": "new",
+          "members": [
+            {
+              "file": "docs/design/fix-harness/tools/harness_sandbox.py",
+              "line": 305,
+              "title": "Third implementation of building the plugin copy from the candidate commit, with diverging rules",
+              "category": "duplication",
+              "severity": "medium",
+              "agent": "architecture",
+              "agent_confidence": 66,
+              "problem": "The diff writes the same operation three times. (1) common.sh `b3_materialize_runner` uses `git archive | tar -x`. (2) harness_sandbox.py `snapshot_plugin_from_commit` has its own `_tree_entries` and a second `_cat_blobs` parser (freeze_common already has one). (3) holdout_eval_launch.py `materialize_plugin_from_candidate` uses freeze_common's private helpers. The copies already behave differently: the harness and holdout copies refuse symlinks and keep only 100644/100755, while the B3 tar extraction accepts symlinks. The holdout docstring also claims 'no export attribute can alter it', a property the B3 git-archive path does not have (no .gitattributes is tracked today).",
+              "source_window": [
+                "",
+                "",
+                "def snapshot_plugin_from_commit(checkout_root, candidate, dest):",
+                "    \"\"\"Materialize `plugins/vibe-check` at commit `candidate` into",
+                "    `<dest>/plugin` and return its PluginSnapshot."
+              ],
+              "cwe": null,
+              "why_it_matters": "Three runners produce the measured copy under three slightly different rules. A future .gitattributes or symlink in plugins/vibe-check would change only the B3 copy, and the identity check would then refuse B3 alone.",
+              "fix_hint": "one public freeze_common materializer (ls-tree + cat-file, regular files only) used by the harness and the holdout launcher, with B3 calling it via python3 instead of git archive",
+              "current_code": "def snapshot_plugin_from_commit(checkout_root, candidate, dest):\n    \"\"\"Materialize `plugins/vibe-check` at commit `candidate` into\n    `<dest>/plugin` and return its PluginSnapshot.",
+              "intent_doc_match": {
+                "doc": "docs/design/freeze-v2.12/README.md",
+                "section": "Runner contract",
+                "quote": "Every runner materializes its plugin copy from the candidate commit via git (`git archive` or a worktree at the candidate), never from the working tree.",
+                "confidence": 0.4
+              }
+            }
+          ],
+          "snapshot": {
+            "at_pass": 1,
+            "file": "docs/design/fix-harness/tools/harness_sandbox.py",
+            "line": 305,
+            "canonical_line_content": "def snapshot_plugin_from_commit(checkout_root, candidate, dest):",
+            "band": "medium"
+          }
+        }
+      ],
+      "filtered": [
+        {
+          "file": "docs/design/b3-ground-truth/b3-runner-v2.12/run_case.sh",
+          "line": 120,
+          "title": "Frozen run_case.sh hard-codes Phase-54 memory-park and transcript paths, so later windows break unless a new manifest is issued",
+          "reason": "absorbed-into: f34de23053ad73fed11e8b8304dd4de61c715359b736aea29f469342c318e364"
+        },
+        {
+          "file": "plugins/vibe-check/phases/shared/90-finalize.md",
+          "line": 216,
+          "title": "Finalize archive fences ignore review_archive.py exit status and print success text unconditionally",
+          "reason": "absorbed-into: 064e1281615718bf29bb0589837039c0b4870fc62d225cabe56fceb833a636a3"
+        },
+        {
+          "file": "docs/design/holdout-v2.12/tools/holdout_autopilot.py",
+          "line": 636,
+          "title": "Autopilot run from a holdout-folder kit copy hashes the repo's kit tree, not the code that is running",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_tally.py",
+          "line": 220,
+          "title": "harness-verdicts prints a COMPLETE total without checking slot completeness when --roster is omitted, and counts extra slots",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_policy.py",
+          "line": 265,
+          "title": "Engineering record's candidate_guard is accepted on its prefix alone; the candidate it names is never compared",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "plugins/vibe-check/phases/shared/90-finalize.md",
+          "line": 216,
+          "title": "Finalize prose ignores review_archive.py's exit status; a failed archive is reported as done and flow continues",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "plugins/vibe-check/scripts/review_archive.py",
+          "line": 67,
+          "title": "Link-then-unlink leaves both source and archive when unlink fails, and exit 1 gives no hint the archive exists",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+          "line": 299,
+          "title": "identity.json is written before exec; an exec failure leaves a stamped eligibility record for a run that never launched",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_check.py",
+          "line": 472,
+          "title": "holdout-eval toml_absent check passes silently when no clone dir is given",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_policy.py",
+          "line": 801,
+          "title": "Seal-order proof accepts an empty retired_case_ids list",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_manifest.py",
+          "line": 892,
+          "title": "Non-dict enabledPlugins crashes generate with an uncaught AttributeError",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/fix-harness/tools/harness_sandbox.py",
+          "line": 445,
+          "title": "settings_is_fail_closed() never verifies the sandbox network policy",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/fix-harness/tools/harness_driver_sdk.py",
+          "line": 80,
+          "title": "Fix-harness sandboxed session inherits the full parent process environment",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_manifest.py",
+          "line": 2083,
+          "title": "Secret-shaped-value scan is a narrow denylist, not an allowlist",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_check.py",
+          "line": 467,
+          "title": "Identity check silently passes the .vibe-check.toml check when clone_dir is omitted for holdout-eval",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_check.py",
+          "line": 369,
+          "title": "freeze_check reaches into eight freeze_manifest private names for its collectors",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_policy.py",
+          "line": 185,
+          "title": "Inheritance fields for detection gates leave out the gateway and process env the identity check binds",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+          "line": 80,
+          "title": "Holdout launcher adds update pins to the process env checked against a baseline that may lack them",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+          "line": 48,
+          "title": "Launcher finds freeze_check only through holdout_autopilot's import-time sys.path change",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/fix-harness/tools/harness_sandbox.py",
+          "line": 369,
+          "title": "Update-pin constant defined in four places",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "docs/design/freeze-v2.12/tools/freeze_check.py",
+          "line": 70,
+          "title": "Covered-path list kept in three places: COVERED, B3_COVERED_KEYS and PATH-MAP",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "plugins/vibe-check/scripts/review_archive.py",
+          "line": 61,
+          "title": "No-clobber archive needs hard links and fails where the old mv worked, leaving a closed review's state live",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "plugins/vibe-check/scripts/score.py",
+          "line": 1815,
+          "title": "Placeholder NV strip turns a fresh symbol-anchored record with line null into a normal finding with no line",
+          "reason": "sub-threshold"
+        },
+        {
+          "file": "plugins/vibe-check/scripts/review_archive.py",
+          "line": 29,
+          "title": "Magic constant MAX_ATTEMPTS lacks justifying comment",
+          "reason": "sub-threshold"
+        }
+      ],
+      "codex": {
+        "status": "skipped",
+        "reason": "head-not-at-target",
+        "verdict": null,
+        "findings": 0
+      }
+    }
+  ]
+}
