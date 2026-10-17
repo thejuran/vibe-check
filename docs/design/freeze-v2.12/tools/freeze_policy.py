@@ -200,12 +200,13 @@ SANDBOX_VIOLATION_RE = re.compile(r"<sandbox_violations>")
 # Both measured runners start the session in `--permission-mode manual` with
 # `--allowedTools` naming exactly PREAPPROVED_TOOLS (the runner settings'
 # permissions.allow; tests hold the three equal). Any other tool raises a
-# permission prompt in front of the owner. PROMPTLESS_TOOLS are the review
-# flow's own interactive tools (the fix-loop card): answering one is not a
-# permission prompt.
+# permission prompt in front of the owner. PROMPTLESS_TOOLS never raise one:
+# the fix-loop card (answering it is the review flow, not a prompt), and the
+# tools recorded 2.1.281 B3 sessions called with no approval (ToolSearch;
+# ReportFindings, from a subagent). Any other tool fails closed.
 PREAPPROVED_TOOLS = ("Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task",
                      "Agent")
-PROMPTLESS_TOOLS = ("AskUserQuestion",)
+PROMPTLESS_TOOLS = ("AskUserQuestion", "ToolSearch", "ReportFindings")
 # `permissionDecision.source` values that are not the owner (newer CLIs
 # record one per tool result; 2.1.281 records none).
 RULE_DECISION_SOURCES = ("config", "hook")
