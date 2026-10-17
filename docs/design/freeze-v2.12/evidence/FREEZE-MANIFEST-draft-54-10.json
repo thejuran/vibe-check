@@ -1,6 +1,6 @@
 {
-  "candidate_sha": "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230",
-  "candidate_tree": "35214739a4551721a98376180dba927688d78034",
+  "candidate_sha": "22ef678fb88418f22419867bed81ff89283fa7fb",
+  "candidate_tree": "e4767770c7fe22b7c1c8f02a85276e310a4d4183",
   "codex": {
     "cli_version": "0.153.4",
     "companion": {
@@ -638,7 +638,7 @@
       "tree_sha256": "8bcd2879bdeaaa15b59462fa31044da014a01d2a579a9332307b2b3e410011cb"
     }
   },
-  "generated_at": "2026-10-17T12:57:02Z",
+  "generated_at": "2026-10-17T15:51:53Z",
   "limitations": [
     "local hashes cannot prove the remote gateway/model service stayed unchanged",
     "--config auto semgrep rules are fetched live",
@@ -649,7 +649,7 @@
     "previous_candidate_sha": null,
     "previous_manifest_id": null
   },
-  "manifest_id": "3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc",
+  "manifest_id": "ec070ea1e852bd8f92811d70cd28578f07eaf665ec535cc083940cdc12e38198",
   "models": {
     "agent_pins": {
       "architecture": "opus",
@@ -1071,7 +1071,7 @@
       },
       "scripts/lanearchive.py": {
         "mode": "100644",
-        "sha256": "7c9ba44fc4e3f1a73e5c75c81b64565ca52cd5465061e57d624dde1b7ce802bf"
+        "sha256": "7f62a513737edd6860d62a39de7de3d35476d15410a70dab86667d9e35302f94"
       },
       "scripts/replay.py": {
         "mode": "100644",
@@ -1235,7 +1235,7 @@
       },
       "scripts/test_lanearchive.py": {
         "mode": "100644",
-        "sha256": "217f97f7281a8b325deeea7e9402ec9055677d399675068862fba143be1cd519"
+        "sha256": "a59b20d911239128064d9d4cce47c904b7d2abe4be8417a945fc91a432a50300"
       },
       "scripts/test_mktemp_template.py": {
         "mode": "100644",
@@ -1324,8 +1324,8 @@
     },
     "plugin_json_version": "2.12.0",
     "root": "plugins/vibe-check",
-    "runtime_fingerprint": "c879892cae21fd351374b6d5726fb98b3d56c5e6b270e217998b6cae9d704835",
-    "tree_sha256": "6ba602356a2a6bd0fac252ce6e8098ef7bad4efc9de1067a3fa99eddb34f683a"
+    "runtime_fingerprint": "0ddf46f666534bda6f1039760c06214b56e747ba6e17bdef63af62229c59ad04",
+    "tree_sha256": "0c1ba09e6f654a0d7c138724d3a510482e86fda34a5809a1c71db88df4c8eefa"
   },
   "runners": {
     "b3": {
