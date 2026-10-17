@@ -140,6 +140,14 @@ class LaunchCase(unittest.TestCase):
         os.chmod(self.case, 0)
         self.addCleanup(os.chmod, self.case, stat.S_IRWXU)
         self.run_dir = os.path.join(self.base, "runs", self.case_id, "run-1")
+        # A stand-in session binary on the session PATH (never executed: the
+        # spawn is recorded, not run).
+        self.bin = os.path.join(self.base, "bin")
+        os.makedirs(self.bin)
+        self.claude = os.path.join(self.bin, "claude")
+        with open(self.claude, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\nexit 0\n")
+        os.chmod(self.claude, 0o755)
         self.manifest = {
             "manifest_id": "a" * 64, "candidate_sha": self.candidate,
             "runners": {"holdout-eval": {"launch_model": {
@@ -162,10 +170,10 @@ class LaunchCase(unittest.TestCase):
         self.verify_calls.append((manifest, runner, kw))
         return _Result(list(self.problems), manifest["candidate_sha"])
 
-    def spawn(self, argv, env, cwd):
+    def spawn(self, argv, env, cwd, binary):
         self.events.append("spawn")
         self.spawned.append({
-            "argv": argv, "env": env, "cwd": cwd,
+            "argv": argv, "env": env, "cwd": cwd, "binary": binary,
             "identity_present": os.path.isfile(
                 os.path.join(self.run_dir, "identity.json"))})
 
@@ -175,7 +183,7 @@ class LaunchCase(unittest.TestCase):
         kw.setdefault("verify", self.verify)
         kw.setdefault("spawn", self.spawn)
         kw.setdefault("home", self.fx.home)
-        kw.setdefault("env", {"PATH": "/usr/bin:/bin",
+        kw.setdefault("env", {"PATH": self.bin + ":/usr/bin:/bin",
                               "ANTHROPIC_API_KEY": "planted-key"})
         rc = el.launch(run_dir or self.run_dir, case or self.case, out=out,
                        **kw)
@@ -387,6 +395,61 @@ class TestLaunch(LaunchCase):
         self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
 
 
+class TestLaunchFailure(LaunchCase):
+    """No eligibility record ever exists for a run that never launched."""
+
+    def test_unresolvable_binary_stops_before_the_stamp(self):
+        rc, out = self.launch(env={"PATH": "/nonexistent-bin"})
+        self.assertEqual(rc, 1)
+        self.assertIn(el.NO_BINARY_MSG, out)
+        self.assertEqual(self.spawned, [])
+        self.assertFalse(os.path.exists(os.path.join(self.run_dir,
+                                                     "identity.json")))
+
+    def test_spawn_gets_the_resolved_binary(self):
+        rc, _ = self.launch()
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.spawned[0]["binary"], self.claude)
+        self.assertEqual(self.spawned[0]["argv"][0], "claude")
+
+    def test_exec_failure_leaves_no_eligible_record(self):
+        def failing(argv, env, cwd, binary):
+            self.events.append("spawn")
+            raise OSError(2, "No such file or directory")
+        rc, out = self.launch(spawn=failing)
+        self.assertEqual(rc, 1)
+        self.assertIn("the session did not start", out)
+        self.assertFalse(os.path.exists(os.path.join(self.run_dir,
+                                                     "identity.json")))
+        with open(os.path.join(self.run_dir, el.LAUNCH_FAILED_NAME),
+                  encoding="utf-8") as fh:
+            failed = json.load(fh)
+        self.assertEqual(failed["launch_error"], "FileNotFoundError")
+        rec = freeze_policy.read_record(self.run_dir)
+        ok, reason = freeze_policy.eligible(
+            rec, {"manifest_id": "a" * 64, "candidate_sha": self.candidate},
+            freeze_policy.Prerequisites(problems=[]))
+        self.assertFalse(ok, reason)
+
+    def test_mutant_failure_mark_removed_leaves_a_stamp(self):
+        def failing(argv, env, cwd, binary):
+            raise OSError(2, "No such file or directory")
+        with mock.patch.object(el, "_mark_launch_failed",
+                               lambda run_dir, exc: None):
+            rc, _ = self.launch(spawn=failing)
+        self.assertEqual(rc, 1)
+        self.assertTrue(os.path.exists(os.path.join(self.run_dir,
+                                                    "identity.json")))
+
+    def test_mutant_no_resolution_stamps_an_unlaunchable_run(self):
+        with mock.patch.object(el, "resolve_session_binary",
+                               lambda env: "claude"):
+            rc, _ = self.launch(env={"PATH": "/nonexistent-bin"})
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(os.path.join(self.run_dir,
+                                                    "identity.json")))
+
+
 class TestRealProcessEnvCheck(unittest.TestCase):
     """The environment the launcher builds goes through the REAL identity
     check (freeze_check.verify, runner holdout-eval) on the freeze kit's
@@ -541,7 +604,7 @@ class TestMutants(LaunchCase):
             text = fh.read()
         old = "        session_env = session_environment(env)\n"
         self.assertEqual(text.count(old), 1)
-        mutant = text.replace(old, old + "        spawn([], {}, run_dir)\n")
+        mutant = text.replace(old, old + "        spawn([], {}, run_dir, None)\n")
         self.assertFalse(check_precedes_spawn_holds(mutant))
 
 

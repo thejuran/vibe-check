@@ -24,7 +24,10 @@ Before EVERY launch, retries included, it:
      case_id, run_name: the eligibility record freeze_policy.read_record
      reads) and refuses to overwrite one: a retry is a NEW run dir;
   6. replaces itself with the session (LAUNCH_ARGV), working directory the
-     run dir.
+     run dir. The session binary is resolved on the session PATH BEFORE
+     identity.json is written (no binary, no stamp); if the exec itself
+     fails, identity.json is moved to launch-failed.json, so a run that
+     never started has no eligibility record.
 
 The case folder is an opaque argument. Its basename is the case's opaque id
 (H-<8 hex>); nothing under it is read, listed or hashed here, and it reaches
@@ -105,6 +108,11 @@ RUN_NAME_MSG = "--run-dir must be a directory named run-<n>"
 IDENTITY_EXISTS_MSG = ("%s already holds identity.json; every launch, retries "
                        "included, needs a NEW run dir")
 SETTINGS_PAIR_MSG = "a supplied plugin dir needs its runner settings path"
+NO_BINARY_MSG = ("the session binary `claude` is not on the session PATH; "
+                 "nothing was stamped")
+# A run whose session never started keeps its record under this name, so no
+# identity.json (the eligibility record) exists for it.
+LAUNCH_FAILED_NAME = "launch-failed.json"
 
 
 # ---------------------------------------------------------------- pieces
@@ -223,11 +231,39 @@ def write_identity(run_dir, result, case_id, run_name, session_id):
     return path
 
 
-def exec_session(argv, env, cwd):
+def resolve_session_binary(env):
+    """Absolute path of argv[0] (`claude`) on the SESSION env's PATH, or
+    None. Resolved before identity.json is written, so a run that cannot
+    start is never stamped."""
+    name = LAUNCH_ARGV[0]
+    for d in (env.get("PATH") or "").split(os.pathsep):
+        if not d or not os.path.isabs(d):
+            continue
+        full = os.path.join(d, name)
+        if os.path.isfile(full) and os.access(full, os.X_OK):
+            return full
+    return None
+
+
+def exec_session(argv, env, cwd, binary):
     """Replace this process with the session (owner's Terminal only)."""
     holdout_kit.refuse_if_claude_spawned(None)
     os.chdir(cwd)
-    os.execvpe(argv[0], argv, env)
+    os.execve(binary, argv, env)
+
+
+def _mark_launch_failed(run_dir, exc):
+    """The session never started: move identity.json to LAUNCH_FAILED_NAME
+    with the error class, so the run dir holds no eligibility record. The
+    record is kept for the audit trail, never deleted."""
+    src = os.path.join(run_dir, IDENTITY_NAME)
+    with open(src, "r", encoding="utf-8") as fh:
+        record = json.load(fh)
+    record["launch_error"] = type(exc).__name__
+    _write_file(os.path.join(run_dir, LAUNCH_FAILED_NAME),
+                (json.dumps(record, indent=2, sort_keys=True)
+                 + "\n").encode("utf-8"), 0o644)
+    os.unlink(src)
 
 
 def _stop(out, problems):
@@ -298,6 +334,9 @@ def launch(run_dir, case_arg, candidate=None, manifest_path=None,
         argv = build_argv(plugin_dir=plugin_dir, settings_path=settings_path,
                           model=model, case=os.path.abspath(case_arg),
                           session_id=session_id)
+        binary = resolve_session_binary(session_env)
+        if binary is None:
+            raise KitError(NO_BINARY_MSG)
         write_identity(run_dir, result, case_id, run_name, session_id)
     except KitError as exc:
         print("eval-launch: %s" % (exc,), file=out)
@@ -309,7 +348,15 @@ def launch(run_dir, case_arg, candidate=None, manifest_path=None,
           % (result.manifest_id, result.check_digest, result.candidate_sha),
           file=out)
     out.flush()
-    spawn(argv, session_env, run_dir)
+    try:
+        spawn(argv, session_env, run_dir, binary)
+    except Exception as exc:  # noqa: BLE001 - exec failed: never leave a stamp
+        _mark_launch_failed(run_dir, exc)
+        print("eval-launch: the session did not start (%s); identity.json "
+              "moved to %s — this run dir is not a run" % (
+                  type(exc).__name__, LAUNCH_FAILED_NAME), file=out)
+        out.flush()
+        return 1
     return 0
 
 
