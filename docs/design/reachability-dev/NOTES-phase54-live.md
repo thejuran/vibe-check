@@ -727,3 +727,80 @@ needs-verification rows:
 | bugs | triggarr/web/routes.py | 550 | needs-verification | 0 | fcc0b38c0558 |
 
 vs Phase 53 final: "quiet, or at worst an NV item" (excluded from the release verdict, SUPERSESSIONS #001, retained at sign-off) -> FIRED (1 alarm, 1 NV); Phase 53 FIRED (1 alarm, 0 NV). Alarm 4d966837bba8, bugs critical 100 at routes.py:550 — "Every settings save silently resets shutdown_drain_timeout to 60.0 because the form has no such input" (the same traced overwrite as Phase 53's 544b4b23813b). New NV fcc0b38c0558 (bugs, routes.py:550) — "Saved shutdown_drain_timeout has no consumer; the scheduler still uses only the env var read at import" (trigger/path/consequence concrete). NV 0 -> 1. Cards 2 -> 2. Weak co-located notes dropped: 3. Run 8m34s; fix-loop card after 496s; `Stop here…` -> `Abandon` by label. Statusline: 82 samples, all `claude-fable-5-1[1m]`, 1000000.
+
+---
+
+# Restart on candidate 2a6dbb4874b7 (54-11 restart #2)
+
+Everything above this line is the record of the 302df48 attempt and the 24c0c00 sweep and its
+owner decision. It is kept unchanged. Nothing from the 24c0c00 runs counts on this candidate
+(D-21): those runs describe a superseded build and an environment without the S5/S6 containment.
+
+## Pre-registration — restart on candidate 2a6dbb4 — 2026-10-17T15:14Z (before the first run)
+
+Candidate 24c0c00 was superseded by the owner-approved batched fix (A1–A2, B1–B7, P1, S5–S10,
+S11) and follow-ups 2b/2c (54-16/54-17). 54-10 re-run #4 selected a new candidate and regenerated
+the draft manifest; this sweep starts over on it.
+
+- **Candidate:** `2a6dbb4874b7521b66d53b2fbb1406dfb46dc230`, read from
+  `docs/design/freeze-v2.12/evidence/CANDIDATE.json` (never `HEAD`). It equals the draft
+  manifest's `candidate_sha`.
+- **Manifest:** the regenerated draft at the same path,
+  `docs/design/freeze-v2.12/evidence/FREEZE-MANIFEST-draft-54-10.json`, `manifest_id`
+  `3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc`, used as `MANIFEST` for the
+  whole sweep. Its B3 launch model is `claude-fable-5-1[1m]`, equal to `pin-model:` above; plugin
+  `runtime_fingerprint` `c879892c…`. Pins unchanged: `claude --version` 2.1.281, `codex --version`
+  0.153.4 (checked live 2026-10-17T15:14Z).
+- **Owner condition met before the sweep (S5–S7, acceptance list `## Owner decision
+  (supplemental table)`):** the synthetic live review is the two 54-10 containment proofs, both on
+  this candidate and this manifest:
+  - `evidence/containment-proof-b3.json` (4c8fbde): `candidate_sha` 2a6dbb4…, `manifest_id`
+    3491dd4c…, verdict CONTAINMENT PROOF OK. Python scoring ran (format-53 state written by
+    score.py), the local gateway served 94 turns, Codex joined (`codex_setup_ready` allowed,
+    verdict needs-attention). Credential reads denied on Bash, Python, Node and the Read tool;
+    unauthorized network denied on curl, Python urllib, Python raw socket, Node fetch and Node raw
+    socket; env allowlist held; secret absent from the transcript.
+  - `evidence/containment-proof-holdout.json` (696bed6): same candidate and manifest, CONTAINMENT
+    PROOF OK, holdout review run VALID (`freeze_policy.py run-validity` exit 0).
+- **Invalid-run rule (owner condition):** every run is judged by `post`'s
+  `freeze_policy.py run-validity` (permission failure — a tool refusal or a sandbox violation —,
+  incomplete review, or missing scorer output = INVALID). An invalid run is never a result: it is
+  `fail`ed into `attempts/` and the slot is redone with the next run number on the same candidate,
+  in a fresh run folder. It never counts as quiet or as a miss. A redo is the same case, the same
+  candidate, the same keystrokes; it is not a selective rerun for a better outcome. A COMPLETED
+  valid run is never rerun.
+- **Sandboxing is an environment change** (owner condition). The Phase-53 rehearsal and the
+  24c0c00 sweep ran without the S5/S6 containment (Seatbelt sandbox, network allowlist, credential
+  deny rules, `env -i` session allowlist, codex plugin hook off). This sweep tests compatibility and
+  shows outcome differences; it cannot attribute any single difference to the sandbox, or rule
+  the sandbox out.
+- **Run folders:** the 16 superseded 24c0c00 run dirs are moved, byte-for-byte, to
+  `runs-phase54-live/superseded-24c0c00038f2/<case>/run-1` before the first run (their
+  gitignored transcripts move with them and stay ignored). `pre` refuses an existing `run-1`, and
+  `dev-tally` walks every `<case>/run-*` under the runs root, so the old dirs cannot stay in place.
+  The new runs take `run-1`.
+- **Disposable clones:** re-used, each on its start branch and `git status` clean at 15:14Z:
+  roonseek `2370f0b`, seedsyncarr `3dc75c7`, triggarr `4a154be`.
+- **Isolated runner:** re-materialized from 2a6dbb4 (`materialize`), runner settings from the same
+  commit (the S5/S6 containment settings).
+- **Everything else as the first pre-registration:** memory parked, owner cache untouched, one run
+  per case in the same order (`reach-new-1`, `reach-new-2`, `reach-unchanged-1`,
+  `reach-unchanged-2`, `triggarr-secret-in-logs`, `triggarr-autoescape`,
+  `third-organic-should-catch`, `should-quiet-1`, `should-quiet-2`, `should-quiet-3`,
+  `triggarr-session-rotation`, `triggarr-settings-form-split`, `should-quiet-4`, `should-quiet-5`,
+  `should-quiet-6`, `should-quiet-7`), all 16, no retune, no key change, the same fixed
+  keystrokes, the same comparison (before = Phase-53 signed-off final run; the 24c0c00 run shown
+  alongside for reference) and the same lost-catch rule.
+- **R4 wording rules (owner, 2026-10-16):** a changed row's cause reads "no difference
+  attributable to Phase 54 was demonstrated" unless a specific cause is shown — never "not caused
+  by Phase 54". Any burden change is stated plainly, with the risk to Phase 55's false-alarm bar
+  (≤3/18). should-quiet-2 counts as an alarm when it fires. An R4 approval is not a declaration
+  that the milestone is met.
+
+### Owner cache — before the sweep (2026-10-17T15:14Z)
+
+`~/.claude/plugins/cache/thejuran/vibe-check/2.11.1` fingerprint
+`f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3` (unchanged since 2026-10-15).
+Owner config sha256: `installed_plugins.json` `962a26ec…`, `known_marketplaces.json` `bf22ccb2…`,
+`settings.json` `012ecb8d…` (different from the 2026-10-15/16 values; the owner's config changed
+between sweeps; the identity check binds the effective settings either way).
