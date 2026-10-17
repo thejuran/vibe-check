@@ -1,6 +1,6 @@
 {
-  "candidate_sha": "22ef678fb88418f22419867bed81ff89283fa7fb",
-  "candidate_tree": "e4767770c7fe22b7c1c8f02a85276e310a4d4183",
+  "candidate_sha": "ddbfff402816805136e95393c98a3cc17196daeb",
+  "candidate_tree": "a8e8dc42d7c053374e3c613425d9ca0967805810",
   "codex": {
     "cli_version": "0.153.4",
     "companion": {
@@ -291,11 +291,11 @@
       "files": {
         "fixharness.py": {
           "mode": "100644",
-          "sha256": "aeec01f324712f0e0db5d92cbca5d5c282745f4a493b8046ea525efffee8a53a"
+          "sha256": "e01472b83ce1fa9fe2591bcfa1d4d1aab8b9c506ff81b025a388d2798ea88505"
         },
         "harness_cards.py": {
           "mode": "100644",
-          "sha256": "885c66ce021e3965150364f5c79f8210fbdaffaab7e74caa3b85a8e781c1543e"
+          "sha256": "185ada7d926255dc6df99be68b7cf3e3a95b3e7b2f8b836a88b7c7500796277a"
         },
         "harness_driver_sdk.py": {
           "mode": "100644",
@@ -331,7 +331,7 @@
         },
         "test_harness_cards.py": {
           "mode": "100644",
-          "sha256": "8f1d67c9592dbaf564f1e96db8bbe05514994f91c5438173d9cfc5f0d3f35cae"
+          "sha256": "c24f060b202d1ea331c14928d3feacfdefddec8aa04cdf6bf99197377c97427e"
         },
         "test_harness_driver.py": {
           "mode": "100644",
@@ -355,7 +355,7 @@
         },
         "test_harness_replay.py": {
           "mode": "100644",
-          "sha256": "d61544436f3d6d30a5523039e8f5ba6508c20636c7b8e06d9ba2767c26297b8c"
+          "sha256": "dbdc7bb771ea84ab65462bc5926766397dbf173ebe0647ac5d409fb12f1d3b5f"
         },
         "test_harness_sandbox.py": {
           "mode": "100644",
@@ -374,7 +374,7 @@
           "sha256": "555795796e7f745eba63ea8fe690b8cf72531439fdc875b21c74f2a2d7d8f6c3"
         }
       },
-      "tree_sha256": "235887db3217e9c6d12a700b3d77e645959de60c27c4a06aebb4665745807eed"
+      "tree_sha256": "0c69637d4fc4948a07693a86a2bee04834eb2909e66c6aac594a4116fcb7dc6a"
     },
     "docs/design/freeze-v2.12/PATH-MAP.json": {
       "files": {
@@ -638,7 +638,7 @@
       "tree_sha256": "8bcd2879bdeaaa15b59462fa31044da014a01d2a579a9332307b2b3e410011cb"
     }
   },
-  "generated_at": "2026-10-17T15:51:53Z",
+  "generated_at": "2026-10-17T16:56:13Z",
   "limitations": [
     "local hashes cannot prove the remote gateway/model service stayed unchanged",
     "--config auto semgrep rules are fetched live",
@@ -649,7 +649,7 @@
     "previous_candidate_sha": null,
     "previous_manifest_id": null
   },
-  "manifest_id": "ec070ea1e852bd8f92811d70cd28578f07eaf665ec535cc083940cdc12e38198",
+  "manifest_id": "fd1d0d916fe27de81f3c697673bbce65e6ab2c201a653e49875f0d6218cc81d3",
   "models": {
     "agent_pins": {
       "architecture": "opus",
@@ -1469,7 +1469,7 @@
         "VIBE_CHECK_TOP_MODEL": null
       },
       "kit": {
-        "tree_sha256": "9f4fc050a8011a091082d36657a70d033bec7eadbd803ecfba0c57b6b7b2dbc9"
+        "tree_sha256": "bb4df5a86cd0a49405d795b839f02cbeadd728e0279f8bb8555b3f818de0793a"
       },
       "launch_model": {
         "source": "probe-record",
