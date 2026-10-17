@@ -1,9 +1,9 @@
 {
-  "candidate_sha": "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230",
-  "selected_at": "2026-10-17T12:56:01Z",
+  "candidate_sha": "22ef678fb88418f22419867bed81ff89283fa7fb",
+  "selected_at": "2026-10-17T15:50:35Z",
   "selected_by": "54-10",
   "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
-  "selection": "re-run #4 of 54-10 after follow-up 2c (f7e19a4..2a6dbb4: holdout-eval sessions run in B3's --permission-mode manual with B3's pre-approved tool list; the 2b AskUserQuestion allow entry is removed; an unexpected permission prompt, including in a subagent transcript, makes a measured run invalid); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
+  "selection": "re-run #5 of 54-10 after follow-up 2d (bc5738e, 22ef678: lanearchive.py accepts the current uid's sandbox Codex temp dir /tmp/claude-<uid>, so a Codex-joined measured run can be archived); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
   "superseded": [
     {
       "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
@@ -125,6 +125,44 @@
       ],
       "draft_manifest_id": "6e9e61a012f7d146681638ee4bbce8f60ffcbb9bffba6ced958f92899a815fe1",
       "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-14808a961d02/ (byte-identical copies taken at the re-run #4 selection; see INDEX.md)"
+    },
+    {
+      "candidate_sha": "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230",
+      "selected_at": "2026-10-17T12:56:01Z",
+      "selected_by": "54-10",
+      "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
+      "selection": "re-run #4 of 54-10 after follow-up 2c (f7e19a4..2a6dbb4: holdout-eval sessions run in B3's --permission-mode manual with B3's pre-approved tool list; the 2b AskUserQuestion allow entry is removed; an unexpected permission prompt, including in a subagent transcript, makes a measured run invalid); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
+      "status": "superseded",
+      "superseded_at": "2026-10-17T15:50:35Z",
+      "superseded_by_fix_commits": {
+        "follow_up_2d": [
+          "bc5738e3596f60f4895d2cfefd9afec195c5a8f2",
+          "22ef678fb88418f22419867bed81ff89283fa7fb"
+        ]
+      },
+      "reason": "The 54-11 restart sweep on 2a6dbb4 stopped at its first case (reach-new-1 run-1, attempt live-reach-new-1-run-1-1792251211, stop record b66e578): the run was VALID, but post's lane archive (lanearchive.py extract) raised ValueError 'codex directory outside the temp root', because inside the measured sandbox TMPDIR is /tmp/claude-<uid> and the Codex kickoff's mktemp -d \"${TMPDIR:-/tmp}/vc-codex.XXXXXX\" lands there, while locate_codex_dir accepted only the runner shell's temp dir and /var/folders. Every Codex-joined measured run was un-archivable (a reproduced broken required workflow). Follow-up 2d (54-17) additionally accepts only the current uid's sandbox temp root /tmp/claude-<os.getuid()> (a real directory owned by that uid whose realpath is exactly realpath(/tmp)/claude-<uid>); other uids, symlinked roots, symlink escapes and the rest of /tmp stay refused. lanearchive.py is a covered file, so the candidate moved (D-23) and 54-10 restarts on a new candidate.",
+      "candidate_guard_after_fix": "CANDIDATE MOVED — STOPPING (exit 1) at HEAD 22ef678: 2 non-reporting changes after the candidate (plugins/vibe-check/scripts/lanearchive.py [engineering, detection, workflow], plugins/vibe-check/scripts/test_lanearchive.py [engineering]), 2 covered artifacts differ",
+      "stop_evidence": {
+        "live_sweep_attempt": "docs/design/reachability-dev/runs-phase54-live/attempts/live-reach-new-1-run-1-1792251211/ (committed in b66e578; its transcript.jsonl is gitignored and local only)"
+      },
+      "evidence_commits_54_10": [
+        "a1a4338e28b4313d8d9e52bd8a35311da9196112",
+        "568d51562149fbcdd922c75876dd4edac0f138a5",
+        "539cae2cefd773379c9ec6a970b2b7c7aa993616",
+        "4c8fbde0e0cd5d8281fa0663ebc930e89a346d9d",
+        "696bed6fbf4ac6a793510872d9efa7b7dabb787f",
+        "2028974ca89c0d407866ceadd167e48cfc79691f",
+        "e14f6c96c81bcd58ca052d27e228c7da9084e126",
+        "d3af6ad01f73f5d56dbf1b986880456d267465dc"
+      ],
+      "evidence_commits_54_11": [
+        "146fc0ac8a21a3c3c04f8ee08e4566273aea23e8",
+        "1ba9c7987eaf58e47a3cc021b85343db8b7dfcc6",
+        "b85a7bb4fa28d23142275f42f342446fd5f63d21",
+        "b66e578c650eca198c93da3ef60ba7f8353c5c67"
+      ],
+      "draft_manifest_id": "3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc",
+      "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-2a6dbb4874b7/ (byte-identical copies taken at the re-run #5 selection; see INDEX.md)"
     }
   ]
 }
