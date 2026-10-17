@@ -715,6 +715,18 @@ The seal commit must come before the first Phase 53 commit (D-08); `seal-order -
   `docs/design/freeze-v2.12/README.md`.
 - `holdout_eval_launch.py` refuses in a Claude-spawned shell, like the autopilot: the
   assistant never starts a holdout evaluation run.
+- The session the launcher starts is contained like the B3 session (same pinned runner settings:
+  OS sandbox around every Bash command and its `python3`/`node` children, network only to the
+  Codex endpoints, credential read/edit denies, WebFetch/WebSearch denied, the pre-approved tool
+  set the plugin's scorer needs) and gets an environment allowlist, never the shell's whole
+  environment. The update pins live in the runner settings, not the process environment. See
+  `docs/design/freeze-v2.12/README.md` ("Measured-session containment").
+- Every holdout run is judged with `freeze_policy.py run-validity` (transcript + review state)
+  on the owner's side before its verdict is used: a permission failure, an incomplete review or a
+  missing scorer output makes the run INVALID, never quiet and never a miss; its slot is redone.
+- Before the first holdout run of a window, the owner runs the synthetic containment proof for the
+  launcher (`docs/design/reachability-dev/RUN-PHASE54-live.md` section 9) on a non-holdout
+  fixture; it must print `CONTAINMENT PROOF OK`.
 
 STATE.md's v2.12 sequencing note says the same, and Phase 55's plans must repeat it.
 
