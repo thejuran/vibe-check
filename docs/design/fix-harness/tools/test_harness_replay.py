@@ -132,6 +132,30 @@ class TestReplayNegativeControls(_ReplayCase):
         self.assertEqual(self.core.turn_end_questions, 1)
         self.assertEqual(self.core.decisions()["turn_end_questions"], 1)
 
+    def test_promise_of_a_report_with_none_on_disk_sends_finalize(self):
+        """A fix-loop end that tells the owner to run --finalize to write
+        REVIEW.md, with no REVIEW.md in the copy, is the normal end: the
+        harness types --finalize."""
+        self.assertFalse(os.path.exists(
+            os.path.join(self.copy.root, ".turingmind", "REVIEW.md")))
+        s = self.replay([{"turn_end": cards_fx.PROMISE_TEXT}])
+        self.assertIsNone(s.failed_reason)
+        self.assertEqual(self.core.owner_commands, 1)
+        self.assertEqual(self.core.turn_end_questions, 0)
+
+    def test_written_report_on_disk_ends_the_run(self):
+        path = os.path.join(self.copy.root, ".turingmind", "REVIEW.md")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("# Review\n")
+        self.assertEqual(self.core.on_turn_end(cards_fx.WRITTEN_TEXT),
+                         ("done", None))
+        self.assertEqual(self.core.owner_commands, 0)
+
+    def test_written_wording_with_no_report_on_disk_fails(self):
+        self.assertEqual(self.core.on_turn_end(cards_fx.WRITTEN_TEXT),
+                         ("fail", harness_cards.FAIL_TURN_END))
+
     def test_c4_same_card_after_head_moved_is_not_a_repeat(self):
         self.replay([{"card": fix_loop_card()}])
         self.move_head()

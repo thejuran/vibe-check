@@ -531,6 +531,84 @@ class TestClassifyTurnEnd(unittest.TestCase):
                 self.assertEqual(hc.classify_turn_end(text), hc.UNKNOWN)
 
 
+# The exact text a default clean-tree run ended its fix-loop turn on: the
+# seeded finding was fixed and pass 2 found nothing, and the closing
+# paragraph tells the owner to run --finalize to write REVIEW.md. No REVIEW.md
+# existed. Matched by text alone it hits both `no-issues` and
+# `review-written`, so the harness failed the run instead of sending
+# --finalize.
+PROMISE_TEXT = (
+    "✓ Phase 4.5 — Persist pass state\nPass 2 is appended to "
+    "`.turingmind/state/format-53/repo-main.json`, including the "
+    "`resolved[]` entry, and the file passes the schema check.\n\n"
+    "⊘ Phase 5 — Interactive fix loop (skipped: no findings)\n\n"
+    "✅ No issues to fix. Re-run when you've changed code, or run with "
+    "`--finalize` to ship.\n\n"
+    "The `/vibe-check:review --finalize` run didn't write "
+    "`.turingmind/REVIEW.md` yet. One Warning was still open, so it "
+    "couldn't approve. You chose to fix it, so the fix was committed and a "
+    "fresh review pass ran instead.\n\n"
+    "- **Fix:** commit `7547a85` changes `clamp()` in `src/clamp.py` to "
+    "`if value > hi: return hi`, so the top of the range [lo, hi] is now "
+    "reachable. The only check run on it was a syntax check, not your "
+    "tests.\n"
+    "- **Rerun (pass 2):** the bugs, security and Python agents found "
+    "nothing new. The bugs agent confirmed the old finding is fixed, and it "
+    "is now recorded as closed in "
+    "`.turingmind/state/format-53/repo-main.json`.\n\n"
+    "Nothing is blocking approval now. Run `/vibe-check:review --finalize` "
+    "again to write `.turingmind/REVIEW.md`. It is gitignored, so copy it "
+    "elsewhere if you want it tracked.")
+
+# The text a finalize turn ended on after it really wrote REVIEW.md.
+WRITTEN_TEXT = (
+    "Phase `52-harness-case` is closed out as **✅ APPROVED** in "
+    "`.turingmind/REVIEW.md`. The finalize check passed with 0 "
+    "critical/warning findings open, 0 medium waiting for acknowledgement "
+    "and 0 Needs-verification items undecided.\n\n"
+    "`.turingmind/` is gitignored, so REVIEW.md won't be committed. To keep "
+    "it in the project, copy it somewhere tracked, for example "
+    "`cp .turingmind/REVIEW.md docs/reviews/2026-10-17-52-harness-case.md`.")
+
+
+class TestTurnEndReportWrittenNeedsTheFile(unittest.TestCase):
+    """`review-written` needs the report on disk, not words about it."""
+
+    def test_promise_with_no_report_on_disk_is_the_fix_loop_end(self):
+        kind = hc.classify_turn_end(PROMISE_TEXT, review_md_written=False)
+        self.assertEqual(kind, hc.NO_ISSUES)
+        self.assertEqual(hc.next_owner_command(kind, "review"),
+                         hc.Next("/vibe-check:review --finalize", None))
+
+    def test_written_report_on_disk_is_review_written(self):
+        for text in (WRITTEN_TEXT,
+                     "Wrote `.turingmind/REVIEW.md`. It is gitignored — `cp` "
+                     "it if you want it tracked."):
+            with self.subTest(text=text[:40]):
+                self.assertEqual(
+                    hc.classify_turn_end(text, review_md_written=True),
+                    hc.REVIEW_WRITTEN)
+
+    def test_written_wording_without_the_file_is_not_review_written(self):
+        for text in (WRITTEN_TEXT,
+                     "Wrote `.turingmind/REVIEW.md`. It is gitignored — `cp` "
+                     "it if you want it tracked."):
+            with self.subTest(text=text[:40]):
+                self.assertEqual(
+                    hc.classify_turn_end(text, review_md_written=False),
+                    hc.UNKNOWN)
+
+    def test_two_kinds_with_the_report_on_disk_stay_unknown(self):
+        self.assertEqual(
+            hc.classify_turn_end(PROMISE_TEXT, review_md_written=True),
+            hc.UNKNOWN)
+
+    def test_no_file_fact_keeps_the_text_only_rule(self):
+        self.assertEqual(hc.classify_turn_end(PROMISE_TEXT), hc.UNKNOWN)
+        self.assertEqual(hc.classify_turn_end(WRITTEN_TEXT),
+                         hc.REVIEW_WRITTEN)
+
+
 class TestNextOwnerCommand(unittest.TestCase):
 
     def test_finalize_after_one_liners(self):
