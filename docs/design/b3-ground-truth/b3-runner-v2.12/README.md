@@ -17,6 +17,7 @@ of the manifest.
 | `common.sh` | Sourced by a runbook's `common` block and by `run_case.sh`. Provides `b3_materialize_runner`, `b3_identity_check`, `b3_stamp_run`, `b3_block`, plus the isolation and case helpers. |
 | `run_case.sh` | The tmux driver for one measured run (`run_case.sh <case> <run>`). It uses the fixed keystroke set and stops (exit 4) on any unexpected card. |
 | `settings-measured.json` | The runner settings template, shared by the B3 runner and the holdout measurement launcher. It disables the installed `vibe-check@thejuran` and (for the session only) the codex plugin's hooks, pins `DISABLE_AUTOUPDATER=1` and `DISABLE_UPDATES=1`, points the status line at `<RUNNER>/statusline-capture.sh`, and carries the containment: OS sandbox with network limited to the Codex endpoints, credential read/edit denies, WebFetch/WebSearch denied, the pre-approved tool set. `test_b3_runner_layer.containment_problems` locks every control. |
+| `proof_case.sh` | The synthetic containment proof for the B3 measured session (run once per candidate, before the sweep): runs the runbook's `proof-*` blocks on a throwaway fixture and stops unless `containment_proof.py verify` prints `CONTAINMENT PROOF OK`. |
 | `statusline-capture.sh` | Records the session's status-line payload (model id, context window) to `statusline-payloads.jsonl` beside itself, then renders the owner's status line. |
 
 ## Contract

@@ -34,13 +34,20 @@ REPO = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
 LAYER = os.path.join(REPO, "docs", "design", "b3-ground-truth", "b3-runner-v2.12")
 COMMON = os.path.join(LAYER, "common.sh")
 RUN_CASE = os.path.join(LAYER, "run_case.sh")
+PROOF_CASE = os.path.join(LAYER, "proof_case.sh")
 SETTINGS = os.path.join(LAYER, "settings-measured.json")
 RUNBOOK = os.path.join(REPO, "docs", "design", "reachability-dev", "RUN-PHASE54-live.md")
 
-LAUNCH_BEARING = ("preflight", "launch", "session", "pre", "post")
+LAUNCH_BEARING = ("preflight", "launch", "session", "pre", "post",
+                  "proof-launch", "proof-session")
 RUNBOOK_BLOCKS = ("common", "materialize", "identity", "park-memory", "preflight",
                   "fresh", "launch", "session", "pre", "post", "fail", "revert",
-                  "restore-memory")
+                  "restore-memory", "proof-prepare", "proof-launch", "proof-session",
+                  "proof-verify")
+# The blocks whose process becomes `claude` (the measured session and the
+# synthetic containment proof's session), each started by its launch block.
+SESSION_BLOCKS = {"session": ("launch", 'b3_block "$2" session "$3"'),
+                  "proof-session": ("proof-launch", 'b3_block "$2" proof-session')}
 LAYER_FUNCTIONS = ("b3_identity_check", "b3_materialize_runner", "b3_stamp_run", "b3_block")
 FREEZE_CALL = 'freeze_check.py" verify --runner b3'
 SETTINGS_TOKEN = '"$RUNNER_SETTINGS"'
@@ -190,7 +197,7 @@ def _block_names(text):
     return re.findall(r"(?m)^# BLOCK: ([a-z0-9-]+)$", text)
 
 
-def session_self_check_holds(runbook_text, run_case_text):
+def session_self_check_holds(runbook_text, run_case_text, extra_drivers=()):
     """The identity check that vouches for a run executes in the process
     that becomes `claude`.
 
@@ -203,36 +210,43 @@ def session_self_check_holds(runbook_text, run_case_text):
     - `launch` starts the pane with the session block as an argv list
       (`tmux new-session ... "${SESSION[@]}"`) whose command runs
       `b3_block "$2" session "$3"`."""
-    session = block(runbook_text, "session")
-    launch = block(runbook_text, "launch")
-    if session is None or launch is None:
-        return False
     for name in _block_names(runbook_text):
-        if name == "session":
+        if name in SESSION_BLOCKS:
             continue
         for ln in _code_lines(block(runbook_text, name) or ""):
             if _CLAUDE_START.search(ln):
                 return False
-    for text in (runbook_text, run_case_text):
+    texts = (runbook_text, run_case_text) + tuple(extra_drivers)
+    for text in texts:
         for ln in _code_lines(text):
             if "send-keys" in ln and re.search(r"\bclaude\b|LAUNCH", ln):
                 return False
-    lines = _code_lines(session)
-    starts = [i for i, ln in enumerate(lines) if _CLAUDE_START.search(ln)]
-    if len(starts) != 1 or not re.match(r"\s*" + re.escape(EXEC_CLAUDE), lines[starts[0]]):
-        return False
-    checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
-    if not checks or checks[0] > starts[0]:
-        return False
-    for needle in EXPECT_COMPARE:
-        at = [i for i, ln in enumerate(lines) if needle in ln]
-        if not at or not checks[0] < at[0] < starts[0]:
+    exec_lines = set()
+    for name, (launch_name, call) in SESSION_BLOCKS.items():
+        session = block(runbook_text, name)
+        launch = block(runbook_text, launch_name)
+        if session is None or launch is None:
             return False
-    launch_lines = _code_lines(launch)
-    panes = [ln for ln in launch_lines if re.search(r"\btmux\s+new-session\b", ln)]
-    if not panes or not all(ln.rstrip().endswith(PANE_ARGV) for ln in panes):
-        return False
-    return SESSION_CALL in launch
+        lines = _code_lines(session)
+        starts = [i for i, ln in enumerate(lines) if _CLAUDE_START.search(ln)]
+        if len(starts) != 1 or not re.match(r"\s*" + re.escape(EXEC_CLAUDE), lines[starts[0]]):
+            return False
+        exec_lines.add(lines[starts[0]].strip())
+        checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
+        if not checks or checks[0] > starts[0]:
+            return False
+        for needle in EXPECT_COMPARE:
+            at = [i for i, ln in enumerate(lines) if needle in ln]
+            if not at or not checks[0] < at[0] < starts[0]:
+                return False
+        launch_lines = _code_lines(launch)
+        panes = [ln for ln in launch_lines if re.search(r"\btmux\s+new-session\b", ln)]
+        if not panes or not all(ln.rstrip().endswith(PANE_ARGV) for ln in panes):
+            return False
+        if call not in launch:
+            return False
+    # the proof session starts claude with the very line the measured session uses
+    return len(exec_lines) == 1
 
 
 def session_env_allowlist_holds(runbook_text, common_text):
@@ -242,21 +256,26 @@ def session_env_allowlist_holds(runbook_text, common_text):
     line; b3_session_env builds the array from freeze_manifest's
     session_environment (the SESSION_ENV_NAMES allowlist) and stops when it
     comes back empty."""
-    session = block(runbook_text, "session")
     body = function_body(common_text, "b3_session_env")
-    if session is None or body is None:
+    if body is None:
         return False
     if "fm.session_environment(os.environ)" not in body:
         return False
     if not re.search(r'test "\$\{#B3_SESSION_ENV\[@\]\}" -gt 0 \|\|', body):
         return False
-    lines = _code_lines(session)
-    calls = [i for i, ln in enumerate(lines) if ln.strip() == SESSION_ENV_CALL]
-    execs = [i for i, ln in enumerate(lines) if ln.lstrip().startswith(EXEC_CLAUDE)]
-    checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
-    if len(execs) != 1 or not calls or not checks:
-        return False
-    return checks[0] < calls[-1] < execs[0]
+    for name in SESSION_BLOCKS:
+        session = block(runbook_text, name)
+        if session is None:
+            return False
+        lines = _code_lines(session)
+        calls = [i for i, ln in enumerate(lines) if ln.strip() == SESSION_ENV_CALL]
+        execs = [i for i, ln in enumerate(lines) if ln.lstrip().startswith(EXEC_CLAUDE)]
+        checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
+        if len(execs) != 1 or not calls or not checks:
+            return False
+        if not checks[0] < calls[-1] < execs[0]:
+            return False
+    return True
 
 
 # Containment the shared measured-session settings must carry (S5/S6/S7). The
@@ -414,7 +433,17 @@ class TestRealFiles(unittest.TestCase):
         self.assertTrue(single_substitution_holds(self.common))
 
     def test_session_self_check(self):
-        self.assertTrue(session_self_check_holds(self.runbook, _read(RUN_CASE)))
+        self.assertTrue(session_self_check_holds(self.runbook, _read(RUN_CASE),
+                                                 (_read(PROOF_CASE),)))
+
+    def test_proof_driver_routes_through_blocks(self):
+        text = _read(PROOF_CASE)
+        for name in ("proof-prepare", "proof-launch", "proof-verify"):
+            self.assertRegex(text, r'b3_block "\$RUNBOOK" %s\b' % re.escape(name))
+        self.assertNotRegex(text, r"(?m)^[^#]*\bclaude\s+--")
+        self.assertTrue(no_override_holds(text))
+        self.assertTrue(no_version_compare_holds(text, ""))
+        self.assertIn('die "permission prompt', text)
 
     def test_b3_block_names_its_runbook(self):
         body = function_body(self.common, "b3_block")
@@ -649,6 +678,20 @@ class TestMutants(unittest.TestCase):
         self.assertFalse(post_validity_holds(removed))
         soft = self.runbook.replace(post, post[:end].replace("exit 1; }", "true; }") + post[end:], 1)
         self.assertFalse(post_validity_holds(soft))
+
+    def test_mutant_proof_session_weaker_than_the_measured_session(self):
+        self._assert_dropping_trips("proof-session")
+        self._assert_dropping_trips("proof-launch")
+        body = block(self.runbook, "proof-session")
+        for old, new in (('--allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"',
+                          '--allowedTools "Bash"'),
+                         ("--permission-mode manual", "--permission-mode bypassPermissions")):
+            with self.subTest(new=new):
+                mutant = self.runbook.replace(body, body.replace(old, new), 1)
+                self.assertNotEqual(mutant, self.runbook)
+                self.assertFalse(session_self_check_holds(mutant, _read(RUN_CASE)))
+        mutant = self.runbook.replace(body, body.replace("\nb3_session_env\n", "\n"), 1)
+        self.assertFalse(session_env_allowlist_holds(mutant, self.common))
 
     def test_mutant_run_case_hardcoded_window_paths(self):
         text = _read(RUN_CASE)

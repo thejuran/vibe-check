@@ -10,6 +10,7 @@ results may count toward a release gate. Four tools live in `tools/`:
 | `freeze_check.py` | the pre-run identity check (`verify --runner <r>`) and the candidate guard (`candidate-guard`) |
 | `freeze_policy.py` | path classification, eligibility, inheritance, slot-based gate status, the retune seal-order proof (`classify`, `seal-order-proof`) |
 | `freeze_tally.py` | the one entry point in front of every tally (`list`, `b3-aggregate`, `dev-tally`, `harness-verdicts`, `gate`) |
+| `containment_proof.py` | the synthetic live proof that each measured session type can score, reach the gateway and Codex, and is denied credential reads and unauthorized network on every route (`prepare`, `prompt`, `verify`) |
 
 `PATH-MAP.json` maps changed paths to the checks they require. `evidence/`
 holds gate evidence and proofs; it is reporting-only and never moves the
@@ -311,6 +312,54 @@ python3 docs/design/freeze-v2.12/tools/freeze_manifest.py verify-self --manifest
 `verify-self` reproduces the git-derived sections and the id from the
 candidate. Before a manifest is accepted, a live `freeze_check.py verify`
 must pass for every runner profile against the installed runner artifacts.
+
+## Measured-session containment
+
+Both measured sessions (the B3 runner session and the holdout measurement
+launcher) load the same runner settings template,
+`b3-ground-truth/b3-runner-v2.12/settings-measured.json`. The manifest pins
+it (`runner_settings` canonical hash), so the identity check binds every
+control below; `test_b3_runner_layer.containment_problems` locks each one.
+
+| Route | Control |
+| --- | --- |
+| Bash and every process it starts (`python3`, `node`, `git`, the Codex CLI) | Claude Code's OS sandbox (Seatbelt on macOS, inherited by every child): `failIfUnavailable`, `allowUnsandboxedCommands: false`, no excluded commands. Network only through the sandbox proxy to `chatgpt.com`, `auth.openai.com`, `api.openai.com` (`strictAllowlist`); a raw socket anywhere else is refused by the kernel policy. Reads denied under `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.netrc`, `~/.gnupg`, `~/Library/Keychains`, `~/.claude/.credentials.json`, `~/.claude.json`, the holdout folder and the proof canary. Writes only to the working dirs, the sandbox temp dir and `~/.codex` |
+| Read / Write / Edit / Grep / Glob (in-process) | permission deny rules on the same credential paths, `.env` files, the Claude Code settings, hooks and plugin code, and the Codex config |
+| WebFetch / WebSearch (in-process network) | denied |
+| Model calls | made by the Claude Code process itself through the local gateway (`ANTHROPIC_BASE_URL`, `127.0.0.1:18764`), outside the sandbox; sandboxed code cannot reach the gateway |
+| Session environment | an allowlist (`freeze_manifest.SESSION_ENV_NAMES`): the identity-checked names plus PATH, HOME, terminal, locale, temp dir and Codex config dir; B3 execs `claude` under `env -i`, the holdout launcher builds the same set |
+| Pre-approved tools | `Bash, Read, Write, Edit, Grep, Glob, Task, Agent` (the plugin's `python3` scorer needs Bash; the holdout `dontAsk` session refuses anything else) |
+
+Residuals, stated precisely:
+
+- Hooks (the owner's and the enabled plugins') and MCP servers run in the
+  Claude Code process, outside the sandbox. Their code is pinned by the
+  identity check (hooks hash, hook scripts, enabled-plugin trees); a session
+  cannot change it (edits to `~/.claude` settings, hooks and plugin code are
+  denied, and the sandbox never writes under `~/.claude`). MCP tools need a
+  permission the measured settings never grant.
+- Sandboxed code can still read the clone or case, the repo checkout and
+  other files outside the denied paths, and the Codex credential in
+  `~/.codex` (Codex needs it inside the sandbox). It can send data only to
+  the three Codex hosts.
+- Keychain items are reachable only through the macOS security daemon,
+  whose own access prompts apply; the keychain files themselves are denied.
+- The sandbox temp dir (`/tmp/claude-<uid>`) is shared with the owner's
+  other Claude Code sessions.
+- The codex plugin is disabled for the measured session only. Its
+  SessionStart hook points the companion at a plugin-data dir under
+  `~/.claude`, which the sandbox never lets a command write; with the hook
+  off the companion keeps its job state in the sandbox temp dir. The plugin
+  finds the companion by its install path, so Codex still runs.
+
+**Sandboxing is an environment change.** The Phase-53 rehearsal and the
+first 54-11 sweep ran without it. The restarted sweep tests compatibility
+and shows any outcome differences; it cannot attribute a single difference
+to the sandbox, or rule the sandbox out as its cause.
+
+Before the sweep, the synthetic containment proof
+(`reachability-dev/RUN-PHASE54-live.md` section 9) launches each measured
+session type on a non-holdout fixture and must print `CONTAINMENT PROOF OK`.
 
 ## Known limitations
 
