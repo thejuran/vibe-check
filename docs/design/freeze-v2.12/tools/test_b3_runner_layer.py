@@ -281,14 +281,15 @@ def session_env_allowlist_holds(runbook_text, common_text):
 # Containment the shared measured-session settings must carry (S5/S6/S7). The
 # template is pinned by the freeze manifest (runner_settings canonical hash),
 # so the identity check binds every key below for both measured runners.
-# AskUserQuestion is in the set because the holdout measurement launcher runs
-# the session with `--permission-mode dontAsk`, which refuses every tool the
-# settings do not pre-approve: without it the review's fix-loop card is
-# refused and every holdout review reaching the card is an invalid run. (A
-# command's `allowed-tools` frontmatter does not pre-approve it there.) In
-# B3's manual mode the card never needed an approval, so B3 is unchanged.
-TOOL_SET = ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task", "Agent",
-            "AskUserQuestion"]
+# Both measured runners start the session in `--permission-mode manual` with
+# `--allowedTools` naming exactly this list, and the settings pre-approve the
+# same list. The fix-loop card (AskUserQuestion) is not in it: in manual mode
+# the card is shown and answered without any approval (the 535f48861cd8 B3
+# containment proof ran with this list and answered both cards), and
+# pre-approving it is inert. One list for the settings and both launch lines
+# keeps "pre-approved" meaning the same thing everywhere.
+TOOL_SET = ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task", "Agent"]
+SESSION_MODE = "manual"
 CODEX_DOMAINS = {"chatgpt.com", "auth.openai.com", "api.openai.com"}
 CREDENTIAL_PATHS = ("~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.gnupg",
                     "~/Library/Keychains", "~/.claude/.credentials.json",
@@ -347,13 +348,48 @@ def containment_problems(d):
             out.append("deny rule missing: %s" % rule)
     if perms.get("allow") != TOOL_SET:
         out.append("pre-approved tool set is not the measured set (python3 scorer "
-                   "needs Bash; the fix-loop card needs AskUserQuestion under dontAsk)")
+                   "needs Bash; the fix-loop card needs no approval in manual mode)")
     plugins = d.get("enabledPlugins") or {}
     if plugins.get("codex@openai-codex") is not False:
         out.append("codex plugin hooks enabled (its plugin-data dir is unwritable "
                    "in the sandbox; the companion must use the sandbox temp dir)")
     if d.get("disableClaudeAiConnectors") is not True:
         out.append("account connectors enabled (they run outside the sandbox)")
+    return out
+
+
+_MODE_RE = re.compile(r"--permission-mode\s+(\S+)")
+_TOOLS_RE = re.compile(r'--allowedTools\s+"([^"]*)"')
+
+
+def session_launch_modes(runbook_text):
+    """[(block, permission mode, allowedTools value)] for every claude launch
+    line of the session blocks (None for a flag that is absent)."""
+    out = []
+    for name in sorted(SESSION_BLOCKS):
+        for ln in _code_lines(block(runbook_text, name) or ""):
+            if EXEC_CLAUDE.strip() not in ln:
+                continue
+            modes = _MODE_RE.findall(ln)
+            tools = _TOOLS_RE.findall(ln)
+            out.append((name, modes[0] if len(modes) == 1 else None,
+                        tools[0] if len(tools) == 1 else None))
+    return out
+
+
+def launch_tool_list_problems(runbook_text, settings):
+    """Every session launch line must run in manual mode and pre-approve
+    exactly the settings' allow list (TOOL_SET), in the same order."""
+    want = ",".join((settings.get("permissions") or {}).get("allow") or [])
+    lines = session_launch_modes(runbook_text)
+    out = [] if len(lines) == len(SESSION_BLOCKS) else ["a session block has no "
+                                                        "claude launch line"]
+    for name, mode, tools in lines:
+        if mode != SESSION_MODE:
+            out.append("%s: permission mode %s, not %s" % (name, mode, SESSION_MODE))
+        if tools != want:
+            out.append("%s: --allowedTools %s is not the settings allow list %s"
+                       % (name, tools, want))
     return out
 
 
@@ -507,6 +543,12 @@ class TestRealFiles(unittest.TestCase):
     def test_settings_template_contains_every_route(self):
         self.assertEqual(containment_problems(json.loads(_read(SETTINGS))), [])
 
+    def test_session_launch_lines_preapprove_the_settings_list(self):
+        settings = json.loads(_read(SETTINGS))
+        self.assertEqual(launch_tool_list_problems(self.runbook, settings), [])
+        self.assertEqual(len(session_launch_modes(self.runbook)), 2)
+        self.assertNotIn("AskUserQuestion", settings["permissions"]["allow"])
+
 
 class TestRunbookVar(unittest.TestCase):
     """b3_runbook_var (bash) on a throwaway repo: it prints a common-block
@@ -652,11 +694,14 @@ class TestMutants(unittest.TestCase):
                      ("permissions", ("deny", "Read(~/.ssh/**)")),
                      ("permissions", ("deny", "WebFetch")),
                      ("permissions", ("allow", "Bash")),
-                     ("permissions", ("allow", "AskUserQuestion")),
+                     ("permissions", ("allow", "Glob")),
                      ("enabledPlugins", "codex@openai-codex"),
                      ("disableClaudeAiConnectors",)):
             with self.subTest(path=path):
                 self.assertNotEqual(containment_problems(drop(path)), [])
+        card = json.loads(json.dumps(base))
+        card["permissions"]["allow"].append("AskUserQuestion")
+        self.assertNotEqual(containment_problems(card), [])
         widened = json.loads(json.dumps(base))
         widened["sandbox"]["network"]["allowedDomains"].append("127.0.0.1")
         self.assertNotEqual(containment_problems(widened), [])
@@ -701,6 +746,22 @@ class TestMutants(unittest.TestCase):
                 self.assertFalse(session_self_check_holds(mutant, _read(RUN_CASE)))
         mutant = self.runbook.replace(body, body.replace("\nb3_session_env\n", "\n"), 1)
         self.assertFalse(session_env_allowlist_holds(mutant, self.common))
+
+    def test_mutant_launch_line_off_the_settings_list(self):
+        settings = json.loads(_read(SETTINGS))
+        self.assertEqual(launch_tool_list_problems(self.runbook, settings), [])
+        body = block(self.runbook, "session")
+        for old, new in (("--permission-mode manual", "--permission-mode dontAsk"),
+                         ('Task,Agent"', 'Task,Agent,AskUserQuestion"'),
+                         ('--allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"',
+                          "")):
+            with self.subTest(new=new):
+                mutant = self.runbook.replace(body, body.replace(old, new), 1)
+                self.assertNotEqual(mutant, self.runbook)
+                self.assertNotEqual(launch_tool_list_problems(mutant, settings), [])
+        wider = json.loads(json.dumps(settings))
+        wider["permissions"]["allow"].append("AskUserQuestion")
+        self.assertNotEqual(launch_tool_list_problems(self.runbook, wider), [])
 
     def test_mutant_run_case_hardcoded_window_paths(self):
         text = _read(RUN_CASE)

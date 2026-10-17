@@ -410,16 +410,20 @@ class TestLaunch(LaunchCase):
         self.assertEqual(rc, 0)
         self.assertIn("AWS_SECRET_ACCESS_KEY", self.spawned[0]["env"])
 
-    def test_argv_passes_autopilot_rules(self):
+    def test_argv_passes_the_launch_rules(self):
         rc, _ = self.launch()
         self.assertEqual(rc, 0)
         argv = self.spawned[0]["argv"]
-        holdout_autopilot.check_argv(argv)
+        el.check_launch_argv(argv)
+        holdout_autopilot.check_argv(argv, mode="manual")
         self.assertEqual(argv[0], "claude")
         for bad in el.FORBIDDEN_ARGS:
             if bad != "--permission-mode":
                 self.assertNotIn(bad, argv)
-        self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "manual")
+        self.assertEqual(argv[argv.index("--allowedTools") + 1],
+                         "Bash,Read,Write,Edit,Grep,Glob,Task,Agent")
+        self.assertNotIn("dontAsk", argv)
 
 
 class TestLaunchFailure(LaunchCase):
@@ -589,18 +593,26 @@ class TestShape(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# dontAsk pre-approval: every tool the review commands use is pre-approved
+# Manual-mode pre-approval: holdout-eval runs the session like B3
 # --------------------------------------------------------------------------- #
 
 REAL_REPO = os.path.normpath(os.path.join(TOOLS_DIR, "..", "..", "..", ".."))
 REAL_TEMPLATE = os.path.join(REAL_REPO, el.RUNNER_TEMPLATE)
+B3_RUNBOOK = os.path.join(REAL_REPO, "docs", "design", "reachability-dev",
+                          "RUN-PHASE54-live.md")
 REVIEW_COMMANDS = tuple(os.path.join(REAL_REPO, "plugins", "vibe-check",
                                      "commands", n)
                         for n in ("deep-review.md", "review.md"))
 # Task's current name; the subagent dispatch is pre-approved under both.
 ALIASES = {"Agent"}
+# Tools the review flow uses that raise no permission prompt in manual mode
+# (the fix-loop card): never pre-approved, so one list serves the settings,
+# the B3 launch line and the holdout launch line.
+PROMPTLESS = {"AskUserQuestion"}
 # In-process network tools: never pre-approved, always denied.
 NEVER_ALLOWED = ("WebFetch", "WebSearch")
+# The B3 measured-session blocks whose process becomes `claude`.
+B3_SESSION_BLOCKS = ("session", "proof-session")
 
 
 def allowed_tool_names(command_text):
@@ -613,19 +625,20 @@ def allowed_tool_names(command_text):
             if t.strip()}
 
 
-def dontask_gaps(settings, command_texts):
+def preapproval_gaps(settings, command_texts):
     """Every problem with the measured settings for a `--permission-mode
-    dontAsk` session: a tool the review commands use that the settings do not
-    pre-approve (dontAsk refuses it), a pre-approval broader than the
-    commands need, or an in-process network tool not denied."""
+    manual` session: a prompting tool the review commands use that is not
+    pre-approved (it would put a permission prompt in front of the owner), a
+    pre-approval broader than the commands need (the promptless card tool
+    included), or an in-process network tool not denied."""
     perms = settings.get("permissions") or {}
     allow = perms.get("allow") or []
     deny = perms.get("deny") or []
     needed = set()
     for text in command_texts:
         needed |= allowed_tool_names(text)
-    out = ["not pre-approved under dontAsk: %s" % t
-           for t in sorted(needed - set(allow))]
+    needed -= PROMPTLESS
+    out = ["not pre-approved: %s" % t for t in sorted(needed - set(allow))]
     out += ["pre-approved beyond the review commands: %s" % t
             for t in allow if t not in needed | ALIASES]
     out += ["%s not denied" % t for t in NEVER_ALLOWED if t not in deny]
@@ -633,11 +646,60 @@ def dontask_gaps(settings, command_texts):
     return out
 
 
-class TestDontAskPreApproval(unittest.TestCase):
-    """The launcher runs the session in dontAsk mode, where a command's
-    `allowed-tools` does not pre-approve anything: the measured settings
-    must pre-approve every tool the review flow uses (the fix-loop card is
-    AskUserQuestion) and nothing broader."""
+def _flag_values(argv, flag):
+    return [argv[i + 1] if i + 1 < len(argv) else None
+            for i, a in enumerate(argv) if a == flag]
+
+
+def b3_launch_lines(runbook_text):
+    """[(block, mode, allowedTools)] of every claude launch line in B3's
+    measured-session blocks."""
+    out = []
+    for name in B3_SESSION_BLOCKS:
+        m = re.search(r"(?ms)^# BLOCK: %s\n(.*?)^# END: %s$"
+                      % (re.escape(name), re.escape(name)), runbook_text)
+        for ln in (m.group(1).splitlines() if m else ()):
+            if ln.lstrip().startswith("#") or " claude " not in ln:
+                continue
+            modes = re.findall(r"--permission-mode\s+(\S+)", ln)
+            tools = re.findall(r'--allowedTools\s+"([^"]*)"', ln)
+            out.append((name, modes[0] if len(modes) == 1 else None,
+                        tools[0] if len(tools) == 1 else None))
+    return out
+
+
+def same_mode_as_b3_problems(launch_argv, runbook_text, settings):
+    """The holdout launcher runs the session in the permission mode and with
+    the pre-approved tool list B3 uses, and that list is the measured
+    settings' allow list. dontAsk is refused outright: it refuses the
+    fix-loop card whatever the allow rules say."""
+    argv = list(launch_argv)
+    modes = _flag_values(argv, "--permission-mode")
+    tools = _flag_values(argv, "--allowedTools")
+    out = []
+    if "dontAsk" in argv:
+        out.append("holdout launcher uses dontAsk")
+    mode = modes[0] if len(modes) == 1 else None
+    listed = tools[0] if len(tools) == 1 else None
+    b3 = b3_launch_lines(runbook_text)
+    if len(b3) != len(B3_SESSION_BLOCKS):
+        out.append("B3 runbook session launch lines not found")
+    for name, b3_mode, b3_tools in b3:
+        if mode != b3_mode:
+            out.append("mode %s differs from B3 %s (%s)" % (mode, b3_mode, name))
+        if listed != b3_tools:
+            out.append("tools %s differ from B3 %s (%s)" % (listed, b3_tools, name))
+    allow = ",".join((settings.get("permissions") or {}).get("allow") or [])
+    if listed != allow:
+        out.append("tools %s are not the settings allow list %s" % (listed, allow))
+    return out
+
+
+class TestManualModePreApproval(unittest.TestCase):
+    """The launcher runs the session in manual mode, like B3: tools outside
+    the pre-approved list would raise a permission prompt, so the measured
+    settings pre-approve every prompting tool the review flow uses and
+    nothing broader. The card tool needs no approval and is not listed."""
 
     def setUp(self):
         with open(REAL_TEMPLATE, encoding="utf-8") as fh:
@@ -652,31 +714,94 @@ class TestDontAskPreApproval(unittest.TestCase):
             self.assertIn("AskUserQuestion", allowed_tool_names(text))
 
     def test_real_template_pre_approves_the_review_tools(self):
-        self.assertEqual(dontask_gaps(self.settings, self.commands), [])
-        self.assertIn("AskUserQuestion", self.settings["permissions"]["allow"])
+        self.assertEqual(preapproval_gaps(self.settings, self.commands), [])
+        self.assertNotIn("AskUserQuestion", self.settings["permissions"]["allow"])
 
     def test_launcher_reads_this_template(self):
         self.assertEqual(el.RUNNER_TEMPLATE,
                          "docs/design/b3-ground-truth/b3-runner-v2.12/"
                          "settings-measured.json")
-        self.assertIn(("--permission-mode", "dontAsk"),
+        self.assertIn(("--permission-mode", "manual"),
                       list(zip(el.LAUNCH_ARGV, el.LAUNCH_ARGV[1:])))
 
-    def test_mutant_card_tool_removed_trips(self):
+    def test_mutant_prompting_tool_removed_trips(self):
         d = json.loads(json.dumps(self.settings))
-        d["permissions"]["allow"].remove("AskUserQuestion")
-        self.assertIn("not pre-approved under dontAsk: AskUserQuestion",
-                      dontask_gaps(d, self.commands))
+        d["permissions"]["allow"].remove("Bash")
+        self.assertIn("not pre-approved: Bash",
+                      preapproval_gaps(d, self.commands))
+
+    def test_mutant_card_tool_pre_approved_trips(self):
+        d = json.loads(json.dumps(self.settings))
+        d["permissions"]["allow"].append("AskUserQuestion")
+        self.assertIn("pre-approved beyond the review commands: AskUserQuestion",
+                      preapproval_gaps(d, self.commands))
 
     def test_mutant_broader_allow_trips(self):
         for extra in ("WebFetch", "TodoWrite", "Skill"):
             with self.subTest(extra=extra):
                 d = json.loads(json.dumps(self.settings))
                 d["permissions"]["allow"].append(extra)
-                self.assertNotEqual(dontask_gaps(d, self.commands), [])
+                self.assertNotEqual(preapproval_gaps(d, self.commands), [])
         d = json.loads(json.dumps(self.settings))
         d["permissions"]["deny"].remove("WebSearch")
-        self.assertIn("WebSearch not denied", dontask_gaps(d, self.commands))
+        self.assertIn("WebSearch not denied", preapproval_gaps(d, self.commands))
+
+
+class TestSameModeAsB3(unittest.TestCase):
+    """holdout-eval and B3 use one permission mode and one pre-approved tool
+    list; the launcher refuses any other at build time."""
+
+    def setUp(self):
+        with open(REAL_TEMPLATE, encoding="utf-8") as fh:
+            self.settings = json.load(fh)
+        with open(B3_RUNBOOK, encoding="utf-8") as fh:
+            self.runbook = fh.read()
+
+    def test_launcher_matches_b3_and_the_settings(self):
+        self.assertEqual(same_mode_as_b3_problems(el.LAUNCH_ARGV, self.runbook,
+                                                  self.settings), [])
+        self.assertEqual([m for _n, m, _t in b3_launch_lines(self.runbook)],
+                         ["manual", "manual"])
+
+    def test_check_launch_argv_refuses_other_modes_and_lists(self):
+        good = el.build_argv("/p", "/s", "m", "/c/H-00000000", "sid")
+        el.check_launch_argv(good)
+
+        def swap(old, new):
+            i = good.index(old)
+            return good[:i] + [new] + good[i + 1:]
+        bad = {"dontAsk": swap("manual", "dontAsk"),
+               "bypass": swap("manual", "bypass" + "Permissions"),
+               "wider": swap(el.SESSION_TOOLS, el.SESSION_TOOLS + ",WebFetch"),
+               "narrower": swap(el.SESSION_TOOLS, "Bash"),
+               "no list": [a for a in good if a not in ("--allowedTools",
+                                                        el.SESSION_TOOLS)],
+               "two lists": good + ["--allowedTools", el.SESSION_TOOLS],
+               "two modes": good + ["--permission-mode", "manual"]}
+        for label, argv in bad.items():
+            with self.subTest(label=label):
+                with self.assertRaises(KitError):
+                    el.check_launch_argv(argv)
+
+    def test_mutant_dontask_reintroduced(self):
+        mutant = tuple("dontAsk" if a == "manual" else a for a in el.LAUNCH_ARGV)
+        self.assertNotEqual(mutant, el.LAUNCH_ARGV)
+        self.assertIn("holdout launcher uses dontAsk",
+                      same_mode_as_b3_problems(mutant, self.runbook, self.settings))
+        with mock.patch.object(el, "LAUNCH_ARGV", mutant):
+            with self.assertRaises(KitError):
+                el.build_argv("/p", "/s", "m", "/c/H-00000000", "sid")
+
+    def test_mutant_tool_list_drifts_from_b3(self):
+        for new in (el.SESSION_TOOLS + ",AskUserQuestion", "Bash,Read"):
+            with self.subTest(new=new):
+                mutant = tuple(new if a == el.SESSION_TOOLS else a
+                               for a in el.LAUNCH_ARGV)
+                self.assertNotEqual(same_mode_as_b3_problems(
+                    mutant, self.runbook, self.settings), [])
+                with mock.patch.object(el, "LAUNCH_ARGV", mutant):
+                    with self.assertRaises(KitError):
+                        el.build_argv("/p", "/s", "m", "/c/H-00000000", "sid")
 
 
 class TestMutants(LaunchCase):
