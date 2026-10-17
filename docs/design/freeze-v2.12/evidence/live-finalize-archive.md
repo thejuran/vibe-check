@@ -1,16 +1,10 @@
 # Live check — two same-day close-outs keep both reports and both state archives
 
-Requirement: R2 (no-clobber Finalize archive routing, 54-02), live check per D-27 / D-07. Run by 54-10 re-run #4 on candidate `2a6dbb4874b7521b66d53b2fbb1406dfb46dc230` (from `evidence/CANDIDATE.json`).
+Requirement: R2 (no-clobber Finalize archive routing, 54-02), live check per D-27 / D-07. Run by 54-10 re-run #5 on candidate `22ef678fb88418f22419867bed81ff89283fa7fb` (from `evidence/CANDIDATE.json`).
 
-This replaces the record for the superseded candidate `24c0c00038f2…`, which is kept unchanged in `evidence/superseded-24c0c00038f2/live-finalize-archive.md`. The first run's record is in `evidence/superseded-302df48e1097/`.
+This replaces the record for the superseded candidate `2a6dbb4874b7…`, which is kept unchanged in `evidence/superseded-2a6dbb4874b7/live-finalize-archive.md`. Earlier records are in `evidence/superseded-24c0c00038f2/` and `evidence/superseded-302df48e1097/`.
 
-Unlike the 24c0c00 re-run, the code under test changed. The batched fix from the release deep review changed `90-finalize.md` (blob 91d02b45 -> 91dfc729) and `review_archive.py`, in commits 401c82f, 8de2fd4, 1394c75 and 09bdf61:
-
-- both archive fences now STOP Finalize on an archive failure;
-- the state archive is now a fenced bash block, not an inline code span;
-- `review_archive.py` gained a no-clobber copy fallback for filesystems without hard links.
-
-The extraction of the state fence was updated to match the new prose. Every archive name pattern and every sha256 below matches the 24c0c00 run; only the date differs, and the files hold no date.
+The code under test is unchanged since 2a6dbb4: follow-up 2d changed only `lanearchive.py` and its test. `90-finalize.md` is still blob 91dfc729, and `review_archive.py` and `finalize_gate.py` are byte-identical to 2a6dbb4. The script below is the 2a6dbb4 script with only the scratch dir renamed (`54-10r4` -> `54-10r5`). The transcript is identical to the 2a6dbb4 run apart from the `candidate=` line: every archive name and every sha256 matches. The date is the same calendar day, and the files hold no date.
 
 ## Result
 
@@ -33,8 +27,8 @@ Both state archives survive with their own bytes. The new state fence printed `s
 
 ## Method
 
-- Scratch git repos under the session scratchpad (`54-10r4/arch-stamped`, `54-10r4/arch-unstamped`). Not a real project and not the holdout.
-- `VC_ROOT` is a `git archive 2a6dbb4874b7… plugins/vibe-check` export of the candidate, not the working tree.
+- Scratch git repos under the session scratchpad (`54-10r5/arch-stamped`, `54-10r5/arch-unstamped`). Not a real project and not the holdout.
+- `VC_ROOT` is a `git archive 22ef678fb884… plugins/vibe-check` export of the candidate, not the working tree.
 - The fences were extracted from the candidate's `90-finalize.md` (blob 91dfc729fa11b4854122bf2ea4891d9c0be07031):
   - prior-REVIEW.md fence (the only four-backtick bash block): `awk '/^````bash$/{f=1;next} /^````$/{f=0} f' "$FIN"`
   - state-archive fence (the indented bash block after "Archive state, under bash" in the `write` branch, de-indented): `awk '/Archive state, under bash/{a=1} a && /^ *```bash$/{f=1;next} f && /^ *```$/{exit} f' "$FIN" | sed 's/^    //'`
@@ -54,7 +48,7 @@ Both state archives survive with their own bytes. The new state fence printed `s
 #!/bin/bash
 set -euo pipefail
 REPO=/Users/julianamacbook/turingmind-code-review
-SP=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/2da80a34-c3fb-4e92-8c7d-5aa0a2520383/scratchpad/54-10r4
+SP=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/2da80a34-c3fb-4e92-8c7d-5aa0a2520383/scratchpad/54-10r5
 C=$(python3 -c "import json;print(json.load(open('$REPO/docs/design/freeze-v2.12/evidence/CANDIDATE.json'))['candidate_sha'])")
 rm -rf "$SP/cand" "$SP/arch-stamped" "$SP/arch-unstamped"
 mkdir -p "$SP/cand"
@@ -131,8 +125,8 @@ done
 ## Transcript
 
 ```
-candidate=2a6dbb4874b7521b66d53b2fbb1406dfb46dc230
-VC_ROOT=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/2da80a34-c3fb-4e92-8c7d-5aa0a2520383/scratchpad/54-10r4/cand/plugins/vibe-check
+candidate=22ef678fb88418f22419867bed81ff89283fa7fb
+VC_ROOT=/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/2da80a34-c3fb-4e92-8c7d-5aa0a2520383/scratchpad/54-10r5/cand/plugins/vibe-check
 90-finalize.md blob at candidate: 91dfc729fa11b4854122bf2ea4891d9c0be07031
 exported 90-finalize.md sha256: 47f16e1826b61a6027d84f589d1d7366d43278c5e0ecf2591c2bb277d56baec6
 --- extracted fence-review.sh ---
@@ -178,17 +172,17 @@ fence exit: 0
 $ ls -la .turingmind .turingmind/state/format-53
 .turingmind: 
 total 
-drwxr-xr-x@ 160 Oct 17 10:55 .
-drwxr-xr-x@ 128 Oct 17 10:55 ..
--rw-r--r--@ 133 Oct 17 10:55 REVIEW-54-2026-10-17.md
--rw-r--r--@ 102 Oct 17 10:55 REVIEW.md
-drwxr-xr-x@ 96 Oct 17 10:55 state
+drwxr-xr-x@ 160 Oct 17 12:19 .
+drwxr-xr-x@ 128 Oct 17 12:19 ..
+-rw-r--r--@ 133 Oct 17 12:19 REVIEW-54-2026-10-17.md
+-rw-r--r--@ 102 Oct 17 12:19 REVIEW.md
+drwxr-xr-x@ 96 Oct 17 12:19 state
  
 .turingmind/state/format-53: 
 total 
-drwxr-xr-x@ 96 Oct 17 10:55 .
-drwxr-xr-x@ 96 Oct 17 10:55 ..
--rw-r--r--@ 98066 Oct 17 10:55 54.json.archived-2026-10-17
+drwxr-xr-x@ 96 Oct 17 12:19 .
+drwxr-xr-x@ 96 Oct 17 12:19 ..
+-rw-r--r--@ 98066 Oct 17 12:19 54.json.archived-2026-10-17
 $ sha256
 9e0b5ebbbf5b4fddf65061df37ef78775edeb087758d3c9f1be11eec393c873b  .turingmind/REVIEW-54-2026-10-17.md
 b15d26ce59ac00b2755d5a850a6a371b2bc38ca34b665002877a2dc703a8bd26  .turingmind/REVIEW.md
@@ -204,19 +198,19 @@ fence exit: 0
 $ ls -la .turingmind .turingmind/state/format-53
 .turingmind: 
 total 
-drwxr-xr-x@ 192 Oct 17 10:55 .
-drwxr-xr-x@ 128 Oct 17 10:55 ..
--rw-r--r--@ 102 Oct 17 10:55 REVIEW-54-2026-10-17-2.md
--rw-r--r--@ 133 Oct 17 10:55 REVIEW-54-2026-10-17.md
--rw-r--r--@ 102 Oct 17 10:55 REVIEW.md
-drwxr-xr-x@ 96 Oct 17 10:55 state
+drwxr-xr-x@ 192 Oct 17 12:19 .
+drwxr-xr-x@ 128 Oct 17 12:19 ..
+-rw-r--r--@ 102 Oct 17 12:19 REVIEW-54-2026-10-17-2.md
+-rw-r--r--@ 133 Oct 17 12:19 REVIEW-54-2026-10-17.md
+-rw-r--r--@ 102 Oct 17 12:19 REVIEW.md
+drwxr-xr-x@ 96 Oct 17 12:19 state
  
 .turingmind/state/format-53: 
 total 
-drwxr-xr-x@ 128 Oct 17 10:55 .
-drwxr-xr-x@ 96 Oct 17 10:55 ..
--rw-r--r--@ 98066 Oct 17 10:55 54.json.archived-2026-10-17
--rw-r--r--@ 98067 Oct 17 10:55 54.json.archived-2026-10-17-2
+drwxr-xr-x@ 128 Oct 17 12:19 .
+drwxr-xr-x@ 96 Oct 17 12:19 ..
+-rw-r--r--@ 98066 Oct 17 12:19 54.json.archived-2026-10-17
+-rw-r--r--@ 98067 Oct 17 12:19 54.json.archived-2026-10-17-2
 $ sha256
 b15d26ce59ac00b2755d5a850a6a371b2bc38ca34b665002877a2dc703a8bd26  .turingmind/REVIEW-54-2026-10-17-2.md
 9e0b5ebbbf5b4fddf65061df37ef78775edeb087758d3c9f1be11eec393c873b  .turingmind/REVIEW-54-2026-10-17.md
@@ -232,9 +226,9 @@ An earlier REVIEW.md was written by a plugin version that does not read this rev
 fence exit: 0
 --- after pass 1 ---
 total 
-drwxr-xr-x@ 96 Oct 17 10:55 .
-drwxr-xr-x@ 128 Oct 17 10:55 ..
--rw-r--r--@ 91 Oct 17 10:55 REVIEW-unstamped-2026-10-17.md
+drwxr-xr-x@ 96 Oct 17 12:19 .
+drwxr-xr-x@ 128 Oct 17 12:19 ..
+-rw-r--r--@ 91 Oct 17 12:19 REVIEW-unstamped-2026-10-17.md
 4656382aa9c8242b7aba0b1a9ea4043df08a3dcb26414aa6aa2a6c2029b45462  .turingmind/REVIEW-unstamped-2026-10-17.md
 unstamped-2 review-closed exit: 1
 >>> pass 2: prior-REVIEW.md fence
@@ -243,10 +237,10 @@ An earlier REVIEW.md was written by a plugin version that does not read this rev
 fence exit: 0
 --- after pass 2 ---
 total 
-drwxr-xr-x@ 128 Oct 17 10:55 .
-drwxr-xr-x@ 128 Oct 17 10:55 ..
--rw-r--r--@ 91 Oct 17 10:55 REVIEW-unstamped-2026-10-17-2.md
--rw-r--r--@ 91 Oct 17 10:55 REVIEW-unstamped-2026-10-17.md
+drwxr-xr-x@ 128 Oct 17 12:19 .
+drwxr-xr-x@ 128 Oct 17 12:19 ..
+-rw-r--r--@ 91 Oct 17 12:19 REVIEW-unstamped-2026-10-17-2.md
+-rw-r--r--@ 91 Oct 17 12:19 REVIEW-unstamped-2026-10-17.md
 e62b06e465035c963c62296aaf4dd00cde4180b8aeea146bc1c84236ebda1707  .turingmind/REVIEW-unstamped-2026-10-17-2.md
 4656382aa9c8242b7aba0b1a9ea4043df08a3dcb26414aa6aa2a6c2029b45462  .turingmind/REVIEW-unstamped-2026-10-17.md
 ```
