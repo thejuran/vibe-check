@@ -949,3 +949,53 @@ Fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3` (
 Owner config sha256: `installed_plugins.json` `962a26ec…`, `known_marketplaces.json` `bf22ccb2…`,
 `settings.json` `b5c6ac2e…` (changed since 15:33Z; the draft manifest was regenerated after it and
 the identity check binds the effective settings).
+
+## Candidate — restart on ddbfff4 (2026-10-17T17:42Z)
+
+candidate-guard (before any block, and after the pre-registration commit):
+
+```text
+CANDIDATE OK candidate=ddbfff402816805136e95393c98a3cc17196daeb head=f12704af51b3ed981d193931b6c382cffb30f6b9 descendant_commits=9 (reporting-only)
+CANDIDATE OK candidate=ddbfff402816805136e95393c98a3cc17196daeb head=2dc3846ed3cac843f52ec40460e62a54b0ef7f5f descendant_commits=10 (reporting-only)
+```
+
+`materialize ddbfff402816805136e95393c98a3cc17196daeb`: BLOCK OK (runner copy and runner settings
+from the candidate; the runner copy's `lanearchive.py` equals the repo's). `identity` REFUSED on
+the first clone dir, and again on a second try:
+
+```text
+file differs: codex-config (manifest 6b7088521d37 live 8acb87bdf978)
+IDENTITY MISMATCH — STOPPING
+IDENTITY MISMATCH (identity roonseek) — STOPPING
+```
+
+## Deviations — restart on ddbfff4
+
+### SWEEP NOT STARTED — 2026-10-17T17:42Z — the Codex config file changed after the manifest was generated
+
+**What happened.** The identity check stopped before the first case: only the byte hash of
+`~/.codex/config.toml` differs from the draft manifest. No `setting differs: codex.config.*` line
+was printed, so the parsed settings the manifest records (model etc.) are equal; the codex CLI
+version and companion are equal; nothing else differs.
+
+**Cause (observed, read-only; values not printed).** `~/.codex/config.toml` was last modified at
+2026-10-17T17:37:28Z. The draft manifest was generated at 16:56:13Z. The ChatGPT desktop app
+(`/Applications/ChatGPT.app`, Codex Framework 155.0.8059.80, its bundled `codex` CLI and the
+Codex Computer Use service) started at 17:36:49Z, 39 s before the write, and is still running.
+So the app, an owner-side application, rewrote the Codex config file. The file's sections
+(model, features, marketplaces, plugins, agents, desktop, mcp_servers) were listed by name only;
+the earlier bytes were not kept, so the exact change cannot be shown.
+
+**Not done.** The owner's Codex config was not edited or restored, no check was bypassed, and no
+code or manifest was changed. Per the runbook, the remedy is to correct the environment or issue
+a new manifest after the required checks; both are owner/coordinator calls. No case ran: no clone
+was touched (`fresh` never ran), no run folder was created, nothing was `fail`ed.
+
+**Clean-up.** `park-memory` had run (no clone memory; park record
+`~/.b3/automemory-parked-phase54-live-1792258926`); `restore-memory`: BLOCK OK. No tmux session
+was started. Clones untouched (on their start branches, clean).
+
+### Owner cache — after the stop (2026-10-17T17:42Z)
+
+Fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3`, unchanged; owner
+config sha256 `962a26ec…`, `bf22ccb2…`, `b5c6ac2e…`, unchanged during this restart.
