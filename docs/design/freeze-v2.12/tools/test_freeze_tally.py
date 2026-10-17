@@ -243,7 +243,8 @@ class TestHarnessVerdicts(_TallyBase):
         self.planted_runs()
         write_harness_run(self.runs, "triggarr-autoescape-dup", "run-1", self.mid,
                           case_id="triggarr-autoescape")
-        rc, out, _ = self.run_cli("harness-verdicts", "--runs-root", self.runs)
+        rc, out, _ = self.run_cli("harness-verdicts", "--runs-root", self.runs,
+                                  "--roster", self.roster_path)
         self.assertEqual(rc, 1)
         self.assertIn("duplicate slot: triggarr-autoescape/default/preservation", out)
         self.assertIn("INELIGIBLE: verdict FAILED", out)
@@ -255,6 +256,81 @@ class TestHarnessVerdicts(_TallyBase):
                                   "--roster", self.roster_path)
         self.assertEqual(rc, 0, out)
         self.assertIn("COMPLETE: 18", out)
+
+
+    def test_harness_verdicts_requires_a_roster(self):
+        """Without the roster no slot set exists to check completeness
+        against, so it never totals (usage error, exit 2)."""
+        self.workflow_set()
+        rc, out, err = self.run_cli("harness-verdicts", "--runs-root", self.runs)
+        self.assertEqual(rc, 2)
+        self.assertNotIn("COMPLETE:", out)
+        self.assertIn("--roster", err)
+
+    def test_harness_verdicts_incomplete_roster_never_totals(self):
+        missing = ("triggarr-autoescape", "gsd", "preservation")
+        self.workflow_set(skip=(missing,))
+        rc, out, _ = self.run_cli("harness-verdicts", "--runs-root", self.runs,
+                                  "--roster", self.roster_path)
+        self.assertEqual(rc, 1)
+        self.assertIn("missing slot: triggarr-autoescape/gsd/preservation", out)
+        self.assertNotIn("COMPLETE:", out)
+
+    def test_harness_verdicts_extras_listed_never_counted(self):
+        self.workflow_set()
+        write_harness_run(self.runs, "unknown-case", "run-1", self.mid,
+                          case_id="not-a-roster-case")
+        rc, out, _ = self.run_cli("harness-verdicts", "--runs-root", self.runs,
+                                  "--roster", self.roster_path)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("extra: unknown-case/run-1 (not a mandatory slot)", out)
+        self.assertIn("COMPLETE: 18", out)
+
+
+class TestActiveManifestFallback(_TallyBase):
+    """--manifest is optional on every subcommand: the active manifest of the
+    series dir is used (the README's documented commands run as written)."""
+
+    def run_no_manifest(self, *argv):
+        base = [argv[0], "--repo", tfm.REAL_REPO or self.tmp,
+                "--series-dir", self.tmp] + list(argv[1:])
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = ft.main(base)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_every_subcommand_accepts_no_manifest(self):
+        parser = ft.build_parser()
+        sub = next(a for a in parser._actions
+                   if isinstance(a, ft.argparse._SubParsersAction))
+        for name, p in sub.choices.items():
+            with self.subTest(name=name):
+                act = next(a for a in p._actions if "--manifest" in a.option_strings)
+                self.assertFalse(act.required)
+
+    def test_documented_engineering_gate_runs(self):
+        rc, out, err = self.run_no_manifest("gate", "--gate", "engineering",
+                                            "--runs-root", self.ev)
+        self.assertEqual((rc, out.splitlines()[0]), (0, "GATE engineering: MET"),
+                         out + err)
+
+    def test_list_and_harness_verdicts_use_the_active_manifest(self):
+        self.workflow_set()
+        rc, out, _ = self.run_no_manifest("list", "--runs-root", self.runs,
+                                          "--evidence-dir", self.ev)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("INELIGIBLE", out)
+        rc, out, _ = self.run_no_manifest("harness-verdicts", "--runs-root",
+                                          self.runs, "--evidence-dir", self.ev,
+                                          "--roster", self.roster_path)
+        self.assertEqual(rc, 0, out)
+
+    def test_no_manifest_in_series_is_a_usage_error(self):
+        os.unlink(self.manifest_path)
+        rc, _, err = self.run_no_manifest("gate", "--gate", "engineering",
+                                          "--runs-root", self.ev)
+        self.assertEqual(rc, 2)
+        self.assertIn("no freeze manifest", err)
 
 
 class TestCli(_TallyBase):

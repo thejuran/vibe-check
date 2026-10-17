@@ -198,6 +198,10 @@ def cmd_dev_tally(args):
 def cmd_harness_verdicts(args):
     manifest, prereq, lineage = _context(args)
     roster = _load_json(args.roster, "roster")
+    try:
+        slots = freeze_policy.GATE_SLOTS["workflow"](roster)
+    except FreezeError as exc:
+        raise UsageError(str(exc))
     by_slot, refused = {}, False
     for rec in walk_records(args.runs_root):
         if rec["kind"] != "fix-harness":
@@ -206,6 +210,10 @@ def cmd_harness_verdicts(args):
         slot = _slot_text(rec["slot"]) if rec["slot"] else "<no slot>"
         if ok:
             key = freeze_policy._slot_key("workflow", rec["slot"])
+            if key not in slots:
+                # Listed, never counted: only mandatory slots enter the total.
+                print("extra: %s (not a mandatory slot)" % rec["run"])
+                continue
             by_slot.setdefault(key, []).append(rec)
             print("%s %s %s eligible" % (slot, rec["run"], rec.get("verdict")))
         else:
@@ -217,15 +225,10 @@ def cmd_harness_verdicts(args):
             refused = True
             print("duplicate slot: %s (%s)" % (_slot_text(key), ", ".join(
                 sorted(r["run"] for r in by_slot[key]))))
-    if roster is not None:
-        try:
-            slots = freeze_policy.GATE_SLOTS["workflow"](roster)
-        except FreezeError as exc:
-            raise UsageError(str(exc))
-        for slot in sorted(slots, key=_slot_text):
-            if slot not in by_slot:
-                refused = True
-                print("missing slot: %s" % _slot_text(slot))
+    for slot in sorted(slots, key=_slot_text):
+        if slot not in by_slot:
+            refused = True
+            print("missing slot: %s" % _slot_text(slot))
     if refused:
         print("refused: not totalling while a run is ineligible, duplicated or missing")
         return 1
@@ -265,9 +268,11 @@ def cmd_gate(args):
 # CLI
 # --------------------------------------------------------------------------- #
 
-def _common(p, manifest_required=True):
+def _common(p):
     p.add_argument("--runs-root", required=True)
-    p.add_argument("--manifest", required=manifest_required, default=None)
+    # Optional everywhere: absent -> the highest-N FREEZE-MANIFEST-<N>.json in
+    # the series dir (the active manifest).
+    p.add_argument("--manifest", default=None)
     p.add_argument("--repo", default=REPO_DEFAULT)
     p.add_argument("--evidence-dir", default=None)
     p.add_argument("--series-dir", default=None)
@@ -278,14 +283,16 @@ def build_parser():
     parser = argparse.ArgumentParser(prog="freeze_tally.py",
                                      description="Eligibility-filtered release tallies.")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    _common(sub.add_parser("list"), manifest_required=False)
+    _common(sub.add_parser("list"))
     p = sub.add_parser("b3-aggregate")
     _common(p)
     p.add_argument("score43_args", nargs=argparse.REMAINDER)
     _common(sub.add_parser("dev-tally"))
     p = sub.add_parser("harness-verdicts")
     _common(p)
-    p.add_argument("--roster", default=None)
+    # Required: without the roster there is no slot set to check completeness
+    # against, so a total could not tell a full set from a partial one.
+    p.add_argument("--roster", required=True)
     p = sub.add_parser("gate")
     _common(p)
     p.add_argument("--gate", required=True, choices=freeze_policy.GATES)
