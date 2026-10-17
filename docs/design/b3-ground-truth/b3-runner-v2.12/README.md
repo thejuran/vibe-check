@@ -16,7 +16,7 @@ of the manifest.
 |---|---|
 | `common.sh` | Sourced by a runbook's `common` block and by `run_case.sh`. Provides `b3_materialize_runner`, `b3_identity_check`, `b3_stamp_run`, `b3_block`, plus the isolation and case helpers. |
 | `run_case.sh` | The tmux driver for one measured run (`run_case.sh <case> <run>`). It uses the fixed keystroke set and stops (exit 4) on any unexpected card. |
-| `settings-measured.json` | The runner settings template. It disables the installed `vibe-check@thejuran`, pins `DISABLE_AUTOUPDATER=1` and `DISABLE_UPDATES=1`, and points the status line at `<RUNNER>/statusline-capture.sh`. |
+| `settings-measured.json` | The runner settings template, shared by the B3 runner and the holdout measurement launcher. It disables the installed `vibe-check@thejuran` and (for the session only) the codex plugin's hooks, pins `DISABLE_AUTOUPDATER=1` and `DISABLE_UPDATES=1`, points the status line at `<RUNNER>/statusline-capture.sh`, and carries the containment: OS sandbox with network limited to the Codex endpoints, credential read/edit denies, WebFetch/WebSearch denied, the pre-approved tool set. `test_b3_runner_layer.containment_problems` locks every control. |
 | `statusline-capture.sh` | Records the session's status-line payload (model id, context window) to `statusline-payloads.jsonl` beside itself, then renders the owner's status line. |
 
 ## Contract
@@ -64,6 +64,11 @@ of the manifest.
 5. **Blocks run from committed runbook text only.** `b3_block <runbook> <name> [args…]` refuses a
    runbook that has uncommitted changes. It then runs the runbook's `common` block plus the named
    block under bash, with the arguments as `$1`, `$2`, and so on.
+
+6. **The session gets an allowlisted environment.** The `session` block runs `b3_session_env`
+   after its identity check and then `exec env -i "${B3_SESSION_ENV[@]}" claude …`: only the
+   identity-checked names plus PATH, HOME, terminal, locale, temp dir and Codex config dir
+   (`freeze_manifest.SESSION_ENV_NAMES`) reach the session.
 
 `docs/design/freeze-v2.12/tools/test_b3_runner_layer.py` locks these rules. Each rule has a test on
 the real files and a mutant that shows the test would trip.

@@ -1,11 +1,93 @@
 {
   "enabledPlugins": {
-    "vibe-check@thejuran": false
+    "vibe-check@thejuran": false,
+    "codex@openai-codex": false
   },
   "env": {
     "DISABLE_AUTOUPDATER": "1",
     "DISABLE_UPDATES": "1"
   },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Grep",
+      "Glob",
+      "Task",
+      "Agent"
+    ],
+    "deny": [
+      "WebFetch",
+      "WebSearch",
+      "NotebookEdit",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.netrc)",
+      "Read(~/.gnupg/**)",
+      "Read(~/Library/Keychains/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.claude.json)",
+      "Read(~/.vibe-check-holdout/**)",
+      "Read(~/.vibe-check-measured-canary/**)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(~/.ssh/**)",
+      "Edit(~/.aws/**)",
+      "Edit(~/.config/gh/**)",
+      "Edit(~/.netrc)",
+      "Edit(~/.gnupg/**)",
+      "Edit(~/Library/Keychains/**)",
+      "Edit(~/.claude/.credentials.json)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/settings.local.json)",
+      "Edit(~/.claude/CLAUDE.md)",
+      "Edit(~/.claude/hooks/**)",
+      "Edit(~/.claude/plugins/cache/**)",
+      "Edit(~/.claude/plugins/marketplaces/**)",
+      "Edit(~/.claude/plugins/installed_plugins.json)",
+      "Edit(~/.claude/plugins/known_marketplaces.json)",
+      "Edit(~/.claude.json)",
+      "Edit(~/.codex/config.toml)",
+      "Edit(~/.vibe-check-holdout/**)",
+      "Edit(~/.vibe-check-measured-canary/**)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "excludedCommands": [],
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gh",
+        "~/.netrc",
+        "~/.gnupg",
+        "~/Library/Keychains",
+        "~/.claude/.credentials.json",
+        "~/.claude.json",
+        "~/.vibe-check-holdout",
+        "~/.vibe-check-measured-canary"
+      ],
+      "allowWrite": [
+        "~/.codex"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "chatgpt.com",
+        "auth.openai.com",
+        "api.openai.com"
+      ],
+      "strictAllowlist": true
+    }
+  },
+  "disableClaudeAiConnectors": true,
   "statusLine": {
     "type": "command",
     "command": "bash <RUNNER>/statusline-capture.sh",

@@ -166,6 +166,23 @@ b3_identity_check() {
   echo "$IDENTITY_LINE ($label)"
 }
 
+# B3_SESSION_ENV := NAME=VALUE pairs of the current environment restricted to the session allowlist
+# (freeze_manifest.SESSION_ENV_NAMES: the identity-checked names plus PATH, HOME, terminal, locale,
+# temp dir and Codex config dir). The session block execs claude under `env -i` with exactly these,
+# so nothing else the tmux server or the launching shell carries reaches the measured session.
+b3_session_env() {
+  local kv
+  B3_SESSION_ENV=()
+  while IFS= read -r -d '' kv; do
+    B3_SESSION_ENV+=("$kv")
+  done < <(python3 -c 'import os, sys
+sys.path.insert(0, sys.argv[1])
+import freeze_manifest as fm
+for k, v in sorted(fm.session_environment(os.environ).items()):
+    sys.stdout.write("%s=%s\0" % (k, v))' "$FREEZE_TOOLS")
+  test "${#B3_SESSION_ENV[@]}" -gt 0 || { echo 'THE SESSION ENVIRONMENT ALLOWLIST CAME BACK EMPTY — STOPPING'; exit 1; }
+}
+
 # one field (manifest_id | check_digest | candidate_sha) of IDENTITY_LINE
 identity_field() { printf '%s\n' "$IDENTITY_LINE" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
 

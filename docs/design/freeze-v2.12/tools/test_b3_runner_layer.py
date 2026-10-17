@@ -51,6 +51,10 @@ PANE_ARGV = '"${SESSION[@]}"'
 EXPECT_COMPARE = ('test "$(identity_field manifest_id)" = "${EXPECT_MANIFEST_ID:-}"',
                   'test "$(identity_field candidate_sha)" = "${EXPECT_CANDIDATE_SHA:-}"')
 _CLAUDE_START = re.compile(r"(?:^|[;&|(]|\bexec)\s*claude\b|\bclaude\s+--")
+# The one form that starts the measured session: an emptied environment
+# (`env -i`) refilled only with the allowlist b3_session_env built.
+EXEC_CLAUDE = 'exec env -i "${B3_SESSION_ENV[@]}" claude '
+SESSION_ENV_CALL = "b3_session_env"
 
 _ARG_VALUE = r"""("[^"]*"|'[^']*'|[^\s`)'"]+)"""
 
@@ -215,7 +219,7 @@ def session_self_check_holds(runbook_text, run_case_text):
                 return False
     lines = _code_lines(session)
     starts = [i for i, ln in enumerate(lines) if _CLAUDE_START.search(ln)]
-    if len(starts) != 1 or not re.match(r"\s*exec claude\s", lines[starts[0]]):
+    if len(starts) != 1 or not re.match(r"\s*" + re.escape(EXEC_CLAUDE), lines[starts[0]]):
         return False
     checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
     if not checks or checks[0] > starts[0]:
@@ -229,6 +233,101 @@ def session_self_check_holds(runbook_text, run_case_text):
     if not panes or not all(ln.rstrip().endswith(PANE_ARGV) for ln in panes):
         return False
     return SESSION_CALL in launch
+
+
+def session_env_allowlist_holds(runbook_text, common_text):
+    """The session gets an allowlisted environment, not the shell's or the
+    tmux server's: the session block calls b3_session_env after its identity
+    check and before the one `exec env -i "${B3_SESSION_ENV[@]}" claude`
+    line; b3_session_env builds the array from freeze_manifest's
+    session_environment (the SESSION_ENV_NAMES allowlist) and stops when it
+    comes back empty."""
+    session = block(runbook_text, "session")
+    body = function_body(common_text, "b3_session_env")
+    if session is None or body is None:
+        return False
+    if "fm.session_environment(os.environ)" not in body:
+        return False
+    if not re.search(r'test "\$\{#B3_SESSION_ENV\[@\]\}" -gt 0 \|\|', body):
+        return False
+    lines = _code_lines(session)
+    calls = [i for i, ln in enumerate(lines) if ln.strip() == SESSION_ENV_CALL]
+    execs = [i for i, ln in enumerate(lines) if ln.lstrip().startswith(EXEC_CLAUDE)]
+    checks = [i for i, ln in enumerate(lines) if re.match(r"\s*b3_identity_check\s+\S", ln)]
+    if len(execs) != 1 or not calls or not checks:
+        return False
+    return checks[0] < calls[-1] < execs[0]
+
+
+# Containment the shared measured-session settings must carry (S5/S6/S7). The
+# template is pinned by the freeze manifest (runner_settings canonical hash),
+# so the identity check binds every key below for both measured runners.
+TOOL_SET = ["Bash", "Read", "Write", "Edit", "Grep", "Glob", "Task", "Agent"]
+CODEX_DOMAINS = {"chatgpt.com", "auth.openai.com", "api.openai.com"}
+CREDENTIAL_PATHS = ("~/.ssh", "~/.aws", "~/.config/gh", "~/.netrc", "~/.gnupg",
+                    "~/Library/Keychains", "~/.claude/.credentials.json",
+                    "~/.claude.json", "~/.vibe-check-measured-canary",
+                    "~/.vibe-check-" + "holdout")
+DIR_CREDENTIALS = {"~/.ssh", "~/.aws", "~/.config/gh", "~/.gnupg",
+                   "~/Library/Keychains", "~/.vibe-check-measured-canary",
+                   "~/.vibe-check-" + "holdout"}
+
+
+def _cred_rule(tool, path):
+    return "%s(%s/**)" % (tool, path) if path in DIR_CREDENTIALS else "%s(%s)" % (tool, path)
+
+
+def containment_problems(d):
+    """Every missing containment control in a measured settings dict."""
+    out = []
+    sb = d.get("sandbox") or {}
+    fs = sb.get("filesystem") or {}
+    net = sb.get("network") or {}
+    perms = d.get("permissions") or {}
+    deny = perms.get("deny") or []
+    if sb.get("enabled") is not True:
+        out.append("sandbox not enabled")
+    if sb.get("failIfUnavailable") is not True:
+        out.append("sandbox may run unavailable")
+    if sb.get("allowUnsandboxedCommands") is not False:
+        out.append("unsandboxed escape allowed")
+    if sb.get("excludedCommands") != []:
+        out.append("excluded commands present")
+    if net.get("strictAllowlist") is not True:
+        out.append("network allowlist not strict")
+    domains = net.get("allowedDomains")
+    if not isinstance(domains, list) or not domains or not set(domains) <= CODEX_DOMAINS:
+        out.append("network allows more than the Codex endpoints")
+    for key in ("allowLocalBinding", "allowAllUnixSockets", "allowUnixSockets",
+                "allowMachLookup"):
+        if net.get(key):
+            out.append("network widened: %s" % key)
+    if fs.get("allowWrite") != ["~/.codex"]:
+        out.append("sandbox write grants beyond ~/.codex")
+    for path in CREDENTIAL_PATHS:
+        if path not in (fs.get("denyRead") or []):
+            out.append("sandbox does not deny reading %s" % path)
+        if _cred_rule("Read", path) not in deny:
+            out.append("Read tool not denied %s" % path)
+        if _cred_rule("Edit", path) not in deny:
+            out.append("Edit tool not denied %s" % path)
+    for tool in ("WebFetch", "WebSearch"):
+        if tool not in deny:
+            out.append("%s not denied (in-process network)" % tool)
+    for rule in ("Read(**/.env)", "Read(**/.env.*)", "Edit(~/.claude/settings.json)",
+                 "Edit(~/.claude/hooks/**)", "Edit(~/.claude/plugins/cache/**)",
+                 "Edit(~/.codex/config.toml)"):
+        if rule not in deny:
+            out.append("deny rule missing: %s" % rule)
+    if perms.get("allow") != TOOL_SET:
+        out.append("pre-approved tool set is not the B3 set (python3 scorer needs Bash)")
+    plugins = d.get("enabledPlugins") or {}
+    if plugins.get("codex@openai-codex") is not False:
+        out.append("codex plugin hooks enabled (its plugin-data dir is unwritable "
+                   "in the sandbox; the companion must use the sandbox temp dir)")
+    if d.get("disableClaudeAiConnectors") is not True:
+        out.append("account connectors enabled (they run outside the sandbox)")
+    return out
 
 
 _WINDOW_LITERALS = ("phase54-live-memory-park", "runs-phase54", "phase53-")
@@ -328,6 +427,9 @@ class TestRealFiles(unittest.TestCase):
             self.assertRegex(text, r'b3_block "\$RUNBOOK" %s\b' % re.escape(name))
         self.assertNotRegex(text, r"(?m)^[^#]*\bclaude\s+--")
 
+    def test_session_env_allowlist(self):
+        self.assertTrue(session_env_allowlist_holds(self.runbook, self.common))
+
     def test_run_case_reads_window_paths_from_the_runbook(self):
         self.assertTrue(run_case_window_paths_holds(_read(RUN_CASE)))
 
@@ -336,6 +438,9 @@ class TestRealFiles(unittest.TestCase):
         self.assertIs(d["enabledPlugins"]["vibe-check@thejuran"], False)
         self.assertEqual(d["env"], {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"})
         self.assertEqual(d["statusLine"]["command"], "bash <RUNNER>/statusline-capture.sh")
+
+    def test_settings_template_contains_every_route(self):
+        self.assertEqual(containment_problems(json.loads(_read(SETTINGS))), [])
 
 
 class TestRunbookVar(unittest.TestCase):
@@ -392,6 +497,34 @@ class TestRunbookVar(unittest.TestCase):
         self.assertIn("UNCOMMITTED", err)
 
 
+class TestSessionEnvBehavior(unittest.TestCase):
+    """b3_session_env run under bash: the array holds the allowlisted names
+    only, and `env -i` with it gives the child nothing else."""
+
+    def test_planted_variables_do_not_reach_the_child(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": home,
+                   "FREEZE_TOOLS": HERE, "REPO": REPO,
+                   "AWS_SECRET_ACCESS_KEY": "planted", "GITHUB_TOKEN": "planted",
+                   "VC_CONTAINMENT_ENV_CANARY": "planted",
+                   "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5[1m]"}
+            proc = subprocess.run(
+                ["bash", "-c", 'source "$1"; set +e; b3_session_env; '
+                 'env -i "${B3_SESSION_ENV[@]}" /usr/bin/env', "t", COMMON],
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        names = {ln.split("=", 1)[0] for ln in proc.stdout.decode().splitlines() if "=" in ln}
+        self.assertNotIn("AWS_SECRET_ACCESS_KEY", names)
+        self.assertNotIn("GITHUB_TOKEN", names)
+        self.assertNotIn("VC_CONTAINMENT_ENV_CANARY", names)
+        self.assertNotIn("FREEZE_TOOLS", names)
+        self.assertIn("ANTHROPIC_DEFAULT_OPUS_MODEL", names)
+        self.assertIn("PATH", names)
+        self.assertIn("HOME", names)
+
+
 # --------------------------------------------------------------------------- #
 # Mutants
 # --------------------------------------------------------------------------- #
@@ -431,6 +564,53 @@ class TestMutants(unittest.TestCase):
         mutant = _drop_identity_from(self.runbook, name)
         self.assertNotEqual(mutant, self.runbook)
         self.assertFalse(blocks_call_identity_holds(mutant))
+
+    def test_mutant_containment_controls_removed(self):
+        base = json.loads(_read(SETTINGS))
+        self.assertEqual(containment_problems(base), [])
+
+        def drop(path):
+            d = json.loads(json.dumps(base))
+            node = d
+            for part in path[:-1]:
+                node = node[part]
+            if isinstance(path[-1], tuple):
+                key, value = path[-1]
+                node[key] = [v for v in node[key] if v != value]
+            else:
+                node.pop(path[-1])
+            return d
+        for path in (("sandbox", "enabled"), ("sandbox", "failIfUnavailable"),
+                     ("sandbox", "allowUnsandboxedCommands"),
+                     ("sandbox", "network", "strictAllowlist"),
+                     ("sandbox", "filesystem", ("denyRead", "~/.ssh")),
+                     ("permissions", ("deny", "Read(~/.ssh/**)")),
+                     ("permissions", ("deny", "WebFetch")),
+                     ("permissions", ("allow", "Bash")),
+                     ("enabledPlugins", "codex@openai-codex"),
+                     ("disableClaudeAiConnectors",)):
+            with self.subTest(path=path):
+                self.assertNotEqual(containment_problems(drop(path)), [])
+        widened = json.loads(json.dumps(base))
+        widened["sandbox"]["network"]["allowedDomains"].append("127.0.0.1")
+        self.assertNotEqual(containment_problems(widened), [])
+        widened = json.loads(json.dumps(base))
+        widened["sandbox"]["network"]["allowAllUnixSockets"] = True
+        self.assertNotEqual(containment_problems(widened), [])
+
+    def test_mutant_session_env_not_emptied(self):
+        self.assertTrue(session_env_allowlist_holds(self.runbook, self.common))
+        for old, new in ((EXEC_CLAUDE, 'exec env "${B3_SESSION_ENV[@]}" claude '),
+                         (EXEC_CLAUDE, "exec claude "),
+                         ("\nb3_session_env\n", "\n")):
+            with self.subTest(new=new):
+                mutant = self.runbook.replace(old, new, 1)
+                self.assertNotEqual(mutant, self.runbook)
+                self.assertFalse(session_env_allowlist_holds(mutant, self.common))
+        body = function_body(self.common, "b3_session_env")
+        mutant = self.common.replace(body, body.replace(
+            "fm.session_environment(os.environ)", "dict(os.environ)"), 1)
+        self.assertFalse(session_env_allowlist_holds(self.runbook, mutant))
 
     def test_mutant_run_case_hardcoded_window_paths(self):
         text = _read(RUN_CASE)
@@ -501,7 +681,7 @@ class TestMutants(unittest.TestCase):
     def test_mutant_exec_before_session_check(self):
         body = block(self.runbook, "session")
         lines = body.splitlines()
-        exec_ln = [ln for ln in lines if ln.startswith("exec claude")][0]
+        exec_ln = [ln for ln in lines if ln.startswith(EXEC_CLAUDE)][0]
         lines.remove(exec_ln)
         lines.insert(lines.index("b3_identity_check 'session'"), exec_ln)
         mutant = self.runbook.replace(body, "\n".join(lines), 1)
@@ -515,7 +695,7 @@ class TestMutants(unittest.TestCase):
         self.assertFalse(self._session_holds(mutant))
 
     def test_mutant_claude_without_exec(self):
-        mutant = self._replace_in_block("session", "exec claude ", "claude ")
+        mutant = self._replace_in_block("session", EXEC_CLAUDE, 'env -i "${B3_SESSION_ENV[@]}" claude ')
         self.assertFalse(self._session_holds(mutant))
 
     def test_mutant_claude_started_in_launch(self):

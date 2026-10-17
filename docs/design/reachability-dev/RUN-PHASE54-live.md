@@ -27,6 +27,30 @@ table. A lost catch is investigated before the freeze, never closed by rerunning
   (`~/.b3/phase54-runner/settings-measured.json`). Those settings disable the installed `vibe-check@thejuran` for that session alone and pin
   `DISABLE_AUTOUPDATER=1` / `DISABLE_UPDATES=1`. The owner's `~/.claude` is never written.
   `isolation_check` refuses to run if the owner's registry or settings reference the runner.
+- **Containment (S5/S6, both measured runners).** The runner settings
+  (`settings-measured.json`, pinned by the manifest's runner-settings hash, so the identity check
+  binds them) carry:
+  - an OS sandbox (Seatbelt) around every Bash command and every process it starts, `python3` and
+    `node` children included: `failIfUnavailable`, no unsandboxed escape, no excluded commands;
+  - network for sandboxed processes limited to the Codex endpoints (`chatgpt.com`,
+    `auth.openai.com`, `api.openai.com`) with `strictAllowlist`. The model gateway
+    (`ANTHROPIC_BASE_URL`, `127.0.0.1:18764`) is used by the Claude Code process itself, outside
+    the sandbox, so sandboxed code cannot reach it;
+  - credential paths denied to sandboxed reads AND to the Read/Edit tools: `~/.ssh`, `~/.aws`,
+    `~/.config/gh`, `~/.netrc`, `~/.gnupg`, `~/Library/Keychains`, `~/.claude/.credentials.json`,
+    `~/.claude.json`, the holdout folder, `.env` files and the proof canary;
+  - WebFetch and WebSearch denied (in-process network the sandbox does not cover);
+  - the pre-approved tool set `Bash, Read, Write, Edit, Grep, Glob, Task, Agent` (S7: the
+    plugin's `python3` scorer needs Bash; holdout-eval's `dontAsk` refuses anything else);
+  - the codex plugin disabled for the session only: its SessionStart hook points the companion at
+    a plugin-data dir under `~/.claude`, which the sandbox never lets a command write. With the
+    hook off, the companion keeps its state in the sandbox temp dir. The plugin finds the companion
+    by its install path, so Codex still runs (proved by the dry smoke recorded in 54-17).
+  The session process itself gets an environment allowlist (`env -i` refilled by
+  `b3_session_env` from `freeze_manifest.SESSION_ENV_NAMES`), never the tmux server's environment.
+- **Sandboxing is an environment change.** The Phase-53 rehearsal and the earlier 54-11 sweep ran
+  without it. The restarted sweep tests compatibility and shows any outcome differences; it cannot
+  attribute a single difference to the sandbox, or rule the sandbox out as its cause.
 - **Identity check before every run.** `preflight`, `launch`, `session`, `pre` and `post` each run
   `b3_identity_check`, which calls `freeze_check.py verify --runner b3` against the active manifest.
   For 54-11 that is the draft manifest named in `MANIFEST`. Any difference stops the block. There
@@ -360,7 +384,8 @@ echo 'BLOCK OK'
 
 This block runs inside the tmux pane, or in the terminal the paste form was pasted into. It loads
 the runner copy (`--plugin-dir "$RUNNER_PLUGIN"`) with the runner settings
-(`--settings "$RUNNER_SETTINGS"`). These are the same two variables its own identity check just
+(`--settings "$RUNNER_SETTINGS"`), under `env -i` refilled only with the allowlisted environment
+`b3_session_env` builds. These are the same two variables its own identity check just
 verified, in the same process, so the file checked is the file loaded. The model is NOTES
 `pin-model:`, the value the check compares with the manifest's launch model. A refusal leaves the
 pane open with the differences on screen; `run_case.sh` then stops on "session did not reach the
@@ -380,7 +405,8 @@ grep -qx "diff_id=$CASE" "$STATE_DIR/.b3-inprogress" 2> /dev/null \
   || { echo "CLONE NOT PREPARED — run fresh $CASE first — STOPPING"; exit 1; }
 test ! -e "$MEM" || { echo "AUTO-MEMORY FOR $CLONE IS NOT PARKED — STOPPING"; exit 1; }
 cd "$CLONE"
-exec claude --permission-mode manual --plugin-dir "$RUNNER_PLUGIN" --settings "$RUNNER_SETTINGS" --model "$MODEL" --allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"
+b3_session_env
+exec env -i "${B3_SESSION_ENV[@]}" claude --permission-mode manual --plugin-dir "$RUNNER_PLUGIN" --settings "$RUNNER_SETTINGS" --model "$MODEL" --allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"
 # END: session
 ```
 
