@@ -253,8 +253,8 @@ A detection change after a measurement requires fresh holdout replacements
 sealed BEFORE the repair. The proof is versioned:
 `evidence/seal-order-<new manifest_id first 12>.json`, schema
 `freeze-seal-order/1`, with `previous_candidate_sha`, `retired_case_ids`,
-`replacement_case_ids` (opaque ids only), `replacement_seal_commit` and
-`first_repair_commit`. Only this command writes it:
+`replacement_case_ids` (opaque ids only; both lists non-empty and
+disjoint), `replacement_seal_commit` and `first_repair_commit`. Only this command writes it:
 
 ```
 python3 docs/design/freeze-v2.12/tools/freeze_policy.py seal-order-proof --manifest <M> --previous-manifest <P> --seal-commit <S> --retired <id>... --replacement <id>...

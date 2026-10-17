@@ -583,6 +583,13 @@ class TestSealOrder(_SealBase):
     def test_retune_evidence_accepts_sealed_before_repair(self):
         self.assertEqual(self.check(self.sr.proof()), (True, []))
 
+    def test_retune_evidence_rejects_empty_retired_list(self):
+        """A retune retires the cases that guided the repair; a proof that
+        retires none proves nothing about which slots were replaced."""
+        ok, reasons = self.check(self.sr.proof(retired_case_ids=[]))
+        self.assertFalse(ok)
+        self.assertEqual(reasons, ["retired case ids are empty"])
+
     def test_retune_evidence_rejects_original_seal(self):
         ok, reasons = self.check(self.sr.proof(replacement_seal_commit=self.sr.S0))
         self.assertFalse(ok)
@@ -1180,6 +1187,18 @@ class TestMutants(_SealBase):
         with mock.patch.object(fp, "_guard_names_candidate",
                                lambda guard, sha: True):
             self.assertFalse(self._passes(name, TestEngineeringRecords))
+
+    def test_mutant_bugs010_empty_retired_accepted(self):
+        name = "test_retune_evidence_rejects_empty_retired_list"
+        self.assertTrue(self._passes(name, TestSealOrder))
+        real = fp._proof_problems
+
+        def mutant(proof, *a):
+            if isinstance(proof, dict) and proof.get("retired_case_ids") == []:
+                proof = dict(proof, retired_case_ids=["H-0000000f"])
+            return real(proof, *a)
+        with mock.patch.object(fp, "_proof_problems", mutant):
+            self.assertFalse(self._passes(name, TestSealOrder))
 
     def test_mutant_d_classify_range_new_map_only(self):
         name = "test_map_edit_cannot_reduce"

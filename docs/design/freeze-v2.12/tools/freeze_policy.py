@@ -857,6 +857,8 @@ def _proof_problems(proof, repo, previous_candidate_sha, active_candidate_sha,
         if not isinstance(ids, list) or not all(
                 isinstance(i, str) and CASE_ID_RE.match(i) for i in ids):
             return ["seal-order proof has an invalid case id"]
+    if not retired:
+        return ["retired case ids are empty"]
     if not repl or set(repl) & set(retired):
         return ["replacement case ids are empty or overlap the retired ids"]
     seal = proof["replacement_seal_commit"]
