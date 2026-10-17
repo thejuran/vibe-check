@@ -1,9 +1,9 @@
 {
-  "candidate_sha": "22ef678fb88418f22419867bed81ff89283fa7fb",
-  "selected_at": "2026-10-17T15:50:35Z",
+  "candidate_sha": "ddbfff402816805136e95393c98a3cc17196daeb",
+  "selected_at": "2026-10-17T16:54:57Z",
   "selected_by": "54-10",
   "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
-  "selection": "re-run #5 of 54-10 after follow-up 2d (bc5738e, 22ef678: lanearchive.py accepts the current uid's sandbox Codex temp dir /tmp/claude-<uid>, so a Codex-joined measured run can be archived); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
+  "selection": "re-run #6 of 54-10 after follow-up 2e (fd40e29, ddbfff4: the fix harness counts a turn end as review-written only when the run's .turingmind/REVIEW.md exists, so a sentence promising a later --finalize write no longer blocks the --finalize follow-up); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
   "superseded": [
     {
       "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
@@ -163,6 +163,38 @@
       ],
       "draft_manifest_id": "3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc",
       "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-2a6dbb4874b7/ (byte-identical copies taken at the re-run #5 selection; see INDEX.md)"
+    },
+    {
+      "candidate_sha": "22ef678fb88418f22419867bed81ff89283fa7fb",
+      "selected_at": "2026-10-17T15:50:35Z",
+      "selected_by": "54-10",
+      "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
+      "selection": "re-run #5 of 54-10 after follow-up 2d (bc5738e, 22ef678: lanearchive.py accepts the current uid's sandbox Codex temp dir /tmp/claude-<uid>, so a Codex-joined measured run can be archived); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
+      "status": "superseded",
+      "superseded_at": "2026-10-17T16:54:57Z",
+      "superseded_by_fix_commits": {
+        "follow_up_2e": [
+          "fd40e2974259b92d68f60e4b2e3891bc023de5e1",
+          "ddbfff402816805136e95393c98a3cc17196daeb"
+        ]
+      },
+      "reason": "54-10 re-run #5 on 22ef678 stopped in Task 3: the fix-harness default clean-tree run ended FAILED (turn ended on unrecognised text; REVIEW.md missing; state not archived; clean-tree checkpoint never reached). The session's final text held the plugin's 'No issues to fix.' line and a closing sentence telling the owner to run --finalize again to write .turingmind/REVIEW.md, which it called gitignored; no REVIEW.md existed. The harness turn-end classifier (harness_cards.py) matched both no-issues and review-written, because review-written only tested for the path and the word gitignored, failed closed on the double match, and never sent the --finalize owner command (a reproduced gate failure). Follow-up 2e (54-17) makes review-written require the run's .turingmind/REVIEW.md to exist (the verdict's own presence test on the copy, passed in by fixharness Core); the two-kind -> UNKNOWN safety rule is unchanged. fixharness.py and harness_cards.py are covered (fix-harness kit), so the candidate moved (D-23) and 54-10 restarts on a new candidate.",
+      "candidate_guard_after_fix": "CANDIDATE MOVED — STOPPING (exit 1) at HEAD ddbfff4: 4 non-reporting changes after the candidate (docs/design/fix-harness/tools/fixharness.py, harness_cards.py, test_harness_cards.py, test_harness_replay.py, each [engineering, workflow]), 4 covered artifacts differ",
+      "stop_evidence": {
+        "harness_clean_default_attempt": "docs/design/freeze-v2.12/evidence/attempts/harness-clean-default-22ef678fb884/ (committed in 8954c62, with the COMPLETE gsd run beside it; see attempts/INDEX.md)"
+      },
+      "evidence_commits_54_10": [
+        "1010c4d45458f73cb986564069978424f41b32f5",
+        "40557f9154b33da2c4ad7180640c8f897425c9ba",
+        "5864a7ca1df0b9e9f27e14522b1068b1094e982d",
+        "a71e95340423847ff13494bc56a7ff3bc3edfff0",
+        "87f4d7b3c7a9f85dbcbc65cfa86a62d268c90796",
+        "ea01a8b9712515354ca257a18a85cf89cf103f5b",
+        "7f5a1248f68b994cd5a5cb2f444514d7baa75ba0",
+        "8954c6201681256bc33e5a3890c43a090d94fa10"
+      ],
+      "draft_manifest_id": "ec070ea1e852bd8f92811d70cd28578f07eaf665ec535cc083940cdc12e38198",
+      "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-22ef678fb884/ (byte-identical copies taken at the re-run #6 selection; see INDEX.md)"
     }
   ]
 }
