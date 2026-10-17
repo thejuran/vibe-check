@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.12
 milestone_name: Quiet without hiding
-status: planning
-stopped_at: Phase 54 context gathered
-last_updated: "2026-10-15T10:41:06.929Z"
-last_activity: 2026-10-15
+status: Awaiting next milestone
+stopped_at: v2.12 milestone closed
+last_updated: "2026-10-17T21:14:18.308Z"
+last_activity: 2026-10-17 — Milestone v2.12 completed and archived
 progress:
   total_phases: 19
-  completed_phases: 3
-  total_plans: 38
-  completed_plans: 38
-  percent: 16
+  completed_phases: 4
+  total_plans: 53
+  completed_plans: 54
+  percent: 21
 ---
 
 # Project State
@@ -21,15 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-01)
 
 **Core value:** Catch real defects in a developer's changes before they ship — high coverage, low noise — so a reviewer who can't manually audit code can trust the agent's output as their safety net.
-**Current focus:** Phase 54 — freeze + release gates + integration audit
+**Current focus:** Between milestones — v2.12 shipped (2.12.0, UNMET — measurement incomplete, owner waiver); next milestone not scoped
 
 ## Current Position
 
-Phase: 54
-Plan: Not started
-Status: Ready to plan
-Progress: [██████████] 100%
-Last activity: 2026-10-15
+Phase: Milestone v2.12 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-10-17 — Milestone v2.12 completed and archived
 
 ## Performance Metrics
 
@@ -195,6 +194,17 @@ Last activity: 2026-10-15
 | Phase 53 P12 | 20min | 3 tasks | 6 files |
 | Phase 53 P13 | 40min | 2 tasks | 9 files |
 | Phase 53 P14 | ~5h15m | 3 tasks | 6 files |
+| Phase 54 P01 | 15min | 3 tasks | 5 files |
+| Phase 54 P02 | 25min | 3 tasks | 5 files |
+| Phase 54 P03 | 10min | 3 tasks | 5 files |
+| Phase 54 P04 | 13 min | 3 tasks | 6 files |
+| Phase 54 P05 | 35 min | 2 tasks | 2 files |
+| Phase 54 P06 | 22 min | 4 tasks | 6 files |
+| Phase 54 P15 | 20m | 2 tasks | 2 files |
+| Phase 54 P07 | 55min | 3 tasks | 12 files |
+| Phase 54 P08 | 70min | 3 tasks | 8 files |
+| Phase 54 P09 | 20 min | 3 tasks | 10 files |
+| Phase 54 P10 | 25 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -431,6 +441,29 @@ Earlier decisions (v2.8) still on record:
 - [Phase 53]: nv_dropped_weak scope confirmed; reported as weak co-located remarks dropped (16 across 16 rehearsal runs), separate from NV items and alarms
 - [Phase 53]: should-quiet-4 is a known v2.12 residual: rules and B3 key unchanged, any Phase-55 firing counts as an alarm with no exemption; bypass classification to be revisited
 - [Phase 53]: reach-unchanged-1 keeps its quiet expectation; deleted-helper test-import defect recorded as a dated key correction, never an expected catch
+- [Phase 54]: 54-01: NV placeholder set locked to exactly {n/a, none, -}, whole-field match; carried NV records stay trusted as written
+- [Phase 54]: 54-02: every Finalize archive move (state, unstamped, stamped REVIEW.md) goes through review_archive.py (link+unlink, -N suffix); a same-phase prior report is archived too
+- [Phase ?]: 54-03: fix harness reads format-53 archives only; legacy file beside a format-53 archive is ignored, legacy-only close-out is a named FAILED reason
+- [Phase ?]: 54-03: undecided Needs-verification at finalize counts as outstanding and is named separately
+- [Phase ?]: 54-04: freeze manifest generation is fail-closed on an absent B3 runner settings template; --allow-missing-runner-settings exists only for pre-template smoke runs, and the real manifest must be generated without it
+- [Phase ?]: 54-04: the manifest schema is the only authority on manifest keys; hooks and permissions are hashed, never copied; settings.json is excluded from hook_scripts so cosmetic edits never become identity differences
+- [Phase 54]: 54-05: freeze_check holds every runner's process env to runners.fix-harness.env (the manifest's single process-env projection); 54-14 must generate the manifest from the launch env
+- [Phase 54]: 54-05: gate plans 54-10..14 call 'freeze_check.py candidate-guard --candidate <SHA>' (exit 0 CANDIDATE OK / 1 CANDIDATE MOVED — STOPPING)
+- [Phase 54]: 54-06: first_repair_commit skips SEAL.json-only commits (SEAL.json is unmapped = detection; otherwise the retirement commit is always the first repair)
+- [Phase 54]: 54-06: tree-valued gate fields may differ only in reporting-classified files, so the plugin README gets a new manifest with full measurement-gate inheritance
+- [Phase 54]: 54-06: Phase 55 RESULTS must use freeze_tally.py gate; engineering evidence is bound by candidate_sha (no manifest_id)
+- [Phase 54]: 54-06: SEAL.json unmapped => any retune owes all rerun sets incl. workflow; narrowing needs an owner-approved PATH-MAP rule
+- [Phase 54]: 54-15: semgrep_replica degrades an empty target list and refuses leading-dash targets (diverges from harness clean / ./-rewrite) so the release gate needs positive N>0 coverage proof
+- [Phase 54]: Fix harness snapshot is materialized from the candidate commit tree (ls-tree + cat-file), never the working tree; source_path git:<sha>
+- [Phase 54]: Fix harness preflight runs freeze_check.verify (runner fix-harness) on the snapshot, the session env object and the manifest launch_model; snapshot commit must equal manifest candidate; no override
+- [Phase 54]: Harness launch_model = claude-opus-5-5[1m] (probe record regenerated + committed in 54-07, fingerprint a3b4bfe0...); 54-10/54-14 must not run probe-sandbox
+- [Phase ?]: 54-08: autopilot imports freeze_check through a guarded import; in a holdout kit copy freeze_identity loads it from --repo, so bin/holdout never breaks where the freeze kit is absent
+- [Phase ?]: 54-08: holdout eval sessions launch interactive from the run dir, plugin+settings built from candidate git objects into <run>/frozen-build, case folder only as --add-dir
+- [Phase ?]: 54-08: README 7d reply stays replaced slots=<slots> (closed grammar); the replacement seal commit is read from git by the tuning side
+- [Phase 54]: 54-09: B3 runner layer committed under b3-runner-v2.12; b3_block runs only committed runbook text; b3_identity_check binds the materialized candidate to the manifest candidate
+- [Phase ?]: Freeze candidate = 302df48e1097212aa334a21c8f2683ed810eb496 (54-10; read from evidence/CANDIDATE.json, verified with candidate-guard)
+- [Phase ?]: Identity check refusing on a stray gitignored cache in a covered kit is correct fail-closed behavior; keep caches out of kit trees before identity-checked runs
+- [Phase 54]: OWNER DECISION 2026-10-17: v2.12 milestone outcome = UNMET — measurement incomplete. Live measurement paused; no further paid runs without a separate, bounded, explicitly approved proposal. 54-11 broad rehearsal sweep (and any re-sweep) CANCELLED; Phase 55 measurement campaign (B3 x3, holdout x3, 16+2 accepted-fix runs) DEFERRED. Objective changed to preserving/finishing the reliability improvements already built. v2.12's noise target (B3 false alarms <=3/18) was NOT DEMONSTRATED (never measured on v2.12) — neither claim it was met nor imply a measurement proved it failed. Release-readiness checklist: .planning/phases/54-freeze-release-gates-integration-audit/54-RELEASE-READINESS.md. Preparing it does not authorize publishing.
 
 ### Pending Todos
 
@@ -472,16 +505,21 @@ Items acknowledged and carried forward from previous milestone close:
 | **Fable — answer-key fixes (A8/A16)** | A8 (`/health` name-exemption), A16 (axis-vs-site ambiguity) — NOW SCHEDULED into v2.9 Phase 36's per-diff answer key (B3-01). | **Scheduled (v2.9 Phase 36)** | v2.8 manual close |
 | **B3 harness execution** | Catch-rate/FP-rate against the FIXED post-Fable system — NOW SCHEDULED as v2.9 Phase 36 (B3-01/02/03). | **Scheduled (v2.9 Phase 36)** | v2.8 manual close |
 | **Fable — remaining** | `security.md` critique pass (needs Opus); all design challenges (H-CORE/H-DUP/H-LANE/B-SEV/B-XCONF/B-PROX/B-REWEIGHT) — gated on B3's numbers (v2.9 Phase 36 report states proceed/don't/need-more-data); `CATEGORY_DOMAIN` twin proposals (ts `async-discipline`→correctness, express `input-validation`→security). | Deferred (post-v2.9) | v2.8 manual close |
+| Debug session (holdout kit) | dryrun-replace-retired-ignored | awaiting_human_verify | v2.12 close (2026-10-17) |
+| Debug session (holdout kit) | finder-check-blocked-sandbox | awaiting_human_verify | v2.12 close (2026-10-17) |
+| Debug session (holdout kit) | role-session-shared-tmp-leak | awaiting_human_verify | v2.12 close (2026-10-17) |
+| **v2.12 measurement** | B3 ×3, holdout ×3, 16+2 accepted-fix runs, RESULTS-v2.12.md (MEAS-01–05); freeze/identity gates FRZ-01–04 — needs a separate owner-approved bounded proposal | Deferred | v2.12 close (2026-10-17) |
+| **One-pass confirmed-fix re-check** | A fixed NV item gets one automatic independent re-check (next run only); behavior fix needs approval. Also cosmetic "Fix all" label (K2) | Deferred | v2.12 close (2026-10-17) |
 
 ## Session Continuity
 
-Last session: 2026-10-15T10:41:06.923Z
+Last session: 2026-10-15T22:06:17.166Z
 "Quiet down" merged with the Opus 5 adaptation plan by owner decision — restructure-then-tune) and
 re-roadmapped to **Phases 38–44** (7 sequential phases; 20 requirements, 20/20 mapped). The locked
 sequence is SET → COMPAT → DIET → SCORER (Wave 1) → AGENT (Wave 2) → PROVE → CLOSE; it may not be
 reordered. ROADMAP.md, STATE.md, REQUIREMENTS.md written (the prior 5-phase 38–42 roadmap section was
 replaced; milestone history + the 999.x backlog preserved).
-Stopped at: Phase 54 context gathered
+Stopped at: Completed 54-09-PLAN.md
 
 v2.12 sequencing notes for whoever plans next (design spec `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-design.md`, phase order 51 → 52 → 53 → 54 → 55 is FIXED by the owner):
 
@@ -526,4 +564,4 @@ Load-bearing sequencing notes for whoever plans next:
 
 ## Operator Next Steps
 
-- `/bm:plan-phase 51` — Seal the holdout (owner selects the six real cases; keys sealed outside the repo)
+- Start the next milestone with /gsd-new-milestone

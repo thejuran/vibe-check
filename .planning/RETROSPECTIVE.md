@@ -211,6 +211,43 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 - Model mix: Opus 5.5 orchestrator; Opus planners and executors (the Fable planner stalled in P47); Sonnet checkers and verifiers; Codex gpt-6-astra adversarial
 - Notable: the B3 ×3 window (36 runs, assistant-driven via tmux) and the Phase-46/48 adversarial loops dominated cost
 
+## Milestone: v2.12 — Quiet without hiding
+
+**Shipped:** 2026-10-17 (2.12.0, UNMET — measurement incomplete; owner waiver)
+**Phases:** 51–54 executed, 55 measurement deferred | **Plans:** 52 of 53 planned + follow-ups 54-16/54-17
+
+### What Was Built
+- Sealed six-case holdout with role isolation (unused for measurement so far)
+- Fix-agent hardening and a sandboxed accepted-fix harness
+- Three-outcome reachability + never-filtered Needs-verification group
+- No-overwrite archives, format-53 state migration, independent re-check before a confirmed fix closes
+- Freeze/identity tooling and containment proofs for measurement
+
+### What Worked
+- Mutation-tested locks and replay/diff checks caught regressions deterministically and cheaply
+- One owner-approved, scoped deep review of the post-review delta (~$10–12) found real items; local tests confirmed and fixed them
+
+### What Was Inefficient
+- Candidate/manifest churn: five restarts on 10-17 cost $79–105 in proof runs alone, mostly from environment drift (owner settings, a desktop app rewriting the Codex config) and late tooling bugs
+- Release measurement was planned as one long, expensive campaign with no spending cap; credits ran out before it could run
+- Measurement machinery (freeze kit, holdout launcher, containment proofs) grew larger than the product changes it was meant to measure
+
+### Patterns Established
+- Costed decisions: any paid run needs a bounded, owner-approved proposal with a cap; stop between runs, never mid-run
+- Reuse equivalent checks on unchanged code; review only deltas and their caller interactions
+- Separate "outcome" from "shipping": UNMET can ship under an explicit waiver, disclosed in README and tag
+
+### Key Lessons
+- Bind measurement runs to an environment the owner's apps can't touch, or the identity check will keep stopping them
+- Size the measurement campaign and its budget before building its machinery
+- Wording fixes document a limitation; they don't remove it — track the behavior separately
+
+### Cost Observations
+- Live review run ≈ $7–10 (Fable top tier); containment proof ≈ $6–8; coordinator sessions $5–60/day
+- Notable: the planned remaining campaign was ≈ $950–1,500 — larger than the budget available
+
+---
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Efficacy |

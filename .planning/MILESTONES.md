@@ -1,5 +1,30 @@
 # Milestones
 
+## v2.12 Quiet without hiding (Shipped: 2026-10-17 — UNMET, measurement incomplete; shipped under owner waiver)
+
+**Phases:** 51–54 executed (51: 10/10 plans, 52: 14/14, 53: 14/14, 54: 14/15 + follow-ups 54-16/54-17); Phase 55 measurement campaign DEFERRED · **Release:** 2.12.0 (tag `v2.12` → a4b0c3f, fast-forward of main, atomic push) · **Git:** v2.11.1..v2.12 = 408 commits, 733 files, +170,141/−973 (mostly design evidence and measurement tooling under docs/design/) · **Timeline:** 2026-10-07 → 2026-10-17
+
+**Outcome: UNMET — measurement incomplete.** v2.12's noise target (B3 false alarms ≤ 3/18 · catches 15/15) was not demonstrated: the release measurement campaign (B3 ×3, sealed six-case holdout ×3, 16 preservation + 2 clean-tree accepted-fix runs) was not completed. Owner decision 2026-10-17 (credit budget): live measurement paused, 54-11 re-sweep cancelled, Phase 55 measurement deferred, objective changed to preserving the reliability improvements. v2.11 (5/18 · 15/15, MISS) remains the last measured result.
+
+**Key accomplishments:**
+
+- Sealed six-case holdout (keyed HMAC seal, role isolation, leak-clear on positive evidence) built for an independent release check (Phase 51) — not yet used for measurement.
+- Fix-agent hardening + accepted-fix harness (Phase 52): git guard closes bypasses and stops refusing read-only `cd`/`grep`/`sed -n`; mid-pass tag fetch allowed; deterministic fix-commit subjects; whole-token `--finalize`; a containment-sandboxed SDK harness that runs accept → apply → rerun → Close out → finalize end to end.
+- Three-outcome reachability replaces the v2.10 helper-gap rule; a never-filtered Needs-verification group with mechanical admission blocks Finalize until each item is decided (Phase 53).
+- Release hardening (Phase 54): placeholder NV answers never discard a proven finding; no-overwrite REVIEW.md/state archives with copy fallback and visible stop; separate format-53 state with verified, no-overwrite migration; a confirmed fix closes only after an independent re-check; freeze/identity tooling and containment proofs for measurement.
+- Owner-approved independent review of the 21-file post-review delta (~$10–12); three follow-up fixes (88ed70e) locally tested and replay-checked without independent re-review.
+
+### Known Gaps
+
+- **FRZ-01–FRZ-04:** release gates on the final candidate, committed freeze manifest, live identity validation and freeze record — not completed (54-13 delta review replaced by the owner-approved 21-file review; 54-14 not run).
+- **MEAS-01–MEAS-05:** B3 ×3, holdout ×3, accepted-fix runs, RESULTS-v2.12.md, MET/UNMET record from gates — not run; outcome recorded UNMET.
+- **MEAS-06:** 2.12.0 published under an explicit owner waiver disclosed in the README and tag notes; gates did not pass and RESULTS-v2.12.md was not written.
+- **Deferred behavior:** a fixed Needs-verification item gets one automatic independent re-check (next run only); cosmetic "Fix all" label (K2).
+
+Known deferred items at close: 3 (see STATE.md Deferred Items)
+
+---
+
 ## v2.11 Quiet loop (Shipped: 2026-10-08)
 
 **Phases completed:** 6 phases (45–50), 41 plans · **Releases:** 2.11.0 (tag `v2.11` → 2a420db), 2.11.1 patch (tag `v2.11.1` → 44c7cbf) · **Git:** v2.10..v2.11.1 = 211 commits, 527 files, +56,832/−5,604 · **Timeline:** 2026-10-01 → 2026-10-08
