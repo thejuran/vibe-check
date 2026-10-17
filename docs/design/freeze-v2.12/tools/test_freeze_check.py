@@ -55,9 +55,12 @@ VALIDATION_COMMANDS = {
                     "--harness-venv", "<HARNESS_VENV>",
                     "--model", "<runners.fix-harness.launch_model.value>"],
     "holdout-autopilot": ["verify", "--runner", "holdout-autopilot"],
+    # The launcher passes its run dir as the clone dir (the dir the session
+    # runs in), so the .vibe-check.toml class is always checked.
     "holdout-eval": ["verify", "--runner", "holdout-eval",
                      "--plugin-dir", "<PLUGIN_DIR>", "--settings", "<SETTINGS>",
-                     "--model", "<runners.holdout-eval.launch_model.value>"],
+                     "--model", "<runners.holdout-eval.launch_model.value>",
+                     "--clone-dir", "<CLONE_DIR>"],
 }
 # Flags that only say WHERE the active manifest lives; the fixture is not the
 # checkout, so tests append them and production appends nothing.
@@ -153,11 +156,9 @@ class _CheckFixture(tfm._Fixture):
 
     def kwargs(self, runner):
         if runner in ("b3", "holdout-eval"):
-            kw = {"plugin_dir": self.plugin_dir,
-                  "settings_path": self.settings_path, "launch_model": B3_MODEL}
-            if runner == "b3":
-                kw["clone_dir"] = self.clone
-            return kw
+            return {"plugin_dir": self.plugin_dir,
+                    "settings_path": self.settings_path, "launch_model": B3_MODEL,
+                    "clone_dir": self.clone}
         if runner == "fix-harness":
             return {"plugin_dir": self.plugin_dir, "launch_model": HARNESS_MODEL,
                     "harness_venv": self.venv}
@@ -422,6 +423,30 @@ class TestMutants(_Base):
             self.fx.edit_settings_copy(mutate)
             problems = self.fx.check("b3").problems
             self.assertIn("setting differs: runner-settings." + key, problems)
+
+    def test_toml_class_fails_closed_without_a_clone_dir(self):
+        """Neither profile can pass the .vibe-check.toml class without the
+        dir the session runs in: no silent IDENTITY OK on that class."""
+        for runner in ("b3", "holdout-eval"):
+            with self.subTest(runner=runner):
+                self.pristine(runner)
+                self.stops(runner, fc.CLONE_DIR_MISSING, clone_dir=None)
+
+    def test_mutant_b6_holdout_eval_toml_passes_without_clone(self):
+        name = "test_toml_class_fails_closed_without_a_clone_dir"
+        result = unittest.TestResult()
+        TestMutants(name).run(result)
+        self.assertTrue(result.wasSuccessful())
+        real = fc._check_toml_absent
+
+        def mutant(manifest, live):
+            if live["clone_dir"] is None and live["runner"] == "holdout-eval":
+                return [], None
+            return real(manifest, live)
+        with mock.patch.dict(fc.CHECKS, {"toml_absent": mutant}):
+            result = unittest.TestResult()
+            TestMutants(name).run(result)
+            self.assertFalse(result.wasSuccessful())
 
     def test_mutant_22_runner_settings_missing(self):
         self.pristine("b3")

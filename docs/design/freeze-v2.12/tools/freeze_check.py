@@ -474,9 +474,9 @@ def _check_process_env(manifest, live):
 def _check_toml_absent(manifest, live):
     clone = live["clone_dir"]
     if clone is None:
-        if live["runner"] == "b3":
-            return [CLONE_DIR_MISSING], None
-        return [], None  # holdout-eval: checked when the launcher names a clone
+        # Fails closed for every profile that has this class: without the dir
+        # the session runs in, the class cannot be checked.
+        return [CLONE_DIR_MISSING], None
     present = os.path.exists(os.path.join(clone, ".vibe-check.toml"))
     source = manifest["models"]["top"]["source"]
     if source != "toml" and present:
