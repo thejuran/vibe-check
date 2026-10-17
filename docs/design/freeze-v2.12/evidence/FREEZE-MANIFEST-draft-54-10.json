@@ -13,7 +13,7 @@
       "model_reasoning_effort": "medium",
       "service_tier": "fast"
     },
-    "config_sha256": "6b7088521d370e20fcd328f6b21d63065305b6b0762a2fbadbafdf6093c056e5",
+    "config_sha256": "8acb87bdf97835cfdc06ef507875d2a0661dd35d7e0ea88c1b08178f1e0116a9",
     "project_codex_dir_absent": true
   },
   "covered": {
@@ -638,7 +638,7 @@
       "tree_sha256": "8bcd2879bdeaaa15b59462fa31044da014a01d2a579a9332307b2b3e410011cb"
     }
   },
-  "generated_at": "2026-10-17T16:56:13Z",
+  "generated_at": "2026-10-17T17:53:48Z",
   "limitations": [
     "local hashes cannot prove the remote gateway/model service stayed unchanged",
     "--config auto semgrep rules are fetched live",
@@ -649,7 +649,7 @@
     "previous_candidate_sha": null,
     "previous_manifest_id": null
   },
-  "manifest_id": "fd1d0d916fe27de81f3c697673bbce65e6ab2c201a653e49875f0d6218cc81d3",
+  "manifest_id": "49635c8b8a3d8e74f7b5eed034ba9004bb8e75cc41ab51eb65690d388f0370e9",
   "models": {
     "agent_pins": {
       "architecture": "opus",
