@@ -1,0 +1,77 @@
+{
+  "first_seen": {
+    "944e454c9310f108b1e95009eccbfb17c5f63a85097be50113ad2d3c8cd43d57": {
+      "absorbed_into": null,
+      "band": "warning",
+      "bands_seen": [
+        "warning"
+      ],
+      "file": "src/clamp.py",
+      "head_sha": "42b80d7f52a9dd6e8a2294aadcfcbc6c4c2e657c",
+      "index": 0,
+      "line": 13,
+      "pass_number": 1
+    }
+  },
+  "seeded": [
+    "944e454c9310f108b1e95009eccbfb17c5f63a85097be50113ad2d3c8cd43d57"
+  ],
+  "snapshots": [
+    {
+      "hashes": {
+        "944e454c9310f108b1e95009eccbfb17c5f63a85097be50113ad2d3c8cd43d57": {
+          "absorbed_into": null,
+          "band": "warning",
+          "file": "src/clamp.py",
+          "line": 13
+        }
+      },
+      "head_sha": "42b80d7f52a9dd6e8a2294aadcfcbc6c4c2e657c",
+      "index": 0,
+      "label": "seed",
+      "pass_number": 1
+    },
+    {
+      "hashes": {
+        "944e454c9310f108b1e95009eccbfb17c5f63a85097be50113ad2d3c8cd43d57": {
+          "absorbed_into": null,
+          "band": "warning",
+          "file": "src/clamp.py",
+          "line": 13
+        }
+      },
+      "head_sha": "42b80d7f52a9dd6e8a2294aadcfcbc6c4c2e657c",
+      "index": 1,
+      "label": "card",
+      "pass_number": 1
+    },
+    {
+      "hashes": {},
+      "head_sha": "90f8b75733bc50a119f36d14712219fc2c34743e",
+      "index": 2,
+      "label": "turn_end",
+      "pass_number": 2
+    },
+    {
+      "hashes": {},
+      "head_sha": "90f8b75733bc50a119f36d14712219fc2c34743e",
+      "index": 3,
+      "label": "owner_command",
+      "pass_number": 2
+    },
+    {
+      "hashes": {},
+      "head_sha": "90f8b75733bc50a119f36d14712219fc2c34743e",
+      "index": 4,
+      "label": "turn_end",
+      "pass_number": 2
+    },
+    {
+      "hashes": {},
+      "head_sha": "90f8b75733bc50a119f36d14712219fc2c34743e",
+      "index": 5,
+      "label": "final",
+      "pass_number": 2
+    }
+  ]
+}

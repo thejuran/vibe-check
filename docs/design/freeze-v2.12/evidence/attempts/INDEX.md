@@ -34,3 +34,24 @@ to the failed run for comparison. Verdict COMPLETE, reasons [], 387.3 s.
 
 - Each file was compared with `cmp` against its source; all equal.
 - `lanearchive.py scan` over all eight files: clean.
+
+## harness-clean-default-ddbfff402816-auth-expired/ — invalid environment attempt (not counted)
+
+**Invalid environment attempt — auth expired mid-session (turn 2: Failed to authenticate: OAuth
+session expired), not counted.** Coordinator decision: this is not a D-15 FAILED verdict. Turn 2
+never ran a review, and an incomplete review is an invalid run, never a result.
+
+The fix-harness clean-tree run in the default mode on freeze candidate
+`ddbfff402816805136e95393c98a3cc17196daeb`, draft manifest
+`fd1d0d916fe27de81f3c697673bbce65e6ab2c201a653e49875f0d6218cc81d3`. The command was the same as
+above, and the record says FAILED (exit 1).
+
+- Turn 1 (`/vibe-check:review --finalize`): the finalize card was answered `Fix all`, the fix
+  committed and pass 2 resolved the seeded finding. The text ended on `No issues to fix.`, which
+  the harness classified as `no-issues`, and it sent `/vibe-check:review --finalize`.
+- Turn 2: the session's result text was `Failed to authenticate: OAuth session expired and could
+  not be refreshed`. The harness classified it as unrecognised text, so `REVIEW.md` is missing and
+  the state is not archived.
+
+Files: `run.json`, `obligations.json`, `transcript.jsonl` and `fixharness-stdout.log`. Each was
+`cmp`-equal to its scratch source, and `lanearchive.py scan` was clean.
