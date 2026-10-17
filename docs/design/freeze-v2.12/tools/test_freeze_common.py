@@ -240,12 +240,15 @@ class TestPathMap(unittest.TestCase):
 
     def test_combined_categories(self):
         out = freeze_policy.classify(
-            ["plugins/vibe-check/scripts/score.py",
+            ["plugins/vibe-check/scripts/score43.py",
+             "plugins/vibe-check/scripts/score.py",
              "docs/design/fix-harness/tools/x.py",
              "plugins/vibe-check/agents/bugs.md",
              "plugins/vibe-check/scripts/test_score.py"], self.pm)
-        self.assertEqual(out["plugins/vibe-check/scripts/score.py"],
+        self.assertEqual(out["plugins/vibe-check/scripts/score43.py"],
                          {"engineering", "detection"})
+        # score.py also drives every fix-harness pass-1 state (workflow)
+        self.assertEqual(out["plugins/vibe-check/scripts/score.py"], RERUN)
         self.assertEqual(out["docs/design/fix-harness/tools/x.py"],
                          {"engineering", "workflow"})
         self.assertEqual(out["plugins/vibe-check/agents/bugs.md"], RERUN)
@@ -319,9 +322,10 @@ class TestImportSet(unittest.TestCase):
 
     def test_freeze_policy_imports(self):
         got = _imports(os.path.join(HERE, "freeze_policy.py"))
-        # argparse + sys serve the classify / seal-order-proof CLI.
+        # argparse + sys serve the classify / seal-order-proof / run-validity
+        # CLI; time stamps the run-validity record.
         self.assertTrue(got <= {"argparse", "fnmatch", "json", "os", "re", "sys",
-                                "freeze_common"}, got)
+                                "time", "freeze_common"}, got)
 
 
 if __name__ == "__main__":
