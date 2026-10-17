@@ -1,9 +1,9 @@
 {
-  "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
-  "selected_at": "2026-10-15T22:30:22Z",
+  "candidate_sha": "535f48861cd8ce09d4e67c00319ea023de294e70",
+  "selected_at": "2026-10-17T02:35:27Z",
   "selected_by": "54-10",
-  "path_map_blob": "027bb8567327f78e09cf708e3a7458c22bf982a7",
-  "selection": "re-run of 54-10 after the D-23 code fix 24c0c00; the earlier selection is kept below as superseded",
+  "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
+  "selection": "re-run #2 of 54-10 after the owner-approved batched fix; candidate = HEAD at selection (plan rule C = git rev-parse HEAD). The latest code commit is 09bdf61; 535f488 is an evidence-only descendant (candidate-guard --candidate 09bdf61: CANDIDATE OK, 1 descendant, reporting-only), so 535f488 and 09bdf61 carry byte-identical covered artifacts. Earlier selections are kept below as superseded",
   "superseded": [
     {
       "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
@@ -30,6 +30,39 @@
       ],
       "draft_manifest_id": "b6abbae38b9cf544df57e7ea201fadf66ec9a1643094974894a7abc7c595755c",
       "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-302df48e1097/ (byte-identical copies; see INDEX.md)"
+    },
+    {
+      "candidate_sha": "24c0c00038f2d15af4b55f178ea44e680c1f2c58",
+      "selected_at": "2026-10-15T22:30:22Z",
+      "selected_by": "54-10",
+      "path_map_blob": "027bb8567327f78e09cf708e3a7458c22bf982a7",
+      "status": "superseded",
+      "superseded_at": "2026-10-17T02:35:27Z",
+      "superseded_by_fix_commits": {
+        "plugin_part_1": [
+          "401c82f2be12b5a4c19896a3d12fbcf28e646eb9",
+          "73792c8bb2670a1cc820d390ba611cbc95a18439"
+        ],
+        "tooling_part_2": [
+          "725f1c125fac6041b376443660e0f66d41061959",
+          "6df185ea036ad58ad6fc02dcdf10c77b98d62fa9"
+        ],
+        "follow_up_1b": [
+          "1d7104408a8d2607546b35ba0839f9d77e439fb1",
+          "09bdf61af48e67bb9a7e517a28961069912391f3"
+        ]
+      },
+      "reason": "Owner-approved batched fix from the release deep review (A1, A2, B1-B7, P1, S5-S10, S11 narrowed; owner decisions recorded in evidence/acceptance-list.md through 535f488). The fix changes covered plugin, freeze-kit, B3-runner, fix-harness and holdout-launcher files, so the candidate moved (D-23) and 54-10 restarts on a new candidate.",
+      "candidate_guard_after_fix": "CANDIDATE MOVED — STOPPING (exit 1) at HEAD 535f488: 44 non-reporting changes after the candidate, 43 covered artifacts differ (plugins/vibe-check phases + scripts, freeze-v2.12 tools + PATH-MAP + README, b3-runner-v2.12, fix-harness tools, holdout_eval_launch, RUN-PHASE54-live.md); classes engineering, detection, workflow",
+      "owner_decisions": "docs/design/freeze-v2.12/evidence/acceptance-list.md (## Owner decision, ## Owner decision (supplemental table), ## Owner decision (fix-1 follow-ups))",
+      "evidence_commits_54_10": [
+        "f37ae90f723b4fb1917492805f12e0e5a350a9ca",
+        "964b40201eb28eb81d4107b17e0b8fd4a0f216ff",
+        "f4699780dc2c9b364789c8fdf2e95789f7d13437",
+        "c3f3114260c7d2c81bc787f9de63db4173151541",
+        "5bcc1f0d2e74242e97978cd693b932e05fb9071d"
+      ],
+      "draft_manifest_id": "98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99"
     }
   ]
 }
