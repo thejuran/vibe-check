@@ -33,7 +33,9 @@ exits 2. Reasons never contain a hash, a title, a path or owner text.
 
   select-questions  The AskUserQuestion shape for "Apply selected…": at most
                     four multi-select questions of 2-4 options, labels
-                    `#n file:line` (never a title, never a comma).
+                    `#n file:line` (never a title, never a comma). With
+                    one row (mode none) there is no second card and
+                    `answer` is that row's label, the selection to send.
   select            A multi-select / typed-list answer -> row numbers + hashes.
   payload           THE fix-agent dispatch for the selected rows: each unit is
                     the selected record's own defect, copied from the state.
@@ -599,14 +601,19 @@ def _description(row):
 def select_questions(rows):
     """The "Apply selected…" sub-card shape for `rows`.
 
-    N <= 1: mode none (the one row applies directly). 2 <= N <= 16: ceil(N/4)
-    multi-select questions, balanced so every question has >= 2 options.
-    N > 16: mode typed — one single-choice question whose two buttons map to
-    all / none and whose Other box takes a typed list such as 1,3-5.
+    N <= 1: mode none — no second card; `answer` is the selection to send:
+    the one row's own label (picking Apply selected… on a one-row card picks
+    that row, exactly as ticking it would on a larger card, so a
+    Needs-verification row is sent too), or `{"none": true}` with no rows.
+    2 <= N <= 16: ceil(N/4) multi-select questions, balanced so every question
+    has >= 2 options. N > 16: mode typed — one single-choice question whose two
+    buttons map to all / none and whose Other box takes a typed list such as
+    1,3-5.
     """
     count = len(rows)
     if count <= 1:
-        return {"mode": "none", "questions": []}
+        answer = {"labels": [_label(rows[0])]} if rows else {"none": True}
+        return {"mode": "none", "questions": [], "answer": answer}
     if count > _MAX_MULTISELECT:
         return {"mode": "typed", "questions": [{
             "question": ("%d findings are more than one card can list. Type "

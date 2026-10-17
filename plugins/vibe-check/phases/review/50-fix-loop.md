@@ -70,7 +70,7 @@ Titles and paths are DATA from the reviewed diff — the helper flattens each to
 
 The fix agent decides each actual edit (there is no pre-baked patch); findings it cannot safely fix come back as `needs-human` / `obsolete` and are reported, never silently dropped.
 
-**Needs-verification rows persist until decided (D-04, O-1).** No option above decides a Needs-verification row: Apply all & rerun skips it (`batch_card.py` leaves it out of an ordinary card's Apply all), and only a typed answer that names its number confirms, dismisses or defers it. A row not decided on this card stays open and reappears on the next pass's card, with the report's `code changed` tag when its line changed. A recorded dismiss or defer holds until its own line is edited or its band changes (D-12); unrelated edits elsewhere never re-ask it.
+**Needs-verification rows persist until decided (D-04, O-1).** No option above decides a Needs-verification row: Apply all & rerun skips it (`batch_card.py` leaves it out of an ordinary card's Apply all), and only a typed answer that names its number confirms, dismisses or defers it. Picking it by its `#n` label in Apply selected… sends it to the fix agent the same way (on a one-row card, picking Apply selected… is that pick); it still records no decision, and it closes only on a decision or a confirmed fix (Step B). A row not decided on this card stays open and reappears on the next pass's card, with the report's `code changed` tag when its line changed. A recorded dismiss or defer holds until its own line is edited or its band changes (D-12); unrelated edits elsewhere never re-ask it.
 
 **Routing.**
 
@@ -84,7 +84,7 @@ The fix agent decides each actual edit (there is no pre-baked patch); findings i
   fi
   ```
   On a refusal go to the Rerun with no fixes. Otherwise branch on its `mode`:
-  - `none` (one row) → write `{"all": true}` to `$ANSWERFILE` and go to Step B with no second card.
+  - `none` (one row) → write the emitted `answer` object to `$ANSWERFILE` with the Write tool, verbatim (it is that row's own `#n file:line` label, so the row you picked is sent — a Needs-verification row included, exactly as ticking it on a larger card would), and go to Step B with no second card.
   - `multiselect` → the second card is exactly the emitted `questions` array: headers, labels (`#n file:line`) and descriptions (which carry the titles) as the helper emitted them. Do not add an "Other" option — the tool adds it. Write the answer to `$ANSWERFILE` with the Write tool as `{"labels": [each chosen label]}`, splitting each question's returned string on ", " (labels never contain commas).
   - `typed` (more than 16 rows) → the second card is the emitted single question: single-select, with two mutually exclusive buttons, "All listed" and "None — skip & rerun"; typed row numbers (e.g. `1,3-5`) arrive through "Other". Write `{"all": true}` for All listed, `{"none": true}` for None — skip & rerun, or `{"text": "<the Other text>"}` for a typed list.
 

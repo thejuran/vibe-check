@@ -30,6 +30,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import batch_card  # noqa: E402
 import carry_state  # noqa: E402
 import score  # noqa: E402
 import state_shape  # noqa: E402
@@ -496,6 +497,110 @@ class TestProse(unittest.TestCase):
     def test_schema_enum(self):
         self.assertIn("confirmed-fix", FUTURE["resolution_source_enum"])
         self.assertIn("commit_sha", FUTURE["resolution_optional"])
+
+
+# --------------------------------------------------------------------------- #
+# S10: one-row "Apply selected…" sends the picked row, end to end
+# --------------------------------------------------------------------------- #
+ONE_ROW_BULLET = "  - `none` (one row) →"
+
+
+def _one_row_bullet(text):
+    i = text.find(ONE_ROW_BULLET)
+    j = text.find("\n  - `multiselect`", i)
+    return text[i:j] if i >= 0 and j > i else None
+
+
+def one_row_sends_pick_holds(text):
+    bullet = _one_row_bullet(text)
+    return (bullet is not None and "`answer`" in bullet
+            and '{"all": true}' not in bullet)
+
+
+class TestOneRowApplySelected(unittest.TestCase):
+    """card → select → fix payload → recorded verdict → verified close."""
+
+    def _nv_state(self):
+        row = _nv_rows(score.run(_nv_env([_nv()])))[0]
+        return {"medium_acknowledgments": {}, "passes": [{
+            "pass_number": 1, "head_sha": "h1", "diff_range": "a..b",
+            "findings": [row]}]}, row
+
+    def test_select_questions_emits_the_pick(self):
+        rows = batch_card.build_rows(self._nv_state()[0], "fix-loop")[0]["rows"]
+        out = batch_card.select_questions(rows)
+        self.assertEqual(out["mode"], "none")
+        self.assertEqual(out["answer"], {"labels": ["#1 src/nv.py:12"]})
+        self.assertEqual(batch_card.select_questions([])["answer"],
+                         {"none": True})
+
+    def test_bulk_all_still_skips_nv(self):
+        state, _ = self._nv_state()
+        rows_doc = batch_card.build_rows(state, "fix-loop")[0]
+        payload_, reason = batch_card.build_payload(state, rows_doc,
+                                                    {"all": True})
+        self.assertIsNone(reason)
+        self.assertEqual(payload_["sent"], [])
+
+    def test_non_nv_one_row_unchanged(self):
+        state = state_with(warning_row())
+        rows_doc = batch_card.build_rows(state, "fix-loop")[0]
+        answer = batch_card.select_questions(rows_doc["rows"])["answer"]
+        via_pick, _ = batch_card.build_payload(state, rows_doc, answer)
+        via_all, _ = batch_card.build_payload(state, rows_doc, {"all": True})
+        self.assertEqual(via_pick["sent"], [WH])
+        self.assertEqual(via_pick, via_all)
+
+    def _close_through_the_pipeline(self, select_questions):
+        state, row = self._nv_state()
+        h = row["stable_hash"]
+        rows_doc = batch_card.build_rows(state, "fix-loop")[0]
+        answer = select_questions(rows_doc["rows"]).get("answer", {"all": True})
+        sent, reason = batch_card.build_payload(state, rows_doc, answer)
+        self.assertIsNone(reason)
+        if h not in sent["sent"]:
+            return False
+        self.assertEqual(sent["findings"][0]["id"], h)
+        # The fix agent applied and committed it; the orchestrator collected
+        # the commit and the clean HEAD blob (50-fix-loop.md step 2b).
+        new_state, skipped = record(state, payload(
+            results=[applied_result(h=h)], sent=sent["sent"]))
+        self.assertEqual(skipped, [])
+        self.assertEqual(new_state["fix_verdicts"][h]["verdict"], "applied")
+        counts = carry_state.finalize_counts(new_state, {F: BLOB})
+        self.assertEqual(counts["undecided_nv"], 0)
+        self.assertEqual(counts["verified_confirmed_fix_hashes"], [h])
+        # Rerun: Phase 0.5 forwards the verdict; score.py closes the row.
+        v = new_state["fix_verdicts"][h]
+        forwarded = {"source": "confirmed-fix", "stable_hash": h, "agent": "fix",
+                     "verdict": "applied", "commit_sha": v["commit_sha"],
+                     "at_pass": v["at_pass"], "head_sha": v["head_sha"],
+                     "reason": v["reason"], "verified_blob": v["verified_blob"],
+                     "head_blob": BLOB}
+        r = score.run(_nv_env([], carryforward=[_nv_cf(row, None, None)],
+                              pass_number=2, head_sha="e" * 40,
+                              verdicts=[forwarded]))
+        self.assertEqual(_nv_rows(r), [])
+        return r["resolved"][0]["resolution"]["source"] == "confirmed-fix"
+
+    def test_selected_nv_row_closes_end_to_end(self):
+        self.assertTrue(self._close_through_the_pipeline(
+            batch_card.select_questions))
+
+    def test_mutant_one_row_sends_all(self):
+        def old_select_questions(rows):
+            out = dict(batch_card.select_questions(rows))
+            out.pop("answer", None)  # the caller wrote {"all": true}
+            return out
+        self.assertFalse(self._close_through_the_pipeline(old_select_questions))
+
+    def test_prose_writes_the_emitted_answer(self):
+        text = _read("phases/review/50-fix-loop.md")
+        self.assertTrue(one_row_sends_pick_holds(text))
+        bullet = _one_row_bullet(text)
+        mutant = text.replace(bullet, ONE_ROW_BULLET + ' write `{"all": true}` '
+                              "to `$ANSWERFILE` and go to Step B.")
+        self.assertFalse(one_row_sends_pick_holds(mutant))
 
 
 if __name__ == "__main__":
