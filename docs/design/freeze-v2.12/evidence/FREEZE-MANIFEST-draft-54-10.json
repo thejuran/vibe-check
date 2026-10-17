@@ -1,6 +1,6 @@
 {
-  "candidate_sha": "14808a961d0217bc39d6461d3cb9e695743316f8",
-  "candidate_tree": "b66c1d20e9001e9e755e265c9ab0d95fee40a1b6",
+  "candidate_sha": "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230",
+  "candidate_tree": "35214739a4551721a98376180dba927688d78034",
   "codex": {
     "cli_version": "0.153.4",
     "companion": {
@@ -90,14 +90,14 @@
         },
         "settings-measured.json": {
           "mode": "100644",
-          "sha256": "f1f2aa61b873aeb5cf606dcd6fc66e85c70c11dc43957547244bfc583dc68db4"
+          "sha256": "cf4583498d2c63918b196c20da547a9baab018e529ac71b0912c477846a0963b"
         },
         "statusline-capture.sh": {
           "mode": "100755",
           "sha256": "05fefaedc7945a6ff676237af13f7c01659713cbdc8b12c97f76dffbab174a0b"
         }
       },
-      "tree_sha256": "18997cafe70ae488d9930def2073fa545e4bfb93472600b7d9b87c6124ed8667"
+      "tree_sha256": "fb88fdb21ba55cccd812a255107f28168bef51be9b167e08838997b9dee39159"
     },
     "docs/design/b3-ground-truth/diffs": {
       "files": {
@@ -389,16 +389,16 @@
       "files": {
         "README.md": {
           "mode": "100644",
-          "sha256": "831ae4270fe34ef80218921f13d3e89f74539d7f17b67853d7f7197b58621f4a"
+          "sha256": "b49b5b75c0cdaa42b48baaeff041f67bf1c06ab71cc1429778e38e71ec76f34a"
         }
       },
-      "tree_sha256": "97d79c415abcd37d53a7f7a90418ed2c663d6d452fffb1c1fc31dae8d1eca443"
+      "tree_sha256": "3c327185dfc8c30d36addd52854d66a85d956087c29f3e6333a307757eed8e27"
     },
     "docs/design/freeze-v2.12/tools": {
       "files": {
         "containment_proof.py": {
           "mode": "100644",
-          "sha256": "2bbf8f85c7343880ed4baa67076661e8bb1e492c122e017a744c53714019e28f"
+          "sha256": "5813775896d20b01b31e354c16c67c8903c72b043c7c744d762e6d3949b77098"
         },
         "freeze_check.py": {
           "mode": "100644",
@@ -414,7 +414,7 @@
         },
         "freeze_policy.py": {
           "mode": "100644",
-          "sha256": "16fb557d972fe0a4c07f168aae664808e981a24ff858cab6f80f311b62da632d"
+          "sha256": "906ea4e0fdef5ea0e993ed33ccc159238dcf6d6a3ebe396e96985f84be65992c"
         },
         "freeze_tally.py": {
           "mode": "100644",
@@ -426,11 +426,11 @@
         },
         "test_b3_runner_layer.py": {
           "mode": "100644",
-          "sha256": "63acc83d2b5ee17f26d5e917df27aba7ec5ba9760569d4634eaff61da90a7e0e"
+          "sha256": "3e45e85771bc2f2d1f11e8bcb6781a5c32e43c8f97fe359d6d65458867110326"
         },
         "test_containment_proof.py": {
           "mode": "100644",
-          "sha256": "a9ba4dca0f2cbbf5c7edf20cf39ce8fe1092911f62334d39c45788aefa4d0d93"
+          "sha256": "48a2ed6a1d1ab867006a089a28e1db6ecc9f130e80e73be9838107e1ffc38580"
         },
         "test_freeze_check.py": {
           "mode": "100644",
@@ -446,7 +446,7 @@
         },
         "test_freeze_policy.py": {
           "mode": "100644",
-          "sha256": "e1a92c5a5b490e63319215cccf0549ddcb6eaa0322a4bef6f9ef6e1010f27230"
+          "sha256": "cb35eaf1c874127028b9ff7086460043ec6f76fc15e18dc2b91228fe907d242f"
         },
         "test_freeze_tally.py": {
           "mode": "100644",
@@ -457,7 +457,7 @@
           "sha256": "85ce348845d1b62e5f43be8b790eaca2e638a2379989591974ec4a26a115cea7"
         }
       },
-      "tree_sha256": "62a48ade554158c31ba84ad972c68fa25414ccc075130d9751b934825520737b"
+      "tree_sha256": "b53570791455beb215de2da9574b8fc6750342840a4770cb5b710547e28433c7"
     },
     "docs/design/holdout-v2.12/tools": {
       "files": {
@@ -467,7 +467,7 @@
         },
         "holdout_autopilot.py": {
           "mode": "100644",
-          "sha256": "ea8a035a880ca480603ffadb937ec97bd8a951d878971e36eb3ea37a7c11d3c6"
+          "sha256": "a96e17ddb4d2207fa7ca4b96585fabc6c42fa53dca6e4904eaa8ca13d90e8420"
         },
         "holdout_dryrun.py": {
           "mode": "100644",
@@ -475,7 +475,7 @@
         },
         "holdout_eval_launch.py": {
           "mode": "100644",
-          "sha256": "2d3ef5304e940fef461e4d7b87d6c642d8026952b50cf3d31f2303a91b744e0a"
+          "sha256": "8954f3b9018403ef97dd1a2e0cb6a603595ce15c774fc81c59f9e445073873bf"
         },
         "holdout_fixture.py": {
           "mode": "100644",
@@ -519,7 +519,7 @@
         },
         "test_holdout_eval_launch.py": {
           "mode": "100644",
-          "sha256": "9fe1124203b4215c0532907cec5d9257a4a6f57e1f6b31b2375818dac5576d77"
+          "sha256": "209a47aceeb60d1d9ba6e7b9064c691ef9855591326c781aa4306b0d23387edd"
         },
         "test_holdout_guard.py": {
           "mode": "100644",
@@ -542,7 +542,7 @@
           "sha256": "a2e57ad3ebb25954d70ed397547689a5f3e08c81e3093f4701ea5e2ec33d4f47"
         }
       },
-      "tree_sha256": "0c53435c457905891d36ab9d7c27b7da03cc6b82b664dd6dc232c7716fc8b3a8"
+      "tree_sha256": "84c8bab383c6544c8295ec22bd465c01e30a11dbb8e54f1da7a39261f4be4021"
     },
     "docs/design/reachability-dev/CATCH-SITES-dev.json": {
       "files": {
@@ -575,10 +575,10 @@
       "files": {
         "RUN-PHASE54-live.md": {
           "mode": "100644",
-          "sha256": "e3e9b010c9c2a420ccd4c8738b8bca6ac8e86e3ac71b344258c23569a1181cc8"
+          "sha256": "c50bd135d4c27310cc34d41c078483ee27541707e6e630844fdb6666e652bf03"
         }
       },
-      "tree_sha256": "d2114dab29dc0f13235b35ed834d94a740c91e29b038b58c527804edcc81705e"
+      "tree_sha256": "c0df9b0026acc3efc7f7f643d006883e80ea206d539b2466fc0b211df2287afc"
     },
     "docs/design/reachability-dev/cases": {
       "files": {
@@ -638,7 +638,7 @@
       "tree_sha256": "8bcd2879bdeaaa15b59462fa31044da014a01d2a579a9332307b2b3e410011cb"
     }
   },
-  "generated_at": "2026-10-17T03:40:58Z",
+  "generated_at": "2026-10-17T12:57:02Z",
   "limitations": [
     "local hashes cannot prove the remote gateway/model service stayed unchanged",
     "--config auto semgrep rules are fetched live",
@@ -649,7 +649,7 @@
     "previous_candidate_sha": null,
     "previous_manifest_id": null
   },
-  "manifest_id": "6e9e61a012f7d146681638ee4bbce8f60ffcbb9bffba6ced958f92899a815fe1",
+  "manifest_id": "3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc",
   "models": {
     "agent_pins": {
       "architecture": "opus",
@@ -1352,7 +1352,7 @@
           "key": "statusLine.command",
           "placeholder": "<RUNNER>"
         },
-        "template_canonical_sha256": "3c641def8bbb29686ed1375939e6fecd9f94f90dfb7a99c4396c8f97babe6e07",
+        "template_canonical_sha256": "d876717d91ecc6f2b3bc35391441214a3bfdd683ba3d5ee9becc704bf7dd1881",
         "template_path": "docs/design/b3-ground-truth/b3-runner-v2.12/settings-measured.json"
       },
       "updates": {
@@ -1493,7 +1493,7 @@
         "version": "2.1.281"
       },
       "kit": {
-        "tree_sha256": "517b5f4879767606cb0231fe1c5d57ee3da212a3a5b7bc08e8db30713101ea9f"
+        "tree_sha256": "e975d7b6a2d25d693770f1092649300d4754490d9ad50b15b48d71ac4c904c4b"
       },
       "loads_plugin": false
     },
@@ -1508,7 +1508,7 @@
         "Phase 55 launcher; must call freeze_check.verify(runner='holdout-eval')"
       ],
       "kit": {
-        "tree_sha256": "517b5f4879767606cb0231fe1c5d57ee3da212a3a5b7bc08e8db30713101ea9f"
+        "tree_sha256": "e975d7b6a2d25d693770f1092649300d4754490d9ad50b15b48d71ac4c904c4b"
       },
       "launch_model": {
         "source": "runner-contract",
@@ -1520,7 +1520,7 @@
           "key": "statusLine.command",
           "placeholder": "<RUNNER>"
         },
-        "template_canonical_sha256": "3c641def8bbb29686ed1375939e6fecd9f94f90dfb7a99c4396c8f97babe6e07",
+        "template_canonical_sha256": "d876717d91ecc6f2b3bc35391441214a3bfdd683ba3d5ee9becc704bf7dd1881",
         "template_path": "docs/design/b3-ground-truth/b3-runner-v2.12/settings-measured.json"
       },
       "user_level": {
