@@ -12,9 +12,10 @@ harness cannot disagree with the product it drives about what a card says.
   the seeded identity `(file, title)`. It never picks a row because the review
   found it. An UNKNOWN card, a missing seeded row, or a Stop card shown before
   the seeded finding resolved returns a `fail` reason and no answers.
-* `classify_turn_end(text)` names the plugin one-liner a turn ended on.
-  Anything else, including any prose question, is UNKNOWN: a would-be owner
-  question.
+* `classify_turn_end(text, review_md_written)` names the plugin one-liner a
+  turn ended on. Anything else, including any prose question, is UNKNOWN: a
+  would-be owner question. "Report written" needs the report on disk when the
+  caller can see the tree.
 * `next_owner_command(kind, mode)` is the command the owner would type next.
 
 Pure and stdlib only: no I/O, no git, no network.
@@ -334,12 +335,18 @@ _TURN_END_TESTS = (
 )
 
 
-def classify_turn_end(text):
+def classify_turn_end(text, review_md_written=None):
     """The plugin one-liner the turn ended on, or UNKNOWN.
 
     A turn whose last line ends in a question mark is UNKNOWN even when it
     also contains a one-liner, and so is text matching more than one kind:
     both would make the owner answer something.
+
+    `review_md_written` is the caller's filesystem fact: whether the run's
+    `.turingmind/REVIEW.md` exists. When it is False, REVIEW_WRITTEN cannot
+    match, so a sentence telling the owner to run `--finalize` to write the
+    report is not read as the report having been written. None (no tree to
+    look at) keeps the text-only rule.
     """
     if not isinstance(text, str) or not text.strip():
         return UNKNOWN
@@ -347,7 +354,9 @@ def classify_turn_end(text):
              if line.strip()]
     if lines[-1].endswith("?"):
         return UNKNOWN
-    hits = [kind for kind, test in _TURN_END_TESTS if test(text)]
+    hits = [kind for kind, test in _TURN_END_TESTS
+            if not (kind == REVIEW_WRITTEN and review_md_written is False)
+            and test(text)]
     return hits[0] if len(hits) == 1 else UNKNOWN
 
 

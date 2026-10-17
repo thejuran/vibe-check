@@ -294,8 +294,16 @@ class Core:
         return decision
 
     # -- turn ends -------------------------------------------------------- #
+    def review_md_written(self):
+        """The run's `.turingmind/REVIEW.md` exists as a non-empty regular
+        file (the verdict's own presence test, read-only)."""
+        path = harness_verdict._review_md_path(self.copy)
+        return (os.path.isfile(path) and not os.path.islink(path)
+                and os.path.getsize(path) > 0)
+
     def on_turn_end(self, text):
-        kind = harness_cards.classify_turn_end(text)
+        kind = harness_cards.classify_turn_end(
+            text, review_md_written=self.review_md_written())
         if kind == harness_cards.UNKNOWN:
             self.turn_end_questions += 1
         if kind in (harness_cards.NO_CHANGES, harness_cards.NO_NEW_CHANGES,

@@ -256,8 +256,9 @@ class TestReplayMutants(_ReplayCase):
         self.assertIsNone(s.failed_reason)
 
     def test_m3_every_turn_end_review_written_flips_c3(self):
-        with mock.patch.object(harness_cards, "classify_turn_end",
-                               lambda text: harness_cards.REVIEW_WRITTEN):
+        with mock.patch.object(
+                harness_cards, "classify_turn_end",
+                lambda text, **_kw: harness_cards.REVIEW_WRITTEN):
             s = TestReplayNegativeControls.c3_prose_question(self)
         self.assertIsNone(s.failed_reason)
         self.assertEqual(self.core.turn_end_questions, 0)
