@@ -1,0 +1,11 @@
+fixharness: identity manifest_id=ec070ea1e852bd8f92811d70cd28578f07eaf665ec535cc083940cdc12e38198 check_digest=522a932b08682d466a8c6480d1fada648176f2a365c9a8a4c67bbb7291d4c5f1 candidate_sha=22ef678fb88418f22419867bed81ff89283fa7fb
+{
+  "verdict": "FAILED",
+  "reasons": [
+    ".turingmind/REVIEW.md missing",
+    "state not archived",
+    "turn ended on unrecognised text",
+    "clean-tree checkpoint never reached"
+  ],
+  "run": "/private/tmp/claude-501/-Users-julianamacbook-turingmind-code-review/2da80a34-c3fb-4e92-8c7d-5aa0a2520383/scratchpad/54-10r5/clean-default/run.json"
+}
