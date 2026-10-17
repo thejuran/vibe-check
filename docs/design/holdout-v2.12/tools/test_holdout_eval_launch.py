@@ -368,8 +368,11 @@ class TestLaunch(LaunchCase):
         checked = self.verify_calls[0][2]["env"]
         self.assertIs(checked, self.spawned[0]["env"])
         self.assertNotIn("ANTHROPIC_API_KEY", checked)
-        self.assertEqual(checked["DISABLE_AUTOUPDATER"], "1")
-        self.assertEqual(checked["DISABLE_UPDATES"], "1")
+        # The update pins live in the materialized runner settings (`env`),
+        # never in the checked process env: the manifest's process-env
+        # baseline comes from the generating shell, where they are unset.
+        self.assertNotIn("DISABLE_AUTOUPDATER", checked)
+        self.assertNotIn("DISABLE_UPDATES", checked)
         self.assertEqual(self.spawned[0]["cwd"], self.run_dir)
 
     def test_argv_passes_autopilot_rules(self):
@@ -382,6 +385,38 @@ class TestLaunch(LaunchCase):
             if bad != "--permission-mode":
                 self.assertNotIn(bad, argv)
         self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+
+
+class TestRealProcessEnvCheck(unittest.TestCase):
+    """The environment the launcher builds goes through the REAL identity
+    check (freeze_check.verify, runner holdout-eval) on the freeze kit's
+    fixture: a manifest generated from a shell without the update pins."""
+
+    def setUp(self):
+        from test_freeze_check import _CheckFixture
+        self.fx = _CheckFixture()
+        self.addCleanup(self.fx.close)
+
+    def session_env(self):
+        return el.session_environment({"PATH": "/usr/bin:/bin",
+                                       "HOME": self.fx.home})
+
+    def test_launcher_env_passes_the_real_check(self):
+        result = self.fx.check("holdout-eval", env=self.session_env())
+        self.assertEqual(result.problems, [])
+
+    def test_update_pins_are_in_the_runner_settings(self):
+        with open(self.fx.settings_path, encoding="utf-8") as fh:
+            settings = json.load(fh)
+        self.assertEqual(settings["env"]["DISABLE_AUTOUPDATER"], "1")
+        self.assertEqual(settings["env"]["DISABLE_UPDATES"], "1")
+
+    def test_mutant_pins_back_in_the_process_env_stop_the_launch(self):
+        env = dict(self.session_env(), DISABLE_AUTOUPDATER="1",
+                   DISABLE_UPDATES="1")
+        problems = self.fx.check("holdout-eval", env=env).problems
+        self.assertIn("setting differs: env.DISABLE_UPDATES (manifest null "
+                      "live 1) [process env]", problems)
 
 
 class TestShape(unittest.TestCase):

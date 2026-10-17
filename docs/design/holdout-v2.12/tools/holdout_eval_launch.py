@@ -77,7 +77,10 @@ FILE_MODES = {"100644": 0o644, "100755": 0o755}
 # Reused from the autopilot so both holdout runners share one rule set.
 STRIPPED_ENV = holdout_autopilot.STRIPPED_ENV
 FORBIDDEN_ARGS = holdout_autopilot.FORBIDDEN_ARGS
-SESSION_ENV_PINS = {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
+# The update pins (DISABLE_AUTOUPDATER / DISABLE_UPDATES) are NOT added to the
+# process env: the materialized runner settings pin them in their `env`, as
+# for B3 and the fix harness. The identity check holds the process env to the
+# manifest's baseline, taken from the generating shell.
 
 # The session argv; every {field} is filled by build_argv and the result is
 # validated by the autopilot's check_argv (no forbidden flag, exactly one
@@ -184,11 +187,10 @@ def materialize_plugin_from_candidate(repo, candidate, dest):
 
 def session_environment(env=None):
     """The environment the check sees AND the session gets: the process env
-    minus STRIPPED_ENV, plus the update pins."""
+    minus STRIPPED_ENV."""
     out = dict(os.environ if env is None else env)
     for name in STRIPPED_ENV:
         out.pop(name, None)
-    out.update(SESSION_ENV_PINS)
     return out
 
 
