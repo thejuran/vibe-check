@@ -703,7 +703,19 @@ class TestPermissionPrompts(_Tmp):
         self.assertEqual(list(fp.PREAPPROVED_TOOLS),
                          ["Bash", "Read", "Write", "Edit", "Grep", "Glob",
                           "Task", "Agent"])
-        self.assertEqual(list(fp.PROMPTLESS_TOOLS), ["AskUserQuestion"])
+        self.assertEqual(list(fp.PROMPTLESS_TOOLS),
+                         ["AskUserQuestion", "ToolSearch", "ReportFindings"])
+
+    def test_promptless_tools_seen_in_recorded_b3_runs_stay_valid(self):
+        """Recorded 2.1.281 B3 sessions (manual mode, runner dies on any
+        prompt) called ToolSearch (`select:Read`, `select:SendMessage`) and a
+        subagent called ReportFindings, with no approval."""
+        events = REVIEW + [
+            _use("t1", "ToolSearch", {"query": "select:Read", "max_results": 1}),
+            _result("t1", [{"type": "tool_reference", "tool_name": "Read"}]),
+            _use("f1", "ReportFindings", {"findings": []}),
+            _result("f1", "No findings reported."), _turn("Pass 1 done")]
+        self.assertEqual(fp.run_validity(*self.files(events)), [])
 
     def test_normal_card_flow_is_valid(self):
         for decision in (None, "user_temporary"):
