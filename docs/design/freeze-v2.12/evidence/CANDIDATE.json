@@ -1,9 +1,9 @@
 {
-  "candidate_sha": "14808a961d0217bc39d6461d3cb9e695743316f8",
-  "selected_at": "2026-10-17T03:39:59Z",
+  "candidate_sha": "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230",
+  "selected_at": "2026-10-17T12:56:01Z",
   "selected_by": "54-10",
   "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
-  "selection": "re-run #3 of 54-10 after follow-up 2b (78a07f9, 0568c1f, 14808a9: AskUserQuestion pre-approved for measured sessions; containment_proof verify judges the review session with the invalid-run rule and requires the card shown and answered); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
+  "selection": "re-run #4 of 54-10 after follow-up 2c (f7e19a4..2a6dbb4: holdout-eval sessions run in B3's --permission-mode manual with B3's pre-approved tool list; the 2b AskUserQuestion allow entry is removed; an unexpected permission prompt, including in a subagent transcript, makes a measured run invalid); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
   "superseded": [
     {
       "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
@@ -92,6 +92,39 @@
       ],
       "draft_manifest_id": "2ff153d64fbf654ddda10e1c4131793d00fb0215e24d8858f9a2266f2bd03901",
       "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-535f48861cd8/ (byte-identical copies taken at the re-run #3 selection; see INDEX.md)"
+    },
+    {
+      "candidate_sha": "14808a961d0217bc39d6461d3cb9e695743316f8",
+      "selected_at": "2026-10-17T03:39:59Z",
+      "selected_by": "54-10",
+      "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
+      "selection": "re-run #3 of 54-10 after follow-up 2b (78a07f9, 0568c1f, 14808a9: AskUserQuestion pre-approved for measured sessions; containment_proof verify judges the review session with the invalid-run rule and requires the card shown and answered); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
+      "status": "superseded",
+      "superseded_at": "2026-10-17T12:56:01Z",
+      "superseded_by_fix_commits": {
+        "follow_up_2c": [
+          "f7e19a4d94313d2ba6da42d70bd0c0359f5e9dcb",
+          "6be2af36993515fd8ae0e600fadcde7fb4eb16ed",
+          "7ad4f9c5c27601045745bda7da2f6a1e7f826ce5",
+          "0e718606e74ecf8d3ee4abfd5e266f16f08a3765",
+          "975354ac7a2346c0ad123eb5d69a2f18cd80c21f",
+          "1f7901d918d488a70791ddd1cec79749d566c8a3",
+          "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230"
+        ]
+      },
+      "reason": "The 54-10 re-run #3 holdout-launcher containment proof (owner-run, fixture ~/.b3/containment-proof/holdout-14808a961d02/run-1) reproduced the gate failure again: under --permission-mode dontAsk the fix-loop card (AskUserQuestion) is denied even when settings-measured.json pre-approves it, so follow-up 2b's premise was wrong and every holdout-eval review that reaches the card stays an invalid run (containment_proof.py verify on that fixture: FAILED, permission failure: AskUserQuestion, no card). Follow-up 2c (54-17) moves the holdout permission mode: the launcher runs --permission-mode manual with B3's --allowedTools list (Bash,Read,Write,Edit,Grep,Glob,Task,Agent), the 2b AskUserQuestion allow entry is removed, and freeze_policy's invalid-run rule (and containment_proof) now treats any unexpected permission prompt, including in subagent transcripts, as an invalid run. Those are covered files, so the candidate moved (D-23) and 54-10 restarts on a new candidate.",
+      "candidate_guard_after_fix": "CANDIDATE MOVED — STOPPING (exit 1) at HEAD 2a6dbb4: 12 non-reporting changes after the candidate (b3-runner-v2.12 settings-measured.json, freeze-v2.12 README + containment_proof.py + freeze_policy.py + test_b3_runner_layer.py + test_containment_proof.py + test_freeze_policy.py, holdout-v2.12 README + holdout_autopilot.py + holdout_eval_launch.py + test_holdout_eval_launch.py, RUN-PHASE54-live.md), 11 covered artifacts differ; classes engineering, detection, workflow",
+      "stop_evidence": {
+        "holdout_proof_fixture": "~/.b3/containment-proof/holdout-14808a961d02/run-1 (outside the repo; not committed: the owner-run proof failed verify, so no containment-proof-holdout.json was written for 14808a9)"
+      },
+      "evidence_commits_54_10": [
+        "ea9b999b0d52f4042f60bc52837fbabc4fd99daf",
+        "9b8a011f85fdf72aa591a159703b64732ccb963b",
+        "dc616194e96d8f520a43b75e4a29d47743d75564",
+        "da559086640769f4dc85859d8a16df471a9c4ef0"
+      ],
+      "draft_manifest_id": "6e9e61a012f7d146681638ee4bbce8f60ffcbb9bffba6ced958f92899a815fe1",
+      "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-14808a961d02/ (byte-identical copies taken at the re-run #4 selection; see INDEX.md)"
     }
   ]
 }
