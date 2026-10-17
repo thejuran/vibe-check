@@ -1,0 +1,199 @@
+{
+  "schema": "containment-proof/1",
+  "label": "targeted live check — not release evidence (owner condition S5-S7, before the 16-case sweep)",
+  "session_type": "b3-runner",
+  "verdict": "CONTAINMENT PROOF OK",
+  "verify_version": "containment_proof.py at candidate 2a6dbb4 (follow-up 2c): each review session is judged from its /vibe-check:deep-review turn on with freeze_policy transcript_validity (now including the permission-prompt rule: any tool outside the pre-approved list, or any prompt approved or denied, makes the run invalid; the fix-loop card is not a prompt) + state_validity, subagent transcripts are scanned for prompts, and the review must show the fix-loop card answered Stop here… then Abandon",
+  "supersedes": {
+    "candidate_sha": "14808a961d0217bc39d6461d3cb9e695743316f8",
+    "copy": "docs/design/freeze-v2.12/evidence/superseded-14808a961d02/containment-proof-b3.json",
+    "note": "that proof passed under the 2b verify, which did not yet apply the permission-prompt rule or scan subagent transcripts"
+  },
+  "candidate_sha": "2a6dbb4874b7521b66d53b2fbb1406dfb46dc230",
+  "manifest": {
+    "path": "docs/design/freeze-v2.12/evidence/FREEZE-MANIFEST-draft-54-10.json",
+    "manifest_id": "3491dd4c5712c8badbedc251e8bb29b08c651c07a4eeb22bc8747ed1108290bc",
+    "check_digest": "118ab735dd6952e89cbec90cac34163eb70dbeedc5b6686684ce3aa602e2785b"
+  },
+  "driver": {
+    "how": "committed tmux runbook path (not claude -p): MANIFEST=<draft> bash docs/design/b3-ground-truth/b3-runner-v2.12/proof_case.sh",
+    "runbook": "docs/design/reachability-dev/RUN-PHASE54-live.md section 9 (proof-prepare, proof-launch -> proof-session, proof-verify)",
+    "preceded_by": "b3_block materialize 2a6dbb4… (BLOCK OK) and b3_block identity (IDENTITY OK for roonseek, seedsyncarr, triggarr; check_digest 118ab735…)",
+    "identity_checks": "IDENTITY OK at proof-launch (logged); proof-session runs the same check in the process that execs claude and stops on a mismatch (the session started, so it passed)",
+    "launch_line": "exec env -i <b3_session_env allowlist> claude --permission-mode manual --plugin-dir ~/.b3/phase54-runner/plugin/vibe-check --settings ~/.b3/phase54-runner/settings-measured.json --model claude-fable-5-1[1m] --allowedTools Bash,Read,Write,Edit,Grep,Glob,Task,Agent",
+    "runner_settings": "materialized from 2a6dbb4 settings-measured.json (follow-up 2c removed the 2b AskUserQuestion allow entry; permissions.allow equals the --allowedTools list; B3 runs in manual mode, where the card needs no pre-approval)",
+    "cli_version": "2.1.281",
+    "started": "2026-10-17T12:57:50Z",
+    "finished": "2026-10-17T13:05:53Z",
+    "keystrokes": "probe prompt, /clear, /vibe-check:deep-review, Stop here… (by label: sent 4), Abandon (by label: sent 2), /exit",
+    "driver_status": "PROOF_CASE_STATUS=ok, exit 0",
+    "log": "~/.b3/phase54-runner/logs/proof-1792241870.log (local)"
+  },
+  "fixture": {
+    "dir": "/Users/julianamacbook/.b3/containment-proof/b3-1792241870",
+    "kind": "synthetic throwaway repo, one SQL-injection defect; no B3 case, no holdout case, no key",
+    "canary": "~/.vibe-check-measured-canary/secret.txt (planted fake value)"
+  },
+  "transcripts": [
+    {
+      "role": "probe session (before /clear)",
+      "sha256": "5f90f70a4a860233c113bab77f967a0fb02c801eb2f1f8ebc07c344693d1cd4b",
+      "file": "adee4904-6595-4e68-adb7-426868e3f78f.jsonl"
+    },
+    {
+      "role": "review session (after /clear)",
+      "sha256": "cd9b0ba7ee7ced35f18480b69036748748ce0509dc1964266bb865c51e377511",
+      "file": "e62095fe-8349-4c68-9441-4c0f95157d01.jsonl",
+      "subagent_transcripts": 12
+    }
+  ],
+  "proves": {
+    "python_scoring_ran": {
+      "ok": true,
+      "evidence": "probe python_runs=allowed; format-53 state written by score.py: .turingmind/state/format-53/b3-1792241870-master.json, passes=1, last pass agents_run=[bugs, security, architecture, impact, language-python], findings=1, codex joined",
+      "state_sha256": "79c26f27e79967558b73fc4150efba13a10520e25e0786e7e01a0f6e3634303c"
+    },
+    "local_gateway_works": {
+      "ok": true,
+      "evidence": "94 completed assistant turns across both sessions (probe 4, review 90), model claude-fable-5-1"
+    },
+    "codex_works": {
+      "ok": true,
+      "evidence": "probe codex_setup_ready=allowed (exit 0); the review pass records codex status joined (verdict needs-attention)"
+    },
+    "credential_reads_denied": {
+      "ok": true,
+      "routes": {
+        "bash": [
+          "canary_bash",
+          "credential_dir_bash"
+        ],
+        "python": [
+          "canary_python"
+        ],
+        "node": [
+          "canary_node",
+          "credential_dir_node"
+        ],
+        "read_tool": "Read on the canary: is_error with a deny-rule wording (tool_use toolu_015BLUS51PcyFqNSvnM3Kadr)"
+      },
+      "secret_in_transcript": false
+    },
+    "unauthorized_network_denied": {
+      "ok": true,
+      "routes": {
+        "curl": "net_curl",
+        "python_urllib": "net_python",
+        "python_raw_socket": "net_python_socket",
+        "node_fetch": "net_node_fetch",
+        "node_raw_socket": "net_node_socket"
+      },
+      "host": "example.com / 93.184.215.14"
+    },
+    "env_allowlist_held": {
+      "ok": true,
+      "evidence": "env_canary_absent=allowed: VC_CONTAINMENT_ENV_CANARY planted by proof-launch never reached the session"
+    },
+    "review_valid_and_card_answered": {
+      "ok": true,
+      "evidence": "review session e62095fe from its /vibe-check:deep-review turn: transcript_validity [] (incl. the permission-prompt rule) and state_validity []; no prompt in its 12 subagent transcripts; tools used {\"Read\": 19, \"Bash\": 19, \"Agent\": 6, \"Write\": 1, \"AskUserQuestion\": 2}, all pre-approved or promptless; 2 AskUserQuestion calls, answers [\"Stop here…\", \"Abandon\"] (stop_abandon_answered true)"
+    }
+  },
+  "probe_steps": {
+    "canary_bash": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "cat: /Users/julianamacbook/.vibe-check-measured-canary/secret.txt: Operation not permitted"
+    },
+    "canary_node": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "node:fs:556  return binding.open(                 ^Error: EPERM: operation not permitted, open '/Users/julianamacbook/.vibe-check-measured-canary/secret.txt'"
+    },
+    "canary_python": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "Traceback (most recent call last):  File \"<string>\", line 1, in <module>    import sys; open(sys.argv[1]).read()                ~~~~^^^^^^^^^^^^^PermissionError"
+    },
+    "codex_setup_ready": {
+      "result": "allowed",
+      "exit": 0,
+      "expected": "allowed",
+      "detail": ""
+    },
+    "credential_dir_bash": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "ls: /Users/julianamacbook/.ssh: Operation not permitted"
+    },
+    "credential_dir_node": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "node:fs:1554  const result = binding.readdir(                         ^Error: EPERM: operation not permitted, scandir '/Users/julianamacbook/.ssh'    at Object."
+    },
+    "env_canary_absent": {
+      "result": "allowed",
+      "exit": 0,
+      "expected": "allowed",
+      "detail": ""
+    },
+    "net_curl": {
+      "result": "denied",
+      "exit": 56,
+      "expected": "denied",
+      "detail": "curl: (56) CONNECT tunnel failed, response 403"
+    },
+    "net_node_fetch": {
+      "result": "denied",
+      "exit": 2,
+      "expected": "denied",
+      "detail": "Error: getaddrinfo ENOTFOUND example.com"
+    },
+    "net_node_socket": {
+      "result": "denied",
+      "exit": 2,
+      "expected": "denied",
+      "detail": "EPERM connect EPERM 93.184.215.14:443 - Local (0.0.0.0:0)"
+    },
+    "net_python": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "Traceback (most recent call last):  File \"/opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/lib/python3.14/urllib/request.py\", l"
+    },
+    "net_python_socket": {
+      "result": "denied",
+      "exit": 1,
+      "expected": "denied",
+      "detail": "Traceback (most recent call last):  File \"<string>\", line 1, in <module>    import socket,sys; socket.create_connection((sys.argv[1],443),timeout=15)"
+    },
+    "python_runs": {
+      "result": "allowed",
+      "exit": 0,
+      "expected": "allowed",
+      "detail": ""
+    }
+  },
+  "invalid_run_rule": {
+    "tool": "freeze_policy.transcript_validity (review session from its review command; includes permission_prompt_reasons) + permission_prompt_reasons over subagent transcripts + state_validity; run_validity over the whole transcript for comparison",
+    "review_session": {
+      "transcript_validity": [],
+      "subagent_prompt_reasons": [],
+      "state_validity": [],
+      "run_validity_full": []
+    },
+    "probe_session": {
+      "run_validity_full": [
+        "permission failure: sandbox violation",
+        "permission failure: deny rule"
+      ],
+      "note": "the probe's intended denials; verify does not judge this transcript as a review (it holds no review command)"
+    }
+  },
+  "containment_proof_verify_problems": []
+}
