@@ -92,8 +92,17 @@ def engineering_evidence_dir(tmp_path, candidate_sha, outcome="pass", overrides=
     return tmp_path
 
 
+def write_validity(run_dir, valid=True, reasons=(), state_sha256=None):
+    """A run-validity record in the shape freeze_policy.write_validity writes."""
+    with open(os.path.join(run_dir, "validity.json"), "w", encoding="utf-8") as fh:
+        json.dump({"schema": "freeze-run-validity/1", "valid": valid,
+                   "reasons": list(reasons), "transcript_sha256": "1" * 64,
+                   "state_sha256": state_sha256 or "2" * 64,
+                   "checked_at": "2026-10-17T00:00:00Z"}, fh)
+
+
 def write_b3_run(root, diff, n, manifest_id, candidate_sha=CAND, stamps=True,
-                 dirname=None):
+                 dirname=None, valid=True):
     d = os.path.join(root, diff, dirname or "run-%d" % n)
     os.makedirs(d, exist_ok=True)
     lines = ["runtime_fingerprint: " + "9" * 64]
@@ -104,6 +113,9 @@ def write_b3_run(root, diff, n, manifest_id, candidate_sha=CAND, stamps=True,
         fh.write("\n".join(lines) + "\n")
     with open(os.path.join(d, "state.json"), "w", encoding="utf-8") as fh:
         fh.write('{"passes": [{"findings": []}]}')
+    if valid is not None:
+        write_validity(d, valid, () if valid else ("permission failure: Bash",),
+                       freeze_common.sha256_file(os.path.join(d, "state.json")))
     return d
 
 
@@ -120,13 +132,15 @@ def write_harness_run(root, case, run, manifest_id, mode="default",
     return d
 
 
-def write_holdout_run(root, case_id, n, manifest_id, candidate_sha=CAND):
+def write_holdout_run(root, case_id, n, manifest_id, candidate_sha=CAND, valid=True):
     d = os.path.join(root, case_id, "run-%d" % n)
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "identity.json"), "w", encoding="utf-8") as fh:
         json.dump({"case_id": case_id, "run_name": "run-%d" % n,
                    "manifest_id": manifest_id, "check_digest": DIGEST,
                    "candidate_sha": candidate_sha}, fh)
+    if valid is not None:
+        write_validity(d, valid, () if valid else ("no scorer output",))
     return d
 
 
@@ -528,6 +542,175 @@ class TestPathMapCoverage(unittest.TestCase):
         cats = fp.classify([fp.MAP_SELF_PATH], fp.load_path_map())
         self.assertEqual(set(cats[fp.MAP_SELF_PATH]),
                          {"engineering", "detection", "workflow"})
+
+
+def _tool_result(text, is_error=True):
+    return {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t1", "is_error": is_error,
+         "content": text}]}}
+
+
+def _turn(text):
+    return {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "text", "text": text}]}}
+
+
+class TestRunValidity(_Tmp):
+    """The invalid-run rule: a permission failure, an incomplete review or
+    missing scorer output makes a run INVALID — never quiet, never a miss."""
+
+    def files(self, events=None, state=None):
+        t = os.path.join(self.tmp, "transcript.jsonl")
+        with open(t, "w", encoding="utf-8") as fh:
+            for ev in (events if events is not None else
+                       [{"type": "user", "message": {"role": "user", "content":
+                                                     "/vibe-check:deep-review"}},
+                        _turn("Pass 1 done")]):
+                fh.write(json.dumps(ev) + "\n")
+        st = os.path.join(self.tmp, "state.json")
+        if state is not False:
+            with open(st, "w", encoding="utf-8") as fh:
+                json.dump(state if state is not None else
+                          {"passes": [{"pass_number": 1, "agents_run": ["bugs"],
+                                       "findings": []}]}, fh)
+        return t, st
+
+    def test_clean_run_is_valid(self):
+        self.assertEqual(fp.run_validity(*self.files()), [])
+
+    def test_permission_failures_are_invalid(self):
+        base = [{"type": "user", "message": {"role": "user",
+                                            "content": "/vibe-check:deep-review"}}]
+        for text in ("Permission to use Bash has been denied because Claude Code "
+                     "is running in don't ask mode.",
+                     "<tool_use_error>File is in a directory that is denied by your "
+                     "permission settings.</tool_use_error>",
+                     "<tool_use_error>File is covered by a Read deny rule in your "
+                     "settings</tool_use_error>"):
+            with self.subTest(text=text):
+                reasons = fp.run_validity(*self.files(base + [_tool_result(text)]))
+                self.assertTrue(any(r.startswith("permission failure") for r in reasons),
+                                reasons)
+        viol = _tool_result("ok\n<sandbox_violations>\ndeny file-write-create /x\n"
+                            "</sandbox_violations>", is_error=False)
+        reasons = fp.run_validity(*self.files(base + [viol]))
+        self.assertIn("permission failure: sandbox violation", reasons)
+
+    def test_benign_errors_and_quoted_text_stay_valid(self):
+        base = [{"type": "user", "message": {"role": "user",
+                                            "content": "/vibe-check:deep-review"}}]
+        events = base + [_tool_result("Exit code 1\ngrep: no match"),
+                         _tool_result("docs say: Permission to use Bash has been denied",
+                                      is_error=False)]
+        self.assertEqual(fp.run_validity(*self.files(events)), [])
+
+    def test_incomplete_or_unscored_reviews_are_invalid(self):
+        cases = {
+            "no review command": (lambda: self.files([_turn("hello")]),
+                                  "incomplete review: no /vibe-check:deep-review"),
+            "no state": (lambda: self.files(state=False),
+                         "no scorer output: state missing"),
+            "no passes": (lambda: self.files(state={"passes": []}),
+                          "no scorer output: no pass in the state"),
+            "pass without agents": (lambda: self.files(state={"passes": [{"pass_number": 1}]}),
+                                    "incomplete review: the last pass ran no agents"),
+        }
+        for label, (make, want) in cases.items():
+            with self.subTest(label=label):
+                st = os.path.join(self.tmp, "state.json")
+                if os.path.exists(st):
+                    os.unlink(st)
+                self.assertIn(want, fp.run_validity(*make()))
+        self.assertIn("incomplete review: transcript empty or unreadable",
+                      fp.run_validity(os.path.join(self.tmp, "absent.jsonl"),
+                                      self.files()[1]))
+
+    def test_write_validity_binds_hashes_and_never_overwrites(self):
+        t, st = self.files()
+        run = os.path.join(self.tmp, "case", "run-1")
+        os.makedirs(run)
+        rec = fp.write_validity(run, t, st)
+        self.assertTrue(rec["valid"])
+        self.assertEqual(rec["state_sha256"], freeze_common.sha256_file(st))
+        self.assertEqual(rec["transcript_sha256"], freeze_common.sha256_file(t))
+        with self.assertRaises(fp.FreezeError):
+            fp.write_validity(run, t, st)
+
+    def test_cli_exit_codes(self):
+        t, st = self.files()
+        run = os.path.join(self.tmp, "case", "run-1")
+        os.makedirs(run)
+        self.assertEqual(fp.main(["run-validity", "--run-dir", run,
+                                  "--transcript", t, "--state", st]), 0)
+        bad = os.path.join(self.tmp, "case", "run-2")
+        os.makedirs(bad)
+        os.unlink(st)
+        self.assertEqual(fp.main(["run-validity", "--run-dir", bad,
+                                  "--transcript", t, "--state", st]), 1)
+        with open(os.path.join(bad, "validity.json"), encoding="utf-8") as fh:
+            self.assertFalse(json.load(fh)["valid"])
+
+
+class TestInvalidRunsNeverCount(_Tmp):
+    M = "a" * 64
+
+    def pre(self):
+        return fp.Prerequisites(engineering={}, lineage={
+            "resolved": True, "previous_manifest_id": None,
+            "previous_candidate_sha": None, "inheritance": {},
+            "required_reruns": []}, seal_order={"required": False, "ok": True,
+                                                "proof_path": None}, problems=[])
+
+    def manifest(self):
+        return {"manifest_id": self.M, "candidate_sha": CAND}
+
+    def test_b3_run_without_or_with_failed_validity_is_ineligible(self):
+        ok_dir = write_b3_run(self.tmp, "should-quiet-1", 1, self.M)
+        self.assertEqual(fp.eligible(fp.read_record(ok_dir), self.manifest(), self.pre()),
+                         (True, "manifest match"))
+        none_dir = write_b3_run(self.tmp, "should-quiet-1", 2, self.M, valid=None)
+        self.assertEqual(fp.eligible(fp.read_record(none_dir), self.manifest(), self.pre()),
+                         (False, "invalid run: no validity record"))
+        bad_dir = write_b3_run(self.tmp, "should-quiet-1", 3, self.M, valid=False)
+        self.assertEqual(fp.eligible(fp.read_record(bad_dir), self.manifest(), self.pre()),
+                         (False, "invalid run: permission failure: Bash"))
+
+    def test_b3_validity_must_match_the_archived_state(self):
+        d = write_b3_run(self.tmp, "should-quiet-1", 1, self.M)
+        with open(os.path.join(d, "state.json"), "w", encoding="utf-8") as fh:
+            fh.write('{"passes": []}')
+        self.assertEqual(fp.eligible(fp.read_record(d), self.manifest(), self.pre()),
+                         (False, "invalid run: validity record does not match state.json"))
+
+    def test_holdout_invalid_run_is_ineligible(self):
+        d = write_holdout_run(self.tmp, "H-00000004", 1, self.M, valid=False)
+        self.assertEqual(fp.eligible(fp.read_record(d), self.manifest(), self.pre()),
+                         (False, "invalid run: no scorer output"))
+        d = write_holdout_run(self.tmp, "H-00000004", 2, self.M, valid=None)
+        self.assertEqual(fp.eligible(fp.read_record(d), self.manifest(), self.pre()),
+                         (False, "invalid run: no validity record"))
+
+    def test_invalid_quiet_run_leaves_its_slot_missing(self):
+        """An invalid quiet-case run is never a QUIET verdict: the slot is
+        missing and the gate is UNMET."""
+        root = os.path.join(self.tmp, "runs")
+        for d in fp.B3_DIFFS:
+            for n in fp.RUN_NUMBERS:
+                write_b3_run(root, d, n, self.M,
+                             valid=not (d == "should-quiet-1" and n == 1))
+        res = fp.gate_status("b3x3", fp_walk(root), self.manifest(), self.pre(),
+                             verdicts=b3_verdicts())
+        self.assertEqual(res["status"], "UNMET")
+        self.assertIn(("should-quiet-1", 1), res["missing"])
+        self.assertTrue(any("invalid run" in i["reason"] for i in res["ineligible"]))
+
+
+def fp_walk(root):
+    out = []
+    for case in sorted(os.listdir(root)):
+        for name in sorted(os.listdir(os.path.join(root, case))):
+            out.append(fp.read_record(os.path.join(root, case, name)))
+    return out
 
 
 class TestSealOrderRequired(unittest.TestCase):
@@ -1241,6 +1424,16 @@ class TestMutants(_SealBase):
             return real(proof, *a)
         with mock.patch.object(fp, "_proof_problems", mutant):
             self.assertFalse(self._passes(name, TestSealOrder))
+
+    def test_mutant_invalid_run_rule_removed(self):
+        name = "test_b3_run_without_or_with_failed_validity_is_ineligible"
+        self.assertTrue(self._passes(name, TestInvalidRunsNeverCount))
+        with mock.patch.object(fp, "_validity_problem", lambda record: None):
+            self.assertFalse(self._passes(name, TestInvalidRunsNeverCount))
+        name = "test_permission_failures_are_invalid"
+        self.assertTrue(self._passes(name, TestRunValidity))
+        with mock.patch.object(fp, "PERMISSION_FAILURE_RES", ()):
+            self.assertFalse(self._passes(name, TestRunValidity))
 
     def test_mutant_d_classify_range_new_map_only(self):
         name = "test_map_edit_cannot_reduce"

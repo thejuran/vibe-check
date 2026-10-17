@@ -442,7 +442,11 @@ echo 'BLOCK OK'
 ### post `<case> <n>`
 
 Every check that can refuse runs before anything is written to NOTES. The identity check runs
-FIRST. The run's stamp must then name the identity just verified (the same `manifest_id` and
+FIRST. After the transcript is captured, `freeze_policy.py run-validity` judges the run: a
+permission failure (a tool refusal or a sandbox violation), an incomplete review or a missing
+scorer output makes it INVALID. An invalid run is never archived as a result — `fail` it and redo
+the slot; it never counts as quiet or as a miss. The `validity.json` it writes binds the verdict to
+the run's transcript and state hashes, and the tally refuses a run without a valid one. The run's stamp must then name the identity just verified (the same `manifest_id` and
 `candidate_sha`). Otherwise nothing is archived: `fail` the run and rerun it on a build that
 passes the check.
 
@@ -509,6 +513,12 @@ grep -qF "$CACHE" "$RUN_DIR/transcript.jsonl" \
   || { echo 'THE RUN LOADED THE OWNER INSTALLED RELEASE CACHE, NOT THE RUNNER COPY — fail — STOPPING'; exit 1; }
 ! grep -qF "$PLUGIN_ROOT" "$RUN_DIR/transcript.jsonl" \
   || { echo 'THE RUN LOADED THE REPO PLUGIN TREE, NOT THE RUNNER COPY — fail — STOPPING'; exit 1; }
+# the invalid-run rule: a permission failure (a tool refusal or a sandbox violation), an incomplete
+# review or missing scorer output is never a result (never quiet, never a miss); validity.json binds
+# the verdict to this transcript and state
+python3 "$FREEZE_TOOLS/freeze_policy.py" run-validity --run-dir "$RUN_DIR" \
+    --transcript "$RUN_DIR/transcript.jsonl" --state "$RUN_DIR/state.json" \
+  || { echo 'INVALID RUN (permission failure, incomplete review or no scorer output) — fail it — STOPPING'; exit 1; }
 shasum -a 256 "$RUN_DIR/transcript.jsonl" | awk '{print $1}' > "$RUN_DIR/transcript.jsonl.sha256"
 # lane archive (lanes.json when produced) with its own privacy scan; matched text is never printed
 python3 "$SCRIPTS/lanearchive.py" extract --transcript "$RUN_DIR/transcript.jsonl" \

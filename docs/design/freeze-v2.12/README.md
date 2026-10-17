@@ -215,6 +215,19 @@ across that manifest, because the only differing file is reporting-only.
 
 - Failed and superseded runs stay on disk, labeled. They are never
   deleted, and never satisfy a passing gate.
+- **Invalid runs never count.** A measured review run whose session hit a
+  permission failure (a tool refusal such as a `dontAsk` denial or a deny
+  rule, or an OS-sandbox violation), whose review did not complete, or whose
+  scorer left no output is INVALID: never a quiet result, never a detection
+  miss. `freeze_policy.py run-validity --run-dir <D> --transcript <T>
+  --state <S>` judges a run and writes `<D>/validity.json` (schema
+  `freeze-run-validity/1`, binding the transcript and state sha256; never
+  overwritten). Every B3 and holdout-eval record needs a valid one: without
+  it the record is ineligible (`invalid run: <reason>`), so its slot stays
+  missing and the gate is UNMET. The B3 `post` block runs it and refuses to
+  archive an invalid run (it is failed and redone); for B3 the record must
+  also match the archived `state.json`. Each Phase-55 holdout run must be
+  judged the same way, on the owner's side, before its verdict is used.
 - Missing or failed mandatory evidence = UNMET. An owner waiver may
   authorize shipping, but it is never MET: `gate_status` has no waiver
   input and never converts UNMET to MET.

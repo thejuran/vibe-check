@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 
 import freeze_common
 from freeze_common import FreezeError
@@ -176,6 +177,27 @@ ENGINEERING_RECORD_FILES = {"test-gate.json": "tests",
                             "security-gate.json": "security",
                             "deep-review-release.json": "deep-review"}
 
+# The invalid-run rule (owner condition). A measured review run is INVALID —
+# never a quiet result, never a detection miss — when its session hit a
+# permission failure, its review did not complete, or the scorer left no
+# output. `run-validity` judges a run from its transcript and review state
+# and writes VALIDITY_NAME into the run dir; a b3 or holdout-eval record
+# without a valid record is ineligible, so its slot stays missing.
+VALIDITY_NAME = "validity.json"
+VALIDITY_SCHEMA = "freeze-run-validity/1"
+VALIDITY_KINDS = ("b3", "holdout-eval")
+REVIEW_COMMAND = "vibe-check:deep-review"
+# Claude Code's refusal wordings (observed: dontAsk refusal, Read/Edit deny
+# rules), matched only in tool results marked as errors.
+PERMISSION_FAILURE_RES = (
+    re.compile(r"Permission to use (\S+) has been denied"),
+    re.compile(r"denied by your permission settings"),
+    re.compile(r"is covered by an? \S+ deny rule"),
+    re.compile(r"running in don't ask mode"),
+)
+# The OS sandbox reports a refused operation in this block of ANY tool result.
+SANDBOX_VIOLATION_RE = re.compile(r"<sandbox_violations>")
+
 RUN_DIR_RE = re.compile(r"^run-([0-9]+)(?:\.(failed|voided)-.+)?$")
 SUPERSEDED_MARKER = "SUPERSEDED"
 
@@ -269,7 +291,143 @@ def _blank_record(path, kind, gate, run):
     return {"kind": kind, "gate": gate, "slot": None, "manifest_id": None,
             "check_digest": None, "candidate_sha": None, "identity_ok": False,
             "identity_reason": None, "verdict": None, "outcome": None,
-            "superseded_by": None, "path": path, "run": run}
+            "superseded_by": None, "path": path, "run": run,
+            "invalid_reason": None}
+
+
+# --------------------------------------------------------------------------- #
+# Run validity
+# --------------------------------------------------------------------------- #
+
+def _transcript_events(path):
+    events = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(ev, dict):
+                    events.append(ev)
+    except OSError:
+        return None
+    return events
+
+
+def _flatten(value, out):
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _flatten(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _flatten(v, out)
+
+
+def _tool_results(events):
+    for ev in events:
+        msg = ev.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        for part in content if isinstance(content, list) else ():
+            if isinstance(part, dict) and part.get("type") == "tool_result":
+                texts = []
+                _flatten(part.get("content"), texts)
+                yield bool(part.get("is_error")), "\n".join(texts)
+
+
+def run_validity(transcript_path, state_path):
+    """Every reason the run is invalid ([] = valid), from the session
+    transcript and the review state the scorer wrote."""
+    reasons = []
+    events = _transcript_events(transcript_path)
+    if not events:
+        reasons.append("incomplete review: transcript empty or unreadable")
+    else:
+        alltext = []
+        _flatten(events, alltext)
+        if not any(REVIEW_COMMAND in t for t in alltext):
+            reasons.append("incomplete review: no /%s" % REVIEW_COMMAND)
+        for is_error, text in _tool_results(events):
+            if SANDBOX_VIOLATION_RE.search(text):
+                if "permission failure: sandbox violation" not in reasons:
+                    reasons.append("permission failure: sandbox violation")
+            if not is_error:
+                continue
+            for rx in PERMISSION_FAILURE_RES:
+                m = rx.search(text)
+                if m:
+                    what = m.group(1) if rx.groups else "deny rule"
+                    reason = "permission failure: %s" % what
+                    if reason not in reasons:
+                        reasons.append(reason)
+                    break
+    state = _read_json_obj(state_path) if state_path else None
+    if state is None:
+        reasons.append("no scorer output: state missing")
+    else:
+        passes = state.get("passes")
+        if not isinstance(passes, list) or not passes:
+            reasons.append("no scorer output: no pass in the state")
+        else:
+            last = passes[-1] if isinstance(passes[-1], dict) else {}
+            if not isinstance(last.get("findings"), list) and "findings" in last:
+                reasons.append("no scorer output: findings not a list")
+            agents = last.get("agents_run")
+            if not isinstance(agents, list) or not agents:
+                reasons.append("incomplete review: the last pass ran no agents")
+    return reasons
+
+
+def _sha_or_none(path):
+    return freeze_common.sha256_file(path) if path and os.path.isfile(path) else None
+
+
+def write_validity(run_dir, transcript_path, state_path, clock=time.time):
+    """Judge the run and write <run_dir>/validity.json (never overwrites).
+    The record binds the transcript's and the state's sha256."""
+    reasons = run_validity(transcript_path, state_path)
+    record = {"schema": VALIDITY_SCHEMA, "valid": not reasons,
+              "reasons": reasons,
+              "transcript_sha256": _sha_or_none(transcript_path),
+              "state_sha256": _sha_or_none(state_path),
+              "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                          time.gmtime(clock()))}
+    path = os.path.join(run_dir, VALIDITY_NAME)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, 0o644)
+    except FileExistsError:
+        raise FreezeError("refused: %s already exists" % path)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    return record
+
+
+def _read_validity(run_dir, kind):
+    """None when the run carries a valid validity record, else the reason."""
+    data = _read_json_obj(os.path.join(run_dir, VALIDITY_NAME))
+    if data is None or data.get("schema") != VALIDITY_SCHEMA \
+            or not isinstance(data.get("valid"), bool):
+        return "no validity record"
+    if not data["valid"]:
+        reasons = [r for r in data.get("reasons") or [] if isinstance(r, str)]
+        return "; ".join(reasons) or "marked invalid"
+    if kind == "b3":
+        state = os.path.join(run_dir, "state.json")
+        if _sha_or_none(state) != data.get("state_sha256"):
+            return "validity record does not match state.json"
+    return None
+
+
+def _validity_problem(record):
+    if record.get("kind") in VALIDITY_KINDS and record.get("invalid_reason"):
+        return "invalid run: %s" % record["invalid_reason"]
+    return None
 
 
 def _parse_fingerprint(path):
@@ -394,6 +552,8 @@ def read_record(path):
         rec = _blank_record(run_dir, "unknown", None, run)
         rec["identity_reason"] = "unrecognized run record"
         return rec
+    if rec["kind"] in VALIDITY_KINDS:
+        rec["invalid_reason"] = _read_validity(run_dir, rec["kind"])
     if m and m.group(2):
         rec["verdict"] = "FAILED" if m.group(2) == "failed" else "voided"
         rec["superseded_by"] = "%s/run-%s" % (parent, m.group(1))
@@ -1116,7 +1276,8 @@ def _eligible_run(record, active_manifest, prerequisites, lineage):
     if not record.get("identity_ok"):
         return False, "identity check not recorded (%s)" % (
             record.get("identity_reason") or "no stamp")
-    for problem in (_verdict_problem(record), _superseded_problem(record),
+    for problem in (_validity_problem(record), _verdict_problem(record),
+                    _superseded_problem(record),
                     _seal_problem(record, prerequisites)):
         if problem:
             return False, problem
@@ -1337,7 +1498,25 @@ def build_parser():
     p.add_argument("--replacement", nargs="+", required=True)
     p.add_argument("--out", default=None)
     p.add_argument("--repo", default=REPO_DEFAULT)
+    p = sub.add_parser("run-validity",
+                       help="judge one measured review run and write validity.json")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--transcript", required=True)
+    p.add_argument("--state", required=True)
     return parser
+
+
+def _cmd_run_validity(args):
+    if not os.path.isdir(args.run_dir):
+        raise FreezeError("run dir is not a directory: %s" % args.run_dir)
+    record = write_validity(args.run_dir, args.transcript, args.state)
+    if record["valid"]:
+        print("VALID RUN")
+        return 0
+    for reason in record["reasons"]:
+        print("invalid: %s" % reason)
+    print("INVALID RUN — it never counts as quiet or as a miss; fail it and rerun")
+    return 1
 
 
 def main(argv=None):
@@ -1349,6 +1528,8 @@ def main(argv=None):
     try:
         if args.cmd == "classify":
             return _cmd_classify(args)
+        if args.cmd == "run-validity":
+            return _cmd_run_validity(args)
         return _cmd_seal_order_proof(args)
     except FreezeError as exc:
         sys.stderr.write("freeze_policy.py: %s\n" % exc)

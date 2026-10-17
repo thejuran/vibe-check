@@ -330,6 +330,31 @@ def containment_problems(d):
     return out
 
 
+VALIDITY_CALL = ('python3 "$FREEZE_TOOLS/freeze_policy.py" run-validity --run-dir "$RUN_DIR"')
+
+
+def post_validity_holds(runbook_text):
+    """`post` judges the run (freeze_policy run-validity over the run's own
+    transcript and state) after capturing them and before anything reaches
+    NOTES, and stops on an invalid run: a permission failure, an incomplete
+    review or missing scorer output is never archived as a result."""
+    post = block(runbook_text, "post")
+    if post is None:
+        return False
+    at = post.find(VALIDITY_CALL)
+    if at < 0:
+        return False
+    tail = post[at:at + 400]
+    if '--transcript "$RUN_DIR/transcript.jsonl"' not in tail \
+            or '--state "$RUN_DIR/state.json"' not in tail:
+        return False
+    if not re.search(r"\|\| \{ echo 'INVALID RUN[^']*STOPPING'; exit 1; \}", tail):
+        return False
+    capture = post.find('"$RUN_DIR/transcript.jsonl" <<\'PY\'')
+    notes = post.find('>> "$REPO/$NOTES"')
+    return -1 not in (capture, notes) and capture < at < notes
+
+
 _WINDOW_LITERALS = ("phase54-live-memory-park", "runs-phase54", "phase53-")
 
 
@@ -429,6 +454,9 @@ class TestRealFiles(unittest.TestCase):
 
     def test_session_env_allowlist(self):
         self.assertTrue(session_env_allowlist_holds(self.runbook, self.common))
+
+    def test_post_judges_validity(self):
+        self.assertTrue(post_validity_holds(self.runbook))
 
     def test_run_case_reads_window_paths_from_the_runbook(self):
         self.assertTrue(run_case_window_paths_holds(_read(RUN_CASE)))
@@ -611,6 +639,16 @@ class TestMutants(unittest.TestCase):
         mutant = self.common.replace(body, body.replace(
             "fm.session_environment(os.environ)", "dict(os.environ)"), 1)
         self.assertFalse(session_env_allowlist_holds(self.runbook, mutant))
+
+    def test_mutant_post_archives_invalid_runs(self):
+        self.assertTrue(post_validity_holds(self.runbook))
+        post = block(self.runbook, "post")
+        start = post.find(VALIDITY_CALL)
+        end = post.find("exit 1; }", start) + len("exit 1; }")
+        removed = self.runbook.replace(post, post[:start] + post[end:], 1)
+        self.assertFalse(post_validity_holds(removed))
+        soft = self.runbook.replace(post, post[:end].replace("exit 1; }", "true; }") + post[end:], 1)
+        self.assertFalse(post_validity_holds(soft))
 
     def test_mutant_run_case_hardcoded_window_paths(self):
         text = _read(RUN_CASE)
