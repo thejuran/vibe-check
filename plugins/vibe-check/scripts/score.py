@@ -127,12 +127,30 @@ _NV_NOT_ADMITTED = "nv-not-admitted"
 # HEAD is rechecked, never assumed fixed. A rename, a reformat, a move to another
 # file, or a body change under a surviving name can all preserve the failure.
 # It closes only with evidence: a `resolved` recheck verdict from the lane that
-# raised it, a fix-obsolete or confirmed-fix verdict, or an owner decision.
+# raised it, a fix-obsolete verdict, a confirmed-fix verdict together with an
+# independent reviewer's routed `resolved` for the repaired code, or an owner
+# decision.
 _NV_UNLOCATED_STATUS = "needs-recheck"
-# Fix-agent verdict sources. `confirmed-fix` is the evidence-bound close of an
+# Fix-agent verdict sources. `confirmed-fix` is the fix agent's evidence for an
 # owner-named Needs-verification fix (carry_state records it only with a fix
-# commit touching the file, the fix agent's check, and the repaired blob).
+# commit touching the file, the fix agent's check, and the repaired blob). It
+# never closes alone: the item closes only when a reviewer other than the fixer,
+# asked on a routed recheck request (`route: "confirmed-fix"`, bound to the
+# finding's stable_hash and the code snapshot it judged), answers `resolved`
+# for the repaired blob.
 _FIX_SOURCES = ("fix-obsolete", "confirmed-fix")
+_CONFIRMED_ROUTE = "confirmed-fix"
+# The fixer is never the independent reviewer of its own fix.
+_FIXER_AGENTS = frozenset({"fix"})
+_R_CF_NO_REVIEWER = ("verdict: confirmed fix awaiting independent re-check: "
+                     "no eligible reviewer this pass")
+_R_CF_NO_ANSWER = ("verdict: confirmed fix awaiting independent re-check: "
+                   "the routed reviewer gave no verdict")
+_R_CF_STILL = ("verdict: confirmed fix not verified: the routed reviewer says "
+               "it still applies")
+_R_CF_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
+                  "the repaired code")
+_R_ROUTED_ORPHAN = "verdict: routed re-check without a confirmed fix"
 # The rollback marker (R10). Every Needs-verification row is emitted with
 # `members` = exactly its own lane ref whose `obligation` is this STRING. A
 # reader without Needs-verification support validates `members[].obligation`
@@ -1185,7 +1203,47 @@ def _request_matches(req, record, stored_hash):
             or req["agent"] != record.get("agent")
             or req["title"] != record.get("title")):
         return False
+    if req.get("route") is not None:
+        # A routed (confirmed-fix) request names exactly one carried lead.
+        return req["stable_hash"] is not None and req["stable_hash"] == stored_hash
     return req["stable_hash"] is None or req["stable_hash"] == stored_hash
+
+
+def _routed_request_ok(req):
+    """A request without `route` is a plain recheck. A routed one must be a
+    confirmed-fix re-check naming a stored hash, the snapshot the reviewer
+    judged (`snapshot_blob`: a blob id, or null when it could not be bound),
+    and at least one asked agent, none of them the fixer."""
+    if req.get("route") is None:
+        return "route" not in req
+    return (req["route"] == _CONFIRMED_ROUTE
+            and isinstance(req.get("stable_hash"), str)
+            and "snapshot_blob" in req
+            and (req["snapshot_blob"] is None or _nonempty_str(req["snapshot_blob"]))
+            and bool(req["agents"])
+            and not any(a in _FIXER_AGENTS for a in req["agents"]))
+
+
+def _confirmed_fix_recheck(record, stored_hash, verified, routed, requests_by_token):
+    """The independent half of a confirmed-fix closure.
+
+    -> (reviewer verdicts, None) when a reviewer other than the fixer, asked on
+    a routed request for this record, answered `resolved` on that token and the
+    snapshot it judged is the repaired blob; else (None, fixed reason). `routed`
+    holds the verdicts already matched to this record on routed tokens.
+    """
+    issued = [req for req in requests_by_token.values()
+              if req.get("route") == _CONFIRMED_ROUTE
+              and _request_matches(req, record, stored_hash)]
+    if not issued:
+        return None, _R_CF_NO_REVIEWER
+    if not routed:
+        return None, _R_CF_NO_ANSWER
+    if any(v["verdict"] == "still-applies" for v in routed):
+        return None, _R_CF_STILL
+    if any(requests_by_token[v["token"]]["snapshot_blob"] != verified for v in routed):
+        return None, _R_CF_SNAPSHOT
+    return routed, None
 
 
 def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verdicts,
@@ -1209,9 +1267,14 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
     evidence keeps the verdict's own head_sha: the revision actually verified.
 
     A confirmed-fix verdict (an owner-named fix of a Needs-verification item,
-    committed and verified against the repaired file — carry_state records it
-    only with that evidence) is judged by the same rule and resolves only a
-    Needs-verification record; its evidence also keeps the fix commit.
+    committed and verified by the fix agent against the repaired file —
+    carry_state records it only with that evidence) is judged by the same rule,
+    applies only to a Needs-verification record, and never resolves alone: it
+    also needs the independent half (_confirmed_fix_recheck) — a reviewer other
+    than the fixer, asked on a routed request bound to this record's stored
+    hash, answering `resolved` for the repaired snapshot. Its evidence keeps
+    the reviewer, the fix commit and the repaired blob. Verdicts on routed
+    tokens never act as plain rechecks.
     Records that are fixed-since-last are consumed by the caller, never here.
     """
     consumed = []
@@ -1221,6 +1284,11 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
     matched = [v for v in recheck_verdicts
                if _request_matches(requests_by_token[v["token"]], record, stored_hash)]
     consumed.extend(matched)
+    routed = [v for v in matched
+              if requests_by_token[v["token"]].get("route") == _CONFIRMED_ROUTE]
+    matched = [v for v in matched
+               if requests_by_token[v["token"]].get("route") is None]
+    routed_judged = False
     resolving = [v for v in matched if v["verdict"] == "resolved"]
     if resolving:
         if status != "needs-recheck":
@@ -1243,6 +1311,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
             }
 
     if stored_hash is None:
+        # Routed requests always name a stored hash, so `routed` is empty here.
         return resolution, consumed, rejected
     for v in fix_verdicts:
         if v["stable_hash"] != stored_hash:
@@ -1259,6 +1328,30 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         if not (_nonempty_str(verified) and verified == v.get("head_blob")):
             rejected.append((v, "verdict: evidence changed since verification"))
             continue
+        if confirmed:
+            routed_judged = True
+            reviewers, why = _confirmed_fix_recheck(
+                record, stored_hash, verified, routed, requests_by_token)
+            if why is not None:
+                rejected.append((v, why))
+                continue
+            if resolution is None:
+                agents = []
+                for r in reviewers:
+                    if r["agent"] not in agents:
+                        agents.append(r["agent"])
+                resolution = {
+                    "source": "confirmed-fix",
+                    "agents": agents,
+                    "verdict": "resolved",
+                    "head_sha": head_sha,
+                    "at_pass": pass_number,
+                    "reason": (reviewers[0]["reason"]
+                               if isinstance(reviewers[0].get("reason"), str) else ""),
+                    "verified_blob": verified,
+                    "commit_sha": v["commit_sha"],
+                }
+            continue
         if resolution is None:
             verdict_head = v.get("head_sha")
             resolution = {
@@ -1270,8 +1363,8 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
                 "reason": v["reason"] if isinstance(v.get("reason"), str) else "",
                 "verified_blob": verified,
             }
-            if confirmed:
-                resolution["commit_sha"] = v["commit_sha"]
+    if routed and not routed_judged:
+        rejected.extend((v, _R_ROUTED_ORPHAN) for v in routed)
     return resolution, consumed, rejected
 
 
@@ -1608,7 +1701,8 @@ def run(envelope):
                 and all(isinstance(a, str) for a in req["agents"])
                 and all(k in req for k in ("file", "line", "agent", "title"))
                 and (req.get("stable_hash") is None
-                     or isinstance(req.get("stable_hash"), str))):
+                     or isinstance(req.get("stable_hash"), str))
+                and _routed_request_ok(req)):
             requests_by_token[req["token"]] = dict(req, stable_hash=req.get("stable_hash"))
         else:
             _reject_verdict("verdict: malformed", req)

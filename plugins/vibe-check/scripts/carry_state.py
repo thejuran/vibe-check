@@ -51,6 +51,10 @@ WHAT CLOSES. Exactly one of:
     HEAD's blob for that file. A stale verdict never closes; a verdict whose
     code has since changed never closes; without a HEAD blob map nothing closes
     by verdict (fail closed).
+A fix-agent `applied` verdict (a confirmed fix of a Needs-verification item) is
+the fixer's own evidence and closes nothing here: the item closes only on a
+rerun, through score.py's routed independent re-check (`resolved[]`).
+finalize-counts lists it in `confirmed_fix_awaiting_recheck_hashes`.
 Nothing else closes a finding: no age, no pass count. Closure is evaluated per
 record and is never inherited from a lead.
 
@@ -309,15 +313,22 @@ def _sha40(value):
 
 
 def _verdict_kind_valid(verdict, record):
-    """`obsolete` closes any record; `applied` (a confirmed fix) closes only a
-    Needs-verification record and only with its commit recorded. Any other
-    verdict closes nothing."""
+    """Only `obsolete` closes a record here. `applied` (a confirmed fix of a
+    Needs-verification item) is the fixer's own evidence and never closes
+    alone: it closes only on a rerun, when score.py accepts an independent
+    reviewer's routed `resolved` re-check for the repaired code (resolved[]).
+    Any other verdict closes nothing."""
     kind = verdict.get("verdict")
-    if kind == "obsolete":
-        return True
-    if kind == "applied":
-        return (record.get("band") == NV_BAND and _sha40(verdict.get("commit_sha")))
-    return False
+    return kind == "obsolete"
+
+
+def _confirmed_fix_awaiting(record, state, last):
+    """True for a last-pass `applied` verdict on a Needs-verification record
+    with its fix commit recorded: fixed, awaiting the independent re-check."""
+    verdict = state.get("fix_verdicts", {}).get(record["stable_hash"])
+    return (isinstance(verdict, dict) and verdict.get("verdict") == "applied"
+            and verdict.get("at_pass") == last["pass_number"]
+            and record.get("band") == NV_BAND and _sha40(verdict.get("commit_sha")))
 
 
 def _fix_closes(record, state, last, head_blobs, kind=None):
@@ -498,18 +509,18 @@ def finalize_counts(state, head_blobs=None):
     medium = []
     nv = []
     obsolete = []
-    confirmed = []
+    awaiting = []
     for rec in records:
         if _fix_closes(rec, state, last, head_blobs, kind="obsolete"):
             obsolete.append(rec["stable_hash"])
-        if _fix_closes(rec, state, last, head_blobs, kind="applied"):
-            confirmed.append(rec["stable_hash"])
         if _closed(rec, state, last, head_blobs):
             continue
         if rec["band"] in _CW_BANDS:
             cw.append(rec["stable_hash"])
         elif rec["band"] == NV_BAND:
             nv.append(rec["stable_hash"])
+        if _confirmed_fix_awaiting(rec, state, last):
+            awaiting.append(rec["stable_hash"])
         elif rec["band"] == "medium":
             medium.append(rec["stable_hash"])
     return {
@@ -520,7 +531,7 @@ def finalize_counts(state, head_blobs=None):
         "unacknowledged_medium_hashes": sorted(medium),
         "undecided_nv_hashes": sorted(nv),
         "verified_obsolete_hashes": sorted(obsolete),
-        "verified_confirmed_fix_hashes": sorted(confirmed),
+        "confirmed_fix_awaiting_recheck_hashes": sorted(set(awaiting)),
     }
 
 

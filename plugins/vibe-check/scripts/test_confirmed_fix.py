@@ -11,12 +11,25 @@ evidence. This file pins the evidence-bound route: an owner-named fix whose
     blob, and the file was clean (HEAD = index = working tree) before and after
     the batch, so the verified bytes are the committed bytes,
 is recorded as a fix verdict `applied` bound to the finding's stable_hash, the
-commit and that blob. It closes the item only while HEAD's blob for the file
-still equals the recorded blob (the fix-obsolete rule), and REVIEW.md lists it
-under "Resolved by verification" with source `confirmed-fix`.
+commit and that blob.
+
+That record is evidence, never a closure (owner decision, fix-1 follow-ups,
+S9): the fixer's own check cannot close the item. On the next pass the item is
+re-checked by a reviewer other than the fixer, batched into the ordinary
+rerun: the raising lane when it is dispatched, otherwise a deterministic
+eligible native lane that is (a Codex-raised item, a gated or undispatched
+lane). The routed `<recheck>` request names the finding's stable_hash and the
+code snapshot the reviewer judged (`snapshot_blob`). The item closes
+automatically, as "Resolved by verification (confirmed-fix)", only when that
+reviewer answers `resolved` on the routed token AND the reviewed snapshot, the
+repaired blob and HEAD's blob at collect time are the same. `still-applies`,
+no answer, no eligible reviewer, or a snapshot mismatch keeps it open with a
+clear `verdict: confirmed fix …` reason. Finalize without a rerun never closes
+it; it lists the item as awaiting the re-check. No owner card is added.
 
 Confirmation alone (`fix N` with no applied result), an applied patch without
-that evidence, or the lane's absence never closes the item.
+that evidence, the fixer's check alone, or the lane's absence never closes the
+item.
 """
 
 import json
@@ -203,35 +216,54 @@ def applied_verdict(blob=BLOB, at_pass=1, **over):
 
 
 class TestFinalizeCountsConfirmedFix(unittest.TestCase):
-    def test_closes_while_head_blob_matches(self):
+    """Without a rerun there is no independent re-check: the fixer's evidence
+    alone never closes the item. It is listed as awaiting the re-check."""
+
+    def test_fixer_only_evidence_stays_open(self):
         s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict()})
         c = carry_state.finalize_counts(s, {F: BLOB})
-        self.assertEqual(c["undecided_nv"], 0)
-        self.assertEqual(c["verified_confirmed_fix_hashes"], [NVH])
+        self.assertEqual(c["undecided_nv"], 1)
+        self.assertEqual(c["undecided_nv_hashes"], [NVH])
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+        self.assertNotIn("verified_confirmed_fix_hashes", c)
         self.assertEqual(c["verified_obsolete_hashes"], [])
+        self.assertFalse(carry_state.is_closed(nv_row(), s, {F: BLOB}))
 
-    def test_reopens_when_head_moved(self):
+    def test_awaiting_listed_whatever_head_holds(self):
         s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict()})
-        for blobs in ({F: "2" * 40}, {}, None):
+        for blobs in ({F: BLOB}, {F: "2" * 40}, {}, None):
             with self.subTest(blobs=blobs):
                 c = carry_state.finalize_counts(s, blobs)
                 self.assertEqual(c["undecided_nv_hashes"], [NVH])
-                self.assertEqual(c["verified_confirmed_fix_hashes"], [])
+                self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_owner_decision_still_closes_and_is_not_awaiting(self):
+        s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict()},
+                       decisions={NVH: {"decision": "dismiss", "at_pass": 1,
+                                        "reason": "accepted risk"}})
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv"], 0)
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_stale_pass_never_closes(self):
         s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict(at_pass=0)})
-        self.assertEqual(carry_state.finalize_counts(s, {F: BLOB})["undecided_nv"], 1)
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv"], 1)
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_applied_without_commit_never_closes(self):
         v = applied_verdict()
         del v["commit_sha"]
         s = state_with(nv_row(), fix_verdicts={NVH: v})
-        self.assertEqual(carry_state.finalize_counts(s, {F: BLOB})["undecided_nv"], 1)
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv"], 1)
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_applied_on_non_nv_row_never_closes(self):
         s = state_with(warning_row(), fix_verdicts={WH: applied_verdict()})
         c = carry_state.finalize_counts(s, {F: BLOB})
         self.assertEqual(c["outstanding_cw_hashes"], [WH])
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_unknown_verdict_never_closes(self):
         s = state_with(nv_row(), fix_verdicts={
@@ -244,7 +276,7 @@ class TestFinalizeCountsConfirmedFix(unittest.TestCase):
             "verified_blob": BLOB, "reason": "gone"}})
         c = carry_state.finalize_counts(s, {F: BLOB})
         self.assertEqual(c["verified_obsolete_hashes"], [NVH])
-        self.assertEqual(c["verified_confirmed_fix_hashes"], [])
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
 
 # --------------------------------------------------------------------------- #
@@ -264,6 +296,35 @@ def _rejections(r):
             if str(x.get("reason", "")).startswith("verdict:")]
 
 
+HEAD2 = "e" * 40
+R_NO_REVIEWER = ("verdict: confirmed fix awaiting independent re-check: "
+                 "no eligible reviewer this pass")
+R_NO_ANSWER = ("verdict: confirmed fix awaiting independent re-check: "
+               "the routed reviewer gave no verdict")
+R_STILL = ("verdict: confirmed fix not verified: the routed reviewer says "
+           "it still applies")
+R_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
+              "the repaired code")
+R_ORPHAN_ROUTED = "verdict: routed re-check without a confirmed fix"
+
+
+def routed_request(row, token="R1", agents=("bugs",), snapshot=BLOB, **over):
+    """The Phase 2 request for a confirmed-fix re-check routed to a reviewer
+    other than the fixer (20-dispatch.md step 3)."""
+    req = {"token": token, "agents": list(agents),
+           "stable_hash": row["stable_hash"], "file": row["file"],
+           "line": row["line"], "agent": row["agent"], "title": row["title"],
+           "route": "confirmed-fix", "snapshot_blob": snapshot}
+    req.update(over)
+    return req
+
+
+def reviewer_verdict(token="R1", agent="bugs", verdict="resolved",
+                     reason="parse_limit is range-checked before use"):
+    return {"source": "recheck", "token": token, "agent": agent,
+            "verdict": verdict, "reason": reason}
+
+
 class TestScoreConfirmedFix(unittest.TestCase):
     def _pass1(self):
         rows = _nv_rows(score.run(_nv_env([_nv()])))
@@ -274,20 +335,19 @@ class TestScoreConfirmedFix(unittest.TestCase):
         return score.run(_nv_env([], carryforward=[cf], pass_number=2,
                                  head_sha="e" * 40, verdicts=verdicts))
 
-    def test_changed_code_with_confirmed_fix_resolves(self):
+    def test_fixer_only_evidence_stays_open(self):
+        """The fix agent's own check is recorded evidence; with no
+        independent re-check it closes nothing and says why."""
         p1 = self._pass1()
         cf = _nv_cf(p1, None, None)  # the fix changed the code: not located
         r = self._pass2(cf, [confirmed_verdict(p1["stable_hash"])])
-        self.assertEqual(_nv_rows(r), [])
-        self.assertEqual(len(r["resolved"]), 1)
-        res = r["resolved"][0]
-        self.assertEqual(res["stable_hash"], p1["stable_hash"])
-        self.assertEqual(res["band"], score.NV_BAND)
-        self.assertEqual(res["resolution"], {
-            "source": "confirmed-fix", "agents": ["fix"], "verdict": "applied",
-            "head_sha": "d" * 40, "at_pass": 2, "reason": "validate parse_limit",
-            "verified_blob": BLOB, "commit_sha": SHA})
-        self.assertEqual(state_shape.check_resolved_record(res, FUTURE), [])
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("resolved", r)
+        self.assertEqual(_rejections(r), [R_NO_REVIEWER])
+        rej = [x for x in r["filtered"] if x["reason"] == R_NO_REVIEWER][0]
+        self.assertEqual((rej["file"], rej["line"], rej["title"]),
+                         (rows[0]["file"], rows[0]["line"], rows[0]["title"]))
 
     def test_lane_absent_stays_open(self):
         p1 = self._pass1()
@@ -354,10 +414,193 @@ class TestScoreConfirmedFix(unittest.TestCase):
         self.assertEqual(r["resolved"][0]["resolution"]["source"], "fix-obsolete")
         self.assertNotIn("commit_sha", r["resolved"][0]["resolution"])
 
+    def test_routed_lane_resolves_and_binds_finding_and_snapshot(self):
+        """A lane other than the fixer answers `resolved` on the routed token
+        for the repaired snapshot: closes as confirmed-fix."""
+        p1 = self._pass1()
+        r = score.run(_nv_env([], carryforward=[_nv_cf(p1, None, None)],
+                              pass_number=2, head_sha=HEAD2,
+                              recheck_requests=[routed_request(p1, agents=("bugs",))],
+                              verdicts=[confirmed_verdict(p1["stable_hash"]),
+                                        reviewer_verdict()]))
+        self.assertEqual(_nv_rows(r), [])
+        self.assertEqual(_rejections(r), [])
+        res = r["resolved"][0]
+        self.assertEqual(res["stable_hash"], p1["stable_hash"])
+        self.assertEqual(res["band"], score.NV_BAND)
+        self.assertEqual(res["resolution"], {
+            "source": "confirmed-fix", "agents": ["bugs"], "verdict": "resolved",
+            "head_sha": HEAD2, "at_pass": 2,
+            "reason": "parse_limit is range-checked before use",
+            "verified_blob": BLOB, "commit_sha": SHA})
+        self.assertEqual(state_shape.check_resolved_record(res, FUTURE), [])
+
     def test_stable_hash_and_golden_digest_unchanged(self):
         import test_score
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"),
                          test_score.GOLDEN_DIGEST)
+
+
+# --------------------------------------------------------------------------- #
+# Independent re-check (owner decision S9, fix-1 follow-ups)
+# --------------------------------------------------------------------------- #
+class TestIndependentRecheck(unittest.TestCase):
+    def _pass1(self, agent="codex-adversarial"):
+        rows = _nv_rows(score.run(_nv_env([_nv(agent=agent)])))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["agent"], agent)
+        return rows[0]
+
+    def _run(self, p1, requests, verdicts, cf=None, fix=True, **fix_over):
+        vs = ([confirmed_verdict(p1["stable_hash"], **fix_over)] if fix else [])
+        env = _nv_env([], carryforward=[cf or _nv_cf(p1, None, None)],
+                      pass_number=2, head_sha=HEAD2,
+                      recheck_requests=requests, verdicts=vs + verdicts)
+        return score.run(json.loads(json.dumps(env)))
+
+    def _open(self, r, reason):
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        self.assertIn(reason, _rejections(r))
+
+    def test_codex_origin_routed_and_resolved_closes(self):
+        p1 = self._pass1("codex-adversarial")
+        r = self._run(p1, [routed_request(p1, agents=("bugs",))],
+                      [reviewer_verdict(agent="bugs")])
+        self.assertEqual(_nv_rows(r), [])
+        res = r["resolved"][0]
+        self.assertEqual(res["agent"], "codex-adversarial")
+        self.assertEqual(res["resolution"]["source"], "confirmed-fix")
+        self.assertEqual(res["resolution"]["agents"], ["bugs"])
+        self.assertEqual(res["resolution"]["commit_sha"], SHA)
+        self.assertEqual(res["resolution"]["verified_blob"], BLOB)
+
+    def test_gated_lane_origin_routed_to_another_lane_closes(self):
+        p1 = self._pass1("architecture")
+        r = self._run(p1, [routed_request(p1, agents=("bugs",))],
+                      [reviewer_verdict(agent="bugs")])
+        self.assertEqual(r["resolved"][0]["resolution"]["agents"], ["bugs"])
+
+    def test_raising_lane_dispatched_is_the_reviewer(self):
+        p1 = self._pass1("security")
+        r = self._run(p1, [routed_request(p1, agents=("security",))],
+                      [reviewer_verdict(agent="security")])
+        self.assertEqual(r["resolved"][0]["resolution"]["agents"], ["security"])
+
+    def test_persisted_snippet_still_closes_on_routed_resolved(self):
+        """The fix may guard the failure elsewhere in the file; the routed
+        reviewer judged the repaired file."""
+        p1 = self._pass1()
+        cf = _nv_cf(p1, p1["canonical_line_content"], p1["current_code"])
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], cf=cf)
+        self.assertEqual(_nv_rows(r), [])
+        self.assertEqual(r["resolved"][0]["resolution"]["source"], "confirmed-fix")
+
+    def test_routed_still_applies_keeps_open_with_reason(self):
+        p1 = self._pass1()
+        r = self._run(p1, [routed_request(p1)],
+                      [reviewer_verdict(verdict="still-applies",
+                                        reason="limit unchecked on reload path")])
+        self._open(r, R_STILL)
+
+    def test_no_eligible_reviewer_keeps_open_with_reason(self):
+        p1 = self._pass1()
+        self._open(self._run(p1, [], []), R_NO_REVIEWER)
+
+    def test_routed_reviewer_silent_keeps_open_with_reason(self):
+        p1 = self._pass1()
+        self._open(self._run(p1, [routed_request(p1)], []), R_NO_ANSWER)
+
+    def test_snapshot_changed_after_verdict_reopens(self):
+        """HEAD's blob read at collect time (after the reviewer answered)
+        differs from the repaired blob: the verdict judged code that is no
+        longer there."""
+        p1 = self._pass1()
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()],
+                      head_blob="2" * 40)
+        self._open(r, "verdict: evidence changed since verification")
+
+    def test_reviewed_snapshot_not_the_repaired_code_stays_open(self):
+        p1 = self._pass1()
+        for snap in ("3" * 40, None):
+            with self.subTest(snapshot=snap):
+                r = self._run(p1, [routed_request(p1, snapshot=snap)],
+                              [reviewer_verdict()])
+                self._open(r, R_SNAPSHOT)
+
+    def test_fixer_cannot_be_the_routed_reviewer(self):
+        p1 = self._pass1()
+        r = self._run(p1, [routed_request(p1, agents=("fix",))],
+                      [reviewer_verdict(agent="fix")])
+        self._open(r, "verdict: malformed")
+        self.assertIn(R_NO_REVIEWER, _rejections(r))
+
+    def test_routed_verdict_counts_only_on_the_routed_token(self):
+        p1 = self._pass1()
+        other = {"token": "R2", "agents": ["bugs"], "stable_hash": None,
+                 "file": "src/other.py", "line": 3, "agent": "bugs",
+                 "title": "other"}
+        cases = {
+            "wrong token": ([routed_request(p1), other],
+                            [reviewer_verdict(token="R2")]),
+            "agent not asked": ([routed_request(p1, agents=("bugs",))],
+                                [reviewer_verdict(agent="security")]),
+            "unissued token": ([routed_request(p1)],
+                               [reviewer_verdict(token="R9")]),
+        }
+        for name, (reqs, vs) in cases.items():
+            with self.subTest(name):
+                r = self._run(p1, reqs, vs)
+                self.assertEqual(len(_nv_rows(r)), 1)
+                self.assertNotIn("resolved", r)
+
+    def test_routed_resolved_without_confirmed_fix_closes_nothing(self):
+        """A routed re-check is only the second half of the evidence."""
+        p1 = self._pass1()
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], fix=False)
+        self._open(r, R_ORPHAN_ROUTED)
+
+    def test_stale_or_changed_fix_verdict_with_routed_resolved_stays_open(self):
+        p1 = self._pass1()
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], at_pass=0)
+        self._open(r, "verdict: stale fix verdict")
+
+    def test_malformed_routed_requests_rejected(self):
+        p1 = self._pass1()
+        good = routed_request(p1)
+        bads = {
+            "unknown route": dict(good, route="owner"),
+            "no stable_hash": dict(good, stable_hash=None),
+            "no snapshot key": {k: v for k, v in good.items()
+                                if k != "snapshot_blob"},
+            "empty snapshot": dict(good, snapshot_blob=""),
+            "fixer asked": dict(good, agents=["bugs", "fix"]),
+            "nobody asked": dict(good, agents=[]),
+        }
+        for name, bad in bads.items():
+            with self.subTest(name):
+                r = self._run(p1, [bad], [reviewer_verdict()])
+                self.assertEqual(len(_nv_rows(r)), 1)
+                self.assertNotIn("resolved", r)
+                self.assertIn("verdict: malformed", _rejections(r))
+
+    def test_plain_recheck_path_unchanged(self):
+        """An ordinary hint (no route) on a needs-recheck NV item still closes
+        through the raising lane's `resolved`, as before."""
+        p1 = self._pass1("bugs")
+        plain = {"token": "R1", "agents": ["bugs"],
+                 "stable_hash": p1["stable_hash"], "file": p1["file"],
+                 "line": p1["line"], "agent": "bugs", "title": p1["title"]}
+        r = self._run(p1, [plain], [reviewer_verdict()], fix=False)
+        self.assertEqual(r["resolved"][0]["resolution"]["source"], "recheck")
+
+    def test_hash_and_golden_digest_unchanged(self):
+        import test_score
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"),
+                         test_score.GOLDEN_DIGEST)
+        p1 = self._pass1()
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()])
+        self.assertEqual(r["resolved"][0]["stable_hash"], p1["stable_hash"])
 
 
 # --------------------------------------------------------------------------- #
@@ -411,13 +654,25 @@ class TestMutants(unittest.TestCase):
                       "True")
         self.assertTrue(self._recorded(mod, payload(), row=warning_row(h=NVH)))
 
-    def test_mutant_finalize_band_check_removed(self):
+    def test_mutant_awaiting_band_check_removed(self):
         s = state_with(warning_row(), fix_verdicts={WH: applied_verdict()})
-        self.assertEqual(carry_state.finalize_counts(s, {F: BLOB})["outstanding_cw"], 1)
+        self.assertEqual(carry_state.finalize_counts(
+            s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [])
         mod = _mutant(CARRY_STATE_PY, "cs_m5",
                       "record.get(\"band\") == NV_BAND and _sha40(",
                       "_sha40(")
-        self.assertEqual(mod.finalize_counts(s, {F: BLOB})["outstanding_cw"], 0)
+        self.assertEqual(mod.finalize_counts(
+            s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [WH])
+
+    def test_mutant_fixer_only_closes_at_finalize(self):
+        """Restoring the old rule (an `applied` verdict closes like obsolete)
+        trips: the fixer's own check would close the item with no re-check."""
+        s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict()})
+        self.assertEqual(carry_state.finalize_counts(s, {F: BLOB})["undecided_nv"], 1)
+        mod = _mutant(CARRY_STATE_PY, "cs_m6",
+                      'return kind == "obsolete"',
+                      'return kind in ("obsolete", "applied")')
+        self.assertEqual(mod.finalize_counts(s, {F: BLOB})["undecided_nv"], 0)
 
     def test_mutant_score_band_check_removed(self):
         f = _nv()
@@ -428,11 +683,67 @@ class TestMutants(unittest.TestCase):
         cf["canonical_line_content"] = "something else entirely"
         cf["canonical_window"] = "something else entirely"
         env = _nv_env([], carryforward=[cf], pass_number=2, head_sha="e" * 40,
-                      verdicts=[confirmed_verdict(p1["stable_hash"])])
+                      recheck_requests=[routed_request(p1)],
+                      verdicts=[confirmed_verdict(p1["stable_hash"]),
+                                reviewer_verdict()])
         self.assertNotIn("resolved", score.run(json.loads(json.dumps(env))))
         mod = _mutant(SCORE_PY, "score_m1",
                       "record.get(\"band\") != NV_BAND", "False")
         self.assertIn("resolved", mod.run(json.loads(json.dumps(env))))
+
+
+class TestIndependentRecheckMutants(unittest.TestCase):
+    def _env(self, p1, requests, verdicts, fix=True, **fix_over):
+        vs = ([confirmed_verdict(p1["stable_hash"], **fix_over)] if fix else [])
+        return _nv_env([], carryforward=[_nv_cf(p1, None, None)],
+                       pass_number=2, head_sha=HEAD2,
+                       recheck_requests=requests, verdicts=vs + verdicts)
+
+    def _p1(self):
+        return _nv_rows(score.run(_nv_env([_nv(agent="codex-adversarial")])))[0]
+
+    def _trips(self, name, old, new, env):
+        self.assertNotIn("resolved", score.run(json.loads(json.dumps(env))))
+        mod = _mutant(SCORE_PY, name, old, new)
+        self.assertIn("resolved", mod.run(json.loads(json.dumps(env))))
+
+    def test_mutant_routed_requirement_removed(self):
+        p1 = self._p1()
+        self._trips("score_m2", "reviewers, why = _confirmed_fix_recheck(",
+                    "reviewers, why = [{'agent': 'fix', 'reason': ''}], None; _x = (",
+                    self._env(p1, [], []))
+
+    def test_mutant_still_applies_check_removed(self):
+        p1 = self._p1()
+        env = self._env(p1, [routed_request(p1, agents=("bugs", "security"))],
+                        [reviewer_verdict(agent="bugs"),
+                         reviewer_verdict(agent="security", verdict="still-applies")])
+        self._trips("score_m3",
+                    'if any(v["verdict"] == "still-applies" for v in routed):',
+                    "if False:", env)
+
+    def test_mutant_snapshot_binding_removed(self):
+        p1 = self._p1()
+        env = self._env(p1, [routed_request(p1, snapshot="3" * 40)],
+                        [reviewer_verdict()])
+        self._trips("score_m4",
+                    'requests_by_token[v["token"]]["snapshot_blob"] != verified',
+                    "False", env)
+
+    def test_mutant_fixer_exclusion_removed(self):
+        p1 = self._p1()
+        env = self._env(p1, [routed_request(p1, agents=("fix",))],
+                        [reviewer_verdict(agent="fix")])
+        self._trips("score_m5",
+                    'not any(a in _FIXER_AGENTS for a in req["agents"])',
+                    "True", env)
+
+    def test_mutant_routed_counted_as_plain_recheck(self):
+        p1 = self._p1()
+        env = self._env(p1, [routed_request(p1)], [reviewer_verdict()], fix=False)
+        self._trips("score_m6",
+                    'if requests_by_token[v["token"]].get("route") is None]',
+                    "]", env)
 
 
 # --------------------------------------------------------------------------- #
@@ -455,9 +766,46 @@ def fix_loop_collects_evidence_holds(text):
 
 
 def finalize_renders_confirmed_fix_holds(text):
-    return ("`verified_confirmed_fix_hashes`" in text
+    return ("`confirmed_fix_awaiting_recheck_hashes`" in text
             and "source `confirmed-fix`" in text
-            and '"verified_confirmed_fix_hashes"' in text)
+            and '"confirmed_fix_awaiting_recheck_hashes"' in text
+            and "verified_confirmed_fix_hashes" not in text
+            and "awaiting an independent re-check" in text
+            and "never closes here" in text)
+
+
+def _dispatch_step3(text):
+    i = text.find("3. **Confirmed-fix re-check")
+    j = text.find("\n4. Bind `$RECHECK_REQUESTS`", i)
+    return text[i:j] if i >= 0 and j > i else None
+
+
+def dispatch_routes_confirmed_fix_holds(text):
+    step = _dispatch_step3(text)
+    if step is None:
+        return False
+    i = text.find("\n4. Bind `$RECHECK_REQUESTS`")
+    step4 = text[i:text.find("\n\n", i + 1)]
+    return (all(n in step for n in (
+        "`$FIX_VERDICTS_PREV`", "`applied`",
+        "the record's own `agent` when it is dispatched",
+        "otherwise `bugs` when dispatched",
+        "`codex-adversarial` and `fix` are never the reviewer",
+        "no eligible reviewer this pass",
+        "`snapshot_blob`", "You are the independent re-check",
+        "No owner card is added"))
+        and '"route": "confirmed-fix"' in step4 and '"snapshot_blob"' in step4)
+
+
+def collect_rereads_head_blob_holds(text):
+    return ("re-read NOW, after the agents returned and the gitsnap compare passed"
+            in text and "verdict: confirmed fix not verified: the reviewed code is "
+            "not the repaired code" in text)
+
+
+def render_shows_open_reason_holds(text):
+    return ("`verdict: confirmed fix`" in text and "Fix not yet verified:" in text
+            and "re-checked independently by the {{agents}} lane" in text)
 
 
 def collect_forwards_confirmed_fix_holds(text):
@@ -477,8 +825,45 @@ class TestProse(unittest.TestCase):
     def test_finalize_renders_confirmed_fix(self):
         text = _read("phases/shared/90-finalize.md")
         self.assertTrue(finalize_renders_confirmed_fix_holds(text))
+        for needle in ("source `confirmed-fix`", "awaiting an independent re-check",
+                       "never closes here"):
+            with self.subTest(mutant=needle):
+                self.assertFalse(finalize_renders_confirmed_fix_holds(
+                    text.replace(needle, "")))
         self.assertFalse(finalize_renders_confirmed_fix_holds(
-            text.replace("source `confirmed-fix`", "")))
+            text + "\nverified_confirmed_fix_hashes"))
+
+    def test_dispatch_routes_confirmed_fix(self):
+        text = _read("phases/review/20-dispatch.md")
+        self.assertTrue(dispatch_routes_confirmed_fix_holds(text))
+        for needle in ("`codex-adversarial` and `fix` are never the reviewer",
+                       "otherwise `bugs` when dispatched", "`snapshot_blob`",
+                       '"route": "confirmed-fix"', "You are the independent re-check"):
+            with self.subTest(mutant=needle):
+                self.assertFalse(dispatch_routes_confirmed_fix_holds(
+                    text.replace(needle, "")))
+        self.assertNotIn("closes by an owner decision or, after an owner-named fix, "
+                         "by a confirmed-fix verdict", text)
+
+    def test_collect_rereads_head_blob(self):
+        text = _read("phases/review/30-collect-score.md")
+        self.assertTrue(collect_rereads_head_blob_holds(text))
+        self.assertFalse(collect_rereads_head_blob_holds(text.replace(
+            "re-read NOW, after the agents returned and the gitsnap compare passed",
+            "the same HEAD read")))
+
+    def test_render_shows_open_reason(self):
+        text = _read("phases/review/40-render.md")
+        self.assertTrue(render_shows_open_reason_holds(text))
+        self.assertFalse(render_shows_open_reason_holds(
+            text.replace("Fix not yet verified:", "")))
+        self.assertNotIn("verified by the fix agent against the repaired file, "
+                         "which HEAD still holds", text)
+
+    def test_fix_loop_says_applied_never_closes_alone(self):
+        text = _read("phases/review/50-fix-loop.md")
+        self.assertIn("NEVER closes alone", text)
+        self.assertIn("`confirmed_fix_awaiting_recheck_hashes`", text)
 
     def test_collect_forwards_confirmed_fix(self):
         text = _read("phases/review/30-collect-score.md")
@@ -567,10 +952,12 @@ class TestOneRowApplySelected(unittest.TestCase):
             results=[applied_result(h=h)], sent=sent["sent"]))
         self.assertEqual(skipped, [])
         self.assertEqual(new_state["fix_verdicts"][h]["verdict"], "applied")
+        # Finalize without a rerun: the fixer's evidence alone keeps it open.
         counts = carry_state.finalize_counts(new_state, {F: BLOB})
-        self.assertEqual(counts["undecided_nv"], 0)
-        self.assertEqual(counts["verified_confirmed_fix_hashes"], [h])
-        # Rerun: Phase 0.5 forwards the verdict; score.py closes the row.
+        self.assertEqual(counts["undecided_nv"], 1)
+        self.assertEqual(counts["confirmed_fix_awaiting_recheck_hashes"], [h])
+        # Rerun: Phase 0.5 forwards the verdict, Phase 2 routes the re-check
+        # to the raising lane (bugs, dispatched), score.py closes the row.
         v = new_state["fix_verdicts"][h]
         forwarded = {"source": "confirmed-fix", "stable_hash": h, "agent": "fix",
                      "verdict": "applied", "commit_sha": v["commit_sha"],
@@ -579,7 +966,8 @@ class TestOneRowApplySelected(unittest.TestCase):
                      "head_blob": BLOB}
         r = score.run(_nv_env([], carryforward=[_nv_cf(row, None, None)],
                               pass_number=2, head_sha="e" * 40,
-                              verdicts=[forwarded]))
+                              recheck_requests=[routed_request(row)],
+                              verdicts=[forwarded, reviewer_verdict()]))
         self.assertEqual(_nv_rows(r), [])
         return r["resolved"][0]["resolution"]["source"] == "confirmed-fix"
 
