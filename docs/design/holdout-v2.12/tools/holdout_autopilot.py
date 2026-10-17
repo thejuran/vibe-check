@@ -139,7 +139,8 @@ PRINT_ARGS = print_args()
 # Flags that would drop the launchers' settings or hooks, bypass permissions,
 # run a session in the background or disable resume. Built from pieces so the
 # names appear nowhere else in this module's text. --permission-mode is
-# allowed exactly once, with the value dontAsk.
+# allowed exactly once, with the value dontAsk (the holdout measurement
+# launcher passes its own mode, manual, through check_argv's `mode`).
 FORBIDDEN_ARGS = ("--" + "bare", "--safe-mode", "--restricted",
                   "--dangerously-skip-" + "permissions",
                   "--no-session-" + "persistence", "--bg", "--background",
@@ -472,15 +473,16 @@ def new_session_id():
     return str(uuid.uuid4())
 
 
-def check_argv(argv):
+def check_argv(argv, mode="dontAsk"):
     """KitError unless a session argv carries no forbidden flag, exactly one
-    `--permission-mode dontAsk` and exactly one session identity. The prompt
-    (the value after -p) is text and is not inspected."""
+    `--permission-mode <mode>` (dontAsk for every headless session) and
+    exactly one session identity. The prompt (the value after -p) is text
+    and is not inspected."""
     args = list(argv)
     rest = args[3:] if len(args) >= 3 and args[1] == "-p" else args[1:]
     modes = [rest[i + 1] if i + 1 < len(rest) else None
              for i, a in enumerate(rest) if a == "--permission-mode"]
-    if modes != ["dontAsk"]:
+    if modes != [mode]:
         raise KitError(ARGV_MSG)
     for a in rest:
         if a in FORBIDDEN_ARGS and a != "--permission-mode":

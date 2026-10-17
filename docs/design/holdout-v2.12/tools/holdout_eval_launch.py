@@ -87,15 +87,26 @@ FORBIDDEN_ARGS = holdout_autopilot.FORBIDDEN_ARGS
 # for B3 and the fix harness. The identity check holds the process env to the
 # manifest's baseline, taken from the generating shell.
 
+# The session runs in the permission mode B3's measured session uses, with
+# the same pre-approved tool list (the measured settings' permissions.allow;
+# tests hold all three equal). A tool outside the list raises a permission
+# prompt in front of the owner, who denies it: the run is invalid
+# (freeze_policy.run_validity). dontAsk is not used: it refuses the review's
+# fix-loop card (AskUserQuestion) whatever the allow rules say.
+PERMISSION_MODE = "manual"
+SESSION_TOOLS = "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"
+
 # The session argv; every {field} is filled by build_argv and the result is
-# validated by the autopilot's check_argv (no forbidden flag, exactly one
-# `--permission-mode dontAsk`, exactly one session identity).
+# validated by check_launch_argv (no forbidden flag, exactly one
+# `--permission-mode manual`, exactly one `--allowedTools` naming exactly
+# SESSION_TOOLS, exactly one session identity).
 LAUNCH_ARGV = ("claude",
                "--plugin-dir", "{plugin_dir}",
                "--settings", "{settings_path}",
                "--model", "{model}",
                "--add-dir", "{case}",
-               "--permission-mode", "dontAsk",
+               "--permission-mode", PERMISSION_MODE,
+               "--allowedTools", SESSION_TOOLS,
                "--session-id", "{session_id}")
 
 CASE_ID_RE = holdout_kit.ID_RE
@@ -110,6 +121,9 @@ RUN_NAME_MSG = "--run-dir must be a directory named run-<n>"
 IDENTITY_EXISTS_MSG = ("%s already holds identity.json; every launch, retries "
                        "included, needs a NEW run dir")
 SETTINGS_PAIR_MSG = "a supplied plugin dir needs its runner settings path"
+LAUNCH_ARGV_MSG = ("refused: the session argv must run in --permission-mode "
+                   "%s with --allowedTools %s exactly once" % (PERMISSION_MODE,
+                                                               SESSION_TOOLS))
 NO_BINARY_MSG = ("the session binary `claude` is not on the session PATH; "
                  "nothing was stamped")
 # A run whose session never started keeps its record under this name, so no
@@ -209,13 +223,25 @@ def session_environment(env=None):
     return out
 
 
+def check_launch_argv(argv):
+    """KitError unless the session argv passes the autopilot's argv rules in
+    PERMISSION_MODE and carries exactly one `--allowedTools` whose value is
+    SESSION_TOOLS."""
+    args = list(argv)
+    holdout_autopilot.check_argv(args, mode=PERMISSION_MODE)
+    tools = [args[i + 1] if i + 1 < len(args) else None
+             for i, a in enumerate(args) if a == "--allowedTools"]
+    if tools != [SESSION_TOOLS]:
+        raise KitError(LAUNCH_ARGV_MSG)
+
+
 def build_argv(plugin_dir, settings_path, model, case, session_id):
-    """LAUNCH_ARGV with its fields filled, validated by check_argv."""
+    """LAUNCH_ARGV with its fields filled, validated by check_launch_argv."""
     fields = {"plugin_dir": plugin_dir, "settings_path": settings_path,
               "model": model, "case": case, "session_id": session_id}
     argv = [part.format(**fields) if part.startswith("{") else part
             for part in LAUNCH_ARGV]
-    holdout_autopilot.check_argv(argv)
+    check_launch_argv(argv)
     return argv
 
 
