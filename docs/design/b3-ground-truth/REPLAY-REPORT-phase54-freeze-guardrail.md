@@ -1,14 +1,14 @@
 # Replay report — candidate phase54-freeze
 
-- candidate scorer: rev:24c0c00038f2d15af4b55f178ea44e680c1f2c58
-- candidate scorer sha256: ea6b041779c626b40607d4ba65ee0cc1c9522d2bd0c7cdd8995be4969768c233
+- candidate scorer: rev:2a6dbb4874b7521b66d53b2fbb1406dfb46dc230
+- candidate scorer sha256: 8b8839a4c25aa0dc9f4218fad13af578010692d8db092d4cd3d336384ba7088e
 - overrides: {}
 - baseline: blob: b21f7f3d556e1522e9853511ed8e126057c417c0
 - manifest: docs/design/b3-ground-truth/REPLAY-CATCH-MANIFEST-v2.10.json
 - manifest sha256: 7f5ac51140afa57d87262b89774510e4635f06cd9d9c65beb95a867124d65339
 - amendments in force: 1
-- HEAD: 964b40201eb28eb81d4107b17e0b8fd4a0f216ff
-- generated (UTC): 2026-10-15T22:31:32Z
+- HEAD: 696bed6fbf4ac6a793510872d9efa7b7dabb787f
+- generated (UTC): 2026-10-17T14:53:17Z
 
 _no rounding — exact fractions_
 

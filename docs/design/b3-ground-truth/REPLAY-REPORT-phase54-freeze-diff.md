@@ -1,7 +1,7 @@
 # Replay report — complete-output diff
 
 - base: rev:ebcd3e4 (sha256 525c5e838b73a4126d35cad72696b711651f04200f4e688914e95b69319dc814)
-- candidate: rev:24c0c00038f2d15af4b55f178ea44e680c1f2c58 (sha256 ea6b041779c626b40607d4ba65ee0cc1c9522d2bd0c7cdd8995be4969768c233)
+- candidate: rev:2a6dbb4874b7521b66d53b2fbb1406dfb46dc230 (sha256 8b8839a4c25aa0dc9f4218fad13af578010692d8db092d4cd3d336384ba7088e)
 - roots: all (7 roots)
 - allowances: docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json
 - runs compared: 170
@@ -9,8 +9,8 @@
 - runs differing (allowed): 0
 - runs with unallowed differences: 0
 - allowances unused: 65
-- head: 964b40201eb28eb81d4107b17e0b8fd4a0f216ff
-- generated: 2026-10-15T22:31:39Z
+- head: 696bed6fbf4ac6a793510872d9efa7b7dabb787f
+- generated: 2026-10-17T14:53:32Z
 
 _no rounding — exact fractions_
 
@@ -20,7 +20,7 @@ _no rounding — exact fractions_
 
 ## Roots compared
 
-_Appended by the 54-10 executor (re-run); `replay.py diff` lists only differing runs, so the per-root breakdown of the 170 compared runs is recorded here. Computed from `replay.iter_runs(roots=replay.DIFF_ROOTS)` at candidate 24c0c00038f2d15af4b55f178ea44e680c1f2c58; the report body above is unedited. The superseded run on 302df48e1097 is kept in `docs/design/freeze-v2.12/evidence/superseded-302df48e1097/`._
+_Appended by the 54-10 executor (re-run #4); `replay.py diff` lists only differing runs, so the per-root breakdown of the 170 compared runs is recorded here. Computed from `replay.iter_runs(roots=replay.DIFF_ROOTS)` at candidate 2a6dbb4874b7521b66d53b2fbb1406dfb46dc230; the report body above is unedited. Earlier runs are kept in `docs/design/freeze-v2.12/evidence/superseded-302df48e1097/` and `superseded-24c0c00038f2/` (the 535f488 and 14808a9 re-runs stopped before this step)._
 
 | root | runs compared |
 |---|---|
