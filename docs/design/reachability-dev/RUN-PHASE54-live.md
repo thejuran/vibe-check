@@ -40,10 +40,11 @@ table. A lost catch is investigated before the freeze, never closed by rerunning
     `~/.config/gh`, `~/.netrc`, `~/.gnupg`, `~/Library/Keychains`, `~/.claude/.credentials.json`,
     `~/.claude.json`, the holdout folder, `.env` files and the proof canary;
   - WebFetch and WebSearch denied (in-process network the sandbox does not cover);
-  - the pre-approved tool set `Bash, Read, Write, Edit, Grep, Glob, Task, Agent,
-    AskUserQuestion` (S7: the plugin's `python3` scorer needs Bash; holdout-eval's `dontAsk`
-    refuses anything else, the fix-loop card included, and a command's `allowed-tools` does not
-    pre-approve it there; B3's manual mode never prompted for the card, so B3 is unchanged);
+  - the pre-approved tool set `Bash, Read, Write, Edit, Grep, Glob, Task, Agent` (S7: the
+    plugin's `python3` scorer needs Bash), the same list both runners pass as `--allowedTools`
+    with `--permission-mode manual`. The fix-loop card needs no approval in manual mode and is not
+    listed. Holdout-eval no longer uses `dontAsk`: it refused the card even with an allow rule
+    (the 14808a961d02 holdout proof);
   - the codex plugin disabled for the session only: its SessionStart hook points the companion at
     a plugin-data dir under `~/.claude`, which the sandbox never lets a command write. With the
     hook off, the companion keeps its state in the sandbox temp dir. The plugin finds the companion
@@ -694,8 +695,10 @@ proves, through `docs/design/freeze-v2.12/tools/containment_proof.py verify`:
 - the review itself is a valid measured run and completed its workflow: every review session
   (each transcript, judged from its `/vibe-check:deep-review` on, so the probe's intended denials
   do not count) passes the same invalid-run rule as a real run (`freeze_policy`
-  `transcript_validity` + `state_validity`: no permission failure, such as a tool refused under the
-  holdout launcher's `dontAsk`, no sandbox violation, a complete review, scorer output), and its
+  `transcript_validity` + `state_validity`, subagent transcripts included for prompts: no
+  permission failure, no permission prompt (a tool outside the pre-approved list, or any prompt
+  approved or denied; the fix-loop card is not a prompt), no sandbox violation, a complete review,
+  scorer output), and its
   fix-loop card was shown and answered `Stop here…` then `Abandon`. A second review in the same
   fixture that does not reach the card fails the proof too: use one review per fixture.
 
@@ -726,6 +729,11 @@ VC_CONTAINMENT_ENV_CANARY=planted python3 docs/design/holdout-v2.12/tools/holdou
 # then /vibe-check:deep-review, then Stop here… and Abandon, then /exit
 python3 docs/design/freeze-v2.12/tools/containment_proof.py verify --dir ~/.b3/containment-proof/holdout-1/run-1
 ```
+
+Both sessions run in `--permission-mode manual` with the same `--allowedTools` list. The fix-loop
+card is the only card the review should show. **If a permission prompt appears in either session,
+DENY it and report it: the proof (or run) is invalid and never counts.** `verify` and
+`run-validity` mark a prompt invalid whether it was approved or denied.
 
 The holdout layout makes the launcher's run dir the fixture repo (its build and stamp files are
 git-excluded) and passes a synthetic opaque case folder; no holdout case or key is involved.

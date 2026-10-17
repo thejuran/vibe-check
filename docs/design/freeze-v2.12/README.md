@@ -217,10 +217,13 @@ across that manifest, because the only differing file is reporting-only.
 - Failed and superseded runs stay on disk, labeled. They are never
   deleted, and never satisfy a passing gate.
 - **Invalid runs never count.** A measured review run whose session hit a
-  permission failure (a tool refusal such as a `dontAsk` denial or a deny
-  rule, or an OS-sandbox violation), whose review did not complete, or whose
+  permission failure (a tool refusal such as a deny rule, or an OS-sandbox
+  violation), raised a permission prompt (a tool outside the pre-approved
+  list, or any prompt the owner approved or denied; the fix-loop card is the
+  review flow, not a prompt, and ToolSearch and ReportFindings never prompt:
+  `freeze_policy.PROMPTLESS_TOOLS`), whose review did not complete, or whose
   scorer left no output is INVALID: never a quiet result, never a detection
-  miss. `freeze_policy.py run-validity --run-dir <D> --transcript <T>
+  miss. Subagent transcripts are judged for prompts too. `freeze_policy.py run-validity --run-dir <D> --transcript <T>
   --state <S>` judges a run and writes `<D>/validity.json` (schema
   `freeze-run-validity/1`, binding the transcript and state sha256; never
   overwritten). Every B3 and holdout-eval record needs a valid one: without
@@ -231,7 +234,8 @@ across that manifest, because the only differing file is reporting-only.
   judged the same way, on the owner's side, before its verdict is used.
   `containment_proof.py verify` applies the same rule (its
   `transcript_validity` + `state_validity` halves) to the proof's review
-  session, so a proof whose review was refused a tool cannot pass.
+  session, so a proof whose review was refused a tool, or raised a
+  permission prompt, cannot pass.
 - Missing or failed mandatory evidence = UNMET. An owner waiver may
   authorize shipping, but it is never MET: `gate_status` has no waiver
   input and never converts UNMET to MET.
@@ -331,7 +335,7 @@ control below; `test_b3_runner_layer.containment_problems` locks each one.
 | WebFetch / WebSearch (in-process network) | denied |
 | Model calls | made by the Claude Code process itself through the local gateway (`ANTHROPIC_BASE_URL`, `127.0.0.1:18764`), outside the sandbox; sandboxed code cannot reach the gateway |
 | Session environment | an allowlist (`freeze_manifest.SESSION_ENV_NAMES`): the identity-checked names plus PATH, HOME, terminal, locale, temp dir and Codex config dir; B3 execs `claude` under `env -i`, the holdout launcher builds the same set |
-| Pre-approved tools | `Bash, Read, Write, Edit, Grep, Glob, Task, Agent, AskUserQuestion`: exactly the tools the review commands' `allowed-tools` name (plus Task's alias Agent). The plugin's `python3` scorer needs Bash; the fix-loop card is AskUserQuestion. The holdout `dontAsk` session refuses anything not listed here, because a command's `allowed-tools` does not pre-approve a tool in that mode. Nothing broader: no WebFetch/WebSearch, no TodoWrite/Skill (`test_holdout_eval_launch.dontask_gaps` locks it) |
+| Permission mode and pre-approved tools | Both runners start the session in `--permission-mode manual` with `--allowedTools "Bash,Read,Write,Edit,Grep,Glob,Task,Agent"`, and the settings' `permissions.allow` is the same list (`freeze_policy.PREAPPROVED_TOOLS`; `test_b3_runner_layer.launch_tool_list_problems` and `test_holdout_eval_launch.same_mode_as_b3_problems` hold the settings, both launch lines and the invalid-run rule to one list). The plugin's `python3` scorer needs Bash. The fix-loop card (AskUserQuestion) needs no approval in manual mode and is not listed. `dontAsk` is not used for measured sessions: it refuses the card whatever the allow rules say (the 14808a961d02 holdout proof). Nothing broader: no WebFetch/WebSearch, no TodoWrite/Skill (`test_holdout_eval_launch.preapproval_gaps`). Deny rules and the sandbox apply in manual mode exactly as before; the only difference from a refusing mode is that a tool outside the list puts a permission prompt in front of the owner. **If a permission prompt appears, DENY it and report it: the run is invalid and never counts** (`run-validity` and `containment_proof.py verify` mark it so whether it was approved or denied) |
 
 Residuals, stated precisely:
 
