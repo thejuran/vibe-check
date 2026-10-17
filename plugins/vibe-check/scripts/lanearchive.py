@@ -26,7 +26,10 @@ Evidence rules:
        whose top-level agent is codex-adversarial (the Codex translator line).
 * The Codex collection directory is the one a `Bash` tool_result printed on a
   `CODEX_DIR=` line (legacy `CODEX_OUT=<file>` gives its directory). It is
-  followed only when it resolves strictly inside the user's temp root.
+  followed only when it resolves strictly inside the user's temp root, or
+  inside the current uid's sandbox temp root /tmp/claude-<uid> (a real
+  directory owned by that uid; other uids' roots and the rest of /tmp are
+  refused).
 * The archive disposition is cross-checked against the run's own state: a run
   whose `passes[-1].codex.status` is `joined` MUST yield the Codex payload and a
   zero `rc`; `codex-absent.txt` is written only for `skipped` / `off`. Anything
@@ -291,9 +294,44 @@ def extract_lanes(transcript_path):
             "malformed": malformed, "lanes": lanes}
 
 
+_FIXED_TEMP_ROOTS = ("/private/var/folders", "/var/folders")
+# A sandboxed session's TMPDIR is <parent>/claude-<uid> (macOS realpath
+# /private/tmp/claude-<uid>), so the kickoff's
+# `mktemp -d "${TMPDIR:-/tmp}/vc-codex.XXXXXX"` lands there.
+_SANDBOX_TMP_PARENT = "/tmp"
+
+
+def _sandbox_temp_root():
+    """The current uid's sandbox temp root, realpath'd, else None.
+
+    Accepted only when <parent>/claude-<uid> is a real directory (not a
+    symlink), owned by the current uid, and resolves to exactly that name
+    under the resolved parent. Other uids' roots and the rest of the parent
+    never qualify.
+    """
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        return None
+    uid = getuid()
+    root = os.path.join(_SANDBOX_TMP_PARENT, "claude-%d" % uid)
+    try:
+        st = os.lstat(root)
+    except OSError:
+        return None
+    if os.path.islink(root) or not os.path.isdir(root) or st.st_uid != uid:
+        return None
+    real = os.path.realpath(root)
+    expected = os.path.join(os.path.realpath(_SANDBOX_TMP_PARENT), "claude-%d" % uid)
+    return real if real == expected else None
+
+
 def _temp_roots():
     roots = []
-    for r in (tempfile.gettempdir(), "/private/var/folders", "/var/folders"):
+    candidates = [tempfile.gettempdir()] + list(_FIXED_TEMP_ROOTS)
+    sandbox = _sandbox_temp_root()
+    if sandbox is not None:
+        candidates.append(sandbox)
+    for r in candidates:
         real = os.path.realpath(r)
         if real not in roots:
             roots.append(real)
