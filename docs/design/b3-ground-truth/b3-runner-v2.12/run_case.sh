@@ -9,7 +9,8 @@
 # Any other card, prompt or permission request: STOP (exit 4), the session is left alive.
 #
 # Environment: RUNBOOK (default docs/design/reachability-dev/RUN-PHASE54-live.md), MANIFEST
-# (empty -> the active freeze manifest), RUNNER (default ~/.b3/phase54-runner).
+# (empty -> the active freeze manifest), RUNNER (default ~/.b3/phase54-runner). The memory-park
+# record (MEMPARK_ENV) and the run archive (ARCHIVE) are read from the runbook's common block.
 set -uo pipefail
 CASE=${1:?usage: run_case.sh <case> <run>}
 RUN=${2:?usage: run_case.sh <case> <run>}
@@ -37,6 +38,12 @@ pick() {
   tmux send-keys -t "$S" "$n"
   echo "PICK: sent $n for '$label'"
 }
+# the window's memory-park record and run archive come from the runbook's own common block
+# (never a fixed window name), so a later window's runbook drives this driver unchanged
+MEMPARK_ENV=$(b3_runbook_var "$RUNBOOK" MEMPARK_ENV) || die "cannot read MEMPARK_ENV from the runbook common block"
+ARCHIVE=$(b3_runbook_var "$RUNBOOK" ARCHIVE) || die "cannot read ARCHIVE from the runbook common block"
+test -n "$MEMPARK_ENV" || die "the runbook common block sets no MEMPARK_ENV"
+test -n "$ARCHIVE" || die "the runbook common block sets no ARCHIVE"
 echo "RUN_CASE: live $CASE run-$RUN start $(date -u +%FT%TZ)"
 b3_block "$RUNBOOK" preflight "$CASE" || die "preflight"
 b3_block "$RUNBOOK" fresh "$CASE" || die "fresh"
@@ -103,7 +110,7 @@ else
 fi
 echo "RUN_CASE: review finished $(date -u +%FT%TZ) — $(pane | grep -oE '✻ .+ for [0-9hms ]+' | tail -1)"
 b3_block "$RUNBOOK" post "$CASE" "$RUN" || die "post refused"
-NVW=$(grep -oE '[0-9]+ weak co-located note' "$REPO/$RD/runs-phase54-live/$CASE/run-$RUN/transcript.jsonl" 2> /dev/null | tail -1 | awk '{print $1}')
+NVW=$(grep -oE '[0-9]+ weak co-located note' "$REPO/$ARCHIVE/$CASE/run-$RUN/transcript.jsonl" 2> /dev/null | tail -1 | awk '{print $1}')
 echo "RUN_CASE_NVW=${NVW:-0}"
 tmux send-keys -t "$S" C-u; tmux send-keys -t "$S" '/exit' Enter; sleep 5; tmux kill-session -t "$S" 2> /dev/null || true
 b3_block "$RUNBOOK" revert "$CASE" || die "revert"
@@ -117,7 +124,9 @@ fi
 # N-02: a memory dir the measured session created for the clone path is moved aside as evidence
 M="$(proj_dir "$CLONES_ROOT/$CP")/memory"
 if test -n "$CP" && test -e "$M"; then
-  PD=$(sed -n 's/^PARKDIR=//p' "$HOME/.b3/phase54-live-memory-park.env")
+  PD=$(sed -n 's/^PARKDIR=//p' "$MEMPARK_ENV" 2> /dev/null)
+  test -n "$PD" || die "the memory park record $MEMPARK_ENV names no PARKDIR"
+  test -d "$PD" || die "the memory park dir $PD is not a directory"
   echo "RUN_CASE: clone auto-memory dir created by the session ($(find "$M" -type f | wc -l | tr -d ' ') files) moved to evidence"
   mv "$M" "$PD/$CP-written-during-live-$CASE-run-$RUN-$(date +%s)"
 fi

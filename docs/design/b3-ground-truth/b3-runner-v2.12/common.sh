@@ -75,6 +75,22 @@ b3_block() {
   fi
 }
 
+# print one variable of a runbook's `common` block, from committed runbook text only. run_case.sh
+# reads the window's MEMPARK_ENV and ARCHIVE this way, so a later window's runbook sets them once.
+# Usage: b3_runbook_var <runbook> <NAME>   (stdout: the value; exit != 0: refused)
+b3_runbook_var() {
+  local book=$1 name=$2 script
+  case "$book" in /*) ;; *) book=$REPO/$book ;; esac
+  printf '%s' "$name" | grep -qE '^[A-Z][A-Z0-9_]*$' || { echo "b3_runbook_var: bad name '$name' — STOPPING" >&2; return 2; }
+  git -C "$REPO" ls-files --error-unmatch -- "$book" > /dev/null 2>&1 \
+    || { echo "b3_runbook_var: $book IS NOT COMMITTED — STOPPING" >&2; return 2; }
+  git -C "$REPO" diff --quiet HEAD -- "$book" \
+    || { echo "b3_runbook_var: $book HAS UNCOMMITTED CHANGES — STOPPING" >&2; return 2; }
+  script=$(awk '$0=="# BLOCK: common"{f=1} f{print} $0=="# END: common"{exit}' "$book")
+  printf '%s\n' "$script" | grep -qx '# END: common' || { echo 'b3_runbook_var: the common block is missing — STOPPING' >&2; return 2; }
+  bash -c "$script"$'\n'"printf '%s\\n' \"\${$name:-}\"" "b3:var"
+}
+
 # the launch model: NOTES `pin-model:`, the same value the identity check compares to the manifest
 resolve_model() {
   test -f "$REPO/$NOTES" || { echo "NOTES FILE $NOTES MISSING — STOPPING"; exit 1; }

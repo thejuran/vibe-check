@@ -231,6 +231,30 @@ def session_self_check_holds(runbook_text, run_case_text):
     return SESSION_CALL in launch
 
 
+_WINDOW_LITERALS = ("phase54-live-memory-park", "runs-phase54", "phase53-")
+
+
+def run_case_window_paths_holds(run_case_text):
+    """run_case.sh names no window-specific path: the memory-park record and
+    the run archive come from the runbook's common block (b3_runbook_var),
+    and an empty or missing park dir stops the driver before any memory
+    move."""
+    code = "\n".join(_code_lines(run_case_text))
+    if any(lit in code for lit in _WINDOW_LITERALS):
+        return False
+    for var in ("MEMPARK_ENV", "ARCHIVE"):
+        if 'b3_runbook_var "$RUNBOOK" %s)' % var not in code:
+            return False
+    if '"$REPO/$ARCHIVE/$CASE/run-$RUN/transcript.jsonl"' not in code:
+        return False
+    if "sed -n 's/^PARKDIR=//p' \"$MEMPARK_ENV\"" not in code:
+        return False
+    move = code.find('mv "$M" "$PD/')
+    empty = code.find('test -n "$PD" || die')
+    isdir = code.find('test -d "$PD" || die')
+    return -1 not in (move, empty, isdir) and empty < move and isdir < move
+
+
 # --------------------------------------------------------------------------- #
 # Real files
 # --------------------------------------------------------------------------- #
@@ -304,11 +328,68 @@ class TestRealFiles(unittest.TestCase):
             self.assertRegex(text, r'b3_block "\$RUNBOOK" %s\b' % re.escape(name))
         self.assertNotRegex(text, r"(?m)^[^#]*\bclaude\s+--")
 
+    def test_run_case_reads_window_paths_from_the_runbook(self):
+        self.assertTrue(run_case_window_paths_holds(_read(RUN_CASE)))
+
     def test_settings_template_pins(self):
         d = json.loads(_read(SETTINGS))
         self.assertIs(d["enabledPlugins"]["vibe-check@thejuran"], False)
         self.assertEqual(d["env"], {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"})
         self.assertEqual(d["statusLine"]["command"], "bash <RUNNER>/statusline-capture.sh")
+
+
+class TestRunbookVar(unittest.TestCase):
+    """b3_runbook_var (bash) on a throwaway repo: it prints a common-block
+    variable from committed runbook text and refuses uncommitted text."""
+
+    def setUp(self):
+        import shutil
+        import subprocess
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.sp = subprocess
+        self.repo = os.path.join(self._tmp.name, "repo")
+        layer = os.path.join(self.repo, "docs", "design", "b3-ground-truth",
+                             "b3-runner-v2.12")
+        os.makedirs(layer)
+        shutil.copy2(COMMON, layer)
+        self.book = os.path.join(self.repo, "RUNBOOK.md")
+        with open(self.book, "w", encoding="utf-8") as fh:
+            fh.write("```bash\n# BLOCK: common\nset -euo pipefail\n"
+                     'source "$REPO/docs/design/b3-ground-truth/b3-runner-v2.12/common.sh"\n'
+                     "MEMPARK_ENV=$HOME/.b3/window-x-memory-park.env\n"
+                     "ARCHIVE=$RD/runs-window-x\n# END: common\n```\n")
+        for argv in (["init", "-q"], ["add", "-A"],
+                     ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                      "-m", "c"]):
+            self.sp.run(["git", "-C", self.repo] + argv, check=True,
+                        stdout=self.sp.PIPE, stderr=self.sp.PIPE)
+
+    def var(self, name):
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": self._tmp.name,
+               "REPO": self.repo}
+        proc = self.sp.run(["bash", "-c", 'source "$1"; b3_runbook_var "$2" "$3"',
+                            "t", COMMON, self.book, name],
+                           env=env, stdout=self.sp.PIPE, stderr=self.sp.PIPE,
+                           timeout=60)
+        return proc.returncode, proc.stdout.decode(), proc.stderr.decode()
+
+    def test_prints_common_block_values(self):
+        rc, out, err = self.var("MEMPARK_ENV")
+        self.assertEqual((rc, out), (0, self._tmp.name + "/.b3/window-x-memory-park.env\n"),
+                         err)
+        rc, out, _ = self.var("ARCHIVE")
+        self.assertEqual((rc, out), (0, "docs/design/reachability-dev/runs-window-x\n"))
+
+    def test_refuses_uncommitted_runbook_and_bad_names(self):
+        rc, _, _ = self.var("bad-name")
+        self.assertEqual(rc, 2)
+        with open(self.book, "a", encoding="utf-8") as fh:
+            fh.write("edit\n")
+        rc, out, err = self.var("MEMPARK_ENV")
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("UNCOMMITTED", err)
 
 
 # --------------------------------------------------------------------------- #
@@ -350,6 +431,20 @@ class TestMutants(unittest.TestCase):
         mutant = _drop_identity_from(self.runbook, name)
         self.assertNotEqual(mutant, self.runbook)
         self.assertFalse(blocks_call_identity_holds(mutant))
+
+    def test_mutant_run_case_hardcoded_window_paths(self):
+        text = _read(RUN_CASE)
+        self.assertTrue(run_case_window_paths_holds(text))
+        for old, new in (
+                ('"$MEMPARK_ENV" 2> /dev/null)', '"$HOME/.b3/phase54-live-memory-park.env")'),
+                ('"$REPO/$ARCHIVE/$CASE/run-$RUN/transcript.jsonl"',
+                 '"$REPO/$RD/runs-phase54-live/$CASE/run-$RUN/transcript.jsonl"'),
+                ('  test -n "$PD" || die "the memory park record $MEMPARK_ENV names no PARKDIR"\n', ''),
+                ('  test -d "$PD" || die "the memory park dir $PD is not a directory"\n', ''),
+                ('ARCHIVE=$(b3_runbook_var "$RUNBOOK" ARCHIVE)', 'ARCHIVE=$RD/runs-x')):
+            with self.subTest(old=old):
+                self.assertEqual(text.count(old), 1)
+                self.assertFalse(run_case_window_paths_holds(text.replace(old, new)))
 
     def test_mutant_identity_removed_from_preflight(self):
         self._assert_dropping_trips("preflight")
