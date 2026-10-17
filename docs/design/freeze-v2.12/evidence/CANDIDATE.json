@@ -1,9 +1,9 @@
 {
-  "candidate_sha": "535f48861cd8ce09d4e67c00319ea023de294e70",
-  "selected_at": "2026-10-17T02:35:27Z",
+  "candidate_sha": "14808a961d0217bc39d6461d3cb9e695743316f8",
+  "selected_at": "2026-10-17T03:39:59Z",
   "selected_by": "54-10",
   "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
-  "selection": "re-run #2 of 54-10 after the owner-approved batched fix; candidate = HEAD at selection (plan rule C = git rev-parse HEAD). The latest code commit is 09bdf61; 535f488 is an evidence-only descendant (candidate-guard --candidate 09bdf61: CANDIDATE OK, 1 descendant, reporting-only), so 535f488 and 09bdf61 carry byte-identical covered artifacts. Earlier selections are kept below as superseded",
+  "selection": "re-run #3 of 54-10 after follow-up 2b (78a07f9, 0568c1f, 14808a9: AskUserQuestion pre-approved for measured sessions; containment_proof verify judges the review session with the invalid-run rule and requires the card shown and answered); candidate = HEAD at selection (plan rule C = git rev-parse HEAD), which is also the latest code commit. Earlier selections are kept below as superseded",
   "superseded": [
     {
       "candidate_sha": "302df48e1097212aa334a21c8f2683ed810eb496",
@@ -64,6 +64,34 @@
       ],
       "draft_manifest_id": "98af8754d5aed5b9d9a2d89b1e2d2b4839ad1e87f596d7621568a269f22dfd99",
       "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-24c0c00038f2/ (byte-identical copies taken at 535f488; see INDEX.md)"
+    },
+    {
+      "candidate_sha": "535f48861cd8ce09d4e67c00319ea023de294e70",
+      "selected_at": "2026-10-17T02:35:27Z",
+      "selected_by": "54-10",
+      "path_map_blob": "0966dc263d9170d0fa94a4952909a8def82dc305",
+      "selection": "re-run #2 of 54-10 after the owner-approved batched fix; candidate = HEAD at selection (plan rule C = git rev-parse HEAD). The latest code commit is 09bdf61; 535f488 is an evidence-only descendant (candidate-guard --candidate 09bdf61: CANDIDATE OK, 1 descendant, reporting-only), so 535f488 and 09bdf61 carry byte-identical covered artifacts. Earlier selections are kept below as superseded",
+      "status": "superseded",
+      "superseded_at": "2026-10-17T03:39:59Z",
+      "superseded_by_fix_commits": {
+        "follow_up_2b": [
+          "78a07f9c23009f2457560f38cc6324e447a8e94d",
+          "0568c1fbfb620dc665147252a7346e6a84c16b4f",
+          "14808a961d0217bc39d6461d3cb9e695743316f8"
+        ]
+      },
+      "reason": "The 54-10 re-run #2 holdout-launcher containment proof reproduced a gate failure: the fix-loop card (AskUserQuestion) is denied under the launcher's --permission-mode dontAsk, so every holdout-eval review that reaches the card is an invalid run (evidence/containment-proof-holdout.json), and containment_proof.py verify printed OK over that invalid review. Follow-up 2b (54-17) pre-approves AskUserQuestion in settings-measured.json and makes verify judge the review session with the invalid-run rule and require the card shown and answered. Those are covered files, so the candidate moved (D-23) and 54-10 restarts on a new candidate.",
+      "candidate_guard_after_fix": "CANDIDATE MOVED — STOPPING (exit 1) at HEAD 14808a9: 9 non-reporting changes after the candidate (settings-measured.json, freeze-v2.12 README + containment_proof.py + freeze_policy.py + test_b3_runner_layer.py + test_containment_proof.py, holdout-v2.12 README + test_holdout_eval_launch.py, RUN-PHASE54-live.md), 8 covered artifacts differ; classes engineering, detection, workflow",
+      "evidence_commits_54_10": [
+        "af31fd87e89c73dbff3381e54812c789f675febb",
+        "42fd446246721af4e7ac48fcaaa34d63a3569e28",
+        "025540a1e45c27da01d0abcf74835a60575cde47",
+        "7c68094383ec3f72753e9c5e2cae818cc2d5473b",
+        "f4b77d629d835e84042e810105c71fd72211a10f",
+        "97261b11d63f21cfaae7c63d9e3c355f8148cc02"
+      ],
+      "draft_manifest_id": "2ff153d64fbf654ddda10e1c4131793d00fb0215e24d8858f9a2266f2bd03901",
+      "evidence_copy": "docs/design/freeze-v2.12/evidence/superseded-535f48861cd8/ (byte-identical copies taken at the re-run #3 selection; see INDEX.md)"
     }
   ]
 }
