@@ -763,6 +763,10 @@ class TestSameModeAsB3(unittest.TestCase):
         self.assertEqual([m for _n, m, _t in b3_launch_lines(self.runbook)],
                          ["manual", "manual"])
 
+    def test_invalid_run_rule_judges_against_the_launch_list(self):
+        self.assertEqual(el.SESSION_TOOLS,
+                         ",".join(freeze_policy.PREAPPROVED_TOOLS))
+
     def test_check_launch_argv_refuses_other_modes_and_lists(self):
         good = el.build_argv("/p", "/s", "m", "/c/H-00000000", "sid")
         el.check_launch_argv(good)

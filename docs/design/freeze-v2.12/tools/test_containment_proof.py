@@ -324,6 +324,76 @@ class TestVerify(_Base):
         self.assertTrue(any(p.startswith("review session invalid: permission "
                                          "failure: Edit") for p in problems), problems)
 
+    def test_unexpected_permission_prompt_in_the_review_fails(self):
+        """Manual mode: a prompt the owner approved (newer CLIs record the
+        decision; 2.1.281 shows only the tool outside the list) or denied
+        fails the proof; the review's card answers do not."""
+        approved = {"type": "user", "permissionDecision": {
+            "decision": "accept", "source": "user_temporary"},
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "p1", "content": "ok"}]}}
+        use = lambda name: {"type": "assistant", "message": {  # noqa: E731
+            "role": "assistant", "content": [
+                {"type": "tool_use", "id": "p1", "name": name, "input": {}}]}}
+        denied = {"type": "user", "toolDenialKind": "user-rejected",
+                  "message": {"role": "user", "content": [
+                      {"type": "tool_result", "tool_use_id": "p1", "is_error": True,
+                       "content": "The user doesn't want to proceed with this "
+                                  "tool use. The tool use was rejected"}]}}
+        cases = {"approved Bash": ([use("Bash"), approved],
+                                   "permission prompt approved: Bash"),
+                 "outside the list": ([use("Skill"), approved],
+                                      "permission prompt: Skill is outside"),
+                 "denied": ([use("Bash"), denied],
+                            "permission prompt denied: Bash")}
+        for label, (extra, want) in cases.items():
+            with self.subTest(label=label):
+                self.state()
+                events = _events(cp.canary_path())
+                events[-4:-4] = extra
+                problems = cp.verify(self.fx, self.transcript(events))
+                self.assertTrue(any(p.startswith("review session invalid: " + want)
+                                    for p in problems), problems)
+
+    def test_card_answers_recorded_as_user_decisions_pass(self):
+        self.state()
+        events = _events(cp.canary_path())
+        for ev in events:
+            if ev.get("type") == "user" and isinstance(ev.get("toolUseResult"), dict):
+                ev["permissionDecision"] = {"decision": "accept",
+                                            "source": "user_temporary"}
+        self.assertEqual(cp.verify(self.fx, self.transcript(events)), [])
+
+    def test_subagent_prompt_in_the_review_fails(self):
+        self.state()
+        t = self.transcript(_events(cp.canary_path()), "rev.jsonl")
+        sub = os.path.join(self._tmp.name, "rev", "subagents")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "agent-a.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant", "message": {
+                "role": "assistant", "content": [{"type": "tool_use", "id": "s",
+                                                  "name": "Skill", "input": {}}]}})
+                     + "\n")
+        problems = cp.verify(self.fx, t)
+        self.assertIn("review session invalid: permission prompt: Skill is "
+                      "outside the pre-approved tools (rev.jsonl)", problems)
+
+    def test_mutant_prompt_rule_skipped_passes_an_approved_prompt(self):
+        self.state()
+        events = _events(cp.canary_path())
+        events[-4:-4] = [
+            {"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "p1", "name": "Bash", "input": {}}]}},
+            {"type": "user", "permissionDecision": {"decision": "accept",
+                                                    "source": "user_temporary"},
+             "message": {"role": "user", "content": [
+                 {"type": "tool_result", "tool_use_id": "p1", "content": "ok"}]}}]
+        t = self.transcript(events)
+        self.assertNotEqual(cp.verify(self.fx, t), [])
+        with mock.patch.object(cp.freeze_policy, "permission_prompt_reasons",
+                               lambda ev: []):
+            self.assertEqual(cp.verify(self.fx, t), [])
+
     def test_incomplete_review_state_fails(self):
         self.check_fails("review session invalid: incomplete review", agents=())
 

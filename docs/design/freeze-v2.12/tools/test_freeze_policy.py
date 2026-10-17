@@ -651,6 +651,136 @@ class TestRunValidity(_Tmp):
             self.assertFalse(json.load(fh)["valid"])
 
 
+def _use(uid, name, inp=None):
+    return {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": uid, "name": name, "input": inp or {}}]}}
+
+
+def _result(uid, text="ok", is_error=False, decision=None, denial=None,
+            tur=None):
+    """A tool result in Claude Code's recorded shape. `decision` is the
+    `permissionDecision` source newer CLIs record (2.1.281 records none);
+    `denial` the `toolDenialKind`."""
+    ev = {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": uid, "is_error": is_error,
+         "content": text}]}}
+    if decision is not None:
+        ev["permissionDecision"] = {"decision": "accept", "source": decision}
+    if denial is not None:
+        ev["toolDenialKind"] = denial
+    if tur is not None:
+        ev["toolUseResult"] = tur
+    return ev
+
+
+REVIEW = [{"type": "user", "message": {"role": "user",
+                                       "content": "/vibe-check:deep-review"}}]
+USER_REJECTED = ("The user doesn't want to proceed with this tool use. The tool "
+                 "use was rejected (eg. if it was a file edit, the new_string "
+                 "was NOT written to the file). STOP what you are doing and "
+                 "wait for the user to tell you how to proceed.")
+
+
+def _card_flow(decision=None):
+    """The review's fix-loop card, answered (2.1.281 shape when decision is
+    None; newer CLIs record the answer as a user decision)."""
+    q = "Pass 1 — how do you want to proceed?"
+    return [_use("c1", "AskUserQuestion", {"questions": [{"question": q}]}),
+            _result("c1", 'Your questions have been answered: "%s"="Stop here…".'
+                    % q, decision=decision,
+                    tur={"answers": {q: "Stop here…"}})]
+
+
+class TestPermissionPrompts(_Tmp):
+    """Holdout-eval and B3 sessions run in manual mode with a fixed
+    pre-approved tool list. A permission prompt for anything outside it, or
+    any prompt the owner approved or denied, makes the run INVALID. The
+    fix-loop card (AskUserQuestion) is the review flow, not a prompt."""
+
+    files = TestRunValidity.files
+
+    def test_pre_approved_list_is_the_measured_one(self):
+        self.assertEqual(list(fp.PREAPPROVED_TOOLS),
+                         ["Bash", "Read", "Write", "Edit", "Grep", "Glob",
+                          "Task", "Agent"])
+        self.assertEqual(list(fp.PROMPTLESS_TOOLS), ["AskUserQuestion"])
+
+    def test_normal_card_flow_is_valid(self):
+        for decision in (None, "user_temporary"):
+            with self.subTest(decision=decision):
+                events = (REVIEW + [_use("b1", "Bash", {"command": "git diff"}),
+                                    _result("b1", "diff", decision=None
+                                            if decision is None else "config"),
+                                    _use("a1", "Agent"), _result("a1"),
+                                    _use("r1", "Read"), _result("r1")]
+                          + _card_flow(decision) + [_turn("Abandoned")])
+                self.assertEqual(fp.run_validity(*self.files(events)), [])
+
+    def test_approved_unexpected_bash_prompt_is_invalid(self):
+        events = REVIEW + [_use("b1", "Bash", {"command": "curl x"}),
+                           _result("b1", "done", decision="user_temporary")]
+        self.assertIn("permission prompt approved: Bash",
+                      fp.run_validity(*self.files(events)))
+
+    def test_tool_outside_the_list_is_invalid_even_without_a_record(self):
+        """2.1.281 records no decision: a tool outside the list ran, so the
+        owner was asked and approved."""
+        for name in ("Skill", "NotebookEdit", "mcp__x__fetch", "TodoWrite"):
+            with self.subTest(name=name):
+                events = REVIEW + [_use("x1", name), _result("x1")]
+                self.assertIn("permission prompt: %s is outside the "
+                              "pre-approved tools" % name,
+                              fp.run_validity(*self.files(events)))
+
+    def test_denied_prompt_is_invalid(self):
+        for kw in ({"denial": "user-rejected"}, {"denial": "cancelled"}, {}):
+            with self.subTest(kw=kw):
+                events = REVIEW + [_use("b1", "Bash"),
+                                   _result("b1", USER_REJECTED, is_error=True,
+                                           **kw)]
+                self.assertIn("permission prompt denied: Bash",
+                              fp.run_validity(*self.files(events)))
+
+    def test_subagent_prompts_are_judged(self):
+        t, st = self.files(REVIEW + [_use("a1", "Agent"), _result("a1"),
+                                     _turn("Pass 1 done")])
+        self.assertEqual(fp.run_validity(t, st), [])
+        sub = os.path.join(self.tmp, "transcript", "subagents")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "agent-a1.jsonl"), "w", encoding="utf-8") as fh:
+            for ev in (_use("s1", "Bash"),
+                       _result("s1", "ok", decision="user_temporary")):
+                fh.write(json.dumps(ev) + "\n")
+        self.assertEqual(fp.subagent_transcripts(t),
+                         [os.path.join(sub, "agent-a1.jsonl")])
+        self.assertIn("permission prompt approved: Bash", fp.run_validity(t, st))
+
+    def test_mutant_prompt_rule_skipped(self):
+        events = REVIEW + [_use("b1", "Bash"),
+                           _result("b1", "done", decision="user_temporary")]
+        files = self.files(events)
+        self.assertNotEqual(fp.run_validity(*files), [])
+        with mock.patch.object(fp, "permission_prompt_reasons", lambda ev: []):
+            self.assertEqual(fp.run_validity(*files), [])
+
+    def test_mutant_card_counted_as_prompt(self):
+        events = REVIEW + _card_flow("user_temporary") + [_turn("done")]
+        files = self.files(events)
+        self.assertEqual(fp.run_validity(*files), [])
+        with mock.patch.object(fp, "PROMPTLESS_TOOLS", ()):
+            self.assertNotEqual(fp.run_validity(*files), [])
+
+    def test_mutant_subagents_not_read(self):
+        t, st = self.files(REVIEW + [_turn("Pass 1 done")])
+        sub = os.path.join(self.tmp, "transcript", "subagents")
+        os.makedirs(sub)
+        with open(os.path.join(sub, "agent-a1.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(_use("s1", "Skill")) + "\n")
+        self.assertNotEqual(fp.run_validity(t, st), [])
+        with mock.patch.object(fp, "subagent_transcripts", lambda path: []):
+            self.assertEqual(fp.run_validity(t, st), [])
+
+
 class TestInvalidRunsNeverCount(_Tmp):
     M = "a" * 64
 

@@ -27,6 +27,7 @@ real files and at least one mutant test showing the lock trips.
 import json
 import os
 import re
+import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -548,6 +549,16 @@ class TestRealFiles(unittest.TestCase):
         self.assertEqual(launch_tool_list_problems(self.runbook, settings), [])
         self.assertEqual(len(session_launch_modes(self.runbook)), 2)
         self.assertNotIn("AskUserQuestion", settings["permissions"]["allow"])
+
+    def test_invalid_run_rule_uses_the_settings_list(self):
+        """freeze_policy judges a permission prompt against the same list the
+        settings and both launch lines pre-approve."""
+        sys.path.insert(0, HERE)
+        import freeze_policy
+        settings = json.loads(_read(SETTINGS))
+        self.assertEqual(list(freeze_policy.PREAPPROVED_TOOLS),
+                         settings["permissions"]["allow"])
+        self.assertEqual(list(freeze_policy.PREAPPROVED_TOOLS), TOOL_SET)
 
 
 class TestRunbookVar(unittest.TestCase):
