@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.normpath(os.path.join(HERE, "..", "..", "..", ".."))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
@@ -486,6 +487,47 @@ class TestInherit(unittest.TestCase):
         self.assertIn("plugins/vibe-check/scripts/score.py", globs)
         self.assertIn("plugins/**", globs)
         self.assertEqual(fp.proposed_reductions(old, old), [])
+
+
+class TestPathMapCoverage(unittest.TestCase):
+    """Each plugin helper maps to every workflow a runner actually runs it in
+    (README: shared helpers map to every workflow they affect)."""
+
+    REQUIRED = {
+        # harness_seed builds every pass-1 state with score.py
+        "plugins/vibe-check/scripts/score.py": {"engineering", "detection", "workflow"},
+        # gitguard is the review agents' PreToolUse hook; gitsnap's compare
+        # halts any review pass
+        "plugins/vibe-check/scripts/gitguard.py": {"engineering", "detection", "workflow"},
+        "plugins/vibe-check/scripts/gitsnap.py": {"engineering", "detection", "workflow"},
+        # Phase 0.5 forward migration runs on every review (05-state.md)
+        "plugins/vibe-check/scripts/review_archive.py": {"engineering", "detection",
+                                                         "workflow"},
+        # every B3 run reaches the fix-loop card and picks Stop here… from it
+        "plugins/vibe-check/scripts/batch_card.py": {"engineering", "detection",
+                                                     "workflow"},
+    }
+
+    def test_helpers_carry_every_workflow_they_run_in(self):
+        pm = fp.load_path_map()
+        cats = fp.classify(sorted(self.REQUIRED), pm)
+        for path, want in self.REQUIRED.items():
+            with self.subTest(path=path):
+                self.assertTrue(want <= set(cats[path]), (path, cats[path]))
+
+    def test_map_change_only_adds_categories(self):
+        """The edit since the 24c0c00 candidate map is additions only: no
+        rule's categories shrink or vanish."""
+        try:
+            blob = freeze_common.git(REPO_ROOT, "show",
+                                     "24c0c00:" + fp.MAP_SELF_PATH)
+        except Exception:  # noqa: BLE001 - outside the checkout
+            self.skipTest("candidate map not reachable")
+        old = fp.validate_path_map(json.loads(blob.decode("utf-8")))
+        self.assertEqual(fp.proposed_reductions(old, fp.load_path_map()), [])
+        cats = fp.classify([fp.MAP_SELF_PATH], fp.load_path_map())
+        self.assertEqual(set(cats[fp.MAP_SELF_PATH]),
+                         {"engineering", "detection", "workflow"})
 
 
 class TestSealOrderRequired(unittest.TestCase):

@@ -269,7 +269,8 @@
       "glob": "plugins/vibe-check/scripts/score.py",
       "cats": [
         "engineering",
-        "detection"
+        "detection",
+        "workflow"
       ]
     },
     {
@@ -346,6 +347,7 @@
       "glob": "plugins/vibe-check/scripts/batch_card.py",
       "cats": [
         "engineering",
+        "detection",
         "workflow"
       ]
     },
@@ -367,6 +369,7 @@
       "glob": "plugins/vibe-check/scripts/review_archive.py",
       "cats": [
         "engineering",
+        "detection",
         "workflow"
       ]
     },
@@ -374,6 +377,7 @@
       "glob": "plugins/vibe-check/scripts/gitsnap.py",
       "cats": [
         "engineering",
+        "detection",
         "workflow"
       ]
     },
@@ -381,6 +385,7 @@
       "glob": "plugins/vibe-check/scripts/gitguard.py",
       "cats": [
         "engineering",
+        "detection",
         "workflow"
       ]
     },
