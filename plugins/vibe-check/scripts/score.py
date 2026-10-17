@@ -113,7 +113,7 @@ _NV_KEYS = ("trigger", "path", "consequence")
 # shape are the only mechanical test; semantic concreteness is the lane
 # prompt's job.
 _NV_MIN = 12
-# D-28: a field whose WHOLE normalized value (first line, whitespace collapsed,
+# D-28: a field whose WHOLE normalized value (all lines, whitespace collapsed,
 # case-folded, surrounding periods ignored) is one of these placeholders counts
 # as blank. Whole-field match only: words are never stripped out of prose, so
 # "none of the callers validate the host" stays real text.
@@ -945,10 +945,13 @@ def _nv_field(v):
 
 
 def _nv_value(v):
-    """_nv_field(v), or "" when the whole normalized field is a placeholder
-    in _NV_PLACEHOLDERS (case-insensitive, surrounding periods ignored)."""
+    """_nv_field(v), or "" when the WHOLE field — every line, whitespace
+    collapsed — is a placeholder in _NV_PLACEHOLDERS (case-insensitive,
+    surrounding periods ignored). A placeholder line followed by more text
+    ("None\n<text>") is a real field."""
     text = _nv_field(v)
-    if text.lower().strip().strip(".").strip() in _NV_PLACEHOLDERS:
+    whole = " ".join(v.split()) if isinstance(v, str) else ""
+    if whole.lower().strip(".").strip() in _NV_PLACEHOLDERS:
         return ""
     return text
 
@@ -1797,7 +1800,7 @@ def run(envelope):
     # unchanged, so every archived envelope scores byte-identically.
     # The key is OPTIONAL (agent-output-schema.md): a fresh record whose dict
     # carries no real trigger/path/consequence ({}, blank fields, or fields
-    # that are wholly a placeholder — `N/A`, `none`, `-`, case- and
+    # whose WHOLE text is a placeholder — `N/A`, `none`, `-`, case- and
     # whitespace-insensitive) is not a Needs-verification claim — the key is
     # stripped and the record is scored normally, so a lane filling every
     # schema key never loses a proven finding to the drop path. A record with

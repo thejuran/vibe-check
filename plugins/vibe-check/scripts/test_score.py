@@ -6529,6 +6529,46 @@ class TestNeedsVerificationPlaceholders(unittest.TestCase):
     def test_mutant_nv_value_reverted_to_nv_field(self):
         self._assert_mutant_drops_placeholder("_nv_value", score._nv_field)
 
+    # -- whole-field only (owner ratification of S11) ----------------------- #
+    _WHOLE_FIELD_VARIANTS = ("N/A", "n/a", " NONE ", "-", "N/A.", "none.", "-.",
+                             "n/a..", "  None.  ", "N/A\n", "\n none \n")
+    _NOT_PLACEHOLDERS = ("none of the callers.", "None\nthe callers never validate",
+                         "N/A\nreached from the public handler", "-\nsee below",
+                         "na", "null", "—", "n.a.", "N / A", "n/a,", "'none'",
+                         "None given")
+
+    def test_whole_field_variants_are_placeholders(self):
+        for v in self._WHOLE_FIELD_VARIANTS:
+            with self.subTest(value=v):
+                self.assertEqual(score._nv_value(v), "")
+
+    def test_text_after_a_placeholder_line_is_not_a_placeholder(self):
+        for v in self._NOT_PLACEHOLDERS:
+            with self.subTest(value=v):
+                self.assertNotEqual(score._nv_value(v), "")
+
+    def test_placeholder_first_line_with_more_text_takes_admission(self):
+        """`None` followed by real text is a real field, so the record is a
+        Needs-verification claim judged by admission (never silently scored
+        as if the claim were absent)."""
+        v = "None\nthe callers never validate"
+        f = self._proven(trigger=v, path=v, consequence=v)
+        self.assertTrue(score._nv_marked(f))
+        r = score.run(_nv_env([f]))
+        self.assertEqual([x["reason"] for x in r["filtered"]], ["nv-not-admitted"])
+
+    def test_mutant_first_line_match_trips(self):
+        def first_line_value(v):
+            text = score._nv_field(v)
+            if text.lower().strip().strip(".").strip() in score._NV_PLACEHOLDERS:
+                return ""
+            return text
+        self.assertNotEqual(score._nv_value("None\nthe callers never validate"), "")
+        with mock.patch.object(score, "_nv_value", first_line_value):
+            self.assertEqual(score._nv_value("None\nthe callers never validate"), "")
+            f = self._proven(trigger="None\nx", path="None\ny", consequence="None\nz")
+            self.assertFalse(score._nv_marked(f))
+
     def test_mutant_empty_placeholder_set(self):
         self._assert_mutant_drops_placeholder("_NV_PLACEHOLDERS", frozenset())
 
