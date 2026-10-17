@@ -258,4 +258,12 @@ You already approved these in 54-12 (`security-gate.json` `owner_decisions`). Th
 
 ## Owner decision
 
-(pending: to be recorded verbatim, with the candidate sha, when the owner answers.)
+Candidate: `24c0c00038f2d15af4b55f178ea44e680c1f2c58`. Relayed by the coordinator on 2026-10-16. Verbatim:
+
+> "Fix A1–A2, B1–B7 and P1 together before the restart. P1 is a known data-loss regression; carrying it because measurement uses a local disk would be the wrong trade-off.For P1, require a no-overwrite fallback when hard links aren’t supported. If archiving still fails, stop visibly and preserve both the report and live state.I would not blanket-approve the remaining list from this truncated summary:- Maintenance duplication in C can be accepted if the recorded impact is only maintenance.- C3/C4 need their actual isolation and permission evidence; “these are our own cases” doesn’t establish containment.- The downgrade item needs reconciliation with the separate-state protection we explicitly chose. Documentation alone was previously rejected.- “Codex NV items never close” needs clarification: unresolved evidence may legitimately block, but a verified-resolved item that cannot close is the workflow defect we set out to eliminate.- The trailing-period placeholder match needs its exact behavior and regression evidence before ratifying that deviation.Keep the proposed single batched restart. Previously accepted findings need reopening only where the fixes invalidate their rationale; renew the shell-review substitution for changed shell code.Ask for one concise supplemental acceptance table covering only those unresolved points, rather than another round of individual cards."
+
+What this decides:
+
+- **To fix, in one batch before the restart:** A1, A2, B1–B7 and P1. For P1: a no-overwrite fallback where hard links are unsupported; if archiving still fails, stop visibly and keep both the report and the live state.
+- **Not approved yet:** C3, C4, K3, K4, carried item (a), and the maintenance items C1, C2, C5 and C6 (pending confirmation that their impact is maintenance-only). These go to `## Supplemental acceptance table`.
+- **Earlier acceptances:** reopened only where a fix invalidates the rationale. The shell-review substitution is renewed for any changed shell code.
