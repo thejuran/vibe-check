@@ -744,8 +744,23 @@
     "c65ca7dc8013"
   ],
   "outcome": "blocked",
-  "outcome_reason": "two findings in D-09 gate-breaking classes are open (A1 false harness completion, A2 detection inheritance across a changed environment). D-09: acceptance cannot pass them, so they must be fixed on a new candidate (D-23) before the engineering gate can read MET",
+  "outcome_reason": "blocked until the single batched fix (A1-A2, B1-B7, P1, S5-S10, S11 narrowing) lands on a new candidate and its delta review passes. Gate-breaking open: A1, A2, N1/S7. This record stays bound to 24c0c00 and is superseded, not edited to pass, on the new candidate",
   "acceptance_list": "docs/design/freeze-v2.12/evidence/acceptance-list.md",
   "orchestrator_note": "Point the orchestrator's Sub-step 5 deep-review gate at state_paths explicitly (Pitfall 7): this build writes the legacy flat key in range mode, not format-53. This plan does not modify the orchestrator plugin.",
-  "written_at": "2026-10-17T00:04:47Z"
+  "written_at": "2026-10-17T00:04:47Z",
+  "owner_decisions": {
+    "acceptance_list": "evidence/acceptance-list.md ## Owner decision (2026-10-16): fix A1-A2, B1-B7 and P1 in one batch",
+    "supplemental_table": "evidence/acceptance-list.md ## Owner decision (supplemental table) (2026-10-16): accept S1-S4; fix S5-S10 (incl. new N1 = S7, gate-breaking); ratify S11 narrowed to whole-field variants; acceptance conditions recorded there"
+  },
+  "new_findings_during_acceptance": [
+    {
+      "id": "N1",
+      "title": "holdout-eval dontAsk launch denies the plugin's python3 scorer (reproduced with CLI 2.1.281)",
+      "file": "docs/design/holdout-v2.12/tools/holdout_eval_launch.py",
+      "line": 85,
+      "gate_breaking": true,
+      "disposition": "blocking",
+      "acceptance_item": "S7"
+    }
+  ]
 }

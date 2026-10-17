@@ -297,3 +297,23 @@ How the evidence was gathered:
 - Shell changes (`common.sh`, `run_case.sh`) need the renewed shell-review substitution.
 - Previously accepted items whose rationale these fixes change: C3 and C4 are superseded by S5/S6. K3 and K4 move from carried to fixed. K1 is partly fixed (single-row path).
 - The rest of the earlier list stands as written.
+
+## Owner decision (supplemental table)
+
+Candidate `24c0c00038f2d15af4b55f178ea44e680c1f2c58`. Relayed by the coordinator on 2026-10-16. Verbatim:
+
+> "Approve this batch: accept S1–S4, fix S5–S10, and ratify S11’s narrowly defined trailing-period variants.Add these acceptance conditions:- S5–S7: Before the 16-case sweep, run a synthetic live review proving that Python scoring, the local gateway and Codex work. Also prove credential reads and unauthorized network access are denied. Containment must cover every execution route, including Node—not merely Bash.- Invalid runs: A permission failure, incomplete review or missing scorer output is invalid, never a quiet result or detection miss.- S8: Preserve the legacy state in a recoverable, non-overwriting archive before removing it from the old version’s active location. Test interruption and retry.- S9: “Resolved by verification” requires evidence tied to the specific finding and repaired code. Confirmation, an applied patch, or a reviewer’s absence alone cannot close it.- S10: Test the selected NV row through the actual card-to-fix-to-verified-close path.- S11: Match only whole-field placeholder variants; retain the negative tests for substantive text.Record sandboxing as an environment change. The new sweep tests compatibility and reveals outcome differences; it cannot prove that sandboxing caused—or didn’t cause—each difference.Proceed with the single batched restart, keeping the earlier A/B/P1 fixes in scope."
+
+What this decides:
+
+- **Batched fix scope (one restart):** A1, A2, B1–B7, P1, S5, S6, S7 (N1), S8, S9 and S10. S11 is ratified but narrowed to whole-field variants, a plugin change also in this batch.
+- **Accepted as written:** S1–S4 (C1, C2, C5, C6).
+- **Acceptance conditions the fix must meet:**
+  - **S5–S7:** before the 16-case sweep, a synthetic live review must prove that Python scoring, the local gateway and Codex all work. It must also prove that credential reads and unauthorized network access are denied on every execution route, Node included, not only Bash.
+  - **Invalid runs:** a permission failure, an incomplete review or missing scorer output marks the run invalid. It never counts as a quiet result or a detection miss.
+  - **S8:** the legacy state is first preserved in a recoverable, non-overwriting archive, and only then removed from the old version's active location. Interruption and retry are tested.
+  - **S9:** "Resolved by verification" needs evidence tied to the specific finding and the repaired code. Confirmation, an applied patch, or a reviewer's absence alone never closes an item.
+  - **S10:** the selected NV row is tested through the real card → fix → verified-close path.
+  - **S11:** only whole-field placeholder variants match. The negative tests for substantive text stay.
+- **Environment change:** sandboxing is recorded as an environment change. The new sweep tests compatibility and shows outcome differences; it cannot attribute any single difference to sandboxing, or rule sandboxing out.
+- **Carried and K items:** the earlier list stands, except where these fixes change the rationale (see the supplemental table's closing note).
