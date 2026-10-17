@@ -455,6 +455,39 @@ def _home_none_equal(fx):
 # Schema + secrets
 # --------------------------------------------------------------------------- #
 
+class TestSessionEnvironment(unittest.TestCase):
+    def test_allowlist_only(self):
+        env = {"PATH": "/usr/bin", "HOME": "/h", "AWS_SECRET_ACCESS_KEY": "x",
+               "GITHUB_TOKEN": "y", "SSH_AUTH_SOCK": "/s", "TMUX": "t",
+               "ANTHROPIC_API_KEY": "k", "ANTHROPIC_BASE_URL": "http://127.0.0.1:1",
+               "ANTHROPIC_DEFAULT_OPUS_MODEL": "m", "CODEX_HOME": "/c"}
+        self.assertEqual(fm.session_environment(env), {
+            "PATH": "/usr/bin", "HOME": "/h", "CODEX_HOME": "/c",
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:1",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "m"})
+
+    def test_accepts_os_environ(self):
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin", "NOISE": "n"}):
+            got = fm.session_environment(os.environ)
+        self.assertEqual(got["PATH"], "/usr/bin")
+        self.assertNotIn("NOISE", got)
+
+    def test_names_cover_the_checked_projection_and_no_auth(self):
+        self.assertTrue(set(fm.ENV_ALLOWLIST) <= set(fm.SESSION_ENV_NAMES))
+        for auth in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                     "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY",
+                     "SSH_AUTH_SOCK", "GITHUB_TOKEN", "GH_TOKEN"):
+            self.assertNotIn(auth, fm.SESSION_ENV_NAMES)
+
+    def test_projection_unchanged_by_the_filter(self):
+        """The identity check sees the same process-env projection before
+        and after the filter (it keeps every ENV_ALLOWLIST key)."""
+        env = {k: "v" for k in fm.ENV_ALLOWLIST}
+        env.update({"PATH": "/usr/bin", "NOISE": "n"})
+        self.assertEqual(fm.env_projection(env),
+                         fm.env_projection(fm.session_environment(env)))
+
+
 class TestSecrets(_Base):
     def setUp(self):
         super().setUp()

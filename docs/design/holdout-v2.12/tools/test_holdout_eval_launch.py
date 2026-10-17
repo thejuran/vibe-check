@@ -383,6 +383,33 @@ class TestLaunch(LaunchCase):
         self.assertNotIn("DISABLE_UPDATES", checked)
         self.assertEqual(self.spawned[0]["cwd"], self.run_dir)
 
+    def test_session_env_is_an_allowlist(self):
+        """Only the identity-checked names plus what the session needs reach
+        it; every other variable of the launching shell is dropped."""
+        env = {"PATH": self.bin + ":/usr/bin:/bin", "HOME": "/h",
+               "AWS_SECRET_ACCESS_KEY": "planted", "GITHUB_TOKEN": "planted",
+               "SSH_AUTH_SOCK": "/tmp/agent.sock", "ANTHROPIC_API_KEY": "planted",
+               "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5[1m]",
+               "VC_CONTAINMENT_ENV_CANARY": "planted"}
+        rc, _ = self.launch(env=env)
+        self.assertEqual(rc, 0)
+        got = self.spawned[0]["env"]
+        self.assertEqual(set(got), {"PATH", "HOME", "ANTHROPIC_DEFAULT_OPUS_MODEL"})
+        self.assertTrue(set(got) <= set(fm.SESSION_ENV_NAMES))
+
+    def test_mutant_denylist_env_lets_shell_secrets_through(self):
+        env = {"PATH": self.bin + ":/usr/bin:/bin", "AWS_SECRET_ACCESS_KEY": "planted"}
+
+        def denylist(e=None):
+            out = dict(e)
+            for name in el.STRIPPED_ENV:
+                out.pop(name, None)
+            return out
+        with mock.patch.object(el, "session_environment", denylist):
+            rc, _ = self.launch(env=env)
+        self.assertEqual(rc, 0)
+        self.assertIn("AWS_SECRET_ACCESS_KEY", self.spawned[0]["env"])
+
     def test_argv_passes_autopilot_rules(self):
         rc, _ = self.launch()
         self.assertEqual(rc, 0)
@@ -525,7 +552,7 @@ class TestShape(unittest.TestCase):
         self.assertEqual(_imports(self.tree),
                          {"argparse", "json", "os", "re", "sys", "time",
                           "holdout_kit", "holdout_autopilot", "freeze_check",
-                          "freeze_common"})
+                          "freeze_common", "freeze_manifest"})
 
     def test_reused_constants(self):
         self.assertIs(el.FORBIDDEN_ARGS, holdout_autopilot.FORBIDDEN_ARGS)

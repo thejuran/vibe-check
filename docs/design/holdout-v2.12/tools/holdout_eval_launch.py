@@ -17,7 +17,8 @@ Before EVERY launch, retries included, it:
      (<run dir>/frozen-build/);
   3. runs the freeze identity check (runner profile `holdout-eval`) on that
      copy, those settings, the launch model and the exact environment the
-     session will get;
+     session will get: an allowlist of the shell's env
+     (freeze_manifest.SESSION_ENV_NAMES), nothing else;
   4. on any difference prints each one and `IDENTITY MISMATCH — STOPPING`,
      exits 1 and launches nothing. There is no override;
   5. writes <run dir>/identity.json (manifest_id, check_digest, candidate_sha,
@@ -53,10 +54,11 @@ import holdout_autopilot  # noqa: E402  (puts the freeze kit on sys.path)
 try:
     import freeze_check  # noqa: E402
     import freeze_common  # noqa: E402
+    import freeze_manifest  # noqa: E402
 except ModuleNotFoundError as _exc:
-    if _exc.name not in ("freeze_check", "freeze_common"):
+    if _exc.name not in ("freeze_check", "freeze_common", "freeze_manifest"):
         raise
-    freeze_check = freeze_common = None
+    freeze_check = freeze_common = freeze_manifest = None
 
 KitError = holdout_kit.KitError
 
@@ -119,7 +121,7 @@ LAUNCH_FAILED_NAME = "launch-failed.json"
 
 
 def _freeze():
-    if freeze_check is None or freeze_common is None:
+    if freeze_check is None or freeze_common is None or freeze_manifest is None:
         raise KitError(FREEZE_KIT_MISSING_MSG)
     return freeze_check, freeze_common
 
@@ -194,9 +196,14 @@ def materialize_plugin_from_candidate(repo, candidate, dest):
 
 
 def session_environment(env=None):
-    """The environment the check sees AND the session gets: the process env
-    minus STRIPPED_ENV."""
-    out = dict(os.environ if env is None else env)
+    """The environment the check sees AND the session gets: an ALLOWLIST of
+    the process env (freeze_manifest.SESSION_ENV_NAMES: the identity-checked
+    names plus PATH, HOME, terminal, locale, temp dir and Codex config dir),
+    never STRIPPED_ENV. Every other variable of the launching shell is
+    dropped, so shell-held credentials never reach the session."""
+    _freeze()
+    out = freeze_manifest.session_environment(dict(os.environ if env is None
+                                                   else env))
     for name in STRIPPED_ENV:
         out.pop(name, None)
     return out

@@ -115,6 +115,27 @@ ENV_ALLOWLIST = (
     "DISABLE_AUTOUPDATER", "DISABLE_UPDATES", "VIBE_CHECK_TOP_MODEL",
 )
 
+# The ONLY variables a measured session (B3 runner session, holdout
+# measurement launcher) receives: the identity-checked allowlist above plus
+# what the session genuinely needs to run (locating binaries and home,
+# terminal, locale, temp dir, Codex config dir). Everything else the
+# launching shell or tmux server carries is dropped (`env -i` style), so
+# shell-held credentials (cloud keys, tokens, agent sockets) never reach the
+# session. Auth variables stay out (holdout_autopilot.STRIPPED_ENV).
+SESSION_ENV_BASE = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM",
+                    "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR",
+                    "CODEX_HOME")
+SESSION_ENV_NAMES = ENV_ALLOWLIST + SESSION_ENV_BASE
+
+
+def session_environment(env):
+    """{name: value} of `env` restricted to SESSION_ENV_NAMES (names absent
+    from `env` stay absent)."""
+    if env is None or not hasattr(env, "get"):
+        return {}
+    return {k: env[k] for k in SESSION_ENV_NAMES if isinstance(env.get(k), str)}
+
+
 _MODEL_RE = r"^[A-Za-z0-9._\[\]-]{1,64}$"
 _FLAG_RE = r"^(0|1|true|false)$"
 URL_SHAPE = "url"
