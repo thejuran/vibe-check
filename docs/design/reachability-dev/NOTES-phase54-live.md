@@ -889,3 +889,63 @@ left by `fail` was removed (`rmdir`).
 
 Fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3`, equal to the value
 before. Owner config sha256 `962a26ec…`, `bf22ccb2…`, `012ecb8d…`, unchanged.
+
+---
+
+# Restart on candidate ddbfff402816 (54-11 restart #3)
+
+Everything above this line is history and stays unchanged: the 302df48 attempt, the 24c0c00
+sweep with its owner decision, and the 2a6dbb4 attempt that stopped at its first case (`post` lane
+archive). Nothing from those counts on this candidate (D-21).
+
+## Pre-registration — restart on candidate ddbfff4 — 2026-10-17T17:42Z (before the first run)
+
+Since the 2a6dbb4 stop: follow-up 2d (bc5738e / 22ef678) made `lanearchive.locate_codex_dir`
+accept the measured session's uid-scoped sandbox temp root `/tmp/claude-<uid>/`; follow-up 2e
+(fd40e29 / ddbfff4) fixed the fix-harness turn-end classifier. 54-10 re-run #6 selected a new
+candidate and regenerated the draft manifest.
+
+- **Candidate:** `ddbfff402816805136e95393c98a3cc17196daeb`, read from
+  `docs/design/freeze-v2.12/evidence/CANDIDATE.json` (never `HEAD`); it equals the draft
+  manifest's `candidate_sha`.
+- **Manifest:** `docs/design/freeze-v2.12/evidence/FREEZE-MANIFEST-draft-54-10.json`, `manifest_id`
+  `fd1d0d916fe27de81f3c697673bbce65e6ab2c201a653e49875f0d6218cc81d3`, `MANIFEST` for the whole
+  sweep. B3 launch model `claude-fable-5-1[1m]` (= `pin-model:`); plugin `runtime_fingerprint`
+  `0ddf46f6…`. Pins unchanged: `claude --version` 2.1.281, `codex --version` 0.153.4 (checked
+  live 2026-10-17T17:41Z).
+- **Owner condition met before the sweep (S5–S7 synthetic live review):** the two 54-10 re-run #6
+  containment proofs, both on this candidate and this manifest:
+  - `evidence/containment-proof-b3.json` (479493f): CONTAINMENT PROOF OK. Python scoring ran,
+    local gateway served the sessions, Codex joined (needs-attention); credential reads denied on
+    Bash, Python, Node and the Read tool; unauthorized network denied (curl, Python, Node); env
+    allowlist held. Its `archive_step_check` PASS: the review's Codex dir
+    `/tmp/claude-501/vc-codex.O6m5rm` was archived by `lanearchive.py extract`, payload
+    byte-identical — the step that stopped the 2a6dbb4 sweep.
+  - `evidence/containment-proof-holdout.json` (ed3f9f8): CONTAINMENT PROOF OK, owner-run holdout
+    review VALID (`run-validity` exit 0), `archive_step_check` PASS.
+- **Invalid-run rule:** as the 2a6dbb4 pre-registration. Every run is judged by `post`'s
+  `freeze_policy.py run-validity`; a permission failure, incomplete review or missing scorer output
+  = INVALID, `fail`ed to `attempts/`, slot redone in a fresh run folder (next run number), never
+  counted as quiet or a miss. An auth/API outage is an invalid environment attempt, recorded and
+  redone the same way. A completed valid run is never rerun.
+- **Infrastructure stop rule:** if any runner step breaks (as the archive step did), the sweep
+  stops at that case and is reported; no code is changed.
+- **Sandboxing is an environment change** (owner condition): this sweep can show outcome
+  differences against the Phase-53 baseline and the 24c0c00 sweep; it cannot attribute any of them
+  to the sandbox or rule it out.
+- **Run folders:** the 2a6dbb4 attempt stays in `runs-phase54-live/attempts/` (not walked by
+  `dev-tally`); the 24c0c00 runs stay in `runs-phase54-live/superseded-24c0c00038f2/`. New runs
+  take `run-1`.
+- **Clones:** re-used, each on its start branch and clean at 17:41Z: roonseek `2370f0b`,
+  seedsyncarr `3dc75c7`, triggarr `4a154be`.
+- **Everything else as before:** runner re-materialized from ddbfff4; memory parked; owner cache
+  untouched; all 16 cases once, in the same order; no retune, no key change; fixed keystrokes;
+  before = Phase-53 signed-off final run, with the 24c0c00 sweep shown for reference; lost-catch
+  rule; the owner's R4 wording rules (2a6dbb4 pre-registration).
+
+### Owner cache — before the sweep (2026-10-17T17:41Z)
+
+Fingerprint `f2cf0373f20adbd7ea0818a1a37a9e40f06f759940726e62dffdded4baea34d3` (unchanged).
+Owner config sha256: `installed_plugins.json` `962a26ec…`, `known_marketplaces.json` `bf22ccb2…`,
+`settings.json` `b5c6ac2e…` (changed since 15:33Z; the draft manifest was regenerated after it and
+the identity check binds the effective settings).
