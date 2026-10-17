@@ -519,10 +519,10 @@ def finalize_counts(state, head_blobs=None):
             cw.append(rec["stable_hash"])
         elif rec["band"] == NV_BAND:
             nv.append(rec["stable_hash"])
-        if _confirmed_fix_awaiting(rec, state, last):
-            awaiting.append(rec["stable_hash"])
         elif rec["band"] == "medium":
             medium.append(rec["stable_hash"])
+        if _confirmed_fix_awaiting(rec, state, last):
+            awaiting.append(rec["stable_hash"])
     return {
         "outstanding_cw": len(cw),
         "unacknowledged_medium": len(medium),

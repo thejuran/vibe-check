@@ -6602,11 +6602,39 @@ class TestNeedsVerificationPlaceholders(unittest.TestCase):
         f = self._proven(trigger=v, path=v, consequence=v)
         self.assertTrue(score._nv_marked(f))
         r = score.run(_nv_env([f]))
+        # Judged on the complete field (qualifying evidence): an NV row,
+        # never a normal finding and never dropped.
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertEqual(len(r["findings"]), 1)
+        self.assertEqual(r["filtered"], [])
+
+    def test_placeholder_first_line_then_qualifying_evidence_is_admitted(self):
+        """A placeholder first line followed by evidence that qualifies on its
+        own: admission judges the complete field, so the claim becomes a
+        Needs-verification row instead of being dropped."""
+        f = self._proven(
+            trigger="N/A\nload_config() is called with the request's path param",
+            path="None.\nhandler -> load_config -> open() with no allowlist check",
+            consequence="-\nany readable file on the host is returned to the caller")
+        self.assertTrue(score.nv_admit(f))
+        r = score.run(_nv_env([f]))
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertEqual(r["filtered"], [])
+        self.assertIn("load_config()", _nv_rows(r)[0]["needs_verification"]["trigger"])
+
+    def test_placeholder_first_line_then_unsupported_text_not_promoted(self):
+        """Complete-field admission never promotes unsupported text: a
+        placeholder followed by a short or hedge-only line still fails."""
+        f = self._proven(trigger="N/A\nunclear", path="None\nmay break",
+                         consequence="-\nmight break")
+        self.assertFalse(score.nv_admit(f))
+        r = score.run(_nv_env([f]))
+        self.assertEqual(_nv_rows(r), [])
         self.assertEqual([x["reason"] for x in r["filtered"]], ["nv-not-admitted"])
 
     def test_mutant_first_line_match_trips(self):
         def first_line_value(v):
-            text = score._nv_field(v)
+            text = " ".join(v.splitlines()[0].split()) if v else ""
             if text.lower().strip().strip(".").strip() in score._NV_PLACEHOLDERS:
                 return ""
             return text

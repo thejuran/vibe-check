@@ -203,6 +203,15 @@ class TestFinalizeCounts(unittest.TestCase):
                 self.assertEqual(c["outstanding_cw"], 1)
                 self.assertEqual(c["verified_obsolete_hashes"], [])
 
+    def test_medium_count_independent_of_confirmed_fix_awaiting(self):
+        """The band chain alone decides the medium count: even if the
+        confirmed-fix predicate fired for a medium record, it stays counted."""
+        with mock.patch.object(carry_state, "_confirmed_fix_awaiting",
+                               return_value=True):
+            c = carry_state.finalize_counts(load_fixture())
+        self.assertEqual(c["unacknowledged_medium_hashes"], [BUGS_HASH])
+        self.assertEqual(c["outstanding_cw_hashes"], [ARCH_HASH])
+
     def test_counts_kept_open_is_open(self):
         w = mk_finding("warning", "persisted", HA,
                        kept_open="below-min-confidence", orchestrator_score=10,

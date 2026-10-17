@@ -959,12 +959,17 @@ def _nv_code_key(text):
 
 def _nv_field(v):
     """One Needs-verification text field, normalized: its first line,
-    whitespace-collapsed, capped at _NV_FIELD_CAP. Non-str -> ""."""
+    whitespace-collapsed, capped at _NV_FIELD_CAP. Non-str -> "". When the
+    first line is only a placeholder (_NV_PLACEHOLDERS) and more text follows,
+    the complete field is used instead, so admission judges the evidence and
+    never just the placeholder."""
     if not isinstance(v, str):
         return ""
     lines = v.splitlines()
-    first = lines[0] if lines else ""
-    return " ".join(first.split())[:_NV_FIELD_CAP]
+    first = " ".join((lines[0] if lines else "").split())
+    if first.lower().rstrip(".").strip() in _NV_PLACEHOLDERS:
+        first = " ".join(v.split())
+    return first[:_NV_FIELD_CAP]
 
 
 def _nv_value(v):
