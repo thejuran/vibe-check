@@ -317,3 +317,19 @@ What this decides:
   - **S11:** only whole-field placeholder variants match. The negative tests for substantive text stay.
 - **Environment change:** sandboxing is recorded as an environment change. The new sweep tests compatibility and shows outcome differences; it cannot attribute any single difference to sandboxing, or rule sandboxing out.
 - **Carried and K items:** the earlier list stands, except where these fixes change the rationale (see the supplemental table's closing note).
+
+## Owner decision (fix-1 follow-ups)
+
+Candidate `24c0c00038f2d15af4b55f178ea44e680c1f2c58` plus the 54-16 batched fix. Relayed by the coordinator on 2026-10-16. Verbatim:
+
+> S9: "1 — Independent re-check, but batch it into the existing rerun, not a separate review session for every item. A reviewer other than the fixer should check the specific defect against the repaired code and record a verdict bound to that finding and code snapshot. Explicitly route Codex-origin items and items whose original lane isn't running to an eligible reviewer. If verification is unavailable or inconclusive, keep the item open with a clear reason. Once verified, close it automatically—no extra owner card."
+
+> S11: "1 — Trailing only, retaining case normalization and surrounding-space trimming. Add tests that N/A., none.., and -. match, while ...none does not. But "not a placeholder" must not mean "a valid claim": it still has to meet the normal evidence and admission rules."
+
+> Standing rule: "Finish the accepted batch. Add work only for a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, or a broken required workflow. Carry cosmetic, maintenance and speculative issues. Review only the changes and affected interactions; reopen settled decisions only when new evidence invalidates them."
+
+What this decides:
+
+- **S9:** the fix agent's own check is recorded evidence and never closes a Needs-verification item alone. On the next pass, inside the ordinary rerun, a reviewer other than the fixer re-checks the item against the repaired code: the raising lane when it is dispatched, otherwise a deterministic eligible native lane that is dispatched (Codex-raised items and items from a lane that is not running). The verdict is bound to the finding's `stable_hash` and the code snapshot. A verified item closes automatically as "Resolved by verification (confirmed-fix)", with no owner card. Unavailable or inconclusive verification keeps the item open with a stated reason.
+- **S11:** placeholder matching ignores trailing periods only, keeps case normalization and surrounding-space trimming, and stays whole-field. `N/A.`, `none..` and `-.` match; `...none` does not. A field that is not a placeholder is still a Needs-verification claim and must meet the normal admission and evidence rules.
+- **Carried, recorded as known behavior (standing rule):** a field such as `None` followed by more text is a real field. When that text is too short for admission, the record is dropped as `nv-not-admitted` instead of being scored as a normal finding. This is not changed.
