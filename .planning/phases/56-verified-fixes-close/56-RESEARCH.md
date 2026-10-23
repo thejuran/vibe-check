@@ -353,16 +353,19 @@ def _six_cf():
 | A3 | Recording independent closures under source `recheck` (no enum change) is acceptable to the owner as "Closed — fix confirmed by <reviewer>" | Pattern 5 | Planner may prefer a distinct source. Then it's an enum change plus a recorded decision |
 | A4 | The trimmed iPlayarr state can be committed as a test fixture (it's the owner's own repo, with paths and titles only) | Fixture | If the owner objects, synthesize equivalent rows with the same shapes |
 
-## Open Questions
+## Open Questions (RESOLVED at plan time)
 
-1. **Retry on an empty-diff run (Pitfall 6)**
+All three questions were resolved by owner plan-time decisions or by the plan interfaces (56-01 `<interfaces>` block; 56-03 Task 1-2). Nothing here remains open for the executor.
+
+1. **Retry on an empty-diff run (Pitfall 6)** — RESOLVED (owner plan-time decision 1)
    - What we know: step 5 of `05-state.md` dispatches nobody when nothing changed since the last pass, so no retry can happen there.
-   - What's unclear: whether the owner wants a recheck-only dispatch (one cheap Sonnet `bugs` call carrying only `<recheck>` blocks) on such runs.
-   - Recommendation: in scope, D-11 wording names the reason ("no reviewer ran — nothing changed since the last pass; the next run with changes retries, or dismiss"). Raise the recheck-only dispatch to the owner as a product choice. It's a small new cost per run, so don't plan it silently.
-2. **Members of a closing row (Pitfall 4)**
-   - Recommendation: a "bound plain" request (adds `snapshot_blob`) for members when the trigger holds. The planner should lock this in the plan, because the six-row fixture's AddFileEndpoint row depends on it.
-3. **Should D-09 fingerprints include associated test blobs?**
-   - Recommendation: yes for findings whose trigger came from a test path (the `arrFacade` shape), so new tests re-earn a recheck after a still-applies.
+   - Resolution: quiet runs do NOT dispatch a recheck-only reviewer; the retry rides the next run that has changes. D-11 wording names the reason ("no eligible reviewer ran this pass") and the bounded ways forward. Plan 56-06 Task 2 locks step 5 of `05-state.md` byte-identical to the phase base ("Quiet run" ledger row). No recheck-only Sonnet dispatch is planned.
+2. **Members of a closing row (Pitfall 4)** — RESOLVED (56-01 / 56-03 interfaces)
+   - Resolution: the "bound plain" request shape (plain request plus `snapshot_blob`, member `stable_hash: null`) closes members when the lead's trigger holds and the blob matches `head_blobs`; locked in the 56-01 `<interfaces>` block and implemented in 56-03 Task 2 (bound-plain rule). The six-row fixture's `0249b52c` row (members `bugs`, `impact`) exercises it (`test_member_closes_only_bound`, R5/R6).
+3. **Should D-09 fingerprints include associated test blobs?** — RESOLVED (56-01 / 56-03 interfaces)
+   - Resolution: yes. `recheck_settled.fingerprint` holds the pinned file blob plus each `test_paths` entry whose head blob is known, so new tests re-earn a recheck after a still-applies (`test_still_applies_keeps_open_and_settles` asserts the `arrFacade.test.ts` entry; fresh-start drop in 56-03 Task 2 compares every fingerprinted path).
+
+Fixture provenance (owner plan-time decision 2): the six-row fixture is a trimmed copy of the owner's REAL iPlayarr phase-45 state (passes 1-3, paths and titles plus what the schema requires), not a synthetic rebuild — see 56-01 Task 1.
 
 ## Environment Availability
 
