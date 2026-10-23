@@ -37,7 +37,15 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
   4. Under `/review`, a finding raised only by a `/deep-review` agent (e.g. `test-sufficiency`) either closes via an eligible independent recheck or shows a clear, bounded explanation of why it cannot close there — it no longer sits silently at "needs recheck" (if reproduced; otherwise the drop is recorded)
   5. Safeguards hold under the same regression coverage: evidence from changed code is rejected as stale, a "still applies" verdict keeps the finding open, and the existing test suite stays green
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+- [ ] 56-01-PLAN.md — Reproduce-first: six-row fixture from real iPlayarr state + RED score fixtures (P2a/P2b/P2c/P3, VFIX-06 negatives)
+- [ ] 56-02-PLAN.md — Reproduce-first: one-pass limit RED in score/carry_state/prose + prose-contract locks for all Phase 56 prose changes
+- [ ] 56-03-PLAN.md — Scorer: `independent` route, bound-plain members, D-04 trigger, D-06 test association, `recheck_settled`, D-11 reason, schema decision, mutants
+- [ ] 56-04-PLAN.md — Remove the one-pass limit for applied verdicts (score.py age gate + carry_state awaiting), blob-bound and settled-aware
+- [ ] 56-05-PLAN.md — Prose: Phase 0.5 touched paths + applied forwarding, Phase 2 independent re-check step, Phase 3 head_blobs, D-03/D-11 render wording
+- [ ] 56-06-PLAN.md — Phase gate: six-row end-to-end through append_pass/finalize_counts/e2e_gate; full suite, golden digest, replay diff, red/green ledger
 
 <a id="closure-999-22"></a>
 
