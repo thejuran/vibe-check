@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
 status: executing
-last_updated: "2026-10-23T22:33:00.000Z"
-last_activity: 2026-10-23 -- Completed 56-01 (reproduce-first closure fixtures)
+last_updated: "2026-10-23T23:20:00.000Z"
+last_activity: 2026-10-23 -- Completed 56-02 (P1 one-pass limit REPRODUCED; Phase 56 prose locks RED)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
-  percent: 17
+  completed_plans: 2
+  percent: 33
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 ## Current Position
 
 Phase: 56 (verified-fixes-close) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Executing Phase 56
-Last activity: 2026-10-23 -- Completed 56-01 (reproduce-first closure fixtures; P2a/P2b/P2c/P3 REPRODUCED)
+Last activity: 2026-10-23 -- Completed 56-02 (P1 one-pass limit REPRODUCED; Phase 56 prose locks RED)
 
 ## Operator Next Steps
 
-- Continue `/bm:execute-phase 56` at plan 56-02. 56-01 landed the RED fixtures (`scripts/test_verified_fixes.py`, 22 RED / 13 green); 56-03 must turn them GREEN without weakening them.
+- Continue `/bm:execute-phase 56` at plan 56-03 (Wave 2). Wave 1 RED sets: 56-01 `scripts/test_verified_fixes.py` (33 failure lines) and 56-02 `scripts/test_confirmed_fix.py` (13: TestRetryAfterInconclusive, 3 finalize-count tests, TestProse56). 56-03/56-04/56-05 must turn them GREEN without weakening them.
 - Separately assess cost attribution from existing local logs (999.12); stop with a documented limitation if reliable attribution is unavailable.
 - Reopen archived duplicate-reduction or secret-check work only when its evidence gate is met.
 
@@ -62,3 +62,5 @@ Last activity: 2026-10-23 -- Completed 56-01 (reproduce-first closure fixtures; 
 2026-10-23: v2.13 Reliable fix closure and recovery started (research skipped; next phase number 56). Roadmap written the same day: Phase 56 Verified fixes close (VFIX-01..06), Phase 57 Decision continuity within closure (DECN-01..03), Phase 58 Clear actions, recovery and answers acted on (RECV-01..02, ANSR-01..03). HANDOFF.json still holds the stale v2.12 Phase 54 checkpoint; left untouched.
 
 2026-10-23: 56-01 complete (commits 7b7f0d3, d4c7822, ef1c83f, 03087a0). Six-row fixture trimmed from real iPlayarr state; P2a, P2b, P2c and P3 reproduced as failing score-level fixtures; full suite 2977 passed + 33 expected RED failures, all in test_verified_fixes.py. Decisions: contract reason strings pinned as literals; Pitfall 2 is reachable at score level (a bound plain `codex-adversarial` request closes a needs-recheck row today) and is pinned RED. Only VFIX-01 marked complete; VFIX-03..06 close with 56-03.
+
+2026-10-23: 56-02 complete (commits b8b81c0, 3898a23). P1 (one-pass independent re-check limit) reproduced: score.py age gate (`stale fix verdict` on a pass-3 retry of the same at_pass-1 verdict), carry_state awaiting list (`[]` at a later pass), and 05-state forwarding plus every other Phase 56 prose change locked RED in TestProse56 (with a green positive-control class proving each needle load-bearing). Old one-pass tests rewritten into changed-code-at-any-age tests. Full suite 2986 passed + 46 expected RED (33 test_verified_fixes.py, 13 test_confirmed_fix.py, 0 elsewhere). VFIX-02/05 not marked; they close with 56-04/56-05.
