@@ -42,7 +42,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 Plans:
 **Wave 1**
 
-- [ ] 56-01-PLAN.md — Reproduce-first: six-row fixture from real iPlayarr state + RED score fixtures (P2a/P2b/P2c/P3, VFIX-06 negatives)
+- [x] 56-01-PLAN.md — Reproduce-first: six-row fixture from real iPlayarr state + RED score fixtures (P2a/P2b/P2c/P3, VFIX-06 negatives)
 - [ ] 56-02-PLAN.md — Reproduce-first: one-pass limit RED in score/carry_state/prose + prose-contract locks for all Phase 56 prose changes
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -113,7 +113,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 56. Verified fixes close | 0/TBD | Not started | - |
+| 56. Verified fixes close | 1/6 | In Progress|  |
 | 57. Decision continuity within closure | 0/TBD | Not started | - |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
