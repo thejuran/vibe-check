@@ -48,7 +48,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 56-03-PLAN.md — Scorer: `independent` route, bound-plain members, D-04 trigger, D-06 test association, `recheck_settled`, D-11 reason, schema decision, mutants
-- [ ] 56-05-PLAN.md — Prose: Phase 0.5 touched paths + applied forwarding, Phase 2 independent re-check step, Phase 3 head_blobs, D-03/D-11 render wording
+- [x] 56-05-PLAN.md — Prose: Phase 0.5 touched paths + applied forwarding, Phase 2 independent re-check step, Phase 3 head_blobs, D-03/D-11 render wording
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -113,7 +113,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 56. Verified fixes close | 3/6 | In Progress|  |
+| 56. Verified fixes close | 4/6 | In Progress|  |
 | 57. Decision continuity within closure | 0/TBD | Not started | - |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
