@@ -12,7 +12,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 
 **Goal:** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable.
 
-- [ ] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal
+- [x] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal (completed 2026-10-23)
 - [ ] **Phase 57: Decision continuity within closure** - Owner defer/dismiss decisions survive regrouping and unrelated edits, and reopen only on changed evidence
 - [ ] **Phase 58: Clear actions, recovery and answers acted on** - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
 
@@ -56,7 +56,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 56-06-PLAN.md — Phase gate: six-row end-to-end through append_pass/finalize_counts/e2e_gate; full suite, golden digest, replay diff, red/green ledger
+- [x] 56-06-PLAN.md — Phase gate: six-row end-to-end through append_pass/finalize_counts/e2e_gate; full suite, golden digest, replay diff, red/green ledger
 
 <a id="closure-999-22"></a>
 
@@ -113,7 +113,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 56. Verified fixes close | 5/6 | In Progress|  |
+| 56. Verified fixes close | 6/6 | Complete   | 2026-10-23 |
 | 57. Decision continuity within closure | 0/TBD | Not started | - |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
