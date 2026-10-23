@@ -151,6 +151,34 @@ _R_CF_STILL = ("verdict: confirmed fix not verified: the routed reviewer says "
 _R_CF_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
                   "the repaired code")
 _R_ROUTED_ORPHAN = "verdict: routed re-check without a confirmed fix"
+_R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said "
+                 "it still applies and the code is unchanged since")
+# Independent re-check of an ordinary carried record. When the lane that raised
+# a carried lead is not dispatched (always for Codex; deep-only lanes under
+# /review), the orchestrator routes a request (`route: "independent"`) bound to
+# the lead's stored stable_hash and the blob the reviewer judged
+# (`snapshot_blob`) to a ladder confirmer: never the fixer, never Codex. A
+# carried member, whose lane is dispatched, is asked on a "bound plain" request:
+# a plain request that also names `snapshot_blob`. Either closes only when an
+# asked confirmer answers `resolved`, nobody asked says it still applies, and
+# the judged blob is HEAD's blob re-read at collect time (`head_blobs`). A
+# `persisted` record (pinned line unchanged) also needs a trigger: its file or
+# an associated test was touched since it was raised (`touched_paths`), or a
+# change reaches the pinned line or the `_NEARBY_LINES` beneath it. A
+# still-applies answer is remembered (`recheck_settled`, with the blobs it
+# judged) so the record is not re-asked until that code changes.
+_INDEPENDENT_ROUTE = "independent"
+_NEVER_CONFIRMERS = frozenset({"fix", "codex-adversarial"})
+_NEARBY_LINES = 5
+_FIX_COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+_R_IR_NO_REVIEWER = "verdict: fix not yet confirmed: no eligible reviewer ran this pass"
+_R_IR_NO_ANSWER = "verdict: fix not yet confirmed: the routed reviewer gave no verdict"
+_R_IR_STILL = "verdict: fix not confirmed: the routed reviewer says it still applies"
+_R_IR_SNAPSHOT = "verdict: fix not confirmed: the reviewed code is not the code at HEAD"
+_R_IR_NO_TRIGGER = ("verdict: fix not confirmed: no change near the finding or in its "
+                    "file since it was raised")
+_R_IR_SETTLED = ("verdict: fix not confirmed: a reviewer said it still applies and the "
+                 "code is unchanged since")
 # The rollback marker (R10). Every Needs-verification row is emitted with
 # `members` = exactly its own lane ref whose `obligation` is this STRING. A
 # reader without Needs-verification support validates `members[].obligation`
@@ -213,7 +241,8 @@ FINDING_REQUIRED_KEYS = ("id", "file", "line", "title", "category", "severity", 
                          "band", "attribution", "status", "stable_hash")
 FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "in_diff",
                          "silenced_marker_nearby", "intent_doc_match", "canonical_line_content",
-                         "members", "snapshot", "kept_open", "needs_verification")
+                         "members", "snapshot", "kept_open", "needs_verification",
+                         "recheck_settled")
 # H-LANE (v2.10 Wave 1, D-14): a surviving row's `members` is a list of member
 # RECORDS — each the finding INPUT key set below, i.e. exactly what a finding
 # arrives with (its ORIGINAL multi-line current_code and its own source_window,
@@ -228,10 +257,11 @@ FINDING_OPTIONAL_KEYS = ("cwe", "why_it_matters", "fix_hint", "current_code", "i
 # pass, never member evidence; `kept_open` (the sub-threshold obligation marker)
 # is likewise a per-row scorer output. `needs_verification` never rides on a
 # member: a Needs-verification record never joins a site row.
+# `recheck_settled` is a scorer OUTPUT (a still-applies memory), never member evidence.
 _MEMBER_EXCLUDED_KEYS = ("id", "orchestrator_score", "band", "attribution", "status",
                          "stable_hash", "members", "in_diff", "silenced_marker_nearby",
                          "canonical_line_content", "snapshot", "kept_open",
-                         "needs_verification")
+                         "needs_verification", "recheck_settled")
 MEMBER_KEYS = tuple(k for k in FINDING_REQUIRED_KEYS + FINDING_OPTIONAL_KEYS
                     if k not in _MEMBER_EXCLUDED_KEYS)
 _FINDING_KEY_SYNONYMS = {"suggested_fix": "fix_hint"}
@@ -1214,13 +1244,87 @@ def _request_matches(req, record, stored_hash):
     return req["stable_hash"] is None or req["stable_hash"] == stored_hash
 
 
+_TEST_DIRS = frozenset({"test", "tests", "__tests__", "spec"})
+_TEST_STEM_PREFIX_RE = re.compile(r"^test_")
+_TEST_STEM_SUFFIX_RE = re.compile(r"(_test|[._-](test|spec))$")
+
+
+def _path_stem(path):
+    """The basename of `path` with its final extension removed."""
+    base = path.split("/")[-1]
+    return base.rsplit(".", 1)[0] if "." in base else base
+
+
+def _is_associated_test(path, src_file):
+    """Is `path` a test file for the source file `src_file`?
+
+    A path is a test when one of its directories is `test`, `tests`,
+    `__tests__` or `spec`, or its stem carries a test marker (`test_` prefix;
+    `_test`, `.test`, `.spec`, `-test`, `-spec` suffix). It is associated when
+    its stem, with the marker removed, equals the source file's stem
+    (`tests/facade/arrFacade.test.ts` tests `src/facade/arrFacade.ts`). A
+    source file is never its own test.
+    """
+    if not (_nonempty_str(path) and _nonempty_str(src_file)) or path == src_file:
+        return False
+    stem = _path_stem(path)
+    marked = bool(_TEST_STEM_PREFIX_RE.search(stem) or _TEST_STEM_SUFFIX_RE.search(stem))
+    if not marked and not any(seg in _TEST_DIRS for seg in path.split("/")[:-1]):
+        return False
+    bare = _TEST_STEM_SUFFIX_RE.sub("", _TEST_STEM_PREFIX_RE.sub("", stem))
+    return bool(bare) and bare == _path_stem(src_file)
+
+
+def _independent_trigger(record, touched, changed_line_ranges):
+    """Has anything that could fix a `persisted` record changed since it was
+    raised? Its file or an associated test is among `touched` (the paths
+    changed since the record was raised), or this pass's change ranges reach
+    the pinned line or the `_NEARBY_LINES` lines beneath it (a guard added
+    under an unchanged line). A record without a line has only the touched
+    checks."""
+    file = record.get("file")
+    if not _nonempty_str(file):
+        return False
+    if file in touched or any(_is_associated_test(p, file) for p in touched):
+        return True
+    line = _as_line(record.get("line"))
+    if line is None or not isinstance(changed_line_ranges, dict):
+        return False
+    ranges = changed_line_ranges.get(file, [])
+    return any(_line_in_ranges(n, ranges) for n in range(line, line + _NEARBY_LINES + 1))
+
+
+def _str_list(x):
+    return isinstance(x, list) and all(isinstance(s, str) for s in x)
+
+
 def _routed_request_ok(req):
-    """A request without `route` is a plain recheck. A routed one must be a
-    confirmed-fix re-check naming a stored hash, the snapshot the reviewer
-    judged (`snapshot_blob`: a blob id, or null when it could not be bound),
-    and at least one asked agent, none of them the fixer."""
+    """A request without `route` is a plain recheck; it may be bound to the
+    snapshot the reviewer judged (`snapshot_blob`: a blob id, or null when it
+    could not be bound), and a bound one never asks the fixer or Codex. A
+    confirmed-fix re-check names a stored hash, `snapshot_blob`, and at least
+    one asked agent, none of them the fixer. An independent re-check names a
+    stored hash, `snapshot_blob`, at least one asked agent, none of them the
+    fixer or Codex, and optionally the associated `test_paths` and the
+    `fix_commit` (7-40 hex) that repaired the code."""
     if req.get("route") is None:
-        return "route" not in req
+        if "route" in req:
+            return False
+        if "snapshot_blob" not in req:
+            return True
+        return ((req["snapshot_blob"] is None or _nonempty_str(req["snapshot_blob"]))
+                and ("test_paths" not in req or _str_list(req["test_paths"]))
+                and not any(a in _NEVER_CONFIRMERS for a in req["agents"]))
+    if req["route"] == _INDEPENDENT_ROUTE:
+        return (isinstance(req.get("stable_hash"), str)
+                and "snapshot_blob" in req
+                and (req["snapshot_blob"] is None or _nonempty_str(req["snapshot_blob"]))
+                and bool(req["agents"])
+                and not any(a in _NEVER_CONFIRMERS for a in req["agents"])
+                and ("test_paths" not in req or _str_list(req["test_paths"]))
+                and (req.get("fix_commit") is None
+                     or (isinstance(req["fix_commit"], str)
+                         and bool(_FIX_COMMIT_RE.fullmatch(req["fix_commit"])))))
     return (req["route"] == _CONFIRMED_ROUTE
             and isinstance(req.get("stable_hash"), str)
             and "snapshot_blob" in req
@@ -1652,8 +1756,25 @@ def run(envelope):
                         + type(raw_verdicts).__name__)
     head_sha = envelope.get("head_sha")
     head_sha = head_sha if isinstance(head_sha, str) else None
+    # Independent re-check facts (optional; absent => none): HEAD's blob per
+    # file, re-read at collect time, and per carried lead the paths changed
+    # since it was raised. Orchestrator-assembled, so a present non-dict
+    # container fails closed; garbage values read as "unknown" (a non-str blob
+    # is None, a non-list path list is empty, non-str paths are dropped).
+    raw_head_blobs = envelope.get("head_blobs", {})
+    raw_touched = envelope.get("touched_paths", {})
+    if raw_head_blobs is not None and not isinstance(raw_head_blobs, dict):
+        raise TypeError("malformed envelope: 'head_blobs' must be an object, got "
+                        + type(raw_head_blobs).__name__)
+    if raw_touched is not None and not isinstance(raw_touched, dict):
+        raise TypeError("malformed envelope: 'touched_paths' must be an object, got "
+                        + type(raw_touched).__name__)
+    head_blobs = {k: (v if _nonempty_str(v) else None)
+                  for k, v in (raw_head_blobs or {}).items()}
+    touched_paths = {k: ([p for p in v if isinstance(p, str)] if isinstance(v, list) else [])
+                     for k, v in (raw_touched or {}).items()}
 
-    threshold = THRESHOLDS.get(command, THRESHOLDS["review"])
+    threshold =THRESHOLDS.get(command, THRESHOLDS["review"])
 
     fixed_since_last = []
     filtered = []
@@ -1800,8 +1921,11 @@ def run(envelope):
     # evidence only the verdict guard may produce; `kept_open` is an obligation
     # marker only the scorer may set. Carryforward entries keep theirs: a carried
     # snapshot is the prior-pass value the keep/refresh rule reads.
+    # `recheck_settled` is the still-applies memory only the verdict guard may
+    # write; a forged one would stop a fixed finding from ever being re-asked.
     findings = [{k: v for k, v in f.items()
-                 if k not in ("status", "members", "snapshot", "resolution", "kept_open")}
+                 if k not in ("status", "members", "snapshot", "resolution", "kept_open",
+                              "recheck_settled")}
                 for f in findings]
 
     # --- Carry-forward (review.md:672-678) ----------------------------------- #

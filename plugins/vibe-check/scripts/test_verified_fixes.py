@@ -777,5 +777,127 @@ class TestIndependentRouteSafeguards(unittest.TestCase):
         self.assertNotIn("recheck_settled", rows[0])
 
 
+# --------------------------------------------------------------------------- #
+# Test association and the trigger (pure helpers)
+# --------------------------------------------------------------------------- #
+class TestAssociatedTest(unittest.TestCase):
+    def test_associated_pairs(self):
+        cases = [
+            ("tests/facade/arrFacade.test.ts", "src/facade/arrFacade.ts", True),
+            ("frontend/src/views/BrowseProgrammePage.test.js",
+             "frontend/src/views/BrowseProgrammePage.vue", True),
+            ("test_score.py", "score.py", True),
+            ("spec/arrFacade_spec.rb", "lib/arrFacade.rb", True),
+            ("pkg/score_test.go", "pkg/score.go", True),
+            ("src/__tests__/arrFacade.ts", "src/arrFacade.ts", True),
+            ("src/arrFacade-spec.js", "src/arrFacade.js", True),
+            ("tests/utils/integrationDeadline.test.ts", "src/utils/other.ts", False),
+            ("src/facade/arrFacade.ts", "src/facade/arrFacade.ts", False),
+            # Same stem, but nothing marks it as a test.
+            ("lib/arrFacade.ts", "src/facade/arrFacade.ts", False),
+            ("tests/facade/arrFacade.test.ts", None, False),
+            (None, "src/facade/arrFacade.ts", False),
+            ("tests/test_.py", "src/.py", False),
+        ]
+        for path, src, want in cases:
+            with self.subTest(path=path, src=src):
+                self.assertIs(score._is_associated_test(path, src), want)
+
+    def test_trigger(self):
+        f = "src/facade/arrFacade.ts"
+        rec = {"file": f, "line": 80}
+        self.assertTrue(score._independent_trigger(rec, [f], {}))
+        self.assertTrue(score._independent_trigger(rec, ["tests/facade/arrFacade.test.ts"], {}))
+        self.assertTrue(score._independent_trigger(rec, [], {f: [[80, 85]]}))
+        self.assertTrue(score._independent_trigger(rec, [], {f: [[85, 85]]}))
+        self.assertFalse(score._independent_trigger(rec, [], {f: [[86, 90]]}))
+        self.assertFalse(score._independent_trigger(rec, [], {f: [[70, 79]]}))
+        self.assertFalse(score._independent_trigger(rec, ["src/other.ts"], {"src/other.ts": [[80, 80]]}))
+        # A record without a line has only the touched checks.
+        self.assertFalse(score._independent_trigger({"file": f, "line": None}, [],
+                                                    {f: [[1, 999]]}))
+        self.assertTrue(score._independent_trigger({"file": f, "line": None}, [f], {}))
+        self.assertFalse(score._independent_trigger({"file": None, "line": 80}, [], {}))
+
+
+# --------------------------------------------------------------------------- #
+# Envelope ingress for the new facts and request shapes
+# --------------------------------------------------------------------------- #
+class TestEnvelopeIngress56(unittest.TestCase):
+    def test_malformed_containers_fail_closed(self):
+        row = _ts_row()
+        for key, bad in (("head_blobs", [TS_FILE]), ("head_blobs", "x"),
+                         ("touched_paths", "x"), ("touched_paths", [TS_TEST])):
+            with self.subTest(key=key, bad=bad):
+                env = _review_pass2(row, [], [])
+                env[key] = bad
+                with self.assertRaises(TypeError):
+                    score.run(env)
+
+    def test_absent_or_null_containers_are_empty(self):
+        row = _ts_row()
+        for key in ("head_blobs", "touched_paths"):
+            for value in (None, "<absent>"):
+                with self.subTest(key=key, value=value):
+                    env = _review_pass2(row, [], [])
+                    if value == "<absent>":
+                        del env[key]
+                    else:
+                        env[key] = value
+                    r = score.run(env)
+                    self.assertEqual(len(_ts_rows(r, row)), 1)
+
+    def test_garbage_values_do_not_crash(self):
+        row = _ts_row()
+        env = _review_pass2(row, [_ts_request(row)], [reviewer_verdict(agent="bugs")],
+                            head_blobs={TS_FILE: 5, TS_TEST: ["x"], 3: None},
+                            touched={row["stable_hash"]: "x", "other": [1, None, TS_TEST]})
+        r = score.run(env)
+        self.assertNotIn("resolved", r)
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+
+    def test_request_shapes(self):
+        row = _ts_row()
+        good = _ts_request(row)
+        bound_plain = {k: v for k, v in good.items() if k not in ("route", "test_paths")}
+        bads = {
+            "independent, no stable_hash": dict(good, stable_hash=None),
+            "independent, fixer asked": dict(good, agents=["fix"]),
+            "independent, codex asked": dict(good, agents=["bugs", "codex-adversarial"]),
+            "independent, nobody asked": dict(good, agents=[]),
+            "independent, no snapshot key": {k: v for k, v in good.items()
+                                             if k != "snapshot_blob"},
+            "independent, empty snapshot": dict(good, snapshot_blob=""),
+            "independent, bad fix_commit": dict(good, fix_commit="zz"),
+            "independent, short fix_commit": dict(good, fix_commit="abc12"),
+            "independent, fix_commit newline": dict(good, fix_commit="abc1234\n"),
+            "independent, test_paths not a list": dict(good, test_paths="tests/x"),
+            "bound plain, codex asked": dict(bound_plain, agents=["codex-adversarial"]),
+            "bound plain, fixer asked": dict(bound_plain, agents=["fix"]),
+            "bound plain, empty snapshot": dict(bound_plain, snapshot_blob=""),
+            "plain, null route": dict(bound_plain, route=None),
+        }
+        for name, bad in bads.items():
+            with self.subTest(name):
+                r = score.run(_review_pass2(row, [bad], [], status="needs-recheck",
+                                            touched={}))
+                self.assertIn(R_MALFORMED, _rejections(r))
+        oks = {
+            "independent": good,
+            "independent, null snapshot": dict(good, snapshot_blob=None),
+            "independent, no test_paths": {k: v for k, v in good.items()
+                                           if k != "test_paths"},
+            "independent, fix_commit": dict(good, fix_commit="a5a7538"),
+            "independent, null fix_commit": dict(good, fix_commit=None),
+            "bound plain": bound_plain,
+            "bound plain, null snapshot": dict(bound_plain, snapshot_blob=None),
+        }
+        for name, ok in oks.items():
+            with self.subTest(name):
+                r = score.run(_review_pass2(row, [ok], [], status="needs-recheck",
+                                            touched={}))
+                self.assertNotIn(R_MALFORMED, _rejections(r))
+
+
 if __name__ == "__main__":
     unittest.main()

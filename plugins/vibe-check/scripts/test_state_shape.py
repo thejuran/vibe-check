@@ -272,6 +272,31 @@ class TestSchemasAreDistinct(unittest.TestCase):
         self.assertEqual(FUTURE["_rollback"]["phase53_added"],
                          {"finding": ["needs_verification"]})
 
+    def test_phase56_recheck_settled_key_is_optional_under_future_schema(self):
+        """v2.13 Phase 56 (VFIX-03/04/06): `recheck_settled` is the recorded
+        addition to the closed finding set. Clean under the future schema;
+        rejected under the archive schema and under the future schema as it
+        stood before Phase 56; a misspelling is still rejected."""
+        settled = {"verdict": "still-applies", "at_pass": 2, "head_sha": "f" * 40,
+                   "fingerprint": {"src/a.py": "b1" * 20}}
+        f = make_finding(recheck_settled=settled)
+        self.assertEqual(state_shape.check_finding(f, FUTURE), [])
+        self.assertIn("unknown key in finding: recheck_settled",
+                      state_shape.check_finding(f, ARCHIVE))
+        pre56 = dict(FUTURE, finding_optional=[
+            k for k in FUTURE["finding_optional"] if k != "recheck_settled"])
+        self.assertEqual(state_shape.check_finding(f, pre56),
+                         ["unknown key in finding: recheck_settled"])
+        self.assertEqual(state_shape.check_finding(make_finding(recheck_setled=settled),
+                                                   FUTURE),
+                         ["unknown key in finding: recheck_setled"])
+
+    def test_phase56_added_lists_exactly_the_new_key(self):
+        self.assertEqual(FUTURE["_rollback"]["phase56_added"],
+                         {"finding": ["recheck_settled"]})
+        self.assertIn("phase56_added", FUTURE["_rollback"]["procedure"])
+        self.assertIn("recheck_settled", FUTURE["_purpose"])
+
 
 class TestCensusAll37(unittest.TestCase):
     """F13 -- every sealed state validates clean under archive-compat."""
