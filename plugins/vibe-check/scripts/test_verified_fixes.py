@@ -940,5 +940,188 @@ class TestEnvelopeIngress56(unittest.TestCase):
                 self.assertNotIn(R_MALFORMED, _rejections(r))
 
 
+# --------------------------------------------------------------------------- #
+# Mutation checks: each new guard trips when removed
+# --------------------------------------------------------------------------- #
+class TestIndependentRouteMutants(unittest.TestCase):
+    """Each mutant removes one guard of the independent route; the real scorer
+    keeps the record open (or behaves as specified) and the mutant does not."""
+
+    @classmethod
+    def setUpClass(cls):
+        from test_confirmed_fix import SCORE_PY
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            cls.src = fh.read()
+
+    def _mod(self, name, old, new):
+        from test_confirmed_fix import SCORE_PY, _mutant
+        # Each target names exactly one guard.
+        self.assertEqual(self.src.count(old), 1, "mutation target not unique: %r" % old)
+        return _mutant(SCORE_PY, name, old, new)
+
+    def _trips(self, name, old, new, env):
+        self.assertNotIn("resolved", score.run(json.loads(json.dumps(env))))
+        mod = self._mod(name, old, new)
+        self.assertIn("resolved", mod.run(json.loads(json.dumps(env))))
+
+    def _blocks(self, name, old, new, env):
+        """The inverse: the real scorer closes it, the mutant keeps it open."""
+        self.assertIn("resolved", score.run(json.loads(json.dumps(env))))
+        mod = self._mod(name, old, new)
+        self.assertNotIn("resolved", mod.run(json.loads(json.dumps(env))))
+
+    def test_m10_independent_blob_binding_removed(self):
+        row = _ts_row()
+        env = _review_pass2(row, [_ts_request(row, snapshot=B1)],
+                            [reviewer_verdict(agent="bugs")],
+                            head_blobs={TS_FILE: B2, TS_TEST: T1})
+        self._trips("score_m10",
+                    'requests_by_token[v["token"]]["snapshot_blob"] != head_blob'
+                    ' for v in independent',
+                    "False for v in independent", env)
+
+    def test_m11_independent_never_confirmers_removed(self):
+        row = _ts_row()
+        env = _review_pass2(row, [_ts_request(row, agents=("codex-adversarial",))],
+                            [reviewer_verdict(agent="codex-adversarial")],
+                            status="needs-recheck", touched={})
+        self._trips("score_m11",
+                    'not any(a in _NEVER_CONFIRMERS for a in req["agents"])\n',
+                    "True\n", env)
+
+    def test_m12_independent_trigger_removed(self):
+        env = _pass4_envelope(tokens=["R4"], touched_paths=_touched(p22d360d9=[]))
+        self._trips("score_m12",
+                    'status == "persisted" and not _independent_trigger(',
+                    "False and not _independent_trigger(", env)
+
+    def test_m13_independent_still_applies_removed(self):
+        row = _ts_row()
+        env = _review_pass2(
+            row, [_ts_request(row, agents=("bugs", "security"))],
+            [reviewer_verdict(agent="bugs"),
+             reviewer_verdict(agent="security", verdict="still-applies")])
+        self._trips("score_m13",
+                    'if any(v["verdict"] == "still-applies" for v in independent):',
+                    "if False:", env)
+
+    def test_m14_independent_settled_removed(self):
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        env = _review_pass2(settled, [_ts_request(row)], [reviewer_verdict(agent="bugs")],
+                            status="needs-recheck", touched={})
+        self._trips("score_m14",
+                    'if isinstance(record.get("recheck_settled"), dict):\n'
+                    "        return None, _R_IR_SETTLED",
+                    "if False:\n        return None, _R_IR_SETTLED", env)
+
+    def test_m15_bound_plain_blob_binding_removed(self):
+        reqs = {"R5": _plain_request(_member("0249b52c", "bugs"), "R5", "bugs",
+                                     snapshot="0" * 40)}
+        env = _pass4_envelope(requests=reqs)
+        self._trips("score_m15",
+                    'requests_by_token[v["token"]]["snapshot_blob"] != head_blob for v in plain',
+                    "False for v in plain", env)
+
+    def test_m16_bound_plain_trigger_removed(self):
+        env = _pass4_envelope(tokens=["R7"], touched_paths=_touched(p2a01829c=[]))
+        self._trips("score_m16",
+                    'if not _independent_trigger(record, facts["touched"],'
+                    ' facts["changed_line_ranges"]):',
+                    "if False:", env)
+
+    def test_m17_new_finding_scrub_removed(self):
+        f = make_finding(file="src/z.py", line=5, current_code="  y = 2")
+        f["recheck_settled"] = {"verdict": "still-applies", "at_pass": 1,
+                                "head_sha": None, "fingerprint": {"src/z.py": B1}}
+        env = {"command": "review", "all_mode": False, "pass_number": 1,
+               "changed_line_ranges": {"src/z.py": [[1, 9]]}, "findings": [f]}
+
+        def survives(mod):
+            rows = [x for x in mod.run(json.loads(json.dumps(env)))["findings"]
+                    if x["file"] == "src/z.py"]
+            return "recheck_settled" in rows[0]
+
+        self.assertFalse(survives(score))
+        mod = self._mod("score_m17",
+                        '"resolution", "kept_open",\n'
+                        '                              "recheck_settled")',
+                        '"resolution", "kept_open")')
+        self.assertTrue(survives(mod))
+
+    def test_m18_fresh_start_drop_removed(self):
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        env = _review_pass2(settled, [_ts_request(row, snapshot=B2)],
+                            [reviewer_verdict(agent="bugs")], status="needs-recheck",
+                            touched={}, head_blobs={TS_FILE: B2, TS_TEST: T1})
+        self._blocks("score_m18", '                del rep["recheck_settled"]',
+                     "                pass", env)
+
+    def test_m19_bound_plain_never_confirmers_removed(self):
+        row = _ts_row()
+        req = _ts_request(row, agents=("codex-adversarial",))
+        del req["route"], req["test_paths"]
+        env = _review_pass2(row, [req], [reviewer_verdict(agent="codex-adversarial")],
+                            status="needs-recheck", touched={})
+        self._trips("score_m19",
+                    'not any(a in _NEVER_CONFIRMERS for a in req["agents"]))',
+                    "True)", env)
+
+    def test_m20_fresh_start_on_touch_removed(self):
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        env = _review_pass2(settled, [_ts_request(row)], [reviewer_verdict(agent="bugs")],
+                            touched={row["stable_hash"]: [TS_TEST]})
+        self._blocks("score_m20", "                    or touched):",
+                     "                    or False):", env)
+
+    def test_m21_no_reviewer_reason_gate_removed(self):
+        row = _ts_row()
+        env = _review_pass2(row, [], [])
+        del env["head_blobs"]
+        self.assertEqual(_rejections(score.run(json.loads(json.dumps(env)))), [])
+        mod = self._mod("score_m21", 'if "head_blobs" in envelope:', "if True:")
+        self.assertEqual(_rejections(mod.run(json.loads(json.dumps(env)))),
+                         [R_IR_NO_REVIEWER])
+
+    def test_m22_confirmed_fix_settled_removed(self):
+        import test_confirmed_fix as tcf
+        from test_score import _nv, _nv_cf, _nv_env, _nv_rows
+        p1 = _nv_rows(score.run(_nv_env([_nv(agent="codex-adversarial")])))[0]
+        carried = _nv_cf(tcf.settled_row(p1, {p1["file"]: tcf.BLOB}), None, None)
+        env = _nv_env([], carryforward=[carried], pass_number=3, head_sha=tcf.HEAD3,
+                      recheck_requests=[tcf.routed_request(p1)],
+                      verdicts=[tcf.confirmed_verdict(p1["stable_hash"], at_pass=2),
+                                reviewer_verdict()],
+                      head_blobs={p1["file"]: tcf.BLOB}, touched_paths={})
+        r = score.run(json.loads(json.dumps(env)))
+        self.assertIn(R_CF_SETTLED, _rejections(r))
+        self._trips("score_m22",
+                    'if isinstance(record.get("recheck_settled"), dict):\n'
+                    "                rejected.append((v, _R_CF_SETTLED))",
+                    "if False:\n                rejected.append((v, _R_CF_SETTLED))", env)
+
+    def test_m23_settled_memory_not_written(self):
+        row = _ts_row()
+        env = _review_pass2(row, [_ts_request(row)],
+                            [reviewer_verdict(agent="bugs", verdict="still-applies")])
+
+        def settled(mod):
+            return _ts_rows(mod.run(json.loads(json.dumps(env))), row)[0].get(
+                "recheck_settled")
+
+        self.assertIsInstance(settled(score), dict)
+        mod = self._mod("score_m23", 'record["recheck_settled"] = {', "_unused = {")
+        self.assertIsNone(settled(mod))
+
+    def test_stable_hash_and_golden_digest_unchanged(self):
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")]))
+        self.assertEqual(r["resolved"][0]["stable_hash"], row["stable_hash"])
+
+
 if __name__ == "__main__":
     unittest.main()
