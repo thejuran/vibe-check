@@ -12,7 +12,7 @@ Detailed source context (owner examples, file paths, repro steps): ROADMAP.md it
 ### Verified fixes close (VFIX) — remaining 999.22
 
 - [x] **VFIX-01**: Before any closure change, each closure failure path — the one-pass independent re-check limit, the reported six-row case, and `/review` unable to close a `/deep-review`-only finding — is reproduced on current code as a failing fixture; a path that does not reproduce is recorded and dropped
-- [ ] **VFIX-02**: After an inconclusive independent re-check, a later run retries the re-check on unchanged repaired code and closes the finding when confirmed — no dummy code change and no repeated owner confirmation
+- [x] **VFIX-02**: After an inconclusive independent re-check, a later run retries the re-check on unchanged repaired code and closes the finding when confirmed — no dummy code change and no repeated owner confirmation
 - [x] **VFIX-03**: A fix that adds code beneath an unchanged pinned line, or adds only tests (the `arrFacade` case), can be closed by eligible independent evidence without manual "fixed in <sha>" dismissal
 - [x] **VFIX-04**: A Codex-origin finding can be closed by eligible independent evidence even though Codex cannot recheck its own finding
 - [x] **VFIX-05**: Under `/review`, a finding raised only by a `/deep-review` agent either closes via an eligible independent recheck or shows a clear, bounded explanation of why it cannot close there
@@ -57,7 +57,7 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | VFIX-01 | Phase 56 | Complete |
-| VFIX-02 | Phase 56 | Pending |
+| VFIX-02 | Phase 56 | Complete |
 | VFIX-03 | Phase 56 | Complete |
 | VFIX-04 | Phase 56 | Complete |
 | VFIX-05 | Phase 56 | Complete |

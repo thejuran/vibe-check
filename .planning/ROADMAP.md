@@ -52,7 +52,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 56-04-PLAN.md — Remove the one-pass limit for applied verdicts (score.py age gate + carry_state awaiting), blob-bound and settled-aware
+- [x] 56-04-PLAN.md — Remove the one-pass limit for applied verdicts (score.py age gate + carry_state awaiting), blob-bound and settled-aware
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -113,7 +113,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 56. Verified fixes close | 4/6 | In Progress|  |
+| 56. Verified fixes close | 5/6 | In Progress|  |
 | 57. Decision continuity within closure | 0/TBD | Not started | - |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 

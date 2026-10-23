@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
 status: executing
-last_updated: "2026-10-23T23:09:31.000Z"
-last_activity: 2026-10-23 -- Completed 56-05 (orchestration + render prose for the independent route; TestProse56 green except the 56-04 docstring lock)
+last_updated: "2026-10-23T23:20:00.000Z"
+last_activity: 2026-10-23 -- Completed 56-04 (confirmed-fix re-check retried at any age, blob-bound and settled-aware; full suite 3051 passed / 0 failed)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 0
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 ## Current Position
 
 Phase: 56 (verified-fixes-close) — EXECUTING
-Plan: 4 of 6 complete (56-01, 56-02, 56-03, 56-05); next 56-04, then 56-06
+Plan: 5 of 6 complete (56-01..56-05); next 56-06
 Status: Executing Phase 56
-Last activity: 2026-10-23 -- Completed 56-05 (orchestration + render prose for the independent route; TestProse56 green except the 56-04 docstring lock)
+Last activity: 2026-10-23 -- Completed 56-04 (confirmed-fix re-check retried at any age, blob-bound and settled-aware; full suite 3051 passed / 0 failed)
 
 ## Operator Next Steps
 
-- Continue `/bm:execute-phase 56` at plan 56-04 (age gate + carry_state awaiting + carry_state docstring), then 56-06. Remaining RED: 6 in `scripts/test_confirmed_fix.py` (TestRetryAfterInconclusive 2, TestFinalizeCountsConfirmedFix 3, TestProse56::test_carry_state_docstring_says_any_age 1), all owned by 56-04; full suite 3041 passed / 6 failed after 56-05.
+- Continue `/bm:execute-phase 56` at plan 56-06 (end-to-end over the six-row fixture; closes VFIX-06). Full suite 3051 passed / 0 failed after 56-04.
 - Separately assess cost attribution from existing local logs (999.12); stop with a documented limitation if reliable attribution is unavailable.
 - Reopen archived duplicate-reduction or secret-check work only when its evidence gate is met.
 
@@ -66,3 +66,5 @@ Last activity: 2026-10-23 -- Completed 56-05 (orchestration + render prose for t
 2026-10-23: 56-02 complete (commits b8b81c0, 3898a23). P1 (one-pass independent re-check limit) reproduced: score.py age gate (`stale fix verdict` on a pass-3 retry of the same at_pass-1 verdict), carry_state awaiting list (`[]` at a later pass), and 05-state forwarding plus every other Phase 56 prose change locked RED in TestProse56 (with a green positive-control class proving each needle load-bearing). Old one-pass tests rewritten into changed-code-at-any-age tests. Full suite 2986 passed + 46 expected RED (33 test_verified_fixes.py, 13 test_confirmed_fix.py, 0 elsewhere). VFIX-02/05 not marked; they close with 56-04/56-05.
 
 2026-10-23: 56-03 complete (commits 0be902e, c093cce, 7f3858c). score.py gained the `route: "independent"` closure, the bound-plain persisted path, the D-04 trigger with D-06 test association, `recheck_settled` memory with fresh-start, and the D-11 no-reviewer reason (only when the envelope carries `head_blobs`); `recheck_settled` recorded in future-schema.json with `_rollback.phase56_added`. 14 mutants prove each guard. Full suite 3034 passed + 13 expected RED (all 56-04/56-05). Replay candidate REGRESSED 0; diff 170 runs, 0 differing. VFIX-03/04 marked complete; VFIX-05/06 stay pending for 56-04..56-06.
+
+2026-10-23: 56-04 complete (commits 7f67f88, 420112b). score.py age gate now applies to fix-obsolete only; confirmed-fix verdicts are judged at any age, bound by verified_blob == head_blob. carry_state lists an applied NV item as awaiting at any later pass unless a recheck_settled fingerprint still matches HEAD (unknown HEAD blob counts as unchanged). Mutants score_m19, score_m20, cs_m7 trip. Full suite 3051 passed, 0 failed. VFIX-02 marked complete; VFIX-06 left for 56-06.
