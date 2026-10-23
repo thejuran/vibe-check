@@ -3,10 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
 status: planning
-last_updated: "2026-10-23T17:56:26.763Z"
-last_activity: 2026-10-23
+stopped_at: "Roadmap written (Phases 56–58); Phase 56 not started — next is /bm:plan-phase 56"
+last_updated: "2026-10-23T18:30:00Z"
+last_activity: 2026-10-23 -- v2.13 roadmap written
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -15,19 +16,19 @@ progress:
 
 # Project State
 
-**Current focus:** Plan Reliable fix closure and recovery; cost visibility feasibility is a separate, nonblocking task.
+**Current focus:** Plan Phase 56 (Verified fixes close) — reproduce the closure failures on current code before any repair; cost visibility feasibility is a separate, nonblocking task.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 56 (Verified fixes close) — NOT STARTED
 Plan: —
-Status: Defining requirements
-Last activity: 2026-10-23 — Milestone v2.13 started
+Status: Roadmap written; Phase 56 awaiting planning
+Last activity: 2026-10-23 — v2.13 roadmap written (Phases 56–58, 14/14 requirements mapped)
 
 ## Operator Next Steps
 
-- v2.13 requirements and roadmap being defined via `/bm:new-milestone`; first phase (56) starts by reproducing the closure failure on current code.
-- Separately assess cost attribution from existing local logs; stop with a documented limitation if reliable attribution is unavailable.
+- `/bm:plan-phase 56` — first task is the reproduction step: the one-pass re-check limit, the six-row case, and the `/review` vs `/deep-review`-only closure path as failing fixtures (or recorded as not reproducing and dropped).
+- Separately assess cost attribution from existing local logs (999.12); stop with a documented limitation if reliable attribution is unavailable.
 - Reopen archived duplicate-reduction or secret-check work only when its evidence gate is met.
 
 ## Deferred Items
@@ -44,11 +45,13 @@ Last activity: 2026-10-23 — Milestone v2.13 started
 - Milestone planning is active; implementation follows phase plans. Paid runs and publication are not started.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
+- Each phase starts by reproducing its failure on current code; a non-reproducing path is recorded and dropped, not replaced with invented work.
 - No private holdout access, hook/settings changes or cross-repo implementation is included.
 
 ## Records
 
-- [Roadmap](ROADMAP.md): active v2.13 milestone and separate cost feasibility task.
+- [Roadmap](ROADMAP.md): active v2.13 milestone (Phases 56–58) and separate cost feasibility task.
+- [Requirements](REQUIREMENTS.md): 14 v2.13 requirements with phase traceability.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [Archived backlog](backlog/archive/2026-10-18/README.md): historical dispositions and parked campaigns.
@@ -56,4 +59,4 @@ Last activity: 2026-10-23 — Milestone v2.13 started
 
 ## Session Continuity
 
-2026-10-23: v2.13 Reliable fix closure and recovery started (research skipped; next phase number 56). HANDOFF.json still holds the stale v2.12 Phase 54 checkpoint; left untouched.
+2026-10-23: v2.13 Reliable fix closure and recovery started (research skipped; next phase number 56). Roadmap written the same day: Phase 56 Verified fixes close (VFIX-01..06), Phase 57 Decision continuity within closure (DECN-01..03), Phase 58 Clear actions, recovery and answers acted on (RECV-01..02, ANSR-01..03). HANDOFF.json still holds the stale v2.12 Phase 54 checkpoint; left untouched.
