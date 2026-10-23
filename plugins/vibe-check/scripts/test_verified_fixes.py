@@ -458,5 +458,132 @@ class TestSixRowClosure(unittest.TestCase):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
 
 
+# --------------------------------------------------------------------------- #
+# /review closes a finding only /deep-review lanes raise
+# --------------------------------------------------------------------------- #
+TS_FILE = "src/facade/arrFacade.ts"
+TS_TEST = "tests/facade/arrFacade.test.ts"
+TS_CODE = ("    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions) {\n"
+           "        return this.client(app).post('/series', match);")
+B1 = "b1" * 20
+B2 = "b2" * 20
+T1 = "71" * 20
+HEAD_TS = "f" * 40
+
+
+def _ts_row():
+    """Pass 1 under /deep-review: one test-sufficiency finding, as emitted."""
+    f = make_finding(id="ts-001", agent="test-sufficiency", file=TS_FILE, line=80,
+                     title="No test checks that addSeries passes the shared deadline",
+                     current_code=TS_CODE, severity="medium", agent_confidence=85,
+                     category="test-coverage",
+                     source_window=["a", "b", "c", "d", "e"])
+    f["canonical_line_content"] = TS_CODE.split("\n", 1)[0]
+    r = score.run({"command": "deep-review", "all_mode": False, "pass_number": 1,
+                   "head_sha": "a" * 40, "changed_line_ranges": {TS_FILE: [[78, 82]]},
+                   "carryforward": [], "findings": [f]})
+    rows = [x for x in r["findings"] if x["agent"] == "test-sufficiency"]
+    assert len(rows) == 1, r
+    return rows[0]
+
+
+def _review_pass2(row, requests, verdicts, status="persisted", head_blobs=None,
+                  touched=None):
+    """The pass-2 `/review` envelope (test-sufficiency is not dispatched).
+    persisted: HEAD's pinned line is the stored first line; needs-recheck: it
+    changed. Change ranges are far from the line."""
+    cf = json.loads(json.dumps(row))
+    first = cf["current_code"].split("\n", 1)[0]
+    cf["canonical_line_content"] = first if status == "persisted" else "    // rewritten"
+    cf["canonical_window"] = None
+    return {"command": "review", "all_mode": False, "pass_number": 2,
+            "head_sha": HEAD_TS, "changed_line_ranges": {TS_FILE: [[10, 14]]},
+            "carryforward": [cf], "findings": [],
+            "recheck_requests": list(requests), "verdicts": list(verdicts),
+            "head_blobs": ({TS_FILE: B1, TS_TEST: T1} if head_blobs is None
+                           else head_blobs),
+            "touched_paths": ({row["stable_hash"]: [TS_TEST]} if touched is None
+                              else touched)}
+
+
+def _ts_request(row, token="R1", agents=("bugs",), snapshot=B1, **over):
+    req = {"token": token, "agents": list(agents), "stable_hash": row["stable_hash"],
+           "file": row["file"], "line": row["line"], "agent": row["agent"],
+           "title": row["title"], "route": "independent", "snapshot_blob": snapshot,
+           "test_paths": [TS_TEST]}
+    req.update(over)
+    return req
+
+
+def _ts_rows(result, row):
+    return [x for x in result.get("findings", [])
+            if (x.get("file"), x.get("line"), x.get("agent"), x.get("title"))
+            == (row["file"], row["line"], row["agent"], row["title"])]
+
+
+class TestReviewClosesDeepOnlyFinding(unittest.TestCase):
+    """Under /review, `bugs` confirms a fix for a test-sufficiency finding."""
+
+    def test_ts_row_shape(self):
+        """GREEN today and after: the builder emits the row the tests assume."""
+        row = _ts_row()
+        self.assertEqual((row["agent"], row["file"], row["line"]),
+                         ("test-sufficiency", TS_FILE, 80))
+        r = score.run(_review_pass2(row, [], []))
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertEqual(_ts_rows(r, row)[0]["status"], "persisted")
+
+    def test_bugs_confirms_test_sufficiency_finding_under_review(self):
+        """RED today: `verdict: malformed`."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")]))
+        self.assertEqual(_rejections(r), [])
+        self.assertEqual(len(r.get("resolved", [])), 1, _rejections(r))
+        self.assertEqual(r["resolved"][0]["agent"], "test-sufficiency")
+        self.assertEqual(r["resolved"][0]["resolution"]["agents"], ["bugs"])
+        self.assertEqual(r["resolved"][0]["resolution"].get("verified_blob"), B1)
+        self.assertEqual(_ts_rows(r, row), [])
+
+    def test_no_confirmer_shows_bounded_reason(self):
+        """RED today: no reason is emitted, the row just stays."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [], []))
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertEqual(_rejections(r), [R_IR_NO_REVIEWER])
+        rej = _verdict_rejections(r)[0]
+        self.assertEqual((rej["file"], rej["line"], rej["title"]),
+                         (row["file"], row["line"], row["title"]))
+
+    def test_no_confirmer_reason_absent_when_not_eligible(self):
+        """GREEN before and after: a persisted row with no nearby change and no
+        touching commit is not re-checked every run, so no reason is shown."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [], [], touched={}))
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertEqual(_rejections(r), [])
+
+    def test_no_confirmer_reason_absent_without_head_blobs(self):
+        """GREEN before and after: envelopes that predate the contract (no
+        `head_blobs`) score exactly as before."""
+        row = _ts_row()
+        env = _review_pass2(row, [], [])
+        del env["head_blobs"]
+        r = score.run(env)
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertEqual(_rejections(r), [])
+
+    def test_needs_recheck_row_closes_without_trigger(self):
+        """RED today: `verdict: malformed`. A changed pinned line needs no trigger."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    status="needs-recheck", touched={}))
+        self.assertEqual(_rejections(r), [])
+        self.assertEqual(len(r.get("resolved", [])), 1)
+        self.assertEqual(r["resolved"][0]["resolution"]["agents"], ["bugs"])
+        self.assertEqual(_ts_rows(r, row), [])
+
+
 if __name__ == "__main__":
     unittest.main()
