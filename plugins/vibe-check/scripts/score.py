@@ -1445,11 +1445,16 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
 
     A confirmed-fix verdict (an owner-named fix of a Needs-verification item,
     committed and verified by the fix agent against the repaired file —
-    carry_state records it only with that evidence) is judged by the same rule,
-    applies only to a Needs-verification record, and never resolves alone: it
-    also needs the independent half (_confirmed_fix_recheck) — a reviewer other
-    than the fixer, asked on a routed request bound to this record's stored
-    hash, answering `resolved` for the repaired snapshot. Its evidence keeps
+    carry_state records it only with that evidence) applies only to a
+    Needs-verification record and is judged at any age while the repaired blob
+    is still HEAD's blob (the blob check is its only staleness test; the
+    previous-pass rule above is fix-obsolete's alone). An inconclusive
+    independent half (no eligible reviewer, no answer, a snapshot mismatch) is
+    retried on every later pass that issues a routed request for it, and a
+    reviewer's still-applies settles it until the code changes. It never
+    resolves alone: it also needs the independent half (_confirmed_fix_recheck)
+    — a reviewer other than the fixer, asked on a routed request bound to this
+    record's stored hash, answering `resolved` for the repaired snapshot. Its evidence keeps
     the reviewer, the fix commit and the repaired blob. Verdicts on routed
     tokens never act as plain rechecks.
 
@@ -1539,7 +1544,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         if confirmed and record.get("band") != NV_BAND:
             rejected.append((v, "verdict: confirmed fix on a non-needs-verification record"))
             continue
-        if v["at_pass"] != pass_number - 1:
+        if not confirmed and v["at_pass"] != pass_number - 1:
             rejected.append((v, "verdict: stale fix verdict"))
             continue
         verified = v.get("verified_blob")

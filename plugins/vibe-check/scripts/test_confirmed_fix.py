@@ -349,7 +349,6 @@ R_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
 R_ORPHAN_ROUTED = "verdict: routed re-check without a confirmed fix"
 R_STALE = "verdict: stale fix verdict"
 R_EVIDENCE_CHANGED = "verdict: evidence changed since verification"
-STALE_OR_CHANGED = {R_STALE, R_EVIDENCE_CHANGED}
 R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said "
                 "it still applies and the code is unchanged since")
 HEAD2_BLOB = "2" * 40
@@ -428,8 +427,8 @@ class TestScoreConfirmedFix(unittest.TestCase):
                                            head_blob=HEAD2_BLOB)])
         self.assertEqual(len(_nv_rows(r)), 1)
         self.assertNotIn("resolved", r)
-        # 56-04 narrows this to the blob reason only.
-        self.assertTrue(set(_rejections(r)) & STALE_OR_CHANGED, _rejections(r))
+        self.assertIn(R_EVIDENCE_CHANGED, _rejections(r))
+        self.assertNotIn(R_STALE, _rejections(r))
 
     def test_malformed_confirmed_verdict_rejected(self):
         p1 = self._pass1()
@@ -621,8 +620,8 @@ class TestIndependentRecheck(unittest.TestCase):
                       head_blob=HEAD2_BLOB)
         self.assertEqual(len(_nv_rows(r)), 1)
         self.assertNotIn("resolved", r)
-        # 56-04 narrows this to the blob reason only.
-        self.assertTrue(set(_rejections(r)) & STALE_OR_CHANGED, _rejections(r))
+        self.assertIn(R_EVIDENCE_CHANGED, _rejections(r))
+        self.assertNotIn(R_STALE, _rejections(r))
 
     def test_malformed_routed_requests_rejected(self):
         p1 = self._pass1()
@@ -728,8 +727,8 @@ class TestRetryAfterInconclusive(unittest.TestCase):
                       [fix, reviewer_verdict()], 3, HEAD3)
         self.assertEqual(len(_nv_rows(r)), 1)
         self.assertNotIn("resolved", r)
-        # 56-04 tightens this to the blob reason only.
-        self.assertTrue(set(_rejections(r)) & STALE_OR_CHANGED, _rejections(r))
+        self.assertIn(R_EVIDENCE_CHANGED, _rejections(r))
+        self.assertNotIn(R_STALE, _rejections(r))
 
     def test_retry_after_still_applies_waits_for_code_change(self):
         p1 = self._pass1()
@@ -904,6 +903,31 @@ class TestIndependentRecheckMutants(unittest.TestCase):
         self._trips("score_m5",
                     'not any(a in _FIXER_AGENTS for a in req["agents"])',
                     "True", env)
+
+    def test_mutant_applied_blob_gate_removed(self):
+        """With the age gate relaxed for confirmed fixes, the blob compare is
+        the only thing stopping an old verdict on changed code."""
+        p1 = self._p1()
+        env = self._env(p1, [routed_request(p1)], [reviewer_verdict()],
+                        at_pass=0, head_blob=HEAD2_BLOB)
+        self._trips("score_m19",
+                    'verified == v.get("head_blob")',
+                    "True", env)
+
+    def test_mutant_cf_settled_check_removed(self):
+        p1 = self._p1()
+        cf = _nv_cf(settled_row(p1, {F: BLOB}, head_sha=HEAD2), None, None)
+        env = _nv_env([], carryforward=[cf], pass_number=3, head_sha=HEAD3,
+                      recheck_requests=[routed_request(p1)],
+                      verdicts=[confirmed_verdict(p1["stable_hash"], at_pass=1),
+                                reviewer_verdict()],
+                      head_blobs={F: BLOB}, touched_paths={})
+        self._trips("score_m20",
+                    'if isinstance(record.get("recheck_settled"), dict):\n'
+                    '                rejected.append((v, _R_CF_SETTLED))',
+                    'if False:\n'
+                    '                rejected.append((v, _R_CF_SETTLED))',
+                    env)
 
     def test_mutant_routed_counted_as_plain_recheck(self):
         p1 = self._p1()
