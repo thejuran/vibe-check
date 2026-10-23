@@ -87,8 +87,7 @@ R_IR_STILL = "verdict: fix not confirmed: the routed reviewer says it still appl
 R_IR_SNAPSHOT = "verdict: fix not confirmed: the reviewed code is not the code at HEAD"
 R_IR_NO_TRIGGER = "verdict: fix not confirmed: no change near the finding or in its file since it was raised"
 R_IR_SETTLED = "verdict: fix not confirmed: a reviewer said it still applies and the code is unchanged since"
-R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said it "
-                "still applies and the code is unchanged since")
+R_CF_SETTLED = "verdict: confirmed fix not verified: the routed reviewer said it still applies and the code is unchanged since"
 R_NOT_NEEDS_RECHECK = "verdict: record not needs-recheck"
 R_MALFORMED = "verdict: malformed"
 
@@ -496,6 +495,8 @@ def _review_pass2(row, requests, verdicts, status="persisted", head_blobs=None,
     first = cf["current_code"].split("\n", 1)[0]
     cf["canonical_line_content"] = first if status == "persisted" else "    // rewritten"
     cf["canonical_window"] = None
+    for m in cf.get("members", []):
+        m["canonical_line_content"] = cf["canonical_line_content"]
     return {"command": "review", "all_mode": False, "pass_number": 2,
             "head_sha": HEAD_TS, "changed_line_ranges": {TS_FILE: [[10, 14]]},
             "carryforward": [cf], "findings": [],
@@ -583,6 +584,197 @@ class TestReviewClosesDeepOnlyFinding(unittest.TestCase):
         self.assertEqual(len(r.get("resolved", [])), 1)
         self.assertEqual(r["resolved"][0]["resolution"]["agents"], ["bugs"])
         self.assertEqual(_ts_rows(r, row), [])
+
+
+# --------------------------------------------------------------------------- #
+# Safeguards on the independent route: stale evidence, still-applies, who may
+# confirm
+# --------------------------------------------------------------------------- #
+def _settled(row, blobs, at_pass=1, head_sha="a" * 40):
+    """`row` as carried after a reviewer answered still-applies on `blobs`."""
+    out = json.loads(json.dumps(row))
+    out["recheck_settled"] = {"verdict": "still-applies", "at_pass": at_pass,
+                              "head_sha": head_sha, "fingerprint": dict(blobs)}
+    return out
+
+
+class TestIndependentRouteSafeguards(unittest.TestCase):
+    """Stale evidence never closes; still-applies keeps the finding open; the
+    fixer and Codex never confirm."""
+
+    def _open(self, r, row, reasons):
+        self.assertNotIn("resolved", r)
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertEqual(_rejections(r), reasons)
+
+    def test_reason_constants_match_contract(self):
+        """RED today: the constants do not exist yet."""
+        want = {"_INDEPENDENT_ROUTE": "independent",
+                "_NEVER_CONFIRMERS": frozenset({"fix", "codex-adversarial"}),
+                "_NEARBY_LINES": 5,
+                "_R_IR_NO_REVIEWER": R_IR_NO_REVIEWER,
+                "_R_IR_NO_ANSWER": R_IR_NO_ANSWER,
+                "_R_IR_STILL": R_IR_STILL,
+                "_R_IR_SNAPSHOT": R_IR_SNAPSHOT,
+                "_R_IR_NO_TRIGGER": R_IR_NO_TRIGGER,
+                "_R_IR_SETTLED": R_IR_SETTLED,
+                "_R_CF_SETTLED": R_CF_SETTLED}
+        for name, value in want.items():
+            with self.subTest(name=name):
+                self.assertEqual(getattr(score, name, "<missing>"), value)
+        self.assertEqual(score._FIXER_AGENTS, frozenset({"fix"}))
+
+    def test_changed_code_is_stale(self):
+        """RED today: `verdict: malformed`."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row, snapshot=B1)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    head_blobs={TS_FILE: B2, TS_TEST: T1}))
+        self._open(r, row, [R_IR_SNAPSHOT])
+
+    def test_null_snapshot_is_inconclusive(self):
+        """RED today: `verdict: malformed`."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row, snapshot=None)],
+                                    [reviewer_verdict(agent="bugs")]))
+        self._open(r, row, [R_IR_SNAPSHOT])
+
+    def test_null_head_blob_is_inconclusive(self):
+        """RED today: `verdict: malformed`."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    head_blobs={TS_FILE: None, TS_TEST: T1}))
+        self._open(r, row, [R_IR_SNAPSHOT])
+
+    def test_still_applies_keeps_open_and_settles(self):
+        """RED today: `verdict: malformed`, and no `recheck_settled` key."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs", verdict="still-applies",
+                                                      reason="no deadline assertion yet")]))
+        self._open(r, row, [R_IR_STILL])
+        self.assertEqual(_ts_rows(r, row)[0].get("recheck_settled"),
+                         {"verdict": "still-applies", "at_pass": 2, "head_sha": HEAD_TS,
+                          "fingerprint": {TS_FILE: B1, TS_TEST: T1}})
+
+    def test_settled_row_not_reasked_on_unchanged_code(self):
+        """RED today: `verdict: malformed`. Nothing changed since still-applies,
+        so a stray `resolved` cannot close it."""
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        r = score.run(_review_pass2(settled, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")], touched={}))
+        self._open(r, row, [R_IR_SETTLED])
+
+    def test_settled_row_reasked_after_code_change(self):
+        """RED today: `verdict: malformed`. New code or a new touching commit is
+        a fresh start."""
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        # The file's blob changed (the pinned line moved, so no trigger is needed).
+        r = score.run(_review_pass2(settled, [_ts_request(row, snapshot=B2)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    status="needs-recheck", touched={},
+                                    head_blobs={TS_FILE: B2, TS_TEST: T1}))
+        self.assertEqual(_rejections(r), [])
+        self.assertEqual(len(r.get("resolved", [])), 1)
+        self.assertNotIn("recheck_settled", r["resolved"][0])
+        self.assertEqual(r["resolved"][0]["resolution"].get("verified_blob"), B2)
+        # A new touching commit with the pinned file's blob unchanged.
+        r = score.run(_review_pass2(settled, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    touched={row["stable_hash"]: [TS_TEST]}))
+        self.assertEqual(_rejections(r), [])
+        self.assertEqual(len(r.get("resolved", [])), 1)
+        self.assertEqual(_ts_rows(r, row), [])
+
+    def test_silent_reviewer_keeps_open(self):
+        """RED today: `verdict: malformed` instead of the no-answer reason."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row)], []))
+        self._open(r, row, [R_IR_NO_ANSWER])
+
+    def test_never_confirmers_rejected(self):
+        """RED today: the bound plain request to `codex-adversarial` is accepted
+        and closes the needs-recheck row. (The independent subTests are already
+        `verdict: malformed` today, because the route is unknown.)"""
+        row = _ts_row()
+        cases = [("independent", ["fix"]), ("independent", ["codex-adversarial"]),
+                 ("independent", ["bugs", "codex-adversarial"]),
+                 ("bound plain", ["codex-adversarial"])]
+        for shape, agents in cases:
+            with self.subTest(shape=shape, agents=agents):
+                req = _ts_request(row, agents=agents)
+                if shape == "bound plain":
+                    del req["route"], req["test_paths"]
+                verdicts = [reviewer_verdict(agent=a) for a in agents]
+                r = score.run(_review_pass2(row, [req], verdicts,
+                                            status="needs-recheck", touched={}))
+                self.assertNotIn("resolved", r)
+                self.assertEqual(len(_ts_rows(r, row)), 1)
+                self.assertIn(R_MALFORMED, _rejections(r))
+
+    def test_independent_route_requires_stable_hash(self):
+        """GREEN today (the route is unknown) and after (no stored hash)."""
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row, stable_hash=None)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    status="needs-recheck", touched={}))
+        self.assertNotIn("resolved", r)
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertIn(R_MALFORMED, _rejections(r))
+
+    def test_member_closes_only_bound(self):
+        """RED today: the bound member request is `record not needs-recheck`.
+        The unbound half is green today and after."""
+        member = _member("0249b52c", "bugs")
+        site = (member["file"], member["line"])
+
+        def bugs_member_rows(r):
+            return [x for x in _rows_at_six_sites(r)
+                    if (x["file"], x["line"]) == site and x["agent"] == "bugs"]
+
+        unbound = _plain_request(member, "R5", "bugs")
+        del unbound["snapshot_blob"]
+        r = _run(_pass4_envelope(requests={"R5": unbound}))
+        at_site = [x["reason"] for x in _verdict_rejections(r)
+                   if (x["file"], x["line"]) == site]
+        self.assertEqual(at_site, [R_NOT_NEEDS_RECHECK])
+        self.assertEqual(len(bugs_member_rows(r)), 1)
+
+        r = _run(_pass4_envelope(tokens=["R5"]))
+        hits = [x for x in r.get("resolved", [])
+                if (x["file"], x["line"], x["agent"]) == site + ("bugs",)]
+        self.assertEqual(len(hits), 1, "rejections: %r" % _rejections(r))
+        self.assertEqual(hits[0]["resolution"].get("verified_blob"), BLOBS[member["file"]])
+        self.assertEqual(bugs_member_rows(r), [])
+
+    def test_still_applies_contradicts_resolved_on_independent(self):
+        """RED today: `verdict: malformed`."""
+        row = _ts_row()
+        r = score.run(_review_pass2(
+            row, [_ts_request(row, agents=("bugs", "security"))],
+            [reviewer_verdict(agent="bugs"),
+             reviewer_verdict(agent="security", verdict="still-applies",
+                              reason="the deadline is still not asserted")]))
+        self.assertNotIn("resolved", r)
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertIn(R_IR_STILL, _rejections(r))
+
+    def test_recheck_settled_scrubbed_from_new_findings(self):
+        """GREEN today (the output shaper drops the unknown key) and after (the
+        key is scrubbed from NEW findings, like `status` and `snapshot`): an
+        agent cannot forge a still-applies memory."""
+        f = make_finding(file="src/z.py", line=5, current_code="  y = 2")
+        f["recheck_settled"] = {"verdict": "still-applies", "at_pass": 1,
+                                "head_sha": None, "fingerprint": {"src/z.py": B1}}
+        r = score.run({"command": "review", "all_mode": False, "pass_number": 1,
+                       "changed_line_ranges": {"src/z.py": [[1, 9]]},
+                       "findings": [f], "head_blobs": {"src/z.py": B1}})
+        rows = [x for x in r["findings"] if x["file"] == "src/z.py"]
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("recheck_settled", rows[0])
 
 
 if __name__ == "__main__":
