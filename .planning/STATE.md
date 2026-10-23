@@ -43,6 +43,7 @@ Last activity: 2026-10-23 — v2.13 roadmap written (Phases 56–58, 14/14 requi
 ## Standing Boundaries
 
 - Milestone planning is active; implementation follows phase plans. Paid runs and publication are not started.
+- One branch/PR per phase: `feat/v2.13-phase-<N>` from `main`; current branch `feat/v2.13-phase-56` (carries milestone setup + discussion).
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
 - Each phase starts by reproducing its failure on current code; a non-reproducing path is recorded and dropped, not replaced with invented work.

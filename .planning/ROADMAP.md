@@ -111,6 +111,7 @@ Finish with a go/no-go recommendation for the smallest useful reporting change. 
 - v2.13 is the active milestone; implementation follows its phase plans. Paid runs, new agents and publication still require explicit owner approval; this roadmap does not authorize them.
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Its noise target was not demonstrated. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.
+- One branch and one PR per phase (owner decision 2026-10-23): `feat/v2.13-phase-<N>`, each cut from `main` after the previous phase's PR merges. Milestone setup and phase discussion sit with Phase 56's branch.
 - Routine cleanup remains in [maintenance](backlog/MAINTENANCE.md).
 - [Lower-value ROI candidates](backlog/archive/2026-10-18/ROI-DEFERRED.md) are archived with reopening conditions, not scheduled or declared complete.
 
