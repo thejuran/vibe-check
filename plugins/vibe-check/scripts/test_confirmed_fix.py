@@ -830,6 +830,24 @@ class TestMutants(unittest.TestCase):
         self.assertEqual(mod.finalize_counts(
             s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [WH])
 
+    def test_mutant_awaiting_settled_check_removed(self):
+        row = settled_row(nv_row(status="persisted"), {F: BLOB})
+        s = state_two_passes(row, fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        self.assertEqual(carry_state.finalize_counts(
+            s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [])
+        mod = _mutant(CARRY_STATE_PY, "cs_m7",
+                      "and not _settled_unchanged(record, head_blobs))", ")")
+        self.assertEqual(mod.finalize_counts(
+            s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_settled_unchanged_fails_closed_without_head_blobs(self):
+        row = settled_row(nv_row(status="persisted"), {F: BLOB})
+        s = state_two_passes(row, fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        for blobs in (None, {}, {"src/other.py": BLOB}):
+            with self.subTest(blobs=blobs):
+                self.assertEqual(carry_state.finalize_counts(
+                    s, blobs)["confirmed_fix_awaiting_recheck_hashes"], [])
+
     def test_mutant_fixer_only_closes_at_finalize(self):
         """Restoring the old rule (an `applied` verdict closes like obsolete)
         trips: the fixer's own check would close the item with no re-check."""

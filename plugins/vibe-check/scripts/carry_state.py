@@ -52,9 +52,12 @@ WHAT CLOSES. Exactly one of:
     code has since changed never closes; without a HEAD blob map nothing closes
     by verdict (fail closed).
 A fix-agent `applied` verdict (a confirmed fix of a Needs-verification item) is
-the fixer's own evidence and closes nothing here: the item closes only on a
-rerun, through score.py's routed independent re-check (`resolved[]`).
-finalize-counts lists it in `confirmed_fix_awaiting_recheck_hashes`.
+the fixer's own evidence and never closes here: the item closes only on a
+rerun, through score.py's routed independent re-check (`resolved[]`). It is
+forwarded and judged whatever its `at_pass`: finalize-counts lists it in
+`confirmed_fix_awaiting_recheck_hashes` on every pass until score.py's routed
+independent re-check closes it or a reviewer's still-applies settles it
+(`recheck_settled`) until the fingerprinted code changes.
 Nothing else closes a finding: no age, no pass count. Closure is evaluated per
 record and is never inherited from a lead.
 
@@ -322,13 +325,35 @@ def _verdict_kind_valid(verdict, record):
     return kind == "obsolete"
 
 
-def _confirmed_fix_awaiting(record, state, last):
-    """True for a last-pass `applied` verdict on a Needs-verification record
-    with its fix commit recorded: fixed, awaiting the independent re-check."""
+def _settled_unchanged(record, head_blobs):
+    """True while a reviewer's still-applies (`recheck_settled`) still holds:
+    every fingerprinted file's HEAD blob equals its fingerprint. A path whose
+    HEAD blob is unknown (no map, or the path is missing from it) counts as
+    unchanged, so the item waits for the owner rather than being re-asked."""
+    settled = record.get("recheck_settled")
+    if not isinstance(settled, dict):
+        return False
+    fingerprint = settled.get("fingerprint")
+    if not isinstance(fingerprint, dict) or not fingerprint:
+        return False
+    if not isinstance(head_blobs, dict):
+        return True
+    for path, blob in fingerprint.items():
+        head = head_blobs.get(path)
+        if isinstance(head, str) and head != blob:
+            return False
+    return True
+
+
+def _confirmed_fix_awaiting(record, state, last, head_blobs=None):
+    """True for an `applied` verdict, whatever its `at_pass`, on a
+    Needs-verification record with its fix commit recorded: fixed, awaiting the
+    independent re-check. Not while a still-applies settles it on unchanged
+    code."""
     verdict = state.get("fix_verdicts", {}).get(record["stable_hash"])
     return (isinstance(verdict, dict) and verdict.get("verdict") == "applied"
-            and verdict.get("at_pass") == last["pass_number"]
-            and record.get("band") == NV_BAND and _sha40(verdict.get("commit_sha")))
+            and record.get("band") == NV_BAND and _sha40(verdict.get("commit_sha"))
+            and not _settled_unchanged(record, head_blobs))
 
 
 def _fix_closes(record, state, last, head_blobs, kind=None):
@@ -521,7 +546,7 @@ def finalize_counts(state, head_blobs=None):
             nv.append(rec["stable_hash"])
         elif rec["band"] == "medium":
             medium.append(rec["stable_hash"])
-        if _confirmed_fix_awaiting(rec, state, last):
+        if _confirmed_fix_awaiting(rec, state, last, head_blobs):
             awaiting.append(rec["stable_hash"])
     return {
         "outstanding_cw": len(cw),
