@@ -574,6 +574,24 @@ class TestReviewClosesDeepOnlyFinding(unittest.TestCase):
         self.assertEqual(len(_ts_rows(r, row)), 1)
         self.assertEqual(_rejections(r), [])
 
+    def test_no_confirmer_reason_not_doubled_under_a_confirmed_fix(self):
+        """A lead awaiting the independent half of a confirmed fix already says
+        why (`confirmed fix awaiting independent re-check`); the generic
+        reason is not added on top."""
+        import test_confirmed_fix as tcf
+        from test_score import _nv, _nv_cf, _nv_env, _nv_rows
+        p1 = _nv_rows(score.run(_nv_env([_nv(agent="codex-adversarial")])))[0]
+        env = _nv_env([], carryforward=[_nv_cf(p1, None, None)], pass_number=2,
+                      head_sha=tcf.HEAD2, recheck_requests=[],
+                      verdicts=[tcf.confirmed_verdict(p1["stable_hash"])],
+                      head_blobs={p1["file"]: tcf.BLOB}, touched_paths={})
+        r = score.run(json.loads(json.dumps(env)))
+        self.assertEqual(_rejections(r), [tcf.R_NO_REVIEWER])
+        # Without the fix verdict the same lead does get the generic reason.
+        env["verdicts"] = []
+        r = score.run(json.loads(json.dumps(env)))
+        self.assertEqual(_rejections(r), [R_IR_NO_REVIEWER])
+
     def test_needs_recheck_row_closes_without_trigger(self):
         """RED today: `verdict: malformed`. A changed pinned line needs no trigger."""
         row = _ts_row()
@@ -855,6 +873,29 @@ class TestEnvelopeIngress56(unittest.TestCase):
         r = score.run(env)
         self.assertNotIn("resolved", r)
         self.assertEqual(len(_ts_rows(r, row)), 1)
+
+    def test_non_str_head_blob_reads_as_unknown(self):
+        row = _ts_row()
+        r = score.run(_review_pass2(row, [_ts_request(row, snapshot=B1)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    head_blobs={TS_FILE: 5, TS_TEST: T1}))
+        self.assertNotIn("resolved", r)
+        self.assertEqual(_rejections(r), [R_IR_SNAPSHOT])
+
+    def test_non_list_touched_reads_as_nothing_touched(self):
+        row = _ts_row()
+        for bad in ("x", None, {TS_TEST: 1}, [5, None]):
+            with self.subTest(bad=bad):
+                r = score.run(_review_pass2(row, [_ts_request(row)],
+                                            [reviewer_verdict(agent="bugs")],
+                                            touched={row["stable_hash"]: bad}))
+                self.assertNotIn("resolved", r)
+                self.assertEqual(_rejections(r), [R_IR_NO_TRIGGER])
+        # Control: the same list with the associated test closes it.
+        r = score.run(_review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")],
+                                    touched={row["stable_hash"]: [5, TS_TEST]}))
+        self.assertEqual(len(r.get("resolved", [])), 1, _rejections(r))
 
     def test_request_shapes(self):
         row = _ts_row()

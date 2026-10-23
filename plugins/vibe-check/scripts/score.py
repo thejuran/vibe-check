@@ -1355,8 +1355,76 @@ def _confirmed_fix_recheck(record, stored_hash, verified, routed, requests_by_to
     return routed, None
 
 
+def _independent_recheck(record, stored_hash, status, independent, requests_by_token,
+                         facts):
+    """An independent re-check of an ordinary carried lead.
+
+    -> (reviewer verdicts, None) when an asked confirmer answered `resolved`
+    on an independent request bound to this lead, nobody asked says it still
+    applies, and every judged snapshot is HEAD's blob for the pinned file;
+    else (None, fixed reason), or (None, None) when no independent request
+    names the lead. A `persisted` lead also needs the trigger, and a lead
+    whose still-applies memory survived the fresh-start rule is not re-asked.
+    `independent` holds the verdicts already matched on independent tokens.
+    """
+    issued = [req for req in requests_by_token.values()
+              if req.get("route") == _INDEPENDENT_ROUTE
+              and _request_matches(req, record, stored_hash)]
+    if not issued:
+        return None, None
+    if isinstance(record.get("recheck_settled"), dict):
+        return None, _R_IR_SETTLED
+    if status == "persisted" and not _independent_trigger(
+            record, facts["touched"], facts["changed_line_ranges"]):
+        return None, _R_IR_NO_TRIGGER
+    if not independent:
+        return None, _R_IR_NO_ANSWER
+    if any(v["verdict"] == "still-applies" for v in independent):
+        return None, _R_IR_STILL
+    head_blob = facts["head_blobs"].get(record.get("file"))
+    if head_blob is None or any(
+            requests_by_token[v["token"]]["snapshot_blob"] != head_blob for v in independent):
+        return None, _R_IR_SNAPSHOT
+    return independent, None
+
+
+def _bound_plain_recheck(record, plain, requests_by_token, facts):
+    """A bound plain re-check of a `persisted` record (the raising lane asked,
+    the request naming the snapshot it judged). -> None when it may close,
+    else the fixed reason: still-applies memory, no trigger, a still-applies
+    answer, or a judged snapshot that is not HEAD's blob."""
+    if isinstance(record.get("recheck_settled"), dict):
+        return _R_IR_SETTLED
+    if not _independent_trigger(record, facts["touched"], facts["changed_line_ranges"]):
+        return _R_IR_NO_TRIGGER
+    if any(v["verdict"] == "still-applies" for v in plain):
+        return _R_IR_STILL
+    head_blob = facts["head_blobs"].get(record.get("file"))
+    if head_blob is None or any(
+            requests_by_token[v["token"]]["snapshot_blob"] != head_blob for v in plain):
+        return _R_IR_SNAPSHOT
+    return None
+
+
+def _recheck_resolution(verdicts, head_sha, pass_number, verified_blob):
+    agents = []
+    for v in verdicts:
+        if v["agent"] not in agents:
+            agents.append(v["agent"])
+    first = verdicts[0]
+    return {
+        "source": "recheck",
+        "agents": agents,
+        "verdict": "resolved",
+        "head_sha": head_sha,
+        "at_pass": pass_number,
+        "reason": first["reason"] if isinstance(first.get("reason"), str) else "",
+        "verified_blob": verified_blob,
+    }
+
+
 def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verdicts,
-                    fix_verdicts, pass_number, head_sha):
+                    fix_verdicts, pass_number, head_sha, facts):
     """Judge every pending verdict that names one carried record.
 
     -> (resolution | None, consumed, rejected). `consumed` lists every verdict
@@ -1384,6 +1452,22 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
     hash, answering `resolved` for the repaired snapshot. Its evidence keeps
     the reviewer, the fix commit and the repaired blob. Verdicts on routed
     tokens never act as plain rechecks.
+
+    An independent re-check (`route: "independent"`, a lead whose raising lane
+    was not dispatched) resolves the lead with source `recheck` when an asked
+    confirmer (never the fixer, never Codex) answers `resolved`, nobody asked
+    says it still applies, and every judged snapshot is HEAD's blob for the
+    pinned file (`facts["head_blobs"]`); a `persisted` lead also needs the
+    trigger (_independent_trigger over `facts["touched"]` and the change
+    ranges). Its evidence keeps the confirmer, HEAD's blob and, when the
+    request named one, the fix commit. A bound plain re-check (a plain request
+    that names `snapshot_blob`) of a `persisted` record is held to the same
+    rule; an unbound one, and any plain re-check of a needs-recheck record,
+    is judged exactly as above. A still-applies memory (`recheck_settled`)
+    that survived the caller's fresh-start rule keeps either shape, and a
+    confirmed fix, from closing until the code changes. Verdicts on
+    independent tokens never act as plain rechecks or as a confirmed fix's
+    routed half.
     Records that are fixed-since-last are consumed by the caller, never here.
     """
     consumed = []
@@ -1395,11 +1479,23 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
     consumed.extend(matched)
     routed = [v for v in matched
               if requests_by_token[v["token"]].get("route") == _CONFIRMED_ROUTE]
+    independent = [v for v in matched
+                   if requests_by_token[v["token"]].get("route") == _INDEPENDENT_ROUTE]
     matched = [v for v in matched
                if requests_by_token[v["token"]].get("route") is None]
     routed_judged = False
     resolving = [v for v in matched if v["verdict"] == "resolved"]
-    if resolving:
+    bound = (status == "persisted" and bool(matched)
+             and all("snapshot_blob" in requests_by_token[v["token"]] for v in matched))
+    if bound:
+        why = _bound_plain_recheck(record, matched, requests_by_token, facts)
+        if why is not None:
+            rejected.append((None, why))
+        else:
+            resolution = _recheck_resolution(
+                resolving, head_sha, pass_number,
+                facts["head_blobs"].get(record.get("file")))
+    elif resolving:
         if status != "needs-recheck":
             rejected.extend((v, "verdict: record not needs-recheck") for v in resolving)
         elif any(v["verdict"] == "still-applies" for v in matched):
@@ -1420,8 +1516,21 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
             }
 
     if stored_hash is None:
-        # Routed requests always name a stored hash, so `routed` is empty here.
+        # Routed requests always name a stored hash, so `routed` and
+        # `independent` are empty here.
         return resolution, consumed, rejected
+    if resolution is None:
+        reviewers, why = _independent_recheck(
+            record, stored_hash, status, independent, requests_by_token, facts)
+        if why is not None:
+            rejected.append((None, why))
+        elif reviewers:
+            resolution = _recheck_resolution(
+                reviewers, head_sha, pass_number,
+                facts["head_blobs"].get(record.get("file")))
+            fix_commit = requests_by_token[reviewers[0]["token"]].get("fix_commit")
+            if isinstance(fix_commit, str):
+                resolution["commit_sha"] = fix_commit
     for v in fix_verdicts:
         if v["stable_hash"] != stored_hash:
             continue
@@ -1439,6 +1548,9 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
             continue
         if confirmed:
             routed_judged = True
+            if isinstance(record.get("recheck_settled"), dict):
+                rejected.append((v, _R_CF_SETTLED))
+                continue
             reviewers, why = _confirmed_fix_recheck(
                 record, stored_hash, verified, routed, requests_by_token)
             if why is not None:
@@ -1860,22 +1972,44 @@ def run(envelope):
     consumed_ids = set()
     resolved = []
 
-    def _judge(record, stored_hash, status, report_hash=None):
+    def _judge(record, stored_hash, status, report_hash=None, touched=()):
         """Run the guard for one carried record; True iff it resolved.
 
         `report_hash` (a member's obligation hash) is the stable_hash recorded
         in resolved[] when the guard itself runs without a stored hash.
+        `touched` is the carried lead's touched_paths list (a member gets its
+        lead's). A lead an asked reviewer said still applies, judged on code
+        whose blob is known, records `recheck_settled`.
         """
         pending_recheck = [v for v in recheck_verdicts if id(v) not in consumed_ids]
         pending_fix = [v for v in fix_verdicts if id(v) not in consumed_ids]
-        if not pending_recheck and not pending_fix:
+        if not pending_recheck and not pending_fix and not (
+                stored_hash is not None
+                and any(req.get("route") == _INDEPENDENT_ROUTE
+                        and _request_matches(req, record, stored_hash)
+                        for req in requests_by_token.values())):
             return False
+        facts = {"head_blobs": head_blobs, "touched": list(touched),
+                 "changed_line_ranges": changed_line_ranges}
         resolution, consumed, rejected = _accept_verdict(
             record, stored_hash, status, requests_by_token, pending_recheck,
-            pending_fix, pass_number, head_sha)
+            pending_fix, pass_number, head_sha, facts)
         consumed_ids.update(id(v) for v in consumed)
         for _, reason in rejected:
             _reject_verdict(reason, record)
+        file = record.get("file")
+        if (stored_hash is not None and isinstance(head_blobs.get(file), str)
+                and any(reason in (_R_IR_STILL, _R_CF_STILL) for _, reason in rejected)):
+            fingerprint = {file: head_blobs[file]}
+            for v in consumed:
+                if v["source"] != "recheck" or v["verdict"] != "still-applies":
+                    continue
+                paths = requests_by_token[v["token"]].get("test_paths")
+                for path in (paths if _str_list(paths) else []):
+                    if isinstance(head_blobs.get(path), str):
+                        fingerprint[path] = head_blobs[path]
+            record["recheck_settled"] = {"verdict": "still-applies", "at_pass": pass_number,
+                                         "head_sha": head_sha, "fingerprint": fingerprint}
         if status == "fixed-since-last" or resolution is None:
             return False
         resolved.append({
@@ -1949,10 +2083,27 @@ def run(envelope):
     # re-admitted, and its stored stable_hash is kept verbatim.
     nv_carried_ids = set()
     working = []
+    # Carried leads whose fix no eligible reviewer was asked to confirm
+    # (_R_IR_NO_REVIEWER), reported after the carry loop.
+    unasked = []
     for cf in carryforward:
         rep = {k: v for k, v in cf.items() if k != "members"}
         # A prior pass's obligation marker never rides on a row re-scored normally.
         rep.pop("kept_open", None)
+        stored_hash = cf.get("stable_hash") if isinstance(cf.get("stable_hash"), str) else None
+        touched = touched_paths.get(stored_hash, []) if stored_hash is not None else []
+        # Fresh start (D-08): a still-applies memory lasts only while the code
+        # it judged is unchanged — every fingerprinted blob HEAD still has and
+        # no commit touching the lead's paths since.
+        if "recheck_settled" in rep:
+            settled = rep["recheck_settled"]
+            fingerprint = settled.get("fingerprint") if isinstance(settled, dict) else None
+            if (not isinstance(fingerprint, dict)
+                    or settled.get("verdict") != "still-applies"
+                    or any(isinstance(head_blobs.get(path), str) and head_blobs[path] != blob
+                           for path, blob in fingerprint.items())
+                    or touched):
+                del rep["recheck_settled"]
         nv_carried = cf.get("band") == NV_BAND
         if nv_carried:
             # O-2: the whole-snippet evidence fingerprint, never the generic
@@ -1972,7 +2123,6 @@ def run(envelope):
             status = carry_forward_status(
                 rep, cf.get("canonical_line_content"), cf.get("canonical_window")
             )
-        stored_hash = cf.get("stable_hash") if isinstance(cf.get("stable_hash"), str) else None
         if status == "fixed-since-last":
             # The line is gone: the verdicts naming it are moot, not rejected.
             consumed_ids.update(
@@ -1988,9 +2138,11 @@ def run(envelope):
                 "band": cf.get("band"),
                 "first_pass_N": cf.get("first_pass_N"),
             })
-        elif not _judge(rep, stored_hash, status):
+        elif not _judge(rep, stored_hash, status, touched=touched):
             # persisted / needs-recheck both flow through scoring (review.md:678).
             rep["status"] = status
+            if stored_hash is not None:
+                unasked.append((rep, stored_hash, status, touched, [rep]))
             if status == "persisted":
                 persisted_ids.add(id(rep))
             working.append(rep)
@@ -2016,8 +2168,11 @@ def run(envelope):
             # fix-obsolete verdict can never reach one; a resolved member that
             # was once a row is reported under its own obligation hash.
             obligation = p.get("obligation")
+            if unasked and unasked[-1][0] is rep:
+                unasked[-1][4].append(p)
             if _judge(p, None, p["status"],
-                      report_hash=obligation["stable_hash"] if obligation else None):
+                      report_hash=obligation["stable_hash"] if obligation else None,
+                      touched=touched):
                 continue
             if p["status"] == "persisted":
                 persisted_ids.add(id(p))
@@ -2027,6 +2182,23 @@ def run(envelope):
                                               "lead": False}
             if id(rep) in members_of:
                 members_of[id(rep)].append(p)
+    # D-11: a carried lead that could close on an independent re-check (its
+    # pinned line changed, or the trigger holds) but for which no reviewer was
+    # asked — about it or any record in its row — says why it stayed open. A
+    # lead under a confirmed fix has its own reasons; a settled lead is waiting
+    # for its code to change. Only an envelope carrying `head_blobs` (the
+    # independent re-check contract) reports it, so older envelopes score as
+    # before.
+    if "head_blobs" in envelope:
+        for rep, stored_hash, status, touched, records in unasked:
+            if ("recheck_settled" in rep
+                    or any(v["stable_hash"] == stored_hash for v in fix_verdicts)
+                    or any(_request_matches(req, rec, stored_hash if rec is rep else None)
+                           for rec in records for req in requests_by_token.values())):
+                continue
+            if status == "needs-recheck" or _independent_trigger(
+                    rep, touched, changed_line_ranges):
+                _reject_verdict(_R_IR_NO_REVIEWER, rep)
     working.extend(findings)
     for v in recheck_verdicts + fix_verdicts:
         if id(v) not in consumed_ids:
