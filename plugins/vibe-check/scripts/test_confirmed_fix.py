@@ -215,6 +215,23 @@ def applied_verdict(blob=BLOB, at_pass=1, **over):
     return v
 
 
+def state_two_passes(row, **roots):
+    """A state whose pass 2 carried `row` unchanged from pass 1."""
+    s = state_with(json.loads(json.dumps(row)), **roots)
+    s["passes"].append({"pass_number": 2, "head_sha": "h2", "diff_range": "b..c",
+                        "findings": [json.loads(json.dumps(row))]})
+    return s
+
+
+def settled_row(row, fingerprint, at_pass=2, head_sha="e" * 40):
+    """`row` as carried after a routed reviewer answered still-applies on the
+    code whose blobs are `fingerprint`."""
+    out = json.loads(json.dumps(row))
+    out["recheck_settled"] = {"verdict": "still-applies", "at_pass": at_pass,
+                              "head_sha": head_sha, "fingerprint": dict(fingerprint)}
+    return out
+
+
 class TestFinalizeCountsConfirmedFix(unittest.TestCase):
     """Without a rerun there is no independent re-check: the fixer's evidence
     alone never closes the item. It is listed as awaiting the re-check."""
@@ -246,10 +263,34 @@ class TestFinalizeCountsConfirmedFix(unittest.TestCase):
         self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_stale_pass_never_closes(self):
+        """An `applied` verdict older than the last pass still never closes at
+        finalize (closure needs score.py's resolved[]), but the item is still
+        fixed and awaiting its independent re-check."""
         s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict(at_pass=0)})
         c = carry_state.finalize_counts(s, {F: BLOB})
         self.assertEqual(c["undecided_nv"], 1)
+        self.assertFalse(carry_state.is_closed(nv_row(), s, {F: BLOB}))
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_awaiting_listed_at_any_later_pass(self):
+        """A rerun that could not confirm the fix (no eligible reviewer) leaves
+        the verdict at its original pass; the item is still awaiting."""
+        s = state_two_passes(nv_row(status="persisted"),
+                             fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv_hashes"], [NVH])
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_settled_row_not_awaiting(self):
+        """A reviewer said it still applies on this exact code: nothing is
+        awaiting until the code changes."""
+        row = settled_row(nv_row(status="persisted"), {F: BLOB})
+        s = state_two_passes(row, fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv_hashes"], [NVH])
         self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
+        c = carry_state.finalize_counts(s, {F: "f" * 40})
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
 
     def test_applied_without_commit_never_closes(self):
         v = applied_verdict()
@@ -306,6 +347,13 @@ R_STILL = ("verdict: confirmed fix not verified: the routed reviewer says "
 R_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
               "the repaired code")
 R_ORPHAN_ROUTED = "verdict: routed re-check without a confirmed fix"
+R_STALE = "verdict: stale fix verdict"
+R_EVIDENCE_CHANGED = "verdict: evidence changed since verification"
+STALE_OR_CHANGED = {R_STALE, R_EVIDENCE_CHANGED}
+R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said "
+                "it still applies and the code is unchanged since")
+HEAD2_BLOB = "2" * 40
+BLOB2 = "4" * 40
 
 
 def routed_request(row, token="R1", agents=("bugs",), snapshot=BLOB, **over):
@@ -372,11 +420,16 @@ class TestScoreConfirmedFix(unittest.TestCase):
         self.assertEqual(len(_nv_rows(r)), 1)
 
     def test_stale_verdict_stays_open(self):
+        """Stale means the code changed since the fix was verified, at any
+        age: an older verdict on a changed blob never closes."""
         p1 = self._pass1()
         r = self._pass2(_nv_cf(p1, None, None),
-                        [confirmed_verdict(p1["stable_hash"], at_pass=0)])
+                        [confirmed_verdict(p1["stable_hash"], at_pass=0,
+                                           head_blob=HEAD2_BLOB)])
         self.assertEqual(len(_nv_rows(r)), 1)
-        self.assertEqual(_rejections(r), ["verdict: stale fix verdict"])
+        self.assertNotIn("resolved", r)
+        # 56-04 narrows this to the blob reason only.
+        self.assertTrue(set(_rejections(r)) & STALE_OR_CHANGED, _rejections(r))
 
     def test_malformed_confirmed_verdict_rejected(self):
         p1 = self._pass1()
@@ -561,9 +614,15 @@ class TestIndependentRecheck(unittest.TestCase):
         self._open(r, R_ORPHAN_ROUTED)
 
     def test_stale_or_changed_fix_verdict_with_routed_resolved_stays_open(self):
+        """A routed `resolved` never revives a fix whose code changed since it
+        was verified, whatever the verdict's age."""
         p1 = self._pass1()
-        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], at_pass=0)
-        self._open(r, "verdict: stale fix verdict")
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], at_pass=0,
+                      head_blob=HEAD2_BLOB)
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        # 56-04 narrows this to the blob reason only.
+        self.assertTrue(set(_rejections(r)) & STALE_OR_CHANGED, _rejections(r))
 
     def test_malformed_routed_requests_rejected(self):
         p1 = self._pass1()
@@ -601,6 +660,114 @@ class TestIndependentRecheck(unittest.TestCase):
         p1 = self._pass1()
         r = self._run(p1, [routed_request(p1)], [reviewer_verdict()])
         self.assertEqual(r["resolved"][0]["stable_hash"], p1["stable_hash"])
+
+
+# --------------------------------------------------------------------------- #
+# Retry after an inconclusive re-check: a fix that no independent reviewer
+# could confirm on one rerun is re-checked on a later rerun, on the same
+# evidence, with no new fix and no owner decision
+# --------------------------------------------------------------------------- #
+HEAD3 = "f" * 40
+
+
+class TestRetryAfterInconclusive(unittest.TestCase):
+    def _pass1(self, agent="codex-adversarial"):
+        rows = _nv_rows(score.run(_nv_env([_nv(agent=agent)])))
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    def _run(self, cf, requests, verdicts, pass_number, head_sha, **env_over):
+        env = _nv_env([], carryforward=[cf], pass_number=pass_number,
+                      head_sha=head_sha, recheck_requests=requests,
+                      verdicts=verdicts, **env_over)
+        self.last_env = env
+        return score.run(json.loads(json.dumps(env)))
+
+    def _carry(self, r):
+        """The pass's surviving NV row, carried into the next pass (the fix
+        changed the code, so the stored snippet is not located)."""
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        return _nv_cf(rows[0], None, None)
+
+    def _open(self, r, reason):
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        self.assertIn(reason, _rejections(r))
+
+    def test_inconclusive_then_retry_closes_on_unchanged_code(self):
+        p1 = self._pass1()
+        fix = confirmed_verdict(p1["stable_hash"], blob=BLOB, head_blob=BLOB,
+                                at_pass=1)
+        # Pass 2: no eligible reviewer ran, so the fix is not yet confirmed.
+        r2 = self._run(_nv_cf(p1, None, None), [], [fix], 2, HEAD2)
+        self._open(r2, R_NO_REVIEWER)
+        # Pass 3: a later run dispatched a reviewer; the SAME applied verdict
+        # (still at_pass 1) and the unchanged blob close the item.
+        env_verdicts = [json.loads(json.dumps(fix)), reviewer_verdict()]
+        r3 = self._run(self._carry(r2), [routed_request(p1)], env_verdicts, 3, HEAD3)
+        self.assertEqual(_rejections(r3), [])
+        self.assertEqual(_nv_rows(r3), [])
+        res = r3["resolved"][0]["resolution"]
+        self.assertEqual(res["source"], "confirmed-fix")
+        self.assertEqual(res["commit_sha"], SHA)
+        self.assertEqual(res["verified_blob"], BLOB)
+        self.assertEqual(res["at_pass"], 3)
+        # No new fix pass and no owner decision: the pass-3 envelope holds
+        # exactly the one pass-1 fix verdict and no decisions.
+        fix_vs = [v for v in self.last_env["verdicts"]
+                  if v["source"] in ("confirmed-fix", "fix-obsolete")]
+        self.assertEqual(fix_vs, [fix])
+        self.assertNotIn("decisions", self.last_env)
+
+    def test_retry_rejects_changed_code_at_any_age(self):
+        p1 = self._pass1()
+        fix = confirmed_verdict(p1["stable_hash"], blob=BLOB, head_blob=HEAD2_BLOB,
+                                at_pass=1)
+        r = self._run(_nv_cf(p1, None, None), [routed_request(p1)],
+                      [fix, reviewer_verdict()], 3, HEAD3)
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        # 56-04 tightens this to the blob reason only.
+        self.assertTrue(set(_rejections(r)) & STALE_OR_CHANGED, _rejections(r))
+
+    def test_retry_after_still_applies_waits_for_code_change(self):
+        p1 = self._pass1()
+        fix = confirmed_verdict(p1["stable_hash"], at_pass=1)
+        # Pass 2: the routed reviewer says it still applies.
+        r2 = self._run(_nv_cf(p1, None, None), [routed_request(p1)],
+                       [fix, reviewer_verdict(verdict="still-applies",
+                                              reason="limit unchecked on reload")],
+                       2, HEAD2, head_blobs={F: BLOB}, touched_paths={})
+        self._open(r2, R_STILL)
+        settled = _nv_rows(r2)[0].get("recheck_settled")
+        self.assertIsInstance(settled, dict, "no recheck_settled on the row")
+        self.assertEqual(settled.get("fingerprint"), {F: BLOB})
+        carried = _nv_cf(settled_row(_nv_rows(r2)[0], {F: BLOB},
+                                     head_sha=HEAD2), None, None)
+        # Pass 3, code unchanged: a routed `resolved` cannot close it.
+        r3 = self._run(carried, [routed_request(p1)], [fix, reviewer_verdict()],
+                       3, HEAD3, head_blobs={F: BLOB}, touched_paths={})
+        self._open(r3, R_CF_SETTLED)
+        # Pass 3, the code changed (a new fix verified on BLOB2): a fresh start.
+        fix2 = confirmed_verdict(p1["stable_hash"], blob=BLOB2, head_blob=BLOB2,
+                                 at_pass=2)
+        r3 = self._run(carried, [routed_request(p1, snapshot=BLOB2)],
+                       [fix2, reviewer_verdict()], 3, HEAD3,
+                       head_blobs={F: BLOB2}, touched_paths={})
+        self.assertEqual(_rejections(r3), [])
+        self.assertEqual(_nv_rows(r3), [])
+        self.assertEqual(r3["resolved"][0]["resolution"]["source"], "confirmed-fix")
+        self.assertEqual(r3["resolved"][0]["resolution"]["verified_blob"], BLOB2)
+
+    def test_obsolete_age_rule_unchanged(self):
+        p1 = self._pass1()
+        v = {"source": "fix-obsolete", "stable_hash": p1["stable_hash"],
+             "agent": "fix", "verdict": "obsolete", "at_pass": 1,
+             "head_sha": "d" * 40, "reason": "gone", "verified_blob": BLOB,
+             "head_blob": BLOB}
+        r = self._run(_nv_cf(p1, None, None), [], [v], 3, HEAD3)
+        self._open(r, R_STALE)
 
 
 # --------------------------------------------------------------------------- #
