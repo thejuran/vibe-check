@@ -941,18 +941,38 @@ def finalize_renders_confirmed_fix_holds(text):
             and "never closes here" in text)
 
 
+BIND_STEP = "Bind `$RECHECK_REQUESTS`"
+
+
+def _next_top_level_step(text, i, first=4, last=9):
+    """Index of the first top-level numbered step (`\nN. `, N in first..last)
+    after `i`, or -1."""
+    found = [k for k in (text.find("\n%d. " % n, i) for n in range(first, last + 1))
+             if k > i]
+    return min(found) if found else -1
+
+
 def _dispatch_step3(text):
     i = text.find("3. **Confirmed-fix re-check")
-    j = text.find("\n4. Bind `$RECHECK_REQUESTS`", i)
-    return text[i:j] if i >= 0 and j > i else None
+    if i < 0:
+        return None
+    j = _next_top_level_step(text, i)
+    return text[i:j] if j > i else None
+
+
+def _dispatch_bind_step(text):
+    i = text.find(BIND_STEP)
+    if i < 0:
+        return None
+    j = text.find("\n\n", i + 1)
+    return text[i:j] if j > i else text[i:]
 
 
 def dispatch_routes_confirmed_fix_holds(text):
     step = _dispatch_step3(text)
-    if step is None:
+    step4 = _dispatch_bind_step(text)
+    if step is None or step4 is None:
         return False
-    i = text.find("\n4. Bind `$RECHECK_REQUESTS`")
-    step4 = text[i:text.find("\n\n", i + 1)]
     return (all(n in step for n in (
         "`$FIX_VERDICTS_PREV`", "`applied`",
         "the record's own `agent` when it is dispatched",
@@ -1012,6 +1032,18 @@ class TestProse(unittest.TestCase):
         self.assertNotIn("closes by an owner decision or, after an owner-named fix, "
                          "by a confirmed-fix verdict", text)
 
+    def test_dispatch_slicers_survive_renumbering(self):
+        """A new step between the confirmed-fix step and the Bind step (Bind
+        renumbered) keeps the confirmed-fix lock reading the right slices."""
+        text = _read("phases/review/20-dispatch.md")
+        old_bind = "\n4. " + BIND_STEP
+        self.assertIn(old_bind, text)
+        renumbered = text.replace(old_bind, "\n4. **Independent re-check (ordinary "
+                                  "carried records)** body.\n5. " + BIND_STEP)
+        self.assertTrue(dispatch_routes_confirmed_fix_holds(renumbered))
+        self.assertNotIn("Independent re-check", _dispatch_step3(renumbered))
+        self.assertTrue(_dispatch_bind_step(renumbered).startswith(BIND_STEP))
+
     def test_collect_rereads_head_blob(self):
         text = _read("phases/review/30-collect-score.md")
         self.assertTrue(collect_rereads_head_blob_holds(text))
@@ -1049,6 +1081,259 @@ class TestProse(unittest.TestCase):
     def test_schema_enum(self):
         self.assertIn("confirmed-fix", FUTURE["resolution_source_enum"])
         self.assertIn("commit_sha", FUTURE["resolution_optional"])
+
+
+# --------------------------------------------------------------------------- #
+# Prose contract for the independent re-check of ordinary carried records,
+# the retry of an unconfirmed fix and the bounded "not yet confirmed" reason
+# --------------------------------------------------------------------------- #
+INDEPENDENT_STEP = "**Independent re-check (ordinary carried records)**"
+STEP2_HEAD = "2. For each record whose `agent` is in THIS pass's dispatched set"
+STEP3_HEAD = "3. **Confirmed-fix"
+INDEPENDENT_NEEDLES = (
+    '"route": "independent"',
+    "the record's own `agent` when it is dispatched",
+    "otherwise `bugs` when dispatched",
+    "`codex-adversarial` and `fix` are never the reviewer",
+    "`snapshot_blob`",
+    "`test_paths`",
+    "`recheck_settled`",
+    "no eligible reviewer ran this pass",
+    "you are the independent re-check",
+    "new tests alone do not resolve",
+    "not an instruction to change your review scope",
+)
+BIND_INDEPENDENT_NEEDLES = ('"route": "independent"', '"test_paths"', '"fix_commit"')
+NEVER_REROUTED = "is never rerouted to another agent"
+TOUCHED_PATHS_BULLET = "- `$TOUCHED_PATHS`"
+TOUCHED_PATHS_NEEDLES = ("`$TOUCHED_PATHS`", "git diff --name-only",
+                         "earliest pass whose `findings`", "`recheck_settled`",
+                         "`^[A-Za-z0-9._/-]+$`")
+FORWARDED_ANY_AGE = "forwarded whatever its `at_pass`"
+OLD_IGNORED_SENTENCE = ("Older `fix_verdicts` entries (`at_pass` below the last "
+                        "pass) are ignored — never resurrected.")
+CONTRACT_REASONS = (
+    "verdict: fix not yet confirmed: no eligible reviewer ran this pass",
+    "verdict: fix not yet confirmed: the routed reviewer gave no verdict",
+    "verdict: fix not confirmed: the routed reviewer says it still applies",
+    "verdict: fix not confirmed: the reviewed code is not the code at HEAD",
+    "verdict: fix not confirmed: no change near the finding or in its file "
+    "since it was raised",
+    "verdict: fix not confirmed: a reviewer said it still applies and the code "
+    "is unchanged since",
+    R_CF_SETTLED,
+)
+COLLECT_NEEDLES = ("`head_blobs`", "`touched_paths`",
+                   "re-read NOW, after the agents returned and the gitsnap "
+                   "compare passed") + CONTRACT_REASONS
+RENDER_NEEDLES = ("Fix not yet confirmed:",
+                  "retried on the next run that reviews changes",
+                  "run /deep-review", "dismiss",
+                  "Closed — fix confirmed by the {{agents}} lane")
+OLD_RENDER_SENTENCE = "The independent re-check runs only on the first rerun after the fix"
+OLD_OUTPUT_SUFFIX = "code changed since last pass; awaiting your decision"
+
+
+def _dispatch_independent_step(text):
+    i = text.find(INDEPENDENT_STEP)
+    if i < 0:
+        return None
+    j = text.find(BIND_STEP, i)
+    return text[i:j] if j > i else None
+
+
+def _dispatch_step2(text):
+    i = text.find(STEP2_HEAD)
+    if i < 0:
+        return None
+    j = text.find(STEP3_HEAD, i)
+    return text[i:j] if j > i else None
+
+
+def dispatch_routes_independent_holds(text):
+    step = _dispatch_independent_step(text)
+    bind = _dispatch_bind_step(text)
+    step2 = _dispatch_step2(text)
+    if step is None or bind is None or step2 is None:
+        return False
+    return (all(n in step for n in INDEPENDENT_NEEDLES)
+            and all(n in bind for n in BIND_INDEPENDENT_NEEDLES)
+            and "`snapshot_blob`" in step2
+            and NEVER_REROUTED not in text)
+
+
+def _touched_paths_bullet(text):
+    i = text.find(TOUCHED_PATHS_BULLET)
+    if i < 0:
+        return None
+    ends = [k for k in (text.find("\n   - ", i + 1), text.find("\n3. ", i + 1))
+            if k > i]
+    return text[i:min(ends)] if ends else text[i:]
+
+
+def state_collects_touched_paths_holds(text):
+    bullet = _touched_paths_bullet(text)
+    return bullet is not None and all(n in bullet for n in TOUCHED_PATHS_NEEDLES)
+
+
+def state_forwards_applied_any_age_holds(text):
+    return FORWARDED_ANY_AGE in text and OLD_IGNORED_SENTENCE not in text
+
+
+def collect_forwards_independent_holds(text):
+    return all(n in text for n in COLLECT_NEEDLES)
+
+
+def render_shows_not_yet_confirmed_holds(text):
+    return (all(n in text for n in RENDER_NEEDLES)
+            and OLD_RENDER_SENTENCE not in text)
+
+
+def output_format_not_yet_confirmed_holds(text):
+    return "Fix not yet confirmed" in text and OLD_OUTPUT_SUFFIX not in text
+
+
+# A minimal document each predicate accepts, so every needle is proven
+# load-bearing today, before the prose exists.
+SYNTH_DISPATCH = (
+    "On pass >= 2:\n"
+    "1. Number every carried RECORD.\n"
+    + STEP2_HEAD + " — plain hint, with `snapshot_blob` for every plain entry.\n"
+    + STEP3_HEAD + " re-check (independent, batched into this pass).** body\n"
+    "4. " + INDEPENDENT_STEP + " " + " ".join(INDEPENDENT_NEEDLES) + "\n"
+    "5. " + BIND_STEP + " = [" + ", ".join(BIND_INDEPENDENT_NEEDLES) + "]\n\n"
+    "trailing paragraph\n")
+SYNTH_STATE = (
+    "2. If present: parse it.\n"
+    "   " + TOUCHED_PATHS_BULLET + " " + " ".join(TOUCHED_PATHS_NEEDLES) + "\n"
+    "   - `$FIX_VERDICTS_PREV` = every applied entry, " + FORWARDED_ANY_AGE
+    + " `^[A-Za-z0-9._/-]+$`.\n\n"
+    "3. Narrow diff to incremental.\n")
+SYNTH_COLLECT = " ".join(COLLECT_NEEDLES)
+SYNTH_RENDER = " ".join(RENDER_NEEDLES)
+SYNTH_OUTPUT = "| row | — Fix not yet confirmed: ... |"
+
+
+class TestProse56Predicates(unittest.TestCase):
+    """Each Phase 56 prose predicate can go true, and each of its needles is
+    load-bearing (the removal mutant goes false)."""
+
+    def _load_bearing(self, holds, text, needles):
+        self.assertTrue(holds(text))
+        for needle in needles:
+            with self.subTest(mutant=needle):
+                self.assertIn(needle, text)
+                self.assertFalse(holds(text.replace(needle, "")))
+
+    def test_dispatch_independent(self):
+        self._load_bearing(dispatch_routes_independent_holds, SYNTH_DISPATCH,
+                           INDEPENDENT_NEEDLES + BIND_INDEPENDENT_NEEDLES
+                           + (INDEPENDENT_STEP, BIND_STEP))
+        # Each bind needle counts inside the Bind step, not only in the step.
+        bind = _dispatch_bind_step(SYNTH_DISPATCH)
+        self.assertFalse(dispatch_routes_independent_holds(
+            SYNTH_DISPATCH.replace(bind, BIND_STEP + " = []")))
+        # The plain hint must carry `snapshot_blob`.
+        step2 = _dispatch_step2(SYNTH_DISPATCH)
+        self.assertFalse(dispatch_routes_independent_holds(SYNTH_DISPATCH.replace(
+            step2, step2.replace("`snapshot_blob`", "the blob"))))
+        self.assertFalse(dispatch_routes_independent_holds(
+            SYNTH_DISPATCH + "\nA record " + NEVER_REROUTED + ".\n"))
+
+    def test_state_touched_paths(self):
+        self._load_bearing(state_collects_touched_paths_holds, SYNTH_STATE,
+                           TOUCHED_PATHS_NEEDLES)
+        # The path-validation literal elsewhere in the file does not count.
+        bullet = _touched_paths_bullet(SYNTH_STATE)
+        self.assertNotIn("FIX_VERDICTS_PREV", bullet)
+        self.assertFalse(state_collects_touched_paths_holds(SYNTH_STATE.replace(
+            bullet, bullet.replace("`^[A-Za-z0-9._/-]+$`", ""))))
+
+    def test_state_forwards_applied_any_age(self):
+        self._load_bearing(state_forwards_applied_any_age_holds, SYNTH_STATE,
+                           (FORWARDED_ANY_AGE,))
+        self.assertFalse(state_forwards_applied_any_age_holds(
+            SYNTH_STATE + OLD_IGNORED_SENTENCE))
+
+    def test_collect_forwards_independent(self):
+        self._load_bearing(collect_forwards_independent_holds, SYNTH_COLLECT,
+                           COLLECT_NEEDLES)
+
+    def test_render_not_yet_confirmed(self):
+        self._load_bearing(render_shows_not_yet_confirmed_holds, SYNTH_RENDER,
+                           RENDER_NEEDLES)
+        self.assertFalse(render_shows_not_yet_confirmed_holds(
+            SYNTH_RENDER + " " + OLD_RENDER_SENTENCE))
+
+    def test_output_format_bounded_reason(self):
+        self._load_bearing(output_format_not_yet_confirmed_holds, SYNTH_OUTPUT,
+                           ("Fix not yet confirmed",))
+        self.assertFalse(output_format_not_yet_confirmed_holds(
+            SYNTH_OUTPUT + OLD_OUTPUT_SUFFIX))
+
+    def test_contract_reasons_match_the_shared_contract(self):
+        import test_verified_fixes as tvf
+        self.assertEqual(CONTRACT_REASONS, (
+            tvf.R_IR_NO_REVIEWER, tvf.R_IR_NO_ANSWER, tvf.R_IR_STILL,
+            tvf.R_IR_SNAPSHOT, tvf.R_IR_NO_TRIGGER, tvf.R_IR_SETTLED,
+            tvf.R_CF_SETTLED))
+
+
+class TestProse56(unittest.TestCase):
+    """The shipped prose satisfies each Phase 56 contract."""
+
+    def test_dispatch_routes_independent(self):
+        text = _read("phases/review/20-dispatch.md")
+        self.assertTrue(dispatch_routes_independent_holds(text))
+        for needle in INDEPENDENT_NEEDLES + BIND_INDEPENDENT_NEEDLES:
+            with self.subTest(mutant=needle):
+                self.assertFalse(dispatch_routes_independent_holds(
+                    text.replace(needle, "")))
+
+    def test_dispatch_never_rerouted_sentence_gone(self):
+        text = _read("phases/review/20-dispatch.md")
+        self.assertFalse(NEVER_REROUTED in text,
+                         "20-dispatch.md still says: " + NEVER_REROUTED)
+
+    def test_phase05_touched_paths(self):
+        text = _read("phases/review/05-state.md")
+        self.assertTrue(state_collects_touched_paths_holds(text))
+        for needle in TOUCHED_PATHS_NEEDLES:
+            with self.subTest(mutant=needle):
+                bullet = _touched_paths_bullet(text)
+                self.assertFalse(state_collects_touched_paths_holds(
+                    text.replace(bullet, bullet.replace(needle, ""))))
+
+    def test_phase05_forwards_applied_any_age(self):
+        text = _read("phases/review/05-state.md")
+        self.assertTrue(state_forwards_applied_any_age_holds(text))
+        self.assertFalse(state_forwards_applied_any_age_holds(
+            text.replace(FORWARDED_ANY_AGE, "")))
+
+    def test_collect_forwards_independent(self):
+        text = _read("phases/review/30-collect-score.md")
+        self.assertTrue(collect_forwards_independent_holds(text))
+        for needle in CONTRACT_REASONS:
+            with self.subTest(mutant=needle):
+                self.assertFalse(collect_forwards_independent_holds(
+                    text.replace(needle, "")))
+
+    def test_render_not_yet_confirmed(self):
+        text = _read("phases/review/40-render.md")
+        self.assertTrue(render_shows_not_yet_confirmed_holds(text))
+        for needle in RENDER_NEEDLES:
+            with self.subTest(mutant=needle):
+                self.assertFalse(render_shows_not_yet_confirmed_holds(
+                    text.replace(needle, "")))
+
+    def test_output_format_bounded_reason(self):
+        text = _read("templates/output-format.md")
+        self.assertTrue(output_format_not_yet_confirmed_holds(text))
+
+    def test_carry_state_docstring_says_any_age(self):
+        self.assertTrue("whatever its `at_pass`" in carry_state.__doc__,
+                        "carry_state docstring does not say an applied verdict "
+                        "awaits whatever its `at_pass`")
 
 
 # --------------------------------------------------------------------------- #
