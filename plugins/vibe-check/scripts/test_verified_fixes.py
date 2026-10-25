@@ -1135,6 +1135,21 @@ def dispatch_skip_rule_holds(text):
     return SKIP_RELEVANT in text and SKIP_ANY_TOUCH not in text
 
 
+APPLIED_WHILE_OPEN = ("plus every entry whose `verdict` is `applied` AND whose "
+                     "`stable_hash` names a finding of `state.passes[-1].findings`")
+APPLIED_KEPT_AS_HISTORY = "the entry itself stays in `fix_verdicts` as history"
+APPLIED_FALSE_CLAIM = ("it leaves `fix_verdicts` only when its item closes through "
+                       "`resolved[]` or the owner decides it")
+
+
+def state_forwards_applied_while_open_holds(text):
+    """WR-05: an applied verdict is forwarded only while its item is open (no
+    stray `verdict: record not carried`), and the prose no longer claims
+    something removes it from the root."""
+    return (APPLIED_WHILE_OPEN in text and APPLIED_KEPT_AS_HISTORY in text
+            and APPLIED_FALSE_CLAIM not in text)
+
+
 class TestReviewFix56Prose(unittest.TestCase):
     def _read(self, rel):
         from test_confirmed_fix import _read
@@ -1145,6 +1160,26 @@ class TestReviewFix56Prose(unittest.TestCase):
         self.assertTrue(dispatch_skip_rule_holds(text))
         self.assertFalse(dispatch_skip_rule_holds(text.replace(SKIP_RELEVANT, "")))
         self.assertFalse(dispatch_skip_rule_holds(text + SKIP_ANY_TOUCH))
+
+    def test_wr05_applied_forwarded_only_while_open(self):
+        text = self._read("phases/review/05-state.md")
+        self.assertTrue(state_forwards_applied_while_open_holds(text))
+        for needle in (APPLIED_WHILE_OPEN, APPLIED_KEPT_AS_HISTORY):
+            with self.subTest(mutant=needle):
+                self.assertFalse(state_forwards_applied_while_open_holds(
+                    text.replace(needle, "")))
+        self.assertFalse(state_forwards_applied_while_open_holds(
+            text + APPLIED_FALSE_CLAIM))
+
+    def test_wr05_orphan_applied_verdict_is_what_the_filter_prevents(self):
+        """Why the filter matters: an applied verdict whose item already
+        closed, if forwarded, is reported on every pass as not carried."""
+        import test_confirmed_fix as tcf
+        from test_score import _nv_env
+        r = score.run(json.loads(json.dumps(_nv_env(
+            [], carryforward=[], pass_number=3, head_sha=tcf.HEAD3,
+            verdicts=[tcf.confirmed_verdict("a" * 64)]))))
+        self.assertIn("verdict: record not carried", _rejections(r))
 
 
 # --------------------------------------------------------------------------- #
