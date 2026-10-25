@@ -1964,7 +1964,7 @@ def run(envelope):
     touched_paths = {k: ([p for p in v if isinstance(p, str)] if isinstance(v, list) else [])
                      for k, v in (raw_touched or {}).items()}
 
-    threshold =THRESHOLDS.get(command, THRESHOLDS["review"])
+    threshold = THRESHOLDS.get(command, THRESHOLDS["review"])
 
     fixed_since_last = []
     filtered = []

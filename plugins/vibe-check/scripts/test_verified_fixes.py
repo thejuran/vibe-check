@@ -1314,6 +1314,13 @@ class TestReviewFix56Prose(unittest.TestCase):
                 mutated[i] = mutated[i].replace(needle, "")
                 self.assertFalse(nv_needs_change_prose_holds(*mutated))
 
+    def test_in02_threshold_assignment_spacing(self):
+        from test_confirmed_fix import SCORE_PY
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn('    threshold = THRESHOLDS.get(command, THRESHOLDS["review"])\n', src)
+        self.assertNotIn("threshold =THRESHOLDS", src)
+
     def test_sa01_reason_constant_matches_contract(self):
         self.assertEqual(getattr(score, "_R_IR_NV_NO_CHANGE", None), R_IR_NV_NO_CHANGE)
 
