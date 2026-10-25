@@ -1280,6 +1280,21 @@ def nv_needs_change_prose_holds(dispatch, collect, render, output):
             and NV_OUTPUT_LINE in output)
 
 
+NV_TAKES_FIX_NOT_RENDER = ("A Needs-verification row with no `verdict: confirmed fix` "
+                           "reason counts as such a row")
+NV_TAKES_FIX_NOT_OUTPUT = ("Needs-verification rows included when they carry no "
+                           "`verdict: confirmed fix` reason")
+OLD_ORDINARY_ROW = "applies to any ordinary row that carries a `verdict: fix not` reason"
+
+
+def nv_rows_take_fix_not_line_holds(render, output):
+    """IN-03: 40-render.md and output-format.md agree that a
+    Needs-verification row shows the `verdict: fix not …` reason when it has
+    no confirmed-fix reason."""
+    return (NV_TAKES_FIX_NOT_RENDER in render and NV_TAKES_FIX_NOT_OUTPUT in output
+            and OLD_ORDINARY_ROW not in output)
+
+
 class TestReviewFix56Prose(unittest.TestCase):
     def _read(self, rel):
         from test_confirmed_fix import _read
@@ -1320,6 +1335,16 @@ class TestReviewFix56Prose(unittest.TestCase):
             src = fh.read()
         self.assertIn('    threshold = THRESHOLDS.get(command, THRESHOLDS["review"])\n', src)
         self.assertNotIn("threshold =THRESHOLDS", src)
+
+    def test_in03_nv_rows_take_the_fix_not_line(self):
+        render = self._read("phases/review/40-render.md")
+        output = self._read("templates/output-format.md")
+        self.assertTrue(nv_rows_take_fix_not_line_holds(render, output))
+        self.assertFalse(nv_rows_take_fix_not_line_holds(
+            render.replace(NV_TAKES_FIX_NOT_RENDER, ""), output))
+        self.assertFalse(nv_rows_take_fix_not_line_holds(
+            render, output.replace(NV_TAKES_FIX_NOT_OUTPUT, "")))
+        self.assertFalse(nv_rows_take_fix_not_line_holds(render, output + OLD_ORDINARY_ROW))
 
     def test_sa01_reason_constant_matches_contract(self):
         self.assertEqual(getattr(score, "_R_IR_NV_NO_CHANGE", None), R_IR_NV_NO_CHANGE)
