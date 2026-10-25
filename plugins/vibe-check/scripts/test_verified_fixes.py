@@ -91,6 +91,9 @@ R_CF_SETTLED = "verdict: confirmed fix not verified: the routed reviewer said it
 R_NOT_NEEDS_RECHECK = "verdict: record not needs-recheck"
 R_MALFORMED = "verdict: malformed"
 R_CONTRADICTED = "verdict: contradicted by still-applies"
+R_IR_NV_NO_CHANGE = ("verdict: fix not confirmed: no change to this Needs-verification "
+                     "item's file or tests since it was raised; it stays open for your "
+                     "decision")
 
 
 def _fake_blob(path):
@@ -974,6 +977,24 @@ def _cf_env(agents):
                    + [reviewer_verdict(agent=a) for a in agents])
 
 
+def _nv_independent_env(touched, ranges):
+    """Pass 2 of a Codex-raised Needs-verification item (relocation failed, so
+    needs-recheck), routed to `bugs` on the independent route, which answers
+    `resolved` on HEAD's blob. `touched` / `ranges` are what changed since."""
+    from test_score import _nv, _nv_cf, _nv_env, _nv_rows
+    p1 = _nv_rows(score.run(_nv_env([_nv(agent="codex-adversarial")])))[0]
+    req = {"token": "R1", "agents": ["bugs"], "stable_hash": p1["stable_hash"],
+           "file": p1["file"], "line": p1["line"], "agent": p1["agent"],
+           "title": p1["title"], "route": "independent", "snapshot_blob": B1,
+           "test_paths": []}
+    env = _nv_env([], carryforward=[_nv_cf(p1, None, None)], pass_number=2,
+                  head_sha=HEAD_TS, changed_line_ranges={p1["file"]: ranges},
+                  recheck_requests=[req], verdicts=[reviewer_verdict(agent="bugs")],
+                  head_blobs={p1["file"]: B1},
+                  touched_paths={p1["stable_hash"]: list(touched)})
+    return env, p1
+
+
 class TestReviewFix56(unittest.TestCase):
     """The still-applies memory holds; only HEAD-bound native confirmers close."""
 
@@ -1148,6 +1169,27 @@ class TestReviewFix56(unittest.TestCase):
         rec = {"file": "src/a/index.ts", "line": 10}
         self.assertFalse(score._independent_trigger(rec, ["tests/b/index.test.ts"], {}))
 
+    def test_sa01_nv_item_closes_on_independent_route_only_after_a_change(self):
+        """SA-01 (owner decision 2026-10-25): an independent `resolved` closes
+        a Needs-verification item only when its file or an associated test
+        changed since it was raised (or a change reaches its line); without a
+        code change it stays open for the owner, and the reason says so."""
+        env, p1 = _nv_independent_env(touched=[], ranges=[[100, 110]])
+        r = score.run(json.loads(json.dumps(env)))
+        self.assertNotIn("resolved", r)
+        self.assertEqual(_rejections(r), [R_IR_NV_NO_CHANGE])
+        self.assertEqual(len([x for x in r["findings"]
+                              if x.get("stable_hash") == p1["stable_hash"]]), 1)
+        for touched, ranges in (([p1["file"]], [[100, 110]]),
+                                (["tests/test_nv.py"], [[100, 110]]),
+                                ([], [[10, 14]])):
+            with self.subTest(touched=touched, ranges=ranges):
+                env, _ = _nv_independent_env(touched=touched, ranges=ranges)
+                r = score.run(json.loads(json.dumps(env)))
+                self.assertEqual(_rejections(r), [])
+                self.assertEqual(len(r.get("resolved", [])), 1)
+                self.assertEqual(r["resolved"][0]["resolution"]["agents"], ["bugs"])
+
 
 SKIP_RELEVANT = ("no path in its `$TOUCHED_PATHS` list is its `file`, a path in its "
                  "`fingerprint`, or a test of its file")
@@ -1174,6 +1216,23 @@ def state_forwards_applied_while_open_holds(text):
             and APPLIED_FALSE_CLAIM not in text)
 
 
+NV_DISPATCH_RULE = ("A `needs-verification` record closes this way only after a code "
+                    "change since it was raised")
+NV_RENDER_LINE = ("Stays open for your decision: a re-check closes a Needs-verification "
+                  "item only after its file or tests change")
+NV_OUTPUT_LINE = "Stays open for your decision"
+
+
+def nv_needs_change_prose_holds(dispatch, collect, render, output):
+    """SA-01: the dispatcher, the collector, the renderer and the output
+    template all say a Needs-verification item closes on an independent
+    re-check only after a code change, and why it stayed open otherwise."""
+    return (NV_DISPATCH_RULE in dispatch and R_IR_NV_NO_CHANGE in dispatch
+            and R_IR_NV_NO_CHANGE in collect
+            and NV_RENDER_LINE in render and R_IR_NV_NO_CHANGE in render
+            and NV_OUTPUT_LINE in output)
+
+
 class TestReviewFix56Prose(unittest.TestCase):
     def _read(self, rel):
         from test_confirmed_fix import _read
@@ -1194,6 +1253,22 @@ class TestReviewFix56Prose(unittest.TestCase):
                     text.replace(needle, "")))
         self.assertFalse(state_forwards_applied_while_open_holds(
             text + APPLIED_FALSE_CLAIM))
+
+    def test_sa01_prose_says_why_an_nv_item_stayed_open(self):
+        docs = [self._read(rel) for rel in (
+            "phases/review/20-dispatch.md", "phases/review/30-collect-score.md",
+            "phases/review/40-render.md", "templates/output-format.md")]
+        self.assertTrue(nv_needs_change_prose_holds(*docs))
+        for i, needle in ((0, NV_DISPATCH_RULE), (0, R_IR_NV_NO_CHANGE),
+                          (1, R_IR_NV_NO_CHANGE), (2, NV_RENDER_LINE),
+                          (2, R_IR_NV_NO_CHANGE), (3, NV_OUTPUT_LINE)):
+            with self.subTest(doc=i, mutant=needle):
+                mutated = list(docs)
+                mutated[i] = mutated[i].replace(needle, "")
+                self.assertFalse(nv_needs_change_prose_holds(*mutated))
+
+    def test_sa01_reason_constant_matches_contract(self):
+        self.assertEqual(getattr(score, "_R_IR_NV_NO_CHANGE", None), R_IR_NV_NO_CHANGE)
 
     def test_wr05_orphan_applied_verdict_is_what_the_filter_prevents(self):
         """Why the filter matters: an applied verdict whose item already
@@ -1490,6 +1565,14 @@ class TestIndependentRouteMutants(unittest.TestCase):
                          [R_IR_NO_TRIGGER])
         self._trips("score_m31",
                     "and _dir_affine(path, src_file))", ")", env)
+
+    def test_m32_nv_change_requirement_removed(self):
+        """SA-01: without the guard, one native reviewer's `resolved` closes a
+        Needs-verification item whose code never changed."""
+        env, _ = _nv_independent_env(touched=[], ranges=[[100, 110]])
+        self._trips("score_m32",
+                    'if record.get("band") == NV_BAND and not _independent_trigger(',
+                    "if False and not _independent_trigger(", env)
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)

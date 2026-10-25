@@ -180,6 +180,13 @@ _R_IR_NO_TRIGGER = ("verdict: fix not confirmed: no change near the finding or i
                     "file since it was raised")
 _R_IR_SETTLED = ("verdict: fix not confirmed: a reviewer said it still applies and the "
                  "code is unchanged since")
+# SA-01 (owner decision 2026-10-25): an independent `resolved` closes a
+# Needs-verification item only after a code change (the D-04 trigger, whatever
+# its carry status: a failed relocation is not a change); otherwise it stays
+# open for the owner to decide.
+_R_IR_NV_NO_CHANGE = ("verdict: fix not confirmed: no change to this Needs-verification "
+                      "item's file or tests since it was raised; it stays open for your "
+                      "decision")
 # The rollback marker (R10). Every Needs-verification row is emitted with
 # `members` = exactly its own lane ref whose `obligation` is this STRING. A
 # reader without Needs-verification support validates `members[].obligation`
@@ -1408,6 +1415,8 @@ def _independent_recheck(record, stored_hash, status, independent, requests_by_t
     else (None, fixed reason), or (None, None) when no independent request
     names the lead. A `persisted` lead also needs the trigger, and a lead
     whose still-applies memory survived the fresh-start rule is not re-asked.
+    A Needs-verification lead needs the trigger whatever its status: without
+    a code change it stays open for the owner (SA-01).
     `independent` holds the verdicts already matched on independent tokens.
     """
     issued = [req for req in requests_by_token.values()
@@ -1417,6 +1426,9 @@ def _independent_recheck(record, stored_hash, status, independent, requests_by_t
         return None, None
     if isinstance(record.get("recheck_settled"), dict):
         return None, _R_IR_SETTLED
+    if record.get("band") == NV_BAND and not _independent_trigger(
+            record, facts["touched"], facts["changed_line_ranges"]):
+        return None, _R_IR_NV_NO_CHANGE
     if status == "persisted" and not _independent_trigger(
             record, facts["touched"], facts["changed_line_ranges"]):
         return None, _R_IR_NO_TRIGGER
