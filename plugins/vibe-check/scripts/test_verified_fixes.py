@@ -1025,6 +1025,29 @@ class TestReviewFix56(unittest.TestCase):
                 self.assertEqual(_rejections(r), [])
                 self.assertEqual(len(r.get("resolved", [])), 1)
 
+    def test_wr01_unbound_plain_never_confirmers_rejected(self):
+        """WR-01: a plain request without `snapshot_blob` cannot let the fixer
+        or Codex close a needs-recheck record either."""
+        row = _ts_row()
+        for agent in ("fix", "codex-adversarial"):
+            with self.subTest(agent=agent):
+                req = {"token": "R1", "agents": [agent], "stable_hash": row["stable_hash"],
+                       "file": row["file"], "line": row["line"], "agent": row["agent"],
+                       "title": row["title"]}
+                r = score.run(_review_pass2(row, [req], [reviewer_verdict(agent=agent)],
+                                            status="needs-recheck"))
+                self.assertNotIn("resolved", r)
+                self.assertEqual(len(_ts_rows(r, row)), 1)
+                self.assertIn(R_MALFORMED, _rejections(r))
+        # The raising lane on the same unbound shape still closes it.
+        req = {"token": "R1", "agents": ["test-sufficiency"],
+               "stable_hash": row["stable_hash"], "file": row["file"],
+               "line": row["line"], "agent": row["agent"], "title": row["title"]}
+        r = score.run(_review_pass2(row, [req],
+                                    [reviewer_verdict(agent="test-sufficiency")],
+                                    status="needs-recheck"))
+        self.assertEqual(len(r.get("resolved", [])), 1, _rejections(r))
+
 
 SKIP_RELEVANT = ("no path in its `$TOUCHED_PATHS` list is its `file`, a path in its "
                  "`fingerprint`, or a test of its file")
@@ -1268,6 +1291,19 @@ class TestIndependentRouteMutants(unittest.TestCase):
         self._trips("score_m26",
                     "relevant = [p for p in touched if _settled_path(",
                     "relevant = [p for p in touched if True or _settled_path(", env)
+
+    def test_m27_unbound_plain_never_confirmers_removed(self):
+        """WR-01: without the check, the fixer closes a needs-recheck record on
+        an unbound plain request."""
+        row = _ts_row()
+        req = {"token": "R1", "agents": ["fix"], "stable_hash": row["stable_hash"],
+               "file": row["file"], "line": row["line"], "agent": row["agent"],
+               "title": row["title"]}
+        env = _review_pass2(row, [req], [reviewer_verdict(agent="fix")],
+                            status="needs-recheck")
+        self._trips("score_m27",
+                    'return all(a not in _NEVER_CONFIRMERS for a in req["agents"])',
+                    "return True", env)
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)

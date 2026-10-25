@@ -1316,7 +1316,7 @@ def _str_list(x):
 def _routed_request_ok(req):
     """A request without `route` is a plain recheck; it may be bound to the
     snapshot the reviewer judged (`snapshot_blob`: a blob id, or null when it
-    could not be bound), and a bound one never asks the fixer or Codex. A
+    could not be bound), and, bound or not, it never asks the fixer or Codex. A
     confirmed-fix re-check names a stored hash, `snapshot_blob`, and at least
     one asked agent, none of them the fixer. An independent re-check names a
     stored hash, `snapshot_blob`, at least one asked agent, none of them the
@@ -1326,7 +1326,7 @@ def _routed_request_ok(req):
         if "route" in req:
             return False
         if "snapshot_blob" not in req:
-            return True
+            return all(a not in _NEVER_CONFIRMERS for a in req["agents"])
         return ((req["snapshot_blob"] is None or _nonempty_str(req["snapshot_blob"]))
                 and ("test_paths" not in req or _str_list(req["test_paths"]))
                 and not any(a in _NEVER_CONFIRMERS for a in req["agents"]))
