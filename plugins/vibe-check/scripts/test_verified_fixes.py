@@ -995,6 +995,58 @@ class TestReviewFix56(unittest.TestCase):
         self.assertEqual(rows[0].get("kept_open"), "sub-threshold")
         self.assertNotIn("recheck_settled", rows[0])
 
+    def test_cr02_unrelated_touch_keeps_the_memory(self):
+        """CR-02: a commit to an unrelated path is no fresh start; the finding
+        stays settled until its own file, a fingerprinted path or an
+        associated test changes."""
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        for status in ("needs-recheck", "persisted"):
+            with self.subTest(status=status):
+                r = score.run(_review_pass2(settled, [_ts_request(row)],
+                                            [reviewer_verdict(agent="bugs")], status=status,
+                                            touched={row["stable_hash"]: ["docs/README.md"]}))
+                self._open(r, row, [R_IR_SETTLED])
+                self.assertIsInstance(_ts_rows(r, row)[0].get("recheck_settled"), dict)
+
+    def test_cr02_relevant_touch_is_a_fresh_start(self):
+        """CR-02: the finding's file, a fingerprinted path, or an associated
+        test changing since the answer clears the memory."""
+        row = _ts_row()
+        fp = {TS_FILE: B1, TS_TEST: T1, "src/facade/shared.ts": "5" * 40}
+        settled = _settled(row, fp)
+        for path in (TS_FILE, TS_TEST, "src/facade/shared.ts",
+                     "src/facade/arrFacade.spec.ts"):
+            with self.subTest(path=path):
+                r = score.run(_review_pass2(settled, [_ts_request(row)],
+                                            [reviewer_verdict(agent="bugs")],
+                                            status="needs-recheck",
+                                            touched={row["stable_hash"]: [path]}))
+                self.assertEqual(_rejections(r), [])
+                self.assertEqual(len(r.get("resolved", [])), 1)
+
+
+SKIP_RELEVANT = ("no path in its `$TOUCHED_PATHS` list is its `file`, a path in its "
+                 "`fingerprint`, or a test of its file")
+SKIP_ANY_TOUCH = "AND its `$TOUCHED_PATHS` list is empty"
+
+
+def dispatch_skip_rule_holds(text):
+    """CR-02: the dispatch skip rule mirrors the scorer's fresh-start filter."""
+    return SKIP_RELEVANT in text and SKIP_ANY_TOUCH not in text
+
+
+class TestReviewFix56Prose(unittest.TestCase):
+    def _read(self, rel):
+        from test_confirmed_fix import _read
+        return _read(rel)
+
+    def test_cr02_dispatch_skip_rule_matches_scorer(self):
+        text = self._read("phases/review/20-dispatch.md")
+        self.assertTrue(dispatch_skip_rule_holds(text))
+        self.assertFalse(dispatch_skip_rule_holds(text.replace(SKIP_RELEVANT, "")))
+        self.assertFalse(dispatch_skip_rule_holds(text + SKIP_ANY_TOUCH))
+
 
 # --------------------------------------------------------------------------- #
 # Mutation checks: each new guard trips when removed
@@ -1129,7 +1181,8 @@ class TestIndependentRouteMutants(unittest.TestCase):
         settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
         env = _review_pass2(settled, [_ts_request(row)], [reviewer_verdict(agent="bugs")],
                             touched={row["stable_hash"]: [TS_TEST]})
-        self._blocks("score_m20", "                    or touched):",
+        # CR-02 renamed the term: only a relevant touched path is a fresh start.
+        self._blocks("score_m20", "                    or relevant):",
                      "                    or False):", env)
 
     def test_m21_no_reviewer_reason_gate_removed(self):
@@ -1203,6 +1256,18 @@ class TestIndependentRouteMutants(unittest.TestCase):
                                                       row)[0])
         self.assertIn("recheck_settled", _ts_rows(mod.run(json.loads(json.dumps(env))),
                                                    row)[0])
+
+    def test_m26_fresh_start_relevance_filter_removed(self):
+        """CR-02: without the filter, a commit to an unrelated path clears the
+        memory and a stray `resolved` closes the finding on unchanged code."""
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        env = _review_pass2(settled, [_ts_request(row)], [reviewer_verdict(agent="bugs")],
+                            status="needs-recheck",
+                            touched={row["stable_hash"]: ["docs/README.md"]})
+        self._trips("score_m26",
+                    "relevant = [p for p in touched if _settled_path(",
+                    "relevant = [p for p in touched if True or _settled_path(", env)
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)

@@ -1281,6 +1281,15 @@ def _is_associated_test(path, src_file):
     return bool(bare) and bare == _path_stem(src_file)
 
 
+def _settled_path(path, file, fingerprint):
+    """Does a path changed since a still-applies answer bear on that answer?
+    Only the finding's own file, a path whose blob the answer fingerprinted, or
+    an associated test of the file does; a commit elsewhere in the repo is no
+    fresh start."""
+    return (path == file or (isinstance(fingerprint, dict) and path in fingerprint)
+            or _is_associated_test(path, file))
+
+
 def _independent_trigger(record, touched, changed_line_ranges):
     """Has anything that could fix a `persisted` record changed since it was
     raised? Its file or an associated test is among `touched` (the paths
@@ -2105,15 +2114,17 @@ def run(envelope):
         touched = touched_paths.get(stored_hash, []) if stored_hash is not None else []
         # Fresh start (D-08): a still-applies memory lasts only while the code
         # it judged is unchanged — every fingerprinted blob HEAD still has and
-        # no commit touching the lead's paths since.
+        # no commit since touching the lead's paths (its file, a fingerprinted
+        # path or an associated test; `touched` is every path changed since).
         if "recheck_settled" in rep:
             settled = rep["recheck_settled"]
             fingerprint = settled.get("fingerprint") if isinstance(settled, dict) else None
+            relevant = [p for p in touched if _settled_path(p, rep.get("file"), fingerprint)]
             if (not isinstance(fingerprint, dict)
                     or settled.get("verdict") != "still-applies"
                     or any(isinstance(head_blobs.get(path), str) and head_blobs[path] != blob
                            for path, blob in fingerprint.items())
-                    or touched):
+                    or relevant):
                 del rep["recheck_settled"]
         nv_carried = cf.get("band") == NV_BAND
         if nv_carried:
