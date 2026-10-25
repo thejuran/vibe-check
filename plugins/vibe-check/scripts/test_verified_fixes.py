@@ -1124,6 +1124,30 @@ class TestReviewFix56(unittest.TestCase):
                 r = score.run(json.loads(json.dumps(env)))
                 self.assertEqual(len(r.get("resolved", [])), 1)
 
+    def test_wr06_association_needs_directory_affinity(self):
+        """WR-06: a test is associated only with the source in its own
+        directory (test segments and a `src`/`lib`/`app` root aside), never
+        with every same-named file in the repo."""
+        cases = [
+            ("tests/b/index.test.ts", "src/a/index.ts", False),
+            ("src/a/utils.spec.ts", "src/b/utils.ts", False),
+            ("tests/index.test.ts", "src/a/index.ts", False),
+            ("pkg/b/config_test.go", "pkg/a/config.go", False),
+            ("tests/test_config.py", "pkg/sub/config.py", False),
+            ("tests/facade/arrFacade.test.ts", "src/other/arrFacade.ts", False),
+            ("tests/unit/facade/arrFacade.test.ts", "src/facade/arrFacade.ts", True),
+            ("spec/models/user_spec.rb", "app/models/user.rb", True),
+            ("packages/x/tests/foo.test.ts", "packages/x/src/foo.ts", True),
+            ("tests/test_config.py", "src/config.py", True),
+        ]
+        for path, src, want in cases:
+            with self.subTest(path=path, src=src):
+                self.assertIs(score._is_associated_test(path, src), want)
+        # A same-stem test in another directory does not trigger a persisted
+        # record whose own code and real tests never changed.
+        rec = {"file": "src/a/index.ts", "line": 10}
+        self.assertFalse(score._independent_trigger(rec, ["tests/b/index.test.ts"], {}))
+
 
 SKIP_RELEVANT = ("no path in its `$TOUCHED_PATHS` list is its `file`, a path in its "
                  "`fingerprint`, or a test of its file")
@@ -1454,6 +1478,18 @@ class TestIndependentRouteMutants(unittest.TestCase):
                         "return head_blobs.get(file)")
         with self.assertRaises(TypeError):
             mod.run(json.loads(json.dumps(env)))
+
+    def test_m31_association_directory_affinity_removed(self):
+        """WR-06: without the directory check, a same-stem test in another
+        directory triggers and closes a persisted record whose own code and
+        tests never changed."""
+        row = _ts_row()
+        env = _review_pass2(row, [_ts_request(row)], [reviewer_verdict(agent="bugs")],
+                            touched={row["stable_hash"]: ["tests/other/arrFacade.test.ts"]})
+        self.assertEqual(_rejections(score.run(json.loads(json.dumps(env)))),
+                         [R_IR_NO_TRIGGER])
+        self._trips("score_m31",
+                    "and _dir_affine(path, src_file))", ")", env)
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)

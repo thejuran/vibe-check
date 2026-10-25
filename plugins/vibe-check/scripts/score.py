@@ -1252,6 +1252,7 @@ def _request_matches(req, record, stored_hash):
 
 
 _TEST_DIRS = frozenset({"test", "tests", "__tests__", "spec"})
+_SOURCE_ROOTS = frozenset({"src", "lib", "app"})
 _TEST_STEM_PREFIX_RE = re.compile(r"^test_")
 _TEST_STEM_SUFFIX_RE = re.compile(r"(_test|[._-](test|spec))$")
 
@@ -1268,9 +1269,11 @@ def _is_associated_test(path, src_file):
     A path is a test when one of its directories is `test`, `tests`,
     `__tests__` or `spec`, or its stem carries a test marker (`test_` prefix;
     `_test`, `.test`, `.spec`, `-test`, `-spec` suffix). It is associated when
-    its stem, with the marker removed, equals the source file's stem
-    (`tests/facade/arrFacade.test.ts` tests `src/facade/arrFacade.ts`). A
-    source file is never its own test.
+    its stem, with the marker removed, equals the source file's stem AND the
+    two sit in the same directory once test directories and a `src`/`lib`/
+    `app` root are set aside (_dir_affine) — `tests/facade/arrFacade.test.ts`
+    tests `src/facade/arrFacade.ts`, but `tests/b/index.test.ts` does not test
+    `src/a/index.ts`. A source file is never its own test.
     """
     if not (_nonempty_str(path) and _nonempty_str(src_file)) or path == src_file:
         return False
@@ -1279,7 +1282,21 @@ def _is_associated_test(path, src_file):
     if not marked and not any(seg in _TEST_DIRS for seg in path.split("/")[:-1]):
         return False
     bare = _TEST_STEM_SUFFIX_RE.sub("", _TEST_STEM_PREFIX_RE.sub("", stem))
-    return bool(bare) and bare == _path_stem(src_file)
+    return (bool(bare) and bare == _path_stem(src_file)
+            and _dir_affine(path, src_file))
+
+
+def _dir_affine(test_path, src_file):
+    """Do a test and a source file share a directory? Each directory, with its
+    test segments (`test`, `tests`, `__tests__`, `spec`) and source roots
+    (`src`, `lib`, `app`) dropped, is equal to the other, or a non-empty
+    suffix of it (`tests/unit/facade` mirrors `src/facade`). A top-level test
+    directory pairs only with a top-level source."""
+    t = [seg for seg in test_path.split("/")[:-1]
+         if seg not in _TEST_DIRS and seg not in _SOURCE_ROOTS]
+    s = [seg for seg in src_file.split("/")[:-1] if seg not in _SOURCE_ROOTS]
+    short, long_ = (t, s) if len(t) <= len(s) else (s, t)
+    return t == s or (bool(short) and long_[len(long_) - len(short):] == short)
 
 
 def _head_blob(head_blobs, file):
