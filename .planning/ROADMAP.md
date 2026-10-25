@@ -12,7 +12,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 
 **Goal:** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable.
 
-- [x] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal (completed 2026-10-23)
+- [x] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal (completed 2026-10-25)
 - [ ] **Phase 57: Decision continuity within closure** - Owner defer/dismiss decisions survive regrouping and unrelated edits, and reopen only on changed evidence
 - [ ] **Phase 58: Clear actions, recovery and answers acted on** - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
 
