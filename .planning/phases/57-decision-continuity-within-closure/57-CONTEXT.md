@@ -29,6 +29,7 @@ An owner's defer/dismiss decision stays bound to its evidence: it survives regro
 
 ### Severity changes
 - **D-05:** A band RISE on unchanged code (e.g. corroboration by another reviewer) reopens the decision — stronger evidence counts as new evidence; the card says it rose and why.
+  - **D-05 refinement (owner, 2026-10-25, after research):** only a rise backed by NEW CORROBORATION (another reviewer now also reports the finding) reopens; the card names that reviewer. A rise caused only by the persisted-scoring bonus / single-reviewer-cap lift (no new reviewer) keeps the decision. Option "any rise re-asks" was rejected.
 - **D-06:** A band DROP on unchanged code does NOT reopen it — weaker evidence never needs the owner again. (Today any band move re-asks → reproduce.)
 - **D-07:** Defer and dismiss follow the same severity rule.
 
