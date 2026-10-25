@@ -960,6 +960,19 @@ def _pass3(carried, requests, verdicts, status, touched, **over):
     return env
 
 
+def _cf_env(agents):
+    """Pass 2 of a Codex-raised Needs-verification item with a confirmed fix,
+    its routed re-check asked of `agents`, each answering `resolved`."""
+    import test_confirmed_fix as tcf
+    from test_score import _nv, _nv_cf, _nv_env, _nv_rows
+    p1 = _nv_rows(score.run(_nv_env([_nv(agent="codex-adversarial")])))[0]
+    return _nv_env([], carryforward=[_nv_cf(p1, None, None)], pass_number=2,
+                   head_sha=tcf.HEAD2,
+                   recheck_requests=[tcf.routed_request(p1, agents=agents)],
+                   verdicts=[tcf.confirmed_verdict(p1["stable_hash"])]
+                   + [reviewer_verdict(agent=a) for a in agents])
+
+
 class TestReviewFix56(unittest.TestCase):
     """The still-applies memory holds; only HEAD-bound native confirmers close."""
 
@@ -1046,6 +1059,21 @@ class TestReviewFix56(unittest.TestCase):
         r = score.run(_review_pass2(row, [req],
                                     [reviewer_verdict(agent="test-sufficiency")],
                                     status="needs-recheck"))
+        self.assertEqual(len(r.get("resolved", [])), 1, _rejections(r))
+
+    def test_wr02_confirmed_fix_refuses_codex_as_confirmer(self):
+        """WR-02: the confirmed-fix route refuses `codex-adversarial` as the
+        independent reviewer, as 20-dispatch.md says."""
+        for agents in (("codex-adversarial",), ("bugs", "codex-adversarial")):
+            with self.subTest(agents=agents):
+                r = score.run(json.loads(json.dumps(_cf_env(agents))))
+                self.assertNotIn("resolved", r)
+                self.assertIn(R_MALFORMED, _rejections(r))
+        self.assertFalse(score._routed_request_ok(
+            {"token": "R1", "agents": ["codex-adversarial"], "stable_hash": "a" * 64,
+             "route": "confirmed-fix", "snapshot_blob": "1" * 40}))
+        # A native reviewer still confirms.
+        r = score.run(json.loads(json.dumps(_cf_env(("bugs",)))))
         self.assertEqual(len(r.get("resolved", [])), 1, _rejections(r))
 
 
@@ -1304,6 +1332,14 @@ class TestIndependentRouteMutants(unittest.TestCase):
         self._trips("score_m27",
                     'return all(a not in _NEVER_CONFIRMERS for a in req["agents"])',
                     "return True", env)
+
+    def test_m28_confirmed_fix_codex_exclusion_removed(self):
+        """WR-02: without the term, Codex confirms a fix on the confirmed-fix
+        route."""
+        env = _cf_env(("codex-adversarial",))
+        self._trips("score_m28",
+                    'and all(a not in _NEVER_CONFIRMERS - _FIXER_AGENTS for a in req["agents"]))',
+                    "and True)", env)
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)

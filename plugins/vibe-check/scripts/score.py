@@ -1318,7 +1318,7 @@ def _routed_request_ok(req):
     snapshot the reviewer judged (`snapshot_blob`: a blob id, or null when it
     could not be bound), and, bound or not, it never asks the fixer or Codex. A
     confirmed-fix re-check names a stored hash, `snapshot_blob`, and at least
-    one asked agent, none of them the fixer. An independent re-check names a
+    one asked agent, none of them the fixer or Codex. An independent re-check names a
     stored hash, `snapshot_blob`, at least one asked agent, none of them the
     fixer or Codex, and optionally the associated `test_paths` and the
     `fix_commit` (7-40 hex) that repaired the code."""
@@ -1345,7 +1345,10 @@ def _routed_request_ok(req):
             and "snapshot_blob" in req
             and (req["snapshot_blob"] is None or _nonempty_str(req["snapshot_blob"]))
             and bool(req["agents"])
-            and not any(a in _FIXER_AGENTS for a in req["agents"]))
+            and not any(a in _FIXER_AGENTS for a in req["agents"])
+            # Codex never confirms either (20-dispatch.md step 3); the fixer
+            # is refused by the term above.
+            and all(a not in _NEVER_CONFIRMERS - _FIXER_AGENTS for a in req["agents"]))
 
 
 def _confirmed_fix_recheck(record, stored_hash, verified, routed, requests_by_token):
