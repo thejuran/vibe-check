@@ -22,11 +22,13 @@ scorer explains why it did not close.
 
 Fixture provenance: `fixtures/iplayarr45-six-row-state.json` is a trimmed copy
 of the owner's real iPlayarr phase-45 review state (archived 2026-10-20,
-passes 1-3). It keeps only the six-row lineage (four Codex-origin rows, one
-compliance row, one test-sufficiency row), each finding's schema-required keys
-plus `current_code` / `canonical_line_content` / `members` / `snapshot` /
-`kept_open`, the real `verdict: record not needs-recheck` rejections and the
-`codex` blocks. It has no `decisions` root: the owner's "fixed in review-pass
+passes 1-3). Pass 3 keeps only the six rows (four Codex-origin rows, one
+compliance row, one test-sufficiency row): file paths, titles, the pinned line
+(`canonical_line_content`, and `current_code` cut to that one line), scores,
+`members` / `snapshot` / `kept_open`, and each schema-required key, with
+`problem` and `source_window` emptied and no prose fields (IN-01). Passes 1-2
+keep only the real `verdict: record not needs-recheck` rejections and the
+`codex` blocks; their findings are not read by these tests. It has no `decisions` root: the owner's "fixed in review-pass
 commits" dismissals are exactly what these tests make unnecessary. The fix
 commits and the paths they touched are recorded in FIX_COMMITS below, taken
 from the iPlayarr git history.
@@ -270,6 +272,26 @@ def _run(env):
     return score.run(json.loads(json.dumps(env)))
 
 
+_FIXTURE_DROPPED = ("why_it_matters", "fix_hint", "intent_doc_match", "cwe")
+
+
+def fixture_is_trimmed(state):
+    """IN-01: every record's prose and excerpts are empty or absent, code is a
+    single pinned line, and passes 1-2 carry only their rejections."""
+    if any(p["findings"] for p in state["passes"][:2]):
+        return False
+    for f in state["passes"][2]["findings"]:
+        for rec in [f] + list(f.get("members", [])):
+            if rec.get("problem") not in ("", None) or rec.get("source_window") not in ([], None):
+                return False
+            if any(k in rec for k in _FIXTURE_DROPPED):
+                return False
+            code = rec.get("current_code")
+            if isinstance(code, str) and "\n" in code:
+                return False
+    return True
+
+
 class TestSixRowFixtureGuards(unittest.TestCase):
     """The fixture holds what the closure tests assume. Green today and after."""
 
@@ -301,6 +323,31 @@ class TestSixRowFixtureGuards(unittest.TestCase):
         member_agents = {x["agent"] for x in rows
                          if x["file"] == "src/endpoints/sabnzbd/AddFileEndpoint.ts"}
         self.assertEqual(member_agents, {"codex-adversarial", "bugs", "impact"})
+
+    def test_fixture_is_trimmed(self):
+        """IN-01: the fixture keeps file paths, titles and the fields the schema
+        and tests need: no problem prose, code excerpts, fix hints or plan
+        quotes, and only pass 3 carries findings."""
+        self.assertTrue(fixture_is_trimmed(_six_state()))
+
+    def test_fixture_trim_check_trips(self):
+        """Each trim rule is load-bearing: restoring one dropped thing fails."""
+        def mutated(fn):
+            state = _six_state()
+            fn(state)
+            return fixture_is_trimmed(state)
+
+        p3 = lambda st: st["passes"][2]["findings"]  # noqa: E731
+        mutants = {
+            "earlier findings": lambda st: st["passes"][0]["findings"].append({}),
+            "problem prose": lambda st: p3(st)[0].update(problem="text"),
+            "code excerpt": lambda st: p3(st)[0].update(source_window=["x"]),
+            "member fix hint": lambda st: p3(st)[1]["members"][1].update(fix_hint="x"),
+            "multi-line code": lambda st: p3(st)[4].update(current_code="a\nb"),
+        }
+        for name, fn in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertFalse(mutated(fn))
 
     def test_fix_commits_are_full_shas(self):
         self.assertEqual(sorted(FIX_COMMITS), sorted(SIX))

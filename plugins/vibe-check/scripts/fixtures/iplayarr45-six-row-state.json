@@ -4,7 +4,7 @@
     {
       "pass_number": 1,
       "head_sha": "0cce9b566e15e38e8694583dbae9de57beb4c16c",
-      "timestamp": "2026-10-20T23:16:56Z",
+      "timestamp": "2026-10-20T00:00:00Z",
       "mode": "deep",
       "diff_range": "3ea2229c717109f86a86fd39f16b339e9180f78d..HEAD",
       "agents_run": [
@@ -17,468 +17,7 @@
         "language-typescript",
         "framework-vue"
       ],
-      "findings": [
-        {
-          "id": "codex-004",
-          "file": "frontend/src/views/BrowseProgrammePage.vue",
-          "line": 406,
-          "title": "Gate only the option lists required by the selected operation",
-          "category": "adversarial",
-          "severity": "medium",
-          "agent_confidence": 99,
-          "problem": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            "// even when every other precondition is satisfied -- distinct from the list",
-            "// simply being empty, which hasRequiredOptions already covers.",
-            "const hasUnavailableOptionLists = computed(() => {",
-            "    const availability = handoffContext.value?.optionListsAvailable;",
-            "    if (!availability) {"
-          ],
-          "canonical_line_content": "const hasUnavailableOptionLists = computed(() => {",
-          "orchestrator_score": 94,
-          "band": "warning",
-          "attribution": [
-            "architecture",
-            "bugs",
-            "codex-adversarial"
-          ],
-          "stable_hash": "cc51d4e37277920ee22252837e697c1adc1799d21a3c81c35d0f45ee805f068a",
-          "status": "new",
-          "members": [
-            {
-              "file": "frontend/src/views/BrowseProgrammePage.vue",
-              "line": 406,
-              "title": "Gate only the option lists required by the selected operation",
-              "category": "adversarial",
-              "severity": "medium",
-              "agent": "codex-adversarial",
-              "agent_confidence": 99,
-              "problem": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-              "source_window": [
-                "// even when every other precondition is satisfied -- distinct from the list",
-                "// simply being empty, which hasRequiredOptions already covers.",
-                "const hasUnavailableOptionLists = computed(() => {",
-                "    const availability = handoffContext.value?.optionListsAvailable;",
-                "    if (!availability) {"
-              ],
-              "cwe": null,
-              "why_it_matters": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-              "fix_hint": "Always require candidate availability; require root folders and quality profiles only for add modes, and tags only when selected tag IDs require validation. Cover search-existing with unavailable add-only lists.",
-              "intent_doc_match": null
-            },
-            {
-              "file": "frontend/src/views/BrowseProgrammePage.vue",
-              "line": 406,
-              "title": "Frontend and backend apply different rules for blocking submit on unavailable lists",
-              "category": "separation-of-concerns",
-              "severity": "medium",
-              "agent": "architecture",
-              "agent_confidence": 58,
-              "problem": "Backend hasValidAddOptions applies only in add modes and requires tags only when tagIds is non-empty. Frontend hasUnavailableOptionLists blocks submit whenever any of the four lists is unavailable, in every mode, so search-existing gets blocked by a tags timeout.",
-              "source_window": [
-                "// even when every other precondition is satisfied -- distinct from the list",
-                "// simply being empty, which hasRequiredOptions already covers.",
-                "const hasUnavailableOptionLists = computed(() => {",
-                "    const availability = handoffContext.value?.optionListsAvailable;",
-                "    if (!availability) {"
-              ],
-              "cwe": null,
-              "why_it_matters": "Operators are blocked unnecessarily, and the two rules will drift further apart.",
-              "fix_hint": "Make the frontend gate mode-aware to match the backend.",
-              "current_code": "const hasUnavailableOptionLists = computed(() => {",
-              "intent_doc_match": {
-                "doc": "45-08-PLAN.md",
-                "section": "must_haves.truths",
-                "quote": "Submission is enabled only when every required option list is available",
-                "confidence": 0.4
-              }
-            },
-            {
-              "file": "frontend/src/views/BrowseProgrammePage.vue",
-              "line": 406,
-              "title": "Frontend blocks submit on any unavailable list, including ones the chosen mode doesn't need",
-              "category": "logic-error",
-              "severity": "low",
-              "agent": "bugs",
-              "agent_confidence": 50,
-              "problem": "hasUnavailableOptionLists disables Confirm in every mode, but the backend requires these lists only in add modes, and tags only when selected.",
-              "source_window": [
-                "// even when every other precondition is satisfied -- distinct from the list",
-                "// simply being empty, which hasRequiredOptions already covers.",
-                "const hasUnavailableOptionLists = computed(() => {",
-                "    const availability = handoffContext.value?.optionListsAvailable;",
-                "    if (!availability) {"
-              ],
-              "cwe": null,
-              "why_it_matters": "A slow /tag endpoint blocks valid handoffs.",
-              "fix_hint": "Gate per mode.",
-              "current_code": "const hasUnavailableOptionLists = computed(() => {",
-              "intent_doc_match": null
-            }
-          ],
-          "snapshot": {
-            "at_pass": 1,
-            "file": "frontend/src/views/BrowseProgrammePage.vue",
-            "line": 406,
-            "canonical_line_content": "const hasUnavailableOptionLists = computed(() => {",
-            "band": "warning"
-          }
-        },
-        {
-          "id": "codex-001",
-          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-          "line": 204,
-          "title": "Stop relay failover after an uncertain submission",
-          "category": "adversarial",
-          "severity": "high",
-          "agent_confidence": 99,
-          "problem": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            "                } catch (nzbErr) {",
-            "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-            "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-            "                        anyRelayOutcomeUnknown = true;",
-            "                    }"
-          ],
-          "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-          "orchestrator_score": 100,
-          "band": "critical",
-          "attribution": [
-            "bugs",
-            "impact",
-            "codex-adversarial"
-          ],
-          "stable_hash": "0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461",
-          "status": "new",
-          "members": [
-            {
-              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-              "line": 204,
-              "title": "Stop relay failover after an uncertain submission",
-              "category": "adversarial",
-              "severity": "high",
-              "agent": "codex-adversarial",
-              "agent_confidence": 99,
-              "problem": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-              "fix_hint": "Immediately stop failover on RELAY_SUBMISSION_UNKNOWN and return the uncertain outcome regardless of the original parser rejection. Test an accepted-but-delayed submission with two clients and a normal external NZB.",
-              "intent_doc_match": null
-            },
-            {
-              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-              "line": 204,
-              "title": "Relay loop keeps submitting to the next app after an outcome-unknown timeout (duplicate submission)",
-              "category": "logic-error",
-              "severity": "high",
-              "agent": "bugs",
-              "agent_confidence": 68,
-              "problem": "On RELAY_SUBMISSION_UNKNOWN the loop only sets a flag and moves on to the next SAB/NZBGet app with the same NZB. The first app may already have accepted it.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "The same programme can be downloaded twice.",
-              "fix_hint": "Break out of the loop once a submission's outcome is unknown.",
-              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-              "intent_doc_match": null
-            },
-            {
-              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-              "line": 204,
-              "title": "A timed-out NZB relay to one download client falls through to the next client, so the same NZB can be submitted twice",
-              "category": "blast-radius",
-              "severity": "medium",
-              "agent": "impact",
-              "agent_confidence": 55,
-              "problem": "After RELAY_SUBMISSION_UNKNOWN the loop submits to the next client, which contradicts the CHANGELOG promise that writes are never auto-retried after an unknown outcome.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "Duplicate downloads.",
-              "fix_hint": "Break out of the loop on RELAY_SUBMISSION_UNKNOWN.",
-              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-              "intent_doc_match": null
-            }
-          ],
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-            "line": 204,
-            "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-            "band": "critical"
-          }
-        },
-        {
-          "id": "codex-002",
-          "file": "src/utils/integrationDeadline.ts",
-          "line": 60,
-          "title": "Normalize and bound milliseconds before constructing the deadline",
-          "category": "adversarial",
-          "severity": "medium",
-          "agent_confidence": 100,
-          "problem": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            " * they share one wall-clock budget rather than each getting a fresh one.",
-            " */",
-            "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-            "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-            "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };"
-          ],
-          "canonical_line_content": "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-          "orchestrator_score": 94,
-          "band": "warning",
-          "attribution": [
-            "bugs",
-            "codex-adversarial"
-          ],
-          "stable_hash": "2c4fbd6648a5cd83c7196f45e74107fc417874c15710992a8f816f0a49da3c1c",
-          "status": "new",
-          "members": [
-            {
-              "file": "src/utils/integrationDeadline.ts",
-              "line": 60,
-              "title": "Normalize and bound milliseconds before constructing the deadline",
-              "category": "adversarial",
-              "severity": "medium",
-              "agent": "codex-adversarial",
-              "agent_confidence": 100,
-              "problem": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-              "source_window": [
-                " * they share one wall-clock budget rather than each getting a fresh one.",
-                " */",
-                "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-                "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-                "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };"
-              ],
-              "cwe": null,
-              "why_it_matters": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-              "fix_hint": "Convert seconds to rounded integer milliseconds and validate the supported timer range during boot. Add regression cases for 1.001 and timer overflow.",
-              "intent_doc_match": null
-            },
-            {
-              "file": "src/utils/integrationDeadline.ts",
-              "line": 62,
-              "title": "Accepted decimal timeouts produce non-integer ms; AbortSignal.timeout throws RangeError on every outbound call",
-              "category": "logic-error",
-              "severity": "medium",
-              "agent": "bugs",
-              "agent_confidence": 65,
-              "problem": "The validator accepts any finite value above 0. deadlineSeconds*1000 can be a non-integer (1.1*1000 = 1100.0000000000002), which AbortSignal.timeout rejects with ERR_OUT_OF_RANGE. Values above 2^31-1 ms overflow to a 1ms timeout.",
-              "source_window": [
-                "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-                "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-                "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };",
-                "}",
-                ""
-              ],
-              "cwe": null,
-              "why_it_matters": "A config value that passes boot validation breaks every integration.",
-              "fix_hint": "Math.round the ms value and cap it at 2^31-1 in validation.",
-              "current_code": "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };",
-              "intent_doc_match": null
-            }
-          ],
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/utils/integrationDeadline.ts",
-            "line": 60,
-            "canonical_line_content": "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-            "band": "warning"
-          }
-        },
-        {
-          "agent": "test-sufficiency",
-          "id": "cov-001",
-          "file": "src/facade/arrFacade.ts",
-          "line": 80,
-          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
-          "category": "test-coverage",
-          "severity": "medium",
-          "agent_confidence": 62,
-          "problem": "No test asserts that the signal reaches the service for addSeries/addMovie/searchSeries/searchMovie/createTag. Every test above this layer mocks arrFacade.",
-          "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-          "source_window": [
-            "        return signal !== undefined ? service.getQualityProfiles(app, signal) : service.getQualityProfiles(app);",
-            "    }",
-            "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-            "        const service = this.getService(app);",
-            "        return signal !== undefined"
-          ],
-          "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-          "orchestrator_score": 74,
-          "band": "medium",
-          "attribution": [
-            "test-sufficiency"
-          ],
-          "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
-          "status": "new",
-          "members": [
-            {
-              "file": "src/facade/arrFacade.ts",
-              "line": 80,
-              "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
-              "category": "test-coverage",
-              "severity": "medium",
-              "agent": "test-sufficiency",
-              "agent_confidence": 62,
-              "problem": "No test asserts that the signal reaches the service for addSeries/addMovie/searchSeries/searchMovie/createTag. Every test above this layer mocks arrFacade.",
-              "source_window": [
-                "        return signal !== undefined ? service.getQualityProfiles(app, signal) : service.getQualityProfiles(app);",
-                "    }",
-                "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-                "        const service = this.getService(app);",
-                "        return signal !== undefined"
-              ],
-              "cwe": null,
-              "why_it_matters": "A dropped signal would remove the write deadline and no test would notice.",
-              "fix_hint": "Add arrFacade pass-through tests.",
-              "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-              "intent_doc_match": null
-            }
-          ],
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/facade/arrFacade.ts",
-            "line": 80,
-            "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-            "band": "medium"
-          }
-        },
-        {
-          "agent": "compliance",
-          "id": "comp-001",
-          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
-          "line": 201,
-          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
-          "category": "rule-violation",
-          "severity": "medium",
-          "agent_confidence": 80,
-          "problem": "Global CLAUDE.md: 'Don't swallow exceptions silently — log them at minimum.' The add/search timeout branches return createUncertain without logging, unlike nzbFacade.addFile's equivalent branch.",
-          "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-          "source_window": [
-            "                    addedMatch = await this.addTarget(requestedApp, request.targetType, match, request.defaults, signal);",
-            "                } catch (err) {",
-            "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-            "                        // D-16: a timed-out add is a distinct \"outcome",
-            "                        // unknown\" state, not a definite failure -- the"
-          ],
-          "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-          "orchestrator_score": 94,
-          "band": "warning",
-          "attribution": [
-            "compliance"
-          ],
-          "stable_hash": "2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b",
-          "status": "new",
-          "members": [
-            {
-              "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
-              "line": 201,
-              "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
-              "category": "rule-violation",
-              "severity": "medium",
-              "agent": "compliance",
-              "agent_confidence": 80,
-              "problem": "Global CLAUDE.md: 'Don't swallow exceptions silently — log them at minimum.' The add/search timeout branches return createUncertain without logging, unlike nzbFacade.addFile's equivalent branch.",
-              "source_window": [
-                "                    addedMatch = await this.addTarget(requestedApp, request.targetType, match, request.defaults, signal);",
-                "                } catch (err) {",
-                "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-                "                        // D-16: a timed-out add is a distinct \"outcome",
-                "                        // unknown\" state, not a definite failure -- the"
-              ],
-              "cwe": null,
-              "why_it_matters": "No server-side trace of which add/search timed out.",
-              "fix_hint": "Log a redactedAxiosSummary(err) before each createUncertain return.",
-              "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-              "intent_doc_match": null
-            }
-          ],
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
-            "line": 201,
-            "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-            "band": "warning"
-          }
-        },
-        {
-          "id": "codex-003",
-          "file": "src/service/arr/V3ArrService.ts",
-          "line": 412,
-          "title": "Handle search-existing deadline expiry as an uncertain write",
-          "category": "adversarial",
-          "severity": "medium",
-          "agent_confidence": 98,
-          "problem": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            "    }",
-            "",
-            "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-            "        const url: string = `${this.getApiUrl(app)}/command`;",
-            "        const { signal: effectiveSignal } = resolveDeadline(signal);"
-          ],
-          "canonical_line_content": "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-          "orchestrator_score": 94,
-          "band": "warning",
-          "attribution": [
-            "codex-adversarial"
-          ],
-          "stable_hash": "14c1c286fe4fbf60cc2008117a145847e459d3fc91274c889137d980de2c28f1",
-          "status": "new",
-          "members": [
-            {
-              "file": "src/service/arr/V3ArrService.ts",
-              "line": 412,
-              "title": "Handle search-existing deadline expiry as an uncertain write",
-              "category": "adversarial",
-              "severity": "medium",
-              "agent": "codex-adversarial",
-              "agent_confidence": 98,
-              "problem": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-              "source_window": [
-                "    }",
-                "",
-                "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-                "        const url: string = `${this.getApiUrl(app)}/command`;",
-                "        const { signal: effectiveSignal } = resolveDeadline(signal);"
-              ],
-              "cwe": null,
-              "why_it_matters": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-              "fix_hint": "Create and retain a deadline in the search-existing branch, classify cancellation there, and return an uncertain search outcome with appropriate wording so the frontend applies its reconfirmation gate.",
-              "intent_doc_match": null
-            }
-          ],
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/service/arr/V3ArrService.ts",
-            "line": 412,
-            "canonical_line_content": "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-            "band": "warning"
-          }
-        }
-      ],
+      "findings": [],
       "filtered": [],
       "codex": {
         "status": "joined",
@@ -490,7 +29,7 @@
     {
       "pass_number": 2,
       "head_sha": "7aa77f2323eac4d66a58d9ccddf34b43ff25957f",
-      "timestamp": "2026-10-20T23:33:32Z",
+      "timestamp": "2026-10-20T00:00:00Z",
       "mode": "deep",
       "diff_range": "0cce9b566e15e38e8694583dbae9de57beb4c16c..HEAD",
       "agents_run": [
@@ -503,410 +42,7 @@
         "language-typescript",
         "framework-vue"
       ],
-      "findings": [
-        {
-          "id": "codex-004",
-          "file": "frontend/src/views/BrowseProgrammePage.vue",
-          "line": 406,
-          "title": "Gate only the option lists required by the selected operation",
-          "category": "adversarial",
-          "severity": "medium",
-          "agent_confidence": 99,
-          "problem": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            "// even when every other precondition is satisfied -- distinct from the list",
-            "// simply being empty, which hasRequiredOptions already covers.",
-            "const hasUnavailableOptionLists = computed(() => {",
-            "    const availability = handoffContext.value?.optionListsAvailable;",
-            "    if (!availability) {"
-          ],
-          "canonical_line_content": "// the selected operation actually needs gate it: candidates always; root",
-          "orchestrator_score": 94,
-          "band": "warning",
-          "attribution": [
-            "codex-adversarial"
-          ],
-          "stable_hash": "3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8",
-          "status": "needs-recheck",
-          "snapshot": {
-            "at_pass": 2,
-            "file": "frontend/src/views/BrowseProgrammePage.vue",
-            "line": 406,
-            "canonical_line_content": "// the selected operation actually needs gate it: candidates always; root",
-            "band": "warning"
-          },
-          "members": [
-            {
-              "file": "frontend/src/views/BrowseProgrammePage.vue",
-              "line": 406,
-              "title": "Gate only the option lists required by the selected operation",
-              "category": "adversarial",
-              "severity": "medium",
-              "agent": "codex-adversarial",
-              "agent_confidence": 99,
-              "problem": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-              "source_window": [
-                "// even when every other precondition is satisfied -- distinct from the list",
-                "// simply being empty, which hasRequiredOptions already covers.",
-                "const hasUnavailableOptionLists = computed(() => {",
-                "    const availability = handoffContext.value?.optionListsAvailable;",
-                "    if (!availability) {"
-              ],
-              "cwe": null,
-              "why_it_matters": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-              "fix_hint": "Always require candidate availability; require root folders and quality profiles only for add modes, and tags only when selected tag IDs require validation. Cover search-existing with unavailable add-only lists.",
-              "intent_doc_match": null
-            }
-          ]
-        },
-        {
-          "id": "codex-001",
-          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-          "line": 204,
-          "title": "Stop relay failover after an uncertain submission",
-          "category": "adversarial",
-          "severity": "high",
-          "agent_confidence": 99,
-          "problem": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            "                } catch (nzbErr) {",
-            "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-            "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-            "                        anyRelayOutcomeUnknown = true;",
-            "                    }"
-          ],
-          "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-          "orchestrator_score": 100,
-          "band": "critical",
-          "attribution": [
-            "codex-adversarial",
-            "bugs",
-            "impact"
-          ],
-          "stable_hash": "0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461",
-          "status": "needs-recheck",
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-            "line": 204,
-            "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-            "band": "critical"
-          },
-          "members": [
-            {
-              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-              "line": 204,
-              "title": "Stop relay failover after an uncertain submission",
-              "category": "adversarial",
-              "severity": "high",
-              "agent": "codex-adversarial",
-              "agent_confidence": 99,
-              "problem": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-              "fix_hint": "Immediately stop failover on RELAY_SUBMISSION_UNKNOWN and return the uncertain outcome regardless of the original parser rejection. Test an accepted-but-delayed submission with two clients and a normal external NZB.",
-              "intent_doc_match": null
-            },
-            {
-              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-              "line": 204,
-              "title": "Relay loop keeps submitting to the next app after an outcome-unknown timeout (duplicate submission)",
-              "category": "logic-error",
-              "severity": "high",
-              "agent": "bugs",
-              "agent_confidence": 68,
-              "problem": "On RELAY_SUBMISSION_UNKNOWN the loop only sets a flag and moves on to the next SAB/NZBGet app with the same NZB. The first app may already have accepted it.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "The same programme can be downloaded twice.",
-              "fix_hint": "Break out of the loop once a submission's outcome is unknown.",
-              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-              "intent_doc_match": null
-            },
-            {
-              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
-              "line": 204,
-              "title": "A timed-out NZB relay to one download client falls through to the next client, so the same NZB can be submitted twice",
-              "category": "blast-radius",
-              "severity": "medium",
-              "agent": "impact",
-              "agent_confidence": 55,
-              "problem": "After RELAY_SUBMISSION_UNKNOWN the loop submits to the next client, which contradicts the CHANGELOG promise that writes are never auto-retried after an unknown outcome.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "Duplicate downloads.",
-              "fix_hint": "Break out of the loop on RELAY_SUBMISSION_UNKNOWN.",
-              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-              "intent_doc_match": null
-            }
-          ]
-        },
-        {
-          "id": "codex-002",
-          "file": "src/utils/integrationDeadline.ts",
-          "line": 60,
-          "title": "Normalize and bound milliseconds before constructing the deadline",
-          "category": "adversarial",
-          "severity": "medium",
-          "agent_confidence": 100,
-          "problem": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            " * they share one wall-clock budget rather than each getting a fresh one.",
-            " */",
-            "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-            "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-            "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };"
-          ],
-          "canonical_line_content": "",
-          "orchestrator_score": 100,
-          "band": "critical",
-          "attribution": [
-            "codex-adversarial"
-          ],
-          "stable_hash": "22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449",
-          "status": "persisted",
-          "snapshot": {
-            "at_pass": 2,
-            "file": "src/utils/integrationDeadline.ts",
-            "line": 60,
-            "canonical_line_content": "",
-            "band": "critical"
-          },
-          "members": [
-            {
-              "file": "src/utils/integrationDeadline.ts",
-              "line": 60,
-              "title": "Normalize and bound milliseconds before constructing the deadline",
-              "category": "adversarial",
-              "severity": "medium",
-              "agent": "codex-adversarial",
-              "agent_confidence": 100,
-              "problem": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-              "source_window": [
-                " * they share one wall-clock budget rather than each getting a fresh one.",
-                " */",
-                "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-                "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-                "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };"
-              ],
-              "cwe": null,
-              "why_it_matters": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-              "fix_hint": "Convert seconds to rounded integer milliseconds and validate the supported timer range during boot. Add regression cases for 1.001 and timer overflow.",
-              "intent_doc_match": null
-            }
-          ]
-        },
-        {
-          "agent": "compliance",
-          "id": "comp-001",
-          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
-          "line": 201,
-          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
-          "category": "rule-violation",
-          "severity": "medium",
-          "agent_confidence": 80,
-          "problem": "Global CLAUDE.md: 'Don't swallow exceptions silently — log them at minimum.' The add/search timeout branches return createUncertain without logging, unlike nzbFacade.addFile's equivalent branch.",
-          "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-          "source_window": [
-            "                    addedMatch = await this.addTarget(requestedApp, request.targetType, match, request.defaults, signal);",
-            "                } catch (err) {",
-            "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-            "                        // D-16: a timed-out add is a distinct \"outcome",
-            "                        // unknown\" state, not a definite failure -- the"
-          ],
-          "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-          "orchestrator_score": 100,
-          "band": "critical",
-          "attribution": [
-            "compliance"
-          ],
-          "stable_hash": "2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b",
-          "status": "persisted",
-          "snapshot": {
-            "at_pass": 2,
-            "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
-            "line": 201,
-            "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-            "band": "critical"
-          },
-          "members": [
-            {
-              "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
-              "line": 201,
-              "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
-              "category": "rule-violation",
-              "severity": "medium",
-              "agent": "compliance",
-              "agent_confidence": 80,
-              "problem": "Global CLAUDE.md: 'Don't swallow exceptions silently — log them at minimum.' The add/search timeout branches return createUncertain without logging, unlike nzbFacade.addFile's equivalent branch.",
-              "source_window": [
-                "                    addedMatch = await this.addTarget(requestedApp, request.targetType, match, request.defaults, signal);",
-                "                } catch (err) {",
-                "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-                "                        // D-16: a timed-out add is a distinct \"outcome",
-                "                        // unknown\" state, not a definite failure -- the"
-              ],
-              "cwe": null,
-              "why_it_matters": "No server-side trace of which add/search timed out.",
-              "fix_hint": "Log a redactedAxiosSummary(err) before each createUncertain return.",
-              "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-              "intent_doc_match": null
-            }
-          ]
-        },
-        {
-          "id": "codex-003",
-          "file": "src/service/arr/V3ArrService.ts",
-          "line": 412,
-          "title": "Handle search-existing deadline expiry as an uncertain write",
-          "category": "adversarial",
-          "severity": "medium",
-          "agent_confidence": 98,
-          "problem": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-          "agent": "codex-adversarial",
-          "source_window": [
-            "    }",
-            "",
-            "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-            "        const url: string = `${this.getApiUrl(app)}/command`;",
-            "        const { signal: effectiveSignal } = resolveDeadline(signal);"
-          ],
-          "canonical_line_content": "        return response.data;",
-          "orchestrator_score": 90,
-          "band": "warning",
-          "attribution": [
-            "codex-adversarial"
-          ],
-          "stable_hash": "a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7",
-          "status": "needs-recheck",
-          "snapshot": {
-            "at_pass": 2,
-            "file": "src/service/arr/V3ArrService.ts",
-            "line": 412,
-            "canonical_line_content": "        return response.data;",
-            "band": "warning"
-          },
-          "members": [
-            {
-              "file": "src/service/arr/V3ArrService.ts",
-              "line": 412,
-              "title": "Handle search-existing deadline expiry as an uncertain write",
-              "category": "adversarial",
-              "severity": "medium",
-              "agent": "codex-adversarial",
-              "agent_confidence": 98,
-              "problem": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-              "source_window": [
-                "    }",
-                "",
-                "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-                "        const url: string = `${this.getApiUrl(app)}/command`;",
-                "        const { signal: effectiveSignal } = resolveDeadline(signal);"
-              ],
-              "cwe": null,
-              "why_it_matters": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-              "fix_hint": "Create and retain a deadline in the search-existing branch, classify cancellation there, and return an uncertain search outcome with appropriate wording so the frontend applies its reconfirmation gate.",
-              "intent_doc_match": null
-            }
-          ]
-        },
-        {
-          "agent": "test-sufficiency",
-          "id": "cov-001",
-          "file": "src/facade/arrFacade.ts",
-          "line": 80,
-          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
-          "category": "test-coverage",
-          "severity": "medium",
-          "agent_confidence": 62,
-          "problem": "No test asserts that the signal reaches the service for addSeries/addMovie/searchSeries/searchMovie/createTag. Every test above this layer mocks arrFacade.",
-          "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-          "source_window": [
-            "        return signal !== undefined ? service.getQualityProfiles(app, signal) : service.getQualityProfiles(app);",
-            "    }",
-            "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-            "        const service = this.getService(app);",
-            "        return signal !== undefined"
-          ],
-          "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-          "orchestrator_score": 74,
-          "band": "medium",
-          "attribution": [
-            "test-sufficiency"
-          ],
-          "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
-          "status": "persisted",
-          "snapshot": {
-            "at_pass": 1,
-            "file": "src/facade/arrFacade.ts",
-            "line": 80,
-            "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-            "band": "medium"
-          },
-          "kept_open": "sub-threshold",
-          "members": [
-            {
-              "file": "src/facade/arrFacade.ts",
-              "line": 80,
-              "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
-              "category": "test-coverage",
-              "severity": "medium",
-              "agent": "test-sufficiency",
-              "agent_confidence": 62,
-              "problem": "No test asserts that the signal reaches the service for addSeries/addMovie/searchSeries/searchMovie/createTag. Every test above this layer mocks arrFacade.",
-              "source_window": [
-                "        return signal !== undefined ? service.getQualityProfiles(app, signal) : service.getQualityProfiles(app);",
-                "    }",
-                "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-                "        const service = this.getService(app);",
-                "        return signal !== undefined"
-              ],
-              "cwe": null,
-              "why_it_matters": "A dropped signal would remove the write deadline and no test would notice.",
-              "fix_hint": "Add arrFacade pass-through tests.",
-              "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-              "intent_doc_match": null,
-              "obligation": {
-                "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
-                "orchestrator_score": 74,
-                "band": "medium",
-                "attribution": [
-                  "test-sufficiency"
-                ],
-                "snapshot": {
-                  "at_pass": 1,
-                  "file": "src/facade/arrFacade.ts",
-                  "line": 80,
-                  "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-                  "band": "medium"
-                }
-              }
-            }
-          ]
-        }
-      ],
+      "findings": [],
       "filtered": [
         {
           "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
@@ -955,7 +91,7 @@
     {
       "pass_number": 3,
       "head_sha": "e3f7624f585167eb7f20beb5da9a0c4e5e468118",
-      "timestamp": "2026-10-20T23:42:56Z",
+      "timestamp": "2026-10-20T00:00:00Z",
       "mode": "deep",
       "diff_range": "7aa77f2323eac4d66a58d9ccddf34b43ff25957f..HEAD",
       "agents_run": [
@@ -976,15 +112,9 @@
           "category": "adversarial",
           "severity": "medium",
           "agent_confidence": 99,
-          "problem": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
+          "problem": "",
           "agent": "codex-adversarial",
-          "source_window": [
-            "// even when every other precondition is satisfied -- distinct from the list",
-            "// simply being empty, which hasRequiredOptions already covers.",
-            "const hasUnavailableOptionLists = computed(() => {",
-            "    const availability = handoffContext.value?.optionListsAvailable;",
-            "    if (!availability) {"
-          ],
+          "source_window": [],
           "canonical_line_content": "// the selected operation actually needs gate it: candidates always; root",
           "orchestrator_score": 91,
           "band": "warning",
@@ -1009,18 +139,8 @@
               "severity": "medium",
               "agent": "codex-adversarial",
               "agent_confidence": 99,
-              "problem": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-              "source_window": [
-                "// even when every other precondition is satisfied -- distinct from the list",
-                "// simply being empty, which hasRequiredOptions already covers.",
-                "const hasUnavailableOptionLists = computed(() => {",
-                "    const availability = handoffContext.value?.optionListsAvailable;",
-                "    if (!availability) {"
-              ],
-              "cwe": null,
-              "why_it_matters": "For mode=search-existing with a valid candidate such as {id:10, existingPath:'/tv/show'}, an unavailable root-folder, quality-profile, or tag list now disables Confirm. These lists are not required for the supported search-only operation: hasRequiredOptions explicitly exempts it, and the backend's search-existing branch uses only the candidate ID. Likewise, an add with no selected tags is blocked by unavailable tags even though backend validation permits it. Partial dependency failure unnecessarily disables otherwise usable operations.",
-              "fix_hint": "Always require candidate availability; require root folders and quality profiles only for add modes, and tags only when selected tag IDs require validation. Cover search-existing with unavailable add-only lists.",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": []
             }
           ]
         },
@@ -1032,15 +152,9 @@
           "category": "adversarial",
           "severity": "high",
           "agent_confidence": 99,
-          "problem": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
+          "problem": "",
           "agent": "codex-adversarial",
-          "source_window": [
-            "                } catch (nzbErr) {",
-            "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-            "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-            "                        anyRelayOutcomeUnknown = true;",
-            "                    }"
-          ],
+          "source_window": [],
           "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
           "orchestrator_score": 100,
           "band": "critical",
@@ -1067,18 +181,8 @@
               "severity": "high",
               "agent": "codex-adversarial",
               "agent_confidence": 99,
-              "problem": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "With two configured clients, client A can accept an NZB but delay its response past the new deadline. RELAY_SUBMISSION_UNKNOWN only sets a flag, so the loop submits the same files to client B and returns B's success. Both clients can download the release. This is newly reachable for slow successful requests that previously remained pending. Additionally, ordinary external NZBs enter through a structured parser rejection, so the !wasStructured guard suppresses FORWARD_UNCONFIRMED when no subsequent client succeeds.",
-              "fix_hint": "Immediately stop failover on RELAY_SUBMISSION_UNKNOWN and return the uncertain outcome regardless of the original parser rejection. Test an accepted-but-delayed submission with two clients and a normal external NZB.",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": []
             },
             {
               "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
@@ -1088,19 +192,9 @@
               "severity": "high",
               "agent": "bugs",
               "agent_confidence": 68,
-              "problem": "On RELAY_SUBMISSION_UNKNOWN the loop only sets a flag and moves on to the next SAB/NZBGet app with the same NZB. The first app may already have accepted it.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "The same programme can be downloaded twice.",
-              "fix_hint": "Break out of the loop once a submission's outcome is unknown.",
-              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": [],
+              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {"
             },
             {
               "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
@@ -1110,19 +204,9 @@
               "severity": "medium",
               "agent": "impact",
               "agent_confidence": 55,
-              "problem": "After RELAY_SUBMISSION_UNKNOWN the loop submits to the next client, which contradicts the CHANGELOG promise that writes are never auto-retried after an unknown outcome.",
-              "source_window": [
-                "                } catch (nzbErr) {",
-                "                    loggingService.error('AddFileEndpoint: addFile relay failed', redactedErrorSummary(nzbErr));",
-                "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-                "                        anyRelayOutcomeUnknown = true;",
-                "                    }"
-              ],
-              "cwe": null,
-              "why_it_matters": "Duplicate downloads.",
-              "fix_hint": "Break out of the loop on RELAY_SUBMISSION_UNKNOWN.",
-              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": [],
+              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {"
             }
           ]
         },
@@ -1134,15 +218,9 @@
           "category": "adversarial",
           "severity": "medium",
           "agent_confidence": 100,
-          "problem": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
+          "problem": "",
           "agent": "codex-adversarial",
-          "source_window": [
-            " * they share one wall-clock budget rather than each getting a fresh one.",
-            " */",
-            "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-            "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-            "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };"
-          ],
+          "source_window": [],
           "canonical_line_content": "",
           "orchestrator_score": 100,
           "band": "critical",
@@ -1167,18 +245,8 @@
               "severity": "medium",
               "agent": "codex-adversarial",
               "agent_confidence": 100,
-              "problem": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-              "source_window": [
-                " * they share one wall-clock budget rather than each getting a fresh one.",
-                " */",
-                "export function createIntegrationDeadline(): { signal: AbortSignal; deadlineSeconds: number } {",
-                "    const deadlineSeconds = getIntegrationDeadlineSeconds();",
-                "    return { signal: AbortSignal.timeout(deadlineSeconds * 1000), deadlineSeconds };"
-              ],
-              "cwe": null,
-              "why_it_matters": "INTEGRATION_TIMEOUT_SECONDS=1.001 passes the finite-positive boot validator, but multiplication produces 1000.9999999999999; AbortSignal.timeout throws ERR_OUT_OF_RANGE. I reproduced this with the installed Node runtime. Consequently, integration operations fail before sending requests despite successful boot. Also, 2147484 passes validation but overflows Node's timer and becomes a 1ms timeout. Fractional seconds are explicitly exercised by the existing tests.",
-              "fix_hint": "Convert seconds to rounded integer milliseconds and validate the supported timer range during boot. Add regression cases for 1.001 and timer overflow.",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": []
             }
           ]
         },
@@ -1191,15 +259,9 @@
           "category": "rule-violation",
           "severity": "medium",
           "agent_confidence": 80,
-          "problem": "Global CLAUDE.md: 'Don't swallow exceptions silently — log them at minimum.' The add/search timeout branches return createUncertain without logging, unlike nzbFacade.addFile's equivalent branch.",
+          "problem": "",
           "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-          "source_window": [
-            "                    addedMatch = await this.addTarget(requestedApp, request.targetType, match, request.defaults, signal);",
-            "                } catch (err) {",
-            "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-            "                        // D-16: a timed-out add is a distinct \"outcome",
-            "                        // unknown\" state, not a definite failure -- the"
-          ],
+          "source_window": [],
           "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
           "orchestrator_score": 100,
           "band": "critical",
@@ -1224,19 +286,9 @@
               "severity": "medium",
               "agent": "compliance",
               "agent_confidence": 80,
-              "problem": "Global CLAUDE.md: 'Don't swallow exceptions silently — log them at minimum.' The add/search timeout branches return createUncertain without logging, unlike nzbFacade.addFile's equivalent branch.",
-              "source_window": [
-                "                    addedMatch = await this.addTarget(requestedApp, request.targetType, match, request.defaults, signal);",
-                "                } catch (err) {",
-                "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-                "                        // D-16: a timed-out add is a distinct \"outcome",
-                "                        // unknown\" state, not a definite failure -- the"
-              ],
-              "cwe": null,
-              "why_it_matters": "No server-side trace of which add/search timed out.",
-              "fix_hint": "Log a redactedAxiosSummary(err) before each createUncertain return.",
-              "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": [],
+              "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {"
             }
           ]
         },
@@ -1248,15 +300,9 @@
           "category": "adversarial",
           "severity": "medium",
           "agent_confidence": 98,
-          "problem": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
+          "problem": "",
           "agent": "codex-adversarial",
-          "source_window": [
-            "    }",
-            "",
-            "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-            "        const url: string = `${this.getApiUrl(app)}/command`;",
-            "        const { signal: effectiveSignal } = resolveDeadline(signal);"
-          ],
+          "source_window": [],
           "canonical_line_content": "        return response.data;",
           "orchestrator_score": 90,
           "band": "warning",
@@ -1281,18 +327,8 @@
               "severity": "medium",
               "agent": "codex-adversarial",
               "agent_confidence": 98,
-              "problem": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-              "source_window": [
-                "    }",
-                "",
-                "    async searchSeries(app: App, seriesId: number, signal?: AbortSignal): Promise<void> {",
-                "        const url: string = `${this.getApiUrl(app)}/command`;",
-                "        const { signal: effectiveSignal } = resolveDeadline(signal);"
-              ],
-              "cwe": null,
-              "why_it_matters": "The newly added signal cancels a SeriesSearch POST after the deadline even if Sonarr already accepted it. The search-existing caller at ArrDiscoveryHandoffService.ts:251-257 supplies no signal and has no uncertainty handler, so cancellation reaches the generic ARR_HANDOFF_FAILED response at line 267. BrowseProgrammePage then advertises retry and never sets requiresReconfirmation. A slow accepted search can therefore be immediately submitted again. The same issue affects MoviesSearch.",
-              "fix_hint": "Create and retain a deadline in the search-existing branch, classify cancellation there, and return an uncertain search outcome with appropriate wording so the frontend applies its reconfirmation gate.",
-              "intent_doc_match": null
+              "problem": "",
+              "source_window": []
             }
           ]
         },
@@ -1305,15 +341,9 @@
           "category": "test-coverage",
           "severity": "medium",
           "agent_confidence": 62,
-          "problem": "No test asserts that the signal reaches the service for addSeries/addMovie/searchSeries/searchMovie/createTag. Every test above this layer mocks arrFacade.",
+          "problem": "",
           "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-          "source_window": [
-            "        return signal !== undefined ? service.getQualityProfiles(app, signal) : service.getQualityProfiles(app);",
-            "    }",
-            "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-            "        const service = this.getService(app);",
-            "        return signal !== undefined"
-          ],
+          "source_window": [],
           "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
           "orchestrator_score": 74,
           "band": "medium",
@@ -1339,19 +369,9 @@
               "severity": "medium",
               "agent": "test-sufficiency",
               "agent_confidence": 62,
-              "problem": "No test asserts that the signal reaches the service for addSeries/addMovie/searchSeries/searchMovie/createTag. Every test above this layer mocks arrFacade.",
-              "source_window": [
-                "        return signal !== undefined ? service.getQualityProfiles(app, signal) : service.getQualityProfiles(app);",
-                "    }",
-                "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-                "        const service = this.getService(app);",
-                "        return signal !== undefined"
-              ],
-              "cwe": null,
-              "why_it_matters": "A dropped signal would remove the write deadline and no test would notice.",
-              "fix_hint": "Add arrFacade pass-through tests.",
+              "problem": "",
+              "source_window": [],
               "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
-              "intent_doc_match": null,
               "obligation": {
                 "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
                 "orchestrator_score": 74,
