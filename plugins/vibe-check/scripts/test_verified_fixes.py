@@ -90,6 +90,7 @@ R_IR_SETTLED = "verdict: fix not confirmed: a reviewer said it still applies and
 R_CF_SETTLED = "verdict: confirmed fix not verified: the routed reviewer said it still applies and the code is unchanged since"
 R_NOT_NEEDS_RECHECK = "verdict: record not needs-recheck"
 R_MALFORMED = "verdict: malformed"
+R_CONTRADICTED = "verdict: contradicted by still-applies"
 
 
 def _fake_blob(path):
@@ -1076,6 +1077,27 @@ class TestReviewFix56(unittest.TestCase):
         r = score.run(json.loads(json.dumps(_cf_env(("bugs",)))))
         self.assertEqual(len(r.get("resolved", [])), 1, _rejections(r))
 
+    def test_wr03_still_applies_on_one_route_blocks_another(self):
+        """WR-03: the raising lane's still-applies on a bound plain request
+        blocks the independent confirmer's `resolved` for the same lead in the
+        same pass (still-applies wins); a persisted lead is not both rejected
+        and closed."""
+        row = _ts_row()
+        plain = {"token": "P1", "agents": ["test-sufficiency"],
+                 "stable_hash": row["stable_hash"], "file": row["file"],
+                 "line": row["line"], "agent": row["agent"], "title": row["title"],
+                 "snapshot_blob": B1}
+        verdicts = [reviewer_verdict(token="P1", agent="test-sufficiency",
+                                     verdict="still-applies"),
+                    reviewer_verdict(token="R1", agent="bugs")]
+        for status in ("needs-recheck", "persisted"):
+            with self.subTest(status=status):
+                r = score.run(_review_pass2(row, [plain, _ts_request(row)], verdicts,
+                                            status=status))
+                self.assertNotIn("resolved", r)
+                self.assertEqual(len(_ts_rows(r, row)), 1)
+                self.assertIn(R_CONTRADICTED, _rejections(r))
+
 
 SKIP_RELEVANT = ("no path in its `$TOUCHED_PATHS` list is its `file`, a path in its "
                  "`fingerprint`, or a test of its file")
@@ -1340,6 +1362,23 @@ class TestIndependentRouteMutants(unittest.TestCase):
         self._trips("score_m28",
                     'and all(a not in _NEVER_CONFIRMERS - _FIXER_AGENTS for a in req["agents"]))',
                     "and True)", env)
+
+    def test_m29_cross_route_still_applies_removed(self):
+        """WR-03: without the cross-route check, the independent confirmer's
+        `resolved` closes a lead the raising lane said still applies."""
+        row = _ts_row()
+        plain = {"token": "P1", "agents": ["test-sufficiency"],
+                 "stable_hash": row["stable_hash"], "file": row["file"],
+                 "line": row["line"], "agent": row["agent"], "title": row["title"],
+                 "snapshot_blob": B1}
+        env = _review_pass2(row, [plain, _ts_request(row)],
+                            [reviewer_verdict(token="P1", agent="test-sufficiency",
+                                              verdict="still-applies"),
+                             reviewer_verdict(token="R1", agent="bugs")],
+                            status="needs-recheck")
+        self._trips("score_m29",
+                    "flag for route, flag in still_on.items() if route != resolved_on):",
+                    "False for route, flag in still_on.items()):", env)
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)

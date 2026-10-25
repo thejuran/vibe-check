@@ -151,6 +151,7 @@ _R_CF_STILL = ("verdict: confirmed fix not verified: the routed reviewer says "
 _R_CF_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
                   "the repaired code")
 _R_ROUTED_ORPHAN = "verdict: routed re-check without a confirmed fix"
+_R_CONTRADICTED = "verdict: contradicted by still-applies"
 _R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said "
                  "it still applies and the code is unchanged since")
 # Independent re-check of an ordinary carried record. When the lane that raised
@@ -1476,6 +1477,10 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
     the reviewer, the fix commit and the repaired blob. Verdicts on routed
     tokens never act as plain rechecks.
 
+    A still-applies on one route (plain, independent, confirmed-fix) keeps
+    the record open against a `resolved` on any other route this pass, and
+    against a fix-obsolete verdict (`verdict: contradicted by still-applies`).
+
     An independent re-check (`route: "independent"`, a lead whose raising lane
     was not dispatched) resolves the lead with source `recheck` when an asked
     confirmer (never the fixer, never Codex) answers `resolved`, nobody asked
@@ -1506,6 +1511,12 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
                    if requests_by_token[v["token"]].get("route") == _INDEPENDENT_ROUTE]
     matched = [v for v in matched
                if requests_by_token[v["token"]].get("route") is None]
+    # A still-applies on one route wins over a `resolved` on another route for
+    # the same record this pass; each route judges its own contradictions.
+    still_on = {route: any(v["verdict"] == "still-applies" for v in vs)
+                for route, vs in (("plain", matched), (_INDEPENDENT_ROUTE, independent),
+                                  (_CONFIRMED_ROUTE, routed))}
+    resolved_on = None
     routed_judged = False
     resolving = [v for v in matched if v["verdict"] == "resolved"]
     bound = (status == "persisted" and bool(matched)
@@ -1522,7 +1533,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         if status != "needs-recheck":
             rejected.extend((v, "verdict: record not needs-recheck") for v in resolving)
         elif any(v["verdict"] == "still-applies" for v in matched):
-            rejected.extend((v, "verdict: contradicted by still-applies") for v in resolving)
+            rejected.extend((v, _R_CONTRADICTED) for v in resolving)
         else:
             first = resolving[0]
             agents = []
@@ -1538,6 +1549,8 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
                 "reason": first["reason"] if isinstance(first.get("reason"), str) else "",
             }
 
+    if resolution is not None:
+        resolved_on = "plain"
     if stored_hash is None:
         # Routed requests always name a stored hash, so `routed` and
         # `independent` are empty here.
@@ -1551,6 +1564,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
             resolution = _recheck_resolution(
                 reviewers, head_sha, pass_number,
                 facts["head_blobs"].get(record.get("file")))
+            resolved_on = _INDEPENDENT_ROUTE
             fix_commit = requests_by_token[reviewers[0]["token"]].get("fix_commit")
             if isinstance(fix_commit, str):
                 resolution["commit_sha"] = fix_commit
@@ -1595,6 +1609,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
                     "verified_blob": verified,
                     "commit_sha": v["commit_sha"],
                 }
+                resolved_on = _CONFIRMED_ROUTE
             continue
         if resolution is None:
             verdict_head = v.get("head_sha")
@@ -1609,6 +1624,10 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
             }
     if routed and not routed_judged:
         rejected.extend((v, _R_ROUTED_ORPHAN) for v in routed)
+    if resolution is not None and any(
+            flag for route, flag in still_on.items() if route != resolved_on):
+        rejected.append((None, _R_CONTRADICTED))
+        resolution = None
     return resolution, consumed, rejected
 
 
