@@ -382,6 +382,12 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of)
         if obl["stable_hash"] in visible:
             continue
         row = {k: v for k, v in entry["record"].items() if k not in ("members", "obligation")}
+        # The still-applies memory is this pass's guard output on the working
+        # record (written, kept or cleared by the fresh-start rule), never the
+        # carried copy's.
+        row.pop("recheck_settled", None)
+        if isinstance(m.get("recheck_settled"), dict):
+            row["recheck_settled"] = m["recheck_settled"]
         for k in _OBLIGATION_ROW_KEYS:
             row[k] = obl.get(k)
         row["status"] = m.get("status")

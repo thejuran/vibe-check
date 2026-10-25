@@ -941,6 +941,62 @@ class TestEnvelopeIngress56(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+# Code-review fixes (56-REVIEW.md): each test failed on the reviewed scorer
+# --------------------------------------------------------------------------- #
+def _still_then(row, status, touched=None, **over):
+    """Pass 2: `bugs` says the lead still applies. -> the row as carried into
+    pass 3 (the pass-2 output row)."""
+    r = score.run(_review_pass2(row, [_ts_request(row)],
+                                [reviewer_verdict(agent="bugs", verdict="still-applies")],
+                                status=status, touched=touched, **over))
+    rows = _ts_rows(r, row)
+    assert len(rows) == 1, r
+    return rows[0]
+
+
+def _pass3(carried, requests, verdicts, status, touched, **over):
+    env = _review_pass2(carried, requests, verdicts, status=status, touched=touched, **over)
+    env["pass_number"] = 3
+    return env
+
+
+class TestReviewFix56(unittest.TestCase):
+    """The still-applies memory holds; only HEAD-bound native confirmers close."""
+
+    def _open(self, r, row, reasons):
+        self.assertNotIn("resolved", r)
+        self.assertEqual(len(_ts_rows(r, row)), 1)
+        self.assertEqual(_rejections(r), reasons)
+
+    def test_cr01_settled_memory_survives_a_kept_open_row(self):
+        """CR-01: a sub-threshold needs-recheck row keeps the memory its
+        still-applies wrote, so a stray `resolved` on unchanged code next run
+        does not close it."""
+        row = _ts_row()
+        carried = _still_then(row, "needs-recheck", touched={})
+        self.assertEqual(carried.get("kept_open"), "sub-threshold")
+        self.assertEqual(carried.get("recheck_settled"),
+                         {"verdict": "still-applies", "at_pass": 2, "head_sha": HEAD_TS,
+                          "fingerprint": {TS_FILE: B1, TS_TEST: T1}})
+        r = score.run(_pass3(carried, [_ts_request(carried, token="R9")],
+                             [reviewer_verdict(token="R9", agent="bugs")],
+                             "needs-recheck", {}))
+        self._open(r, row, [R_IR_SETTLED])
+
+    def test_cr01_fresh_start_clear_is_not_resurrected(self):
+        """CR-01: a memory the fresh-start rule dropped (the code changed) does
+        not come back on the kept-open row."""
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        r = score.run(_review_pass2(settled, [], [], status="needs-recheck", touched={},
+                                    head_blobs={TS_FILE: B2, TS_TEST: T1}))
+        rows = _ts_rows(r, row)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].get("kept_open"), "sub-threshold")
+        self.assertNotIn("recheck_settled", rows[0])
+
+
+# --------------------------------------------------------------------------- #
 # Mutation checks: each new guard trips when removed
 # --------------------------------------------------------------------------- #
 class TestIndependentRouteMutants(unittest.TestCase):
@@ -1114,6 +1170,39 @@ class TestIndependentRouteMutants(unittest.TestCase):
         self.assertIsInstance(settled(score), dict)
         mod = self._mod("score_m23", 'record["recheck_settled"] = {', "_unused = {")
         self.assertIsNone(settled(mod))
+
+    def test_m24_kept_open_memory_copy_removed(self):
+        """CR-01: without the copy, the kept-open row loses the memory and the
+        next run's stray `resolved` closes it on unchanged code."""
+        row = _ts_row()
+        mod = self._mod("score_m24",
+                        '        if isinstance(m.get("recheck_settled"), dict):\n'
+                        '            row["recheck_settled"] = m["recheck_settled"]\n',
+                        "")
+        env2 = _review_pass2(row, [_ts_request(row)],
+                             [reviewer_verdict(agent="bugs", verdict="still-applies")],
+                             status="needs-recheck", touched={})
+
+        def pass3(m):
+            carried = _ts_rows(m.run(json.loads(json.dumps(env2))), row)[0]
+            return _pass3(carried, [_ts_request(carried, token="R9")],
+                          [reviewer_verdict(token="R9", agent="bugs")], "needs-recheck", {})
+
+        self.assertNotIn("resolved", score.run(pass3(score)))
+        self.assertIn("resolved", mod.run(pass3(mod)))
+
+    def test_m25_kept_open_memory_pop_removed(self):
+        """CR-01: without the pop, a memory the fresh-start rule cleared is
+        resurrected from the carried copy."""
+        row = _ts_row()
+        settled = _settled(row, {TS_FILE: B1, TS_TEST: T1})
+        env = _review_pass2(settled, [], [], status="needs-recheck", touched={},
+                            head_blobs={TS_FILE: B2, TS_TEST: T1})
+        mod = self._mod("score_m25", '        row.pop("recheck_settled", None)\n', "")
+        self.assertNotIn("recheck_settled", _ts_rows(score.run(json.loads(json.dumps(env))),
+                                                      row)[0])
+        self.assertIn("recheck_settled", _ts_rows(mod.run(json.loads(json.dumps(env))),
+                                                   row)[0])
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
