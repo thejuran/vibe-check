@@ -44,6 +44,7 @@ import finalize_gate  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 CARRY_STATE_PY = os.path.join(HERE, "carry_state.py")
 FIXTURE = os.path.join(HERE, "fixtures", "phase45-loop-state.json")
+SIX_ROW_FIXTURE = os.path.join(HERE, "fixtures", "iplayarr45-six-row-state.json")
 
 ARCH_HASH = "5e78e90a6bf05e6a409b4aa3271e5e4df072735a074a9947a0a766a3d794af67"
 BUGS_HASH = "7479a9b5fd5b36bce327aea4d49db8dcbe4193208c2b2ca3f1d3ac98368e6644"
@@ -56,6 +57,13 @@ F = "src/app.py"
 
 def load_fixture():
     with open(FIXTURE, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def load_six_row():
+    """The trimmed real iPlayarr phase-45 state (passes 1-3): six already-fixed
+    rows the owner had to dismiss by hand."""
+    with open(SIX_ROW_FIXTURE, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
 
@@ -1687,6 +1695,7 @@ class TestOrchestratorCompat(unittest.TestCase):
 import score  # noqa: E402
 import state_shape  # noqa: E402
 import test_score as ts  # noqa: E402  (shared envelope builders; no classes imported)
+import test_verified_fixes as tvf  # noqa: E402  (six-row pass-4 envelope builders)
 
 FUTURE = state_shape.load_schema("future")
 PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
@@ -2270,6 +2279,111 @@ def nv_hand_state(evidence_over=None, row_over=None, code=None):
     if evidence_over:
         s["decisions"][row["stable_hash"]]["evidence"].update(evidence_over)
     return s
+
+
+class TestSixRowEndToEnd(unittest.TestCase):
+    """The owner's six already-fixed iPlayarr rows, from the persisted state
+    through score.py, the pass-4 state write and the Finalize gate. Closure
+    must come from independent re-check evidence alone: no `decisions` root,
+    no "fixed in <sha>" dismissal."""
+
+    def assert_schema(self, state):
+        self.assertEqual(sorted(state_shape.check_state(state, FUTURE)),
+                         audit_reasons(state))
+
+    def lead_hash(self, prefix):
+        return tvf._six_leads()[prefix]["stable_hash"]
+
+    def closure_pass(self, env):
+        s = load_six_row()
+        r = score.run(json.loads(json.dumps(env)))
+        new = append_pass(s, r, 4, tvf.HEAD4)
+        self.assert_schema(new)
+        self.assertEqual(passes_json(dict(new, passes=new["passes"][:3])),
+                         passes_json(s))
+        return s, r, new
+
+    def test_six_row_fixture_is_blocked_today_without_closure(self):
+        s = load_six_row()
+        self.assert_schema(s)
+        self.assertNotIn("decisions", s)
+        c = carry_state.finalize_counts(s, tvf._head_blobs())
+        self.assertGreaterEqual(c["outstanding_cw"], 3)
+        self.assertEqual(sorted(c["outstanding_cw_hashes"]
+                                + c["unacknowledged_medium_hashes"]),
+                         sorted(self.lead_hash(p) for p in tvf.SIX))
+        self.assertNotEqual(e2e_gate(s, tvf._head_blobs()), "write")
+        self.assertNotEqual(e2e_gate(s), "write")
+
+    def test_six_row_closure_reaches_write_without_decisions(self):
+        s, r, new = self.closure_pass(tvf._pass4_envelope())
+        self.assertEqual(r["filtered"], [])
+        resolved = new["passes"][3]["resolved"]
+        by_hash = {x["stable_hash"]: x for x in resolved
+                   if isinstance(x.get("stable_hash"), str)}
+        self.assertEqual(sorted(by_hash),
+                         sorted(self.lead_hash(p) for p in tvf.SIX))
+        for x in resolved:
+            self.assertEqual(x["resolution"]["source"], "recheck")
+            self.assertEqual(x["resolution"].get("verified_blob"),
+                             tvf.BLOBS[x["file"]])
+        members = sorted(x["agent"] for x in resolved
+                         if not isinstance(x.get("stable_hash"), str))
+        self.assertEqual(members, ["bugs", "impact"])
+        self.assertEqual(new["passes"][3]["findings"], [])
+        c = carry_state.finalize_counts(new, tvf._head_blobs())
+        self.assertEqual((c["outstanding_cw"], c["unacknowledged_medium"],
+                          c["undecided_nv"]), (0, 0, 0))
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
+        self.assertEqual(e2e_gate(new, tvf._head_blobs()), "write")
+        self.assertNotIn("decisions", new)
+        self.assertNotIn("fix_verdicts", new)
+
+    def test_six_row_still_applies_blocks_write_and_settles(self):
+        reqs = tvf._default_requests()
+        verdicts = []
+        for v in tvf._resolved_for(reqs):
+            if v["token"] == "R7":
+                v = tvf.reviewer_verdict(token="R7", agent="compliance",
+                                         verdict="still-applies",
+                                         reason="the handoff still skips the check")
+            verdicts.append(v)
+        s, r, new = self.closure_pass(tvf._pass4_envelope(verdicts=verdicts))
+        h = self.lead_hash("2a01829c")
+        rows = [f for f in new["passes"][3]["findings"] if f["stable_hash"] == h]
+        self.assertEqual(len(rows), 1)
+        settled = rows[0].get("recheck_settled")
+        self.assertIsInstance(settled, dict)
+        self.assertEqual(settled["verdict"], "still-applies")
+        self.assertIn(tvf.R_IR_STILL, [x["reason"] for x in r["filtered"]])
+        resolved = {x["stable_hash"] for x in new["passes"][3]["resolved"]
+                    if isinstance(x.get("stable_hash"), str)}
+        self.assertEqual(resolved, {self.lead_hash(p) for p in tvf.SIX
+                                    if p != "2a01829c"})
+        c = carry_state.finalize_counts(new, tvf._head_blobs())
+        self.assertEqual(c["outstanding_cw_hashes"], [h])
+        self.assertNotEqual(e2e_gate(new, tvf._head_blobs()), "write")
+        d = decide(new, 4, (h, "dismiss"))
+        self.assertEqual(e2e_gate(d, tvf._head_blobs()), "write")
+        self.assertEqual(passes_json(d), passes_json(new))
+
+    def test_six_row_stale_blob_blocks_write(self):
+        path = "src/utils/integrationDeadline.ts"
+        moved = tvf._head_blobs(**{path: "c" * 40})
+        s, r, new = self.closure_pass(tvf._pass4_envelope(head_blobs=moved))
+        h = self.lead_hash("22d360d9")
+        self.assertEqual([f["stable_hash"] for f in new["passes"][3]["findings"]
+                          if f["stable_hash"] == h], [h])
+        at_site = [x["reason"] for x in new["passes"][3]["filtered"]
+                   if x["file"] == path]
+        self.assertIn(tvf.R_IR_SNAPSHOT, at_site)
+        resolved = {x["stable_hash"] for x in new["passes"][3]["resolved"]
+                    if isinstance(x.get("stable_hash"), str)}
+        self.assertEqual(resolved, {self.lead_hash(p) for p in tvf.SIX
+                                    if p != "22d360d9"})
+        c = carry_state.finalize_counts(new, moved)
+        self.assertEqual(c["outstanding_cw_hashes"], [h])
+        self.assertNotEqual(e2e_gate(new, moved), "write")
 
 
 class TestNeedsVerificationCounts(unittest.TestCase):

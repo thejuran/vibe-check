@@ -215,6 +215,23 @@ def applied_verdict(blob=BLOB, at_pass=1, **over):
     return v
 
 
+def state_two_passes(row, **roots):
+    """A state whose pass 2 carried `row` unchanged from pass 1."""
+    s = state_with(json.loads(json.dumps(row)), **roots)
+    s["passes"].append({"pass_number": 2, "head_sha": "h2", "diff_range": "b..c",
+                        "findings": [json.loads(json.dumps(row))]})
+    return s
+
+
+def settled_row(row, fingerprint, at_pass=2, head_sha="e" * 40):
+    """`row` as carried after a routed reviewer answered still-applies on the
+    code whose blobs are `fingerprint`."""
+    out = json.loads(json.dumps(row))
+    out["recheck_settled"] = {"verdict": "still-applies", "at_pass": at_pass,
+                              "head_sha": head_sha, "fingerprint": dict(fingerprint)}
+    return out
+
+
 class TestFinalizeCountsConfirmedFix(unittest.TestCase):
     """Without a rerun there is no independent re-check: the fixer's evidence
     alone never closes the item. It is listed as awaiting the re-check."""
@@ -246,10 +263,34 @@ class TestFinalizeCountsConfirmedFix(unittest.TestCase):
         self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_stale_pass_never_closes(self):
+        """An `applied` verdict older than the last pass still never closes at
+        finalize (closure needs score.py's resolved[]), but the item is still
+        fixed and awaiting its independent re-check."""
         s = state_with(nv_row(), fix_verdicts={NVH: applied_verdict(at_pass=0)})
         c = carry_state.finalize_counts(s, {F: BLOB})
         self.assertEqual(c["undecided_nv"], 1)
+        self.assertFalse(carry_state.is_closed(nv_row(), s, {F: BLOB}))
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_awaiting_listed_at_any_later_pass(self):
+        """A rerun that could not confirm the fix (no eligible reviewer) leaves
+        the verdict at its original pass; the item is still awaiting."""
+        s = state_two_passes(nv_row(status="persisted"),
+                             fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv_hashes"], [NVH])
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_settled_row_not_awaiting(self):
+        """A reviewer said it still applies on this exact code: nothing is
+        awaiting until the code changes."""
+        row = settled_row(nv_row(status="persisted"), {F: BLOB})
+        s = state_two_passes(row, fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        c = carry_state.finalize_counts(s, {F: BLOB})
+        self.assertEqual(c["undecided_nv_hashes"], [NVH])
         self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [])
+        c = carry_state.finalize_counts(s, {F: "f" * 40})
+        self.assertEqual(c["confirmed_fix_awaiting_recheck_hashes"], [NVH])
 
     def test_applied_without_commit_never_closes(self):
         v = applied_verdict()
@@ -306,6 +347,12 @@ R_STILL = ("verdict: confirmed fix not verified: the routed reviewer says "
 R_SNAPSHOT = ("verdict: confirmed fix not verified: the reviewed code is not "
               "the repaired code")
 R_ORPHAN_ROUTED = "verdict: routed re-check without a confirmed fix"
+R_STALE = "verdict: stale fix verdict"
+R_EVIDENCE_CHANGED = "verdict: evidence changed since verification"
+R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said "
+                "it still applies and the code is unchanged since")
+HEAD2_BLOB = "2" * 40
+BLOB2 = "4" * 40
 
 
 def routed_request(row, token="R1", agents=("bugs",), snapshot=BLOB, **over):
@@ -372,11 +419,16 @@ class TestScoreConfirmedFix(unittest.TestCase):
         self.assertEqual(len(_nv_rows(r)), 1)
 
     def test_stale_verdict_stays_open(self):
+        """Stale means the code changed since the fix was verified, at any
+        age: an older verdict on a changed blob never closes."""
         p1 = self._pass1()
         r = self._pass2(_nv_cf(p1, None, None),
-                        [confirmed_verdict(p1["stable_hash"], at_pass=0)])
+                        [confirmed_verdict(p1["stable_hash"], at_pass=0,
+                                           head_blob=HEAD2_BLOB)])
         self.assertEqual(len(_nv_rows(r)), 1)
-        self.assertEqual(_rejections(r), ["verdict: stale fix verdict"])
+        self.assertNotIn("resolved", r)
+        self.assertIn(R_EVIDENCE_CHANGED, _rejections(r))
+        self.assertNotIn(R_STALE, _rejections(r))
 
     def test_malformed_confirmed_verdict_rejected(self):
         p1 = self._pass1()
@@ -561,9 +613,15 @@ class TestIndependentRecheck(unittest.TestCase):
         self._open(r, R_ORPHAN_ROUTED)
 
     def test_stale_or_changed_fix_verdict_with_routed_resolved_stays_open(self):
+        """A routed `resolved` never revives a fix whose code changed since it
+        was verified, whatever the verdict's age."""
         p1 = self._pass1()
-        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], at_pass=0)
-        self._open(r, "verdict: stale fix verdict")
+        r = self._run(p1, [routed_request(p1)], [reviewer_verdict()], at_pass=0,
+                      head_blob=HEAD2_BLOB)
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        self.assertIn(R_EVIDENCE_CHANGED, _rejections(r))
+        self.assertNotIn(R_STALE, _rejections(r))
 
     def test_malformed_routed_requests_rejected(self):
         p1 = self._pass1()
@@ -601,6 +659,114 @@ class TestIndependentRecheck(unittest.TestCase):
         p1 = self._pass1()
         r = self._run(p1, [routed_request(p1)], [reviewer_verdict()])
         self.assertEqual(r["resolved"][0]["stable_hash"], p1["stable_hash"])
+
+
+# --------------------------------------------------------------------------- #
+# Retry after an inconclusive re-check: a fix that no independent reviewer
+# could confirm on one rerun is re-checked on a later rerun, on the same
+# evidence, with no new fix and no owner decision
+# --------------------------------------------------------------------------- #
+HEAD3 = "f" * 40
+
+
+class TestRetryAfterInconclusive(unittest.TestCase):
+    def _pass1(self, agent="codex-adversarial"):
+        rows = _nv_rows(score.run(_nv_env([_nv(agent=agent)])))
+        self.assertEqual(len(rows), 1)
+        return rows[0]
+
+    def _run(self, cf, requests, verdicts, pass_number, head_sha, **env_over):
+        env = _nv_env([], carryforward=[cf], pass_number=pass_number,
+                      head_sha=head_sha, recheck_requests=requests,
+                      verdicts=verdicts, **env_over)
+        self.last_env = env
+        return score.run(json.loads(json.dumps(env)))
+
+    def _carry(self, r):
+        """The pass's surviving NV row, carried into the next pass (the fix
+        changed the code, so the stored snippet is not located)."""
+        rows = _nv_rows(r)
+        self.assertEqual(len(rows), 1)
+        return _nv_cf(rows[0], None, None)
+
+    def _open(self, r, reason):
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        self.assertIn(reason, _rejections(r))
+
+    def test_inconclusive_then_retry_closes_on_unchanged_code(self):
+        p1 = self._pass1()
+        fix = confirmed_verdict(p1["stable_hash"], blob=BLOB, head_blob=BLOB,
+                                at_pass=1)
+        # Pass 2: no eligible reviewer ran, so the fix is not yet confirmed.
+        r2 = self._run(_nv_cf(p1, None, None), [], [fix], 2, HEAD2)
+        self._open(r2, R_NO_REVIEWER)
+        # Pass 3: a later run dispatched a reviewer; the SAME applied verdict
+        # (still at_pass 1) and the unchanged blob close the item.
+        env_verdicts = [json.loads(json.dumps(fix)), reviewer_verdict()]
+        r3 = self._run(self._carry(r2), [routed_request(p1)], env_verdicts, 3, HEAD3)
+        self.assertEqual(_rejections(r3), [])
+        self.assertEqual(_nv_rows(r3), [])
+        res = r3["resolved"][0]["resolution"]
+        self.assertEqual(res["source"], "confirmed-fix")
+        self.assertEqual(res["commit_sha"], SHA)
+        self.assertEqual(res["verified_blob"], BLOB)
+        self.assertEqual(res["at_pass"], 3)
+        # No new fix pass and no owner decision: the pass-3 envelope holds
+        # exactly the one pass-1 fix verdict and no decisions.
+        fix_vs = [v for v in self.last_env["verdicts"]
+                  if v["source"] in ("confirmed-fix", "fix-obsolete")]
+        self.assertEqual(fix_vs, [fix])
+        self.assertNotIn("decisions", self.last_env)
+
+    def test_retry_rejects_changed_code_at_any_age(self):
+        p1 = self._pass1()
+        fix = confirmed_verdict(p1["stable_hash"], blob=BLOB, head_blob=HEAD2_BLOB,
+                                at_pass=1)
+        r = self._run(_nv_cf(p1, None, None), [routed_request(p1)],
+                      [fix, reviewer_verdict()], 3, HEAD3)
+        self.assertEqual(len(_nv_rows(r)), 1)
+        self.assertNotIn("resolved", r)
+        self.assertIn(R_EVIDENCE_CHANGED, _rejections(r))
+        self.assertNotIn(R_STALE, _rejections(r))
+
+    def test_retry_after_still_applies_waits_for_code_change(self):
+        p1 = self._pass1()
+        fix = confirmed_verdict(p1["stable_hash"], at_pass=1)
+        # Pass 2: the routed reviewer says it still applies.
+        r2 = self._run(_nv_cf(p1, None, None), [routed_request(p1)],
+                       [fix, reviewer_verdict(verdict="still-applies",
+                                              reason="limit unchecked on reload")],
+                       2, HEAD2, head_blobs={F: BLOB}, touched_paths={})
+        self._open(r2, R_STILL)
+        settled = _nv_rows(r2)[0].get("recheck_settled")
+        self.assertIsInstance(settled, dict, "no recheck_settled on the row")
+        self.assertEqual(settled.get("fingerprint"), {F: BLOB})
+        carried = _nv_cf(settled_row(_nv_rows(r2)[0], {F: BLOB},
+                                     head_sha=HEAD2), None, None)
+        # Pass 3, code unchanged: a routed `resolved` cannot close it.
+        r3 = self._run(carried, [routed_request(p1)], [fix, reviewer_verdict()],
+                       3, HEAD3, head_blobs={F: BLOB}, touched_paths={})
+        self._open(r3, R_CF_SETTLED)
+        # Pass 3, the code changed (a new fix verified on BLOB2): a fresh start.
+        fix2 = confirmed_verdict(p1["stable_hash"], blob=BLOB2, head_blob=BLOB2,
+                                 at_pass=2)
+        r3 = self._run(carried, [routed_request(p1, snapshot=BLOB2)],
+                       [fix2, reviewer_verdict()], 3, HEAD3,
+                       head_blobs={F: BLOB2}, touched_paths={})
+        self.assertEqual(_rejections(r3), [])
+        self.assertEqual(_nv_rows(r3), [])
+        self.assertEqual(r3["resolved"][0]["resolution"]["source"], "confirmed-fix")
+        self.assertEqual(r3["resolved"][0]["resolution"]["verified_blob"], BLOB2)
+
+    def test_obsolete_age_rule_unchanged(self):
+        p1 = self._pass1()
+        v = {"source": "fix-obsolete", "stable_hash": p1["stable_hash"],
+             "agent": "fix", "verdict": "obsolete", "at_pass": 1,
+             "head_sha": "d" * 40, "reason": "gone", "verified_blob": BLOB,
+             "head_blob": BLOB}
+        r = self._run(_nv_cf(p1, None, None), [], [v], 3, HEAD3)
+        self._open(r, R_STALE)
 
 
 # --------------------------------------------------------------------------- #
@@ -663,6 +829,24 @@ class TestMutants(unittest.TestCase):
                       "_sha40(")
         self.assertEqual(mod.finalize_counts(
             s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [WH])
+
+    def test_mutant_awaiting_settled_check_removed(self):
+        row = settled_row(nv_row(status="persisted"), {F: BLOB})
+        s = state_two_passes(row, fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        self.assertEqual(carry_state.finalize_counts(
+            s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [])
+        mod = _mutant(CARRY_STATE_PY, "cs_m7",
+                      "and not _settled_unchanged(record, head_blobs))", ")")
+        self.assertEqual(mod.finalize_counts(
+            s, {F: BLOB})["confirmed_fix_awaiting_recheck_hashes"], [NVH])
+
+    def test_settled_unchanged_fails_closed_without_head_blobs(self):
+        row = settled_row(nv_row(status="persisted"), {F: BLOB})
+        s = state_two_passes(row, fix_verdicts={NVH: applied_verdict(at_pass=1)})
+        for blobs in (None, {}, {"src/other.py": BLOB}):
+            with self.subTest(blobs=blobs):
+                self.assertEqual(carry_state.finalize_counts(
+                    s, blobs)["confirmed_fix_awaiting_recheck_hashes"], [])
 
     def test_mutant_fixer_only_closes_at_finalize(self):
         """Restoring the old rule (an `applied` verdict closes like obsolete)
@@ -738,6 +922,31 @@ class TestIndependentRecheckMutants(unittest.TestCase):
                     'not any(a in _FIXER_AGENTS for a in req["agents"])',
                     "True", env)
 
+    def test_mutant_applied_blob_gate_removed(self):
+        """With the age gate relaxed for confirmed fixes, the blob compare is
+        the only thing stopping an old verdict on changed code."""
+        p1 = self._p1()
+        env = self._env(p1, [routed_request(p1)], [reviewer_verdict()],
+                        at_pass=0, head_blob=HEAD2_BLOB)
+        self._trips("score_m19",
+                    'verified == v.get("head_blob")',
+                    "True", env)
+
+    def test_mutant_cf_settled_check_removed(self):
+        p1 = self._p1()
+        cf = _nv_cf(settled_row(p1, {F: BLOB}, head_sha=HEAD2), None, None)
+        env = _nv_env([], carryforward=[cf], pass_number=3, head_sha=HEAD3,
+                      recheck_requests=[routed_request(p1)],
+                      verdicts=[confirmed_verdict(p1["stable_hash"], at_pass=1),
+                                reviewer_verdict()],
+                      head_blobs={F: BLOB}, touched_paths={})
+        self._trips("score_m20",
+                    'if isinstance(record.get("recheck_settled"), dict):\n'
+                    '                rejected.append((v, _R_CF_SETTLED))',
+                    'if False:\n'
+                    '                rejected.append((v, _R_CF_SETTLED))',
+                    env)
+
     def test_mutant_routed_counted_as_plain_recheck(self):
         p1 = self._p1()
         env = self._env(p1, [routed_request(p1)], [reviewer_verdict()], fix=False)
@@ -774,18 +983,38 @@ def finalize_renders_confirmed_fix_holds(text):
             and "never closes here" in text)
 
 
+BIND_STEP = "Bind `$RECHECK_REQUESTS`"
+
+
+def _next_top_level_step(text, i, first=4, last=9):
+    """Index of the first top-level numbered step (`\nN. `, N in first..last)
+    after `i`, or -1."""
+    found = [k for k in (text.find("\n%d. " % n, i) for n in range(first, last + 1))
+             if k > i]
+    return min(found) if found else -1
+
+
 def _dispatch_step3(text):
     i = text.find("3. **Confirmed-fix re-check")
-    j = text.find("\n4. Bind `$RECHECK_REQUESTS`", i)
-    return text[i:j] if i >= 0 and j > i else None
+    if i < 0:
+        return None
+    j = _next_top_level_step(text, i)
+    return text[i:j] if j > i else None
+
+
+def _dispatch_bind_step(text):
+    i = text.find(BIND_STEP)
+    if i < 0:
+        return None
+    j = text.find("\n\n", i + 1)
+    return text[i:j] if j > i else text[i:]
 
 
 def dispatch_routes_confirmed_fix_holds(text):
     step = _dispatch_step3(text)
-    if step is None:
+    step4 = _dispatch_bind_step(text)
+    if step is None or step4 is None:
         return False
-    i = text.find("\n4. Bind `$RECHECK_REQUESTS`")
-    step4 = text[i:text.find("\n\n", i + 1)]
     return (all(n in step for n in (
         "`$FIX_VERDICTS_PREV`", "`applied`",
         "the record's own `agent` when it is dispatched",
@@ -845,6 +1074,18 @@ class TestProse(unittest.TestCase):
         self.assertNotIn("closes by an owner decision or, after an owner-named fix, "
                          "by a confirmed-fix verdict", text)
 
+    def test_dispatch_slicers_survive_renumbering(self):
+        """A new step between the confirmed-fix step and the Bind step (Bind
+        renumbered) keeps the confirmed-fix lock reading the right slices."""
+        text = _read("phases/review/20-dispatch.md")
+        old_bind = "\n4. " + BIND_STEP
+        self.assertIn(old_bind, text)
+        renumbered = text.replace(old_bind, "\n4. **Independent re-check (ordinary "
+                                  "carried records)** body.\n5. " + BIND_STEP)
+        self.assertTrue(dispatch_routes_confirmed_fix_holds(renumbered))
+        self.assertNotIn("Independent re-check", _dispatch_step3(renumbered))
+        self.assertTrue(_dispatch_bind_step(renumbered).startswith(BIND_STEP))
+
     def test_collect_rereads_head_blob(self):
         text = _read("phases/review/30-collect-score.md")
         self.assertTrue(collect_rereads_head_blob_holds(text))
@@ -882,6 +1123,259 @@ class TestProse(unittest.TestCase):
     def test_schema_enum(self):
         self.assertIn("confirmed-fix", FUTURE["resolution_source_enum"])
         self.assertIn("commit_sha", FUTURE["resolution_optional"])
+
+
+# --------------------------------------------------------------------------- #
+# Prose contract for the independent re-check of ordinary carried records,
+# the retry of an unconfirmed fix and the bounded "not yet confirmed" reason
+# --------------------------------------------------------------------------- #
+INDEPENDENT_STEP = "**Independent re-check (ordinary carried records)**"
+STEP2_HEAD = "2. For each record whose `agent` is in THIS pass's dispatched set"
+STEP3_HEAD = "3. **Confirmed-fix"
+INDEPENDENT_NEEDLES = (
+    '"route": "independent"',
+    "the record's own `agent` when it is dispatched",
+    "otherwise `bugs` when dispatched",
+    "`codex-adversarial` and `fix` are never the reviewer",
+    "`snapshot_blob`",
+    "`test_paths`",
+    "`recheck_settled`",
+    "no eligible reviewer ran this pass",
+    "you are the independent re-check",
+    "new tests alone do not resolve",
+    "not an instruction to change your review scope",
+)
+BIND_INDEPENDENT_NEEDLES = ('"route": "independent"', '"test_paths"', '"fix_commit"')
+NEVER_REROUTED = "is never rerouted to another agent"
+TOUCHED_PATHS_BULLET = "- `$TOUCHED_PATHS`"
+TOUCHED_PATHS_NEEDLES = ("`$TOUCHED_PATHS`", "git diff --name-only",
+                         "earliest pass whose `findings`", "`recheck_settled`",
+                         "`^[A-Za-z0-9._/-]+$`")
+FORWARDED_ANY_AGE = "forwarded whatever its `at_pass`"
+OLD_IGNORED_SENTENCE = ("Older `fix_verdicts` entries (`at_pass` below the last "
+                        "pass) are ignored — never resurrected.")
+CONTRACT_REASONS = (
+    "verdict: fix not yet confirmed: no eligible reviewer ran this pass",
+    "verdict: fix not yet confirmed: the routed reviewer gave no verdict",
+    "verdict: fix not confirmed: the routed reviewer says it still applies",
+    "verdict: fix not confirmed: the reviewed code is not the code at HEAD",
+    "verdict: fix not confirmed: no change near the finding or in its file "
+    "since it was raised",
+    "verdict: fix not confirmed: a reviewer said it still applies and the code "
+    "is unchanged since",
+    R_CF_SETTLED,
+)
+COLLECT_NEEDLES = ("`head_blobs`", "`touched_paths`",
+                   "re-read NOW, after the agents returned and the gitsnap "
+                   "compare passed") + CONTRACT_REASONS
+RENDER_NEEDLES = ("Fix not yet confirmed:",
+                  "retried on the next run that reviews changes",
+                  "run /deep-review", "dismiss",
+                  "Closed — fix confirmed by the {{agents}} lane")
+OLD_RENDER_SENTENCE = "The independent re-check runs only on the first rerun after the fix"
+OLD_OUTPUT_SUFFIX = "code changed since last pass; awaiting your decision"
+
+
+def _dispatch_independent_step(text):
+    i = text.find(INDEPENDENT_STEP)
+    if i < 0:
+        return None
+    j = text.find(BIND_STEP, i)
+    return text[i:j] if j > i else None
+
+
+def _dispatch_step2(text):
+    i = text.find(STEP2_HEAD)
+    if i < 0:
+        return None
+    j = text.find(STEP3_HEAD, i)
+    return text[i:j] if j > i else None
+
+
+def dispatch_routes_independent_holds(text):
+    step = _dispatch_independent_step(text)
+    bind = _dispatch_bind_step(text)
+    step2 = _dispatch_step2(text)
+    if step is None or bind is None or step2 is None:
+        return False
+    return (all(n in step for n in INDEPENDENT_NEEDLES)
+            and all(n in bind for n in BIND_INDEPENDENT_NEEDLES)
+            and "`snapshot_blob`" in step2
+            and NEVER_REROUTED not in text)
+
+
+def _touched_paths_bullet(text):
+    i = text.find(TOUCHED_PATHS_BULLET)
+    if i < 0:
+        return None
+    ends = [k for k in (text.find("\n   - ", i + 1), text.find("\n3. ", i + 1))
+            if k > i]
+    return text[i:min(ends)] if ends else text[i:]
+
+
+def state_collects_touched_paths_holds(text):
+    bullet = _touched_paths_bullet(text)
+    return bullet is not None and all(n in bullet for n in TOUCHED_PATHS_NEEDLES)
+
+
+def state_forwards_applied_any_age_holds(text):
+    return FORWARDED_ANY_AGE in text and OLD_IGNORED_SENTENCE not in text
+
+
+def collect_forwards_independent_holds(text):
+    return all(n in text for n in COLLECT_NEEDLES)
+
+
+def render_shows_not_yet_confirmed_holds(text):
+    return (all(n in text for n in RENDER_NEEDLES)
+            and OLD_RENDER_SENTENCE not in text)
+
+
+def output_format_not_yet_confirmed_holds(text):
+    return "Fix not yet confirmed" in text and OLD_OUTPUT_SUFFIX not in text
+
+
+# A minimal document each predicate accepts, so every needle is proven
+# load-bearing today, before the prose exists.
+SYNTH_DISPATCH = (
+    "On pass >= 2:\n"
+    "1. Number every carried RECORD.\n"
+    + STEP2_HEAD + " — plain hint, with `snapshot_blob` for every plain entry.\n"
+    + STEP3_HEAD + " re-check (independent, batched into this pass).** body\n"
+    "4. " + INDEPENDENT_STEP + " " + " ".join(INDEPENDENT_NEEDLES) + "\n"
+    "5. " + BIND_STEP + " = [" + ", ".join(BIND_INDEPENDENT_NEEDLES) + "]\n\n"
+    "trailing paragraph\n")
+SYNTH_STATE = (
+    "2. If present: parse it.\n"
+    "   " + TOUCHED_PATHS_BULLET + " " + " ".join(TOUCHED_PATHS_NEEDLES) + "\n"
+    "   - `$FIX_VERDICTS_PREV` = every applied entry, " + FORWARDED_ANY_AGE
+    + " `^[A-Za-z0-9._/-]+$`.\n\n"
+    "3. Narrow diff to incremental.\n")
+SYNTH_COLLECT = " ".join(COLLECT_NEEDLES)
+SYNTH_RENDER = " ".join(RENDER_NEEDLES)
+SYNTH_OUTPUT = "| row | — Fix not yet confirmed: ... |"
+
+
+class TestProse56Predicates(unittest.TestCase):
+    """Each Phase 56 prose predicate can go true, and each of its needles is
+    load-bearing (the removal mutant goes false)."""
+
+    def _load_bearing(self, holds, text, needles):
+        self.assertTrue(holds(text))
+        for needle in needles:
+            with self.subTest(mutant=needle):
+                self.assertIn(needle, text)
+                self.assertFalse(holds(text.replace(needle, "")))
+
+    def test_dispatch_independent(self):
+        self._load_bearing(dispatch_routes_independent_holds, SYNTH_DISPATCH,
+                           INDEPENDENT_NEEDLES + BIND_INDEPENDENT_NEEDLES
+                           + (INDEPENDENT_STEP, BIND_STEP))
+        # Each bind needle counts inside the Bind step, not only in the step.
+        bind = _dispatch_bind_step(SYNTH_DISPATCH)
+        self.assertFalse(dispatch_routes_independent_holds(
+            SYNTH_DISPATCH.replace(bind, BIND_STEP + " = []")))
+        # The plain hint must carry `snapshot_blob`.
+        step2 = _dispatch_step2(SYNTH_DISPATCH)
+        self.assertFalse(dispatch_routes_independent_holds(SYNTH_DISPATCH.replace(
+            step2, step2.replace("`snapshot_blob`", "the blob"))))
+        self.assertFalse(dispatch_routes_independent_holds(
+            SYNTH_DISPATCH + "\nA record " + NEVER_REROUTED + ".\n"))
+
+    def test_state_touched_paths(self):
+        self._load_bearing(state_collects_touched_paths_holds, SYNTH_STATE,
+                           TOUCHED_PATHS_NEEDLES)
+        # The path-validation literal elsewhere in the file does not count.
+        bullet = _touched_paths_bullet(SYNTH_STATE)
+        self.assertNotIn("FIX_VERDICTS_PREV", bullet)
+        self.assertFalse(state_collects_touched_paths_holds(SYNTH_STATE.replace(
+            bullet, bullet.replace("`^[A-Za-z0-9._/-]+$`", ""))))
+
+    def test_state_forwards_applied_any_age(self):
+        self._load_bearing(state_forwards_applied_any_age_holds, SYNTH_STATE,
+                           (FORWARDED_ANY_AGE,))
+        self.assertFalse(state_forwards_applied_any_age_holds(
+            SYNTH_STATE + OLD_IGNORED_SENTENCE))
+
+    def test_collect_forwards_independent(self):
+        self._load_bearing(collect_forwards_independent_holds, SYNTH_COLLECT,
+                           COLLECT_NEEDLES)
+
+    def test_render_not_yet_confirmed(self):
+        self._load_bearing(render_shows_not_yet_confirmed_holds, SYNTH_RENDER,
+                           RENDER_NEEDLES)
+        self.assertFalse(render_shows_not_yet_confirmed_holds(
+            SYNTH_RENDER + " " + OLD_RENDER_SENTENCE))
+
+    def test_output_format_bounded_reason(self):
+        self._load_bearing(output_format_not_yet_confirmed_holds, SYNTH_OUTPUT,
+                           ("Fix not yet confirmed",))
+        self.assertFalse(output_format_not_yet_confirmed_holds(
+            SYNTH_OUTPUT + OLD_OUTPUT_SUFFIX))
+
+    def test_contract_reasons_match_the_shared_contract(self):
+        import test_verified_fixes as tvf
+        self.assertEqual(CONTRACT_REASONS, (
+            tvf.R_IR_NO_REVIEWER, tvf.R_IR_NO_ANSWER, tvf.R_IR_STILL,
+            tvf.R_IR_SNAPSHOT, tvf.R_IR_NO_TRIGGER, tvf.R_IR_SETTLED,
+            tvf.R_CF_SETTLED))
+
+
+class TestProse56(unittest.TestCase):
+    """The shipped prose satisfies each Phase 56 contract."""
+
+    def test_dispatch_routes_independent(self):
+        text = _read("phases/review/20-dispatch.md")
+        self.assertTrue(dispatch_routes_independent_holds(text))
+        for needle in INDEPENDENT_NEEDLES + BIND_INDEPENDENT_NEEDLES:
+            with self.subTest(mutant=needle):
+                self.assertFalse(dispatch_routes_independent_holds(
+                    text.replace(needle, "")))
+
+    def test_dispatch_never_rerouted_sentence_gone(self):
+        text = _read("phases/review/20-dispatch.md")
+        self.assertFalse(NEVER_REROUTED in text,
+                         "20-dispatch.md still says: " + NEVER_REROUTED)
+
+    def test_phase05_touched_paths(self):
+        text = _read("phases/review/05-state.md")
+        self.assertTrue(state_collects_touched_paths_holds(text))
+        for needle in TOUCHED_PATHS_NEEDLES:
+            with self.subTest(mutant=needle):
+                bullet = _touched_paths_bullet(text)
+                self.assertFalse(state_collects_touched_paths_holds(
+                    text.replace(bullet, bullet.replace(needle, ""))))
+
+    def test_phase05_forwards_applied_any_age(self):
+        text = _read("phases/review/05-state.md")
+        self.assertTrue(state_forwards_applied_any_age_holds(text))
+        self.assertFalse(state_forwards_applied_any_age_holds(
+            text.replace(FORWARDED_ANY_AGE, "")))
+
+    def test_collect_forwards_independent(self):
+        text = _read("phases/review/30-collect-score.md")
+        self.assertTrue(collect_forwards_independent_holds(text))
+        for needle in CONTRACT_REASONS:
+            with self.subTest(mutant=needle):
+                self.assertFalse(collect_forwards_independent_holds(
+                    text.replace(needle, "")))
+
+    def test_render_not_yet_confirmed(self):
+        text = _read("phases/review/40-render.md")
+        self.assertTrue(render_shows_not_yet_confirmed_holds(text))
+        for needle in RENDER_NEEDLES:
+            with self.subTest(mutant=needle):
+                self.assertFalse(render_shows_not_yet_confirmed_holds(
+                    text.replace(needle, "")))
+
+    def test_output_format_bounded_reason(self):
+        text = _read("templates/output-format.md")
+        self.assertTrue(output_format_not_yet_confirmed_holds(text))
+
+    def test_carry_state_docstring_says_any_age(self):
+        self.assertTrue("whatever its `at_pass`" in carry_state.__doc__,
+                        "carry_state docstring does not say an applied verdict "
+                        "awaits whatever its `at_pass`")
 
 
 # --------------------------------------------------------------------------- #

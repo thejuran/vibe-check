@@ -1,0 +1,440 @@
+{
+  "medium_acknowledgments": {},
+  "passes": [
+    {
+      "pass_number": 1,
+      "head_sha": "0cce9b566e15e38e8694583dbae9de57beb4c16c",
+      "timestamp": "2026-10-20T00:00:00Z",
+      "mode": "deep",
+      "diff_range": "3ea2229c717109f86a86fd39f16b339e9180f78d..HEAD",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-typescript",
+        "framework-vue"
+      ],
+      "findings": [],
+      "filtered": [],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 4
+      }
+    },
+    {
+      "pass_number": 2,
+      "head_sha": "7aa77f2323eac4d66a58d9ccddf34b43ff25957f",
+      "timestamp": "2026-10-20T00:00:00Z",
+      "mode": "deep",
+      "diff_range": "0cce9b566e15e38e8694583dbae9de57beb4c16c..HEAD",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-typescript",
+        "framework-vue"
+      ],
+      "findings": [],
+      "filtered": [
+        {
+          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+          "line": 204,
+          "title": "Relay loop keeps submitting to the next app after an outcome-unknown timeout (duplicate submission)",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+          "line": 204,
+          "title": "A timed-out NZB relay to one download client falls through to the next client, so the same NZB can be submitted twice",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/facade/arrFacade.ts",
+          "line": 80,
+          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/facade/arrFacade.ts",
+          "line": 80,
+          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+          "line": 201,
+          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+          "line": 201,
+          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
+          "reason": "verdict: record not needs-recheck"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    },
+    {
+      "pass_number": 3,
+      "head_sha": "e3f7624f585167eb7f20beb5da9a0c4e5e468118",
+      "timestamp": "2026-10-20T00:00:00Z",
+      "mode": "deep",
+      "diff_range": "7aa77f2323eac4d66a58d9ccddf34b43ff25957f..HEAD",
+      "agents_run": [
+        "bugs",
+        "security",
+        "architecture",
+        "impact",
+        "test-sufficiency",
+        "compliance",
+        "language-typescript"
+      ],
+      "findings": [
+        {
+          "id": "codex-004",
+          "file": "frontend/src/views/BrowseProgrammePage.vue",
+          "line": 406,
+          "title": "Gate only the option lists required by the selected operation",
+          "category": "adversarial",
+          "severity": "medium",
+          "agent_confidence": 99,
+          "problem": "",
+          "agent": "codex-adversarial",
+          "source_window": [],
+          "canonical_line_content": "// the selected operation actually needs gate it: candidates always; root",
+          "orchestrator_score": 91,
+          "band": "warning",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "3dd4136338badff90238763e225852d960e1cf48924d90b1047311a0d4b690c8",
+          "status": "needs-recheck",
+          "snapshot": {
+            "at_pass": 2,
+            "file": "frontend/src/views/BrowseProgrammePage.vue",
+            "line": 406,
+            "canonical_line_content": "// the selected operation actually needs gate it: candidates always; root",
+            "band": "warning"
+          },
+          "members": [
+            {
+              "file": "frontend/src/views/BrowseProgrammePage.vue",
+              "line": 406,
+              "title": "Gate only the option lists required by the selected operation",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 99,
+              "problem": "",
+              "source_window": []
+            }
+          ]
+        },
+        {
+          "id": "codex-001",
+          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+          "line": 204,
+          "title": "Stop relay failover after an uncertain submission",
+          "category": "adversarial",
+          "severity": "high",
+          "agent_confidence": 99,
+          "problem": "",
+          "agent": "codex-adversarial",
+          "source_window": [],
+          "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial",
+            "bugs",
+            "impact"
+          ],
+          "stable_hash": "0249b52cbba454c9656c1462777e89eeb66b56ce3c750230881adea309dd0461",
+          "status": "needs-recheck",
+          "snapshot": {
+            "at_pass": 1,
+            "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+            "line": 204,
+            "canonical_line_content": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {",
+            "band": "critical"
+          },
+          "members": [
+            {
+              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+              "line": 204,
+              "title": "Stop relay failover after an uncertain submission",
+              "category": "adversarial",
+              "severity": "high",
+              "agent": "codex-adversarial",
+              "agent_confidence": 99,
+              "problem": "",
+              "source_window": []
+            },
+            {
+              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+              "line": 204,
+              "title": "Relay loop keeps submitting to the next app after an outcome-unknown timeout (duplicate submission)",
+              "category": "logic-error",
+              "severity": "high",
+              "agent": "bugs",
+              "agent_confidence": 68,
+              "problem": "",
+              "source_window": [],
+              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {"
+            },
+            {
+              "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+              "line": 204,
+              "title": "A timed-out NZB relay to one download client falls through to the next client, so the same NZB can be submitted twice",
+              "category": "blast-radius",
+              "severity": "medium",
+              "agent": "impact",
+              "agent_confidence": 55,
+              "problem": "",
+              "source_window": [],
+              "current_code": "                    if (nzbErr instanceof IntegrationError && nzbErr.code === 'RELAY_SUBMISSION_UNKNOWN') {"
+            }
+          ]
+        },
+        {
+          "id": "codex-002",
+          "file": "src/utils/integrationDeadline.ts",
+          "line": 60,
+          "title": "Normalize and bound milliseconds before constructing the deadline",
+          "category": "adversarial",
+          "severity": "medium",
+          "agent_confidence": 100,
+          "problem": "",
+          "agent": "codex-adversarial",
+          "source_window": [],
+          "canonical_line_content": "",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "22d360d9c3d841748413b88d41e0840fd0898a854ee6fa5188f134846a8c7449",
+          "status": "persisted",
+          "snapshot": {
+            "at_pass": 2,
+            "file": "src/utils/integrationDeadline.ts",
+            "line": 60,
+            "canonical_line_content": "",
+            "band": "critical"
+          },
+          "members": [
+            {
+              "file": "src/utils/integrationDeadline.ts",
+              "line": 60,
+              "title": "Normalize and bound milliseconds before constructing the deadline",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 100,
+              "problem": "",
+              "source_window": []
+            }
+          ]
+        },
+        {
+          "agent": "compliance",
+          "id": "comp-001",
+          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+          "line": 201,
+          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
+          "category": "rule-violation",
+          "severity": "medium",
+          "agent_confidence": 80,
+          "problem": "",
+          "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
+          "source_window": [],
+          "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
+          "orchestrator_score": 100,
+          "band": "critical",
+          "attribution": [
+            "compliance"
+          ],
+          "stable_hash": "2a01829c60f197baf5f28307db76fd43e9de73fc15084451677cbe210c77a08b",
+          "status": "persisted",
+          "snapshot": {
+            "at_pass": 2,
+            "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+            "line": 201,
+            "canonical_line_content": "                    if (classifyIntegrationError(err, signal) === 'timeout') {",
+            "band": "critical"
+          },
+          "members": [
+            {
+              "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+              "line": 201,
+              "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
+              "category": "rule-violation",
+              "severity": "medium",
+              "agent": "compliance",
+              "agent_confidence": 80,
+              "problem": "",
+              "source_window": [],
+              "current_code": "                    if (classifyIntegrationError(err, signal) === 'timeout') {"
+            }
+          ]
+        },
+        {
+          "id": "codex-003",
+          "file": "src/service/arr/V3ArrService.ts",
+          "line": 412,
+          "title": "Handle search-existing deadline expiry as an uncertain write",
+          "category": "adversarial",
+          "severity": "medium",
+          "agent_confidence": 98,
+          "problem": "",
+          "agent": "codex-adversarial",
+          "source_window": [],
+          "canonical_line_content": "        return response.data;",
+          "orchestrator_score": 90,
+          "band": "warning",
+          "attribution": [
+            "codex-adversarial"
+          ],
+          "stable_hash": "a264e9e95e2dd2347f04851849269d2c53f19033b1cde138bbdcb033e419e7a7",
+          "status": "needs-recheck",
+          "snapshot": {
+            "at_pass": 2,
+            "file": "src/service/arr/V3ArrService.ts",
+            "line": 412,
+            "canonical_line_content": "        return response.data;",
+            "band": "warning"
+          },
+          "members": [
+            {
+              "file": "src/service/arr/V3ArrService.ts",
+              "line": 412,
+              "title": "Handle search-existing deadline expiry as an uncertain write",
+              "category": "adversarial",
+              "severity": "medium",
+              "agent": "codex-adversarial",
+              "agent_confidence": 98,
+              "problem": "",
+              "source_window": []
+            }
+          ]
+        },
+        {
+          "agent": "test-sufficiency",
+          "id": "cov-001",
+          "file": "src/facade/arrFacade.ts",
+          "line": 80,
+          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
+          "category": "test-coverage",
+          "severity": "medium",
+          "agent_confidence": 62,
+          "problem": "",
+          "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
+          "source_window": [],
+          "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
+          "orchestrator_score": 74,
+          "band": "medium",
+          "attribution": [
+            "test-sufficiency"
+          ],
+          "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
+          "status": "persisted",
+          "snapshot": {
+            "at_pass": 1,
+            "file": "src/facade/arrFacade.ts",
+            "line": 80,
+            "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
+            "band": "medium"
+          },
+          "kept_open": "sub-threshold",
+          "members": [
+            {
+              "file": "src/facade/arrFacade.ts",
+              "line": 80,
+              "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
+              "category": "test-coverage",
+              "severity": "medium",
+              "agent": "test-sufficiency",
+              "agent_confidence": 62,
+              "problem": "",
+              "source_window": [],
+              "current_code": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
+              "obligation": {
+                "stable_hash": "7bc336e71950d7339bc8deed7aef8f19b97358a220cf79fe72e3719dcfeea578",
+                "orchestrator_score": 74,
+                "band": "medium",
+                "attribution": [
+                  "test-sufficiency"
+                ],
+                "snapshot": {
+                  "at_pass": 1,
+                  "file": "src/facade/arrFacade.ts",
+                  "line": 80,
+                  "canonical_line_content": "    addSeries(app: App, match: ArrLookupResponse, options: ArrAddOptions, signal?: AbortSignal): Promise<ArrLookupResponse> {",
+                  "band": "medium"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "filtered": [
+        {
+          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+          "line": 204,
+          "title": "Relay loop keeps submitting to the next app after an outcome-unknown timeout (duplicate submission)",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/endpoints/sabnzbd/AddFileEndpoint.ts",
+          "line": 204,
+          "title": "A timed-out NZB relay to one download client falls through to the next client, so the same NZB can be submitted twice",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+          "line": 201,
+          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/service/browse/ArrDiscoveryHandoffService.ts",
+          "line": 201,
+          "title": "Classified-timeout errors in Add/Search handoff are caught and discarded without any log call",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/facade/arrFacade.ts",
+          "line": 80,
+          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
+          "reason": "verdict: record not needs-recheck"
+        },
+        {
+          "file": "src/facade/arrFacade.ts",
+          "line": 80,
+          "title": "No test checks that the Sonarr/Radarr add and search calls pass the shared deadline along",
+          "reason": "verdict: record not needs-recheck"
+        }
+      ],
+      "codex": {
+        "status": "joined",
+        "reason": null,
+        "verdict": "needs-attention",
+        "findings": 1
+      }
+    }
+  ]
+}
