@@ -1282,6 +1282,13 @@ def _is_associated_test(path, src_file):
     return bool(bare) and bare == _path_stem(src_file)
 
 
+def _head_blob(head_blobs, file):
+    """HEAD's blob for a record's `file`, or None. A non-str `file` (HARDEN-01:
+    malformed carried input flows through, it never crashes) has no blob, so
+    no blob-bound re-check can close it."""
+    return head_blobs.get(file) if isinstance(file, str) else None
+
+
 def _settled_path(path, file, fingerprint):
     """Does a path changed since a still-applies answer bear on that answer?
     Only the finding's own file, a path whose blob the answer fingerprinted, or
@@ -1400,7 +1407,7 @@ def _independent_recheck(record, stored_hash, status, independent, requests_by_t
         return None, _R_IR_NO_ANSWER
     if any(v["verdict"] == "still-applies" for v in independent):
         return None, _R_IR_STILL
-    head_blob = facts["head_blobs"].get(record.get("file"))
+    head_blob = _head_blob(facts["head_blobs"], record.get("file"))
     if head_blob is None or any(
             requests_by_token[v["token"]]["snapshot_blob"] != head_blob for v in independent):
         return None, _R_IR_SNAPSHOT
@@ -1418,7 +1425,7 @@ def _bound_plain_recheck(record, plain, requests_by_token, facts):
         return _R_IR_NO_TRIGGER
     if any(v["verdict"] == "still-applies" for v in plain):
         return _R_IR_STILL
-    head_blob = facts["head_blobs"].get(record.get("file"))
+    head_blob = _head_blob(facts["head_blobs"], record.get("file"))
     if head_blob is None or any(
             requests_by_token[v["token"]]["snapshot_blob"] != head_blob for v in plain):
         return _R_IR_SNAPSHOT
@@ -1528,7 +1535,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         else:
             resolution = _recheck_resolution(
                 resolving, head_sha, pass_number,
-                facts["head_blobs"].get(record.get("file")))
+                _head_blob(facts["head_blobs"], record.get("file")))
     elif resolving:
         if status != "needs-recheck":
             rejected.extend((v, "verdict: record not needs-recheck") for v in resolving)
@@ -1563,7 +1570,7 @@ def _accept_verdict(record, stored_hash, status, requests_by_token, recheck_verd
         elif reviewers:
             resolution = _recheck_resolution(
                 reviewers, head_sha, pass_number,
-                facts["head_blobs"].get(record.get("file")))
+                _head_blob(facts["head_blobs"], record.get("file")))
             resolved_on = _INDEPENDENT_ROUTE
             fix_commit = requests_by_token[reviewers[0]["token"]].get("fix_commit")
             if isinstance(fix_commit, str):
@@ -2040,7 +2047,7 @@ def run(envelope):
         for _, reason in rejected:
             _reject_verdict(reason, record)
         file = record.get("file")
-        if (stored_hash is not None and isinstance(head_blobs.get(file), str)
+        if (stored_hash is not None and isinstance(_head_blob(head_blobs, file), str)
                 and any(reason in (_R_IR_STILL, _R_CF_STILL) for _, reason in rejected)):
             fingerprint = {file: head_blobs[file]}
             for v in consumed:

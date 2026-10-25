@@ -1098,6 +1098,32 @@ class TestReviewFix56(unittest.TestCase):
                 self.assertEqual(len(_ts_rows(r, row)), 1)
                 self.assertIn(R_CONTRADICTED, _rejections(r))
 
+    def test_wr04_non_str_file_does_not_crash(self):
+        """WR-04 (HARDEN-01): a carried record whose `file` is not a string is
+        scored, never a crash. With a blob-bound request it has no blob match
+        and stays open; on the unbound plain needs-recheck shape it resolves
+        exactly as the pre-phase scorer (8df9545) did."""
+        row = _ts_row()
+        for bad in (["a"], {"x": 1}):
+            with self.subTest(file=bad, shape="independent"):
+                env = _review_pass2(row, [_ts_request(row)],
+                                    [reviewer_verdict(agent="bugs")])
+                env["carryforward"][0]["file"] = bad
+                env["recheck_requests"][0]["file"] = bad
+                r = score.run(json.loads(json.dumps(env)))
+                self.assertNotIn("resolved", r)
+            with self.subTest(file=bad, shape="unbound plain"):
+                env = _review_pass2(row, [], [], status="needs-recheck")
+                del env["head_blobs"], env["touched_paths"]
+                env["carryforward"][0]["file"] = bad
+                env["recheck_requests"] = [
+                    {"token": "R1", "agents": ["test-sufficiency"], "stable_hash": None,
+                     "file": bad, "line": 80, "agent": "test-sufficiency",
+                     "title": row["title"]}]
+                env["verdicts"] = [reviewer_verdict(agent="test-sufficiency")]
+                r = score.run(json.loads(json.dumps(env)))
+                self.assertEqual(len(r.get("resolved", [])), 1)
+
 
 SKIP_RELEVANT = ("no path in its `$TOUCHED_PATHS` list is its `file`, a path in its "
                  "`fingerprint`, or a test of its file")
@@ -1379,6 +1405,20 @@ class TestIndependentRouteMutants(unittest.TestCase):
         self._trips("score_m29",
                     "flag for route, flag in still_on.items() if route != resolved_on):",
                     "False for route, flag in still_on.items()):", env)
+
+    def test_m30_non_str_file_guard_removed(self):
+        """WR-04: without the type check, a non-str carried `file` crashes the
+        scorer."""
+        row = _ts_row()
+        env = _review_pass2(row, [_ts_request(row)], [reviewer_verdict(agent="bugs")])
+        env["carryforward"][0]["file"] = ["a"]
+        env["recheck_requests"][0]["file"] = ["a"]
+        self.assertNotIn("resolved", score.run(json.loads(json.dumps(env))))
+        mod = self._mod("score_m30",
+                        "return head_blobs.get(file) if isinstance(file, str) else None",
+                        "return head_blobs.get(file)")
+        with self.assertRaises(TypeError):
+            mod.run(json.loads(json.dumps(env)))
 
     def test_stable_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
