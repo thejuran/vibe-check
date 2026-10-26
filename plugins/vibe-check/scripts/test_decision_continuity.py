@@ -756,5 +756,183 @@ class TestCardWording(_Base):
                 self.assertIn(phrase, text)
 
 
+
+# --------------------------------------------------------------------------- #
+# Paths that did NOT reproduce on current code (DECN-01): recorded and
+# dropped, never replaced with invented work. Each N row is pinned green
+# below by a test that executes the scenario, so the claim is evidence, not
+# prose, and the fixes for the reproduced paths cannot break it.
+# --------------------------------------------------------------------------- #
+_DROPPED = "did not reproduce; dropped — no code change"
+DID_NOT_REPRODUCE = (
+    {"id": "N1", "decision": "D-03",
+     "scenario": "same-file edit outside the window (line 40), no shift; "
+                 "with and without a same-agent same-title re-report",
+     "probe_result": "decision current; the only re-ask came from band "
+                     "noise (R3), not the code path",
+     "disposition": _DROPPED},
+    {"id": "N2", "decision": "D-08",
+     "scenario": "a stronger new finding leads a row that holds a decided "
+                 "finding",
+     "probe_result": "the decided member keeps its obligation and its "
+                     "decision; only the new lead is asked (the D-10 note "
+                     "is presentation, covered by the card wording)",
+     "disposition": _DROPPED},
+    {"id": "N3", "decision": "D-12",
+     "scenario": "the flagged line itself is edited and re-reported",
+     "probe_result": "new hash, undecided, linked to the earlier decision "
+                     "by the successor link (code changed, was: dismissed)",
+     "disposition": _DROPPED},
+    {"id": "N4", "decision": "D-04",
+     "scenario": "Needs-verification line shift / body change",
+     "probe_result": "relocation by content and the line-free NV evidence "
+                     "keys already keep a shift and re-ask a body change",
+     "disposition": _DROPPED},
+    {"id": "N5", "decision": "D-11",
+     "scenario": "deferred finding, no change, many passes",
+     "probe_result": "no timer or age input; the deferral stays put",
+     "disposition": _DROPPED},
+    {"id": "N6", "decision": "D-13",
+     "scenario": "deferred finding, flagged line fixed, re-check resolved",
+     "probe_result": "listed in resolved[], counts 0, the gate writes",
+     "disposition": _DROPPED},
+    {"id": "title-drift", "decision": "D-08",
+     "scenario": "same agent re-reports A at the same line with a new title",
+     "probe_result": "old hash kept as an obligation (current); the "
+                     "new-title row is asked with no note",
+     "disposition": "excluded by ROADMAP (duplicate presentation)"},
+    {"id": "real-data", "decision": "D-11",
+     "scenario": "the owner's real review state (two pass-1 defers)",
+     "probe_result": "both closed through a re-check on pass 2",
+     "disposition": "no real lost-decision case; fixtures synthetic"},
+)
+
+
+class TestDidNotReproduceRecord(unittest.TestCase):
+
+    def test_did_not_reproduce_record_is_complete(self):
+        by_id = {r["id"]: r for r in DID_NOT_REPRODUCE}
+        tags = {"N1": "D-03", "N2": "D-08", "N3": "D-12", "N4": "D-04",
+                "N5": "D-11", "N6": "D-13"}
+        for nid, tag in tags.items():
+            with self.subTest(nid=nid):
+                self.assertIn(nid, by_id)
+                self.assertTrue(by_id[nid]["disposition"].startswith(
+                    "did not reproduce; dropped"))
+                self.assertEqual(by_id[nid]["decision"], tag)
+                self.assertTrue(by_id[nid]["scenario"].strip())
+                self.assertTrue(by_id[nid]["probe_result"].strip())
+        for row in DID_NOT_REPRODUCE:
+            self.assertEqual(set(row), {"id", "scenario", "probe_result",
+                                        "decision", "disposition"})
+
+
+class TestDidNotReproducePins(_Base):
+    """GREEN on current code and for the whole phase: the behaviour each
+    dropped path already has, which the fixes must not break."""
+
+    def test_n1_far_edit_keeps_decision(self):
+        for rereport in (False, True):
+            with self.subTest(rereport=rereport):
+                L0 = base_file()
+                s1, hA = pass1(L0, conf=STABLE_CONF)
+                self._assert_band(s1, hA, "warning")
+                L1 = list(L0)
+                L1[39] = "line_40 = 'changed'"
+                finds = ([fresh("bugs", 10, L1, TITLE_A, conf=STABLE_CONF)]
+                         if rereport else [])
+                s2, _ = run_pass(s1, L1, finds, 2, {F: [[40, 40]]})
+                self._assert_band(s2, hA, "warning")
+                rec = self._current(s2, hA)
+                self.assertEqual(carry_state.decision_state(rec, s2),
+                                 "current")
+                self.assertEqual(e2e_gate(s2, {}), "write")
+
+    def test_n2_stronger_lead_keeps_decided_member(self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF)
+        self._assert_band(s1, hA, "warning")
+        b = fresh("security", 11, L0, TITLE_C, conf=100, severity="critical",
+                  category="injection")
+        s2, r2 = run_pass(s1, L0, [b], 2, {F: [[30, 31]]})
+        hC = score.stable_hash(F, L0[10], TITLE_C)
+        self.assertEqual(r2["findings"][0]["stable_hash"], hC)
+        a_members = [m for m in r2["findings"][0]["members"]
+                     if m["agent"] == "bugs"]
+        self.assertEqual(len(a_members), 1)
+        self.assertEqual(a_members[0]["obligation"]["stable_hash"], hA)
+        self._assert_band(s2, hA, "warning")
+        rec = self._current(s2, hA)
+        self.assertEqual(rec.get("absorbed_into"), hC)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current")
+        shown = [r["stable_hash"] for r in card_rows(s2)]
+        self.assertEqual(shown, [hC])
+
+    def test_n3_edited_flagged_line_is_linked_not_closed(self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF)
+        self._assert_band(s1, hA, "warning")
+        L1 = list(L0)
+        L1[9] = "line_10 = 'edited'"
+        s2, _ = run_pass(s1, L1, [fresh("bugs", 10, L1, TITLE_A,
+                                        conf=STABLE_CONF)],
+                         2, {F: [[10, 10]]})
+        h2 = score.stable_hash(F, L1[9], TITLE_A)
+        self.assertNotEqual(h2, hA)
+        rec = self._current(s2, h2)
+        self.assertIsNone(carry_state.decision_state(rec, s2))
+        row = card_row(s2, h2)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["stale"]["via"], "successor")
+        self.assertEqual(row["stale"]["prior_hash"], hA)
+        self.assertEqual(row["stale"]["cause"], "code")
+
+    def test_n4_nv_rules_unchanged(self):
+        """Reference pin: Needs-verification decisions compare file,
+        canonical line, band and the code fingerprint, never the line. The
+        behaviour is exercised by test_carry_state.py
+        TestNeedsVerificationDecisionEvidence (test_nv_changed_body_re_asks_
+        decision, test_nv_equal_window_keeps_decision, ...)."""
+        self.assertEqual(carry_state._NV_EVIDENCE_KEYS,
+                         ("file", "canonical_line_content", "band",
+                          "current_code"))
+
+    def test_n5_no_expiry_many_quiet_passes(self):
+        """D-11; test_carry_state.py TestNoExpiry pins the absence of any age
+        input. Here a deferral survives five quiet passes."""
+        L0 = base_file()
+        s, hA = pass1(L0, conf=STABLE_CONF, kind="defer")
+        self._assert_band(s, hA, "warning")
+        for n in range(2, 7):
+            s, _ = run_pass(s, L0, [], n, {F: []})
+        self.assertEqual(s["passes"][-1]["pass_number"], 6)
+        self._assert_band(s, hA, "warning")
+        rec = self._current(s, hA)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertEqual(e2e_gate(s, {}), "write")
+
+    def test_n6_deferred_then_fixed_closes_normally(self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF, kind="defer")
+        self._assert_band(s1, hA, "warning")
+        L1 = list(L0)
+        L1[9] = "line_10 = 'fixed'"
+        req = {"token": "TA", "agents": ["bugs"], "stable_hash": hA,
+               "file": F, "line": 10, "agent": "bugs", "title": TITLE_A}
+        verdict = {"source": "recheck", "token": "TA", "agent": "bugs",
+                   "verdict": "resolved", "reason": "line rewritten"}
+        s2, r2 = run_pass(s1, L1, [], 2, {F: [[10, 10]]},
+                          recheck_requests=[req], verdicts=[verdict])
+        self.assertIn(hA, [x.get("stable_hash")
+                           for x in r2.get("resolved", [])])
+        self.assertIsNone(record_of(s2, hA))
+        self.assertEqual(carry_state.open_findings(s2), [])
+        counts = carry_state.finalize_counts(s2, {})
+        self.assertEqual((counts["outstanding_cw"],
+                          counts["unacknowledged_medium"],
+                          counts["undecided_nv"]), (0, 0, 0))
+        self.assertEqual(e2e_gate(s2, {}), "write")
+
+
 if __name__ == "__main__":
     unittest.main()
