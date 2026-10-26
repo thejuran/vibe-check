@@ -35,6 +35,7 @@ An owner's defer/dismiss decision stays bound to its evidence: it survives regro
 
 ### Regrouping rows
 - **D-08:** When a decided finding is merged into a row with other findings, the decision still covers that finding (it shows as already decided); the owner is asked only about findings the decision did not cover. A decision never silently covers a different reviewer's new concern at the same spot.
+  - **D-08 refinement (owner, 2026-10-26, after plan-check):** when a newcomer concern from an uncovered reviewer lane joins a decided row, the WHOLE row reopens once with the D-10 note (earlier decision + reason shown) — not a separate ask for the newcomer alone. Accepted because the card cannot give the newcomer its own line today; "ask only about the new one" was the original pick and is superseded.
 - **D-09:** When a decided row is split into separate rows, every finding the decision covered stays decided; only genuinely new findings are asked.
 - **D-10:** A row mixing a decided finding with new ones shows a short note, e.g. "1 finding here already dismissed (your reason: …)".
 
