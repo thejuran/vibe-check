@@ -145,6 +145,10 @@ PHASE57_DECISIONS = (
     'stale.cause == "nearby"',
     "now also report(s) it",
     "joined it",
+    "within 5 lines above or below",
+    "whose title is not a covered title",
+    "separately-owed obligation is never covered",
+    "did not report this concern at decision time",
 )
 
 
@@ -371,6 +375,8 @@ class TestFinalizeCard(LockCase):
 
     def test_phase57_old_closed_rule_gone(self):
         self.assertNotIn("equals the same four values now", self.text)
+        # The nearby window is symmetric (D-14); the one-sided wording is gone.
+        self.assertNotIn("5-line window beneath", self.text)
         self.assertEqual(self.text.count("helper links an edited finding"), 1)
 
     def test_successor_rows_carry_every_suffix_key(self):
