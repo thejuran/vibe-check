@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
 status: executing
-last_updated: "2026-10-26T18:45:00.000Z"
-last_activity: 2026-10-26 -- Plan 57-03 complete (decision covers, joined reopen, split-member inheritance)
+last_updated: "2026-10-26T19:02:00.000Z"
+last_activity: 2026-10-26 -- Plan 57-04 complete (nearby_at stamp from the shared nearby window, obligation-preserving dedup)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 13
-  completed_plans: 9
-  percent: 69
+  completed_plans: 10
+  percent: 77
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 ## Current Position
 
 Phase: 57 (decision-continuity-within-closure) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Executing Phase 57
-Last activity: 2026-10-26 -- Plan 57-03 complete (decision covers, joined reopen, split-member inheritance)
+Last activity: 2026-10-26 -- Plan 57-04 complete (nearby_at stamp from the shared nearby window, obligation-preserving dedup)
 
 ## Operator Next Steps
 
-- Phase 56 merged to main (PR #1, 31b2760, 2026-10-25). Phase 57 is planned on feat/v2.13-phase-57: 7 plans in 5 waves, plan-check passed (3 rounds), owner refinements D-05 (2026-10-25) and D-08 (2026-10-26) recorded in 57-CONTEXT.md. Plan 57-01 done (49875d4, 2934031, af1c69b): 10 reproduced paths are failing fixtures in test_decision_continuity.py, N1-N6 recorded as dropped and pinned green; carry-forward notes for 57-03 (covers must not list the lead's own member twice) and 57-05 (relocation must move the lead's own member record) in 57-01-SUMMARY.md. Plan 57-02 done (0aa704b, 72eee65): carry_state compares ordinary decisions without the line (D-01), re-asks on a nearby_at change, keeps a decision on a band drop and re-asks a rise only for a new reviewer lane; decisions save attribution; new read-only `carry_state.py decided` (refusal exits 2, like every carry_state subcommand). R1a-c, R3b, R3a-persistence and the attribution record are green; Plan 57-03 done (596dd5e, 0bb69d3): decisions record `covers` (what they covered, from state only); a decided row that gains a different reviewer's new concern reopens once with cause `joined` (same-title corroboration from another lane does not; it re-asks only on a lane-backed rise); a covered finding that splits into its own row keeps the decision while its own code line matches (`covering_decision`). Public `newcomer_lanes` / `covered_count` are what 57-06's card must read. R4 and R6 green; 12 fixtures still red (R2/R5 -> 57-04, card wording -> 57-06). DECN-02/03 stay Pending until 57-04..57-07 land. Next: plans 57-04 and 57-05 (wave 3).
+- Phase 56 merged to main (PR #1, 31b2760, 2026-10-25). Phase 57 is planned on feat/v2.13-phase-57: 7 plans in 5 waves, plan-check passed (3 rounds), owner refinements D-05 (2026-10-25) and D-08 (2026-10-26) recorded in 57-CONTEXT.md. Plan 57-01 done (49875d4, 2934031, af1c69b): 10 reproduced paths are failing fixtures in test_decision_continuity.py, N1-N6 recorded as dropped and pinned green; carry-forward notes for 57-03 (covers must not list the lead's own member twice) and 57-05 (relocation must move the lead's own member record) in 57-01-SUMMARY.md. Plan 57-02 done (0aa704b, 72eee65): carry_state compares ordinary decisions without the line (D-01), re-asks on a nearby_at change, keeps a decision on a band drop and re-asks a rise only for a new reviewer lane; decisions save attribution; new read-only `carry_state.py decided` (refusal exits 2, like every carry_state subcommand). R1a-c, R3b, R3a-persistence and the attribution record are green; Plan 57-03 done (596dd5e, 0bb69d3): decisions record `covers` (what they covered, from state only); a decided row that gains a different reviewer's new concern reopens once with cause `joined` (same-title corroboration from another lane does not; it re-asks only on a lane-backed rise); a covered finding that splits into its own row keeps the decision while its own code line matches (`covering_decision`). Public `newcomer_lanes` / `covered_count` are what 57-06's card must read. R4 and R6 green. Plan 57-04 done (04e2c65, 273a1e4): score.py stamps `snapshot.nearby_at` when an edit reaches a carried row's line or the 5 beneath it (one `_nearby_changed` window shared with the Phase 56 re-check trigger; fresh findings never stamped; stamp carried on quiet passes), and member dedup keeps a carried obligation when a fresh duplicate out-ranks it. R2 and R5 green; 7 fixtures still red, all card wording (57-06). Replay REGRESSED 0, 0 runs differing. DECN-02/03 stay Pending until 57-05..57-07 land. Next: plan 57-05 (wave 3).
 - Separately assess cost attribution from existing local logs (999.12); stop with a documented limitation if reliable attribution is unavailable.
 - Reopen archived duplicate-reduction or secret-check work only when its evidence gate is met.
 
@@ -70,3 +70,5 @@ Last activity: 2026-10-26 -- Plan 57-03 complete (decision covers, joined reopen
 2026-10-23: 56-04 complete (commits 7f67f88, 420112b). score.py age gate now applies to fix-obsolete only; confirmed-fix verdicts are judged at any age, bound by verified_blob == head_blob. carry_state lists an applied NV item as awaiting at any later pass unless a recheck_settled fingerprint still matches HEAD (unknown HEAD blob counts as unchanged). Mutants score_m19, score_m20, cs_m7 trip. Full suite 3051 passed, 0 failed. VFIX-02 marked complete; VFIX-06 left for 56-06.
 
 2026-10-26: 57-03 complete (commits 596dd5e, 0bb69d3, f861e83). carry_state: `covers` on every new decision (one entry per agent/file/title, lead not listed twice), `newcomer_lanes` + `covered_count` as the single readers, `joined` stale cause (priority code > nearby > joined > severity), `covering_decision` inheritance on agent+file+title+covered code line (never cross-file, never from code-less or legacy entries, never for absorbed member records). 8 new contrast mutants (12 -> 20). Full suite (minus holdout-blocked test_calibrate/test_replay) 3067 passed, 12 expected RED in test_decision_continuity.py. DECN-02/03 not marked.
+
+2026-10-26: 57-04 complete (commits 04e2c65, 273a1e4, cfc4236). score.py: `_nearby_changed` split from `_independent_trigger` (behaviour unchanged); survivor, kept-open and obligation-member snapshots stamp `nearby_at` only on rows that existed before this pass, carried on keep/refresh; NV and audit rows pass nearby=False; member dedup moves a carried obligation onto the kept member ref (Phase 46 residual 1 closed). Mutants m57-01..07 trip. Fixtures that modelled HEAD-unchanged with non-empty ranges now use an empty incremental diff (incl. the 57-01 R5 input). Full suite (minus holdout-blocked test_calibrate/test_replay) 3090 passed, 7 expected RED (card wording, 57-06). Replay candidate REGRESSED 0; diff 170 runs, 0 differing. DECN-02/03 not marked.
