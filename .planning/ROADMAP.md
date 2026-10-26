@@ -80,7 +80,7 @@ Plans:
   3. A deferred or dismissed finding is not re-asked after an edit that does not touch the finding's evidence (regression fixture)
   4. When the finding's relevant evidence changes, the finding reopens and is presented again with the new evidence (regression fixture)
 
-**Plans**: 7 plans
+**Plans**: 13 plans (7 executed + 6 gap closure)
 
 Plans:
 **Wave 1**
@@ -104,6 +104,15 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 57-07-PLAN.md — Phase gate: ledger green, cross-module guards, end-to-end owner journey, full suite + golden + replay, STATE.md and carried item
+
+**Gap closure** *(after verification gaps_found 2026-10-26: CR-01, CR-02, WR-03 blocking; owner rulings D-14, D-15, D-16; sequential waves 6-11)*
+
+- [ ] 57-08-PLAN.md — Reproduce-first: RED fixtures for CR-01, CR-02 (inherited rise + joined), WR-03 (both directions), D-14 edit above, D-15 concern count, WR-02 deletion hunk + prose lock
+- [ ] 57-09-PLAN.md — carry_state: exclude separately-owed members from `covers` (CR-01), per-concern `lanes` on decisions for the rise rule and the card (WR-03/D-16), `covered_count` counts concerns (D-15), mutants
+- [ ] 57-10-PLAN.md — carry_state + card: band/lanes on covers entries, inherited decisions run nearby -> joined -> lane-backed rise (CR-02/D-16), `covering_entry` for the card's was_band, mutants
+- [ ] 57-11-PLAN.md — score.py: symmetric 5-line window shared with the Phase 56 trigger (D-14), flipped boundary tests, lower-bound mutant, replay candidate/diff with explicit allowances if any
+- [ ] 57-12-PLAN.md — Prose: deletion-only hunk range rule in 30-collect-score.md (WR-02), symmetric-window and D-16 wording in 90-finalize.md, IN-01/IN-02 doc fixes, phrase locks
+- [ ] 57-13-PLAN.md — Gap-closure gate: full suite incl. test_replay, golden, replay, reverse-run red/green ledger addendum, DECN-02/03 re-marked complete, STATE.md
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
@@ -137,7 +146,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 7/7 | In Progress (verification gaps found) |  |
+| 57. Decision continuity within closure | 7/13 | In Progress (gap closure planned) |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
