@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: "Phase 57 executed (7/7 plans) — ready for /bm:verify-work 57"
-last_updated: "2026-10-26T19:33:14.000Z"
-last_activity: 2026-10-26 -- Plan 57-07 complete (phase gates green; ledger closed; end-to-end owner journey pinned)
-stopped_at: "Phase 57 plans 7/7 executed; ready for /bm:verify-work 57"
+status: "Phase 57 executed (7/7 plans); verification found 3 blocking gaps — gap closure next"
+last_updated: "2026-10-26T19:58:16.000Z"
+last_activity: 2026-10-26 -- Phase 57 code review + verification: gaps_found (2/4 must-haves; 3 blocking wrong-keeps)
+stopped_at: "Phase 57 verification gaps_found (CR-01, CR-02, WR-03 blocking) — next /bm:plan-phase 57 --gaps"
 progress:
   total_phases: 3
   completed_phases: 1
@@ -20,14 +20,14 @@ progress:
 
 ## Current Position
 
-Phase: 57 (decision-continuity-within-closure) — EXECUTED, READY FOR VERIFICATION
+Phase: 57 (decision-continuity-within-closure) — EXECUTED, VERIFICATION GAPS FOUND
 Plan: 7 of 7
-Status: Phase 57 executed (7/7 plans) — ready for /bm:verify-work 57
-Last activity: 2026-10-26 -- Plan 57-07 complete (phase gates green; ledger closed; end-to-end owner journey pinned)
+Status: Phase 57 executed (7/7 plans); verification gaps_found — 3 blocking wrong-keeps; gap closure next
+Last activity: 2026-10-26 -- code review (57-REVIEW.md: 2 BLOCKER, 4 WARNING) + verification (57-VERIFICATION.md: gaps_found, 2/4)
 
 ## Operator Next Steps
 
-- Run phase verification for 57 (`/bm:verify-work 57`). Gates at 387e2bb: full suite 3216 passed, 0 failed (Phase 56 close 3083; +133 Phase 57 tests); replay candidate REGRESSED 0; replay diff vs rev:24c0c00 170 runs, runs differing 0, unallowed 0 (no new allowances); golden digest unchanged; import sets unchanged. Plan 57-07 also fixed one bug its end-to-end journey found (ea3dab1): a second reviewer re-reporting a decided finding and taking the row's lead dropped the `nearby_at` stamp, so an owed nearby re-ask vanished and the gate wrote. Three design calls for the owner are in 57-07-SUMMARY.md.
+- NEXT: `/bm:plan-phase 57 --gaps` to close the 3 blocking gaps in 57-VERIFICATION.md (CR-01 covers lists a separately-owed member, which then inherits the row decision on split; CR-02 inherited decisions skip the severity-rise/joined reopen rules; WR-03 gained-lane test uses row-wide attribution). Minor: WR-01/02/04. Owner ruling pending on SA-01 (nearby window below-only vs both sides). DECN-02/03 reverted to In Progress. Execution gates at 387e2bb: full suite 3216 passed, 0 failed (Phase 56 close 3083; +133 Phase 57 tests); replay candidate REGRESSED 0; replay diff vs rev:24c0c00 170 runs, runs differing 0, unallowed 0 (no new allowances); golden digest unchanged; import sets unchanged. Plan 57-07 also fixed one bug its end-to-end journey found (ea3dab1): a second reviewer re-reporting a decided finding and taking the row's lead dropped the `nearby_at` stamp, so an owed nearby re-ask vanished and the gate wrote. Three design calls for the owner are in 57-07-SUMMARY.md.
 - Phase 56 merged to main (PR #1, 31b2760, 2026-10-25). Phase 57 is planned on feat/v2.13-phase-57: 7 plans in 5 waves, plan-check passed (3 rounds), owner refinements D-05 (2026-10-25) and D-08 (2026-10-26) recorded in 57-CONTEXT.md. Plan 57-01 done (49875d4, 2934031, af1c69b): 10 reproduced paths are failing fixtures in test_decision_continuity.py, N1-N6 recorded as dropped and pinned green; carry-forward notes for 57-03 (covers must not list the lead's own member twice) and 57-05 (relocation must move the lead's own member record) in 57-01-SUMMARY.md. Plan 57-02 done (0aa704b, 72eee65): carry_state compares ordinary decisions without the line (D-01), re-asks on a nearby_at change, keeps a decision on a band drop and re-asks a rise only for a new reviewer lane; decisions save attribution; new read-only `carry_state.py decided` (refusal exits 2, like every carry_state subcommand). R1a-c, R3b, R3a-persistence and the attribution record are green; Plan 57-03 done (596dd5e, 0bb69d3): decisions record `covers` (what they covered, from state only); a decided row that gains a different reviewer's new concern reopens once with cause `joined` (same-title corroboration from another lane does not; it re-asks only on a lane-backed rise); a covered finding that splits into its own row keeps the decision while its own code line matches (`covering_decision`). Public `newcomer_lanes` / `covered_count` are what 57-06's card must read. R4 and R6 green. Plan 57-04 done (04e2c65, 273a1e4): score.py stamps `snapshot.nearby_at` when an edit reaches a carried row's line or the 5 beneath it (one `_nearby_changed` window shared with the Phase 56 re-check trigger; fresh findings never stamped; stamp carried on quiet passes), and member dedup keeps a carried obligation when a fresh duplicate out-ranks it. R2 and R5 green; 7 fixtures still red, all card wording (57-06). Replay REGRESSED 0, 0 runs differing. Plan 57-05 done (c9558e1, b249e92): 30-collect-score.md relocates decided ordinary leads and obligation members by their stored canonical line (Phase 53 cases 1-3), moves the recheck request and the lead's own member record with them; 05-state.md binds `$DECIDED_HASHES` from `carry_state.py decided`, halting on any non-zero exit; prose locked with section-scoped predicates and deletion mutants. A pre-existing red surfaced: `test_replay.py::TestDiffMode::test_member_only_mutation_exits_one` (mutant anchor stale after 57-04's score.py edit; logged in the phase deferred-items.md). (test_replay mutant since re-anchored by the orchestrator, 62d901c.) Plan 57-06 done (52de114, 41899c1, a08da21): the card names what changed on a reopened decision — `code next to it changed`, `severity rose (A → B) …: <lane> now also reports it`, and the D-10 joined note — reading `gained_lanes` / `newcomer_lanes` / `covered_count` from carry_state; legacy/NV 'severity changed' unchanged; an inherited (covering) decision that reopens now shows that decision (via `covering`); 90-finalize.md Open/Closed contract and suffix bullets match the helper, locked by `check_phase57_decisions`. Full suite 3208 passed, 0 failed. DECN-02/03 marked complete (every fixture green). Plan 57-07 done (see the first bullet).
 - Separately assess cost attribution from existing local logs (999.12); stop with a documented limitation if reliable attribution is unavailable.
 - Reopen archived duplicate-reduction or secret-check work only when its evidence gate is met.
