@@ -103,7 +103,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 57-07-PLAN.md — Phase gate: ledger green, cross-module guards, end-to-end owner journey, full suite + golden + replay, STATE.md and carried item
+- [x] 57-07-PLAN.md — Phase gate: ledger green, cross-module guards, end-to-end owner journey, full suite + golden + replay, STATE.md and carried item
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
@@ -137,7 +137,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 6/7 | In Progress|  |
+| 57. Decision continuity within closure | 7/7 | In Progress (executed, awaiting verification) |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog

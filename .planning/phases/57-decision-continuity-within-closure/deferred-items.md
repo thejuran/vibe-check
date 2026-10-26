@@ -11,3 +11,16 @@
   belongs with 57-04 follow-up or the 57-07 cross-check.
 - **Note:** earlier waves reported 7 red because the holdout-barrier hook skipped test_replay.py; in
   the 57-05 full run it was collected (3182 passed / 8 failed: the 7 known card-wording/57-06 reds + this one).
+
+## Observed during 57-07 (not fixed; outside the four scope classes)
+
+- **Reopened row also shows "unchanged since pass N, decision pending".** On the end-to-end journey's
+  pass 6 the joined row's card line reads `... (critical) — unchanged since pass 5, decision pending —
+  2 findings here already dismissed ...`. The pending suffix is the pre-existing `carry_state.pending`
+  read (snapshot older than the last pass, record not closed); it stacks with the stale suffix on a
+  reopened decided row. Presentation only; no finding is lost or wrongly closed.
+- **A row and its own member obligation can share one hash.** When a second lane re-reports a decided
+  finding on the same code and out-ranks it, the fresh lead and the absorbed carried record's obligation
+  carry the same `stable_hash` (pre-existing Phase 46 shape). 57-07 fixed the one consequence that lost
+  an owed re-ask (ea3dab1); the duplicate hash itself is left as is. A hash-bearing re-check request
+  reaches only the lead, so closing the member needs a second, hash-less request for its lane.
