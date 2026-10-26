@@ -174,9 +174,19 @@ def _same_hash_stale(record, state):
             return None
         prior, decision = covering
         via = "covering"
-    evidence = decision.get("evidence")
-    was_band = (evidence.get("band") if isinstance(evidence, dict)
-                else decision.get("band"))
+    if via == "covering":
+        # The band the inherited decision was taken at is the one recorded
+        # for THIS finding (the same value carry_state compares), never the
+        # decided row's evidence band; a legacy entry without one falls back
+        # to the covering decision's band, as the comparator does.
+        entry = carry_state.covering_entry(record, state)
+        entry_band = entry.get("band") if isinstance(entry, dict) else None
+        was_band = (entry_band if isinstance(entry_band, str)
+                    else decision.get("band"))
+    else:
+        evidence = decision.get("evidence")
+        was_band = (evidence.get("band") if isinstance(evidence, dict)
+                    else decision.get("band"))
     cause = carry_state.stale_cause(record, state)
     tag = {
         "cause": cause,

@@ -177,6 +177,28 @@ class TestCardTextRendering(unittest.TestCase):
                       "Guarded upstream); new concerns from perf, security "
                       "joined it", text)
 
+    def test_inherited_severity_rise_suffix_exact(self):
+        from test_batch_card import inherited_state
+        s, _ = inherited_state("rise")
+        self.assertIn(
+            " — severity rose (warning → critical) since your decision on "
+            "pass 1: security now also reports it (was: dismissed — "
+            "not a bug)", doc_of(s)["card_text"])
+        text = compact_text(s)
+        self.assertIn(" — severity rose since your decision on pass 1", text)
+        self.assertNotIn("(was:", text)
+
+    def test_inherited_joined_note_exact(self):
+        from test_batch_card import inherited_state
+        s, _ = inherited_state("joined")
+        self.assertIn(
+            " — 1 finding here already dismissed (your reason: not a bug); "
+            "a new concern from security joined it", doc_of(s)["card_text"])
+        text = compact_text(s)
+        self.assertIn(" — 1 finding here already dismissed; a new concern "
+                      "from security joined it", text)
+        self.assertNotIn("your reason", text)
+
     def test_compact_stale_forms_exact(self):
         cases = (
             (nearby_stale_state(),

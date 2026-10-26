@@ -65,6 +65,23 @@ def ordering_state():
     return mk_state([mk_pass(1, []), mk_pass(2, rows)])
 
 
+def inherited_state(kind):
+    """The CR-02 shapes from test_carry_state.TestGapClosure57: row HR
+    (bugs/"T1") decided on pass 1 covering c's "T3"; on pass 2 c's finding
+    is row HC of its own. "rise": HC is critical and `security` now also
+    reports T3. "joined": HC stays warning and `security` joins with a new
+    concern. Returns (state, record)."""
+    import test_carry_state as tcs
+    t = tcs.TestGapClosure57("test_g2a_inherited_decision_reopens_on_"
+                             "lane_backed_band_rise")
+    s1 = t._inherited_pass1()
+    second = "T3" if kind == "rise" else "SQL injection"
+    return t._inherited_pass2(
+        s1, "critical" if kind == "rise" else "warning",
+        [tcs.g_lead("c", "T3", "z = 3", 12),
+         tcs.g_member("security", second, "z = 3", line=12)])
+
+
 def joined_state():
     """Row HC (lead plus its own member record, plus covered member "B")
     dismissed on pass 2; on pass 3 a `security` member with a new concern
@@ -236,6 +253,53 @@ class TestRows(unittest.TestCase):
                                return_value=None):
             self.assertIsNone(batch_card._same_hash_stale(
                 tdc.record_of(s3, h), s3))
+
+    def test_rows_stale_inherited_severity_rise_tag(self):
+        import test_carry_state as tcs
+        s, rec = inherited_state("rise")
+        tag = batch_card._same_hash_stale(rec, s)
+        self.assertEqual(tag["via"], "covering")
+        self.assertEqual(tag["cause"], "severity")
+        self.assertEqual(tag["was_band"], "warning")
+        self.assertEqual(tag["gained"], ["security"])
+        self.assertEqual(tag["prior_hash"], tcs.HR)
+        self.assertEqual(tag["at_pass"], 1)
+        self.assertNotIn("joined", tag)
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertEqual(rows[tcs.HC]["stale"], tag)
+
+    def test_rows_stale_inherited_joined_tag(self):
+        import test_carry_state as tcs
+        s, rec = inherited_state("joined")
+        tag = batch_card._same_hash_stale(rec, s)
+        self.assertEqual(tag["via"], "covering")
+        self.assertEqual(tag["cause"], "joined")
+        self.assertEqual(tag["covered"], 1)
+        self.assertEqual(tag["joined"], ["security"])
+        self.assertEqual(tag["gained"], [])
+        self.assertEqual(tag["prior_hash"], tcs.HR)
+
+    def test_inherited_was_band_reads_covering_entry_mutant(self):
+        """m9: the card's earlier band for an inherited decision is the
+        covers entry's, read through carry_state.covering_entry."""
+        s, rec = inherited_state("rise")
+        # The decided row's own evidence band is never the inherited one.
+        s["decisions"]["7" * 64]["evidence"]["band"] = "medium"
+        self.assertEqual(batch_card._same_hash_stale(rec, s)["was_band"],
+                         "warning")
+        with self.subTest("contrast m9: no entry -> the decision band"):
+            s["decisions"]["7" * 64]["band"] = "low"
+            with mock.patch.object(carry_state, "covering_entry",
+                                   return_value=None):
+                self.assertEqual(
+                    batch_card._same_hash_stale(rec, s)["was_band"], "low")
+            s["decisions"]["7" * 64]["band"] = "warning"
+        with self.subTest("contrast m9: the entry's band is reported"):
+            entry = dict(carry_state.covering_entry(rec, s), band="low")
+            with mock.patch.object(carry_state, "covering_entry",
+                                   return_value=entry):
+                self.assertEqual(
+                    batch_card._same_hash_stale(rec, s)["was_band"], "low")
 
     def test_joined_lanes_come_from_carry_state(self):
         """One function feeds both the reopen and the card: with
