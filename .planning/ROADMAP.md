@@ -83,12 +83,26 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 57-01-PLAN.md — Reproduce-first: harness + RED fixtures for R1a/R1b/R1c, R2, R3a-refined, R3b, R4, R5, R6, R7; "did not reproduce; dropped" record for N1-N6 (DECN-01 gate)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 57-02-PLAN.md — carry_state: line-free ordinary compare (D-01), nearby_at evidence (D-02), direction-aware band with gained-lane rule (D-05 refined/D-06/D-07), attribution on decisions, `decided` subcommand; flipped legacy tests
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 57-03-PLAN.md — carry_state: `covers` at decision time, `joined` reopen for a newcomer concern (D-08), inheritance for a covered member that splits (D-09)
 - [ ] 57-04-PLAN.md — score.py: shared `_nearby_changed` window, `nearby_at` through all three snapshot writers, obligation-preserving member dedup (R5), mutants, replay numbers
 - [ ] 57-05-PLAN.md — Prose: decided-record relocation by content in 30-collect-score.md, `$DECIDED_HASHES` fail-closed binding in 05-state.md, scoring.md identity sentence, prose locks
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 57-06-PLAN.md — Card: nearby / severity-rose-with-lane / D-10 joined suffixes (D-05, D-10, D-12), 90-finalize.md contract, exact-wording tests and locks
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 57-07-PLAN.md — Phase gate: ledger green, cross-module guards, end-to-end owner journey, full suite + golden + replay, STATE.md and carried item
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
