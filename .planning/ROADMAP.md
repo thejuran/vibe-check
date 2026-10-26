@@ -89,7 +89,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 57-02-PLAN.md — carry_state: line-free ordinary compare (D-01), nearby_at evidence (D-02), direction-aware band with gained-lane rule (D-05 refined/D-06/D-07), attribution on decisions, `decided` subcommand; flipped legacy tests
+- [x] 57-02-PLAN.md — carry_state: line-free ordinary compare (D-01), nearby_at evidence (D-02), direction-aware band with gained-lane rule (D-05 refined/D-06/D-07), attribution on decisions, `decided` subcommand; flipped legacy tests
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -137,7 +137,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 1/7 | In Progress|  |
+| 57. Decision continuity within closure | 2/7 | In Progress|  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
