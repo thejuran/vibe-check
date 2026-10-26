@@ -85,7 +85,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 57-01-PLAN.md — Reproduce-first: harness + RED fixtures for R1a/R1b/R1c, R2, R3a-refined, R3b, R4, R5, R6, R7; "did not reproduce; dropped" record for N1-N6 (DECN-01 gate)
+- [x] 57-01-PLAN.md — Reproduce-first: harness + RED fixtures for R1a/R1b/R1c, R2, R3a-refined, R3b, R4, R5, R6, R7; "did not reproduce; dropped" record for N1-N6 (DECN-01 gate)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -137,7 +137,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 0/TBD | Not started | - |
+| 57. Decision continuity within closure | 1/7 | In Progress|  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog

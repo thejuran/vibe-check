@@ -2,31 +2,31 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: ready_to_execute
-last_updated: "2026-10-26T18:09:09.000Z"
-last_activity: 2026-10-26 -- Phase 57 planning complete
+status: executing
+last_updated: "2026-10-26T18:21:00.000Z"
+last_activity: 2026-10-26 -- Plan 57-01 complete (DECN-01 reproduction fixtures)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 13
-  completed_plans: 6
-  percent: 33
+  completed_plans: 7
+  percent: 54
 ---
 
 # Project State
 
-**Current focus:** Phase 57 — decision continuity within closure
+**Current focus:** Phase 57 — decision-continuity-within-closure
 
 ## Current Position
 
-Phase: 57
-Plan: 0 of 7 (5 waves)
-Status: Ready to execute
-Last activity: 2026-10-26 -- Phase 57 planning complete
+Phase: 57 (decision-continuity-within-closure) — EXECUTING
+Plan: 2 of 7
+Status: Executing Phase 57
+Last activity: 2026-10-26 -- Plan 57-01 complete (DECN-01 reproduction fixtures)
 
 ## Operator Next Steps
 
-- Phase 56 merged to main (PR #1, 31b2760, 2026-10-25). Phase 57 is planned on feat/v2.13-phase-57: 7 plans in 5 waves, plan-check passed (3 rounds), owner refinements D-05 (2026-10-25) and D-08 (2026-10-26) recorded in 57-CONTEXT.md. Next: `/bm:execute-phase 57`.
+- Phase 56 merged to main (PR #1, 31b2760, 2026-10-25). Phase 57 is planned on feat/v2.13-phase-57: 7 plans in 5 waves, plan-check passed (3 rounds), owner refinements D-05 (2026-10-25) and D-08 (2026-10-26) recorded in 57-CONTEXT.md. Plan 57-01 done (49875d4, 2934031, af1c69b): 10 reproduced paths are failing fixtures in test_decision_continuity.py, N1-N6 recorded as dropped and pinned green; carry-forward notes for 57-03 (covers must not list the lead's own member twice) and 57-05 (relocation must move the lead's own member record) in 57-01-SUMMARY.md. Next: plan 57-02.
 - Separately assess cost attribution from existing local logs (999.12); stop with a documented limitation if reliable attribution is unavailable.
 - Reopen archived duplicate-reduction or secret-check work only when its evidence gate is met.
 
