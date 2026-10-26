@@ -12,6 +12,9 @@ WHAT IT DECIDES
   pending          "Unchanged since pass N, decision pending": every open,
                    unclosed obligation whose decision snapshot is older than
                    the last pass.
+  decided          Read-only: the hashes (rows and member obligations) whose
+                   owner decision is current. Phase 0.5 binds it as
+                   `$DECIDED_HASHES` to relocate decided records by content.
   record-decisions     The ONLY write path for the root `decisions` family
                        (owner dismiss/defer, written by Finalize and by the
                        fix-loop card, 50-fix-loop.md).
@@ -66,11 +69,6 @@ independent re-check closes it or a reviewer's still-applies settles it
 (`recheck_settled`) until the fingerprinted code changes.
 Nothing else closes a finding: no age, no pass count. Closure is evaluated per
 record and is never inherited from a lead.
-
-READ SUBCOMMANDS. `finalize-counts` and `pending` feed the Finalize gate and
-the card. `decided` is read-only: it lists the hashes (rows and member
-obligations) whose owner decision is current, and is what Phase 0.5 binds as
-`$DECIDED_HASHES` to relocate decided records by content.
 
 WHAT IT DOES NOT DO. It never renders REVIEW.md, never prints a finding, and
 never writes a file: the `record-*` subcommands print the new state on stdout
@@ -673,6 +671,18 @@ def pending(state):
     return sorted(out, key=lambda p: p["stable_hash"])
 
 
+def decided(state):
+    """Sorted `stable_hash` of every open record (rows and member
+    obligations) whose owner decision is current; None when the state is
+    malformed. Read-only. The orchestrator relocates exactly these records by
+    content, so a refusal must never look like an empty list."""
+    _, records, reason = _check_state(state)
+    if reason is not None:
+        return None
+    return sorted(rec["stable_hash"] for rec in records
+                  if decision_state(rec, state) == "current")
+
+
 # --------------------------------------------------------------------------- #
 # Writes. Each returns a NEW state object (the input is never mutated) and
 # writes exactly one root family; `passes` and `medium_acknowledgments` are
@@ -980,6 +990,8 @@ def run(argv, stdin_text):
         result = finalize_counts(state, head_blobs)
     elif sub == "pending":
         result = pending(state)
+    elif sub == "decided":
+        result = decided(state)
     elif sub == "record-decisions":
         payload = read_json_file(flags["--decisions-file"])
         if not isinstance(payload, dict):

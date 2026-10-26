@@ -654,7 +654,7 @@ class TestCLICounts(TempDirCase):
                               [r.strip() for r in carry_state.REASONS])
 
     def test_cli_malformed_invalid_json(self):
-        for sub in ("finalize-counts", "pending"):
+        for sub in ("finalize-counts", "pending", "decided"):
             with self.subTest(sub):
                 proc = run_cli([sub], b"not json")
                 self.assertEqual(proc.returncode, 2)
@@ -662,7 +662,7 @@ class TestCLICounts(TempDirCase):
 
     def test_cli_malformed_states(self):
         for name, s in TestMalformed()._cases().items():
-            for sub in ("finalize-counts", "pending"):
+            for sub in ("finalize-counts", "pending", "decided"):
                 with self.subTest(name=name, sub=sub):
                     proc = run_cli([sub], json.dumps(s).encode())
                     self.assertEqual(proc.returncode, 2)
@@ -689,11 +689,108 @@ class TestCLICounts(TempDirCase):
         state = json.dumps(load_fixture()).encode()
         for argv in ([], ["bogus"], ["finalize-counts", "--title", "x"],
                      ["pending", "--head-blobs", "x"],
+                     ["decided", "--head-blobs", "x"],
                      ["finalize-counts", "--head-blobs"]):
             with self.subTest(argv=argv):
                 proc = run_cli(argv, state)
                 self.assertEqual(proc.returncode, 2)
                 self.assertEqual(proc.stdout, b"")
+
+
+def decided_state():
+    """Last pass: row HB (decision current), member obligation HA of HB
+    (decision current), row HC (decision stale: band rise with a new lane)
+    and row HD (undecided)."""
+    a_member = member_ref(line=11, title="A")
+    a_member["obligation"] = {"stable_hash": HA, "orchestrator_score": 85,
+                              "band": "warning", "attribution": ["bugs"],
+                              "snapshot": snap(1, line=11)}
+    hb = mk_finding("warning", "persisted", HB, attribution=["bugs"],
+                    snapshot=snap(1), members=[member_ref(title="B"), a_member])
+    hc = mk_finding("medium", "persisted", HC_DECIDED, attribution=["bugs"],
+                    snapshot=snap(1, line=30, band="medium"))
+    hd = mk_finding("warning", "new", HD_DECIDED, snapshot=snap(2, line=40))
+    s = mk_state([mk_pass(1, []), mk_pass(2, [hb, hc, hd])])
+    s = carry_state.record_decisions(s, {"at_pass": 2, "decisions": [
+        {"stable_hash": h, "decision": "dismiss", "reason": "r"}
+        for h in (HA, HB, HC_DECIDED)]})
+    assert s is not None
+    row_c = [f for f in s["passes"][-1]["findings"]
+             if f["stable_hash"] == HC_DECIDED][0]
+    row_c["band"] = "warning"
+    row_c["snapshot"]["band"] = "warning"
+    row_c["attribution"] = ["bugs", "security"]
+    return s
+
+
+HC_DECIDED = "c" * 64
+HD_DECIDED = "d" * 64
+
+
+class TestDecided(TempDirCase):
+    """`decided`: the read the relocation prose binds as $DECIDED_HASHES."""
+
+    def _current_rows_and_members_scenario(self):
+        s = decided_state()
+        states = {r["stable_hash"]: carry_state.decision_state(r, s)
+                  for r in carry_state.open_findings(s)}
+        self.assertEqual(states, {HA: "current", HB: "current",
+                                  HC_DECIDED: "stale", HD_DECIDED: None})
+        self.assertEqual(carry_state.decided(s), sorted([HA, HB]))
+
+    def test_decided_lists_current_rows_and_members(self):
+        self._current_rows_and_members_scenario()
+
+    def test_decided_legacy_record_without_evidence_counts_as_current(self):
+        s = ba_state()
+        s["decisions"] = {HA: pre47_record("medium")}
+        self.assertEqual(carry_state.decided(s), [HA])
+        s["medium_acknowledgments"] = {HB: {"decision": "dismiss",
+                                            "reason": "r", "at_pass": 1}}
+        self.assertEqual(carry_state.decided(s), sorted([HA, HB]))
+
+    def test_decided_empty_when_nothing_decided(self):
+        self.assertEqual(carry_state.decided(ba_state()), [])
+
+    def test_decided_malformed_state_is_none(self):
+        for name, s in TestMalformed()._cases().items():
+            with self.subTest(name):
+                self.assertIsNone(carry_state.decided(s))
+
+    def test_decided_does_not_mutate_state(self):
+        s = decided_state()
+        before = json.dumps(s, sort_keys=True)
+        carry_state.decided(s)
+        self.assertEqual(json.dumps(s, sort_keys=True), before)
+
+    def test_cli_decided_prints_json_list(self):
+        s = decided_state()
+        proc = run_cli(["decided"], json.dumps(s).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout.decode()), sorted([HA, HB]))
+        proc = run_cli(["decided"], json.dumps(ba_state()).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout.decode()), [])
+
+    def test_cli_decided_malformed_exits_nonzero_with_reason(self):
+        proc = run_cli(["decided"], json.dumps(
+            {"medium_acknowledgments": {}, "passes": []}).encode())
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertIn(proc.stderr.decode().strip(),
+                      [r.strip() for r in carry_state.REASONS])
+
+    def test_contrast_decided_lists_stale_mutant(self):
+        def mutant(state):
+            _, records, reason = carry_state._check_state(state)
+            if reason is not None:
+                return None
+            return sorted(r["stable_hash"] for r in records
+                          if carry_state.decision_state(r, state) is not None)
+        with self.subTest("contrast: decided lists stale hashes too"):
+            with mock.patch.object(carry_state, "decided", mutant):
+                with self.assertRaises(AssertionError):
+                    self._current_rows_and_members_scenario()
 
 
 class TestReasonsSealed(unittest.TestCase):
