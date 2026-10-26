@@ -200,7 +200,7 @@ class TestRows(unittest.TestCase):
         self.assertIn(HC, rows)
         stale = rows[HC]["stale"]
         self.assertEqual(stale["cause"], "joined")
-        self.assertEqual(stale["covered"], 2)
+        self.assertEqual(stale["covered"], 2)  # two concerns, D-15
         self.assertEqual(stale["joined"], ["security"])
         self.assertEqual(stale["gained"], [])
 

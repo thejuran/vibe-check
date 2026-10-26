@@ -47,7 +47,9 @@ WHAT CLOSES. Exactly one of:
     decision's saved `attribution` now reports the finding (a record written
     before decisions saved `attribution` re-asks on any rise); an unknown band
     re-asks. A decision also records the findings it covered (`covers`: the
-    decided finding and every member of its row at decision time, by agent,
+    decided finding and every member of its row at decision time except a
+    member that carries its own separately-owed obligation (its row decision
+    never covers it), by agent,
     file, title and code line; written only by `record-decisions`, never
     rewritten later). A decided row that later holds a newcomer concern (a
     member with no obligation of its own, from a lane/title pair not in
@@ -55,6 +57,8 @@ WHAT CLOSES. Exactly one of:
     row with cause `joined`; a member repeating a covered title from another
     lane is corroboration and is governed by the band rule only (a second
     reviewer repeating the same concern re-asks only when the band rose).
+    The card's D-10 count of covered findings (`covered_count`) counts
+    concerns (distinct titles), not the lanes reporting them.
     Defer and dismiss follow the same rule. An edit to the decided
     line re-hashes it, so the new hash carries no decision at all. A
     Needs-verification decision is compared on _NV_EVIDENCE_KEYS instead: the
@@ -557,15 +561,25 @@ def _covers_of(record):
     dict in `members[]` the first non-blank line of its `current_code`,
     stripped (None when there is none). A member with the record's own
     identity (the lead's own member record) is the record itself and is not
-    listed twice."""
+    listed twice. A member whose dict `obligation` carries a str
+    `stable_hash` different from the record's own hash is a separately-owed
+    obligation, owed on its own: the owner was not deciding it, so it is
+    never listed and the row decision never covers it (D-16). A member whose
+    obligation hash equals the record's own hash is the same finding and is
+    still listed."""
     canon = record.get("canonical_line_content")
     out = [{"agent": record.get("agent"), "file": record.get("file"),
             "title": record.get("title"),
             "code": canon if isinstance(canon, str) else None}]
     seen = {_identity(record)}
     members = record.get("members")
+    own = record.get("stable_hash")
     for m in members if isinstance(members, list) else []:
         if not isinstance(m, dict) or _identity(m) in seen:
+            continue
+        obl = m.get("obligation")
+        if (isinstance(obl, dict) and isinstance(obl.get("stable_hash"), str)
+                and obl["stable_hash"] != own):
             continue
         seen.add(_identity(m))
         out.append({"agent": m.get("agent"), "file": m.get("file"),
@@ -624,21 +638,23 @@ def newcomer_lanes(record, state):
 
 
 def covered_count(record, state):
-    """The D-10 count the card prints: how many findings on this row the
-    record's own decision covered (the lead, plus each member whose
-    (agent, file, title) is in `covers`, the lead's own member record not
-    counted twice). 0 when the record has no own decision or the decision has
+    """The D-10 count the card prints: how many concerns on this row the
+    record's own decision covered. It counts decided concerns, not
+    reviewer reports; two lanes reporting one covered concern count once
+    (D-15): the lead counts 1, plus each distinct title among the members whose
+    (agent, file, title) is in `covers`, the lead's own title not counted
+    twice. 0 when the record has no own decision or the decision has
     no `covers` (legacy: nothing is known to be covered). batch_card.py must
     read this, never `covers` itself."""
     identities, _ = _covered_identities(_own_decision(record, state))
     if identities is None:
         return 0
     members = record.get("members")
-    covered = {_identity(m) for m in (members if isinstance(members, list)
-                                      else [])
-               if isinstance(m, dict) and _identity(m) in identities}
-    covered.discard(_identity(record))
-    return 1 + len(covered)
+    titles = {m.get("title") for m in (members if isinstance(members, list)
+                                       else [])
+              if isinstance(m, dict) and _identity(m) in identities}
+    titles.discard(record.get("title"))
+    return 1 + len(titles)
 
 
 def _joined_newcomer(record, state):

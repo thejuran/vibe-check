@@ -2528,6 +2528,52 @@ class TestGapClosure57(unittest.TestCase):
                 carry_state.finalize_counts(s)["outstanding_cw_hashes"],
                 [])
 
+    # ---- contrast subtests: each mutant must make its scenario fail ------ #
+    def test_contrast_m1_unfiltered_covers_mutant(self):
+        def mutant(record):
+            # The pre-fix body: every member listed, owed-on-its-own or not.
+            canon = record.get("canonical_line_content")
+            out = [{"agent": record.get("agent"), "file": record.get("file"),
+                    "title": record.get("title"),
+                    "code": canon if isinstance(canon, str) else None}]
+            seen = {carry_state._identity(record)}
+            members = record.get("members")
+            for m in members if isinstance(members, list) else []:
+                if not isinstance(m, dict) or carry_state._identity(m) in seen:
+                    continue
+                seen.add(carry_state._identity(m))
+                out.append({"agent": m.get("agent"), "file": m.get("file"),
+                            "title": m.get("title"),
+                            "code": carry_state._first_code_line(
+                                m.get("current_code"))})
+            return out
+        self.test_g1_split_obligation_member_is_not_covered_by_row_decision()
+        with self.subTest("contrast m1: unfiltered covers loop"):
+            with mock.patch.object(carry_state, "_covers_of", mutant):
+                with self.assertRaises(AssertionError):
+                    self.test_g1_split_obligation_member_is_not_covered_by_row_decision()  # noqa: E501
+
+    def test_contrast_m4_identity_counting_covered_count_mutant(self):
+        def mutant(record, state):
+            # The pre-fix body: one per covered (agent, file, title).
+            identities, _ = carry_state._covered_identities(
+                carry_state._own_decision(record, state))
+            if identities is None:
+                return 0
+            members = record.get("members")
+            covered = {carry_state._identity(m)
+                       for m in (members if isinstance(members, list)
+                                 else [])
+                       if isinstance(m, dict)
+                       and carry_state._identity(m) in identities}
+            covered.discard(carry_state._identity(record))
+            return 1 + len(covered)
+        self.test_g6_covered_count_counts_concerns_not_reports()
+        with self.subTest("contrast m4: covered_count counts identities"):
+            with mock.patch.object(carry_state, "covered_count", mutant):
+                with self.assertRaises(AssertionError):
+                    self.test_g6_covered_count_counts_concerns_not_reports()
+
 
 def old_closed(record, state, last):
     """The pre-47 closure rule, transcribed: closed by hash alone."""
