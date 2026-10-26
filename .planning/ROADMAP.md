@@ -99,7 +99,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 57-06-PLAN.md — Card: nearby / severity-rose-with-lane / D-10 joined suffixes (D-05, D-10, D-12), 90-finalize.md contract, exact-wording tests and locks
+- [x] 57-06-PLAN.md — Card: nearby / severity-rose-with-lane / D-10 joined suffixes (D-05, D-10, D-12), 90-finalize.md contract, exact-wording tests and locks
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -137,7 +137,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 5/7 | In Progress|  |
+| 57. Decision continuity within closure | 6/7 | In Progress|  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
