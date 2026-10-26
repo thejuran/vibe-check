@@ -24,3 +24,11 @@
   carry the same `stable_hash` (pre-existing Phase 46 shape). 57-07 fixed the one consequence that lost
   an owed re-ask (ea3dab1); the duplicate hash itself is left as is. A hash-bearing re-check request
   reaches only the lead, so closing the member needs a second, hash-less request for its lane.
+
+## Parked by the gap closure (outside the four scope classes; to backlog)
+
+Recorded by 57-13 for the orchestrator to park in the backlog. Not implemented. Source: 57-REVIEW.md; weighed as minor in 57-VERIFICATION.md.
+
+- **WR-01: unbounded relocation search.** A decided ordinary record whose line was deleted can relocate to an identical line elsewhere in the file (no distance bound in the 30-collect-score.md case 2 reuse). Failure direction: the finding stays open (`persisted` instead of `fixed-since-last`), so nothing is closed silently. Caveat: it is not a re-ask. The decision stays `current` on the wrong code until the owner acts or the duplicate line changes, so this one fails toward "kept open, not re-asked", not toward asking.
+- **WR-04: snippet first line vs flagged line.** `covers[].code` is the first non-blank line of a member's quoted `current_code`, which may be context above the flagged line. Failure direction: the covered finding, once split out, does not match its entry and is asked again (re-ask, not a silent close).
+- **IN-03: relocation simulator only in the test file.** Decided-record relocation is prose-driven; the end-to-end journey checks a Python re-implementation (`relocate_decided`) guarded by phrase locks. This is a test-coverage gap, not a behaviour defect: the shipped prose and the simulator agree today, and the phrase-lock tests (`decided_relocation_holds` in test_nv_render.py) fail if a case is removed from the prose. The review's named consequence of a missed lead-member move is a phantom row (an extra row shown to the owner), not a silent close. 57-13 did not establish a failure direction for every possible drift, so this one is "caught by locks" rather than "proven fail-safe".
