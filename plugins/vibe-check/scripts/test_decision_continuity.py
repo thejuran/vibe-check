@@ -4,9 +4,9 @@ The contract these fixtures hold the scorer, the carry-forward state and the
 finalize card to, one sentence per locked decision:
 D-01: a pure line shift (code added or removed above, the flagged line itself
 unchanged) does not reopen a decided finding; the decision follows the code.
-D-02: a change to code immediately around the flagged line (the same window
-as the independent re-check trigger: the pinned line and the 5 lines beneath
-it) reopens it.
+D-02: a change to code immediately around the flagged line (the pinned line
+and the 5 lines above or below it (D-14), shared with the independent re-check
+trigger) reopens it.
 D-03: an edit elsewhere in the same file, outside that window, does not
 reopen it.
 D-04: Needs-verification decisions keep their rule: any change to the
@@ -151,6 +151,13 @@ def relocate_decided(lines, entry, decided):
     best = min(abs(m - line) for m in matches)
     nearest = [m for m in matches if abs(m - line) == best]
     return nearest[0] if len(nearest) == 1 else line
+
+
+def deletion_hunk_ranges(file, t):
+    """The changed-line ranges for a hunk that only deletes (header `+T,0`),
+    mirroring the 30-collect-score.md rule: the two new-side lines on either
+    side of the deletion point, `[max(T, 1), T + 1]`."""
+    return {file: [[max(t, 1), t + 1]]}
 
 
 def next_cf(state, lines, decided=frozenset()):
@@ -405,9 +412,9 @@ class TestLineShift(_Base):
 
 
 class TestNearbyEdit(_Base):
-    """D-02, DECN-03: an edit to the pinned line's window (the line and the 5
-    beneath it, shared with the independent re-check trigger) reopens a
-    decided finding whose own line is unchanged."""
+    """D-02, D-14, DECN-03: an edit to the pinned line's window (the line and
+    the 5 lines above or below it, shared with the independent re-check
+    trigger) reopens a decided finding whose own line is unchanged."""
 
     def _edit(self, at, n=2, base=None, state=None, h=None):
         L0 = base or base_file()
@@ -442,14 +449,78 @@ class TestNearbyEdit(_Base):
         self.assertEqual(carry_state.decision_state(rec, s2), "current")
         self.assertNotIn("nearby_at", row_of(s2, hA)["snapshot"])
 
-    def test_r2_edit_two_above_keeps(self):
-        """The window is the literal 5 lines BENEATH the pinned line (shared
-        with the Phase 56 re-check trigger): an edit 2 lines above keeps."""
-        _, s1, s2, hA = self._edit(8)
+    def test_r2_edit_within_five_above_reopens(self):
+        """D-14: the window is symmetric, so an edit 1, 3 or 5 lines ABOVE
+        the pinned line reopens exactly as one beneath it does."""
+        for offset in (1, 3, 5):
+            with self.subTest(offset=offset):
+                _, s1, s2, hA = self._edit(10 - offset)
+                self._assert_band(s1, hA, "warning")
+                self._assert_band(s2, hA, "warning")
+                rec = self._current(s2, hA)
+                self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+                self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+                self.assertEqual(row_of(s2, hA)["snapshot"].get("nearby_at"),
+                                 2)
+                self.assertNotEqual(e2e_gate(s2, {}), "write")
+                row = card_row(s2, hA)
+                self.assertIsNotNone(row, "decided row not on the card")
+                self.assertEqual((row["stale"] or {}).get("cause"), "nearby")
+
+    def test_r2_edit_six_above_keeps(self):
+        _, s1, s2, hA = self._edit(4)
         self._assert_band(s1, hA, "warning")
         self._assert_band(s2, hA, "warning")
         rec = self._current(s2, hA)
         self.assertEqual(carry_state.decision_state(rec, s2), "current")
+        self.assertNotIn("nearby_at", row_of(s2, hA)["snapshot"])
+
+    def test_r8_guard_deleted_directly_above_reopens(self):
+        """WR-02: the guard directly above a "guarded upstream" dismissal is
+        deleted and nothing else changes. A deletion-only hunk has no new-side
+        lines, so the changed range is the 30-collect-score.md mapping
+        (`deletion_hunk_ranges`). Expected GREEN on the current scorer and
+        state (the record relocates onto the deletion point, inside even the
+        beneath-only window); what is red is the prose lock in
+        test_nv_render.py, so this is a lock, not a reproduction. The
+        `mapping dropped` subtest proves the fixture depends on the mapping."""
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF)
+        self.assertEqual(s1["decisions"][hA]["reason"], REASON)
+        rec1 = self._current(s1, hA)
+        self.assertEqual(rec1["line"], 10)
+        self.assertEqual(carry_state.decision_state(rec1, s1), "current")
+        L2 = list(L0)
+        del L2[8]  # line 9, the guard directly above, deleted
+        self.assertEqual(len(L2), len(L0) - 1)
+        self.assertEqual(L2[8], L0[9])
+
+        self._assert_band(s1, hA, "warning")
+        s2, _ = run_pass(s1, L2, [], 2, deletion_hunk_ranges(F, 8),
+                         decided=target_decided(s1))
+        # The range's T + 1 end is the relocated flagged line itself, so the
+        # scorer's changed-line scoring lifts the band (warning -> critical);
+        # the nearby cause still outranks severity on the card.
+        self._assert_band(s2, hA, "critical")
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["stable_hash"], hA)
+        self.assertEqual(rec["line"], 9)
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+        self.assertEqual(row_of(s2, hA)["snapshot"].get("nearby_at"), 2)
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+        self.assertIn(" — code next to it changed since your decision on "
+                      "pass 1 (was: dismissed — false positive, guarded "
+                      "upstream)", card_text_full(s2))
+
+        with self.subTest("mapping dropped"):
+            m2, _ = run_pass(s1, L2, [], 2, {F: []},
+                             decided=target_decided(s1))
+            self._assert_band(m2, hA, "warning")
+            mrec = self._current(m2, hA)
+            self.assertEqual(mrec["line"], 9)
+            self.assertEqual(carry_state.decision_state(mrec, m2), "current")
+            self.assertEqual(e2e_gate(m2, {}), "write")
 
     def test_nearby_at_carries_forward_on_quiet_pass(self):
         L2, s1, s2, hA = self._edit(11)
@@ -1125,8 +1196,8 @@ class TestPhase57EndToEnd(_Base):
 
         # Pass 6: a different `compliance` concern is absorbed into the row
         # -> the whole row is asked once, with the D-10 note. The decision
-        # covered two lane records of the same concern (bugs and security),
-        # so the note counts 2.
+        # covered one concern reported by two lanes (bugs and security),
+        # which counts once (D-15).
         comp = fresh("compliance", 14, L2, TITLE_D, conf=COMPLIANCE_CONF,
                      severity="medium", category="compliance")
         s, _ = run_pass(s, L2, [comp], 6, {F: []}, decided=target_decided(s))
@@ -1140,9 +1211,10 @@ class TestPhase57EndToEnd(_Base):
         rows = shown(s)
         self.assertEqual([r["stable_hash"] for r in rows], [hA])
         self.assertEqual(rows[0]["stale"]["joined"], ["compliance"])
-        self.assertIn(" — 2 findings here already dismissed (your reason: "
+        self.assertIn(" — 1 finding here already dismissed (your reason: "
                       "%s); a new concern from compliance joined it" % REASON,
                       card_text_full(s))
+        self.assertEqual(rows[0]["stale"]["covered"], 1)
         s = decide_on(s, hA)  # the owner dismisses the row on pass 6
         self.assertIn({"agent": "compliance", "file": F, "title": TITLE_D,
                        "code": L2[13]}, s["decisions"][hA]["covers"])

@@ -190,6 +190,26 @@ def decided_relocation_holds(text):
             and _all_in(text, DECIDED_CONTEXT_PHRASES))
 
 
+# The step-2 `changed-line ranges` bullet: a hunk that only deletes (new-side
+# count 0) still maps to a range, the two new-side lines around the deletion
+# point. Checked inside that bullet only. test_decision_continuity's
+# `deletion_hunk_ranges` mirrors this mapping.
+DELETION_RANGE_START = "**changed-line ranges**"
+DELETION_RANGE_END = "\n   - **"
+
+DELETION_RANGE_PHRASES = (
+    "A hunk that only deletes",
+    "header `+T,0`",
+    "`[max(T, 1), T + 1]`",
+    "either side of the deletion point",
+)
+
+
+def deletion_range_holds(text):
+    return _all_in(_section(text, DELETION_RANGE_START, DELETION_RANGE_END),
+                   DELETION_RANGE_PHRASES)
+
+
 # --- 05-state.md ------------------------------------------------------------
 
 STATE_START = "The state root may also carry `decisions`"
@@ -403,6 +423,41 @@ class TestNvRenderMutation(unittest.TestCase):
         mutant = original + ("\n   A symbol presence check is enough to keep "
                              "the record persisted.\n")
         self._assert_trips(nv_evidence_fingerprint_holds, original, mutant)
+
+
+class TestDeletionRangeLock(unittest.TestCase):
+    """WR-02: the deletion-only hunk mapping in 30-collect-score.md."""
+
+    SYNTHETIC = (
+        "2. Raw facts:\n"
+        "   - **changed-line ranges** — pass `changed_line_ranges`. A hunk "
+        "that only deletes (unified-diff header `+T,0`) maps to "
+        "`[max(T, 1), T + 1]`: the new-side lines on either side of the "
+        "deletion point.\n"
+        "   - **±2 source window** — pass each finding's `source_window`.\n")
+
+    def test_deletion_range_rule_locked(self):
+        """RED until the 30-collect-score.md bullet states the mapping."""
+        self.assertTrue(deletion_range_holds(_read(COLLECT)))
+
+    def test_deletion_range_synthetic_holds(self):
+        self.assertTrue(deletion_range_holds(self.SYNTHETIC))
+
+    def test_deletion_range_removal_mutants(self):
+        for phrase in DELETION_RANGE_PHRASES:
+            with self.subTest(phrase=phrase):
+                mutant = _delete(self.SYNTHETIC, phrase)
+                self.assertNotEqual(mutant, self.SYNTHETIC)
+                self.assertFalse(deletion_range_holds(mutant))
+
+    def test_deletion_range_outside_bullet_mutant(self):
+        # The sentence moved to the next bullet no longer satisfies the lock.
+        sentence = self.SYNTHETIC.split("`changed_line_ranges`. ")[1].split(
+            "\n")[0]
+        moved = (self.SYNTHETIC.replace(sentence, "")
+                 + "   - **other** — " + sentence + "\n")
+        self.assertIn(sentence, moved)
+        self.assertFalse(deletion_range_holds(moved))
 
 
 if __name__ == "__main__":
