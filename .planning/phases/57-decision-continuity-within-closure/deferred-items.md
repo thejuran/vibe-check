@@ -2,7 +2,7 @@
 
 ## test_replay.py::TestDiffMode::test_member_only_mutation_exits_one (found during 57-05)
 
-- **Status:** pre-existing red, out of 57-05 scope (57-05 changes no Python under test here; score.py untouched).
+- **Status:** RESOLVED by the orchestrator after 57-05 (re-anchored the mutant on the current `changed_line_ranges)` / `members.append(ref)` / `kept_by_ident[ident] = ref` lines; test_replay.py 64 passed). Was a 57-04 regression, not pre-existing; originally logged as out of 57-05 scope (57-05 changes no Python under test here; score.py untouched).
 - **Cause:** the `"member"` mutant in `test_replay._MUTANTS` (line ~697) anchors on the score.py text
   `carried_obligations[id(m)]["obligation"], m, pass_number)\n            members.append(ref)\n`.
   57-04 (`04e2c65` / `273a1e4`) rewrote that region of score.py, so the anchor now matches 0 times
