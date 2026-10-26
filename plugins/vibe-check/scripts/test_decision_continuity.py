@@ -708,7 +708,8 @@ class TestRegrouping(_Base):
         s1, s2, hA = joined_scenario()
         self._assert_band(s1, hA, "warning")
         want = [{"agent": "bugs", "file": F, "title": TITLE_A,
-                 "code": base_file()[9]}]
+                 "code": base_file()[9], "band": "warning",
+                 "lanes": ["bugs"]}]
         self.assertEqual(s1["decisions"][hA].get("covers"), want)
         # Frozen: only a new record-decisions write may extend it.
         self.assertEqual(s2["decisions"][hA].get("covers"), want)
@@ -1217,8 +1218,11 @@ class TestPhase57EndToEnd(_Base):
                       card_text_full(s))
         self.assertEqual(rows[0]["stale"]["covered"], 1)
         s = decide_on(s, hA)  # the owner dismisses the row on pass 6
+        # The entry records the row band and the lanes reporting the
+        # compliance concern: what an inherited decision is compared to.
         self.assertIn({"agent": "compliance", "file": F, "title": TITLE_D,
-                       "code": L2[13]}, s["decisions"][hA]["covers"])
+                       "code": L2[13], "band": "critical",
+                       "lanes": ["compliance"]}, s["decisions"][hA]["covers"])
 
         # Pass 7: line 13 is rewritten and both lanes that reported it answer
         # their re-check `resolved`; the compliance member becomes a row of

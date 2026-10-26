@@ -957,18 +957,26 @@ def arch_row_covers():
     from carry_state): the row first (code = its canonical line), then each
     member with a different (agent, file, title) than the row (code = the
     first non-blank line of its `current_code`, stripped). The row's own
-    member record is the row and is not listed twice."""
+    member record is the row and is not listed twice. Every entry's `band`
+    is the row band; its `lanes` are the agents of the members reporting
+    that entry's title (the row's own agent included for the row)."""
     row = [f for f in load_fixture()["passes"][-1]["findings"]
            if f["stable_hash"] == ARCH_HASH][0]
+
+    def lanes(title, extra=()):
+        return sorted({m["agent"] for m in row["members"]
+                       if m["title"] == title} | set(extra))
     out = [{"agent": "architecture", "file": ARCH_FILE, "title": row["title"],
-            "code": row["canonical_line_content"]}]
+            "code": row["canonical_line_content"], "band": row["band"],
+            "lanes": lanes(row["title"], ["architecture"])}]
     for m in row["members"]:
         if (m["agent"], m["file"], m["title"]) == (row["agent"], row["file"],
                                                    row["title"]):
             continue
         first = [ln for ln in m["current_code"].split("\n") if ln.strip()][0]
         out.append({"agent": m["agent"], "file": m["file"],
-                    "title": m["title"], "code": first.strip()})
+                    "title": m["title"], "code": first.strip(),
+                    "band": row["band"], "lanes": lanes(m["title"])})
     assert len(out) == 3, out
     return out
 
@@ -1104,7 +1112,9 @@ class TestRecordDecisions(unittest.TestCase):
                           # carries no canonical line of its own (score.py
                           # excludes it from member records).
                           "covers": [{"agent": "bugs", "file": F,
-                                      "title": "A", "code": None}]})
+                                      "title": "A", "code": None,
+                                      "band": "warning",
+                                      "lanes": ["bugs"]}]})
         self.assertEqual(json.dumps(out["passes"], sort_keys=True), before)
         self.assertIsNone(carry_state.record_decisions(
             s, {"at_pass": 2, "decisions": [{"stable_hash": "e" * 64,
@@ -1964,12 +1974,15 @@ class TestDecisionCoverage(unittest.TestCase):
         covers = s["decisions"][HB]["covers"]
         self.assertEqual(len(covers), 2, covers)
         for entry in covers:
-            self.assertEqual(set(entry), {"agent", "file", "title", "code"})
+            self.assertEqual(set(entry), {"agent", "file", "title", "code",
+                                          "band", "lanes"})
         self.assertEqual(covers[0], {"agent": "bugs", "file": F,
-                                     "title": LEAD_TITLE, "code": "x = 1"})
+                                     "title": LEAD_TITLE, "code": "x = 1",
+                                     "band": "warning", "lanes": ["bugs"]})
         self.assertEqual(covers[1], {"agent": "security", "file": F,
                                      "title": "Injection here",
-                                     "code": "y = 2"})
+                                     "code": "y = 2", "band": "warning",
+                                     "lanes": ["security"]})
         s = dismiss(cov_state([lead_member(), cov_member(
             "security", "Injection here", code=None)]), HB)
         self.assertIsNone(s["decisions"][HB]["covers"][1]["code"])
@@ -2003,7 +2016,8 @@ class TestDecisionCoverage(unittest.TestCase):
                     base, {"at_pass": 2, "decisions": [entry]}))
         self.assertEqual(dismiss(base, HB)["decisions"][HB]["covers"],
                          [{"agent": "bugs", "file": F, "title": LEAD_TITLE,
-                           "code": "x = 1"}])
+                           "code": "x = 1", "band": "warning",
+                           "lanes": ["bugs"]}])
 
     def _joined_scenario(self):
         s = joined_state()
@@ -2424,7 +2438,9 @@ class TestGapClosure57(unittest.TestCase):
             ["security", "bugs"])])])
         same = dismiss(same, HR, at_pass=1)
         self.assertIn({"agent": "bugs", "file": F, "title": "T1",
-                       "code": "x = 1"}, same["decisions"][HR]["covers"])
+                       "code": "x = 1", "band": "warning",
+                       "lanes": ["bugs", "security"]},
+                      same["decisions"][HR]["covers"])
 
         b_member = g_member("b", "T2", "y = 2", line=11,
                             obligation=g_obligation(HB2, "b", "y = 2"))
@@ -2471,7 +2487,8 @@ class TestGapClosure57(unittest.TestCase):
             ["bugs", "c"])])])
         s1 = dismiss(p1, HR, at_pass=1)
         self.assertIn({"agent": "c", "file": F, "title": "T3",
-                       "code": "z = 3"}, s1["decisions"][HR]["covers"])
+                       "code": "z = 3", "band": "warning", "lanes": ["c"]},
+                      s1["decisions"][HR]["covers"])
         return s1
 
     def _inherited_pass2(self, s1, hc_band, hc_members):
@@ -2517,6 +2534,99 @@ class TestGapClosure57(unittest.TestCase):
         self.assertEqual(
             carry_state.finalize_counts(s)["outstanding_cw_hashes"],
             [HC])
+
+    # ---- inherited path: entry band/lanes, legacy fallbacks, order ------ #
+    def _c_entry(self, s):
+        """The `covers` entry of the HR decision naming c's T3 finding."""
+        entries = [e for e in s["decisions"][HR]["covers"]
+                   if (e["agent"], e["title"]) == ("c", "T3")]
+        self.assertEqual(len(entries), 1, entries)
+        return entries[0]
+
+    def _legacy_pass1(self, drop):
+        s1 = self._inherited_pass1()
+        for key in drop:
+            del self._c_entry(s1)[key]
+        return s1
+
+    def test_inherited_covering_entry_is_the_matched_entry(self):
+        s1 = self._inherited_pass1()
+        s, rec = self._inherited_pass2(s1, "warning",
+                                       [g_lead("c", "T3", "z = 3", 12)])
+        self.assertEqual(carry_state.covering_entry(rec, s),
+                         {"agent": "c", "file": F, "title": "T3",
+                          "code": "z = 3", "band": "warning",
+                          "lanes": ["c"]})
+        self.assertIsNone(carry_state.covering_entry(record_of(s, HR), s))
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+
+    def test_inherited_legacy_entry_without_band_uses_decision_band(self):
+        s1 = self._legacy_pass1(["band"])
+        self.assertNotIn("band", self._c_entry(s1))
+        self.assertEqual(s1["decisions"][HR]["band"], "warning")
+        # The record's band equals the decision's band: kept.
+        s, rec = self._inherited_pass2(s1, "warning",
+                                       [g_lead("c", "T3", "z = 3", 12)])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        # A rise above it that a new same-title lane backs: re-asked.
+        s, rec = self._inherited_pass2(s1, "critical", [
+            g_lead("c", "T3", "z = 3", 12),
+            g_member("security", "T3", "z = 3", line=12)])
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["security"])
+        # Non-vacuity: the fallback really is the decision's band (a
+        # critical decision band absorbs the same critical record).
+        s["decisions"][HR]["band"] = "critical"
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+
+    def _legacy_lanes_scenario(self):
+        s1 = self._legacy_pass1(["lanes"])
+        self.assertEqual(self._c_entry(s1)["band"], "warning")
+        self.assertNotIn("lanes", self._c_entry(s1))
+        # A rise with NO new lane reporting T3.
+        s, rec = self._inherited_pass2(s1, "critical",
+                                       [g_lead("c", "T3", "z = 3", 12)])
+        self.assertEqual(carry_state.gained_lanes(rec, s), [])
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+
+    def test_inherited_legacy_entry_without_lanes_reasks_on_rise(self):
+        self._legacy_lanes_scenario()
+
+    def test_inherited_band_drop_keeps(self):
+        s1 = self._inherited_pass1()
+        self.assertEqual(self._c_entry(s1)["band"], "warning")
+        # A drop keeps it even with a new same-title lane.
+        s, rec = self._inherited_pass2(s1, "medium", [
+            g_lead("c", "T3", "z = 3", 12),
+            g_member("security", "T3", "z = 3", line=12)])
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["security"])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+
+    def test_inherited_check_order_nearby_before_joined_before_severity(self):
+        s1 = self._inherited_pass1()
+        s, rec = self._inherited_pass2(s1, "critical", [
+            g_lead("c", "T3", "z = 3", 12),
+            g_member("security", "T3", "z = 3", line=12),
+            g_member("compliance", "Audit gap", "z = 3", line=12)])
+        fixture_row(s, HC)["snapshot"]["nearby_at"] = 2
+        rec = record_of(s, HC)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "nearby")
+        # Without the stamp: the joined newcomer.
+        del fixture_row(s, HC)["snapshot"]["nearby_at"]
+        rec = record_of(s, HC)
+        self.assertEqual(carry_state.newcomer_lanes(rec, s), ["compliance"])
+        self.assertEqual(carry_state.stale_cause(rec, s), "joined")
+        # Without the newcomer: the lane-backed rise.
+        fixture_row(s, HC)["members"].pop()
+        rec = record_of(s, HC)
+        self.assertEqual(carry_state.newcomer_lanes(rec, s), [])
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["security"])
 
     def _two_concern_row(self, band, members, attribution):
         return mk_state([mk_pass(1, []), mk_pass(2, [g_row(
@@ -2580,7 +2690,11 @@ class TestGapClosure57(unittest.TestCase):
                 ["bugs", "security"])])])
             s = dismiss(p, HR, at_pass=1)
             self.assertIn({"agent": "security", "file": F,
-                           "title": other_title, "code": "x = 1"},
+                           "title": other_title, "code": "x = 1",
+                           "band": "warning",
+                           "lanes": sorted({"security"}
+                                           | ({"bugs"} if other_title == "T1"
+                                              else set()))},
                           s["decisions"][HR]["covers"])
             rec = record_of(s, HR)
             self.assertEqual(carry_state.covered_count(rec, s), expected)
@@ -2593,21 +2707,28 @@ class TestGapClosure57(unittest.TestCase):
     # ---- contrast subtests: each mutant must make its scenario fail ------ #
     def test_contrast_m1_unfiltered_covers_mutant(self):
         def mutant(record):
-            # The pre-fix body: every member listed, owed-on-its-own or not.
+            # The pre-fix body: every member listed, owed-on-its-own or not
+            # (entry shape as the real writer's, so only the filter differs).
             canon = record.get("canonical_line_content")
+            members = record.get("members")
+            members = members if isinstance(members, list) else []
             out = [{"agent": record.get("agent"), "file": record.get("file"),
                     "title": record.get("title"),
-                    "code": canon if isinstance(canon, str) else None}]
+                    "code": canon if isinstance(canon, str) else None,
+                    "band": record.get("band"),
+                    "lanes": carry_state.concern_lanes(record)}]
             seen = {carry_state._identity(record)}
-            members = record.get("members")
-            for m in members if isinstance(members, list) else []:
+            for m in members:
                 if not isinstance(m, dict) or carry_state._identity(m) in seen:
                     continue
                 seen.add(carry_state._identity(m))
                 out.append({"agent": m.get("agent"), "file": m.get("file"),
                             "title": m.get("title"),
                             "code": carry_state._first_code_line(
-                                m.get("current_code"))})
+                                m.get("current_code")),
+                            "band": record.get("band"),
+                            "lanes": carry_state._member_lanes(
+                                members, m.get("title"))})
             return out
         self.test_g1_split_obligation_member_is_not_covered_by_row_decision()
         with self.subTest("contrast m1: unfiltered covers loop"):
@@ -2682,6 +2803,68 @@ class TestGapClosure57(unittest.TestCase):
             with mock.patch.object(carry_state, "_band_rise_reopens", mutant):
                 with self.assertRaises(AssertionError):
                     legacy._without_lanes_scenario()
+
+
+    # ---- inherited-path mutants: each step of _inherited_state is live --- #
+    @staticmethod
+    def _inherited_mutant(skip):
+        """_inherited_state with one step changed: "band" returns "current"
+        after nearby/joined, "joined" skips the newcomer check, "legacy"
+        treats an entry without list `lanes` as no gain."""
+        def mutant(record, state, decision, entry):
+            if carry_state._nearby_since(record, decision):
+                return "stale"
+            if skip != "joined" and carry_state.newcomer_lanes(record, state):
+                return "stale"
+            if skip == "band":
+                return "current"
+            was = carry_state._BAND_RANK.get(
+                carry_state._inherited_was_band(entry, decision))
+            cur = carry_state._BAND_RANK.get(record.get("band"))
+            if was is None or cur is None:
+                return "stale"
+            if cur <= was:
+                return "current"
+            if (skip != "legacy"
+                    and not isinstance(entry.get("lanes"), list)):
+                return "stale"
+            return ("stale" if carry_state.gained_lanes(record, state)
+                    else "current")
+        return mutant
+
+    def test_contrast_m6_inherited_band_step_skipped_mutant(self):
+        self.test_g2a_inherited_decision_reopens_on_lane_backed_band_rise()
+        with self.subTest("contrast m6: inherited band step skipped"):
+            with mock.patch.object(carry_state, "_inherited_state",
+                                   self._inherited_mutant("band")):
+                with self.assertRaises(AssertionError):
+                    self.test_g2a_inherited_decision_reopens_on_lane_backed_band_rise()  # noqa: E501
+
+    def test_contrast_m7_inherited_joined_step_skipped_mutant(self):
+        self.test_g2b_inherited_decision_reopens_when_a_newcomer_joins()
+        with self.subTest("contrast m7: inherited joined step skipped"):
+            with mock.patch.object(carry_state, "_inherited_state",
+                                   self._inherited_mutant("joined")):
+                with self.assertRaises(AssertionError):
+                    self.test_g2b_inherited_decision_reopens_when_a_newcomer_joins()  # noqa: E501
+
+    def test_contrast_m8_inherited_missing_lanes_no_gain_mutant(self):
+        self._legacy_lanes_scenario()
+        with self.subTest("contrast m8: missing entry lanes treated as no gain"):
+            with mock.patch.object(carry_state, "_inherited_state",
+                                   self._inherited_mutant("legacy")):
+                with self.assertRaises(AssertionError):
+                    self._legacy_lanes_scenario()
+
+    def test_inherited_mutant_helper_is_faithful(self):
+        # With no step changed the helper reproduces the real function on
+        # every inherited scenario above, so each mutant differs by one step.
+        with mock.patch.object(carry_state, "_inherited_state",
+                               self._inherited_mutant(None)):
+            self.test_g2a_inherited_decision_reopens_on_lane_backed_band_rise()
+            self.test_g2b_inherited_decision_reopens_when_a_newcomer_joins()
+            self._legacy_lanes_scenario()
+            self.test_inherited_band_drop_keeps()
 
 
 def old_closed(record, state, last):

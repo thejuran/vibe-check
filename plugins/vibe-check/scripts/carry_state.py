@@ -86,7 +86,13 @@ Nothing else closes a finding: no age, no pass count. Closure is evaluated per
 record; the ONE inheritance path is explicit coverage recorded at decision time
 (`covers`): a finding the decision covered that is now its own row keeps that
 decision while its agent, file, title and covered code line still match
-(`covering_decision`) — never from whichever lead is current now.
+(`covering_decision`) — never from whichever lead is current now. An
+inherited decision reopens by the own-decision rules, in order, against the
+matched entry (which records the row band and the lanes reporting that
+concern at decision time): a nearby change since the decision, a joined
+newcomer concern, or a band rise backed by a lane newly reporting the
+concern. A legacy entry without `band` compares against the covering
+decision's band; one without `lanes` re-asks on any rise.
 
 WHAT IT DOES NOT DO. It never renders REVIEW.md, never prints a finding, and
 never writes a file: the `record-*` subcommands print the new state on stdout
@@ -540,15 +546,16 @@ def concern_lanes(record):
 
 def gained_lanes(record, state):
     """Sorted lanes now reporting this concern (`concern_lanes`) that are
-    absent from its own decision's saved `lanes`; [] when the record has no
-    decision dict or the decision has no list `lanes`. The row-wide reviewer
-    list is never read here: a lane present only for another concern is not
-    a reviewer of this one (D-16). batch_card.py names exactly these
-    lanes on the card."""
-    decision = state.get("decisions", {}).get(record.get("stable_hash"))
+    absent from the lanes saved for it: the own decision's `lanes`, or for
+    an inherited record (`_decision_for`) the matched `covers` entry's
+    `lanes`. [] when the record has no decision dict or the saved lanes are
+    not a list (legacy). The row-wide reviewer list is never read here: a
+    lane present only for another concern is not a reviewer of this one
+    (D-16). batch_card.py names exactly these lanes on the card."""
+    decision, entry = _decision_for(record, state)
     if not isinstance(decision, dict):
         return []
-    saved = decision.get("lanes")
+    saved = (entry if isinstance(entry, dict) else decision).get("lanes")
     if not isinstance(saved, list):
         return []
     return sorted(set(concern_lanes(record)) - _str_lanes(saved))
@@ -582,6 +589,14 @@ def _identity(item):
     return (item.get("agent"), item.get("file"), item.get("title"))
 
 
+def _member_lanes(members, title):
+    """Sorted str agents of every dict in `members` whose `title` equals
+    `title`."""
+    return sorted({m["agent"] for m in members
+                   if isinstance(m, dict) and isinstance(m.get("agent"), str)
+                   and m.get("title") == title})
+
+
 def _covers_of(record):
     """The findings a decision on `record` covers, frozen at decision time.
 
@@ -595,15 +610,27 @@ def _covers_of(record):
     obligation, owed on its own: the owner was not deciding it, so it is
     never listed and the row decision never covers it (D-16). A member whose
     obligation hash equals the record's own hash is the same finding and is
-    still listed."""
+    still listed.
+
+    Each entry also records what an inherited decision is later compared
+    against: `band` is the row's band (`record["band"]`) for every entry —
+    a member carries no band of its own, and the row band (the strongest
+    member band) is the only band the owner saw for it; `lanes` is the lanes
+    reporting that entry's concern at decision time — `concern_lanes` for
+    the record itself, and for a member the sorted agents of every member
+    with the member's title (its own agent included)."""
     canon = record.get("canonical_line_content")
+    band = record.get("band")
+    band = band if isinstance(band, str) else None
+    members = record.get("members")
+    members = members if isinstance(members, list) else []
     out = [{"agent": record.get("agent"), "file": record.get("file"),
             "title": record.get("title"),
-            "code": canon if isinstance(canon, str) else None}]
+            "code": canon if isinstance(canon, str) else None,
+            "band": band, "lanes": concern_lanes(record)}]
     seen = {_identity(record)}
-    members = record.get("members")
     own = record.get("stable_hash")
-    for m in members if isinstance(members, list) else []:
+    for m in members:
         if not isinstance(m, dict) or _identity(m) in seen:
             continue
         obl = m.get("obligation")
@@ -613,7 +640,9 @@ def _covers_of(record):
         seen.add(_identity(m))
         out.append({"agent": m.get("agent"), "file": m.get("file"),
                     "title": m.get("title"),
-                    "code": _first_code_line(m.get("current_code"))})
+                    "code": _first_code_line(m.get("current_code")),
+                    "band": band,
+                    "lanes": _member_lanes(members, m.get("title"))})
     return out
 
 
@@ -635,6 +664,21 @@ def _own_decision(record, state):
             if isinstance(decisions, dict) else None)
 
 
+def _decision_for(record, state):
+    """(decision, entry) the reopen rules and the card read for this record:
+    its own decision with entry None when it has one, else the covering
+    decision and the matched `covers` entry (`_covering`), else
+    (None, None). `newcomer_lanes`, `covered_count` and `gained_lanes` all
+    resolve the decision here, so the comparator and the card agree."""
+    own = _own_decision(record, state)
+    if own is not None:
+        return own, None
+    covering = _covering(record, state)
+    if covering is None:
+        return None, None
+    return covering[1], covering[2]
+
+
 def newcomer_lanes(record, state):
     """Sorted reviewer lanes of the newcomer concerns on a decided row: the
     single source of truth for the D-08 newcomer test, read by
@@ -647,9 +691,11 @@ def newcomer_lanes(record, state):
     its own) whose (agent, file, title) is not in the record's own decision's
     `covers` AND whose title is not a covered title: a second reviewer
     repeating a covered concern (same title) is corroboration, governed only
-    by the severity rule. [] when the record has no own decision or that
+    by the severity rule. The decision is the record's own, else the
+    covering decision (`_decision_for`). [] when there is none or that
     decision has no `covers` (legacy)."""
-    identities, titles = _covered_identities(_own_decision(record, state))
+    identities, titles = _covered_identities(
+        _decision_for(record, state)[0])
     if identities is None:
         return []
     members = record.get("members")
@@ -668,14 +714,15 @@ def newcomer_lanes(record, state):
 
 def covered_count(record, state):
     """The D-10 count the card prints: how many concerns on this row the
-    record's own decision covered. It counts decided concerns, not
+    record's decision (own, else covering: `_decision_for`) covered. It
+    counts decided concerns, not
     reviewer reports; two lanes reporting one covered concern count once
     (D-15): the lead counts 1, plus each distinct title among the members whose
     (agent, file, title) is in `covers`, the lead's own title not counted
-    twice. 0 when the record has no own decision or the decision has
+    twice. 0 when the record has no decision or the decision has
     no `covers` (legacy: nothing is known to be covered). batch_card.py must
     read this, never `covers` itself."""
-    identities, _ = _covered_identities(_own_decision(record, state))
+    identities, _ = _covered_identities(_decision_for(record, state)[0])
     if identities is None:
         return 0
     members = record.get("members")
@@ -705,9 +752,9 @@ def _covers_entry_matches(entry, record):
             and entry.get("title") == record.get("title"))
 
 
-def covering_decision(record, state):
-    """(decided_hash, decision) for another record's decision whose `covers`
-    names this record, or None.
+def _covering(record, state):
+    """(decided_hash, decision, entry) for another record's decision whose
+    `covers` names this record, or None.
 
     The ONE inheritance path: a finding the owner's decision covered at
     decision time (it was a member of the decided row) that is now its own
@@ -718,7 +765,8 @@ def covering_decision(record, state):
     what a decision recorded. The covering decision may itself be stale for
     its own row: the record's own unchanged code is the evidence here. An
     absorbed member record (`absorbed_into`) never inherits: closing the row
-    that absorbed it closes nothing for it. First match in sorted-hash order."""
+    that absorbed it closes nothing for it. First match in sorted-hash order;
+    `entry` is the first matching `covers` entry of that decision."""
     if record.get("absorbed_into") is not None:
         return None
     decisions = state.get("decisions")
@@ -732,10 +780,25 @@ def covering_decision(record, state):
         covers = decision.get("covers")
         if not isinstance(covers, list):
             continue
-        if any(isinstance(e, dict) and _covers_entry_matches(e, record)
-               for e in covers):
-            return dh, decision
+        for e in covers:
+            if isinstance(e, dict) and _covers_entry_matches(e, record):
+                return dh, decision, e
     return None
+
+
+def covering_decision(record, state):
+    """(decided_hash, decision) of the covering decision (`_covering`), or
+    None."""
+    covering = _covering(record, state)
+    return None if covering is None else covering[:2]
+
+
+def covering_entry(record, state):
+    """The `covers` entry dict through which this record inherits a decision
+    (`_covering`), or None. batch_card.py reads the inherited decision's
+    band here, never `covers` itself."""
+    covering = _covering(record, state)
+    return None if covering is None else covering[2]
 
 
 def _nearby_since(record, decision):
@@ -747,12 +810,55 @@ def _nearby_since(record, decision):
     return _is_count(nearby) and _is_count(at_pass) and nearby > at_pass
 
 
+def _inherited_was_band(entry, decision):
+    """The band an inherited decision was taken at: the entry's `band`, or
+    for a legacy entry without a `band` key the covering decision's own
+    band (the row band at decision time — the value the writer now
+    stores)."""
+    return entry.get("band") if "band" in entry else decision.get("band")
+
+
+def _inherited_cause(record, state, decision, entry):
+    """The reopen cause for a record holding `decision` through the `covers`
+    entry `entry`, by the own-decision rules in order (D-16), or None when
+    the decision holds: a nearby change stamped after the decision ->
+    "nearby"; a newcomer concern joined (`newcomer_lanes`) -> "joined"; then
+    the band against the entry's (`_inherited_was_band`): an unknown band on
+    either side -> "severity", a drop or no change -> None, a rise ->
+    "severity" when the entry has no list `lanes` (legacy: fails toward
+    asking) or `gained_lanes` is non-empty, else None. The single ordering
+    both `_inherited_state` and `stale_cause` read."""
+    if _nearby_since(record, decision):
+        return "nearby"
+    if newcomer_lanes(record, state):
+        return "joined"
+    was = _BAND_RANK.get(_inherited_was_band(entry, decision))
+    cur = _BAND_RANK.get(record.get("band"))
+    if was is None or cur is None:
+        return "severity"
+    if cur <= was:
+        return None
+    if not isinstance(entry.get("lanes"), list):
+        return "severity"
+    return "severity" if gained_lanes(record, state) else None
+
+
+def _inherited_state(record, state, decision, entry):
+    """"stale" when `_inherited_cause` names a cause, else "current"."""
+    return ("stale" if _inherited_cause(record, state, decision, entry)
+            else "current")
+
+
 def decision_state(record, state):
     """"current" | "stale" | None for the owner decision on this record.
 
     None: no decision of its own and no covering decision. A record without
-    its own decision that a `covering_decision` names inherits it: "current",
-    or "stale" when a nearby change was stamped after the covering decision.
+    its own decision that a `covering_decision` names inherits it and is
+    compared against the matched `covers` entry (`_inherited_state`): a
+    nearby change since the decision, a joined newcomer, or a band rise a
+    newly reporting lane backs -> "stale"; otherwise "current". A legacy
+    entry without `band` compares against the covering decision's band; one
+    without `lanes` re-asks on any rise.
     "current": a legacy medium acknowledgment, or a
     decision that predates evidence binding (not a dict, or a dict with NO
     `evidence` key). "stale" when the `evidence` key is present but null / not
@@ -770,10 +876,10 @@ def decision_state(record, state):
         return "current"
     decisions = state.get("decisions", {})
     if h not in decisions:
-        covering = covering_decision(record, state)
+        covering = _covering(record, state)
         if covering is None:
             return None
-        return "stale" if _nearby_since(record, covering[1]) else "current"
+        return _inherited_state(record, state, covering[1], covering[2])
     decision = decisions[h]
     if not isinstance(decision, dict) or "evidence" not in decision:
         return "current"
@@ -809,12 +915,15 @@ def stale_cause(record, state):
     "nearby" when the `nearby_at` stamp differs, else "joined" when a
     newcomer concern joined the decided row, else "severity".
     Needs-verification: "severity" when only the band differs, else "code".
-    An inherited (covering) decision: "nearby"."""
+    An inherited (covering) decision: `_inherited_cause` ("nearby", else
+    "joined", else "severity")."""
     if decision_state(record, state) != "stale":
         return None
     if record["stable_hash"] not in state.get("decisions", {}):
-        # An inherited decision goes stale only on a nearby change.
-        return "nearby"
+        # A stale record without its own decision is stale only through a
+        # covering decision, so `_covering` matched above.
+        covering = _covering(record, state)
+        return _inherited_cause(record, state, covering[1], covering[2])
     evidence = state.get("decisions", {}).get(record["stable_hash"])
     evidence = evidence.get("evidence") if isinstance(evidence, dict) else None
     if not _full_evidence(evidence):
