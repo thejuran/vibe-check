@@ -22,7 +22,8 @@ import batch_card  # noqa: E402  (sibling module under test)
 from test_batch_card import (  # noqa: E402
     TempDirCase, dismiss, ordering_state, run_cli)
 from test_carry_state import (  # noqa: E402
-    F, HA, HB, ba_state, member_ref, mk_finding, mk_pass, mk_state, snap)
+    F, HA, HB, ba_row_state, ba_state, member_ref, mk_finding, mk_pass,
+    mk_state, snap)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
@@ -42,12 +43,13 @@ def read(path):
 
 
 def severity_stale_state():
-    decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA,
+    decided = dismiss(ba_row_state(row_band="warning", a_band="medium"), HA,
                       reason="Accepted risk")
     s = copy.deepcopy(decided)
-    # A rise backed by a lane absent at decision time (`security`).
-    s["passes"] = ba_state(row_band="warning", a_band="warning",
-                           attribution=("bugs", "security"))["passes"]
+    # A rise backed by a lane absent at decision time (`security` now
+    # reports A itself).
+    s["passes"] = ba_row_state(row_band="warning", a_band="warning",
+                               lanes=("bugs", "security"))["passes"]
     return s
 
 
@@ -56,6 +58,7 @@ def legacy_severity_state():
     before reviewer lanes were recorded): it re-asks, with no lane to name."""
     s = severity_stale_state()
     del s["decisions"][HA]["attribution"]
+    del s["decisions"][HA]["lanes"]
     return s
 
 
@@ -68,11 +71,11 @@ def nearby_stale_state():
 
 
 def two_lane_rise_state():
-    decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA,
+    decided = dismiss(ba_row_state(row_band="warning", a_band="medium"), HA,
                       reason="Accepted risk")
     s = copy.deepcopy(decided)
-    s["passes"] = ba_state(row_band="warning", a_band="warning",
-                           attribution=("bugs", "security", "perf"))["passes"]
+    s["passes"] = ba_row_state(row_band="warning", a_band="warning",
+                               lanes=("bugs", "security", "perf"))["passes"]
     return s
 
 
@@ -204,8 +207,9 @@ class TestCardTextRendering(unittest.TestCase):
         self.assertIn("a new concern from sec #9 evil.py:1 — x joined it",
                       text)
         s = severity_stale_state()
-        s["passes"][-1]["findings"][0]["members"][1]["obligation"][
-            "attribution"] = ["bugs", "lane\r\n#7 x"]
+        row_a = [f for f in s["passes"][-1]["findings"]
+                 if f["stable_hash"] == HA][0]
+        row_a["members"][1]["agent"] = "lane\r\n#7 x"
         text = doc_of(s)["card_text"]
         self.assertEqual(len(text.splitlines()), 2)
         self.assertIn("lane #7 x now also reports it", text)

@@ -44,8 +44,10 @@ WHAT CLOSES. Exactly one of:
     decision. A change in the 5-line window beneath the flagged line (the
     pass score.py stamps into `snapshot.nearby_at`) re-asks it. A band drop
     keeps it; a band rise re-asks only when a reviewer lane absent from the
-    decision's saved `attribution` now reports the finding (a record written
-    before decisions saved `attribution` re-asks on any rise); an unknown band
+    decision's saved `lanes` now reports the finding (`lanes`: the lanes
+    reporting THIS concern, the record's agent and its same-title members; a
+    lane on the row only for another concern is not one); a record written
+    before decisions saved `lanes` re-asks on any rise; an unknown band
     re-asks. A decision also records the findings it covered (`covers`: the
     decided finding and every member of its row at decision time except a
     member that carries its own separately-owed obligation (its row decision
@@ -129,7 +131,8 @@ ROLLBACK past the line-free compare (reverting to a reader that compares
 `line` and ignores `attribution` / `nearby_at`): that reader re-asks a decided
 finding whose line shifted and any band change, so it fails toward asking and
 needs no quarantine; the extra `attribution` key on newer decision records is
-ignored by it. So is the `covers` key: that reader never inherits a
+ignored by it. So is the `lanes` key: a reader that ignores `lanes` re-asks
+on any band rise, which still fails toward asking. So is the `covers` key: that reader never inherits a
 decision through it and never re-asks a row for a joined newcomer, so a
 covered member that splits into its own row is asked again (fails toward
 asking) and a joined newcomer is not re-asked (the pre-57 behaviour).
@@ -513,26 +516,52 @@ def _str_lanes(value):
     return {a for a in value if isinstance(a, str)}
 
 
+def concern_lanes(record):
+    """Sorted reviewer lanes reporting THIS concern: the record's own `agent`
+    (when a str) plus the `agent` of every dict in `members[]` whose `title`
+    equals the record's `title` (the same-title corroboration notion
+    `newcomer_lanes` uses). A lane on the row only for another concern is not
+    one of them. A record without `members` (a member sidecar) yields just its
+    own agent. Pure; never raises."""
+    if not isinstance(record, dict):
+        return []
+    lanes = set()
+    agent = record.get("agent")
+    if isinstance(agent, str):
+        lanes.add(agent)
+    title = record.get("title")
+    members = record.get("members")
+    for m in members if isinstance(members, list) else []:
+        if (isinstance(m, dict) and isinstance(m.get("agent"), str)
+                and m.get("title") == title):
+            lanes.add(m["agent"])
+    return sorted(lanes)
+
+
 def gained_lanes(record, state):
-    """Sorted reviewer lanes in the record's `attribution` that are absent
-    from its own decision's saved `attribution`; [] when the record has no
-    decision dict or either side lacks a list `attribution`."""
+    """Sorted lanes now reporting this concern (`concern_lanes`) that are
+    absent from its own decision's saved `lanes`; [] when the record has no
+    decision dict or the decision has no list `lanes`. The row-wide reviewer
+    list is never read here: a lane present only for another concern is not
+    a reviewer of this one (D-16). batch_card.py names exactly these
+    lanes on the card."""
     decision = state.get("decisions", {}).get(record.get("stable_hash"))
     if not isinstance(decision, dict):
         return []
-    saved = decision.get("attribution")
-    now = record.get("attribution")
-    if not (isinstance(saved, list) and isinstance(now, list)):
+    saved = decision.get("lanes")
+    if not isinstance(saved, list):
         return []
-    return sorted(_str_lanes(now) - _str_lanes(saved))
+    return sorted(set(concern_lanes(record)) - _str_lanes(saved))
 
 
 def _band_rise_reopens(record, state, decision):
-    """True when a band rise is new evidence: the decision predates saved
-    `attribution` (fails toward asking), or a lane absent at decision time
-    now reports the finding. A rise from the persistence bonus or a lifted
-    single-reviewer cap alone keeps the decision."""
-    if "attribution" not in decision:
+    """True when a band rise is new evidence: the decision has no list
+    `lanes` (a record written before decisions saved lanes re-asks on any
+    rise, failing toward asking), or a lane absent from the saved `lanes`
+    now reports this concern. A rise from the persistence bonus, a lifted
+    single-reviewer cap, or a lane reporting an unrelated concern alone
+    keeps the decision."""
+    if not isinstance(decision.get("lanes"), list):
         return True
     return bool(gained_lanes(record, state))
 
@@ -959,8 +988,10 @@ def record_decisions(state, payload):
     The record also stores `evidence`: the finding's current evidence
     (`_evidence_of`), never null — the four EVIDENCE_KEYS, plus the
     `current_code` fingerprint for a Needs-verification record — and
-    `attribution`: the reviewer lanes reporting the finding at decision time,
-    read from the state (a payload can never set it) — and `covers`
+    `attribution`: the reviewer lanes on the row at decision time
+    (informational), `lanes` (`concern_lanes`): the lanes reporting THIS
+    concern at decision time, which the band-rise rule diffs — both read
+    from the state (a payload can never set them) — and `covers`
     (`_covers_of`): the findings the decision covered, also read from the
     state only and frozen there (an older record is never rewritten). A
     later decision for
@@ -986,6 +1017,7 @@ def record_decisions(state, payload):
             "band": by_hash[h]["band"],
             "evidence": _stored_evidence(by_hash[h]),
             "attribution": _attribution_copy(by_hash[h].get("attribution")),
+            "lanes": concern_lanes(by_hash[h]),
             "covers": json.loads(json.dumps(_covers_of(by_hash[h]))),
         }
         if isinstance(prior, dict):

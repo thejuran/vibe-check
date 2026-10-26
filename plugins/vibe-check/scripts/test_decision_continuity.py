@@ -780,7 +780,8 @@ class TestRegrouping(_Base):
         L0 = base_file()
         s1, hA = pass1(L0, conf=STABLE_CONF)
         self._assert_band(s1, hA, "warning")
-        for extra in ({"covers": []}, {"attribution": ["security"]}):
+        for extra in ({"covers": []}, {"attribution": ["security"]},
+                      {"lanes": ["security"]}):
             with self.subTest(extra=sorted(extra)):
                 entry = dict({"stable_hash": hA, "decision": "dismiss",
                               "reason": "x"}, **extra)

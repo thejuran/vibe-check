@@ -23,7 +23,8 @@ import batch_parse  # noqa: E402
 import carry_state  # noqa: E402
 import finalize_gate  # noqa: E402
 from test_carry_state import (  # noqa: E402
-    ARCH_HASH, BUGS_HASH, F, HA, HB, ba_state, load_fixture, member_ref,
+    ARCH_HASH, BUGS_HASH, F, HA, HB, ba_row_state, ba_state, load_fixture,
+    member_ref,
     mk_finding, mk_pass, mk_state, snap, string_key_writes)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -144,11 +145,12 @@ class TestRows(unittest.TestCase):
         self.assertEqual(hashes, [HB])
 
     def test_rows_stale_decision_present_with_tag(self):
-        decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA,
-                          reason="Accepted risk")
-        # A rise backed by a lane absent at decision time (`security`).
-        fresh = ba_state(row_band="warning", a_band="warning",
-                         attribution=("bugs", "security"))
+        decided = dismiss(ba_row_state(row_band="warning", a_band="medium"),
+                          HA, reason="Accepted risk")
+        # A rise backed by a lane absent at decision time (`security` now
+        # reports A itself).
+        fresh = ba_row_state(row_band="warning", a_band="warning",
+                             lanes=("bugs", "security"))
         s = copy.deepcopy(decided)
         s["passes"] = fresh["passes"]
         rows = {r["stable_hash"]: r for r in rows_of(s)}
@@ -186,10 +188,16 @@ class TestRows(unittest.TestCase):
         self.assertNotIn("covered", rows[HA]["stale"])
 
     def test_rows_stale_severity_rise_has_gained(self):
-        decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA)
+        decided = dismiss(ba_row_state(row_band="warning", a_band="medium"),
+                          HA)
         s = copy.deepcopy(decided)
-        s["passes"] = ba_state(row_band="warning", a_band="warning",
-                               attribution=("bugs", "security"))["passes"]
+        s["passes"] = ba_row_state(row_band="warning", a_band="warning",
+                                   lanes=("bugs", "security"))["passes"]
+        # `perf` is on the row's attribution only (no member reports A): the
+        # card never names it (it reads carry_state.gained_lanes only).
+        row_a = [f for f in s["passes"][-1]["findings"]
+                 if f["stable_hash"] == HA][0]
+        row_a["attribution"] = row_a["attribution"] + ["perf"]
         stale = {r["stable_hash"]: r for r in rows_of(s)}[HA]["stale"]
         self.assertEqual(stale["cause"], "severity")
         self.assertEqual(stale["gained"], ["security"])
@@ -340,18 +348,14 @@ class TestRows(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 class TestReport(unittest.TestCase):
     def _state(self):
-        s = ba_state(row_band="warning", a_band="medium")
+        s = ba_row_state(row_band="warning", a_band="medium")
         s = dismiss(s, HB, reason="first")
         s = dismiss(s, HB, reason="second", at_pass=2)
         s = dismiss(s, HA, decision="defer", reason="later")
-        # HA's evidence goes stale (a band rise that a new lane backs); HD is
-        # an orphan.
-        s["passes"][-1]["findings"][0]["members"][1]["obligation"][
-            "attribution"] = ["bugs", "security"]
-        s["passes"][-1]["findings"][0]["members"][1]["obligation"]["band"] = (
-            "warning")
-        s["passes"][-1]["findings"][0]["members"][1]["obligation"][
-            "snapshot"]["band"] = "warning"
+        # HA's evidence goes stale (a band rise that a new lane reporting A
+        # itself backs); HD is an orphan.
+        s["passes"] = ba_row_state(row_band="warning", a_band="warning",
+                                   lanes=("bugs", "security"))["passes"]
         s["decisions"][HD] = {"decision": "dismiss", "reason": "gone",
                               "at_pass": 1, "band": "medium",
                               "evidence": snap(1)}
