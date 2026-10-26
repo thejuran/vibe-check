@@ -643,11 +643,19 @@ class TestRegrouping(_Base):
         dup = fresh("bugs", 10, L0, TITLE_A, conf=100)
         c = fresh("security", 11, L0, TITLE_C, conf=100,
                   category="injection")
-        s2, r2 = run_pass(s1, L0, [dup, c], 2, {F: [[1, 200]]})
+        # The code is unchanged (L0 on both passes), so pass 2's incremental
+        # diff is empty: a change inside A's window (line 10 and the 5 beneath)
+        # would rightly re-ask A (D-02, TestNearbyEdit) and confound this test.
+        s2, r2 = run_pass(s1, L0, [dup, c], 2, {F: []})
         hC = score.stable_hash(F, L0[10], TITLE_C)
-        # The fixture holds what it claims: C leads the group.
+        # The fixture holds what it claims: C leads the group, and the fresh
+        # duplicate shares the carried A's occurrence identity (so dedup meets
+        # the carried record).
         self.assertEqual(r2["findings"][0]["stable_hash"], hC)
-        self._assert_band(s2, hC, "critical")
+        self._assert_band(s2, hC, "warning")
+        a_carried = dict(row_of(s1, hA), canonical_line_content=L0[9])
+        self.assertEqual(score._finding_identity(dup),
+                         score._finding_identity(a_carried))
         rec = self._current(s2, hA)  # today: obligation dropped by dedup
         self.assertEqual(carry_state.decision_state(rec, s2), "current")
         c_rec = self._current(s2, hC)

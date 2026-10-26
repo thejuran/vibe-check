@@ -7706,3 +7706,94 @@ class TestPhase57Mutants(unittest.TestCase):
                     '"kept_open",',
                     'if k not in ("status", "members", "resolution", "kept_open",',
                     check)
+
+
+    def test_m57_07_dedup_obligation_attach_removed(self):
+        # The carried obligation is dropped when the fresh duplicate wins.
+        self._trips("score_m57_07",
+                    '                    ref_kept["obligation"] = _refreshed_obligation(\n',
+                    '                    _refreshed_obligation(\n',
+                    _od_check)
+
+
+# --------------------------------------------------------------------------- #
+# Obligation-preserving member dedup: a carried record out-ranked by a FRESH
+# duplicate of the same occurrence inside a row led by a third finding keeps
+# its obligation on the surviving member ref (Phase 46 residual 1).
+# --------------------------------------------------------------------------- #
+def _od_pass1(sc=score):
+    A = _ko_find("A", "bugs", 10, 60, "logic A", "a_line", category="logic-error")
+    return sc.run(_hl_env([A], _KO_RANGES, pass_number=1))["findings"][0]
+
+
+def _od_dup(conf=100, id_="A2"):
+    return _ko_find(id_, "bugs", 10, conf, "logic A", "a_line", category="logic-error")
+
+
+def _od_c():
+    return _ko_find("C", "security", 11, 100, "inj C", "c_line")
+
+
+def _od_scenario(sc=score):
+    """Pass 2 (code unchanged, empty diff): carried A + a fresh A duplicate at
+    conf 100 + a fresh C that leads the row. -> (R1, cfA, dup, row)."""
+    R1 = _od_pass1(sc)
+    cf = _carried(R1, {"bugs": "a_line", "security": "c_line"})
+    dup = _od_dup()
+    r2 = sc.run(_hl_env([dup, _od_c()], {}, carryforward=[cf], pass_number=2))
+    assert len(r2["findings"]) == 1, r2
+    return R1, cf, dup, r2["findings"][0]
+
+
+def _od_check(sc=score):
+    R1, cf, dup, row = _od_scenario(sc)
+    assert row["agent"] == "security" and row["title"] == "inj C", row
+    bugs = [m for m in row["members"] if m["agent"] == "bugs"]
+    assert len(bugs) == 1, row["members"]
+    obl = bugs[0].get("obligation")
+    assert isinstance(obl, dict), bugs[0]
+    assert obl["stable_hash"] == R1["stable_hash"], obl
+    return R1, row, obl
+
+
+class TestObligationPreservingDedup(unittest.TestCase):
+
+    def test_fresh_duplicate_outranking_carried_keeps_obligation(self):
+        R1, cf, dup, _ = _od_scenario()
+        self.assertEqual(R1["band"], "medium")
+        # The fixture exercises the dedup branch: the fresh duplicate and the
+        # carried record share one occurrence identity.
+        self.assertEqual(score._finding_identity(dup), score._finding_identity(cf))
+        R1, row, obl = _od_check()
+        self.assertEqual(row["band"], "critical")
+        self.assertNotEqual(row["stable_hash"], R1["stable_hash"])
+        for k in _KO_STORED:
+            self.assertEqual(obl[k], R1[k], k)
+        self.assertEqual(obl["snapshot"], R1["snapshot"])
+        self.assertNotIn("obligation", row["members"][0])
+
+    def test_lead_own_record_is_not_given_an_obligation(self):
+        R1 = _od_pass1()
+        cf = _carried(R1, {"bugs": "a_line"})
+        r2 = score.run(_hl_env([_od_dup()], {}, carryforward=[cf], pass_number=2))
+        self.assertEqual(len(r2["findings"]), 1, r2)
+        row = r2["findings"][0]
+        self.assertEqual(row["stable_hash"], R1["stable_hash"])
+        self.assertEqual(len(row["members"]), 1)
+        self.assertNotIn("obligation", row["members"][0])
+
+    def test_dedup_without_carried_twin_unchanged(self):
+        r2 = score.run(_hl_env([_od_dup(), _od_dup(conf=60, id_="A3"), _od_c()], {},
+                               pass_number=2))
+        self.assertEqual(len(r2["findings"]), 1, r2)
+        row = r2["findings"][0]
+        bugs = [m for m in row["members"] if m["agent"] == "bugs"]
+        self.assertEqual(len(bugs), 1)
+        self.assertNotIn('"obligation"', json.dumps(r2))
+
+    def test_hash_and_golden_digest_unchanged(self):
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
+        R1, row, _ = _od_check()
+        self.assertEqual(row["stable_hash"],
+                         score.stable_hash("src/a.py", "c_line", "inj C"))
+

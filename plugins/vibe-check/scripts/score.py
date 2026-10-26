@@ -2583,12 +2583,25 @@ def run(envelope):
         # each member's lane-aware occurrence identity (never by (agent, title),
         # never by stable_hash alone, never without the agent).
         members = []
-        seen = set()
+        kept_by_ident = {}
         for _, m, _, _, _ in scored_members:
             ident = _finding_identity(m)
-            if ident in seen:
+            if ident in kept_by_ident:
+                # A carried record that a higher-scoring FRESH duplicate of the
+                # same occurrence out-ranked (Phase 46 residual 1; a decided
+                # record regrouped, Phase 57 R5): its obligation moves onto the
+                # kept member ref, so the record stays open under its own hash.
+                # Never onto the lead's own ref, and never when the obligation
+                # is the row itself.
+                ref_kept = kept_by_ident[ident]
+                if (id(m) in carried_obligations and "obligation" not in ref_kept
+                        and ref_kept is not members[0]
+                        and carried_obligations[id(m)]["obligation"]["stable_hash"]
+                        != survivor["stable_hash"]):
+                    ref_kept["obligation"] = _refreshed_obligation(
+                        carried_obligations[id(m)]["obligation"], m, pass_number,
+                        changed_line_ranges)
                 continue
-            seen.add(ident)
             ref = _member_ref(m)
             # An absorbed record that was once a row keeps its obligation
             # identity (stored hash and scored fields) on its member record.
@@ -2597,6 +2610,7 @@ def run(envelope):
                     carried_obligations[id(m)]["obligation"], m, pass_number,
                     changed_line_ranges)
             members.append(ref)
+            kept_by_ident[ident] = ref
         survivor["members"] = members
         # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
         # appended to NEITHER findings NOR filtered[] — so when two DISTINCT
