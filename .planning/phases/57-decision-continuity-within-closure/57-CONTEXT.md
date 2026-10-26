@@ -44,6 +44,11 @@ An owner's defer/dismiss decision stays bound to its evidence: it survives regro
 - **D-12:** When a decided finding reopens because evidence changed, the card shows the earlier decision, its reason, and what changed (line-near-edit / severity rise / code body) — extend the existing stale suffix rather than presenting it as brand new.
 - **D-13:** A deferred finding that later gets fixed closes normally through the Phase 56 path ("Closed — fix confirmed …"); the deferral does not block closure.
 
+### Gap-closure rulings (owner, 2026-10-26, after verification gaps_found)
+- **D-14 (SA-01):** The nearby window is SYMMETRIC: an edit within 5 lines ABOVE or BELOW the flagged line reopens a decided finding (D-02). Motivating case: a "guarded upstream" dismissal must be re-asked when the guard just above the line is deleted. The window stays ONE constant shared with Phase 56's re-check trigger (the trigger widens too). Supersedes the discretion bullet below on window shape.
+- **D-15 (card count):** The D-10 note counts decided CONCERNS, not reviewer reports — two reviewers reporting the same already-dismissed concern read "1 finding here already dismissed".
+- **D-16 (from verification gaps, restating D-08/D-05 intent):** A row decision covers only findings the owner was actually deciding: a member that carries its own separately-owed obligation is never covered by the row decision (CR-01). An inherited (covered-member) decision obeys the same reopen rules as an own decision — nearby edit, lane-backed severity rise, joined newcomer (CR-02). "New reviewer" means a lane newly reporting THIS concern, not any lane newly present on the row (WR-03).
+
 ### Carried forward (locked from earlier phases)
 - Reproduce first; non-reproducing paths are recorded and dropped, never replaced with invented work (owner rule, v2.13).
 - Never re-ask without new evidence (v2.11 rule; Phase 56 D-09).
