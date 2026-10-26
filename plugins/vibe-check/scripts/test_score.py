@@ -7494,15 +7494,15 @@ def _na_kept_open(sc=score):
 
 def _na_obligation(sc=score):
     """A (pass 1, conf 52) is absorbed into a NEW B (bugs, line 11) on pass 2.
-    Pass 3 changes line 10 only: inside A's window (10..15), outside B's
-    (11..16). Pass 4 is quiet. -> (lead3, obl3, obl4)."""
+    Pass 3 changes line 5 only: inside A's window (5..15), outside B's
+    (6..16) (D-14 symmetric windows). Pass 4 is quiet. -> (lead3, obl3, obl4)."""
     A = _ko_find("A", "security", 10, 52, "inj A", "a_line")
     R1 = sc.run(_hl_env([A], _KO_RANGES, pass_number=1))["findings"][0]
     B = _ko_find("B", "bugs", 11, 90, "logic B", "b_line", category="logic-error")
     r2 = sc.run(_hl_env([B], _KO_RANGES, carryforward=[_carried(R1, {"security": "a_line"})],
                         pass_number=2))
     heads = {"security": "a_line", "bugs": "b_line"}
-    r3 = sc.run(_hl_env([], {"src/a.py": [[10, 10]]},
+    r3 = sc.run(_hl_env([], {"src/a.py": [[5, 5]]},
                         carryforward=_ko_next_cf(r2, heads), pass_number=3))
     lead3 = _na_row(r3, "logic B")
     r4 = sc.run(_hl_env([], {}, carryforward=_ko_next_cf(r3, heads), pass_number=4))
@@ -7531,8 +7531,9 @@ class TestNearbyAt(unittest.TestCase):
 
     def test_survivor_window_edges(self):
         R1 = _na_pass1()
-        for at, hit in ((11, True), (13, True), (15, True), (16, False), (8, False),
-                        (9, False)):
+        # D-14: symmetric; 5 above hits, 6 above misses (same below).
+        for at, hit in ((11, True), (13, True), (15, True), (16, False), (9, True),
+                        (5, True), (4, False)):
             with self.subTest(at=at):
                 row = _na_row(_na_pass2(R1, {"src/a.py": [[at, at]]}))
                 self.assertEqual(row["band"], "warning")
@@ -7543,7 +7544,8 @@ class TestNearbyAt(unittest.TestCase):
 
     def test_survivor_no_stamp_outside_window(self):
         R1 = _na_pass1()
-        for ranges in ({"src/a.py": [[16, 16]]}, {"src/a.py": [[8, 8]]},
+        # D-14: 6 below (16) and 6 above (4) are both outside the window.
+        for ranges in ({"src/a.py": [[16, 16]]}, {"src/a.py": [[4, 4]]},
                        {"src/b.py": [[10, 10]]}):
             with self.subTest(ranges=ranges):
                 row = _na_row(_na_pass2(R1, ranges))
@@ -7590,6 +7592,11 @@ class TestNearbyAt(unittest.TestCase):
             (rec, {}, {"src/a.py": [[15, 15]]}),
             (rec, {}, {"src/a.py": [[16, 16]]}),
             (rec, {}, {"src/a.py": [[9, 9]]}),
+            # D-14: the trigger widens with the window (5 above hits, 6 misses).
+            (rec, {}, {"src/a.py": [[5, 5]]}),
+            (rec, {}, {"src/a.py": [[4, 4]]}),
+            # Line-1 clip: a line near the top still sees an edit above it.
+            ({"file": "src/a.py", "line": 3}, {}, {"src/a.py": [[1, 1]]}),
             (rec, {}, {"src/b.py": [[10, 10]]}),
             (rec, {"src/a.py": []}, {}),
             (rec, {"tests/test_a.py": []}, {}),

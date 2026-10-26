@@ -1096,16 +1096,21 @@ class TestCrossModuleGuards(_Base):
             (10, {F: []}), (10, {}), (10, {"src/other.py": [[10, 15]]}),
             (10, {F: [[1, 9]]}), (10, {F: [[1, 10]]}), (10, {F: [[16, 40]]}),
             (10, {F: [[15, 40]]}), (1, {F: [[6, 6]]}), (1, {F: [[7, 7]]}),
+            # D-14: line-1 clip hit, and 6 above the line misses.
+            (3, {F: [[1, 1]]}), (10, {F: [[4, 4]]}),
         ]
-        self.assertEqual(len(pairs), 20)
+        self.assertEqual(len(pairs), 22)
         for line, ranges in pairs:
             with self.subTest(line=line, ranges=ranges):
                 r = dict(rec, line=line)
                 self.assertEqual(score._nearby_changed(r, ranges),
                                  score._independent_trigger(r, set(), ranges))
+        # D-14 symmetric window (line 10 -> 5..15; line 1 -> 1..6; line 3 ->
+        # 1..8). The 14 hits: line 10 with an edit at 7..15 (9), [[1, 9]],
+        # [[1, 10]], [[15, 40]], line 1 with [[6, 6]], line 3 with [[1, 1]].
         hits = [(line, ranges) for line, ranges in pairs
                 if score._nearby_changed(dict(rec, line=line), ranges)]
-        self.assertEqual(len(hits), 9, hits)
+        self.assertEqual(len(hits), 14, hits)
 
 
 # --------------------------------------------------------------------------- #
@@ -1310,10 +1315,10 @@ class TestPhase57Mutants(_Base):
         from test_confirmed_fix import SCORE_PY, _mutant
         with open(SCORE_PY, "r", encoding="utf-8") as fh:
             src = fh.read()
-        old = "range(line, line + _NEARBY_LINES + 1)"
+        old = "range(max(1, line - _NEARBY_LINES), line + _NEARBY_LINES + 1)"
         self.assertEqual(src.count(old), 1, "mutation target not unique")
-        mod = _mutant(SCORE_PY, "score_nearby_upper",
-                      old, "range(line, line + _NEARBY_LINES)")
+        mod = _mutant(SCORE_PY, "score_nearby_upper", old,
+                      "range(max(1, line - _NEARBY_LINES), line + _NEARBY_LINES)")
 
         def offset_failures():
             res = unittest.TestResult()
@@ -1326,6 +1331,32 @@ class TestPhase57Mutants(_Base):
             failed = offset_failures()
         self.assertEqual(len(failed), 1, failed)
         self.assertIn("offset=5", failed[0])
+
+    def test_nearby_window_lower_bound_dropped_misses_edits_above(self):
+        """D-14: dropping the lower bound (the window starts at the pinned
+        line again) loses every edit above it: offsets 1, 3 and 5 all fail."""
+        from unittest import mock
+        from test_confirmed_fix import SCORE_PY, _mutant
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        old = "max(1, line - _NEARBY_LINES)"
+        self.assertEqual(src.count(old), 1, "mutation target not unique")
+        mod = _mutant(SCORE_PY, "score_nearby_lower", old, "line")
+
+        def offset_failures():
+            res = unittest.TestResult()
+            TestNearbyEdit("test_r2_edit_within_five_above_reopens").run(res)
+            self.assertEqual(res.errors, [])
+            return [str(t) for t, _ in res.failures]
+
+        self.assertEqual(offset_failures(), [])
+        with mock.patch.object(score, "_nearby_changed", mod._nearby_changed):
+            failed = offset_failures()
+        self.assertEqual(len(failed), 3, failed)
+        for offset in (1, 3, 5):
+            self.assertTrue(any("offset=%d" % offset in f for f in failed),
+                            (offset, failed))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,7 +41,7 @@ WHAT CLOSES. Exactly one of:
     its own file/line/canonical_line_content/band) still holds
     (`decision_state`). An ordinary decision compares the file and the
     canonical line content, never the line number: a pure line shift keeps the
-    decision. A change in the 5-line window beneath the flagged line (the
+    decision. A change within 5 lines above or below the flagged line (D-14; the
     pass score.py stamps into `snapshot.nearby_at`) re-asks it. A band drop
     keeps it; a band rise re-asks only when a reviewer lane absent from the
     decision's saved `lanes` now reports the finding (`lanes`: the lanes
@@ -492,7 +492,7 @@ def _evidence_of(record, nv=None):
     `current_code` (a snapshot never holds code). Always a dict."""
     snapshot = record.get("snapshot")
     source = snapshot if isinstance(snapshot, dict) else record
-    # `nearby_at`: the pass score.py last saw a change in the window beneath
+    # `nearby_at`: the pass score.py last saw a change in the window around
     # the flagged line. Compared by decision_state but not part of
     # _full_evidence, so a record stored without it (absent = None) still
     # reads as complete.
@@ -803,7 +803,7 @@ def covering_entry(record, state):
 
 def _nearby_since(record, decision):
     """True when the record's snapshot carries a `nearby_at` stamp later than
-    the decision's `at_pass`: code beneath the line changed since then."""
+    the decision's `at_pass`: code next to the line changed since then."""
     snapshot = record.get("snapshot")
     nearby = snapshot.get("nearby_at") if isinstance(snapshot, dict) else None
     at_pass = decision.get("at_pass")

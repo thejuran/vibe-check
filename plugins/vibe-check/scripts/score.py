@@ -165,13 +165,13 @@ _R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said 
 # the judged blob is HEAD's blob re-read at collect time (`head_blobs`). A
 # `persisted` record (pinned line unchanged) also needs a trigger: its file or
 # an associated test was touched since it was raised (`touched_paths`), or a
-# change reaches the pinned line or the `_NEARBY_LINES` beneath it. A
+# change reaches the pinned line or the `_NEARBY_LINES` on either side of it. A
 # still-applies answer is remembered (`recheck_settled`, with the blobs it
 # judged) so the record is not re-asked until that code changes.
 # The same window (`_nearby_changed`) stamps `snapshot.nearby_at` with the pass
 # that changed code there, which re-asks an owner decision on an unchanged line.
-# It is kept literal (the pinned line and the 5 lines beneath it, never above)
-# so the re-check trigger and the decision re-ask share one definition.
+# It is kept symmetric (the pinned line, 5 above and 5 below, clipped at line 1)
+# so the re-check trigger and the decision re-ask share one definition (D-14).
 _INDEPENDENT_ROUTE = "independent"
 _NEVER_CONFIRMERS = frozenset({"fix", "codex-adversarial"})
 _NEARBY_LINES = 5
@@ -317,7 +317,7 @@ def _snapshot_for(row, pass_number, nearby=False):
     persisted between passes with no change at all).
 
     `nearby` (this pass's change ranges reach the row's line or the lines
-    beneath it, `_nearby_changed`) stamps `nearby_at` with this pass and forces
+    above or below it, `_nearby_changed`) stamps `nearby_at` with this pass and forces
     a fresh snapshot, but only on a row that existed before this pass (it
     arrives with a prior snapshot): the change a finding is first raised on is
     the code it is about, not a change since. Otherwise a prior `nearby_at` is carried on both the keep
@@ -1354,8 +1354,8 @@ def _independent_trigger(record, touched, changed_line_ranges):
     """Has anything that could fix a `persisted` record changed since it was
     raised? Its file or an associated test is among `touched` (the paths
     changed since the record was raised), or this pass's change ranges reach
-    the pinned line or the `_NEARBY_LINES` lines beneath it (a guard added
-    under an unchanged line). A record without a line has only the touched
+    the pinned line and the `_NEARBY_LINES` lines above or below it (D-14: a
+    guard added or removed next to an unchanged line). A record without a line has only the touched
     checks."""
     file = record.get("file")
     if not _nonempty_str(file):
@@ -1367,8 +1367,9 @@ def _independent_trigger(record, touched, changed_line_ranges):
 
 def _nearby_changed(record, changed_line_ranges):
     """True when this pass's change ranges reach `record`'s line or the
-    `_NEARBY_LINES` lines beneath it in its file. False for a record without a
-    file or line, or without a well-formed ranges dict. Pure; never raises."""
+    `_NEARBY_LINES` lines above or below it in its file (D-14; clipped at line
+    1). False for a record without a file or line, or without a well-formed
+    ranges dict. Pure; never raises."""
     file = record.get("file")
     if not _nonempty_str(file):
         return False
@@ -1376,7 +1377,8 @@ def _nearby_changed(record, changed_line_ranges):
     if line is None or not isinstance(changed_line_ranges, dict):
         return False
     ranges = changed_line_ranges.get(file, [])
-    return any(_line_in_ranges(n, ranges) for n in range(line, line + _NEARBY_LINES + 1))
+    window = range(max(1, line - _NEARBY_LINES), line + _NEARBY_LINES + 1)
+    return any(_line_in_ranges(n, ranges) for n in window)
 
 
 def _str_list(x):
