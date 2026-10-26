@@ -2584,6 +2584,12 @@ def run(envelope):
         # never by stable_hash alone, never without the agent).
         members = []
         kept_by_ident = {}
+        # A fresh lead whose hash equals an absorbed carried record's (another
+        # lane re-reporting the same finding on the same code, out-ranking the
+        # carried row) is that record's row: it takes the record's stored
+        # snapshot as its prior, so a `nearby_at` stamp (an owner re-ask still
+        # owed) and the older `at_pass` survive the change of lead.
+        same_hash_prior = None
         for _, m, _, _, _ in scored_members:
             ident = _finding_identity(m)
             if ident in kept_by_ident:
@@ -2606,11 +2612,18 @@ def run(envelope):
             # An absorbed record that was once a row keeps its obligation
             # identity (stored hash and scored fields) on its member record.
             if m is not best_member and id(m) in carried_obligations:
+                obl = carried_obligations[id(m)]["obligation"]
+                if (same_hash_prior is None and "snapshot" not in survivor
+                        and obl.get("stable_hash") == survivor["stable_hash"]
+                        and isinstance(obl.get("snapshot"), dict)):
+                    same_hash_prior = obl["snapshot"]
                 ref["obligation"] = _refreshed_obligation(
-                    carried_obligations[id(m)]["obligation"], m, pass_number,
+                    obl, m, pass_number,
                     changed_line_ranges)
             members.append(ref)
             kept_by_ident[ident] = ref
+        if same_hash_prior is not None:
+            survivor["snapshot"] = same_hash_prior
         survivor["members"] = members
         # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
         # appended to NEITHER findings NOR filtered[] — so when two DISTINCT
