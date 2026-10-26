@@ -931,6 +931,27 @@ def arch_row_evidence():
             "canonical_line_content": canonical, "band": "warning"}
 
 
+def arch_row_covers():
+    """The ARCH lead row's `covers` as read from the raw fixture JSON (never
+    from carry_state): the row first (code = its canonical line), then each
+    member with a different (agent, file, title) than the row (code = the
+    first non-blank line of its `current_code`, stripped). The row's own
+    member record is the row and is not listed twice."""
+    row = [f for f in load_fixture()["passes"][-1]["findings"]
+           if f["stable_hash"] == ARCH_HASH][0]
+    out = [{"agent": "architecture", "file": ARCH_FILE, "title": row["title"],
+            "code": row["canonical_line_content"]}]
+    for m in row["members"]:
+        if (m["agent"], m["file"], m["title"]) == (row["agent"], row["file"],
+                                                   row["title"]):
+            continue
+        first = [ln for ln in m["current_code"].split("\n") if ln.strip()][0]
+        out.append({"agent": m["agent"], "file": m["file"],
+                    "title": m["title"], "code": first.strip()})
+    assert len(out) == 3, out
+    return out
+
+
 def verdict_payload(**over):
     p = {"at_pass": 2, "head_sha": "50f9932e", "sent": [ARCH_HASH],
          "results": [{"id": ARCH_HASH, "status": "obsolete",
@@ -948,7 +969,8 @@ class TestRecordDecisions(unittest.TestCase):
                          {"decision": "defer", "reason": "ships next milestone",
                           "at_pass": 2, "band": "warning",
                           "evidence": arch_row_evidence(),
-                          "attribution": ["architecture", "bugs"]})
+                          "attribution": ["architecture", "bugs"],
+                          "covers": arch_row_covers()})
 
     def test_record_decisions_band_follows_each_record(self):
         # Non-vacuity: the two records differ in band, so a constant cannot pass.
@@ -1026,12 +1048,14 @@ class TestRecordDecisions(unittest.TestCase):
                           "at_pass": 3, "band": "warning",
                           "evidence": arch_row_evidence(),
                           "attribution": ["architecture", "bugs"],
+                          "covers": arch_row_covers(),
                           "history": [{"decision": "defer",
                                        "reason": "ships next milestone",
                                        "at_pass": 2, "band": "warning",
                                        "evidence": arch_row_evidence(),
                                        "attribution": ["architecture",
-                                                       "bugs"]}]})
+                                                       "bugs"],
+                                       "covers": arch_row_covers()}]})
         self.assertEqual(list(s["decisions"]), [ARCH_HASH])
 
     def test_record_decisions_member_obligation_own_hash(self):
@@ -1047,7 +1071,12 @@ class TestRecordDecisions(unittest.TestCase):
                           "evidence": {"file": F, "line": 11,
                                        "canonical_line_content": "x = 1",
                                        "band": "warning"},
-                          "attribution": ["bugs"]})
+                          "attribution": ["bugs"],
+                          # An absorbed member record has no row members and
+                          # carries no canonical line of its own (score.py
+                          # excludes it from member records).
+                          "covers": [{"agent": "bugs", "file": F,
+                                      "title": "A", "code": None}]})
         self.assertEqual(json.dumps(out["passes"], sort_keys=True), before)
         self.assertIsNone(carry_state.record_decisions(
             s, {"at_pass": 2, "decisions": [{"stable_hash": "e" * 64,
@@ -1826,6 +1855,236 @@ class TestDecisionEvidence(unittest.TestCase):
             with mock.patch.object(carry_state, "_evidence_of", mutant):
                 with self.assertRaises(AssertionError):
                     self._snapshotless_scenario()
+
+
+# --------------------------------------------------------------------------- #
+# Decision coverage (D-08): a decision records the findings it covered
+# (`covers`); a decided row that gains a newcomer concern reopens as `joined`.
+# --------------------------------------------------------------------------- #
+LEAD_TITLE = "t " + HB[:6]   # mk_finding's title for row HB
+
+
+def lead_member():
+    """Row HB's own member record (score.py lists the lead in members[])."""
+    return {"file": F, "line": 10, "title": LEAD_TITLE, "agent": "bugs",
+            "severity": "warning", "current_code": "x = 1"}
+
+
+def cov_member(agent, title, code="y = 2", line=11, obligation=None):
+    m = {"file": F, "line": line, "title": title, "agent": agent,
+         "severity": "medium", "current_code": code}
+    if obligation is not None:
+        m["obligation"] = obligation
+    return m
+
+
+def cov_state(members, snapshot=None):
+    """Pass 2 holds one row HB (warning, canonical "x = 1") with `members`."""
+    row = mk_finding("warning", "persisted", HB,
+                     snapshot=snapshot if snapshot is not None else snap(1),
+                     canonical_line_content="x = 1", members=members)
+    return mk_state([mk_pass(1, []), mk_pass(2, [row])])
+
+
+def joined_state(newcomers=(("security", "Injection here"),)):
+    """HB dismissed with only its lead on the row; later the row holds the
+    lead plus each (agent, title) newcomer, no obligation of its own."""
+    decided = dismiss(cov_state([lead_member()]), HB)
+    later = [lead_member()] + [cov_member(a, t) for a, t in newcomers]
+    return with_passes(decided, cov_state(later))
+
+
+class TestDecisionCoverage(unittest.TestCase):
+
+    def test_decision_record_saves_covers(self):
+        s = dismiss(cov_state([lead_member(), cov_member(
+            "security", "Injection here", code="\n   y = 2  \nz = 3\n")]), HB)
+        covers = s["decisions"][HB]["covers"]
+        self.assertEqual(len(covers), 2, covers)
+        for entry in covers:
+            self.assertEqual(set(entry), {"agent", "file", "title", "code"})
+        self.assertEqual(covers[0], {"agent": "bugs", "file": F,
+                                     "title": LEAD_TITLE, "code": "x = 1"})
+        self.assertEqual(covers[1], {"agent": "security", "file": F,
+                                     "title": "Injection here",
+                                     "code": "y = 2"})
+        s = dismiss(cov_state([lead_member(), cov_member(
+            "security", "Injection here", code=None)]), HB)
+        self.assertIsNone(s["decisions"][HB]["covers"][1]["code"])
+        s = dismiss(cov_state([lead_member(), cov_member(
+            "security", "Injection here", code="  \n\t\n")]), HB)
+        self.assertIsNone(s["decisions"][HB]["covers"][1]["code"])
+
+    def test_covers_not_rewritten_on_older_record(self):
+        two = cov_state([lead_member()])
+        two["passes"][-1]["findings"].append(
+            mk_finding("warning", "persisted", HC, snapshot=snap(1)))
+        s = dismiss(two, HB)
+        before = json.dumps(s["decisions"][HB], sort_keys=True)
+        # The row gains a member, then another record is decided: HB's
+        # record (covers included) is untouched.
+        fixture_row(s, HB)["members"].append(cov_member("security", "New"))
+        out = dismiss(s, HC, at_pass=3)
+        self.assertEqual(json.dumps(out["decisions"][HB], sort_keys=True),
+                         before)
+        self.assertEqual(len(out["decisions"][HB]["covers"]), 1)
+
+    def test_covers_source_is_state(self):
+        base = cov_state([lead_member()])
+        for extra in ({"covers": [{"agent": "security", "file": F,
+                                   "title": "x", "code": "y"}]},
+                      {"covers": []}):
+            with self.subTest(extra=sorted(extra)):
+                entry = dict({"stable_hash": HB, "decision": "dismiss",
+                              "reason": "r"}, **extra)
+                self.assertIsNone(carry_state.record_decisions(
+                    base, {"at_pass": 2, "decisions": [entry]}))
+        self.assertEqual(dismiss(base, HB)["decisions"][HB]["covers"],
+                         [{"agent": "bugs", "file": F, "title": LEAD_TITLE,
+                           "code": "x = 1"}])
+
+    def _joined_scenario(self):
+        s = joined_state()
+        rec = record_of(s, HB)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "joined")
+        self.assertIn(HB, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+        self.assertNotIn(HB, carry_state.decided(s))
+
+    def test_joined_newcomer_reopens_row(self):
+        self._joined_scenario()
+
+    def _same_title_scenario(self):
+        s = joined_state(newcomers=(("security", LEAD_TITLE),))
+        rec = record_of(s, HB)
+        self.assertEqual(carry_state.newcomer_lanes(rec, s), [])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+
+    def test_same_title_other_lane_is_not_joined(self):
+        # Corroboration of the covered concern: band equal -> kept.
+        self._same_title_scenario()
+
+    def test_member_with_own_obligation_is_not_joined(self):
+        decided = dismiss(cov_state([lead_member()]), HB)
+        obl = {"stable_hash": HA, "band": "warning", "attribution": ["security"],
+               "snapshot": snap(1, line=11)}
+        s = with_passes(decided, cov_state(
+            [lead_member(), cov_member("security", "Other", obligation=obl)]))
+        rec = record_of(s, HB)
+        self.assertEqual(carry_state.newcomer_lanes(rec, s), [])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        # The member is a record of its own and is asked on its own.
+        self.assertIsNone(carry_state.decision_state(record_of(s, HA), s))
+        self.assertEqual(carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+                         [HA])
+
+    def test_legacy_decision_without_covers_never_joined(self):
+        s = joined_state()
+        del s["decisions"][HB]["covers"]
+        rec = record_of(s, HB)
+        self.assertEqual(carry_state.newcomer_lanes(rec, s), [])
+        self.assertEqual(carry_state.covered_count(rec, s), 0)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        s["decisions"][HB]["covers"] = {"not": "a list"}
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+
+    def test_joined_has_priority_below_code_and_nearby(self):
+        s = joined_state()
+        fixture_row(s, HB)["snapshot"]["nearby_at"] = 2
+        self.assertEqual(carry_state.stale_cause(record_of(s, HB), s), "nearby")
+        fixture_row(s, HB)["snapshot"]["canonical_line_content"] = "x = 9"
+        self.assertEqual(carry_state.stale_cause(record_of(s, HB), s), "code")
+
+    def _newcomer_lanes_scenario(self):
+        s = joined_state()
+        self.assertEqual(carry_state.newcomer_lanes(record_of(s, HB), s),
+                         ["security"])
+        s = joined_state(newcomers=(("security", "Injection here"),
+                                    ("compliance", "PII logged"),
+                                    ("security", "Second concern")))
+        self.assertEqual(carry_state.newcomer_lanes(record_of(s, HB), s),
+                         ["compliance", "security"])
+        s = joined_state()
+        del s["decisions"][HB]["covers"]
+        self.assertEqual(carry_state.newcomer_lanes(record_of(s, HB), s), [])
+        s = joined_state(newcomers=(("security", LEAD_TITLE),))
+        self.assertEqual(carry_state.newcomer_lanes(record_of(s, HB), s), [])
+        undecided = cov_state([lead_member(), cov_member("security", "x")])
+        self.assertEqual(
+            carry_state.newcomer_lanes(record_of(undecided, HB), undecided), [])
+
+    def test_newcomer_lanes_lists_uncovered_lanes(self):
+        self._newcomer_lanes_scenario()
+
+    def _covered_count_scenario(self):
+        lone = dismiss(cov_state([lead_member()]), HB)
+        self.assertEqual(carry_state.covered_count(record_of(lone, HB), lone), 1)
+        # One covered member at decision time, then a newcomer joins: 2.
+        decided = dismiss(cov_state([lead_member(),
+                                     cov_member("bugs", "Covered")]), HB)
+        s = with_passes(decided, cov_state(
+            [lead_member(), cov_member("bugs", "Covered"),
+             cov_member("security", "Injection here")]))
+        self.assertEqual(carry_state.covered_count(record_of(s, HB), s), 2)
+        self.assertEqual(carry_state.newcomer_lanes(record_of(s, HB), s),
+                         ["security"])
+        bare = copy.deepcopy(lone)
+        del fixture_row(bare, HB)["members"]
+        self.assertEqual(carry_state.covered_count(record_of(bare, HB), bare), 1)
+        undecided = cov_state([lead_member()])
+        self.assertEqual(
+            carry_state.covered_count(record_of(undecided, HB), undecided), 0)
+        legacy = copy.deepcopy(lone)
+        del legacy["decisions"][HB]["covers"]
+        self.assertEqual(carry_state.covered_count(record_of(legacy, HB),
+                                                   legacy), 0)
+
+    def test_covered_count_counts_lead_and_covered_members(self):
+        self._covered_count_scenario()
+
+    # ---- contrast subtests: each mutant must make its scenario fail ------ #
+    def test_contrast_joined_check_removed_mutant(self):
+        self._joined_scenario()
+        with self.subTest("contrast: joined check removed"):
+            with mock.patch.object(carry_state, "_joined_newcomer",
+                                   lambda record, state: False):
+                with self.assertRaises(AssertionError):
+                    self._joined_scenario()
+
+    def test_contrast_title_exclusion_removed_mutant(self):
+        real = carry_state._covered_identities
+
+        def mutant(decision):
+            identities, titles = real(decision)
+            return identities, (set() if titles is not None else None)
+        self._same_title_scenario()
+        with self.subTest("contrast: same-title corroboration treated as joined"):
+            with mock.patch.object(carry_state, "_covered_identities", mutant):
+                with self.assertRaises(AssertionError):
+                    self._same_title_scenario()
+
+    def test_contrast_newcomer_lanes_empty_mutant(self):
+        self._joined_scenario()
+        self._newcomer_lanes_scenario()
+        with self.subTest("contrast: newcomer_lanes always empty"):
+            with mock.patch.object(carry_state, "newcomer_lanes",
+                                   lambda record, state: []):
+                with self.assertRaises(AssertionError):
+                    self._joined_scenario()
+                with self.assertRaises(AssertionError):
+                    self._newcomer_lanes_scenario()
+
+    def test_contrast_covered_identities_empty_mutant(self):
+        self._covered_count_scenario()
+        self._same_title_scenario()
+        with self.subTest("contrast: _covered_identities covers nothing"):
+            with mock.patch.object(carry_state, "_covered_identities",
+                                   lambda decision: (set(), set())):
+                with self.assertRaises(AssertionError):
+                    self._covered_count_scenario()
+                with self.assertRaises(AssertionError):
+                    self._same_title_scenario()
 
 
 def old_closed(record, state, last):
