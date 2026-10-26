@@ -45,15 +45,20 @@ def severity_stale_state():
     decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA,
                       reason="Accepted risk")
     s = copy.deepcopy(decided)
-    s["passes"] = ba_state(row_band="warning", a_band="warning")["passes"]
+    # A rise backed by a lane absent at decision time (`security`).
+    s["passes"] = ba_state(row_band="warning", a_band="warning",
+                           attribution=("bugs", "security"))["passes"]
     return s
 
 
 def code_stale_state():
+    # Phase 57 D-01: a line move alone no longer re-asks, so the code-stale
+    # case is a failed relocation (null canonical text in the snapshot).
     decided = dismiss(ba_state(a_snapshot=snap(1, line=11)), HA,
                       reason="Out of scope")
     s = copy.deepcopy(decided)
-    s["passes"] = ba_state(a_snapshot=snap(1, line=14))["passes"]
+    s["passes"] = ba_state(a_snapshot=dict(
+        snap(1, line=14), canonical_line_content=None))["passes"]
     return s
 
 

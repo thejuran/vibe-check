@@ -129,7 +129,9 @@ class TestRows(unittest.TestCase):
     def test_rows_stale_decision_present_with_tag(self):
         decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA,
                           reason="Accepted risk")
-        fresh = ba_state(row_band="warning", a_band="warning")
+        # A rise backed by a lane absent at decision time (`security`).
+        fresh = ba_state(row_band="warning", a_band="warning",
+                         attribution=("bugs", "security"))
         s = copy.deepcopy(decided)
         s["passes"] = fresh["passes"]
         rows = {r["stable_hash"]: r for r in rows_of(s)}
@@ -140,10 +142,16 @@ class TestRows(unittest.TestCase):
             "via": "same_hash", "prior_hash": HA})
         self.assertIsNone(rows[HB]["stale"])
 
-    def test_rows_stale_line_move_cause_code(self):
+    def test_rows_line_move_keeps_decision(self):
+        # Flipped per Phase 57 D-01 (was: a line move re-opened the decision
+        # with cause "code"). A failed relocation (null canonical text) is
+        # still a code change.
         decided = dismiss(ba_state(a_snapshot=snap(1, line=11)), HA)
         s = copy.deepcopy(decided)
         s["passes"] = ba_state(a_snapshot=snap(1, line=14))["passes"]
+        self.assertNotIn(HA, [r["stable_hash"] for r in rows_of(s)])
+        s["passes"] = ba_state(a_snapshot=dict(
+            snap(1, line=14), canonical_line_content=None))["passes"]
         rows = {r["stable_hash"]: r for r in rows_of(s)}
         self.assertEqual(rows[HA]["stale"]["cause"], "code")
         self.assertEqual(rows[HA]["stale"]["was_band"], "warning")
@@ -244,7 +252,10 @@ class TestReport(unittest.TestCase):
         s = dismiss(s, HB, reason="first")
         s = dismiss(s, HB, reason="second", at_pass=2)
         s = dismiss(s, HA, decision="defer", reason="later")
-        # HA's evidence goes stale (band change); HD is an orphan.
+        # HA's evidence goes stale (a band rise that a new lane backs); HD is
+        # an orphan.
+        s["passes"][-1]["findings"][0]["members"][1]["obligation"][
+            "attribution"] = ["bugs", "security"]
         s["passes"][-1]["findings"][0]["members"][1]["obligation"]["band"] = (
             "warning")
         s["passes"][-1]["findings"][0]["members"][1]["obligation"][
@@ -627,8 +638,12 @@ class TestParse(TempDirCase):
         self.assertIsNotNone(new)
         rec = [r for r in carry_state.open_findings(self.state)
                if r["stable_hash"] == HA][0]
+        # The stored evidence is _evidence_of on the four EVIDENCE_KEYS; an
+        # absent `nearby_at` stamp is left out, not stored as null.
+        ev = carry_state._evidence_of(rec)
+        self.assertIsNone(ev["nearby_at"])
         self.assertEqual(new["decisions"][HA]["evidence"],
-                         carry_state._evidence_of(rec))
+                         {k: ev[k] for k in carry_state.EVIDENCE_KEYS})
 
     def test_parse_round_trip_snapshotless_fixture(self):
         state = load_fixture()
@@ -1298,10 +1313,12 @@ class TestSuccessor(unittest.TestCase):
         with self.subTest("own stale decision wins"):
             s = successor_state()
             b = s["passes"][-1]["findings"][0]
+            # Decided at "low", now "medium": a rise on a record without a
+            # saved attribution re-asks (a drop would keep the decision).
             s["decisions"][HB] = dict(decision_for(b, 2, reason="mine"),
                                       evidence=dict(
                                           carry_state._evidence_of(b),
-                                          band="warning"))
+                                          band="low"))
             stale = stale_of(rows_of(s), HB)
             self.assertEqual((stale["via"], stale["prior_hash"],
                               stale["reason"]), ("same_hash", HB, "mine"))

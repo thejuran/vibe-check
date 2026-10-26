@@ -105,14 +105,17 @@ def member_ref(file=F, line=10, title="m"):
             "severity": "warning"}
 
 
-def ba_state(row_band="warning", a_band="warning", a_snapshot=None):
-    """One last-pass row B (hash HB, file F) carrying A's absorbed obligation."""
+def ba_state(row_band="warning", a_band="warning", a_snapshot=None,
+             attribution=("bugs",)):
+    """One last-pass row B (hash HB, file F) carrying A's absorbed obligation.
+    `attribution` is the reviewer lanes on A's obligation (score.py writes a
+    list of agent names)."""
     a_member = member_ref(line=11, title="A")
     a_member["obligation"] = {
         "stable_hash": HA,
         "orchestrator_score": 85,
         "band": a_band,
-        "attribution": {"agents": ["bugs"]},
+        "attribution": list(attribution),
         "snapshot": a_snapshot if a_snapshot is not None
         else snap(1, line=11, band=a_band),
     }
@@ -847,7 +850,8 @@ class TestRecordDecisions(unittest.TestCase):
         self.assertEqual(out["decisions"][ARCH_HASH],
                          {"decision": "defer", "reason": "ships next milestone",
                           "at_pass": 2, "band": "warning",
-                          "evidence": arch_row_evidence()})
+                          "evidence": arch_row_evidence(),
+                          "attribution": ["architecture", "bugs"]})
 
     def test_record_decisions_band_follows_each_record(self):
         # Non-vacuity: the two records differ in band, so a constant cannot pass.
@@ -924,10 +928,13 @@ class TestRecordDecisions(unittest.TestCase):
                          {"decision": "dismiss", "reason": "false positive",
                           "at_pass": 3, "band": "warning",
                           "evidence": arch_row_evidence(),
+                          "attribution": ["architecture", "bugs"],
                           "history": [{"decision": "defer",
                                        "reason": "ships next milestone",
                                        "at_pass": 2, "band": "warning",
-                                       "evidence": arch_row_evidence()}]})
+                                       "evidence": arch_row_evidence(),
+                                       "attribution": ["architecture",
+                                                       "bugs"]}]})
         self.assertEqual(list(s["decisions"]), [ARCH_HASH])
 
     def test_record_decisions_member_obligation_own_hash(self):
@@ -942,7 +949,8 @@ class TestRecordDecisions(unittest.TestCase):
                           "band": "warning",
                           "evidence": {"file": F, "line": 11,
                                        "canonical_line_content": "x = 1",
-                                       "band": "warning"}})
+                                       "band": "warning"},
+                          "attribution": ["bugs"]})
         self.assertEqual(json.dumps(out["passes"], sort_keys=True), before)
         self.assertIsNone(carry_state.record_decisions(
             s, {"at_pass": 2, "decisions": [{"stable_hash": "e" * 64,
@@ -1167,8 +1175,37 @@ def fixture_row(state, h):
 
 
 def band_change_state():
+    """A band RISE (medium -> warning) that a new reviewer lane backs:
+    `security` reports A on pass 2 but did not at decision time."""
+    decided = dismiss(ba_state(a_band="medium"), HA)
+    return with_passes(decided, ba_state(a_band="warning",
+                                         attribution=("bugs", "security")))
+
+
+def band_drop_state():
+    """A band DROP (warning -> medium) on unchanged code, same lane."""
+    decided = dismiss(ba_state(a_band="warning"), HA)
+    return with_passes(decided, ba_state(a_band="medium"))
+
+
+def band_rise_same_lane_state():
+    """A band RISE (medium -> warning) with the attribution unchanged: the
+    persistence bonus or a lifted single-reviewer cap, no new reviewer."""
     decided = dismiss(ba_state(a_band="medium"), HA)
     return with_passes(decided, ba_state(a_band="warning"))
+
+
+def nearby_state(decided_at=None, now_at=2):
+    """Unchanged code and band; the snapshot's `nearby_at` stamp is
+    `decided_at` at decision time and `now_at` on the later pass (None =
+    absent)."""
+    def snap_at(at):
+        sn = snap(1, line=11)
+        if at is not None:
+            sn["nearby_at"] = at
+        return sn
+    decided = dismiss(ba_state(a_snapshot=snap_at(decided_at)), HA)
+    return with_passes(decided, ba_state(a_snapshot=snap_at(now_at)))
 
 
 def line_move_state():
@@ -1202,8 +1239,12 @@ def snapshotless_decided_state():
 
 
 def snapshotless_severity_state():
+    """A rise on the snapshotless row backed by a lane (`security`) absent
+    from the decision's saved attribution."""
     s = snapshotless_decided_state()
-    fixture_row(s, ARCH_HASH)["band"] = "critical"
+    row = fixture_row(s, ARCH_HASH)
+    row["band"] = "critical"
+    row["attribution"] = list(row["attribution"]) + ["security"]
     return s
 
 
@@ -1269,25 +1310,32 @@ class TestDecisionEvidence(unittest.TestCase):
         self.assertEqual(carry_state.stale_cause(rec, sev), "severity")
         self.assertIn(ARCH_HASH,
                       carry_state.finalize_counts(sev)["outstanding_cw_hashes"])
+        # Flipped per Phase 57 D-01 (was: a line move re-opened the decision).
         moved = snapshotless_decided_state()
         fixture_row(moved, ARCH_HASH)["line"] = 75
         rec = record_of(moved, ARCH_HASH)
-        self.assertEqual(carry_state.decision_state(rec, moved), "stale")
-        self.assertEqual(carry_state.stale_cause(rec, moved), "code")
-        self.assertIn(ARCH_HASH,
-                      carry_state.finalize_counts(moved)["outstanding_cw_hashes"])
+        self.assertEqual(carry_state.decision_state(rec, moved), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, moved))
+        self.assertNotIn(ARCH_HASH,
+                         carry_state.finalize_counts(moved)["outstanding_cw_hashes"])
 
     def test_band_change_reopens(self):
         self._band_change_scenario()
 
-    def test_line_move_reopens(self):
+    def test_line_move_keeps_decision(self):
+        # Flipped per Phase 57 D-01 (was: a line move re-opened the decision).
+        self._line_move_scenario()
+
+    def _line_move_scenario(self):
         s = line_move_state()
         rec = record_of(s, HA)
         self.assertEqual(rec["snapshot"]["canonical_line_content"],
                          s["decisions"][HA]["evidence"]["canonical_line_content"])
-        self.assertEqual(carry_state.decision_state(rec, s), "stale")
-        self.assertEqual(carry_state.stale_cause(rec, s), "code")
-        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+        self.assertNotEqual(rec["snapshot"]["line"],
+                            s["decisions"][HA]["evidence"]["line"])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        self.assertNotIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
 
     def test_unchanged_decided_never_reopens(self):
         s = unchanged_state()
@@ -1386,6 +1434,165 @@ class TestDecisionEvidence(unittest.TestCase):
         out = dismiss(s, HC, at_pass=2)
         self.assertEqual(json.dumps(out["decisions"][HA], sort_keys=True), orphan)
 
+    # ---- direction-aware band, gained lanes, nearby_at (Phase 57) -------- #
+    def _band_drop_scenario(self, kind="dismiss"):
+        decided = carry_state.record_decisions(
+            ba_state(a_band="warning"), {"at_pass": 2, "decisions": [
+                {"stable_hash": HA, "decision": kind, "reason": "r"}]})
+        s = with_passes(decided, ba_state(a_band="medium"))
+        rec = record_of(s, HA)
+        self.assertEqual(s["decisions"][HA]["evidence"]["band"], "warning")
+        self.assertEqual(rec["snapshot"]["band"], "medium")
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        self.assertNotIn(HA, carry_state.finalize_counts(s)[
+            "unacknowledged_medium_hashes"])
+
+    def test_band_drop_keeps_decision(self):
+        # D-06: weaker evidence never needs the owner again.
+        s = band_drop_state()
+        self.assertEqual(carry_state.decision_state(record_of(s, HA), s),
+                         "current")
+        for kind in ("dismiss", "defer"):   # D-07: same rule for both
+            with self.subTest(kind=kind):
+                self._band_drop_scenario(kind)
+
+    def _rise_without_new_lane_scenario(self):
+        s = band_rise_same_lane_state()
+        rec = record_of(s, HA)
+        self.assertEqual(s["decisions"][HA]["evidence"]["band"], "medium")
+        self.assertEqual(rec["snapshot"]["band"], "warning")
+        self.assertEqual(s["decisions"][HA]["attribution"], ["bugs"])
+        self.assertEqual(rec["attribution"], ["bugs"])
+        self.assertEqual(carry_state.gained_lanes(rec, s), [])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertNotIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_rise_without_new_lane_keeps_decision(self):
+        # D-05 refinement: a rise with no new reviewer keeps the decision.
+        self._rise_without_new_lane_scenario()
+
+    def test_rise_with_new_lane_reopens(self):
+        s = band_change_state()
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["security"])
+        for kind in ("dismiss", "defer"):   # D-07
+            with self.subTest(kind=kind):
+                decided = carry_state.record_decisions(
+                    ba_state(a_band="medium"), {"at_pass": 2, "decisions": [
+                        {"stable_hash": HA, "decision": kind, "reason": "r"}]})
+                s2 = with_passes(decided, ba_state(
+                    a_band="warning", attribution=("bugs", "security")))
+                self.assertEqual(carry_state.decision_state(
+                    record_of(s2, HA), s2), "stale")
+
+    def test_legacy_decision_without_attribution_reopens_on_any_rise(self):
+        s = band_rise_same_lane_state()
+        del s["decisions"][HA]["attribution"]
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.gained_lanes(rec, s), [])
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        # ...but a legacy record still keeps its decision on a drop.
+        d = band_drop_state()
+        del d["decisions"][HA]["attribution"]
+        self.assertEqual(carry_state.decision_state(record_of(d, HA), d),
+                         "current")
+
+    def test_unknown_band_is_stale(self):
+        for side in ("now", "decided"):
+            with self.subTest(side=side):
+                s = unchanged_state()
+                if side == "now":
+                    fixture_row(s, HB)["members"][1]["obligation"][
+                        "snapshot"]["band"] = "bogus"
+                else:
+                    s["decisions"][HA]["evidence"]["band"] = "bogus"
+                rec = record_of(s, HA)
+                self.assertEqual(carry_state.decision_state(rec, s), "stale")
+                self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+
+    def test_gained_lanes_edges(self):
+        s = band_change_state()
+        rec = record_of(s, HA)
+        for name, mutate in (
+                ("record not a list", lambda st, r: r.update(attribution="x")),
+                ("decision lacks key",
+                 lambda st, r: st["decisions"][HA].pop("attribution")),
+                ("decision not a dict",
+                 lambda st, r: st["decisions"].__setitem__(HA, "dismiss"))):
+            with self.subTest(name):
+                st, r = copy.deepcopy(s), dict(rec)
+                mutate(st, r)
+                self.assertEqual(carry_state.gained_lanes(r, st), [])
+        self.assertEqual(carry_state.gained_lanes(
+            dict(rec, attribution=["security", "bugs", 3, "abc"]), s),
+            ["abc", "security"])
+
+    def test_band_rank_keys(self):
+        self.assertEqual(set(carry_state._BAND_RANK),
+                         {"critical", "warning", "medium", "low"})
+        self.assertEqual(carry_state._ORDINARY_COMPARE,
+                         ("file", "canonical_line_content"))
+
+    def _nearby_scenario(self):
+        s = nearby_state(decided_at=None, now_at=2)
+        rec = record_of(s, HA)
+        self.assertNotIn("nearby_at", s["decisions"][HA]["evidence"])
+        self.assertEqual(rec["snapshot"]["nearby_at"], 2)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "nearby")
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_nearby_at_mismatch_is_stale_nearby(self):
+        # D-02 / DECN-03: a change beneath the flagged line re-asks.
+        self._nearby_scenario()
+        s = nearby_state(decided_at=2, now_at=4)
+        self.assertEqual(s["decisions"][HA]["evidence"]["nearby_at"], 2)
+        self.assertEqual(carry_state.stale_cause(record_of(s, HA), s), "nearby")
+
+    def test_nearby_at_absent_both_sides_is_current(self):
+        s = nearby_state(decided_at=None, now_at=None)
+        rec = record_of(s, HA)
+        self.assertNotIn("nearby_at", rec["snapshot"])
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+
+    def test_nearby_at_equal_is_current(self):
+        s = nearby_state(decided_at=3, now_at=3)
+        rec = record_of(s, HA)
+        self.assertEqual(s["decisions"][HA]["evidence"]["nearby_at"], 3)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+
+    def test_stale_cause_priority_code_over_nearby_over_severity(self):
+        s = nearby_state(decided_at=None, now_at=2)
+        obl = fixture_row(s, HB)["members"][1]["obligation"]
+        obl["snapshot"]["band"] = "critical"
+        obl["attribution"] = ["bugs", "security"]
+        self.assertEqual(carry_state.stale_cause(record_of(s, HA), s), "nearby")
+        obl["snapshot"]["canonical_line_content"] = "x = 2"
+        self.assertEqual(carry_state.stale_cause(record_of(s, HA), s), "code")
+
+    def test_decision_record_saves_attribution(self):
+        s = dismiss(ba_state(), HA)
+        self.assertEqual(s["decisions"][HA]["attribution"], ["bugs"])
+        # A pre-existing record without the key is never rewritten.
+        s = ba_state()
+        s["decisions"] = {HB: pre47_record()}
+        before = json.dumps(s["decisions"][HB], sort_keys=True)
+        out = dismiss(s, HA)
+        self.assertEqual(json.dumps(out["decisions"][HB], sort_keys=True),
+                         before)
+        self.assertNotIn("attribution", out["decisions"][HB])
+        # A non-list attribution is saved as [] (never a dict's keys).
+        legacy = ba_state()
+        fixture_row(legacy, HB)["members"][1]["obligation"]["attribution"] = {
+            "agents": ["bugs"]}
+        self.assertEqual(dismiss(legacy, HA)["decisions"][HA]["attribution"],
+                         [])
+
     # ---- contrast subtests: each mutant must make its scenario fail ------ #
     def test_contrast_always_current_mutant(self):
         self._band_change_scenario()
@@ -1422,6 +1629,75 @@ class TestDecisionEvidence(unittest.TestCase):
             with mock.patch.object(carry_state, "decision_state", mutant):
                 with self.assertRaises(AssertionError):
                     self._band_change_scenario()
+
+    def test_contrast_line_compared_mutant(self):
+        real = real_decision_state()
+
+        def mutant(record, state):
+            result = real(record, state)
+            ev = state.get("decisions", {}).get(record["stable_hash"])
+            ev = ev.get("evidence") if isinstance(ev, dict) else None
+            if (result == "current" and isinstance(ev, dict)
+                    and ev.get("line") != carry_state._evidence_of(record)["line"]):
+                return "stale"
+            return result
+        self._line_move_scenario()
+        with self.subTest("contrast: line reintroduced in the compare"):
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._line_move_scenario()
+
+    def test_contrast_direction_blind_band_mutant(self):
+        real = real_decision_state()
+
+        def mutant(record, state):
+            result = real(record, state)
+            ev = state.get("decisions", {}).get(record["stable_hash"])
+            ev = ev.get("evidence") if isinstance(ev, dict) else None
+            if (result == "current" and isinstance(ev, dict)
+                    and ev.get("band") != carry_state._evidence_of(record)["band"]):
+                return "stale"
+            return result
+        self._band_drop_scenario()
+        with self.subTest("contrast: direction-blind band"):
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._band_drop_scenario()
+
+    def test_contrast_rise_ignores_gained_lanes_mutant(self):
+        real = real_decision_state()
+
+        def mutant(record, state):
+            result = real(record, state)
+            ev = state.get("decisions", {}).get(record["stable_hash"])
+            ev = ev.get("evidence") if isinstance(ev, dict) else None
+            if result == "current" and isinstance(ev, dict):
+                was = carry_state._BAND_RANK.get(ev.get("band"))
+                cur = carry_state._BAND_RANK.get(
+                    carry_state._evidence_of(record)["band"])
+                if was is not None and cur is not None and cur > was:
+                    return "stale"   # any rise re-asks
+            return result
+        self._rise_without_new_lane_scenario()
+        with self.subTest("contrast: rise ignores gained lanes"):
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._rise_without_new_lane_scenario()
+
+    def test_contrast_nearby_at_ignored_mutant(self):
+        real = real_decision_state()
+
+        def mutant(record, state):
+            if isinstance(record.get("snapshot"), dict):
+                record = dict(record, snapshot={
+                    k: v for k, v in record["snapshot"].items()
+                    if k != "nearby_at"})
+            return real(record, state)
+        self._nearby_scenario()
+        with self.subTest("contrast: nearby_at compare removed"):
+            with mock.patch.object(carry_state, "decision_state", mutant):
+                with self.assertRaises(AssertionError):
+                    self._nearby_scenario()
 
     def test_contrast_absent_vs_null_legacy_gate_mutant(self):
         real = real_decision_state()
@@ -1466,6 +1742,8 @@ def old_closed(record, state, last):
 
 ROLLBACK_FIXTURES = (
     ("band change", band_change_state),
+    # D-01: the current reader keeps a line-moved decision ("current"), as the
+    # pre-47 reader did, so this row no longer disagrees; kept as a fixture.
     ("line move", line_move_state),
     ("unchanged", unchanged_state),
     ("history replace", history_state),
@@ -2531,13 +2809,15 @@ class TestNeedsVerificationDecisionEvidence(unittest.TestCase):
                 self.assertEqual(carry_state.decision_state(nv_row(s), s),
                                  "current")
 
-    def test_critical_line_shift_still_stale(self):
+    def test_critical_line_shift_keeps_decision(self):
+        # Flipped per Phase 57 D-01 (was: an ordinary critical decision went
+        # stale on a line shift; now no ordinary decision compares the line).
         crit = mk_state([mk_pass(1, [mk_finding("critical", "new", HA,
                                                 snapshot=snap(1, band="critical"))])])
         crit = decide(crit, 1, (HA, "defer"))
         crit["passes"][-1]["findings"][0]["snapshot"]["line"] = 11
         rec = crit["passes"][-1]["findings"][0]
-        self.assertEqual(carry_state.decision_state(rec, crit), "stale")
+        self.assertEqual(carry_state.decision_state(rec, crit), "current")
 
     def test_nv_changed_body_re_asks_decision(self):
         for kw in ({}, {"line": None, "symbol": "load_config"}):

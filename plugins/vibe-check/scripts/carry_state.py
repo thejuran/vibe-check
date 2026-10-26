@@ -35,10 +35,16 @@ WHAT CLOSES. Exactly one of:
     file is never rewritten, so an old state counts exactly as before. A
     `decisions` record WITH an `evidence` key closes only while that evidence
     (the finding's snapshot at decision time — or, for a snapshotless finding,
-    its own file/line/canonical_line_content/band) still equals the finding's
-    current evidence on those four keys (`decision_state`). A same-hash band
-    change or line move re-opens the finding; an edit to the decided line
-    re-hashes it, so the new hash carries no decision at all. A
+    its own file/line/canonical_line_content/band) still holds
+    (`decision_state`). An ordinary decision compares the file and the
+    canonical line content, never the line number: a pure line shift keeps the
+    decision. A change in the 5-line window beneath the flagged line (the
+    pass score.py stamps into `snapshot.nearby_at`) re-asks it. A band drop
+    keeps it; a band rise re-asks only when a reviewer lane absent from the
+    decision's saved `attribution` now reports the finding (a record written
+    before decisions saved `attribution` re-asks on any rise); an unknown band
+    re-asks. Defer and dismiss follow the same rule. An edit to the decided
+    line re-hashes it, so the new hash carries no decision at all. A
     Needs-verification decision is compared on _NV_EVIDENCE_KEYS instead: the
     line is dropped (a carried item relocated by content keeps its hash, so a
     pure line shift never re-asks) and the whole-snippet `current_code`
@@ -61,6 +67,11 @@ independent re-check closes it or a reviewer's still-applies settles it
 Nothing else closes a finding: no age, no pass count. Closure is evaluated per
 record and is never inherited from a lead.
 
+READ SUBCOMMANDS. `finalize-counts` and `pending` feed the Finalize gate and
+the card. `decided` is read-only: it lists the hashes (rows and member
+obligations) whose owner decision is current, and is what Phase 0.5 binds as
+`$DECIDED_HASHES` to relocate decided records by content.
+
 WHAT IT DOES NOT DO. It never renders REVIEW.md, never prints a finding, and
 never writes a file: the `record-*` subcommands print the new state on stdout
 and the prose redirects it to `$STATE_FILE.tmp` and `mv`s it on success. It
@@ -79,6 +90,7 @@ CLI (stdin is always the parsed state object; stdout is JSON):
 
     python3 carry_state.py finalize-counts [--head-blobs PATH] < state.json
     python3 carry_state.py pending < state.json
+    python3 carry_state.py decided < state.json
     python3 carry_state.py record-decisions --decisions-file PATH < state.json
     python3 carry_state.py record-fix-verdicts --verdicts-file PATH < state.json
 
@@ -99,6 +111,12 @@ dropping `evidence` and `history`. So, in order:
 Legacy state files (no `evidence` / `history` on any decision) are untouched by
 the procedure.
 
+ROLLBACK past the line-free compare (reverting to a reader that compares
+`line` and ignores `attribution` / `nearby_at`): that reader re-asks a decided
+finding whose line shifted and any band change, so it fails toward asking and
+needs no quarantine; the extra `attribution` key on newer decision records is
+ignored by it. The `covers` key is documented with its writer.
+
 stdlib only; imports exactly {json, os, sys} (`os` for `os.path.isfile`).
 """
 
@@ -118,7 +136,7 @@ NV_MEMBER_OBLIGATION = NV_BAND
 BLOCKING_BANDS = ("critical", "warning", NV_BAND, "medium")
 _CW_BANDS = ("critical", "warning")
 
-SUBCOMMANDS = ("finalize-counts", "pending", "record-decisions",
+SUBCOMMANDS = ("finalize-counts", "pending", "decided", "record-decisions",
                "record-fix-verdicts")
 # The ONLY flags this CLI accepts. There is deliberately no flag that carries a
 # reason, a hash or a title: such text on a command line is expanded by the
@@ -128,11 +146,13 @@ KNOWN_FLAGS = ("--decisions-file", "--verdicts-file", "--head-blobs")
 _FLAGS_BY_SUBCOMMAND = {
     "finalize-counts": ((), ("--head-blobs",)),
     "pending": ((), ()),
+    "decided": ((), ()),
     "record-decisions": (("--decisions-file",), ()),
     "record-fix-verdicts": (("--verdicts-file",), ()),
 }
 
 USAGE = ("usage: carry_state.py finalize-counts [--head-blobs PATH] | pending"
+         " | decided"
          " | record-decisions --decisions-file PATH"
          " | record-fix-verdicts --verdicts-file PATH  (state on stdin)\n")
 
@@ -281,6 +301,7 @@ def _check_state(state):
                 "canonical_line_content": m.get("canonical_line_content"),
                 "status": f["status"],
                 "snapshot": obl.get("snapshot"),
+                "attribution": obl.get("attribution"),
                 "absorbed_into": f["stable_hash"],
             })
     records = []
@@ -382,6 +403,16 @@ def is_closed(record, state, head_blobs):
 # refreshed the snapshot since the decision was taken.
 EVIDENCE_KEYS = ("file", "line", "canonical_line_content", "band")
 
+# The code evidence an ordinary decision is compared on. `line` is stored (for
+# display and for the legacy fail-closed shape check) but never compared: a
+# pure line shift is not new evidence. EVIDENCE_KEYS / _full_evidence stay as
+# they are so a malformed stored record still fails closed.
+_ORDINARY_COMPARE = ("file", "canonical_line_content")
+
+# Band order for the direction-aware compare. Mirror of score._BAND_SEVERITY
+# without its None key (this module may not import score).
+_BAND_RANK = {"critical": 4, "warning": 3, "medium": 2, "low": 1}
+
 
 # Needs-verification decision evidence (D-12 / O-2). A carried NV item is
 # relocated by content and keeps its hash and snapshot, so a pure line shift is
@@ -434,7 +465,13 @@ def _evidence_of(record, nv=None):
     `current_code` (a snapshot never holds code). Always a dict."""
     snapshot = record.get("snapshot")
     source = snapshot if isinstance(snapshot, dict) else record
-    evidence = {k: source.get(k) for k in EVIDENCE_KEYS}
+    # `nearby_at`: the pass score.py last saw a change in the window beneath
+    # the flagged line. Compared by decision_state but not part of
+    # _full_evidence, so a record stored without it (absent = None) still
+    # reads as complete.
+    evidence = dict({k: source.get(k) for k in EVIDENCE_KEYS},
+                    nearby_at=(snapshot.get("nearby_at")
+                               if isinstance(snapshot, dict) else None))
     if nv if nv is not None else _is_nv(record):
         return dict(evidence,
                     current_code=_nv_code_key(record.get("current_code")))
@@ -454,20 +491,55 @@ def _full_evidence(evidence):
                                               for k in EVIDENCE_KEYS)
 
 
+def _str_lanes(value):
+    return {a for a in value if isinstance(a, str)}
+
+
+def gained_lanes(record, state):
+    """Sorted reviewer lanes in the record's `attribution` that are absent
+    from its own decision's saved `attribution`; [] when the record has no
+    decision dict or either side lacks a list `attribution`."""
+    decision = state.get("decisions", {}).get(record.get("stable_hash"))
+    if not isinstance(decision, dict):
+        return []
+    saved = decision.get("attribution")
+    now = record.get("attribution")
+    if not (isinstance(saved, list) and isinstance(now, list)):
+        return []
+    return sorted(_str_lanes(now) - _str_lanes(saved))
+
+
+def _band_rise_reopens(record, state, decision):
+    """True when a band rise is new evidence: the decision predates saved
+    `attribution` (fails toward asking), or a lane absent at decision time
+    now reports the finding. A rise from the persistence bonus or a lifted
+    single-reviewer cap alone keeps the decision."""
+    if "attribution" not in decision:
+        return True
+    return bool(gained_lanes(record, state))
+
+
 def decision_state(record, state):
     """"current" | "stale" | None for the owner decision on this record.
 
-    None: no decision. "current": a legacy medium acknowledgment, a decision
-    that predates evidence binding (not a dict, or a dict with NO `evidence`
-    key), or evidence equal to the record's current evidence on all four
-    EVIDENCE_KEYS. "stale": any key differs, or the `evidence` key is present
-    but null / not a dict / missing a key (fail closed — the writer never
-    produces that)."""
+    None: no decision. "current": a legacy medium acknowledgment, or a
+    decision that predates evidence binding (not a dict, or a dict with NO
+    `evidence` key). "stale" when the `evidence` key is present but null / not
+    a dict / missing a key (fail closed — the writer never produces that).
+
+    An ordinary decision is otherwise compared in order: the file or canonical
+    line content differs -> "stale" (the line number is never compared); the
+    `nearby_at` stamp differs -> "stale"; then the band: an unknown band on
+    either side -> "stale", a drop or no change -> "current", a rise ->
+    "stale" only when `_band_rise_reopens`. Defer and dismiss are treated
+    alike. A Needs-verification decision compares all of _NV_EVIDENCE_KEYS."""
     h = record["stable_hash"]
     if h in state.get("medium_acknowledgments", {}):
         return "current"
     decisions = state.get("decisions", {})
     if h not in decisions:
+        # Hook: an inherited decision (a covering decision on another record)
+        # is looked up here.
         return None
     decision = decisions[h]
     if not isinstance(decision, dict) or "evidence" not in decision:
@@ -477,17 +549,32 @@ def decision_state(record, state):
         return "stale"
     keys = _evidence_keys(evidence, record)
     current = _evidence_of(record, nv=keys is _NV_EVIDENCE_KEYS)
-    # A stored NV evidence dict lacking `current_code` (the writer never
-    # produces one) compares as stale: fail closed.
-    if all(k in evidence and evidence[k] == current[k] for k in keys):
+    if keys is _NV_EVIDENCE_KEYS:
+        # A stored NV evidence dict lacking `current_code` (the writer never
+        # produces one) compares as stale: fail closed.
+        if all(k in evidence and evidence[k] == current[k] for k in keys):
+            return "current"
+        return "stale"
+    if any(evidence[k] != current[k] for k in _ORDINARY_COMPARE):
+        return "stale"
+    if evidence.get("nearby_at") != current.get("nearby_at"):
+        return "stale"
+    # Hook: the joined-newcomer check (a decided row gaining an uncovered
+    # concern) goes here, between the nearby and band steps.
+    was = _BAND_RANK.get(evidence["band"])
+    cur = _BAND_RANK.get(current["band"])
+    if was is None or cur is None:
+        return "stale"
+    if cur <= was:
         return "current"
-    return "stale"
+    return "stale" if _band_rise_reopens(record, state, decision) else "current"
 
 
 def stale_cause(record, state):
-    """None unless the decision is stale; "severity" when only the band
-    differs from the decision's evidence, else "code" (including a null or
-    malformed `evidence`)."""
+    """None unless the decision is stale. Ordinary: "code" when the file or
+    canonical line content differs (or `evidence` is null / malformed), else
+    "nearby" when the `nearby_at` stamp differs, else "severity".
+    Needs-verification: "severity" when only the band differs, else "code"."""
     if decision_state(record, state) != "stale":
         return None
     evidence = state.get("decisions", {}).get(record["stable_hash"])
@@ -496,12 +583,17 @@ def stale_cause(record, state):
         return "code"
     keys = _evidence_keys(evidence, record)
     current = _evidence_of(record, nv=keys is _NV_EVIDENCE_KEYS)
-    same = (("file", "canonical_line_content", "current_code")
-            if keys is _NV_EVIDENCE_KEYS
-            else ("file", "line", "canonical_line_content"))
-    if all(k in evidence and evidence[k] == current[k] for k in same):
-        return "severity"
-    return "code"
+    if keys is _NV_EVIDENCE_KEYS:
+        same = ("file", "canonical_line_content", "current_code")
+        if all(k in evidence and evidence[k] == current[k] for k in same):
+            return "severity"
+        return "code"
+    if any(evidence[k] != current[k] for k in _ORDINARY_COMPARE):
+        return "code"
+    if evidence.get("nearby_at") != current.get("nearby_at"):
+        return "nearby"
+    # Hook: "joined" is returned here, before "severity".
+    return "severity"
 
 
 def has_evidence_bound_decisions(state):
@@ -618,6 +710,24 @@ def _valid_decision_entries(payload, open_hashes):
     return True
 
 
+def _stored_evidence(record):
+    """A JSON copy of `_evidence_of(record)` for a decision record. An absent
+    `nearby_at` stamp is left out rather than stored as null, so a record
+    without one has exactly the shape older readers wrote (absent and null
+    compare equal in decision_state)."""
+    evidence = _evidence_of(record)
+    if isinstance(evidence, dict) and evidence.get("nearby_at") is None:
+        evidence = {k: v for k, v in evidence.items() if k != "nearby_at"}
+    return json.loads(json.dumps(evidence))
+
+
+def _attribution_copy(value):
+    """A list copy of the str lanes in `value`; [] for anything not a list."""
+    if not isinstance(value, list):
+        return []
+    return [a for a in value if isinstance(a, str)]
+
+
 def record_decisions(state, payload):
     """Record owner dismiss/defer decisions; the new state, or None on refusal.
 
@@ -626,7 +736,9 @@ def record_decisions(state, payload):
     hash included); the stored band is that record's band, never the payload's.
     The record also stores `evidence`: the finding's current evidence
     (`_evidence_of`), never null — the four EVIDENCE_KEYS, plus the
-    `current_code` fingerprint for a Needs-verification record. A later decision for
+    `current_code` fingerprint for a Needs-verification record — and
+    `attribution`: the reviewer lanes reporting the finding at decision time,
+    read from the state (a payload can never set it). A later decision for
     the same hash replaces the earlier one, and the earlier record (minus its
     own `history`) is kept first in the new record's `history`.
     """
@@ -647,7 +759,8 @@ def record_decisions(state, payload):
             "reason": entry["reason"],
             "at_pass": payload["at_pass"],
             "band": by_hash[h]["band"],
-            "evidence": json.loads(json.dumps(_evidence_of(by_hash[h]))),
+            "evidence": _stored_evidence(by_hash[h]),
+            "attribution": _attribution_copy(by_hash[h].get("attribution")),
         }
         if isinstance(prior, dict):
             hist = ([{k: v for k, v in prior.items() if k != "history"}]
