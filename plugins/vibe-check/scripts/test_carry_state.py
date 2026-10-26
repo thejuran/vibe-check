@@ -2291,6 +2291,244 @@ class TestDecisionInheritance(unittest.TestCase):
                     self._other_agent_scenario()
 
 
+# --------------------------------------------------------------------------- #
+# Decision binding gaps: a row decision covers only what the owner decided,
+# an inherited decision obeys the own-decision reopen rules, and a "new
+# reviewer" is a lane newly reporting THIS concern.
+# --------------------------------------------------------------------------- #
+HR = "7" * 64
+HB2 = "2" * 64
+
+
+def g_snap(at_pass, canon, line=10, band="warning"):
+    return {"at_pass": at_pass, "file": F, "line": line,
+            "canonical_line_content": canon, "band": band}
+
+
+def g_member(agent, title, code, line=10, severity="warning", obligation=None):
+    m = {"file": F, "line": line, "title": title, "agent": agent,
+         "severity": severity, "current_code": code,
+         "canonical_line_content": code}
+    if obligation is not None:
+        m["obligation"] = obligation
+    return m
+
+
+def g_obligation(h, agent, canon, line=11, band="warning", at_pass=1):
+    return {"stable_hash": h, "band": band, "attribution": [agent],
+            "snapshot": g_snap(at_pass, canon, line=line, band=band)}
+
+
+def g_row(h, agent, title, canon, members, attribution, band="warning",
+          line=10, at_pass=1):
+    """One row as score.py writes it: snapshot, canonical line, the lead's own
+    member record first in `members`."""
+    return mk_finding(band, "persisted", h,
+                      snapshot=g_snap(at_pass, canon, line=line, band=band),
+                      line=line, agent=agent, title=title,
+                      canonical_line_content=canon,
+                      attribution=list(attribution), members=members)
+
+
+def g_lead(agent="bugs", title="T1", code="x = 1", line=10):
+    return g_member(agent, title, code, line=line)
+
+
+class TestGapClosure57(unittest.TestCase):
+    """Reproductions of the decision-binding gaps, each on the real
+    carry_state functions:
+
+    G1  (CR-01, D-16): a member carrying its own obligation is not covered by
+        the row decision; once it is a row of its own it is still owed.
+    G2a (CR-02): an inherited decision reopens on a lane-backed band rise.
+    G2b (CR-02): an inherited decision reopens when a newcomer joins.
+    G3a (WR-03): a lane present for another concern that later reports the
+        decided concern is a new reviewer; with a band rise it reopens.
+    G3b (WR-03): a lane present only for an unrelated concern is not; a
+        persistence-only rise keeps the decision.
+    G6  (D-15): the card count counts concerns, not reviewer reports.
+
+    Expected red before the fixes: 6 (G1, G2a, G2b, G3a, G3b, G6)."""
+
+    def test_g1_split_obligation_member_is_not_covered_by_row_decision(self):
+        # The same-hash shape (a member whose obligation hash is the row's
+        # own) is one finding and stays in `covers`.
+        same = mk_state([mk_pass(1, [g_row(
+            HR, "security", "T1", "x = 1",
+            [g_lead("security"),
+             g_member("bugs", "T1", "x = 1",
+                      obligation=g_obligation(HR, "bugs", "x = 1",
+                                              line=10))],
+            ["security", "bugs"])])])
+        same = dismiss(same, HR, at_pass=1)
+        self.assertIn({"agent": "bugs", "file": F, "title": "T1",
+                       "code": "x = 1"}, same["decisions"][HR]["covers"])
+
+        b_member = g_member("b", "T2", "y = 2", line=11,
+                            obligation=g_obligation(HB2, "b", "y = 2"))
+        p1 = mk_state([mk_pass(1, [g_row(HR, "bugs", "T1", "x = 1",
+                                         [g_lead(), b_member],
+                                         ["bugs", "b"])])])
+        # Fixture: row HR holds the lead and b's separately-owed obligation.
+        row = fixture_row(p1, HR)
+        self.assertEqual([m["agent"] for m in row["members"]], ["bugs", "b"])
+        self.assertEqual(row["members"][1]["obligation"]["stable_hash"], HB2)
+        self.assertEqual(
+            carry_state.finalize_counts(p1)["outstanding_cw_hashes"],
+            [HB2, HR])
+        s1 = dismiss(p1, HR, at_pass=1)
+        self.assertEqual(
+            carry_state.finalize_counts(s1)["outstanding_cw_hashes"],
+            [HB2])
+
+        # Pass 2: b's finding is a row of its own; HR is unchanged.
+        p2 = mk_state([mk_pass(1, []), mk_pass(2, [
+            g_row(HR, "bugs", "T1", "x = 1", [g_lead()], ["bugs", "b"]),
+            g_row(HB2, "b", "T2", "y = 2", [g_lead("b", "T2", "y = 2", 11)],
+                  ["b"], line=11)])])
+        s = with_passes(s1, p2)
+        rec = record_of(s, HB2)
+        self.assertNotIn(HB2, s["decisions"])
+        self.assertIsNone(rec.get("absorbed_into"))
+        self.assertEqual(carry_state.decision_state(record_of(s, HR), s),
+                         "current")
+        self.assertIsNone(carry_state.decision_state(rec, s))
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+            [HB2])
+        self.assertNotIn(("b", "T2"), [(c.get("agent"), c.get("title"))
+                                       for c in s["decisions"][HR]["covers"]])
+
+    def _inherited_pass1(self):
+        """Pass 1: row HR (bugs/"T1") holding c's plain finding "T3"; the
+        owner dismisses HR."""
+        p1 = mk_state([mk_pass(1, [g_row(
+            HR, "bugs", "T1", "x = 1",
+            [g_lead(), g_member("c", "T3", "z = 3", line=12)],
+            ["bugs", "c"])])])
+        s1 = dismiss(p1, HR, at_pass=1)
+        self.assertIn({"agent": "c", "file": F, "title": "T3",
+                       "code": "z = 3"}, s1["decisions"][HR]["covers"])
+        return s1
+
+    def _inherited_pass2(self, s1, hc_band, hc_members):
+        p2 = mk_state([mk_pass(1, []), mk_pass(2, [
+            g_row(HR, "bugs", "T1", "x = 1", [g_lead()], ["bugs", "c"]),
+            g_row(HC, "c", "T3", "z = 3", hc_members, ["c", "security"],
+                  band=hc_band, line=12)])])
+        s = with_passes(s1, p2)
+        rec = record_of(s, HC)
+        self.assertNotIn(HC, s["decisions"])
+        self.assertEqual(carry_state.covering_decision(rec, s),
+                         (HR, s["decisions"][HR]))
+        self.assertEqual(carry_state.decision_state(record_of(s, HR), s),
+                         "current")
+        return s, rec
+
+    def test_g2a_inherited_decision_reopens_on_lane_backed_band_rise(self):
+        s1 = self._inherited_pass1()
+        self.assertEqual(s1["decisions"][HR]["band"], "warning")
+        s, rec = self._inherited_pass2(s1, "critical", [
+            g_lead("c", "T3", "z = 3", 12),
+            g_member("security", "T3", "z = 3", line=12)])
+        self.assertEqual(fixture_row(s, HC)["band"], "critical")
+        self.assertEqual(fixture_row(s, HC)["snapshot"]["band"], "critical")
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["security"])
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+            [HC])
+
+    def test_g2b_inherited_decision_reopens_when_a_newcomer_joins(self):
+        s1 = self._inherited_pass1()
+        s, rec = self._inherited_pass2(s1, "warning", [
+            g_lead("c", "T3", "z = 3", 12),
+            g_member("security", "SQL injection", "z = 3", line=12)])
+        self.assertEqual(fixture_row(s, HC)["band"], "warning")
+        self.assertNotIn("obligation", fixture_row(s, HC)["members"][1])
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "joined")
+        self.assertEqual(carry_state.newcomer_lanes(rec, s), ["security"])
+        self.assertEqual(carry_state.covered_count(rec, s), 1)
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+            [HC])
+
+    def _two_concern_row(self, band, members, attribution):
+        return mk_state([mk_pass(1, []), mk_pass(2, [g_row(
+            HR, "bugs", "T1", "x = 1", members, attribution, band=band)])])
+
+    def _b_obligation_member(self):
+        return g_member("b", "T2", "y = 2", line=11,
+                        obligation=g_obligation(HB2, "b", "y = 2"))
+
+    def test_g3a_lane_present_for_another_concern_later_corroborates_and_rise_reopens(self):  # noqa: E501
+        p1 = mk_state([mk_pass(1, [g_row(
+            HR, "bugs", "T1", "x = 1", [g_lead(), self._b_obligation_member()],
+            ["bugs", "b"])])])
+        s1 = dismiss(p1, HR, at_pass=1)
+        self.assertEqual(s1["decisions"][HR]["attribution"], ["bugs", "b"])
+        self.assertEqual(s1["decisions"][HR]["band"], "warning")
+        # Pass 2: b now ALSO reports T1 and the band rises.
+        s = with_passes(s1, self._two_concern_row(
+            "critical", [g_lead(), g_member("b", "T1", "x = 1"),
+                         self._b_obligation_member()], ["bugs", "b"]))
+        row = fixture_row(s, HR)
+        self.assertEqual(row["snapshot"]["band"], "critical")
+        self.assertIn(("b", "T1"), [(m["agent"], m["title"])
+                                    for m in row["members"]])
+        rec = record_of(s, HR)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["b"])
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+            [HB2, HR])
+
+    def test_g3b_unrelated_concern_lane_with_persistence_rise_keeps(self):
+        p1 = mk_state([mk_pass(1, [g_row(HR, "bugs", "T1", "x = 1",
+                                         [g_lead()], ["bugs"])])])
+        s1 = dismiss(p1, HR, at_pass=1)
+        self.assertEqual(s1["decisions"][HR]["attribution"], ["bugs"])
+        # Pass 2: b joins only with its own, separately-owed concern T2.
+        s = with_passes(s1, self._two_concern_row(
+            "critical", [g_lead(), self._b_obligation_member()],
+            ["bugs", "b"]))
+        row = fixture_row(s, HR)
+        self.assertEqual(row["snapshot"]["band"], "critical")
+        self.assertNotIn(("b", "T1"), [(m["agent"], m["title"])
+                                       for m in row["members"]])
+        rec = record_of(s, HR)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        self.assertEqual(carry_state.gained_lanes(rec, s), [])
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+            [HB2])
+
+    def test_g6_covered_count_counts_concerns_not_reports(self):
+        # Same title from two lanes is one concern; a second title is two.
+        # (No subTest: a failing subtest must fail the test itself.)
+        for other_title, expected in (("T1", 1), ("T2", 2)):
+            p = mk_state([mk_pass(1, [g_row(
+                HR, "bugs", "T1", "x = 1",
+                [g_lead(), g_member("security", other_title, "x = 1")],
+                ["bugs", "security"])])])
+            s = dismiss(p, HR, at_pass=1)
+            self.assertIn({"agent": "security", "file": F,
+                           "title": other_title, "code": "x = 1"},
+                          s["decisions"][HR]["covers"])
+            rec = record_of(s, HR)
+            self.assertEqual(carry_state.covered_count(rec, s), expected)
+            self.assertEqual(carry_state.decision_state(rec, s),
+                             "current")
+            self.assertEqual(
+                carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+                [])
+
+
 def old_closed(record, state, last):
     """The pre-47 closure rule, transcribed: closed by hash alone."""
     h = record["stable_hash"]
