@@ -190,14 +190,16 @@ def decided_relocation_holds(text):
             and _all_in(text, DECIDED_CONTEXT_PHRASES))
 
 
-# The step-2 `changed-line ranges` bullet: a hunk that only deletes (new-side
-# count 0) still maps to a range, the two new-side lines around the deletion
-# point. Checked inside that bullet only. test_decision_continuity's
+# The step-2 `changed-line ranges` bullet: an ordinary hunk maps to its
+# new-side lines, and a hunk that only deletes (new-side count 0) still maps to
+# a range, the two new-side lines around the deletion point. Checked inside
+# that bullet only. test_decision_continuity's
 # `deletion_hunk_ranges` mirrors this mapping.
 DELETION_RANGE_START = "**changed-line ranges**"
 DELETION_RANGE_END = "\n   - **"
 
 DELETION_RANGE_PHRASES = (
+    "`[start, start + count - 1]`",
     "A hunk that only deletes",
     "header `+T,0`",
     "`[max(T, 1), T + 1]`",
@@ -431,6 +433,7 @@ class TestDeletionRangeLock(unittest.TestCase):
     SYNTHETIC = (
         "2. Raw facts:\n"
         "   - **changed-line ranges** — pass `changed_line_ranges`. A hunk "
+        "with new-side lines maps to `[start, start + count - 1]`. A hunk "
         "that only deletes (unified-diff header `+T,0`) maps to "
         "`[max(T, 1), T + 1]`: the new-side lines on either side of the "
         "deletion point.\n"
