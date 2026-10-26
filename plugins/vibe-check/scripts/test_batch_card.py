@@ -204,6 +204,31 @@ class TestRows(unittest.TestCase):
         self.assertEqual(stale["joined"], ["security"])
         self.assertEqual(stale["gained"], [])
 
+    def test_rows_inherited_decision_stale_shows_it(self):
+        """A finding that split out of a decided row keeps the decision it
+        was covered by; when code next to it changes it reopens showing that
+        decision, never as a brand-new row."""
+        import test_decision_continuity as tdc
+        _l1, _s1, s2, _r2, h_lead, h = tdc.split_scenario()
+        self.assertIsNone(tdc.card_row(s2, h))
+        s3 = copy.deepcopy(s2)
+        for f in s3["passes"][-1]["findings"]:
+            if f["stable_hash"] == h:
+                f["snapshot"]["nearby_at"] = 3
+        row = tdc.card_row(s3, h)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["stale"]["cause"], "nearby")
+        self.assertEqual(row["stale"]["via"], "covering")
+        self.assertEqual(row["stale"]["prior_hash"], h_lead)
+        self.assertEqual(row["stale"]["decision"], "dismiss")
+        self.assertIn(" — code next to it changed since your decision on "
+                      "pass 1 (was: dismissed — %s)" % tdc.REASON,
+                      tdc.card_text_full(s3))
+        with mock.patch.object(carry_state, "covering_decision",
+                               return_value=None):
+            self.assertIsNone(batch_card._same_hash_stale(
+                tdc.record_of(s3, h), s3))
+
     def test_joined_lanes_come_from_carry_state(self):
         """One function feeds both the reopen and the card: with
         `carry_state.newcomer_lanes` forced empty the decided record is

@@ -165,8 +165,15 @@ def _same_hash_stale(record, state):
         return None
     h = record["stable_hash"]
     decision = state.get("decisions", {}).get(h)
+    via, prior = "same_hash", h
     if not isinstance(decision, dict):
-        return None
+        # A finding that inherits a decision recorded as covering it (it
+        # split out of the decided row) shows that decision when it reopens.
+        covering = carry_state.covering_decision(record, state)
+        if covering is None:
+            return None
+        prior, decision = covering
+        via = "covering"
     evidence = decision.get("evidence")
     was_band = (evidence.get("band") if isinstance(evidence, dict)
                 else decision.get("band"))
@@ -177,8 +184,8 @@ def _same_hash_stale(record, state):
         "reason": decision.get("reason"),
         "at_pass": decision.get("at_pass"),
         "was_band": was_band,
-        "via": "same_hash",
-        "prior_hash": h,
+        "via": via,
+        "prior_hash": prior,
         "gained": carry_state.gained_lanes(record, state),
     }
     if cause == "joined":
