@@ -455,6 +455,19 @@ class TestNearbyEdit(_Base):
         self.assertEqual(carry_state.decision_state(rec, s3), "current")
 
 
+def new_lane_scenario():
+    """Pass 1: lone `bugs` finding dismissed (warning). Pass 2: unchanged
+    code; `security` now also reports it at confidence 100 / severity
+    critical, which scores 100 and lifts the lone-lane ceiling, so the row
+    rises warning -> critical. -> (s1, s2, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    sec = fresh("security", 10, L0, TITLE_A, conf=100, severity="critical",
+                category="injection")
+    s2, _ = run_pass(s1, L0, [sec], 2, {F: []})
+    return s1, s2, hA
+
+
 def _gained(rec, state):
     return getattr(carry_state, "gained_lanes",
                    lambda r, s: ["<missing>"])(rec, state)
@@ -496,18 +509,8 @@ class TestSeverityDirection(_Base):
         self.assertEqual(carry_state.decision_state(rec, s2), "current")
         self.assertEqual(_gained(rec, s2), [])
 
-    def _new_lane(self):
-        L0 = base_file()
-        s1, hA = pass1(L0, conf=STABLE_CONF)
-        # A second lane at confidence 100 / severity critical scores 100 and
-        # lifts the lone-lane ceiling: the row rises warning -> critical.
-        sec = fresh("security", 10, L0, TITLE_A, conf=100,
-                    severity="critical", category="injection")
-        s2, _ = run_pass(s1, L0, [sec], 2, {F: []})
-        return s1, s2, hA
-
     def test_r3a_rise_with_new_lane_reopens_and_names_it(self):
-        s1, s2, hA = self._new_lane()
+        s1, s2, hA = new_lane_scenario()
         self._assert_band(s1, hA, "warning")
         self._assert_band(s2, hA, "critical")
         rec = self._current(s2, hA)
@@ -526,6 +529,231 @@ class TestSeverityDirection(_Base):
         s2, _ = run_pass(s1, L0, [], 2, {F: []})
         self._assert_band(s2, hA, "warning")
         self.assertEqual(s1["decisions"][hA].get("attribution"), ["bugs"])
+
+
+
+# --------------------------------------------------------------------------- #
+# Regrouping: merges, splits and member dedup (D-08, D-09; DECN-02/03).
+# --------------------------------------------------------------------------- #
+TITLE_B = "Different concern B"
+# A title whose hash sorts before A's at line 11, so this finding leads the
+# R5 group ("Injection at C" sorts after A and does not lead).
+TITLE_C = "SQL injection at C"
+
+
+def joined_scenario():
+    """Pass 1: `bugs` A at line 10 dismissed (warning). Pass 2: a new, weaker
+    `security` concern B at line 11 joins A's row; the diff (lines 30-31)
+    keeps A's own line out so the band holds. -> (s1, s2, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    b = fresh("security", 11, L0, TITLE_B, conf=60, severity="medium",
+              category="injection")
+    s2, _ = run_pass(s1, L0, [b], 2, {F: [[30, 31]]})
+    return s1, s2, hA
+
+
+def nearby_scenario(offset=1):
+    """Pass 1: A dismissed (warning). Pass 2: line 10+offset edited, the
+    flagged line unchanged. -> (s1, s2, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    L2 = list(L0)
+    L2[9 + offset] = "line_%02d = 'edited'" % (10 + offset)
+    s2, _ = run_pass(s1, L2, [], 2, {F: [[10 + offset, 10 + offset]]})
+    return s1, s2, hA
+
+
+def split_scenario(edit_a=False):
+    """Pass 1: `security` B (line 12) leads a row holding `bugs` A (line 10)
+    as a member; the owner dismisses the ROW. Pass 2: B's line is rewritten
+    and B's lane answers its re-check `resolved` (the `ab_pipeline` pass-3
+    request/verdict shape), so A becomes a row of its own. With `edit_a`,
+    A's own line is edited too. -> (L1, s1, s2, r2, hB, hA)."""
+    L0 = base_file()
+    a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
+    b = fresh("security", 12, L0, "Injection at B", conf=80,
+              category="injection")
+    s1, r1 = run_pass(empty_state(), L0, [a, b], 1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 1, r1["findings"]
+    lead = r1["findings"][0]
+    hB = lead["stable_hash"]
+    s1 = decide_on(s1, hB)
+    L1 = list(L0)
+    L1[11] = "line_12 = 'fixed'"
+    if edit_a:
+        L1[9] = "line_10 = 'edited'"
+    req = {"token": "TB", "agents": [lead["agent"]], "stable_hash": hB,
+           "file": lead["file"], "line": lead["line"], "agent": lead["agent"],
+           "title": lead["title"]}
+    verdict = {"source": "recheck", "token": "TB", "agent": lead["agent"],
+               "verdict": "resolved", "reason": "line rewritten"}
+    # The diff omits B's rewritten line so the nearby-change rule (D-02) does
+    # not confound the inheritance check; with `edit_a` it names A's own line,
+    # as a real incremental diff would (out of the diff, the edited A scores
+    # below threshold and is filtered instead of asked).
+    ranges = {F: [[10, 10]]} if edit_a else {F: []}
+    s2, r2 = run_pass(s1, L1, [], 2, ranges, recheck_requests=[req],
+                      verdicts=[verdict])
+    return L1, s1, s2, r2, hB, score.stable_hash(F, L1[9], TITLE_A)
+
+
+class TestRegrouping(_Base):
+    """D-08 (with the owner's 2026-10-26 refinement: a newcomer concern from
+    an uncovered lane reopens the WHOLE decided row once, with the D-10
+    note), D-09; DECN-02/03."""
+
+    def test_r4_new_weaker_concern_on_decided_row_is_asked(self):
+        s1, s2, hA = joined_scenario()
+        self._assert_band(s1, hA, "warning")
+        self._assert_band(s2, hA, "warning")
+        row = row_of(s2, hA)
+        b_members = [m for m in row["members"]
+                     if (m["agent"], m["title"]) == ("security", TITLE_B)]
+        # The fixture holds what it claims: B was absorbed into A's row as a
+        # member with no obligation of its own (not a record today).
+        self.assertEqual(len(b_members), 1, row["members"])
+        self.assertNotIn("obligation", b_members[0])
+        rec = self._current(s2, hA)
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s2), "joined")
+        counts = carry_state.finalize_counts(s2, {})
+        self.assertGreater(counts["outstanding_cw"]
+                           + counts["unacknowledged_medium"]
+                           + counts["undecided_nv"], 0)
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+        crow = card_row(s2, hA)
+        self.assertIsNotNone(crow, "decided row not on the card")
+        self.assertEqual((crow["stale"] or {}).get("cause"), "joined")
+
+    def test_r4_covers_frozen_at_decision_time(self):
+        s1, s2, hA = joined_scenario()
+        self._assert_band(s1, hA, "warning")
+        want = [{"agent": "bugs", "file": F, "title": TITLE_A,
+                 "code": base_file()[9]}]
+        self.assertEqual(s1["decisions"][hA].get("covers"), want)
+        # Frozen: only a new record-decisions write may extend it.
+        self.assertEqual(s2["decisions"][hA].get("covers"), want)
+
+    def test_r5_fresh_duplicate_outranking_decided_record_keeps_its_obligation(
+            self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=60)
+        self._assert_band(s1, hA, "medium")
+        dup = fresh("bugs", 10, L0, TITLE_A, conf=100)
+        c = fresh("security", 11, L0, TITLE_C, conf=100,
+                  category="injection")
+        s2, r2 = run_pass(s1, L0, [dup, c], 2, {F: [[1, 200]]})
+        hC = score.stable_hash(F, L0[10], TITLE_C)
+        # The fixture holds what it claims: C leads the group.
+        self.assertEqual(r2["findings"][0]["stable_hash"], hC)
+        self._assert_band(s2, hC, "critical")
+        rec = self._current(s2, hA)  # today: obligation dropped by dedup
+        self.assertEqual(carry_state.decision_state(rec, s2), "current")
+        c_rec = self._current(s2, hC)
+        self.assertIsNone(carry_state.decision_state(c_rec, s2))
+        shown = [r["stable_hash"] for r in card_rows(s2)]
+        self.assertIn(hC, shown)
+        self.assertNotIn(hA, shown)
+
+    def test_r6_split_member_inherits_decision(self):
+        _, s1, s2, r2, hB, hA = split_scenario()
+        row1 = s1["passes"][-1]["findings"]
+        self.assertEqual(len(row1), 1)
+        self.assertEqual(row1[0]["agent"], "security")
+        a_members = [m for m in row1[0]["members"] if m["agent"] == "bugs"]
+        self.assertEqual(len(a_members), 1)
+        self.assertNotIn("obligation", a_members[0])
+        self._assert_band(s1, hB, "warning")
+        self.assertIn(hB, [x.get("stable_hash") for x in r2.get("resolved", [])])
+        self.assertIsNone(record_of(s2, hB))
+        self._assert_band(s2, hA, "warning")
+        rec = self._current(s2, hA)
+        self.assertIsNone(rec.get("absorbed_into"))
+        self.assertEqual(carry_state.decision_state(rec, s2), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s2))
+        self.assertEqual(e2e_gate(s2, {}), "write")
+        self.assertNotIn(hA, [r["stable_hash"] for r in card_rows(s2)])
+        covering = getattr(carry_state, "covering_decision",
+                           lambda r, s: None)(rec, s2)
+        self.assertEqual(covering, (hB, s2["decisions"][hB]))
+
+    def test_r6_split_member_whose_code_changed_is_asked(self):
+        """Fail toward asking: a covered member whose own line changed is a
+        different finding and is asked (green today; must stay green)."""
+        L1, s1, s2, r2, hB, hA2 = split_scenario(edit_a=True)
+        self._assert_band(s1, hB, "warning")
+        self.assertNotEqual(hA2, score.stable_hash(F, base_file()[9], TITLE_A))
+        rec = self._current(s2, hA2)
+        self.assertIsNone(carry_state.decision_state(rec, s2))
+        self.assertIn(hA2, [r["stable_hash"] for r in card_rows(s2)])
+
+    def test_covers_cannot_be_injected_by_payload(self):
+        """T-57-01: the decisions payload key set is exact, so a payload can
+        never write `covers` (green today; must stay green)."""
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF)
+        self._assert_band(s1, hA, "warning")
+        for extra in ({"covers": []}, {"attribution": ["security"]}):
+            with self.subTest(extra=sorted(extra)):
+                entry = dict({"stable_hash": hA, "decision": "dismiss",
+                              "reason": "x"}, **extra)
+                self.assertIsNone(carry_state.record_decisions(
+                    s1, {"at_pass": 1, "decisions": [entry]}))
+
+
+# --------------------------------------------------------------------------- #
+# Card wording (D-05, D-10, D-12): the reopen suffix says what changed.
+# --------------------------------------------------------------------------- #
+class TestCardWording(_Base):
+
+    def test_r7_rise_card_names_the_new_lane(self):
+        s1, s2, hA = new_lane_scenario()
+        self._assert_band(s1, hA, "warning")
+        self._assert_band(s2, hA, "critical")
+        text = card_text_full(s2)
+        self.assertIn(
+            " — severity rose (%s → %s) since your decision on pass 1: "
+            "security now also reports it (was: dismissed — %s)"
+            % ("warning", "critical", REASON), text)
+
+    def test_nearby_card_wording(self):
+        s1, s2, hA = nearby_scenario(1)
+        self._assert_band(s1, hA, "warning")
+        self._assert_band(s2, hA, "warning")
+        self.assertIn(
+            " — code next to it changed since your decision on pass 1 "
+            "(was: dismissed — false positive, guarded upstream)",
+            card_text_full(s2))
+
+    def test_joined_card_wording_d10(self):
+        s1, s2, hA = joined_scenario()
+        self._assert_band(s1, hA, "warning")
+        self._assert_band(s2, hA, "warning")
+        self.assertIn(
+            " — 1 finding here already dismissed (your reason: false "
+            "positive, guarded upstream); a new concern from security "
+            "joined it", card_text_full(s2))
+
+    def test_compact_forms_fit_budget(self):
+        cases = (
+            ("nearby", nearby_scenario,
+             "code next to it changed since your decision on pass 1"),
+            ("severity", new_lane_scenario,
+             "severity rose since your decision on pass 1"),
+            ("joined", joined_scenario,
+             "1 finding here already dismissed; a new concern from security "
+             "joined it"),
+        )
+        for name, scenario, phrase in cases:
+            with self.subTest(cause=name):
+                s1, s2, hA = scenario()
+                self._assert_band(s1, hA, "warning")
+                text = card_text_compact(s2)
+                self.assertIsInstance(text, str)
+                self.assertLessEqual(len(text),
+                                     batch_card.CARD_TEXT_MAX_CHARS)
+                self.assertIn(phrase, text)
 
 
 if __name__ == "__main__":
