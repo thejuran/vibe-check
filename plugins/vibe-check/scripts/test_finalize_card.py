@@ -136,6 +136,26 @@ def check_annotations(text):
     return [n for n in ANNOTATIONS if n not in section]
 
 
+PHASE57_DECISIONS = (
+    "the line number is stored, not compared",
+    "snapshot.nearby_at",
+    "a drop keeps the decision",
+    "re-asks only with new corroboration",
+    "recorded as covered at decision time",
+    'stale.cause == "nearby"',
+    "now also report(s) it",
+    "joined it",
+)
+
+
+def check_phase57_decisions(text):
+    """The Open/Closed contract and the stale-suffix bullets say what the
+    helper does: the line is not compared, a nearby change reopens, a drop
+    keeps, a rise reopens only with a new lane, coverage recorded at decision
+    time is the one inheritance path, and the three new suffixes exist."""
+    return [n for n in PHASE57_DECISIONS if n not in text]
+
+
 TURN_AND_BUDGET = ("THIS assistant turn", "Finalize costs one card",
                    "never re-show the card after recording",
                    "there is NO confirm card")
@@ -340,6 +360,18 @@ class TestFinalizeCard(LockCase):
             with self.subTest("mutant: removed " + needle):
                 self.assert_trips(check_annotations,
                                   remove(self.text, needle))
+
+    def test_phase57_decision_contract(self):
+        self.assert_holds(check_phase57_decisions, self.text)
+        for needle in PHASE57_DECISIONS:
+            with self.subTest("mutant: removed " + needle):
+                mutant = remove(self.text, needle)
+                self.assertNotEqual(mutant, self.text)
+                self.assert_trips(check_phase57_decisions, mutant)
+
+    def test_phase57_old_closed_rule_gone(self):
+        self.assertNotIn("equals the same four values now", self.text)
+        self.assertEqual(self.text.count("helper links an edited finding"), 1)
 
     def test_successor_rows_carry_every_suffix_key(self):
         """The stale suffix reads stale.at_pass, stale.decision and

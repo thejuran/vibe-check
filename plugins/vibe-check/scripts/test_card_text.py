@@ -380,6 +380,12 @@ class TestProseMatchesHelper(unittest.TestCase):
                          {"stale.was_band": "medium", "band": "warning",
                           "stale.at_pass": 2, "dismissed|deferred":
                           "dismissed", "stale.reason": "Accepted risk"}),
+            "nearby": (nearby_stale_state(),
+                       " — code next to it changed since your decision on "
+                       "pass {{stale.at_pass}} (was: {{dismissed|deferred}} "
+                       "— {{stale.reason}})",
+                       {"stale.at_pass": 2, "dismissed|deferred":
+                        "dismissed", "stale.reason": "Guarded"}),
             "code": (code_stale_state(),
                      " — code changed since your decision on pass "
                      "{{stale.at_pass}} (was: {{dismissed|deferred}} — "
