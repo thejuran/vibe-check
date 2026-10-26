@@ -111,7 +111,7 @@ Plans:
 - [x] 57-09-PLAN.md — carry_state: exclude separately-owed members from `covers` (CR-01), per-concern `lanes` on decisions for the rise rule and the card (WR-03/D-16), `covered_count` counts concerns (D-15), mutants
 - [x] 57-10-PLAN.md — carry_state + card: band/lanes on covers entries, inherited decisions run nearby -> joined -> lane-backed rise (CR-02/D-16), `covering_entry` for the card's was_band, mutants
 - [x] 57-11-PLAN.md — score.py: symmetric 5-line window shared with the Phase 56 trigger (D-14), flipped boundary tests, lower-bound mutant, replay candidate/diff with explicit allowances if any
-- [ ] 57-12-PLAN.md — Prose: deletion-only hunk range rule in 30-collect-score.md (WR-02), symmetric-window and D-16 wording in 90-finalize.md, IN-01/IN-02 doc fixes, phrase locks
+- [x] 57-12-PLAN.md — Prose: deletion-only hunk range rule in 30-collect-score.md (WR-02), symmetric-window and D-16 wording in 90-finalize.md, IN-01/IN-02 doc fixes, phrase locks
 - [ ] 57-13-PLAN.md — Gap-closure gate: full suite incl. test_replay, golden, replay, reverse-run red/green ledger addendum, DECN-02/03 re-marked complete, STATE.md
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
@@ -146,7 +146,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 11/13 | In Progress|  |
+| 57. Decision continuity within closure | 12/13 | In Progress|  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
