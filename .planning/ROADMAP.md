@@ -93,7 +93,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 57-03-PLAN.md — carry_state: `covers` at decision time, `joined` reopen for a newcomer concern (D-08), inheritance for a covered member that splits (D-09)
+- [x] 57-03-PLAN.md — carry_state: `covers` at decision time, `joined` reopen for a newcomer concern (D-08), inheritance for a covered member that splits (D-09)
 - [ ] 57-04-PLAN.md — score.py: shared `_nearby_changed` window, `nearby_at` through all three snapshot writers, obligation-preserving member dedup (R5), mutants, replay numbers
 - [ ] 57-05-PLAN.md — Prose: decided-record relocation by content in 30-collect-score.md, `$DECIDED_HASHES` fail-closed binding in 05-state.md, scoring.md identity sentence, prose locks
 
@@ -137,7 +137,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 2/7 | In Progress|  |
+| 57. Decision continuity within closure | 3/7 | In Progress|  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
