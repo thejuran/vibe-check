@@ -378,15 +378,19 @@ pytest -q                                                                # full 
 | A3 | `(agent, file, title)` is stable enough across passes to key coverage | Pattern 4 | An LLM title drift on the same lane breaks coverage inheritance on split. The finding is then asked again, the failure direction the owner rules allow (ask, not silently close) |
 | A4 | Restricting relocation to decided records is preferable to relocating all carried records | Pattern 1, OQ2 | The broader version may be wanted later. It is recorded as carried, not built |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which severity rises should reopen a decision? (Product. Needs the owner.)**
    - What we know: under today's scoring, a finding decided on pass 1 usually comes back on pass 2 one band higher (warning → critical) with no code change. The +15 "persisted" bonus and the lone-reviewer cap lifting cause this (R3a sweep). Applied literally, D-05 would keep asking the owner about these rows.
    - Options for the owner, in plain terms: (a) every rise re-asks (simple; most decided rows come back once); (b) **recommended:** a rise re-asks only when another reviewer now also reports it (the card names that reviewer). A rise from the finding merely surviving another pass keeps the decision.
    - Recommendation: the planner adds a decision checkpoint, or the orchestrator asks before execution. Build (b) if it is approved. Either way the drop rule (D-06) and its fixture proceed.
+   - **RESOLVED:** option (b) — CONTEXT.md D-05 refinement (owner, 2026-10-25): a rise re-asks only on new corroboration (a reviewer lane the decision did not cover). Built in 57-02.
 2. **Relocate only decided records, or every carried ordinary record?** (Technical, Claude's call.) Recommend decided-only, as the narrowest fix for the reproduced failure. Record "general ordinary relocation" as a carried idea with its evidence (the phantom wrong-line rows in R1a/R1c also affect undecided findings).
+   - **RESOLVED:** decided records only (Claude's discretion, per this recommendation); general relocation of undecided carried rows stays carried, recorded in STATE.md by 57-07. Built in 57-05.
 3. **D-08 newcomer UX: reopen the whole decided row, or ask only the newcomer as its own card row?** The coverage list supports either. Reopening the row with the D-10 note keeps one hash and no new identity machinery. Asking only the newcomer needs a stable hash for a member that was never a row, which `score.py` does not produce today. Recommend reopening the row with the note, since the owner's D-10 note wording fits that shape. This is presentation, so the planner may decide.
+   - **RESOLVED:** reopen the whole row with the D-10 note — CONTEXT.md D-08 refinement (owner, 2026-10-26). Built in 57-03 (comparator) and 57-06 (card wording).
 4. **Members present on the row at pass-1 decision time are not listed on the finalize card** (`card_text` shows the lead title only). D-09 treats them as "covered". If the owner considers them unseen, D-09 would instead require asking them at decision time, which is a larger change. Recommend following D-09 as written (covered), and adding member titles to the D-10 note only.
+   - **RESOLVED:** D-09 as written — members present on the row at decision time are covered. Built in 57-03 (`covers` frozen at decision time).
 
 ## Environment Availability
 
