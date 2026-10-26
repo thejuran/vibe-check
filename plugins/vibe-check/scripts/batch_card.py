@@ -170,15 +170,23 @@ def _same_hash_stale(record, state):
     evidence = decision.get("evidence")
     was_band = (evidence.get("band") if isinstance(evidence, dict)
                 else decision.get("band"))
-    return {
-        "cause": carry_state.stale_cause(record, state),
+    cause = carry_state.stale_cause(record, state)
+    tag = {
+        "cause": cause,
         "decision": decision.get("decision"),
         "reason": decision.get("reason"),
         "at_pass": decision.get("at_pass"),
         "was_band": was_band,
         "via": "same_hash",
         "prior_hash": h,
+        "gained": carry_state.gained_lanes(record, state),
     }
+    if cause == "joined":
+        # Both values come from carry_state, the same functions the reopen
+        # test reads, so the card and the comparator cannot disagree.
+        tag["covered"] = carry_state.covered_count(record, state)
+        tag["joined"] = carry_state.newcomer_lanes(record, state)
+    return tag
 
 
 def _row(record, state, lead_titles, pending_since):
@@ -424,10 +432,71 @@ def _decision_word(decision):
         decision, _one_line(decision) or "decided")
 
 
+def _kind_word(stale):
+    return _decision_word(stale.get("decision"))
+
+
 def _was(stale):
     reason = _one_line(stale.get("reason"))
-    word = _decision_word(stale.get("decision"))
+    word = _kind_word(stale)
     return "(was: %s — %s)" % (word, reason) if reason else "(was: %s)" % word
+
+
+def _lanes(value):
+    """Reviewer lane names, each flattened to one line; empty names dropped."""
+    lanes = [_one_line(v) for v in value] if isinstance(value, list) else []
+    return [v for v in lanes if v]
+
+
+def _joined_note(stale, compact):
+    """The note for a decided row a new concern joined: how many findings
+    here the decision already covered, its reason, and the new lanes."""
+    count = stale.get("covered")
+    count = count if isinstance(count, int) and not isinstance(
+        count, bool) else 0
+    lanes = _lanes(stale.get("joined"))
+    concern = ("new concerns from %s joined it" if len(lanes) > 1
+               else "a new concern from %s joined it") % ", ".join(lanes)
+    head = " — %d %s here already %s" % (
+        count, "finding" if count == 1 else "findings", _kind_word(stale))
+    if compact:
+        return "%s; %s" % (head, concern)
+    reason = _one_line(stale.get("reason"))
+    if not reason:
+        return "%s; %s" % (head, concern)
+    return "%s (your reason: %s); %s" % (head, reason, concern)
+
+
+def _stale_suffix(row, stale, compact):
+    at_pass = stale.get("at_pass")
+    cause = stale.get("cause")
+    gained = _lanes(stale.get("gained"))
+    if cause == "nearby":
+        return (" — code next to it changed since your decision on pass %s"
+                % at_pass if compact else
+                " — code next to it changed since your decision on pass "
+                "%s %s" % (at_pass, _was(stale)))
+    if cause == "severity" and gained:
+        plural = "" if len(gained) > 1 else "s"
+        return (" — severity rose since your decision on pass %s" % at_pass
+                if compact else
+                " — severity rose (%s → %s) since your decision on pass "
+                "%s: %s now also report%s it %s"
+                % (_one_line(stale.get("was_band")) or "?",
+                   _one_line(row.get("band")), at_pass, ", ".join(gained),
+                   plural, _was(stale)))
+    if cause == "severity":
+        return (" — severity changed since your decision on pass %s" % at_pass
+                if compact else
+                " — severity changed (%s → %s) since your decision on pass "
+                "%s %s" % (_one_line(stale.get("was_band")) or "?",
+                           _one_line(row.get("band")), at_pass, _was(stale)))
+    if cause == "joined":
+        return _joined_note(stale, compact)
+    return (" — code changed since your decision on pass %s" % at_pass
+            if compact else
+            " — code changed since your decision on pass %s %s"
+            % (at_pass, _was(stale)))
 
 
 def _suffixes(row, compact):
@@ -444,20 +513,7 @@ def _suffixes(row, compact):
                    " — unchanged since pass %s, decision pending" % pending)
     stale = row.get("stale")
     if isinstance(stale, dict):
-        at_pass = stale.get("at_pass")
-        if stale.get("cause") == "severity":
-            out.append(
-                " — severity changed since your decision on pass %s" % at_pass
-                if compact else
-                " — severity changed (%s → %s) since your decision on pass "
-                "%s %s" % (_one_line(stale.get("was_band")) or "?",
-                           _one_line(row.get("band")), at_pass, _was(stale)))
-        else:
-            out.append(
-                " — code changed since your decision on pass %s" % at_pass
-                if compact else
-                " — code changed since your decision on pass %s %s"
-                % (at_pass, _was(stale)))
+        out.append(_stale_suffix(row, stale, compact))
     return "".join(out)
 
 

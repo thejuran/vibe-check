@@ -64,6 +64,23 @@ def ordering_state():
     return mk_state([mk_pass(1, []), mk_pass(2, rows)])
 
 
+def joined_state():
+    """Row HC (lead plus its own member record, plus covered member "B")
+    dismissed on pass 2; on pass 3 a `security` member with a new concern
+    joins the row. The decision covered 2 findings here."""
+    def row(extra_members):
+        own = member_ref(title="t cccccc")
+        covered = member_ref(line=11, title="B")
+        return mk_finding("warning", "persisted", HC,
+                          members=[own, covered] + extra_members)
+    decided = dismiss(mk_state([mk_pass(1, []), mk_pass(2, [row([])])]), HC,
+                      reason="Guarded upstream")
+    s = copy.deepcopy(decided)
+    newcomer = dict(member_ref(line=12, title="C"), agent="security")
+    s["passes"] = [mk_pass(1, []), mk_pass(2, [row([newcomer])])]
+    return s
+
+
 class TempDirCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -139,13 +156,13 @@ class TestRows(unittest.TestCase):
         self.assertEqual(rows[HA]["stale"], {
             "cause": "severity", "decision": "dismiss",
             "reason": "Accepted risk", "at_pass": 2, "was_band": "medium",
-            "via": "same_hash", "prior_hash": HA})
+            "via": "same_hash", "prior_hash": HA, "gained": ["security"]})
         self.assertIsNone(rows[HB]["stale"])
 
-    def test_rows_line_move_keeps_decision(self):
-        # Flipped per Phase 57 D-01 (was: a line move re-opened the decision
-        # with cause "code"). A failed relocation (null canonical text) is
-        # still a code change.
+    def test_rows_line_move_is_not_stale(self):
+        # Flipped per Phase 57 D-01 (was: a line move produced a stale "code"
+        # row). A failed relocation (null canonical text) is still a code
+        # change.
         decided = dismiss(ba_state(a_snapshot=snap(1, line=11)), HA)
         s = copy.deepcopy(decided)
         s["passes"] = ba_state(a_snapshot=snap(1, line=14))["passes"]
@@ -155,6 +172,56 @@ class TestRows(unittest.TestCase):
         rows = {r["stable_hash"]: r for r in rows_of(s)}
         self.assertEqual(rows[HA]["stale"]["cause"], "code")
         self.assertEqual(rows[HA]["stale"]["was_band"], "warning")
+
+    def test_rows_stale_nearby_cause_and_tag(self):
+        decided = dismiss(ba_state(), HA, reason="Guarded")
+        s = copy.deepcopy(decided)
+        s["passes"] = ba_state(a_snapshot=dict(
+            snap(1, line=11), nearby_at=2))["passes"]
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertIn(HA, rows)
+        self.assertEqual(rows[HA]["stale"]["cause"], "nearby")
+        self.assertEqual(rows[HA]["stale"]["gained"], [])
+        self.assertNotIn("joined", rows[HA]["stale"])
+        self.assertNotIn("covered", rows[HA]["stale"])
+
+    def test_rows_stale_severity_rise_has_gained(self):
+        decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA)
+        s = copy.deepcopy(decided)
+        s["passes"] = ba_state(row_band="warning", a_band="warning",
+                               attribution=("bugs", "security"))["passes"]
+        stale = {r["stable_hash"]: r for r in rows_of(s)}[HA]["stale"]
+        self.assertEqual(stale["cause"], "severity")
+        self.assertEqual(stale["gained"], ["security"])
+
+    def test_rows_stale_joined_has_covered_count(self):
+        s = joined_state()
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertIn(HC, rows)
+        stale = rows[HC]["stale"]
+        self.assertEqual(stale["cause"], "joined")
+        self.assertEqual(stale["covered"], 2)
+        self.assertEqual(stale["joined"], ["security"])
+        self.assertEqual(stale["gained"], [])
+
+    def test_joined_lanes_come_from_carry_state(self):
+        """One function feeds both the reopen and the card: with
+        `carry_state.newcomer_lanes` forced empty the decided record is
+        current again AND its card row (with the D-10 note) disappears."""
+        import test_decision_continuity as tdc
+        _s1, s2, h = tdc.joined_scenario()
+        rec = tdc.record_of(s2, h)
+        note = "a new concern from security joined it"
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertIsNotNone(tdc.card_row(s2, h))
+        self.assertIn(note, tdc.card_text_full(s2))
+        with mock.patch.object(carry_state, "newcomer_lanes",
+                               return_value=[]):
+            self.assertEqual(carry_state.decision_state(rec, s2), "current")
+            self.assertIsNone(tdc.card_row(s2, h))
+            self.assertNotIn(note, tdc.card_text_full(s2))
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertIn(note, tdc.card_text_full(s2))
 
     def test_rows_stale_null_evidence_uses_record_band(self):
         s = ba_state(a_band="warning")
