@@ -168,6 +168,10 @@ _R_CF_SETTLED = ("verdict: confirmed fix not verified: the routed reviewer said 
 # change reaches the pinned line or the `_NEARBY_LINES` beneath it. A
 # still-applies answer is remembered (`recheck_settled`, with the blobs it
 # judged) so the record is not re-asked until that code changes.
+# The same window (`_nearby_changed`) stamps `snapshot.nearby_at` with the pass
+# that changed code there, which re-asks an owner decision on an unchanged line.
+# It is kept literal (the pinned line and the 5 lines beneath it, never above)
+# so the re-check trigger and the decision re-ask share one definition.
 _INDEPENDENT_ROUTE = "independent"
 _NEVER_CONFIRMERS = frozenset({"fix", "codex-adversarial"})
 _NEARBY_LINES = 5
@@ -299,9 +303,9 @@ def _shape_finding(f):
     return out
 
 
-def _snapshot_for(row, pass_number):
+def _snapshot_for(row, pass_number, nearby=False):
     """The decision snapshot for one emitted row: {at_pass, file, line,
-    canonical_line_content, band}.
+    canonical_line_content, band} plus `nearby_at` when known.
 
     A row arriving with a well-formed prior snapshot (a carried lead: the carry
     loop copies every carryforward key except `members`) keeps it — older
@@ -310,7 +314,16 @@ def _snapshot_for(row, pass_number):
     Evidence is the HEAD canonical line, never `current_code` (a quoted fragment
     never equals HEAD, so keying on it would make every such row "changed"); the
     status component is the band, not the carry status (which flips new ->
-    persisted between passes with no change at all). Pure; never raises.
+    persisted between passes with no change at all).
+
+    `nearby` (this pass's change ranges reach the row's line or the lines
+    beneath it, `_nearby_changed`) stamps `nearby_at` with this pass and forces
+    a fresh snapshot, but only on a row that existed before this pass (it
+    arrives with a prior snapshot): the change a finding is first raised on is
+    the code it is about, not a change since. Otherwise a prior `nearby_at` is carried on both the keep
+    and the refresh branch, so one nearby edit re-asks once rather than every
+    pass after it is forgotten; a snapshot that never had one stays without
+    it. Pure; never raises.
     """
     canonical = row.get("canonical_line_content")
     cur = {
@@ -321,19 +334,28 @@ def _snapshot_for(row, pass_number):
         "band": row.get("band"),
     }
     prior = row.get("snapshot")
+    if nearby and isinstance(prior, dict) and cur["at_pass"] is not None:
+        cur["nearby_at"] = cur["at_pass"]
+        return cur
+    prior_nearby = _as_line(prior.get("nearby_at")) if isinstance(prior, dict) else None
     if (isinstance(prior, dict) and _as_line(prior.get("at_pass")) is not None
             and all(k in prior and prior[k] == cur[k]
                     for k in ("file", "line", "canonical_line_content", "band"))):
-        return {"at_pass": prior["at_pass"], "file": cur["file"], "line": cur["line"],
+        kept = {"at_pass": prior["at_pass"], "file": cur["file"], "line": cur["line"],
                 "canonical_line_content": cur["canonical_line_content"],
                 "band": cur["band"]}
+        if prior_nearby is not None:
+            kept["nearby_at"] = prior_nearby
+        return kept
+    if prior_nearby is not None:
+        cur["nearby_at"] = prior_nearby
     return cur
 
 
 _OBLIGATION_ROW_KEYS = ("stable_hash", "orchestrator_score", "band", "attribution")
 
 
-def _refreshed_obligation(obl, m, pass_number):
+def _refreshed_obligation(obl, m, pass_number, changed_line_ranges):
     """A copy of obligation sidecar `obl` whose snapshot reflects this pass.
 
     The sidecar's stored identity and scored fields (stable_hash,
@@ -342,15 +364,19 @@ def _refreshed_obligation(obl, m, pass_number):
     canonical text plus the STORED band, with the prior snapshot as its base —
     so an unchanged member keeps its older `at_pass` while one whose evidence
     moved gets a fresh snapshot at this pass (never a frozen copy that makes
-    changed code look unchanged to `carry_state.py pending`). Pure; never raises.
+    changed code look unchanged to `carry_state.py pending`). A change near the
+    MEMBER's own line (not the lead's) stamps the snapshot's `nearby_at`.
+    Pure; never raises.
     """
     basis = {"file": m.get("file"), "line": m.get("line"),
              "canonical_line_content": m.get("canonical_line_content"),
              "band": obl.get("band"), "snapshot": obl.get("snapshot")}
-    return dict(obl, snapshot=_snapshot_for(basis, pass_number))
+    nearby = _nearby_changed(m, changed_line_ranges)
+    return dict(obl, snapshot=_snapshot_for(basis, pass_number, nearby=nearby))
 
 
-def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of):
+def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
+                    changed_line_ranges):
     """Kept-open obligation rows for carried records this pass's filters dropped.
 
     `dropped` lists (working record, reason) pairs collected by the
@@ -403,9 +429,10 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of)
         row.pop("kept_open", None)
         row["kept_open"] = reason
         row["snapshot"] = obl.get("snapshot")
-        row["snapshot"] = _snapshot_for(row, pass_number)
+        row_nearby = _nearby_changed(row, changed_line_ranges)
+        row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby)
         own = _member_ref(m)
-        own["obligation"] = _refreshed_obligation(obl, m, pass_number)
+        own["obligation"] = _refreshed_obligation(obl, m, pass_number, changed_line_ranges)
         members = [own]
         if entry["lead"]:
             for e in members_of.get(id(m), []):
@@ -414,7 +441,8 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of)
                 ref = _member_ref(e)
                 if id(e) in carried_obligations:
                     ref["obligation"] = _refreshed_obligation(
-                        carried_obligations[id(e)]["obligation"], e, pass_number)
+                        carried_obligations[id(e)]["obligation"], e, pass_number,
+                        changed_line_ranges)
                 members.append(ref)
         row["members"] = members
         visible.add(obl["stable_hash"])
@@ -1334,6 +1362,16 @@ def _independent_trigger(record, touched, changed_line_ranges):
         return False
     if file in touched or any(_is_associated_test(p, file) for p in touched):
         return True
+    return _nearby_changed(record, changed_line_ranges)
+
+
+def _nearby_changed(record, changed_line_ranges):
+    """True when this pass's change ranges reach `record`'s line or the
+    `_NEARBY_LINES` lines beneath it in its file. False for a record without a
+    file or line, or without a well-formed ranges dict. Pure; never raises."""
+    file = record.get("file")
+    if not _nonempty_str(file):
+        return False
     line = _as_line(record.get("line"))
     if line is None or not isinstance(changed_line_ranges, dict):
         return False
@@ -2135,6 +2173,8 @@ def run(envelope):
     # snapshot is the prior-pass value the keep/refresh rule reads.
     # `recheck_settled` is the still-applies memory only the verdict guard may
     # write; a forged one would stop a fixed finding from ever being re-asked.
+    # Stripping `snapshot` also drops a forged `snapshot.nearby_at`, which could
+    # otherwise force or suppress a decision re-ask.
     findings = [{k: v for k, v in f.items()
                  if k not in ("status", "members", "snapshot", "resolution", "kept_open",
                               "recheck_settled")}
@@ -2554,7 +2594,8 @@ def run(envelope):
             # identity (stored hash and scored fields) on its member record.
             if m is not best_member and id(m) in carried_obligations:
                 ref["obligation"] = _refreshed_obligation(
-                    carried_obligations[id(m)]["obligation"], m, pass_number)
+                    carried_obligations[id(m)]["obligation"], m, pass_number,
+                    changed_line_ranges)
             members.append(ref)
         survivor["members"] = members
         # Fable A2 (NEW-ABSORB): members that lost the dedup used to vanish —
@@ -2587,7 +2628,8 @@ def run(envelope):
             dropped.extend((m, "sub-threshold") for m in sources
                            if id(m) in carried_obligations)
             continue
-        survivor["snapshot"] = _snapshot_for(survivor, pass_number)
+        nearby = _nearby_changed(survivor, changed_line_ranges)
+        survivor["snapshot"] = _snapshot_for(survivor, pass_number, nearby=nearby)
         kept.append(survivor)
 
     # --- Kept-open obligations (D-02, D-12) ----------------------------------- #
@@ -2597,7 +2639,7 @@ def run(envelope):
     # owner decision closes it. Appended after the threshold loop so the
     # sub-threshold drop never sees it.
     kept.extend(_kept_open_rows(dropped, kept, pass_number, carried_obligations,
-                                members_of))
+                                members_of, changed_line_ranges))
 
     # --- Needs-verification rows (QUIET-06/07, R8) ----------------------------- #
     # Appended after the threshold loop, like the suppression rows, so no filter
@@ -2627,7 +2669,9 @@ def run(envelope):
         if not carried:
             row["status"] = "new"
             row["needs_verification"] = _nv_normalize(m.get("needs_verification"))
-        row["snapshot"] = _snapshot_for(row, pass_number)
+        # A Needs-verification decision compares its own code fingerprint, never
+        # `nearby_at`, so the row is not stamped.
+        row["snapshot"] = _snapshot_for(row, pass_number, nearby=False)
         # The rollback marker (_NV_MEMBER_OBLIGATION): see its definition.
         row["members"] = [dict(_member_ref(row), obligation=_NV_MEMBER_OBLIGATION)]
         kept.append(row)
@@ -2668,7 +2712,8 @@ def run(envelope):
             # _SUPPRESSION_STATUS definition).
             "status": _SUPPRESSION_STATUS,
         }
-        audit_row["snapshot"] = _snapshot_for(audit_row, pass_number)
+        # Regenerated fresh each pass and never decided: no nearby stamp.
+        audit_row["snapshot"] = _snapshot_for(audit_row, pass_number, nearby=False)
         kept.append(audit_row)
 
     # Fable A11: sanitize non-finite floats at the output boundary so the

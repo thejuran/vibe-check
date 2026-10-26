@@ -2936,9 +2936,12 @@ class TestPhase45EndToEnd(unittest.TestCase):
                 if name == "fix-obsolete":
                     self.assertEqual(c["verified_obsolete_hashes"], [HB])
                 self.assertEqual(e2e_gate(state, head_blobs), "outstanding-to-phase-5")
-                self.assertEqual(carry_state.pending(state),
-                                 [{"stable_hash": HA,
-                                   "since_pass": sidecar["snapshot"]["at_pass"]}])
+                # B's new line 11 is a pass-2 change inside A's nearby window,
+                # so A's sidecar snapshot is re-stamped at pass 2: A is open
+                # and blocking (above) but not "unchanged since an earlier pass".
+                self.assertEqual(sidecar["snapshot"]["nearby_at"], 2)
+                self.assertEqual(sidecar["snapshot"]["at_pass"], 2)
+                self.assertEqual(carry_state.pending(state), [])
                 d = decide(state, 2, (HA, "defer"))
                 self.assertEqual(d["decisions"][HA]["band"], "warning")
                 self.assertEqual(e2e_gate(d, head_blobs), "write")
@@ -2949,7 +2952,9 @@ class TestPhase45EndToEnd(unittest.TestCase):
         s = pass2_state()
         for n in (3, 4, 5):
             with self.subTest(pass_number=n):
-                s = append_pass(s, score.run(next_env(s, n)), n, "50f9932e")
+                # HEAD unchanged: each pass's incremental diff is empty.
+                s = append_pass(s, score.run(next_env(s, n, changed_line_ranges={})),
+                                n, "50f9932e")
                 self.assert_schema(s)
                 self.assertNotEqual(e2e_gate(s), "write")
                 self.assertLessEqual({ARCH_HASH, BUGS_HASH}, carry_set(s))
@@ -2961,8 +2966,10 @@ class TestPhase45EndToEnd(unittest.TestCase):
                     for h in sorted((ARCH_HASH, BUGS_HASH))])
 
     def test_config_change_never_closes_obligation(self):
+        # HEAD unchanged: pass 3's incremental diff is empty, so no change
+        # reaches either record's nearby window and both snapshots are kept.
         s3 = append_pass(pass2_state(), score.run(next_env(
-            pass2_state(), 3, min_confidence=100)), 3, "50f9932e")
+            pass2_state(), 3, min_confidence=100, changed_line_ranges={})), 3, "50f9932e")
         rows = {f["stable_hash"]: f for f in s3["passes"][-1]["findings"]
                 if f["status"] != "audit"}
         self.assertEqual(set(rows), {ARCH_HASH, BUGS_HASH})
@@ -3010,7 +3017,9 @@ class TestPhase45EndToEnd(unittest.TestCase):
 
     def test_still_applies_keeps_blocked(self):
         s = pass2_state()
-        env = next_env(s, 3,
+        # HEAD unchanged: an empty incremental diff, so the snapshots can only
+        # move if the still-applies verdict moved them.
+        env = next_env(s, 3, changed_line_ranges={},
                        recheck_requests=[ts._p45_request("R1", "arch-001"),
                                          ts._p45_request("R2", "bugs-001")],
                        verdicts=[ts._p45_recheck("R1", "architecture", "still-applies"),
