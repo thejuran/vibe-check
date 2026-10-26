@@ -49,6 +49,8 @@ An owner's defer/dismiss decision stays bound to its evidence: it survives regro
 - **D-15 (card count):** The D-10 note counts decided CONCERNS, not reviewer reports — two reviewers reporting the same already-dismissed concern read "1 finding here already dismissed".
 - **D-16 (from verification gaps, restating D-08/D-05 intent):** A row decision covers only findings the owner was actually deciding: a member that carries its own separately-owed obligation is never covered by the row decision (CR-01). An inherited (covered-member) decision obeys the same reopen rules as an own decision — nearby edit, lane-backed severity rise, joined newcomer (CR-02). "New reviewer" means a lane newly reporting THIS concern, not any lane newly present on the row (WR-03).
 
+- **D-17 (owner, 2026-10-26, after re-verification):** When a covered or absorbed finding splits into its own row on the pass whose edit caused the split (typically the neighbouring lead's fix), that edit counts as a nearby change under D-14 if it is within the window: the finding reopens once with "code next to it changed". No exemption for the neighbour's own fix. A newly split row must therefore get the nearby stamp on its split pass even though it has no prior snapshot of its own.
+
 ### Carried forward (locked from earlier phases)
 - Reproduce first; non-reproducing paths are recorded and dropped, never replaced with invented work (owner rule, v2.13).
 - Never re-ask without new evidence (v2.11 rule; Phase 56 D-09).
