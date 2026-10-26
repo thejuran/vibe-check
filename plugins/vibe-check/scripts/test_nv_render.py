@@ -25,6 +25,7 @@ RENDER = os.path.join(PLUGIN_DIR, "phases", "review", "40-render.md")
 RENDER_ALL = os.path.join(PLUGIN_DIR, "phases", "review", "40-render-all.md")
 COLLECT = os.path.join(PLUGIN_DIR, "phases", "review", "30-collect-score.md")
 DISPATCH = os.path.join(PLUGIN_DIR, "phases", "review", "20-dispatch.md")
+STATE = os.path.join(PLUGIN_DIR, "phases", "review", "05-state.md")
 
 
 def norm(text):
@@ -145,6 +146,72 @@ def nv_evidence_fingerprint_holds(text):
             and _none_in(text, NAME_ONLY_FORBIDDEN))
 
 
+# Carried decided records: the paragraph after the Needs-verification block.
+# The phrases are checked INSIDE that paragraph only, so a phrase the NV block
+# also uses (`$RECHECK_REQUESTS`, `fixed-since-last`) cannot satisfy the lock.
+DECIDED_START = "**Carried decided records (Phase 57, D-01"
+DECIDED_END = "**Note:**"
+
+DECIDED_RELOCATION_PHRASES = (
+    "Carried decided records (Phase 57, D-01",
+    "is in `$DECIDED_HASHES`",
+    "`obligation.stable_hash`",
+    'the "stored first line" is the record\'s stored `canonical_line_content`',
+    "also sets the same `line` on the `$RECHECK_REQUESTS` entry whose "
+    "`stable_hash` is this record's",
+    "`verdict: record not carried`",
+    "The lead's own member record moves with the lead",
+    "a null canonical stays `fixed-since-last` for an ordinary record",
+    "`snapshot.nearby_at`",
+    "general relocation stays out of scope",
+)
+
+# Whole-file phrases the decided rule depends on: the NV heading (Phase 53
+# lock) and the NV block's scope sentence that hands over to the paragraph.
+DECIDED_CONTEXT_PHRASES = (
+    "relocation by content, NV only",
+    "to decided records only — undecided ordinary findings keep the "
+    "stored-line read",
+)
+
+
+def _section(text, start, end):
+    """The text from `start` up to the next `end` ("" when `start` is gone)."""
+    i = text.find(start)
+    if i < 0:
+        return ""
+    j = text.find(end, i + len(start))
+    return text[i:] if j < 0 else text[i:j]
+
+
+def decided_relocation_holds(text):
+    return (_all_in(_section(text, DECIDED_START, DECIDED_END),
+                    DECIDED_RELOCATION_PHRASES)
+            and _all_in(text, DECIDED_CONTEXT_PHRASES))
+
+
+# --- 05-state.md ------------------------------------------------------------
+
+STATE_START = "The state root may also carry `decisions`"
+STATE_END = "\n3. Narrow diff"
+
+STATE_BINDING_PHRASES = (
+    "Phase 0.5 binds `$DECIDED_HASHES`",
+    'carry_state.py" decided < "$STATE_FILE"',
+    "stopping before any HEAD read",
+    "exit 1",
+    "Any non-zero exit halts the run",
+    "Never bind `[]` on failure",
+    "relocates each entry in this list by content",
+    "an owner decision never removes a finding from `$CARRYFORWARD`",
+)
+
+
+def state_binding_holds(text):
+    return _all_in(_section(text, STATE_START, STATE_END),
+                   STATE_BINDING_PHRASES)
+
+
 # --- 20-dispatch.md ---------------------------------------------------------
 
 HINT_PHRASES = (
@@ -191,6 +258,9 @@ CASES = (
     ("nv_evidence_fingerprint_holds", nv_evidence_fingerprint_holds, COLLECT,
      FINGERPRINT_PHRASES),
     ("nv_recheck_hint_holds", nv_recheck_hint_holds, DISPATCH, HINT_PHRASES),
+    ("decided_relocation_holds", decided_relocation_holds, COLLECT,
+     DECIDED_RELOCATION_PHRASES + DECIDED_CONTEXT_PHRASES),
+    ("state_binding_holds", state_binding_holds, STATE, STATE_BINDING_PHRASES),
 )
 
 
@@ -219,6 +289,15 @@ class TestNvRenderLocks(unittest.TestCase):
         for path in (RENDER, OUTPUT_FORMAT):
             with self.subTest(path=os.path.basename(path)):
                 self.assertNotIn(AUTO_CLOSE, norm(_read(path)))
+
+    def test_decided_relocation_holds(self):
+        self.assertTrue(decided_relocation_holds(_read(COLLECT)))
+
+    def test_state_binding_holds(self):
+        self.assertTrue(state_binding_holds(_read(STATE)))
+
+    def test_state_binding_one_helper_call(self):
+        self.assertEqual(_read(STATE).count('carry_state.py" decided'), 1)
 
     def test_name_only_wording_absent(self):
         flat = norm(_read(COLLECT))
@@ -268,6 +347,44 @@ class TestNvRenderMutation(unittest.TestCase):
 
     def test_recheck_hint_deleting_mutant(self):
         self._deleting("nv_recheck_hint_holds")
+
+    def _deleting_in_section(self, pred, path, start, end, phrases):
+        """Delete each phrase inside the locked section only: a copy of the
+        phrase elsewhere in the file must not keep the lock green."""
+        original = _read(path)
+        section = _section(original, start, end)
+        self.assertTrue(section)
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                mutant = original.replace(section, _delete(section, phrase), 1)
+                self._assert_trips(pred, original, mutant)
+
+    def test_decided_relocation_deleting_mutant(self):
+        self._deleting("decided_relocation_holds")
+
+    def test_decided_relocation_in_paragraph_deleting_mutant(self):
+        self._deleting_in_section(decided_relocation_holds, COLLECT,
+                                  DECIDED_START, DECIDED_END,
+                                  DECIDED_RELOCATION_PHRASES)
+
+    def test_decided_relocation_paragraph_removed_mutant(self):
+        original = _read(COLLECT)
+        section = _section(original, DECIDED_START, DECIDED_END)
+        self._assert_trips(decided_relocation_holds, original,
+                           original.replace(section, "", 1))
+
+    def test_state_binding_deleting_mutant(self):
+        self._deleting("state_binding_holds")
+
+    def test_state_binding_in_bullet_deleting_mutant(self):
+        self._deleting_in_section(state_binding_holds, STATE, STATE_START,
+                                  STATE_END, STATE_BINDING_PHRASES)
+
+    def test_state_binding_empty_on_failure_inserting_mutant(self):
+        original = _read(STATE)
+        mutant = original.replace("Never bind `[]` on failure",
+                                  "Bind `[]` on failure", 1)
+        self._assert_trips(state_binding_holds, original, mutant)
 
     def test_auto_close_inserting_mutant(self):
         original = _read(RENDER)
