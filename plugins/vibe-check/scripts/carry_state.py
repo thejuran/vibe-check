@@ -77,7 +77,10 @@ forwarded and judged whatever its `at_pass`: finalize-counts lists it in
 independent re-check closes it or a reviewer's still-applies settles it
 (`recheck_settled`) until the fingerprinted code changes.
 Nothing else closes a finding: no age, no pass count. Closure is evaluated per
-record and is never inherited from a lead.
+record; the ONE inheritance path is explicit coverage recorded at decision time
+(`covers`): a finding the decision covered that is now its own row keeps that
+decision while its agent, file, title and covered code line still match
+(`covering_decision`) — never from whichever lead is current now.
 
 WHAT IT DOES NOT DO. It never renders REVIEW.md, never prints a finding, and
 never writes a file: the `record-*` subcommands print the new state on stdout
@@ -402,7 +405,8 @@ def _fix_closes(record, state, last, head_blobs, kind=None):
 
 def is_closed(record, state, head_blobs):
     """True iff this ONE record is closed by an owner decision or a verified
-    latest-pass fix verdict. Never inherited from the row that absorbed it."""
+    latest-pass fix verdict. Never inherited from the row that absorbed it;
+    the only inherited decision is an explicit `covering_decision`."""
     last, _, reason = _check_state(state)
     if reason is not None:
         return False
@@ -641,10 +645,70 @@ def _joined_newcomer(record, state):
     return bool(newcomer_lanes(record, state))
 
 
+def _covers_entry_matches(entry, record):
+    """True when one `covers` entry names this record: same agent, same file,
+    same title, and the covered code line equals the record's own canonical
+    line (both stripped). An entry with no code never matches (fail toward
+    asking)."""
+    code = entry.get("code")
+    canon = record.get("canonical_line_content")
+    file = record.get("file")
+    return (isinstance(code, str) and code.strip() != ""
+            and isinstance(canon, str) and code.strip() == canon.strip()
+            and isinstance(file, str) and entry.get("file") == file
+            and entry.get("agent") == record.get("agent")
+            and entry.get("title") == record.get("title"))
+
+
+def covering_decision(record, state):
+    """(decided_hash, decision) for another record's decision whose `covers`
+    names this record, or None.
+
+    The ONE inheritance path: a finding the owner's decision covered at
+    decision time (it was a member of the decided row) that is now its own
+    row keeps that decision while its own file and canonical line still
+    match the covered entry's code (`_covers_entry_matches`). Never across
+    files; never from an entry without code; never from a decision without
+    `covers` (legacy); never from whichever lead is current now — only from
+    what a decision recorded. The covering decision may itself be stale for
+    its own row: the record's own unchanged code is the evidence here. An
+    absorbed member record (`absorbed_into`) never inherits: closing the row
+    that absorbed it closes nothing for it. First match in sorted-hash order."""
+    if record.get("absorbed_into") is not None:
+        return None
+    decisions = state.get("decisions")
+    if not isinstance(decisions, dict):
+        return None
+    own = record.get("stable_hash")
+    for dh in sorted(k for k in decisions if isinstance(k, str)):
+        decision = decisions[dh]
+        if dh == own or not isinstance(decision, dict):
+            continue
+        covers = decision.get("covers")
+        if not isinstance(covers, list):
+            continue
+        if any(isinstance(e, dict) and _covers_entry_matches(e, record)
+               for e in covers):
+            return dh, decision
+    return None
+
+
+def _nearby_since(record, decision):
+    """True when the record's snapshot carries a `nearby_at` stamp later than
+    the decision's `at_pass`: code beneath the line changed since then."""
+    snapshot = record.get("snapshot")
+    nearby = snapshot.get("nearby_at") if isinstance(snapshot, dict) else None
+    at_pass = decision.get("at_pass")
+    return _is_count(nearby) and _is_count(at_pass) and nearby > at_pass
+
+
 def decision_state(record, state):
     """"current" | "stale" | None for the owner decision on this record.
 
-    None: no decision. "current": a legacy medium acknowledgment, or a
+    None: no decision of its own and no covering decision. A record without
+    its own decision that a `covering_decision` names inherits it: "current",
+    or "stale" when a nearby change was stamped after the covering decision.
+    "current": a legacy medium acknowledgment, or a
     decision that predates evidence binding (not a dict, or a dict with NO
     `evidence` key). "stale" when the `evidence` key is present but null / not
     a dict / missing a key (fail closed — the writer never produces that).
@@ -661,9 +725,10 @@ def decision_state(record, state):
         return "current"
     decisions = state.get("decisions", {})
     if h not in decisions:
-        # Hook: an inherited decision (a covering decision on another record)
-        # is looked up here.
-        return None
+        covering = covering_decision(record, state)
+        if covering is None:
+            return None
+        return "stale" if _nearby_since(record, covering[1]) else "current"
     decision = decisions[h]
     if not isinstance(decision, dict) or "evidence" not in decision:
         return "current"
@@ -698,9 +763,13 @@ def stale_cause(record, state):
     canonical line content differs (or `evidence` is null / malformed), else
     "nearby" when the `nearby_at` stamp differs, else "joined" when a
     newcomer concern joined the decided row, else "severity".
-    Needs-verification: "severity" when only the band differs, else "code"."""
+    Needs-verification: "severity" when only the band differs, else "code".
+    An inherited (covering) decision: "nearby"."""
     if decision_state(record, state) != "stale":
         return None
+    if record["stable_hash"] not in state.get("decisions", {}):
+        # An inherited decision goes stale only on a nearby change.
+        return "nearby"
     evidence = state.get("decisions", {}).get(record["stable_hash"])
     evidence = evidence.get("evidence") if isinstance(evidence, dict) else None
     if not _full_evidence(evidence):

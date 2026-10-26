@@ -2087,6 +2087,210 @@ class TestDecisionCoverage(unittest.TestCase):
                     self._same_title_scenario()
 
 
+# --------------------------------------------------------------------------- #
+# Inheritance (D-09): a finding the decision covered that splits into its own
+# row keeps the decision while its own code still matches the covers entry.
+# --------------------------------------------------------------------------- #
+def split_decided(a_code="x = 1", with_a=True):
+    """Pass 1: `security` row HB (canonical "b = 2") holding `bugs` member A
+    (title "A", current_code `a_code`); the owner dismisses row HB."""
+    members = [{"file": F, "line": 12, "title": "Injection at B",
+                "agent": "security", "severity": "warning",
+                "current_code": "b = 2"}]
+    if with_a:
+        members.append(cov_member("bugs", "A", code=a_code, line=10))
+    row = mk_finding("warning", "persisted", HB, snapshot=snap(1, line=12),
+                     canonical_line_content="b = 2", agent="security",
+                     title="Injection at B", members=members)
+    return dismiss(mk_state([mk_pass(1, [row])]), HB, at_pass=1)
+
+
+def split_state(a_canon="x = 1", a_file=F, a_agent="bugs", a_snapshot=None,
+                **kw):
+    """Pass 2: A is a row of its own (hash HA, no decision of its own)."""
+    row = mk_finding("warning", "persisted", HA,
+                     snapshot=a_snapshot if a_snapshot is not None
+                     else snap(1, file=a_file),
+                     file=a_file, agent=a_agent, title="A",
+                     canonical_line_content=a_canon)
+    later = mk_state([mk_pass(1, []), mk_pass(2, [row])])
+    return with_passes(split_decided(**kw), later)
+
+
+class TestDecisionInheritance(unittest.TestCase):
+
+    def _inherits_scenario(self):
+        s = split_state()
+        rec = record_of(s, HA)
+        self.assertNotIn(HA, s["decisions"])
+        self.assertEqual(carry_state.covering_decision(rec, s),
+                         (HB, s["decisions"][HB]))
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        counts = carry_state.finalize_counts(s)
+        self.assertEqual(counts["outstanding_cw"], 0)
+        self.assertNotIn(HA, [p["stable_hash"] for p in carry_state.pending(s)])
+        self.assertIn(HA, carry_state.decided(s))
+        self.assertTrue(carry_state.is_closed(rec, s, None))
+
+    def test_split_member_inherits_covering_decision(self):
+        self._inherits_scenario()
+
+    def _changed_code_scenario(self):
+        s = split_state(a_canon="x = 2")
+        rec = record_of(s, HA)
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertIsNone(carry_state.decision_state(rec, s))
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_split_member_with_changed_code_is_not_inherited(self):
+        self._changed_code_scenario()
+
+    def _cross_file_scenario(self):
+        s = split_state(a_file="src/other.py")
+        rec = record_of(s, HA)
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertIsNone(carry_state.decision_state(rec, s))
+
+    def test_split_member_cross_file_never_inherits(self):
+        self._cross_file_scenario()
+
+    def _other_agent_scenario(self):
+        s = split_state(a_agent="security")
+        rec = record_of(s, HA)
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertIsNone(carry_state.decision_state(rec, s))
+
+    def test_split_member_other_agent_never_inherits(self):
+        # T-57-08: the same title and code from another lane is not covered.
+        self._other_agent_scenario()
+
+    def test_covers_entry_without_code_never_inherits(self):
+        for code in (None, "", "  \n\t"):
+            with self.subTest(code=code):
+                s = split_state(a_code=code)
+                self.assertIsNone(
+                    s["decisions"][HB]["covers"][1]["code"])
+                rec = record_of(s, HA)
+                self.assertIsNone(carry_state.covering_decision(rec, s))
+                self.assertIsNone(carry_state.decision_state(rec, s))
+        # A record with no canonical line never matches either.
+        s = split_state(a_canon=None)
+        self.assertIsNone(carry_state.covering_decision(record_of(s, HA), s))
+
+    def test_whitespace_only_difference_still_inherits(self):
+        s = split_state(a_canon="   x = 1  ", a_code="\n  x = 1\n  y = 2")
+        self.assertEqual(carry_state.decision_state(record_of(s, HA), s),
+                         "current")
+
+    def test_inherited_record_reopens_on_nearby_change(self):
+        s = split_state(a_snapshot=dict(snap(2), nearby_at=2))
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "nearby")
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+        # A stamp at or before the covering decision's pass is not new.
+        s = split_state(a_snapshot=dict(snap(2), nearby_at=1))
+        self.assertEqual(carry_state.decision_state(record_of(s, HA), s),
+                         "current")
+
+    def test_legacy_decision_without_covers_does_not_inherit(self):
+        s = split_state()
+        del s["decisions"][HB]["covers"]
+        rec = record_of(s, HA)
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertIsNone(carry_state.decision_state(rec, s))
+
+    def test_inheritance_is_not_from_current_lead(self):
+        # Row HB was decided before A ever joined it; later HB is still the
+        # current lead with A as a member, and A also appears as its own row.
+        decided = split_decided(with_a=False)
+        lead = mk_finding("warning", "persisted", HB, snapshot=snap(1, line=12),
+                          canonical_line_content="b = 2", agent="security",
+                          title="Injection at B",
+                          members=[cov_member("bugs", "A", code="x = 1",
+                                              line=10)])
+        a_row = mk_finding("warning", "persisted", HA, snapshot=snap(1),
+                           title="A", canonical_line_content="x = 1")
+        s = with_passes(decided, mk_state([mk_pass(1, []),
+                                           mk_pass(2, [lead, a_row])]))
+        rec = record_of(s, HA)
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertIsNone(carry_state.decision_state(rec, s))
+        self.assertIn(HA, carry_state.finalize_counts(s)["outstanding_cw_hashes"])
+
+    def test_absorbed_member_record_never_inherits(self):
+        decided = split_decided()
+        a_member = cov_member("bugs", "A", code="x = 1", line=10)
+        a_member["canonical_line_content"] = "x = 1"
+        a_member["obligation"] = {"stable_hash": HA, "band": "warning",
+                                  "snapshot": snap(1)}
+        row = mk_finding("warning", "persisted", HC, snapshot=snap(1, line=20),
+                         members=[a_member])
+        s = with_passes(decided, mk_state([mk_pass(1, []), mk_pass(2, [row])]))
+        rec = record_of(s, HA)
+        self.assertEqual(rec["absorbed_into"], HC)
+        self.assertIsNone(carry_state.covering_decision(rec, s))
+        self.assertIsNone(carry_state.decision_state(rec, s))
+
+    def test_own_decision_wins_over_covering(self):
+        s = split_state()
+        s = dismiss(s, HA, reason="own")
+        rec = record_of(s, HA)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        fixture_row(s, HA)["snapshot"]["band"] = "unknown"
+        self.assertEqual(carry_state.decision_state(record_of(s, HA), s),
+                         "stale")
+        self.assertNotEqual(carry_state.stale_cause(record_of(s, HA), s),
+                            "nearby")
+
+    # ---- contrast subtests: each mutant must make its scenario fail ------ #
+    def test_contrast_inheritance_removed_mutant(self):
+        self._inherits_scenario()
+        with self.subTest("contrast: inheritance removed"):
+            with mock.patch.object(carry_state, "covering_decision",
+                                   lambda record, state: None):
+                with self.assertRaises(AssertionError):
+                    self._inherits_scenario()
+
+    def test_contrast_code_match_removed_mutant(self):
+        real = carry_state._covers_entry_matches
+
+        def mutant(entry, record):
+            return real(dict(entry, code=record.get("canonical_line_content")),
+                        record)
+        self._changed_code_scenario()
+        with self.subTest("contrast: code-match requirement removed"):
+            with mock.patch.object(carry_state, "_covers_entry_matches",
+                                   mutant):
+                with self.assertRaises(AssertionError):
+                    self._changed_code_scenario()
+
+    def test_contrast_file_check_removed_mutant(self):
+        real = carry_state._covers_entry_matches
+
+        def mutant(entry, record):
+            return real(dict(entry, file=record.get("file")), record)
+        self._cross_file_scenario()
+        with self.subTest("contrast: file check removed"):
+            with mock.patch.object(carry_state, "_covers_entry_matches",
+                                   mutant):
+                with self.assertRaises(AssertionError):
+                    self._cross_file_scenario()
+
+    def test_contrast_agent_check_removed_mutant(self):
+        real = carry_state._covers_entry_matches
+
+        def mutant(entry, record):
+            return real(dict(entry, agent=record.get("agent")), record)
+        self._other_agent_scenario()
+        with self.subTest("contrast: agent check removed"):
+            with mock.patch.object(carry_state, "_covers_entry_matches",
+                                   mutant):
+                with self.assertRaises(AssertionError):
+                    self._other_agent_scenario()
+
+
 def old_closed(record, state, last):
     """The pre-47 closure rule, transcribed: closed by hash alone."""
     h = record["stable_hash"]
