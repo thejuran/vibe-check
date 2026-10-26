@@ -122,6 +122,10 @@ def relocate_decided(lines, entry, decided):
       case 3: two or more matches tie for nearest -> stored line;
       case 4: no match -> stored line (an ordinary record then reads whatever
               is there, or null, as today).
+    Moving the matching `$RECHECK_REQUESTS` entry to the relocated line is the
+    prose's responsibility, not this simulator's: these fixtures send no
+    request for a relocated record, so the request line is locked by the
+    prose phrase test alone.
     """
     line = entry.get("line")
     obligation = entry.get("obligation")
@@ -381,19 +385,22 @@ class TestLineShift(_Base):
         self.assertEqual(phantoms, [], "phantom row at the stored line")
         self._assert_band(s2, hA, "warning")
 
-    def test_today_orchestrator_without_relocation_is_the_reproduced_failure(
+    def test_without_decided_hashes_the_decision_is_lost_so_binding_must_not_degrade(
             self):
-        """REPRO PIN: the same inputs with today's orchestrator (no
-        relocation of decided records) lose the decision. Proves the R1
-        fixture inputs reproduce on current code; retired explicitly once the
-        relocation rule ships, never silently."""
+        """Without `$DECIDED_HASHES` (no relocation of decided records) the
+        same inputs still lose the decision: the stored-line read re-hashes
+        the row onto whatever code now sits at line 10. This is why
+        05-state.md halts when the `decided` read fails instead of binding an
+        empty list."""
+        # Retired as a repro pin in 57-07; kept as the rationale for the fail-closed binding (57-05).
         L1, s1, s2, hA = self._shift(REHASH_CONF, decided=frozenset())
         self._assert_band(s1, hA, "warning")
+        self.assertIn(hA, target_decided(s1))
         rec = record_of(s2, hA)
         self.assertTrue(rec is None
                         or carry_state.decision_state(rec, s2) != "current")
-        # The stored-line read re-hashed the row onto whatever sits at line 10.
         phantom = score.stable_hash(F, L1[9], TITLE_A)
+        self.assertNotEqual(phantom, hA)
         self._assert_band(s2, phantom, "medium")
 
 
@@ -941,6 +948,307 @@ class TestDidNotReproducePins(_Base):
                           counts["undecided_nv"]), (0, 0, 0))
         self.assertEqual(e2e_gate(s2, {}), "write")
 
+
+
+# --------------------------------------------------------------------------- #
+# Cross-module guards: invariants no single module owns.
+# --------------------------------------------------------------------------- #
+class TestCrossModuleGuards(_Base):
+
+    def test_band_rank_mirrors_score(self):
+        self.assertEqual(carry_state._BAND_RANK,
+                         {k: v for k, v in score._BAND_SEVERITY.items()
+                          if k is not None})
+
+    def test_simulator_matches_locked_prose(self):
+        """The relocation simulator and the shipped orchestrator prose say
+        the same thing: the simulator documents the three relocation cases
+        (and the tie) and leaves the request line to the prose; the prose
+        holds every locked decided-relocation phrase."""
+        import test_nv_render
+        doc = relocate_decided.__doc__
+        for phrase in ("case 1", "case 2", "case 3", "tie",
+                       "30-collect-score.md"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, doc)
+        flat = " ".join(doc.split())
+        self.assertIn("`$RECHECK_REQUESTS` entry to the relocated line is "
+                      "the prose's responsibility, not this simulator's", flat)
+        collect = test_nv_render._read(test_nv_render.COLLECT)
+        section = test_nv_render._section(collect,
+                                          test_nv_render.DECIDED_START,
+                                          test_nv_render.DECIDED_END)
+        self.assertTrue(section.strip(), "decided-record paragraph missing")
+        for phrase in test_nv_render.DECIDED_RELOCATION_PHRASES:
+            with self.subTest(phrase=phrase[:40]):
+                self.assertIn(test_nv_render.norm(phrase),
+                              test_nv_render.norm(section))
+        self.assertTrue(test_nv_render.decided_relocation_holds(collect))
+
+    def _assert_decided_matches(self, state):
+        recs = carry_state.open_findings(state)
+        self.assertIsNotNone(recs)
+        want = {r["stable_hash"] for r in recs
+                if carry_state.decision_state(r, state) == "current"}
+        self.assertEqual(set(carry_state.decided(state)), want)
+        return want
+
+    def test_decided_subcommand_matches_decision_state(self):
+        # R1a: a decided row relocated after a line shift.
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=REHASH_CONF)
+        L1 = INSERTED + L0
+        s2, _ = run_pass(s1, L1, [], 2, {F: [[1, 3]]},
+                         decided=target_decided(s1))
+        self._assert_band(s2, hA, "warning")
+        self.assertEqual(self._assert_decided_matches(s2), {hA})
+        # R6: the covered member split into its own row inherits the
+        # decision, so `decided` lists it although it has no decision itself.
+        _, _, s6, _, hB, hA6 = split_scenario()
+        self._assert_band(s6, hA6, "warning")
+        self.assertNotIn(hA6, s6["decisions"])
+        self.assertIsNotNone(carry_state.covering_decision(
+            record_of(s6, hA6), s6))
+        self.assertIn(hA6, self._assert_decided_matches(s6))
+
+    def test_nearby_window_is_phase56_window(self):
+        """The decision re-ask window and the re-check trigger window are one
+        definition: with nothing touched, the trigger is exactly the nearby
+        change."""
+        rec = {"file": F, "line": 10}
+        pairs = []
+        for at in range(7, 18):
+            pairs.append((10, {F: [[at, at]]}))
+        pairs += [
+            (10, {F: []}), (10, {}), (10, {"src/other.py": [[10, 15]]}),
+            (10, {F: [[1, 9]]}), (10, {F: [[1, 10]]}), (10, {F: [[16, 40]]}),
+            (10, {F: [[15, 40]]}), (1, {F: [[6, 6]]}), (1, {F: [[7, 7]]}),
+        ]
+        self.assertEqual(len(pairs), 20)
+        for line, ranges in pairs:
+            with self.subTest(line=line, ranges=ranges):
+                r = dict(rec, line=line)
+                self.assertEqual(score._nearby_changed(r, ranges),
+                                 score._independent_trigger(r, set(), ranges))
+        hits = [(line, ranges) for line, ranges in pairs
+                if score._nearby_changed(dict(rec, line=line), ranges)]
+        self.assertEqual(len(hits), 9, hits)
+
+
+# --------------------------------------------------------------------------- #
+# The owner's journey across seven passes (DECN-02/03; Phase 56 found two
+# false-closure blockers that one-path-at-a-time tests missed).
+# --------------------------------------------------------------------------- #
+TITLE_D = "Missing audit log at D"
+# conf 55 compliance (+20 for the lane): weak enough to be absorbed into the
+# decided row on pass 6, strong enough to stay a row of its own on pass 7.
+COMPLIANCE_CONF = 55
+
+
+def e2e_pass2(decided_read=None):
+    """Passes 1-2 of the journey: `bugs` A at line 10 dismissed, then 3 lines
+    inserted above with nothing else changed. `decided_read` stands in for
+    `carry_state.decided` (default: the real read). -> (L1, s2, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    read = decided_read or carry_state.decided
+    L1 = INSERTED + L0
+    s2, _ = run_pass(s1, L1, [], 2, {F: [[1, 3]]},
+                     decided=frozenset(read(s1) or []))
+    return L1, s1, s2, hA
+
+
+class TestPhase57EndToEnd(_Base):
+
+    def test_owner_is_asked_exactly_when_evidence_changes(self):
+        def shown(state):
+            rows = card_rows(state)
+            self.assertIsInstance(rows, list, rows)
+            return rows
+
+        # Pass 1: reported and dismissed -> the gate writes.
+        L1, s1, s, hA = e2e_pass2()
+        self._assert_band(s1, hA, "warning")
+        self.assertEqual(e2e_gate(s1, {}), "write")
+        self.assertEqual(shown(s1), [])
+
+        # Pass 2: 3 lines inserted above; the decision follows the code.
+        self._assert_band(s, hA, "warning")
+        self.assertEqual(self._current(s, hA)["line"], 13)
+        self.assertEqual(carry_state.decision_state(record_of(s, hA), s),
+                         "current")
+        self.assertEqual(e2e_gate(s, {}), "write")
+        self.assertEqual(shown(s), [])
+
+        # Pass 3: the line beneath the flagged one is edited -> asked.
+        L2 = list(L1)
+        L2[13] = "line_11 = 'edited'"
+        s, _ = run_pass(s, L2, [], 3, {F: [[14, 14]]},
+                        decided=target_decided(s))
+        self._assert_band(s, hA, "warning")
+        rec = self._current(s, hA)
+        self.assertEqual(carry_state.stale_cause(rec, s), "nearby")
+        self.assertNotEqual(e2e_gate(s, {}), "write")
+        self.assertEqual([r["stable_hash"] for r in shown(s)], [hA])
+        self.assertIn(" — code next to it changed since your decision on "
+                      "pass 1 (was: dismissed — %s)" % REASON,
+                      card_text_full(s))
+        s = decide_on(s, hA)  # the owner re-dismisses on pass 3
+
+        # Pass 4: quiet -> not asked; the stamp is carried.
+        s, _ = run_pass(s, L2, [], 4, {F: []}, decided=target_decided(s))
+        self._assert_band(s, hA, "warning")
+        rec = self._current(s, hA)
+        self.assertEqual(row_of(s, hA)["snapshot"].get("nearby_at"), 3)
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertEqual(e2e_gate(s, {}), "write")
+        self.assertEqual(shown(s), [])
+
+        # Pass 5: `security` also reports it and the band rises -> asked,
+        # naming the new lane (not the nearby edit already decided).
+        sec = fresh("security", 13, L2, TITLE_A, conf=100,
+                    severity="critical", category="injection")
+        s, _ = run_pass(s, L2, [sec], 5, {F: []}, decided=target_decided(s))
+        self._assert_band(s, hA, "critical")
+        rec = self._current(s, hA)
+        self.assertEqual(row_of(s, hA)["snapshot"].get("nearby_at"), 3)
+        self.assertEqual(carry_state.stale_cause(rec, s), "severity")
+        self.assertEqual(carry_state.gained_lanes(rec, s), ["security"])
+        self.assertNotEqual(e2e_gate(s, {}), "write")
+        rows = shown(s)
+        self.assertEqual([r["stable_hash"] for r in rows], [hA])
+        self.assertEqual(rows[0]["stale"]["gained"], ["security"])
+        self.assertIn(" — severity rose (warning → critical) since your "
+                      "decision on pass 3: security now also reports it "
+                      "(was: dismissed — %s)" % REASON, card_text_full(s))
+        s = decide_on(s, hA)  # dismissed again on pass 5
+
+        # Pass 6: a different `compliance` concern is absorbed into the row
+        # -> the whole row is asked once, with the D-10 note. The decision
+        # covered two lane records of the same concern (bugs and security),
+        # so the note counts 2.
+        comp = fresh("compliance", 14, L2, TITLE_D, conf=COMPLIANCE_CONF,
+                     severity="medium", category="compliance")
+        s, _ = run_pass(s, L2, [comp], 6, {F: []}, decided=target_decided(s))
+        self._assert_band(s, hA, "critical")
+        row = row_of(s, hA)
+        self.assertIn(("compliance", TITLE_D),
+                      [(m["agent"], m["title"]) for m in row["members"]])
+        rec = self._current(s, hA)
+        self.assertEqual(carry_state.stale_cause(rec, s), "joined")
+        self.assertNotEqual(e2e_gate(s, {}), "write")
+        rows = shown(s)
+        self.assertEqual([r["stable_hash"] for r in rows], [hA])
+        self.assertEqual(rows[0]["stale"]["joined"], ["compliance"])
+        self.assertIn(" — 2 findings here already dismissed (your reason: "
+                      "%s); a new concern from compliance joined it" % REASON,
+                      card_text_full(s))
+        s = decide_on(s, hA)  # the owner dismisses the row on pass 6
+        self.assertIn({"agent": "compliance", "file": F, "title": TITLE_D,
+                       "code": L2[13]}, s["decisions"][hA]["covers"])
+
+        # Pass 7: line 13 is rewritten and both lanes that reported it answer
+        # their re-check `resolved`; the compliance member becomes a row of
+        # its own and keeps the row decision (inherited, not asked).
+        L3 = list(L2)
+        L3[12] = "line_10 = 'fixed'"
+        reqs = [{"token": "TS", "agents": ["security"], "stable_hash": hA,
+                 "file": F, "line": 13, "agent": "security",
+                 "title": TITLE_A},
+                {"token": "TB", "agents": ["bugs"], "stable_hash": None,
+                 "file": F, "line": 13, "agent": "bugs", "title": TITLE_A}]
+        verdicts = [{"source": "recheck", "token": t, "agent": a,
+                     "verdict": "resolved", "reason": "line rewritten"}
+                    for t, a in (("TS", "security"), ("TB", "bugs"))]
+        s, r7 = run_pass(s, L3, [], 7, {F: [[13, 13]]},
+                         decided=target_decided(s), recheck_requests=reqs,
+                         verdicts=verdicts)
+        self.assertIn(hA, [x.get("stable_hash") for x in r7["resolved"]])
+        self.assertIsNone(record_of(s, hA))
+        hD = score.stable_hash(F, L2[13], TITLE_D)
+        self._assert_band(s, hD, "warning")
+        rec = self._current(s, hD)
+        self.assertNotIn(hD, s["decisions"])
+        self.assertEqual(carry_state.covering_decision(rec, s),
+                         (hA, s["decisions"][hA]))
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertEqual(e2e_gate(s, {}), "write")
+        self.assertEqual(shown(s), [])
+
+
+class TestSameHashLeadKeepsNearbyStamp(_Base):
+    """Found by the end-to-end journey: a second lane re-reporting a decided
+    finding on the same code (same hash) and out-scoring the carried row used
+    to take the lead with a fresh snapshot, dropping the row's `nearby_at`
+    stamp. A re-ask still owed for a nearby edit then vanished and the gate
+    wrote (silent finding loss)."""
+
+    def test_owed_nearby_reask_survives_a_fresh_same_hash_lead(self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF)
+        L2 = list(L0)
+        L2[10] = "line_11 = 'edited'"
+        s2, _ = run_pass(s1, L2, [], 2, {F: [[11, 11]]})
+        self._assert_band(s2, hA, "warning")
+        self.assertEqual(carry_state.stale_cause(record_of(s2, hA), s2),
+                         "nearby")
+        # The owner has not answered; `security` now reports the same
+        # finding at a score that out-ranks the carried row, band unchanged.
+        sec = fresh("security", 10, L2, TITLE_A, conf=95,
+                    category="injection")
+        s3, _ = run_pass(s2, L2, [sec], 3, {F: []})
+        self._assert_band(s3, hA, "warning")
+        row = row_of(s3, hA)
+        self.assertEqual(row["agent"], "security")  # the fresh lane leads
+        self.assertEqual(row["snapshot"].get("nearby_at"), 2)
+        rec = self._current(s3, hA)
+        self.assertEqual(carry_state.decision_state(rec, s3), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s3), "nearby")
+        self.assertNotEqual(e2e_gate(s3, {}), "write")
+
+
+class TestPhase57Mutants(_Base):
+    """Guards that span modules: each mutant removes one link and the
+    journey's assertion it protects fails."""
+
+    def test_decided_read_returning_empty_loses_the_relocation(self):
+        _, _, s2, hA = e2e_pass2()
+        rec = self._current(s2, hA)
+        self.assertEqual((rec["line"], carry_state.decision_state(rec, s2)),
+                         (13, "current"))
+        from unittest import mock
+        with mock.patch.object(carry_state, "decided", lambda state: []):
+            _, _, m2, mh = e2e_pass2()
+        self.assertEqual(mh, hA)
+        mrec = record_of(m2, hA)
+        self.assertFalse(mrec is not None and mrec.get("line") == 13
+                         and carry_state.decision_state(mrec, m2) == "current",
+                         "the binding did not matter")
+        # The stored-line read pins the row to line 10 (re-read code).
+        self.assertEqual([f["line"] for f in m2["passes"][-1]["findings"]],
+                         [10])
+
+    def test_nearby_window_upper_bound_dropped_misses_offset_five(self):
+        from unittest import mock
+        from test_confirmed_fix import SCORE_PY, _mutant
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        old = "range(line, line + _NEARBY_LINES + 1)"
+        self.assertEqual(src.count(old), 1, "mutation target not unique")
+        mod = _mutant(SCORE_PY, "score_nearby_upper",
+                      old, "range(line, line + _NEARBY_LINES)")
+
+        def offset_failures():
+            res = unittest.TestResult()
+            TestNearbyEdit("test_r2_edit_within_five_beneath_reopens").run(res)
+            self.assertEqual(res.errors, [])
+            return [str(t) for t, _ in res.failures]
+
+        self.assertEqual(offset_failures(), [])
+        with mock.patch.object(score, "_nearby_changed", mod._nearby_changed):
+            failed = offset_failures()
+        self.assertEqual(len(failed), 1, failed)
+        self.assertIn("offset=5", failed[0])
 
 if __name__ == "__main__":
     unittest.main()
