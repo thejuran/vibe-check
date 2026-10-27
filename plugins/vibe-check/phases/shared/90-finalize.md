@@ -187,7 +187,25 @@ fi
   fi
   ```
   Then run the SAME parse fence above — the parser stays the only gate, and nothing it refuses is acted on (a refusal here is never translated again; go to the next bullet). On exit 0 print `Read your answer as: <grammar>` as message text, then continue at **After the answer** exactly as a typed answer does (its `otherwise` bullet prints `echo_text`) — no confirm card.
-- `ok` false, a `resolve` refusal, or a copy refusal → **Ask only what is missing (D-05, D-06)** (the next paragraph).
+- `ok` false, a `resolve` refusal, or a copy refusal → **Ask only what is missing (D-05, D-06)** below.
+
+**Stale card (D-07).** When the card the owner answered is not the current one (a review pass re-ran, or an earlier `--finalize` built a card the owner is still answering, so its rows may be renumbered or changed), write every row number in the answer as a `prior_number` ref — `{"verb": V, "kind": "prior_number", "n": N}` — and bind `$PRIORROWSFILE` to the rows file of the card they answered (that card's `$ROWSFILE` path, used as is — never retyped or rebuilt). Run this twin of the resolve fence in its place, then branch on its output exactly as above:
+```bash
+if python3 "$VC_ROOT/scripts/batch_card.py" resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows "$PRIORROWSFILE" > "$RESOLVEFILE"; then
+  cat "$RESOLVEFILE"
+else
+  echo "— nothing was recorded; the answer could not be read." >&2
+fi
+```
+`resolve` re-maps each old number by finding identity (`stable_hash`, then file and title), never by position, so the grammar and the echo use the current rows and the owner sees where each one went: when `stale` is true, append ` (your numbers re-mapped to the current card)` to the `Read your answer as:` line, so the echo shows the new numbers. A `prior_number` that maps to no current row, or to more than one, comes back `none` or `many` and is asked about alone, below.
+
+**Ask only what is missing (D-05, D-06).** Hold the whole answer and record nothing — never half-apply: no clause of the answer is recorded, or sent to the fix-loop card, while another clause of it is unclear, so the answer is carried out together or not at all. Ask ONE short AskUserQuestion about only the unclear piece — never the full card; when more than one piece is unclear, each gets its own question inside that same AskUserQuestion call. Single-select; the tool adds Other.
+- A `many` or `conflict` ref → header "Which row"; the question names the verb and asks which listed row was meant. Options = the ref's `candidates`: each `label` (`#n file:line`) as an option, its `title` as the description. More than 4 candidates → list the labels in the question text instead and take the number through Other; exactly 1 → add a "None of these" option.
+- A `none` or `count_mismatch` ref → header "Which rows"; the question says what did not match (the reference matched no row, or the stated count differs from the rows it matched) and that the rest of the answer is held until this is settled. Options = up to 4 `#n file:line` labels — the ref's `candidates` when it has them, else rows no other ref claimed; typed row numbers arrive through Other.
+- `needs_reason` true → header "Reason"; options exactly `False positive`, `Accepted risk` and `Out of scope for this milestone` (the owner's own words arrive through Other). On Finalize the reason has two sources — the owner's inline why and the Q2 pick — so this question is asked only when both are absent: a Q2 pick is already the reason and is never asked for again.
+- A `blocked` ref is never asked about — it resolves once the ref it waits on is answered. A `resolve` refusal or a copy refusal has no piece to narrow — go straight to the full-card fallback at the end of this paragraph.
+
+Then write the completed refs to `$REFSFILE` with the Write tool — the same refs, each unclear one replaced by `number` refs for the chosen rows, and the chosen reason as `reason` — and re-run the resolve fence (its `--prior-rows` twin while any `prior_number` ref remains). `ok` true → the `ok` true branch above (the grammar copy, the SAME parse fence, `Read your answer as:`), then continue at **After the answer** with the whole answer together, exactly as a typed answer does — the gate re-runs there. There is one follow-up per gap (D-08): when the reply is still unclear — `resolve` is still not `ok`, or the reply names nothing on the list — still nothing is recorded; show the full card once, its Q1 question led by a note built from the resolve output that says what could not be matched (e.g. "Could not match: dismiss reference 2 — matched 0 rows; nothing from your answer was recorded"), then stop asking: the owner's answer to that card is taken as a new answer.
 
 **After the answer** (branch on `$PARSEFILE`):
 
@@ -222,7 +240,7 @@ fi
 
      Never jump to `write` on your own: the gate decides.
 
-**Card budget.** Finalize costs one card. Only `look N`, a bare Mixed…, or an unparseable answer adds another, each at the owner's request. A bare Mixed… buys exactly one clarification. Nothing else in this file asks a question.
+**Card budget.** Finalize costs one card. Only `look N`, a bare Mixed…, a plain-English answer that needs one detail (at most one follow-up card per gap, D-06) or a second unclear reply (which shows the full card once, D-08) adds another, each at the owner's request. A bare Mixed… buys exactly one clarification. Nothing else in this file asks a question.
 
 `medium_acknowledgments` is a legacy, READ-only family: the helper still counts its entries as decisions, so an old medium-only state finalizes exactly as before. Nothing writes, migrates or rewrites it.
 
