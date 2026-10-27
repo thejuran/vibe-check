@@ -672,7 +672,7 @@ class TestCLICounts(TempDirCase):
                               [r.strip() for r in carry_state.REASONS])
 
     def test_cli_malformed_invalid_json(self):
-        for sub in ("finalize-counts", "pending", "decided"):
+        for sub in ("finalize-counts", "pending", "decided", "deferred"):
             with self.subTest(sub):
                 proc = run_cli([sub], b"not json")
                 self.assertEqual(proc.returncode, 2)
@@ -680,7 +680,7 @@ class TestCLICounts(TempDirCase):
 
     def test_cli_malformed_states(self):
         for name, s in TestMalformed()._cases().items():
-            for sub in ("finalize-counts", "pending", "decided"):
+            for sub in ("finalize-counts", "pending", "decided", "deferred"):
                 with self.subTest(name=name, sub=sub):
                     proc = run_cli([sub], json.dumps(s).encode())
                     self.assertEqual(proc.returncode, 2)
@@ -708,6 +708,7 @@ class TestCLICounts(TempDirCase):
         for argv in ([], ["bogus"], ["finalize-counts", "--title", "x"],
                      ["pending", "--head-blobs", "x"],
                      ["decided", "--head-blobs", "x"],
+                     ["deferred", "--head-blobs", "x"],
                      ["finalize-counts", "--head-blobs"]):
             with self.subTest(argv=argv):
                 proc = run_cli(argv, state)
@@ -715,10 +716,12 @@ class TestCLICounts(TempDirCase):
                 self.assertEqual(proc.stdout, b"")
 
 
-def decided_state():
+def decided_state(kinds=None):
     """Last pass: row HB (decision current), member obligation HA of HB
     (decision current), row HC (decision stale: band rise with a new lane)
-    and row HD (undecided)."""
+    and row HD (undecided). `kinds` maps a hash to its decision kind
+    (default dismiss)."""
+    kinds = kinds or {}
     a_member = member_ref(line=11, title="A")
     a_member["obligation"] = {"stable_hash": HA, "orchestrator_score": 85,
                               "band": "warning", "attribution": ["bugs"],
@@ -730,7 +733,7 @@ def decided_state():
     hd = mk_finding("warning", "new", HD_DECIDED, snapshot=snap(2, line=40))
     s = mk_state([mk_pass(1, []), mk_pass(2, [hb, hc, hd])])
     s = carry_state.record_decisions(s, {"at_pass": 2, "decisions": [
-        {"stable_hash": h, "decision": "dismiss", "reason": "r"}
+        {"stable_hash": h, "decision": kinds.get(h, "dismiss"), "reason": "r"}
         for h in (HA, HB, HC_DECIDED)]})
     assert s is not None
     row_c = [f for f in s["passes"][-1]["findings"]
@@ -812,6 +815,64 @@ class TestDecided(TempDirCase):
             with mock.patch.object(carry_state, "decided", mutant):
                 with self.assertRaises(AssertionError):
                     self._current_rows_and_members_scenario()
+
+
+def deferred_state():
+    """decided_state() with HB (row) deferred while current, HC_DECIDED
+    deferred and then made stale (band rise with a new lane), and HA (member
+    obligation) dismissed."""
+    return decided_state({HB: "defer", HC_DECIDED: "defer"})
+
+
+class TestDeferred(TempDirCase):
+    """`deferred`: the read Phase 0.5 binds as $DEFERRED_HASHES (D-20)."""
+
+    def test_deferred_lists_current_and_stale_defers(self):
+        s = deferred_state()
+        self.assertEqual(s["decisions"][HB]["decision"], "defer")
+        self.assertEqual(s["decisions"][HC_DECIDED]["decision"], "defer")
+        rows = {r["stable_hash"]: r for r in carry_state.open_findings(s)}
+        self.assertEqual(carry_state.decision_state(rows[HB], s), "current")
+        self.assertEqual(carry_state.decision_state(rows[HC_DECIDED], s),
+                         "stale")
+        self.assertEqual(carry_state.deferred(s), sorted([HB, HC_DECIDED]))
+
+    def test_deferred_excludes_dismiss(self):
+        s = deferred_state()
+        self.assertEqual(s["decisions"][HA]["decision"], "dismiss")
+        self.assertNotIn(HA, carry_state.deferred(s))
+        self.assertEqual(carry_state.deferred(decided_state()), [])
+
+    def test_deferred_legacy_record_without_evidence_listed(self):
+        s = ba_state()
+        s["decisions"] = {HA: dict(pre47_record("medium"), decision="defer")}
+        self.assertNotIn("evidence", s["decisions"][HA])
+        self.assertEqual(carry_state.deferred(s), [HA])
+
+    def test_deferred_empty_when_no_decisions(self):
+        s = ba_state()
+        self.assertNotIn("decisions", s)
+        self.assertEqual(carry_state.deferred(s), [])
+
+    def test_deferred_malformed_state_is_none(self):
+        for name, s in TestMalformed()._cases().items():
+            with self.subTest(name):
+                self.assertIsNone(carry_state.deferred(s))
+
+    def test_deferred_does_not_mutate_state(self):
+        s = deferred_state()
+        before = json.dumps(s, sort_keys=True)
+        carry_state.deferred(s)
+        self.assertEqual(json.dumps(s, sort_keys=True), before)
+
+    def test_cli_deferred_round_trip(self):
+        s = deferred_state()
+        proc = run_cli(["deferred"], json.dumps(s).encode())
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(json.loads(proc.stdout.decode()),
+                         carry_state.deferred(s))
+        self.assertEqual(json.loads(proc.stdout.decode()),
+                         sorted([HB, HC_DECIDED]))
 
 
 class TestReasonsSealed(unittest.TestCase):

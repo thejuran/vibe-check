@@ -15,6 +15,10 @@ WHAT IT DECIDES
   decided          Read-only: the hashes (rows and member obligations) whose
                    owner decision is current. Phase 0.5 binds it as
                    `$DECIDED_HASHES` to relocate decided records by content.
+  deferred         Read-only: the hashes the owner deferred (current or
+                   stale). Phase 0.5 binds it as `$DEFERRED_HASHES`; score.py
+                   keeps a covered member of a deferred row open below
+                   threshold (D-20).
   record-decisions     The ONLY write path for the root `decisions` family
                        (owner dismiss/defer, written by Finalize and by the
                        fix-loop card, 50-fix-loop.md).
@@ -113,6 +117,7 @@ CLI (stdin is always the parsed state object; stdout is JSON):
     python3 carry_state.py finalize-counts [--head-blobs PATH] < state.json
     python3 carry_state.py pending < state.json
     python3 carry_state.py decided < state.json
+    python3 carry_state.py deferred < state.json
     python3 carry_state.py record-decisions --decisions-file PATH < state.json
     python3 carry_state.py record-fix-verdicts --verdicts-file PATH < state.json
 
@@ -162,8 +167,8 @@ NV_MEMBER_OBLIGATION = NV_BAND
 BLOCKING_BANDS = ("critical", "warning", NV_BAND, "medium")
 _CW_BANDS = ("critical", "warning")
 
-SUBCOMMANDS = ("finalize-counts", "pending", "decided", "record-decisions",
-               "record-fix-verdicts")
+SUBCOMMANDS = ("finalize-counts", "pending", "decided", "deferred",
+               "record-decisions", "record-fix-verdicts")
 # The ONLY flags this CLI accepts. There is deliberately no flag that carries a
 # reason, a hash or a title: such text on a command line is expanded by the
 # shell before Python runs.
@@ -173,12 +178,13 @@ _FLAGS_BY_SUBCOMMAND = {
     "finalize-counts": ((), ("--head-blobs",)),
     "pending": ((), ()),
     "decided": ((), ()),
+    "deferred": ((), ()),
     "record-decisions": (("--decisions-file",), ()),
     "record-fix-verdicts": (("--verdicts-file",), ()),
 }
 
 USAGE = ("usage: carry_state.py finalize-counts [--head-blobs PATH] | pending"
-         " | decided"
+         " | decided | deferred"
          " | record-decisions --decisions-file PATH"
          " | record-fix-verdicts --verdicts-file PATH  (state on stdin)\n")
 
@@ -1033,6 +1039,26 @@ def decided(state):
                   if decision_state(rec, state) == "current")
 
 
+def deferred(state):
+    """Sorted hashes the owner deferred: every `decisions` key whose record
+    is a defer, current or stale (a deferral the owner has not closed is still
+    a deferral; superseded decisions live in `history`, never here). [] when
+    there is no `decisions` family; None when the state is malformed.
+    Read-only.
+
+    D-20: a deferral never leaves the open set on a score. Phase 0.5 binds
+    this as `$DEFERRED_HASHES`, 30-collect-score.md forwards it as the
+    envelope's `deferred_hashes`, and score.py keeps a covered member of a
+    deferred row open under its own hash when it scores below threshold. A
+    refusal (None) must never look like an empty list."""
+    _, _, reason = _check_state(state)
+    if reason is not None:
+        return None
+    return sorted(h for h, rec in state.get("decisions", {}).items()
+                  if isinstance(h, str) and isinstance(rec, dict)
+                  and rec.get("decision") == "defer")
+
+
 # --------------------------------------------------------------------------- #
 # Writes. Each returns a NEW state object (the input is never mutated) and
 # writes exactly one root family; `passes` and `medium_acknowledgments` are
@@ -1349,6 +1375,8 @@ def run(argv, stdin_text):
         result = pending(state)
     elif sub == "decided":
         result = decided(state)
+    elif sub == "deferred":
+        result = deferred(state)
     elif sub == "record-decisions":
         payload = read_json_file(flags["--decisions-file"])
         if not isinstance(payload, dict):
