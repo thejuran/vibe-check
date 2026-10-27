@@ -144,22 +144,13 @@ class TestFixture(unittest.TestCase):
                                               "finalize"), [3, 4])
 
 
-class TestK2Reproduction(unittest.TestCase):
-    def test_k2_rows_doc_has_no_scope_text(self):
-        """K2 today: the behavior drops NV rows, the doc cannot say so."""
+class TestScopeTextEqualsBehavior(unittest.TestCase):
+    def test_rows_doc_carries_scope_keys(self):
+        """K2 closed: the behavior drops NV rows and the doc now says so."""
         for mode, doc in (("fix-loop", doc_of(nv_card_state())),
                           ("finalize", finalize_doc(nv_card_state()))):
             with self.subTest(mode=mode):
                 self.assertEqual(excluded_by_behavior(doc, mode), [3, 4])
-                self.assertNotIn("bulk_fix_text", doc)
-                self.assertNotIn("nv_rows", doc)
-
-
-class TestScopeTextEqualsBehavior(unittest.TestCase):
-    def test_rows_doc_carries_scope_keys(self):
-        for mode, doc in (("fix-loop", doc_of(nv_card_state())),
-                          ("finalize", finalize_doc(nv_card_state()))):
-            with self.subTest(mode=mode):
                 self.assertIn("bulk_fix_text", doc)
                 self.assertIn("nv_rows", doc)
 

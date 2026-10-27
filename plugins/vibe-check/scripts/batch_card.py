@@ -291,6 +291,7 @@ def build_rows(state, mode, head_blobs=None, subset=None):
     if subset is not None:
         doc["subset"] = True
     doc.update(card_texts(rows, mode))
+    doc.update(option_texts(rows, mode, subset is not None))
     return doc, None
 
 
@@ -608,6 +609,40 @@ def card_texts(rows, mode, limit=CARD_TEXT_MAX_CHARS):
     return {"card_text": "\n".join(lines[:kept]
                                    + [_truncation_tail(rows, kept)]),
             "list_text": full, "card_text_truncated": True}
+
+
+def option_texts(rows, mode, subset):
+    """{"nv_rows", "bulk_fix_text"} for the card's bulk-fix option.
+
+    "Apply all & rerun" (fix-loop) and "Fix all" (finalize) never send a
+    needs-verification row: `select` drops `carry_state.NV_BAND` rows and the
+    finalize `fix rest` reaches only critical/warning/medium. nv_rows lists
+    the row numbers so left out, read from the same `carry_state.NV_BAND`
+    literal `select` uses, and bulk_fix_text names them by number in the
+    option description. On a subset card every row was named by the owner
+    and is sent, so nothing is left out. The text is built only from row
+    numbers and fixed wording, never from diff-authored row fields.
+    """
+    nv_rows = [] if subset else [r["n"] for r in rows
+                                 if r["band"] == carry_state.NV_BAND]
+    numbers = ", ".join("#%d" % n for n in nv_rows)
+    one = len(nv_rows) == 1
+    if mode == "finalize":
+        text = "Fix every critical, warning and medium row."
+        if nv_rows:
+            text += (" Needs-verification %s (%s) %s not included — name %s "
+                     "by number in Mixed…"
+                     % ("row" if one else "rows", numbers,
+                        "is" if one else "are", "it" if one else "them"))
+    else:
+        text = "every listed row"
+        if nv_rows:
+            text += (" except Needs-verification %s %s — confirm, dismiss or "
+                     "defer %s by number in Other (`fix N`, `dismiss N -- "
+                     "reason`, `defer N -- reason`)"
+                     % ("row" if one else "rows", numbers,
+                        "it" if one else "those"))
+    return {"nv_rows": nv_rows, "bulk_fix_text": text}
 
 
 def _truncation_tail(rows, kept):
