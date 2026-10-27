@@ -5006,7 +5006,10 @@ class TestSnapshot(unittest.TestCase):
         # the lines beneath it (a change there stamps `nearby_at`, TestNearbyAt).
         probe, snap = self._carried_with_snapshot(env_over=_SNAP_QUIET)
         self.assertEqual(probe["status"], "persisted")
-        row = self._row(_snap_run([_snap_cf(snapshot=snap)], **_SNAP_QUIET))
+        # The stored stable_hash is the row's own (an unchanged line keeps its
+        # hash): a carried snapshot is a prior only under the row's hash.
+        row = self._row(_snap_run([_snap_cf(snapshot=snap, stable_hash=probe["stable_hash"])],
+                                  **_SNAP_QUIET))
         # The carried status is persisted (input said "new"): status is NOT a
         # snapshot component, band is.
         self.assertEqual(row["status"], "persisted")
@@ -7512,11 +7515,14 @@ def _na_obligation(sc=score):
 
 
 def _na_forge(ranges, sc=score):
-    """A FRESH finding arriving with a forged snapshot (older at_pass, a stamp)."""
+    """A FRESH finding arriving with a forged snapshot (older at_pass, a stamp)
+    and the stable_hash its row computes, so the forged snapshot would pass the
+    row's prior hash gate: only the ingress scrub keeps it out."""
     f = _ko_find("F", "security", 10, 70, "inj A", "a_line",
                  snapshot={"at_pass": 1, "file": "src/a.py", "line": 10,
                            "canonical_line_content": "a_line", "band": "warning",
-                           "nearby_at": 1})
+                           "nearby_at": 1},
+                 stable_hash=score.stable_hash("src/a.py", "a_line", "inj A"))
     return _na_row(sc.run(_hl_env([f], ranges, pass_number=2)))
 
 

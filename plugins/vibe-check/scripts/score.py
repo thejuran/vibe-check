@@ -320,24 +320,26 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
     above or below it, `_nearby_changed`) stamps `nearby_at` with this pass and forces
     a fresh snapshot, but only on a row that existed before this pass — it
     arrives with a prior snapshot, or `carried` says so even though no
-    top-level snapshot rides on it. `carried` says a record carried from an
-    earlier pass (status persisted or needs-recheck — statuses only score.py's
-    carry loop assigns; the ingress scrub strips `status` from fresh findings)
-    hashes to this row's stable_hash: the lead, an absorbed member, or a
-    same-identity duplicate a fresh re-report out-ranked. Which record leads
-    never decides the stamp. A carried record whose own line changed re-hashes
-    into a finding no decision or covers entry can match, so a stamp there is
-    inert; score.py keeps stamping under any carried status because a covered
-    member carries no stored hash, so a hash-preserving needs-recheck (a
-    low-entropy line whose window changed) cannot be told from a hash-changing
-    one here. A row whose records are all fresh never passes `carried=True`:
-    the change a finding is first raised on is the code it is about, not a
-    change since. So the pass a covered or absorbed finding splits into its own
-    row stamps when the change reaches it: the neighbour's fix that caused the
-    split is a nearby change, with no exemption. Otherwise a prior `nearby_at`
-    is carried on both the keep and the refresh branch, so one nearby edit
-    re-asks once rather than every pass after it is forgotten; a snapshot that
-    never had one stays without it. Pure; never raises.
+    top-level snapshot rides on it. `carried` says some record carried from an
+    earlier pass (status persisted or needs-recheck — statuses only the carry
+    loop assigns; the ingress scrub strips `status` from fresh findings) hashes
+    to this row's stable_hash — the lead, an absorbed member, a deduped twin, or
+    a copy the min_confidence filter or a per-member drop removed before
+    grouping; the row's evidence is pooled over every such copy from an index
+    built before any filter, `nearby` is judged at every copy's line, and the
+    prior is the pooled snapshot carrying the latest owed stamp. Which record
+    leads, and which filter removed a copy, never decides the stamp. Every
+    prior source — the lead's own snapshot included — passes one gate: its
+    stored stable_hash must equal the row's, so a copy whose own line changed
+    (a different finding) never lends its stamp. A row whose records are all
+    fresh never passes `carried=True`: the change a finding is first raised on
+    is the code it is about, not a change since. So the pass a covered or
+    absorbed finding splits into its own row stamps when the change reaches
+    it: the neighbour's fix that caused the split is a nearby change, with no
+    exemption. Otherwise a prior `nearby_at` is carried on both the keep and
+    the refresh branch, so one nearby edit re-asks once rather than every pass
+    after it is forgotten; a snapshot that never had one stays without it.
+    Pure; never raises.
     """
     canonical = row.get("canonical_line_content")
     cur = {
@@ -541,6 +543,72 @@ def _finding_identity(f):
                     title if isinstance(title, str) else ""),
         _as_line(f.get("line")),
     )
+
+
+def _current_hash(f):
+    """The stable_hash the group loop computes for finding `f` on this pass:
+    stable_hash(file, canonical-for-hash, title), with a non-str file or title
+    coerced to "". The hash component of _finding_identity. Never raises."""
+    file = f.get("file")
+    title = f.get("title")
+    return stable_hash(file if isinstance(file, str) else "",
+                       _canonical_for_hash(f),
+                       title if isinstance(title, str) else "")
+
+
+def _carried_index(working, carried_obligations, nv_carried_ids):
+    """Every carried record of a finding's identity, keyed by the hash the group
+    loop will compute for it: {current stable_hash: [(record, obligation or
+    None), ...]} in `working` order.
+
+    A record is carried when its `status` is persisted or needs-recheck —
+    statuses only the carry loop assigns (the ingress scrub strips `status`
+    from fresh findings). A carried Needs-verification record keeps its stored
+    hash on its own route and never corroborates, so it is left out.
+    `obligation` is the record's stored obligation (stored stable_hash and
+    snapshot) when it has been a row. Collected BEFORE the Needs-verification
+    route, the min_confidence filter, per-member drops and member dedup, so no
+    filter can remove a copy's evidence from the row it hashes to (D-19;
+    57-REVIEW-GAPS3.md CR-02). Pure; never raises.
+    """
+    index = {}
+    for rec in working:
+        if rec.get("status") not in _CARRIED_STATUSES or id(rec) in nv_carried_ids:
+            continue
+        entry = carried_obligations.get(id(rec))
+        obligation = entry["obligation"] if entry is not None else None
+        index.setdefault(_current_hash(rec), []).append((rec, obligation))
+    return index
+
+
+def _any_nearby(records, changed_line_ranges):
+    """True when this pass's change ranges reach any of `records` (each judged
+    at its own line, _nearby_changed). Pure; never raises."""
+    return any(_nearby_changed(r, changed_line_ranges) for r in records)
+
+
+def _prior_rank(snapshot):
+    """Sort key for a candidate prior snapshot: the latest `nearby_at` first (a
+    snapshot without a well-formed one ranks after every stamped one), then the
+    oldest `at_pass` (a missing one ranks last). Pure; never raises."""
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    nearby_at = _as_line(snapshot.get("nearby_at"))
+    at_pass = _as_line(snapshot.get("at_pass"))
+    return (
+        (0, -nearby_at) if nearby_at is not None else (1, 0),
+        (0, at_pass) if at_pass is not None else (1, 0),
+    )
+
+
+def _pooled_prior(candidates):
+    """The prior snapshot of a row pooled from every carried copy of its
+    identity: the one carrying the latest owed `nearby_at` (fail toward asking),
+    the oldest `at_pass` among equals — never the first candidate in arrival
+    order (D-19). None for no candidates. Pure; never raises."""
+    if not candidates:
+        return None
+    return min(candidates, key=_prior_rank)
 
 
 def _member_ref(m):
@@ -2343,6 +2411,11 @@ def run(envelope):
         if id(v) not in consumed_ids:
             _reject_verdict("verdict: record not carried",
                             requests_by_token.get(v.get("token")))
+    # Every carried record, by the hash its row will have, taken BEFORE any
+    # filter: the min_confidence drop and the per-member drops in the group
+    # loop below no longer take a copy's evidence with them (57-REVIEW-GAPS3.md
+    # CR-02).
+    carried_by_hash = _carried_index(working, carried_obligations, nv_carried_ids)
 
     # --- Needs-verification route (QUIET-06/07, R8) --------------------------- #
     # BEFORE the min_confidence filter and BEFORE site grouping: a record whose
@@ -2539,8 +2612,12 @@ def run(envelope):
         # (capped, then uncapped) score, then the member's OWN stable_hash
         # (Fable A4: the old stable sort kept whichever tied member arrived
         # FIRST, so the dismissal key depended on agent-return order), then the
-        # agent name — the final tie-break for two lanes reporting one title at
-        # one line (equal hash), so the pick never depends on arrival order.
+        # agent name (two lanes reporting one title at one line, equal hash),
+        # then the record's line — the final tie-break: two same-lane records of
+        # one identity at different lines (an identical line twice; stable_hash
+        # has no line number) are led by the lower line whichever the agent
+        # returned first, so the pick never depends on arrival order
+        # (57-REVIEW-GAPS3.md CR-01).
         # For a single-category group without the cap this is the old
         # score-then-hash order. The uncapped key keeps the highest raw score
         # first among members the ceiling equalizes.
@@ -2551,6 +2628,7 @@ def run(envelope):
             stable_hash(t[1].get("file", ""), t[2]["canonical_for_hash"],
                         t[1].get("title", "")),
             t[1].get("agent") if isinstance(t[1].get("agent"), str) else "",
+            _as_line(t[1].get("line")) or 0,
         ))
         # The per-command finalize cutoff below judges the UNCAPPED score: the
         # lone-lane ceiling lowers the band label, it never drops a finding (a
@@ -2597,34 +2675,35 @@ def run(envelope):
         )
         if "status" not in survivor:
             survivor["status"] = "new"
-        # Any source record carried under this row's hash — the lead, an
-        # absorbed member, or the same-identity duplicate the member dedup below
-        # drops — is this row's earlier self. Its stored snapshot (an owed
-        # `nearby_at`, an older `at_pass`) is the prior _snapshot_for compares
-        # against, read HERE, before the dedup discards the duplicate, so neither
-        # a split nor a change of lead resets the evidence clock. Hash equality
-        # is required: a changed line hashes differently and is a different
-        # finding, so the seed never carries a foreign stamp. A carried lead rep
-        # already holds a top-level snapshot, so this is a no-op for it.
-        if "snapshot" not in survivor:
-            for _, m, _, _, _ in scored_members:
-                entry = carried_obligations.get(id(m))
-                if entry is None:
-                    continue
-                obl = entry["obligation"]
-                if (obl.get("stable_hash") == survivor["stable_hash"]
-                        and isinstance(obl.get("snapshot"), dict)):
-                    survivor["snapshot"] = obl["snapshot"]
-                    break
-        # A record only score.py's carry loop can mark persisted / needs-recheck
-        # (the ingress scrub strips `status` from fresh findings) that hashes to
-        # this row existed before this pass, whichever record leads. A row whose
-        # records are all fresh stays uncarried.
-        row_carried = any(
-            m.get("status") in _CARRIED_STATUSES
-            and stable_hash(m.get("file", ""), d["canonical_for_hash"],
-                            m.get("title", "")) == survivor["stable_hash"]
-            for _, m, d, _, _ in scored_members)
+        # Evidence for a row is pooled over every carried record of its
+        # identity, from `carried_by_hash`, built before any filter (D-19): which record
+        # leads, and which filter removed a copy, never decides the stamp.
+        # Every prior source passes one gate — its stored stable_hash must equal
+        # the row's — the lead's own top-level snapshot included (IN-01): a
+        # carried lead whose line changed re-hashes into a different finding
+        # and its stamp is dropped here. A scored row always carries a stored
+        # stable_hash (review.md Phase 3 fail-closed check), so a lead without
+        # one lends no prior.
+        same_hash = carried_by_hash.get(survivor["stable_hash"], ())
+        own = survivor.pop("snapshot", None)
+        candidates = [
+            o["snapshot"] for _, o in same_hash
+            if o is not None
+            and o.get("stable_hash") == survivor["stable_hash"]
+            and isinstance(o.get("snapshot"), dict)]
+        if isinstance(own, dict) and best_member.get("stable_hash") == survivor["stable_hash"]:
+            candidates.append(own)
+        prior = _pooled_prior(candidates)
+        if prior is not None:
+            survivor["snapshot"] = prior
+        # Some record only the carry loop can mark persisted / needs-recheck
+        # hashes to this row — the lead, an absorbed member, a deduped twin, or
+        # a copy a filter removed before grouping; an all-fresh row stays
+        # uncarried (57-04).
+        row_carried = bool(same_hash)
+        # Nearby is judged at every carried copy's line as well as the row's
+        # (D-19; 57-REVIEW-GAPS3.md CR-01).
+        row_nearby = _any_nearby([survivor] + [r for r, _ in same_hash], changed_line_ranges)
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
         # first, then the absorbed members in scored order, de-duplicated by
         # each member's lane-aware occurrence identity (never by (agent, title),
@@ -2674,12 +2753,12 @@ def run(envelope):
                 "title": loser.get("title"),
                 "reason": "absorbed-into: " + survivor["stable_hash"],
             })
-        survivors.append((survivor, surface_score, row_carried))
+        survivors.append((survivor, surface_score, row_carried, row_nearby))
         survivor_sources.append([m for _, m, _, _, _ in scored_members])
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
     kept = []
-    for (survivor, sc, carried), sources in zip(survivors, survivor_sources):
+    for (survivor, sc, carried, row_nearby), sources in zip(survivors, survivor_sources):
         if sc < threshold:
             filtered.append({
                 "file": survivor.get("file"),
@@ -2690,9 +2769,9 @@ def run(envelope):
             dropped.extend((m, "sub-threshold") for m in sources
                            if id(m) in carried_obligations)
             continue
-        nearby = _nearby_changed(survivor, changed_line_ranges)
-        # `carried` is the row's `row_carried`, computed in the group loop: some
-        # record carried under this row's hash existed before this pass.
+        # `carried` and `nearby` are the row properties pooled in the group
+        # loop over every carried record of this row's identity.
+        nearby = row_nearby
         survivor["snapshot"] = _snapshot_for(survivor, pass_number, nearby=nearby,
                                              carried=carried)
         kept.append(survivor)
