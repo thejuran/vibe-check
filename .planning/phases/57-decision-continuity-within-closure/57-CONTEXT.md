@@ -51,6 +51,8 @@ An owner's defer/dismiss decision stays bound to its evidence: it survives regro
 
 - **D-17 (owner, 2026-10-26, after re-verification):** When a covered or absorbed finding splits into its own row on the pass whose edit caused the split (typically the neighbouring lead's fix), that edit counts as a nearby change under D-14 if it is within the window: the finding reopens once with "code next to it changed". No exemption for the neighbour's own fix. A newly split row must therefore get the nearby stamp on its split pass even though it has no prior snapshot of its own.
 
+- **D-18 (orchestrator scope call, 2026-10-27, under the owner's standing rule that silent finding loss justifies new work):** The non-split shape of 57-REVIEW-GAPS2 CR-01/SA-01 (a same-lane fresh re-report out-ranks the carried record of a decided row that never splits, dropping its nearby evidence) is folded into the third gap closure rather than deferred. Same root cause, same code change; fixed at the root: a row's carried status and prior evidence come from any carried same-hash record in it, not only the lead. Not a product ruling; reversible by the owner.
+
 ### Carried forward (locked from earlier phases)
 - Reproduce first; non-reproducing paths are recorded and dropped, never replaced with invented work (owner rule, v2.13).
 - Never re-ask without new evidence (v2.11 rule; Phase 56 D-09).
