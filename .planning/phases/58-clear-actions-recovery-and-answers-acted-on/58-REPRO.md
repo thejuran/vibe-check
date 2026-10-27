@@ -218,3 +218,36 @@ Run on 2026-10-27 at HEAD `41a381f` (the Task-1 doc commit; no plugin file diffe
 A passing mutant test asserts the lock *trips* on its mutant, so "passed" here means every mutant is caught. Each plan also applied its mutants to the real files and recorded the failing tests (tables in the SUMMARYs and in V1-V5 above).
 
 No plugin file was modified by 58-06: `git log --name-only --format= 24dccdc..HEAD -- plugins | grep -c .` = 32 before and after this plan's commits.
+
+---
+
+## Gap round gate
+
+Run on 2026-10-27 at HEAD `f62468e` (the 58-17 docs commit; the last plugin change is 140219f). This is the first run after every gap plan, 58-10 through 58-17, had landed. Commands were run from `plugins/vibe-check` unless noted, in one `bash -s` fence, with bare `pytest`. Replay reports were written to the session scratchpad. `replay.py` requires `--out`.
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `pytest -q` | `3542 passed, 4699 subtests passed in 160.08s`: 0 failed. 3465 (58-06 gate) + 77 new tests from 58-10..58-17 (per SUMMARYs: 58-10 +14, 58-12 +3, 58-13 +3, 58-16 +6, 58-11 +25, 58-14 +10, 58-15 +8, 58-17 +8) |
+| Replay tests | `pytest -q scripts/test_replay.py` | `64 passed, 10 subtests passed` |
+| Replay candidate | `python3 replay.py candidate --name phase58-gap-gate --scorer rev:HEAD --out <scratchpad>/phase58-gap-candidate.md` (from `scripts/`) | exit 0. `REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1`; `kept 25 / protected 26`; **REGRESSED 0**; UNEVALUABLE 0; AMENDED 1. The amended run is the pre-existing `runs/triggarr-secret-in-logs/run-2`, ledger 008, unchanged. Candidate scorer sha256 `3504d2da79e9ebab26bfedd01c7614c9b7cc06ade99c12b7e24e90003edd22fb`, identical to 58-06 / 57-23 |
+| Replay diff | `python3 replay.py diff --base rev:24c0c00 --scorer rev:HEAD --roots all --allow ../../../docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json --out <scratchpad>/phase58-gap-diff.md` | exit 0; 170 runs compared, 0 differing, 0 differing (allowed), 0 unallowed; Differences: none |
+| Golden | `pytest -q scripts/test_score.py -k golden` | `9 passed, 491 deselected` |
+| Golden digest | `score.stable_hash('a.py','  x=1','title') == test_score.GOLDEN_DIGEST` (from `scripts/`) | `golden ok` |
+| Import sets | `pytest -q test_score.py -k ImportSet`; `pytest -q test_carry_state.py -k ImportSet` | `3 passed` each |
+| Frozen files | `git diff --stat 24dccdc..HEAD -- plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/batch_parse.py` | empty |
+| Carrier round-trip | `pytest -q scripts/test_fix_loop_card.py -k CarrierRoundTrip -v` | `4 passed, 122 deselected`. 58-06 had 3; 58-13 rebuilt `test_close_out_drops_the_marker` and added the in-memory strip mutant. Each test loops over `SHELLS` = `/bin/bash` and `/bin/zsh` |
+
+**Mutant inventory, gap round.** Counts are taken at the 58-06 gate commit `41a381f` (with `git show 41a381f:<file> | grep -c`) and at HEAD:
+
+| Module | Grep | 41a381f → HEAD | Run (HEAD) | Gap plans |
+|---|---|---|---|---|
+| `test_answer_resolve.py` | `def test_m[0-9]*_\|subTest("mutant` | 10 → 18 (+8) | `-k "mutant or m6 or m7 or m8 or m9 or Trips"`: 9 passed, 18 subtests | 58-10 (in-test m6-m9; real-file m6-m9) |
+| `test_bottom_line_suggest.py` (new) | `def test_s[1-3]_` | 0 → 3 | `-k "s1 or s2 or s3"`: 3 passed, 6 subtests | 58-11 (real-file s1-s3) |
+| `test_fix_loop_card.py` | `def test_mutant_` | 28 → 38 (+10) | `-k mutant`: 57 passed, 59 subtests | 58-13 (+1), 58-14 (+5; real-file L1-L7), 58-15 (+4; real-file T5-T8) |
+| `test_finalize_card.py` | `def test_mutant_` | 9 → 16 (+7) | `-k mutant`: 16 passed, 35 subtests | 58-16 (+3; real-file F1-F5), 58-17 (+4; real-file M13-M16) |
+| `test_recovery_pairs.py` | `def test_` / `def test_[mn]_` | 18 → 21 / 0 → 2 (trip tests m, n) | `-k Trips`: 7 passed, 6 subtests | 58-12 (real-file m, n, o) |
+| `test_scope_args.py` | `def test_m[0-9]*_` | 7 → 8 (+1, m8) | `-k test_m`: 11 passed, 80 subtests | 58-13 (D-20 sentence-deletion mutant m8) |
+
+A passing mutant test asserts that the lock trips on its mutant, so "passed" means every mutant was caught. Each gap plan also applied its mutants to the real file, recorded the failing tests and reverted. The SUMMARYs of 58-10..58-17 and the ledger below hold those tables. The finalize-card gain is +7 methods, below the "≥ 9" the 58-18 plan estimated. Its nine real-file mutants (F1-F5, M13-M16) were all killed per 58-16 / 58-17.
+
+Plugin history since 24dccdc: `git log --name-only --format= 24dccdc..HEAD -- plugins | grep -c .` = 55 before this plan's commits (18 distinct files). 58-18 changes no plugin file.
