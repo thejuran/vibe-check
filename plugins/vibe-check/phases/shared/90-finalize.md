@@ -79,6 +79,8 @@ If Phase 0 printed `FINALIZE_MODE=1`:
 ```bash
 ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
 ANSWERFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+printf 'ROWSFILE=%s\n' "$ROWSFILE"
+printf 'ANSWERFILE=%s\n' "$ANSWERFILE"
 if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode finalize --head-blobs "$BLOBFILE" < "$STATE_FILE"); then
   printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
 else
@@ -88,6 +90,8 @@ fi
 ```
 
 If `rows` is empty while the gate blocked, the helper and the gate disagree: print the same uncertain sentence and stop (fail closed — never write REVIEW.md on a disagreement).
+
+**Temp paths are literals.** Every file this card creates prints its path when it is made: a path printed after `NAME=` is reused in a later fence only as that literal, substituted for `"$NAME"` — a shell variable does not survive into a separate Bash call (the `SUBSETFILE=` convention applies to every file this card creates).
 
 **Same-turn rule (D-04).** Call AskUserQuestion in THIS assistant turn — never from a fan-out/dispatch turn, which emits no text.
 
@@ -110,7 +114,7 @@ The stale suffix appears whether the code changed on the same line or the line i
 
 **The card.** ONE AskUserQuestion call with TWO questions, each single-select. Never add an "Other" option — the tool adds it.
 
-> **Q1** — header "Decide": "Finalize — {{N}} undecided finding(s) listed below ({{C}} critical/warning, {{V}} needs-verification, {{M}} medium{{; P unchanged since an earlier pass, decision pending}}). What should happen to them?\n\n{{card_text}}{{\n\nBottom line suggests: <grammar> — type "bottom line" in Other to take it}}" — `N` = the number of rows, `C` / `V` / `M` = rows by band; C + V + M = N (`V` = rows whose band is `needs-verification`), `P` = rows with `pending_since` set; omit the P clause when P is 0. `\n` is a line break; `{{card_text}}` is the `card_text` field, verbatim. The `Bottom line suggests:` line appears ONLY when `$SUGGESTFILE` exists (see **Bottom line as a choice (D-09)** below); omit it otherwise.
+> **Q1** — header "Decide": "Finalize — {{N}} undecided finding(s) listed below ({{C}} critical/warning, {{V}} needs-verification, {{M}} medium{{; P unchanged since an earlier pass, decision pending}}). What should happen to them?\n\n{{card_text}}{{\n\nBottom line suggests: <grammar> — type "bottom line" in Other to take it}}" — `N` = the number of rows, `C` / `V` / `M` = rows by band; C + V + M = N (`V` = rows whose band is `needs-verification`), `P` = rows with `pending_since` set; omit the P clause when P is 0. `\n` is a line break; `{{card_text}}` is the `card_text` field, verbatim. The `Bottom line suggests:` line appears ONLY when the suggestion fence below printed a `SUGGESTFILE=` path created for this card (see **Bottom line as a choice (D-09)** below); omit it otherwise.
 > **Options** (exactly these labels, in this order):
 > 1. **Dismiss all** — "Dismiss every MEDIUM row. Critical, warning and Needs-verification rows stay open unless you name them by number in Mixed…"
 > 2. **Defer all** — "Defer every MEDIUM row; same rule for critical, warning and Needs-verification rows"
@@ -125,7 +129,7 @@ The stale suffix appears whether the code changed on the same line or the line i
 
 Option 3's description is copied from the rows doc: it is the `bulk_fix_text` field of `$ROWSFILE`, verbatim — the helper names the Needs-verification rows Fix all leaves out by number (D-10, D-12); this file never computes that set.
 
-**Bottom line as a choice (D-09).** Offer the last pass's Bottom line verdict as a typed answer ONLY when THIS session rendered the last pass's Bottom line (Finalize reached through Close out right after a pass's report); a separate `--finalize` invocation renders no report, so the line is omitted there. The verdict must be re-translated against THIS card's rows — Finalize numbering differs from the fix-loop card, so a grammar written for that card is never reused — and only when it maps cleanly to the listed rows (e.g. "fix the first two, defer the rest" → `fix 1,2; defer rest -- <the Bottom line's own why>`). Create the suggestion file under bash:
+**Bottom line as a choice (D-09).** Offer the last pass's Bottom line verdict as a typed answer ONLY when THIS session rendered the last pass's Bottom line (Finalize reached through Close out right after a pass's report); a separate `--finalize` invocation renders no report, so the line is omitted there. The verdict must be re-translated against THIS card's rows — Finalize numbering differs from the fix-loop card, so a grammar written for that card is never reused — its suggestion file was removed at Close out; only a line printed on THIS card counts — and only when it maps cleanly to the listed rows (e.g. "fix the first two, defer the rest" → `fix 1,2; defer rest -- <the Bottom line's own why>`). Create the suggestion file under bash:
 
 ```bash
 if SUGGESTFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX"); then
@@ -150,10 +154,11 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
 
 Bulk Dismiss all / Defer all (and `dismiss rest` / `defer rest`) apply to mediums only and never cover a Needs-verification item; a critical, warning or needs-verification row is dismissed or deferred only when named by number; several may be named at once with one reason (`defer 2,5 -- wired in Phase 7`) and each is recorded individually (R10) (D-12). `batch_card.py parse` enforces this — this file never expands a bulk choice itself.
 
-**Parse.** When the Other text is "bottom line" / "do what it says" (or similar) and `$SUGGESTFILE` exists for this card, take the suggestion instead of writing the text: copy it file-to-file with `cp "$SUGGESTFILE" "$ANSWERFILE"` under bash and run the parse fence below (same gate, same bulk rules; D-09); with no `$SUGGESTFILE`, or when the copy fails, treat it as any other plain-English answer. Otherwise write `{"q1": "<the tool result's FULL Q1 answer string — including any `notes:` text and any trailing `-- reason` — verbatim>", "q2": "<Q2 answer verbatim, or null>"}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line. Then run under bash:
+**Parse.** When the Other text is "bottom line" / "do what it says" (or similar) and a `Bottom line suggests:` line was printed on the card currently shown, take the suggestion instead of writing the text: copy it file-to-file with `cp "$SUGGESTFILE" "$ANSWERFILE"` under bash (the literal `SUGGESTFILE=` and `ANSWERFILE=` paths) and run the parse fence below (same gate, same bulk rules; D-09); with no such line on the shown card, or when the copy fails, treat it as any other plain-English answer. Otherwise write `{"q1": "<the tool result's FULL Q1 answer string — including any `notes:` text and any trailing `-- reason` — verbatim>", "q2": "<Q2 answer verbatim, or null>"}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line. Then run under bash:
 
 ```bash
 PARSEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+printf 'PARSEFILE=%s\n' "$PARSEFILE"
 if python3 "$VC_ROOT/scripts/batch_card.py" parse --rows "$ROWSFILE" --answer "$ANSWERFILE" > "$PARSEFILE"; then
   cat "$PARSEFILE"
 else
@@ -168,8 +173,9 @@ On a refusal the helper has printed one fixed reason on stderr (it never contain
 REFSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
 RESOLVEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
 printf 'REFSFILE=%s\n' "$REFSFILE"
+printf 'RESOLVEFILE=%s\n' "$RESOLVEFILE"
 ```
-Then, once the refs are written:
+Then, once the refs are written, substitute the printed `ROWSFILE=`, `REFSFILE=` and `RESOLVEFILE=` paths:
 ```bash
 if python3 "$VC_ROOT/scripts/batch_card.py" resolve --rows "$ROWSFILE" --answer "$REFSFILE" > "$RESOLVEFILE"; then
   cat "$RESOLVEFILE"
@@ -178,7 +184,7 @@ else
 fi
 ```
 `resolve` maps each ref to the current row numbers and builds the card grammar; it decides nothing. Branch on its output:
-- `ok` true → copy the grammar file-to-file into `$ANSWERFILE`:
+- `ok` true → copy the grammar file-to-file into `$ANSWERFILE` (the printed `RESOLVEFILE=` and `ANSWERFILE=` paths):
   ```bash
   if python3 -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
     :
@@ -189,7 +195,7 @@ fi
   Then run the SAME parse fence above — the parser stays the only gate, and nothing it refuses is acted on (a refusal here is never translated again; go to the next bullet). On exit 0 print `Read your answer as: <grammar>` as message text, then continue at **After the answer** exactly as a typed answer does (its `otherwise` bullet prints `echo_text`) — no confirm card.
 - `ok` false, a `resolve` refusal, or a copy refusal → **Ask only what is missing (D-05, D-06)** below.
 
-**Stale card (D-07).** When the card the owner answered is not the current one (a review pass re-ran, or an earlier `--finalize` built a card the owner is still answering, so its rows may be renumbered or changed), write every row number in the answer as a `prior_number` ref — `{"verb": V, "kind": "prior_number", "n": N}` — and bind `$PRIORROWSFILE` to the rows file of the card they answered (that card's `$ROWSFILE` path, used as is — never retyped or rebuilt). Run this twin of the resolve fence in its place, then branch on its output exactly as above:
+**Stale card (D-07).** When the card the owner answered is not the current one (their numbers are those of the fix-loop card shown before Close out in this session, whose rows are numbered differently here), write every row number in the answer as a `prior_number` ref — `{"verb": V, "kind": "prior_number", "n": N}` — and bind `$PRIORROWSFILE` to the literal path that card's rows fence printed after `ROWSFILE=` (Close out keeps that file; substituted for `"$PRIORROWSFILE"` in the twin fence — never retyped or rebuilt). When no such path was printed in this session (a separate `--finalize` invocation renders no earlier card) there is no prior card to map from: record nothing and go to the full-card fallback at the end of **Ask only what is missing**, its note saying the numbers refer to an earlier card that is no longer available. Otherwise run this twin of the resolve fence in its place, then branch on its output exactly as above:
 ```bash
 if python3 "$VC_ROOT/scripts/batch_card.py" resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows "$PRIORROWSFILE" > "$RESOLVEFILE"; then
   cat "$RESOLVEFILE"
@@ -205,7 +211,7 @@ fi
 - `needs_reason` true → header "Reason"; options exactly `False positive`, `Accepted risk` and `Out of scope for this milestone` (the owner's own words arrive through Other). On Finalize the reason has two sources — the owner's inline why and the Q2 pick — so this question is asked only when both are absent: a Q2 pick is already the reason and is never asked for again.
 - A `blocked` ref is never asked about — it resolves once the ref it waits on is answered. A `resolve` refusal or a copy refusal has no piece to narrow — go straight to the full-card fallback at the end of this paragraph.
 
-Then write the completed refs to `$REFSFILE` with the Write tool — the same refs, each unclear one replaced by `number` refs for the chosen rows, and the chosen reason as `reason` — and re-run the resolve fence (its `--prior-rows` twin while any `prior_number` ref remains). `ok` true → the `ok` true branch above (the grammar copy, the SAME parse fence, `Read your answer as:`), then continue at **After the answer** with the whole answer together, exactly as a typed answer does — the gate re-runs there. There is one follow-up per gap (D-08): when the reply is still unclear — `resolve` is still not `ok`, or the reply names nothing on the list — still nothing is recorded; show the full card once, its Q1 question led by a note built from the resolve output that says what could not be matched (e.g. "Could not match: dismiss reference 2 — matched 0 rows; nothing from your answer was recorded"), then stop asking: the owner's answer to that card is taken as a new answer.
+Then write the completed refs to `$REFSFILE` with the Write tool — the same refs, each unclear one replaced by `number` refs for the chosen rows, and the chosen reason as `reason` — and re-run the resolve fence (its `--prior-rows` twin while any `prior_number` ref remains). `ok` true → the `ok` true branch above (the grammar copy, the SAME parse fence, `Read your answer as:`), then continue at **After the answer** with the whole answer together, exactly as a typed answer does — the gate re-runs there. There is one follow-up per gap (D-08): when the reply is still unclear — `resolve` is still not `ok`, or the reply names nothing on the list — still nothing is recorded; run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) so nothing from the abandoned translation survives, then show the full card once, its Q1 question led by a note built from the resolve output that says what could not be matched (e.g. "Could not match: dismiss reference 2 — matched 0 rows; nothing from your answer was recorded"), then stop asking: the owner's answer to that card is taken as a new answer.
 
 **After the answer** (branch on `$PARSEFILE`):
 
@@ -215,6 +221,7 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
   1. `payload` non-null → copy it file-to-file into `$DECFILE`, then run **Recording decisions** below. On a recording refusal: stop (the rule there).
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+     printf 'DECFILE=%s\n' "$DECFILE"
      if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
@@ -232,8 +239,8 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
        exit 1
      fi
      ```
-     Do NOT build or edit the list in prose. `fix_targets` holds only the hashes the owner chose; the fix-loop rows route an absorbed obligation (`absorbed_into` set) through its LEAD — after the fix the next pass re-scores it, so the member resolves, is re-absorbed, or re-emerges as its own row — and a lead you dismissed earlier in this same card stays dismissed while its member is fixed through it (the fix-loop row shows this). This covers "dismiss the lead, fix its member" in one card. Then **Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool and enter "The fix-loop card" with `$SUBSETFILE` set — carry the literal path this fence printed after `SUBSETFILE=` into that card's subset fence (a shell variable does not survive into a later Bash call); that card consumes the file once and clears it before its automatic rerun. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation's gate returns `write`.
-  3. `fix` empty → RE-RUN the counts step and the gate ONCE (same `$BLOBFILE`). `write` → the write above, whose summary message opens with `echo_text`. Still blocked → never re-show the card after recording; the stop message opens with `echo_text`, then:
+     Do NOT build or edit the list in prose. `fix_targets` holds only the hashes the owner chose; the fix-loop rows route an absorbed obligation (`absorbed_into` set) through its LEAD — after the fix the next pass re-scores it, so the member resolves, is re-absorbed, or re-emerges as its own row — and a lead you dismissed earlier in this same card stays dismissed while its member is fixed through it (the fix-loop row shows this). This covers "dismiss the lead, fix its member" in one card. Run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) — this card's answer files are consumed. Then **Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool and enter "The fix-loop card" with `$SUBSETFILE` set — carry the literal path this fence printed after `SUBSETFILE=` into that card's subset fence (a shell variable does not survive into a later Bash call); that card consumes the file once and clears it before its automatic rerun. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation's gate returns `write`.
+  3. `fix` empty → run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) — this card's answer files are consumed. Then RE-RUN the counts step and the gate ONCE (same `$BLOBFILE`). `write` → the write above, whose summary message opens with `echo_text`. Still blocked → never re-show the card after recording; the stop message opens with `echo_text`, then:
      - `outstanding_cw` non-empty → print the header and the list from the `fallback` bullet above (refer to them, do not restate them here), then "Finalize stays blocked — name each remaining critical/warning by number in Mixed… on the next `--finalize`, or fix it." and stop.
      - undecided needs-verification remain (and `outstanding_cw` is empty) → print the header and the list from the Needs-verification `fallback` bullet above, then "Finalize stays blocked — confirm (fix), dismiss or defer each Needs-verification item by number on the next `--finalize`." and stop.
      - only mediums remain → print each remaining medium as `{{file}}:{{line}} — {{title}}` (join rule above), then "These were left undecided by the card — run `--finalize` again to decide them." and stop.
