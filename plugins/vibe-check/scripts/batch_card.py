@@ -43,6 +43,9 @@ exits 2. Reasons never contain a hash, a title, a path or owner text.
                     the record-decisions payload and the fix targets.
   resolve           A plain-English answer's references -> current row
                     numbers and a grammar string for `parse` to validate.
+  suggest           The report's Bottom line answer trimmed to what one
+                    typed "bottom line" may apply: `fix` for any row,
+                    `dismiss`/`defer` for medium rows only.
 
 FIX ROUTING. A fix target is not an undecided row. When the owner dismissed
 an absorbed obligation's lead and then chose to fix the still-open member,
@@ -63,10 +66,12 @@ owner text only ever arrives in the --answer file):
     python3 batch_card.py decisions-report < state.json
     python3 batch_card.py resolve --rows ROWS.json --answer REFS.json \
         [--prior-rows OLD_ROWS.json]
+    python3 batch_card.py suggest --rows ROWS.json --answer ANS.json
 
 Selection answers (select, payload): {"labels": [...] | "a, b"}, {"text":
 "1,3-5"}, {"all": true} or {"none": true} — the typed-mode buttons map to
-all / none. Finalize answers (parse): {"q1": str, "q2": str | null}.
+all / none. Finalize answers (parse, suggest): {"q1": str, "q2": str |
+null}.
 References (resolve): {"refs": [...], "reason": str | null, "close_out":
 bool}; see `resolve_refs`.
 
@@ -87,7 +92,7 @@ MODES = ("fix-loop", "finalize")
 _BAND_RANK = {"critical": 0, "warning": 1, carry_state.NV_BAND: 2, "medium": 3}
 
 SUBCOMMANDS = ("rows", "select-questions", "select", "payload", "parse",
-               "decisions-report", "resolve")
+               "decisions-report", "resolve", "suggest")
 # The ONLY flags this CLI accepts. No flag ever carries owner text, a title or
 # a reason: such text arrives in a file whose path is passed here.
 KNOWN_FLAGS = ("--mode", "--head-blobs", "--subset", "--rows", "--answer",
@@ -101,6 +106,7 @@ _FLAGS_BY_SUBCOMMAND = {
     "parse": (("--rows", "--answer"), ()),
     "decisions-report": ((), ()),
     "resolve": (("--rows", "--answer"), ("--prior-rows",)),
+    "suggest": (("--rows", "--answer"), ()),
 }
 # Subcommands that read the state JSON on stdin.
 _STATE_SUBCOMMANDS = ("rows", "payload", "decisions-report")
@@ -111,6 +117,7 @@ USAGE = ("usage: batch_card.py rows --mode fix-loop [--subset PATH]"
          " | payload --rows PATH --answer PATH | parse --rows PATH"
          " --answer PATH | decisions-report"
          " | resolve --rows PATH --answer PATH [--prior-rows PATH]"
+         " | suggest --rows PATH --answer PATH"
          "  (state on stdin for rows, payload, decisions-report)\n")
 
 REASON_STATE_JSON = carry_state.REASON_STATE_JSON
@@ -123,6 +130,10 @@ REASON_ROWS_STATE = "refused: rows file does not match this state\n"
 REASON_REFS = "refused: refs file is missing or malformed\n"
 REASON_PRIOR_ROWS = "refused: prior rows file is missing or malformed\n"
 REASON_PRIOR_NEEDED = "refused: a prior-card reference needs --prior-rows\n"
+REASON_SUGGEST_EMPTY = "refused: the suggestion leaves nothing to suggest\n"
+# Printed on stderr by `suggest` when it dropped rows: a count, never a title.
+SUGGEST_TRIMMED = ("suggestion trimmed: %d serious row(s) dropped — dismiss or"
+                   " defer those in your own words\n")
 
 REASONS = (
     USAGE,
@@ -136,6 +147,7 @@ REASONS = (
     REASON_REFS,
     REASON_PRIOR_ROWS,
     REASON_PRIOR_NEEDED,
+    REASON_SUGGEST_EMPTY,
 )
 
 # AskUserQuestion limits: 1-4 questions, 2-4 options each, header <= 12.
@@ -1158,6 +1170,57 @@ def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
     }, None
 
 
+# --------------------------------------------------------------------------- #
+# suggest: the Bottom line answer, trimmed to what "bottom line" may apply.
+# --------------------------------------------------------------------------- #
+def suggest(rows_doc, answer):
+    """((suggestion, dropped), None) or (None, reason).
+
+    The report's Bottom line answer is model-written from diff-influenced
+    text, so one typed "bottom line" may apply only part of it: `fix` keeps
+    every row, while `dismiss` and `defer` keep only rows a bulk `rest` of
+    that verb could reach (medium only). Every other dismissed or deferred
+    row is dropped and its number listed in `dropped`; those rows still
+    need the owner's own words. `rest` and `all` come back as explicit
+    numbers, so the card prints exactly what will be applied.
+
+    The parser is the only gate: the answer is parsed first (its refusal is
+    passed through) and the trimmed grammar is parsed again before it is
+    returned. A suggestion with nothing left is refused.
+    """
+    result, reason = parse(rows_doc, answer)
+    if reason is not None:
+        return None, reason
+    by_hash = {row["stable_hash"]: row for row in rows_doc["rows"]}
+    clauses = []
+    fix_n = [by_hash[h]["n"] for h in result["fix_targets"]]
+    if fix_n:
+        clauses.append(("fix", fix_n))
+    dropped = set()
+    kept_decision = False
+    for verb in ("dismiss", "defer"):
+        bands = batch_parse._rest_bands_for(verb)
+        kept = []
+        for h in result[verb]:
+            row = by_hash[h]
+            if row["band"] in bands:
+                kept.append(row["n"])
+            else:
+                dropped.add(row["n"])
+        if kept:
+            clauses.append((verb, kept))
+            kept_decision = True
+    if not clauses:
+        return None, REASON_SUGGEST_EMPTY
+    grammar = _grammar_for(clauses,
+                           result["reason"] if kept_decision else None)
+    suggestion = {"q1": grammar, "q2": None}
+    _checked, reason = parse(rows_doc, suggestion)
+    if reason is not None:
+        return None, reason
+    return (suggestion, sorted(dropped)), None
+
+
 def echo_text(result):
     """The parse echo as one block of message text: the `echo` lines, then
     "Reason: …" when a reason applies. The prose puts this block where the
@@ -1418,6 +1481,14 @@ def _run_answer_side(sub, flags, state):
     answer = carry_state.read_json_file(flags["--answer"])
     if answer is None:
         return _refuse(REASON_ANSWER), ""
+    if sub == "suggest":
+        result, reason = suggest(rows_doc, answer)
+        if reason is not None:
+            return _refuse(reason), ""
+        suggestion, dropped = result
+        if dropped:
+            sys.stderr.write(SUGGEST_TRIMMED % len(dropped))
+        return 0, json.dumps(suggestion, allow_nan=False)
     if sub == "select":
         result, reason = select(rows_doc["rows"], answer,
                                 subset=rows_doc.get("subset", False))

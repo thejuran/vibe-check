@@ -826,7 +826,8 @@ class TestResolveCli(TempDirCase):
         self.assertEqual(proc.stderr.decode(), batch_card.REASON_ROWS)
 
     def test_sealed_tuples(self):
-        self.assertEqual(batch_card.SUBCOMMANDS[-1], "resolve")
+        # The full ordered tuple is pinned in test_batch_card.
+        self.assertIn("resolve", batch_card.SUBCOMMANDS)
         self.assertIn("--prior-rows", batch_card.KNOWN_FLAGS)
         self.assertNotIn("resolve", batch_card._STATE_SUBCOMMANDS)
         self.assertEqual(batch_card._FLAGS_BY_SUBCOMMAND["resolve"],
