@@ -334,7 +334,7 @@ This is **AI-assisted** code review. It's powerful, but:
   - left out of the findings only when your change adds no new exposure.
 
   If you are changing auth or validation call sites, still read the Filtered section.
-- ⚠️ **Known limitation (v2.12):** a Needs-verification item you had fixed gets **one** automatic independent re-check, on the next review run. If that run does not verify the fix (no eligible reviewer, no answer, or the file changed again), the item stays open on every later pass until you decide it or fix it again.
+- ⚠️ **Known limitation (v2.12+):** a Needs-verification item you had fixed is re-checked automatically on every later run that reviews changes while the repaired code is unchanged. If a run cannot verify it (no eligible reviewer, no answer, or the file changed again), the report says what happens next run and what you can do; the item stays open until a reviewer confirms the fix or you decide it.
 - ⚠️ **Downgrading from 2.12:** after a 2.12 run, the pre-2.12 state file has been moved aside. Reinstalling 2.11.x starts that review from a fresh pass 1, and a 2.11.x Finalize can still overwrite `REVIEW.md` by its own rules.
 
 For security-critical code, layer this with dedicated security scanners.

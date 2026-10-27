@@ -222,8 +222,9 @@ class TestRetryHonesty(unittest.TestCase):
         for rel in (RENDER_MD, OUTPUT_MD):
             with self.subTest(file=rel):
                 text = _read(rel)
-                self.assertNotIn("run /deep-review", text)
-                self.assertNotIn(OLD_TAIL, text)
+                self.assertFalse("run /deep-review" in text,
+                                 rel + " still says: run /deep-review")
+                self.assertFalse(OLD_TAIL in text, rel + " still says: " + OLD_TAIL)
 
 
 class TestReconciled(unittest.TestCase):
@@ -238,13 +239,13 @@ class TestReconciled(unittest.TestCase):
         for rel in (RENDER_MD, OUTPUT_MD):
             with self.subTest(file=rel):
                 text = _read(rel)
-                self.assertIn(NV_SUFFIX, text)
-                self.assertIn(NV_RENDER_LINE, text)
+                self.assertTrue(NV_SUFFIX in text, rel + " lacks the NV suffix")
+                self.assertTrue(NV_RENDER_LINE in text, rel + " lacks: " + NV_RENDER_LINE)
 
     def test_rows_stay_open(self):
         text = _read(RENDER_MD)
-        self.assertIn(CF_STAYS_OPEN, text)
-        self.assertIn(IR_STAYS_OPEN, text)
+        self.assertTrue(CF_STAYS_OPEN in text, "lost: " + CF_STAYS_OPEN)
+        self.assertTrue(IR_STAYS_OPEN in text, "lost: " + IR_STAYS_OPEN)
 
     def test_no_new_heading(self):
         text = _read(RENDER_MD)
