@@ -22,7 +22,7 @@ Detailed source context (owner examples, file paths, repro steps): ROADMAP.md it
 
 - [x] **DECN-01**: A lost defer/dismiss decision on regrouping or unrelated edits is reproduced before any identity rule changes; if it does not reproduce, that is recorded and the work dropped
 - [x] **DECN-02**: Owner defer/dismiss decisions survive regrouping and edits unrelated to the finding's evidence
-- [ ] **DECN-03**: A decided finding reopens when its relevant evidence changes
+- [x] **DECN-03**: A decided finding reopens when its relevant evidence changes
 
 ### Clear actions and recovery (RECV) — 999.13 subset
 
@@ -63,8 +63,8 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 | VFIX-05 | Phase 56 | Complete |
 | VFIX-06 | Phase 56 | Complete |
 | DECN-01 | Phase 57 | Complete |
-| DECN-02 | Phase 57 | Complete (gap closure 57-08..57-13) |
-| DECN-03 | Phase 57 | In Progress (re-verification gap: split-row nearby edit) |
+| DECN-02 | Phase 57 | Complete (gap closure 57-08..57-16) |
+| DECN-03 | Phase 57 | Complete (gap closure 57-08..57-16) |
 | RECV-01 | Phase 58 | Pending |
 | RECV-02 | Phase 58 | Pending |
 | ANSR-01 | Phase 58 | Pending |
@@ -78,4 +78,4 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 
 ---
 *Requirements defined: 2026-10-23*
-*Last updated: 2026-10-26 after Phase 57 gap closure (DECN-02/03 complete on the 57-13 gate)*
+*Last updated: 2026-10-26 after Phase 57 second gap closure (DECN-03 complete on the 57-16 gate)*
