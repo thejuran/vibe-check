@@ -62,6 +62,20 @@ def _renumber(rows):
     return [dict(row, n=i + 1) for i, row in enumerate(rows)]
 
 
+def _retitled(rows_doc, n, title):
+    """A deep copy of `rows_doc` with row n's title replaced."""
+    doc = copy.deepcopy(rows_doc)
+    doc["rows"][n - 1]["title"] = title
+    return doc
+
+
+def _rebanded(rows_doc, n, band):
+    """A deep copy of `rows_doc` with row n's band replaced."""
+    doc = copy.deepcopy(rows_doc)
+    doc["rows"][n - 1]["band"] = band
+    return doc
+
+
 def iplayarr_rows(at_pass=3):
     """The eight-row fix-loop card behind the repeated-card loop: the six real
     iPlayarr rows (3 critical, 2 warning, 1 medium) plus one synthetic
@@ -442,6 +456,162 @@ class TestResolveGaps(unittest.TestCase):
             [ref_number("defer", 2), ref_number("dismiss", 7),
              ref_number("fix", 4), ref_number("dismiss", 1)], reason="r"))
         self.assertEqual(out["grammar"], "fix 4; dismiss 1,7; defer 2 -- r")
+
+
+# --------------------------------------------------------------------------- #
+# Gap round: whole-token titles (WR-03), `changed` excludes joined (IN-03),
+# serious described groups need a count (D-18), two uncounted `remaining`
+# references are a parser refusal with every reference clear (WR-04).
+# --------------------------------------------------------------------------- #
+VERBATIM_TITLE_CLAUSE = "the Browse recovery issue"
+
+
+def fragment_rows():
+    doc = _retitled(iplayarr_rows(), 2, "Unused import of os")
+    return _retitled(doc, 3, "Pagination off by one")
+
+
+def stale_cause_rows():
+    """The eight-row card with row 1 changed by code, row 2 joined, row 3
+    changed nearby and row 4 changed by severity (rows 1-3 are critical)."""
+    doc = copy.deepcopy(iplayarr_rows())
+    for n, cause in ((1, "code"), (2, "joined"), (3, "nearby"),
+                     (4, "severity")):
+        doc["rows"][n - 1]["stale"] = {"cause": cause, "decision": "dismiss"}
+    return doc
+
+
+def title_status(rows_doc, text):
+    ref = resolve(rows_doc, refs_doc([ref_title("fix", text)]))["refs"][0]
+    return ref["status"], ref["rows"]
+
+
+def check_verbatim_clause(tc, out):
+    tc.assertTrue(out["ok"])
+    tc.assertEqual(out["refs"][0]["status"], "one")
+    tc.assertEqual(out["refs"][0]["rows"], [5])
+    tc.assertEqual(out["grammar"],
+                   "fix 5; dismiss 1,2,3,4,6,7,8 -- " + OWNER_REASON)
+
+
+def check_fragments_none(tc):
+    doc = fragment_rows()
+    tc.assertEqual(title_status(doc, "port"), ("none", []))
+    tc.assertEqual(title_status(doc, "on"), ("none", []))
+
+
+def check_changed_excludes_joined(tc, out):
+    tc.assertEqual(out["refs"][0]["status"], "one")
+    tc.assertEqual(out["refs"][0]["rows"], [1, 3, 4])
+
+
+def check_count_needed(tc, out, labels):
+    ref = out["refs"][0]
+    tc.assertEqual(ref["status"], "count_needed")
+    tc.assertEqual(ref["rows"], [])
+    tc.assertEqual([c["label"].split()[0] for c in ref["candidates"]], labels)
+    tc.assertFalse(out["ok"])
+    tc.assertFalse(out["needs_reason"])
+    tc.assertIsNone(out["grammar"])
+
+
+def verbatim_refs():
+    return refs_doc([ref_title("fix", VERBATIM_TITLE_CLAUSE),
+                     ref_marker("dismiss", "remaining", 7)],
+                    reason=OWNER_REASON, close_out=True)
+
+
+def nv_dismiss_case():
+    doc = _rebanded(iplayarr_rows(), 6, carry_state.NV_BAND)
+    return doc, refs_doc([ref_marker("dismiss",
+                                     "band:" + carry_state.NV_BAND)])
+
+
+class TestGapRound(unittest.TestCase):
+    def test_v1_verbatim_title_clause_resolves(self):
+        self.assertIn(VERBATIM_TITLE_CLAUSE, V1_PLAIN)
+        self.assertIn("the 7 fixed rows", V1_PLAIN)
+        out = resolve(iplayarr_rows(), verbatim_refs())
+        check_verbatim_clause(self, out)
+        self.assertTrue(out["close_out"])
+        self.assertFalse(out["needs_reason"])
+
+    def test_filler_words_do_not_block_match(self):
+        for text in ("the Browse recovery bug", "that browse recovery one"):
+            with self.subTest(text):
+                self.assertEqual(title_status(iplayarr_rows(), text),
+                                 ("one", [5]))
+
+    def test_fragment_inside_a_word_is_none(self):
+        doc = fragment_rows()
+        check_fragments_none(self)
+        self.assertEqual(title_status(doc, "import"), ("one", [2]))
+        self.assertEqual(title_status(doc, "off by one"), ("one", [3]))
+
+    def test_filler_only_text_is_none(self):
+        # "a" is inside every title as a letter and as a word: filler-only
+        # text names no row, never one or many.
+        for text in ("the issue", "a", "this one"):
+            with self.subTest(text):
+                out = resolve(iplayarr_rows(),
+                              refs_doc([ref_title("fix", text)]))
+                ref = out["refs"][0]
+                self.assertEqual(ref["status"], "none")
+                self.assertEqual(ref["candidates"], [])
+                self.assertFalse(out["ok"])
+
+    def test_title_tokens_are_punctuation_insensitive(self):
+        for text in ("browse-recovery", "Browse, recovery."):
+            with self.subTest(text):
+                self.assertEqual(title_status(iplayarr_rows(), text),
+                                 ("one", [5]))
+
+    def test_changed_marker_excludes_joined(self):
+        out = resolve(stale_cause_rows(),
+                      refs_doc([ref_marker("fix", "changed")]))
+        check_changed_excludes_joined(self, out)
+
+    def test_dismiss_serious_group_without_count_needs_count(self):
+        doc, refs = nv_dismiss_case()
+        check_count_needed(self, resolve(doc, refs), ["#6"])
+        with self.subTest("defer band:warning"):
+            out = resolve(iplayarr_rows(), refs_doc(
+                [ref_marker("defer", "band:warning")], reason="later"))
+            check_count_needed(self, out, ["#4", "#5", "#6", "#7"])
+        with self.subTest("dismiss changed incl. a critical"):
+            out = resolve(stale_cause_rows(), refs_doc(
+                [ref_marker("dismiss", "changed")], reason="x"))
+            check_count_needed(self, out, ["#1", "#3", "#4"])
+
+    def test_medium_and_fix_groups_without_count_still_one(self):
+        out = resolve(iplayarr_rows(), refs_doc(
+            [ref_marker("dismiss", "band:medium")], reason="noise"))
+        self.assertEqual(out["refs"][0]["status"], "one")
+        self.assertEqual(out["refs"][0]["rows"], [8])
+        self.assertTrue(out["ok"])
+        out = resolve(iplayarr_rows(),
+                      refs_doc([ref_marker("fix", "band:critical")]))
+        self.assertEqual(out["refs"][0]["status"], "one")
+        self.assertEqual(out["refs"][0]["rows"], [1, 2, 3])
+
+    def test_counted_serious_group_matches(self):
+        out = resolve(iplayarr_rows(), refs_doc(
+            [ref_marker("dismiss", "band:critical", 3)], reason="x"))
+        self.assertEqual(out["refs"][0]["status"], "one")
+        self.assertEqual(out["refs"][0]["rows"], [1, 2, 3])
+        out = resolve(iplayarr_rows(), refs_doc(
+            [ref_marker("dismiss", "band:critical", 2)], reason="x"))
+        self.assertEqual(out["refs"][0]["status"], "count_mismatch")
+
+    def test_two_uncounted_remaining_is_ok_false_with_every_ref_clear(self):
+        out = resolve(iplayarr_rows(), refs_doc(
+            [ref_number("fix", 1), ref_marker("dismiss", "remaining"),
+             ref_marker("defer", "remaining")], reason="x"))
+        self.assertFalse(out["ok"])
+        self.assertTrue(all(r["status"] in ("one", "bulk")
+                            for r in out["refs"]))
+        self.assertFalse(out["needs_reason"])
+        self.assertEqual(out["parse_reason"], batch_parse.REASON_REST_TWICE)
 
 
 # --------------------------------------------------------------------------- #
