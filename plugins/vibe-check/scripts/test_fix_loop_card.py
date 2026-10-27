@@ -1602,6 +1602,11 @@ _MARKER_REENTRY_RE = re.compile(
 _CLOSE_OUT_REENTRY_RE = re.compile(
     r'\$ARGUMENTS = "(\$\{original_args\} --finalize[^"]*)"')
 _PRIOR_RUN_ON = ("49-foo --close-out-after-rerun --finalize")
+# The Rerun's own re-entry with the marker on: the $ARGUMENTS of the pass
+# whose card then answers Close out.
+_PRIOR_RERUN = "49-foo --close-out-after-rerun"
+MARKER_STRIP_CLAUSE = ("s/ --close-out-after-rerun"
+                       "( --close-out-after-rerun)* / /g")
 
 
 def ask_paragraph(card):
@@ -1850,16 +1855,38 @@ class TestCarrierRoundTrip(unittest.TestCase):
                                  "49-foo")
 
     def test_close_out_drops_the_marker(self):
+        # The pass that reaches Close out was entered by the Rerun with the
+        # marker on. ${original_args} is that pass's $ARGUMENTS minus the
+        # whole-token flags, i.e. what the real normalizer derives, so build
+        # it through the fence rather than typing the clean value in.
         reentry = close_out_reentry(self.card)
         self.assertIsNotNone(reentry, "no Close out re-entry found")
         self.assertEqual(reentry, REENTRY)
-        args = reentry.replace("${original_args}", "49-foo")
         for shell in SHELLS:
             with self.subTest(shell=shell):
+                original_args = scope_args(self.block, _PRIOR_RERUN, shell)
+                self.assertEqual(original_args, "49-foo")
+                args = reentry.replace("${original_args}", original_args)
                 self.assertEqual(carrier_flag(self.block, args, shell), "0")
                 self.assertEqual(finalize_mode(self.block, args, shell), "1")
                 self.assertEqual(scope_args(self.block, args, shell),
                                  "49-foo")
+
+    def test_mutant_strip_removed_marker_would_carry(self):
+        # Without the normalizer's marker strip, ${original_args} keeps the
+        # marker and Close out's re-entry would carry it into Finalize.
+        clause = MARKER_STRIP_CLAUSE + "; "
+        self.assertIn(clause, self.block)
+        mutated = self.block.replace(clause, "")
+        self.assertNotEqual(mutated, self.block)
+        reentry = close_out_reentry(self.card)
+        self.assertIsNotNone(reentry, "no Close out re-entry found")
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                original_args = scope_args(mutated, _PRIOR_RERUN, shell)
+                self.assertIn("--close-out-after-rerun", original_args)
+                args = reentry.replace("${original_args}", original_args)
+                self.assertNotEqual(carrier_flag(mutated, args, shell), "0")
 
     def test_non_stripping_original_args_would_carry(self):
         # What Close out would send if ${original_args} kept the marker:
