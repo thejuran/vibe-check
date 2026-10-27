@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: "Executing Phase 57 fourth (final, D-19) gap closure — 57-22 done, 57-23 next"
-stopped_at: "Completed 57-22-PLAN.md (D-20: deferred covered member stays open below threshold; 3 score.py mutants)"
-last_updated: "2026-10-27T12:00:00.000Z"
-last_activity: "2026-10-27 -- 57-22 done (70e0719, 6626edb, 92b135d): carry_state deferred read, $DEFERRED_HASHES binding + deferred_hashes envelope key, score.py keeps a deferred covered member open below threshold; full suite 3311 passed, 0 failed"
+status: "Phase 57 fourth (final) gap closure executed (57-20..57-23); code review + re-verification next; D-19 hard stop in force"
+stopped_at: "Phase 57 pooled-evidence mechanism fix + D-20 deferred keep-open closed — next /bm:code-review 57 then /bm:verify-work 57; if a wrong-keep remains, close Phase 57 with a 999.x known limit (D-19), no fifth round"
+last_updated: "2026-10-27T10:54:05.000Z"
+last_activity: "2026-10-27 -- Phase 57 fourth gap closure 57-20..57-23 executed; DECN-03 re-marked complete; D-19 hard stop recorded"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 29
-  completed_plans: 28
-  percent: 97
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -20,17 +20,19 @@ progress:
 
 ## Current Position
 
-Phase: 57 (decision-continuity-within-closure) — EXECUTING FOURTH (FINAL) GAP CLOSURE
-Plan: 22 of 23 complete
-Status: Executing Phase 57 gap closure (57-22 done; 57-23 final gate next)
-Last activity: 2026-10-27 -- 57-22 done (70e0719, 6626edb, 92b135d): D-20 deferred findings stay open below threshold; full suite 3311 passed, 0 failed
+Phase: 57 (decision-continuity-within-closure) — FOURTH (FINAL) GAP CLOSURE EXECUTED, AWAITING REVIEW + RE-VERIFICATION
+Plan: 23 of 23 complete
+Status: Phase 57 fourth (final) gap closure executed (57-20..57-23); code review + re-verification next; D-19 hard stop in force
+Last activity: 2026-10-27 -- Phase 57 fourth gap closure 57-20..57-23 executed; DECN-03 re-marked complete on the 57-23 gate; D-19 hard stop recorded
 
 ## Operator Next Steps
 
+- NEXT: `/bm:code-review 57` (fourth-round review of 57-20..57-22), then `/bm:verify-work 57`. HARD STOP (D-19): if the review after this round still finds a wrong-keep, close Phase 57 with it documented as a known limit (backlog 999.x) rather than opening another round — no fifth structural round; only a reproduced data-loss / silent-finding-loss class may still add work. 57-23 gate (at HEAD 33a951e; plugins identical to the final code commit 92b135d): full suite 3311 passed, 0 failed, 0 SUBFAILED (3273 + 38 new); test_replay.py 64 passed; golden ok; import sets 3+3 passed; replay candidate REGRESSED 0 / UNEVALUABLE 0 / AMENDED 1 (pre-existing triggarr-secret-in-logs/run-2); replay diff vs rev:24c0c00 170 compared, 0 differing, 0 unallowed (no allowances file); reverse-run ledger: every 57-20 red reproduced at 8a0563a and green at 92b135d. Outcome: mechanism fixed — carried evidence pooled from an index built before any filter, nearby judged at every copy's line, latest owed stamp kept, deterministic lead by line, one hash gate on every prior source; D-20: a deferred covered member below threshold stays open under its own hash via `$DEFERRED_HASHES` -> `deferred_hashes`; nine-shape invariance guard; 10 mutants. DECN-03 re-marked complete. OPEN D-20 edge for the owner to rule on (reproduced by 57-23, not fixed — scope): a deferred covered member removed by the opt-in `min_confidence` filter (not by the threshold) still leaves the open list and Finalize writes; repro + candidate 999.x in deferred-items.md.
+- Prior gap-closure gate (57-19): full suite 3273 passed, 0 failed; test_replay.py 64; golden ok; import sets unchanged; replay candidate REGRESSED 0; replay diff 170 runs, 0 differing; DECN-03 was re-marked complete, then reverted to In Progress by the round-3 review (57-REVIEW-GAPS3.md) and is now complete again on the 57-23 gate.
 - 57-22 done (70e0719, 6626edb, 92b135d): `carry_state.py deferred` (read-only, exit 2 on malformed state) lists the owner's defer decisions; 05-state.md Phase 0.5 binds it fail-closed as `$DEFERRED_HASHES`, 30-collect-score.md forwards it as envelope key `deferred_hashes` (both prose additions locked, 4 prose mutants); score.py keeps a covered member of a deferred row that falls below threshold as a kept-open row under its own hash at the deferred band, stamped as carried so the inherited deferral reads stale/nearby and blocks Finalize until the owner decides; dismissed still drops; no-key envelopes unchanged. 3 score.py mutants (kind gate, entry, carried stamp); m57-04 re-anchored. Full suite 3311 passed, 0 failed; golden ok; TestDiffMode 16. Residual noted (not fixed): a deferred covered member removed by min_confidence is not synthesized. NEXT: 57-23.
 - 57-21 done (1ff5702, 333a5cd): score.py builds `carried_by_hash` (every carried record by its current stable_hash) before the NV route, min_confidence and per-member drops; a row's carried-ness, nearby (judged at every copy's line) and prior (latest owed nearby_at, then oldest at_pass) are pooled from it; every prior source, the lead's own snapshot included, must carry the row's stable_hash (IN-01 closed in code); member sort ends with the line (deterministic lead). p1/p2/p3/p4/in01 and all invariance subtests green; only the D-20 defer test stays red (57-22). 4 mutants re-anchored (seed-after-dedup renamed test_index_read_after_filtering_loses_the_dropped_twin) + 3 new, ledger in 57-21-SUMMARY.md. Two test_score.py fixtures adjusted (forge fixture carries the row hash so m57-06 still trips; snapshot-keep fixture stores its real hash). Golden ok, TestDiffMode 16, carry_state.py untouched; full suite 1 failed (D-20) / 3290 passed. NEXT: 57-22.
 - 57-20 done (1ff95f1, 9fe0e0f): TestPooledEvidence p1/p2(both orders)/p3/p4, TestPriorGate in01 and TestDeferredStaysOpen defer are RED at the named defects; controls q1/q3 and the D-20 dismiss lock green; TestLeadOrderInvariance gains 3 scenarios with 4 SUBFAILED (cross-lane fresh-leads, arrival-order both, twin-dropped); coverage lock widened six -> nine; run_pass forwards deferred_hashes once carry_state.deferred exists (57-22 must run the whole module and record any flip). Red runs verbatim in 57-20-SUMMARY.md. NEXT: 57-21.
-- NEXT: `/bm:execute-phase 57 --gaps-only` — run 57-20 (RED fixtures) → 57-21 (mechanism fix) → 57-22 (D-20 deferred stays open) → 57-23 (final gate). D-19 HARD STOP: if the post-round review still finds a wrong-keep, close Phase 57 with it documented as a known limit in the backlog (999.x) — no fifth round.
+- (done 2026-10-27) `/bm:execute-phase 57 --gaps-only` — run 57-20 (RED fixtures) → 57-21 (mechanism fix) → 57-22 (D-20 deferred stays open) → 57-23 (final gate). D-19 HARD STOP: if the post-round review still finds a wrong-keep, close Phase 57 with it documented as a known limit in the backlog (999.x) — no fifth round.
 - (planned 2026-10-27) `/bm:plan-phase 57 --gaps` — owner chose (2026-10-27) one FINAL structural round (D-19: pool carried evidence before any filter, deterministic lead order; hard stop after it) and D-20 (deferred findings stay open below threshold). Round-3 review (57-REVIEW-GAPS3.md) reproduced 2 blockers after the 57-18 root fix: CR-01 two same-hash records on different lines (identical line text + title) — nearby check only looks around the lead's line, and identical input in a different arrival order flips the outcome; CR-02 a carried twin removed by min_confidence before grouping loses its evidence when a fresh re-report survives. WR-02: a DEFERRED covered finding that splits out below threshold leaves the open set with no card (silent loss; dismissed case is intended). Re-verification not yet run. DECN-03 back to In Progress.
 - Prior gap-closure gate (57-16): 57-18 done (8bd75ec, 90228be): score.py replaces the lead-only seed and same_hash_prior with one prior seed over every scored member (read before member dedup, stable_hash equality required) and computes `row_carried` from any carried record hashing to the row, passed to `_snapshot_for` as carried=; TestSameLaneRereport 6 passed, TestLeadOrderInvariance all subtests green; WR-01 locked by TestWr01Guards w1 (needs-recheck arm) / w2 (seed hash equality) and four mutants (no needs-recheck -> w1; no hash equality -> w2; carried-from-lead-only -> test_b; seed-after-dedup -> test_d); 57-15 seed mutant re-anchored; IN-01 resolved by docstring, IN-02 wrapped; golden ok, import sets pass, TestDiffMode 16 passed, carry_state.py untouched, owner journey unchanged; full suite 3273 passed, 0 failed. DECN-03 stays In Progress until the 57-19 gate. NEXT: `/bm:execute-phase 57 --gaps-only` with 57-19 (replay candidate/diff, reverse-run ledger, DECN-03 re-mark).
 - 57-17 done (cedc7a1, a9e6f7a): TestSameLaneRereport a/a2/b/c/d RED at the missing nearby_at, conf-75 control green; TestLeadOrderInvariance 8 SUBFAILED (fresh-leads permutations of plain, inherited_split, absorbed_split, owed_quiet_same_lane), all carried-leads baselines and the two different-lane scenarios green; full suite incl. test_replay 13 failed (exactly those) / 3262 passed; score.py and carry_state.py untouched. Fixture drift: the higher-band re-report is conf 100/critical (conf 90/critical leads but stays band warning). Red runs verbatim in 57-17-SUMMARY.md for the 57-19 ledger.
@@ -69,6 +71,8 @@ Last activity: 2026-10-27 -- 57-22 done (70e0719, 6626edb, 92b135d): D-20 deferr
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-27: Phase 57 fourth (final, D-19) gap closure 57-20..57-23 executed. 57-20 (1ff95f1, 9fe0e0f): real-chain RED fixtures for CR-01/CR-02/IN-01/far twin and D-20 defer; invariance guard six -> nine shapes. 57-21 (1ff5702, 333a5cd): carried-by-hash index before every filter, pooled nearby and prior, one hash gate, deterministic lead; 4 mutants re-anchored + 3 new. 57-22 (70e0719, 6626edb, 92b135d): `carry_state.py deferred`, `$DEFERRED_HASHES` / `deferred_hashes`, deferred covered member kept open below threshold; 3 mutants. 57-23: all gates green at HEAD (3311 passed, 0 failed; replay 0 differing), reverse-run ledger matches every 57-20 red; DECN-03 re-marked complete; D-19 hard stop recorded in STATE and deferred-items.md; open D-20 min_confidence edge reproduced and recorded for an owner ruling. Next: /bm:code-review 57, then /bm:verify-work 57.
 
 2026-10-27: 57-22 complete (70e0719, 6626edb, 92b135d). Decisions: score.py learns the owner's deferrals only from envelope key `deferred_hashes` (bound fail-closed by `carry_state.py deferred` as `$DEFERRED_HASHES`); a deferred covered member below threshold is a kept-open row under its own hash, stamped as carried (D-20 with D-17); a dismissed one still drops; the drop list is gated on the synthesized entry. Full suite 3311 passed, 0 failed. Next: 57-23.
 

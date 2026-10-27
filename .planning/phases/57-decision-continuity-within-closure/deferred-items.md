@@ -62,3 +62,48 @@ Recorded by 57-19 for the orchestrator to park in the backlog. Not implemented. 
   - **WR-01:** closed by 57-18 Task 2 (90228be). TestWr01Guards w1 (the needs-recheck arm of `_CARRIED_STATUSES`) and w2 (seed hash equality) each have a mutant that trips the named guard.
   - **IN-01:** resolved by docstring in 57-18. Quoting 57-18-SUMMARY.md: "a covered member carries no stored hash, so score.py cannot tell a hash-preserving needs-recheck (a low-entropy line whose window changed) from a hash-changing one. It therefore keeps stamping under any carried status. When a carried record's own line has changed, it re-hashes into a finding that no decision or covers entry can match, so a stamp there is inert."
   - **IN-02:** resolved in 57-18. The over-long `_snapshot_for(...)` call is split over two lines, and no touched line is over 100 columns.
+
+## Parked by the fourth gap closure (57-20..57-23; final round, D-19)
+
+Recorded by 57-23. Sources: 57-CONTEXT.md (D-19, D-20), 57-REVIEW-GAPS3.md, and the 57-20..57-22 SUMMARYs.
+
+- **D-19 hard stop (owner, 2026-10-27).** Verbatim from 57-CONTEXT.md:
+  > **D-19 (owner, 2026-10-27, after round-3 review):** One FINAL structural gap round. Fix the mechanism, not the shape: collect every carried record of a finding's identity (stable_hash) BEFORE any filtering (min_confidence, sub-threshold, dedup), pool their evidence (reopen if ANY carried copy's line saw a nearby change; keep the latest owed stamp), and make row lead order deterministic (tie-break by line, never arrival order). HARD STOP: if the review after this round still finds a wrong-keep, close Phase 57 with it documented as a known limit (backlog) rather than opening another round.
+  - **Operating rule.** Run `/bm:code-review 57` and then `/bm:verify-work 57` after this round. If either still reproduces a wrong-keep (a decided finding that should be re-asked and is not), Phase 57 closes with that finding documented as a known limit:
+    - Add a backlog item 999.x with `/bm:add-backlog`. Its acceptance fixture is the review's repro.
+    - Mark the DECN-03 traceability row `Complete with known limit (999.x)`.
+    - Do NOT plan a fifth structural round.
+  - Only a reproduced data-loss or silent-finding-loss class (the scope-discipline rule) may still add work.
+- **57-REVIEW-GAPS3.md resolutions.**
+  - **CR-01** (both variants: a cross-lane same-hash record at another line, and same-lane arrival order) and **CR-02** (a carried twin removed by min_confidence before grouping): closed by 57-21 (1ff5702, 333a5cd).
+    - score.py builds a carried-by-hash index before any filter runs.
+    - A row's nearby check runs at every carried copy's line, and its prior is pooled (latest owed stamp first, then oldest at_pass).
+    - The lead is deterministic: ties break on line.
+    - Fixtures are 57-20's p1, p2 (both orders), p3 and p4, plus the three new invariance scenarios. 57-23 reverse-ran them: red at 8a0563a, green at 92b135d.
+  - **IN-01:** closed in code by 57-21. One hash gate now covers every prior source, the lead's own snapshot included. Fixture: in01.
+  - **WR-01:** closed by 57-20 Task 2 (9fe0e0f). The lead-order invariance guard now covers nine shapes, and the coverage lock was widened from six to nine.
+  - **WR-02:** closed under D-20 by 57-22 (70e0719, 6626edb, 92b135d).
+    - A deferred covered member below threshold stays open as a kept-open row under its own hash. It travels via `carry_state.py deferred`, then `$DEFERRED_HASHES`, then the envelope key `deferred_hashes`.
+    - A dismissed one still drops by design. The dismiss lock is test_dismissed_covered_member_below_threshold_may_drop.
+    - The third-round parked entry above ("Covered low-entropy member filtered sub-threshold on its split pass") is therefore RESOLVED for defer and CONFIRMED intended for dismiss. That entry is left as written.
+- **OPEN D-20 edge for an owner ruling: a deferred covered member removed by min_confidence still drops.**
+  - **What happens.** 57-22's keep-open runs only on the sub-threshold branch. If the owner has set `min_confidence` (an opt-in setting, off by default) and it removes the deferred covered member before grouping, nothing synthesizes a kept-open row. The finding leaves the open list with no card and Finalize writes. D-20 says a deferral never disappears without the owner closing it, so this is a deferral leaving the open list. It lies outside what this round reproduced: the 57-20 fixtures and the 57-22 plan cover the threshold branch only.
+  - **Repro (57-23, at HEAD 33a951e).** This is test_decision_continuity.py's `deferred_covered_sub_threshold_scenario("defer", min_confidence=80)`; the member's conf is 75. Scratch script, run from plugins/vibe-check/scripts:
+    ```
+    pass-2 override: {}
+      rows: [('845f88b7', 'sub-threshold; deferred-by: 3449f4b5…')]
+      filtered: [(10, 'sub-threshold')]
+      open record for hA: True
+      outstanding_cw: 1  gate: outstanding-to-phase-5
+    pass-2 override: {'min_confidence': 80}
+      rows: []
+      filtered: [(10, 'below-min-confidence')]
+      open record for hA: False
+      outstanding_cw: 0  gate: write
+    ```
+  - **Failure direction:** silent loss of a deferred finding. It is not a wrong-keep of a decided row. It is reachable only when the owner has opted into `min_confidence` at or above the member's confidence.
+  - **Candidate backlog item 999.x.** Acceptance: the repro above becomes a real-chain fixture asserting a kept-open row (or a filtered reason naming the covering deferral that keeps the record open), with a mutant on the new branch. Not fixed in 57-23 (scope rule). This needs the owner's ruling: fix in Phase 57 as a reproduced silent-finding-loss class, or park as 999.x.
+- **Observed, not acted on (57-20..57-22 deviations and drift outside the four scope classes).**
+  - 57-21 Deviation 2: a carried snapshot whose stored stable_hash differs from this pass's computed hash is no longer a prior. If a real carried row ever stores a hash that differs while its line is unchanged (for example, canonical-text drift between passes), its at_pass resets to this pass. Fails toward asking.
+  - 57-22 Deviation 3: within a group, the drop order is source order, not covered-first. Reasons and rows are unchanged; presentation only.
+  - 57-22 Deviation 1: the decided "Never bind" prose lock now targets a longer phrase. If that sentence is reworded later, the lock must be updated with it. Maintenance only.

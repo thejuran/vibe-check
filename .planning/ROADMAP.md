@@ -131,7 +131,7 @@ Plans:
 - [x] 57-20-PLAN.md — Reproduce-first: real-chain RED fixtures for CR-01 (cross-lane same hash at another line; same-lane arrival order), CR-02 (min_confidence-dropped twin), IN-01 (edited carried lead's foreign stamp), the far-twin pooled-prior shape, and D-20 (deferred covered member below threshold; dismiss locked as dropping); invariance guard widened to nine shapes
 - [x] 57-21-PLAN.md — score.py: carried-by-hash index built before any filter; nearby and prior pooled over every carried copy (latest owed stamp, never first-wins); one hash gate on every prior source (IN-01 in code); deterministic lead by line; 4 mutants re-anchored + 3 new
 - [x] 57-22-PLAN.md — D-20: `carry_state.py deferred` read, `$DEFERRED_HASHES` bound in 05-state.md and forwarded as the envelope's `deferred_hashes` (prose locks), score.py keeps a deferred covered member open under its own hash as a stamped kept-open row; dismiss unchanged; 3 mutants
-- [ ] 57-23-PLAN.md — Final gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for pooled nearby_at/at_pass, each justified), reverse-run ledger vs the pre-fix tree, DECN-03 re-marked on green evidence, D-19 hard stop written into STATE/deferred-items, STATE/ROADMAP truthful
+- [x] 57-23-PLAN.md — Final gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for pooled nearby_at/at_pass, each justified), reverse-run ledger vs the pre-fix tree, DECN-03 re-marked on green evidence, D-19 hard stop written into STATE/deferred-items, STATE/ROADMAP truthful
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
@@ -165,7 +165,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 22/23 | In Progress|  |
+| 57. Decision continuity within closure | 23/23 | Executed, awaiting re-verification (final round, D-19) |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
