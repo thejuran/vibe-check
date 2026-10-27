@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: "Executing Phase 57 fourth (final, D-19) gap closure — 57-20 done, 57-21 next"
-stopped_at: "Completed 57-20-PLAN.md (RED fixtures + invariance guard widened to nine scenarios)"
-last_updated: "2026-10-27T10:30:00.000Z"
-last_activity: "2026-10-27 -- 57-20 done: RED fixtures for CR-01 x2, CR-02, IN-01, far twin, D-20 defer (dismiss lock green); invariance guard 4 new SUBFAILED"
+status: "Executing Phase 57 fourth (final, D-19) gap closure — 57-21 done, 57-22 next"
+stopped_at: "Completed 57-21-PLAN.md (pooled carried evidence, one hash gate, deterministic lead; 7 mutants)"
+last_updated: "2026-10-27T11:05:00.000Z"
+last_activity: "2026-10-27 -- 57-21 done (1ff5702, 333a5cd): score.py pools carried evidence from an index built before every filter; all 57-20 reds green except the D-20 defer test (57-22); full suite 3290 passed / 1 failed"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 29
-  completed_plans: 26
-  percent: 90
+  completed_plans: 27
+  percent: 93
 ---
 
 # Project State
@@ -21,12 +21,13 @@ progress:
 ## Current Position
 
 Phase: 57 (decision-continuity-within-closure) — EXECUTING FOURTH (FINAL) GAP CLOSURE
-Plan: 20 of 23 complete
-Status: Executing Phase 57 gap closure (57-20 done; 57-21 mechanism fix next)
-Last activity: 2026-10-27 -- 57-20 done (1ff95f1, 9fe0e0f): RED fixtures + invariance guard extension; score.py/carry_state.py untouched
+Plan: 21 of 23 complete
+Status: Executing Phase 57 gap closure (57-21 done; 57-22 D-20 deferred-stays-open next)
+Last activity: 2026-10-27 -- 57-21 done (1ff5702, 333a5cd): score.py pools carried evidence from an index built before every filter; all 57-20 reds green except the D-20 defer test (57-22); full suite 3290 passed / 1 failed
 
 ## Operator Next Steps
 
+- 57-21 done (1ff5702, 333a5cd): score.py builds `carried_by_hash` (every carried record by its current stable_hash) before the NV route, min_confidence and per-member drops; a row's carried-ness, nearby (judged at every copy's line) and prior (latest owed nearby_at, then oldest at_pass) are pooled from it; every prior source, the lead's own snapshot included, must carry the row's stable_hash (IN-01 closed in code); member sort ends with the line (deterministic lead). p1/p2/p3/p4/in01 and all invariance subtests green; only the D-20 defer test stays red (57-22). 4 mutants re-anchored (seed-after-dedup renamed test_index_read_after_filtering_loses_the_dropped_twin) + 3 new, ledger in 57-21-SUMMARY.md. Two test_score.py fixtures adjusted (forge fixture carries the row hash so m57-06 still trips; snapshot-keep fixture stores its real hash). Golden ok, TestDiffMode 16, carry_state.py untouched; full suite 1 failed (D-20) / 3290 passed. NEXT: 57-22.
 - 57-20 done (1ff95f1, 9fe0e0f): TestPooledEvidence p1/p2(both orders)/p3/p4, TestPriorGate in01 and TestDeferredStaysOpen defer are RED at the named defects; controls q1/q3 and the D-20 dismiss lock green; TestLeadOrderInvariance gains 3 scenarios with 4 SUBFAILED (cross-lane fresh-leads, arrival-order both, twin-dropped); coverage lock widened six -> nine; run_pass forwards deferred_hashes once carry_state.deferred exists (57-22 must run the whole module and record any flip). Red runs verbatim in 57-20-SUMMARY.md. NEXT: 57-21.
 - NEXT: `/bm:execute-phase 57 --gaps-only` — run 57-20 (RED fixtures) → 57-21 (mechanism fix) → 57-22 (D-20 deferred stays open) → 57-23 (final gate). D-19 HARD STOP: if the post-round review still finds a wrong-keep, close Phase 57 with it documented as a known limit in the backlog (999.x) — no fifth round.
 - (planned 2026-10-27) `/bm:plan-phase 57 --gaps` — owner chose (2026-10-27) one FINAL structural round (D-19: pool carried evidence before any filter, deterministic lead order; hard stop after it) and D-20 (deferred findings stay open below threshold). Round-3 review (57-REVIEW-GAPS3.md) reproduced 2 blockers after the 57-18 root fix: CR-01 two same-hash records on different lines (identical line text + title) — nearby check only looks around the lead's line, and identical input in a different arrival order flips the outcome; CR-02 a carried twin removed by min_confidence before grouping loses its evidence when a fresh re-report survives. WR-02: a DEFERRED covered finding that splits out below threshold leaves the open set with no card (silent loss; dismissed case is intended). Re-verification not yet run. DECN-03 back to In Progress.
