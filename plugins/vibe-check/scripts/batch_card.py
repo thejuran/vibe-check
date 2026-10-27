@@ -41,6 +41,8 @@ exits 2. Reasons never contain a hash, a title, a path or owner text.
                     the selected record's own defect, copied from the state.
   parse             The finalize card answer -> fix / dismiss / defer lists,
                     the record-decisions payload and the fix targets.
+  resolve           A plain-English answer's references -> current row
+                    numbers and a grammar string for `parse` to validate.
 
 FIX ROUTING. A fix target is not an undecided row. When the owner dismissed
 an absorbed obligation's lead and then chose to fix the still-open member,
@@ -59,10 +61,14 @@ owner text only ever arrives in the --answer file):
     python3 batch_card.py payload --rows ROWS.json --answer ANS.json < state.json
     python3 batch_card.py parse --rows ROWS.json --answer ANS.json
     python3 batch_card.py decisions-report < state.json
+    python3 batch_card.py resolve --rows ROWS.json --answer REFS.json \
+        [--prior-rows OLD_ROWS.json]
 
 Selection answers (select, payload): {"labels": [...] | "a, b"}, {"text":
 "1,3-5"}, {"all": true} or {"none": true} — the typed-mode buttons map to
 all / none. Finalize answers (parse): {"q1": str, "q2": str | null}.
+References (resolve): {"refs": [...], "reason": str | null, "close_out":
+bool}; see `resolve_refs`.
 
 stdlib only; imports {json, os, sys} plus the sibling modules carry_state and
 batch_parse.
@@ -81,10 +87,11 @@ MODES = ("fix-loop", "finalize")
 _BAND_RANK = {"critical": 0, "warning": 1, carry_state.NV_BAND: 2, "medium": 3}
 
 SUBCOMMANDS = ("rows", "select-questions", "select", "payload", "parse",
-               "decisions-report")
+               "decisions-report", "resolve")
 # The ONLY flags this CLI accepts. No flag ever carries owner text, a title or
 # a reason: such text arrives in a file whose path is passed here.
-KNOWN_FLAGS = ("--mode", "--head-blobs", "--subset", "--rows", "--answer")
+KNOWN_FLAGS = ("--mode", "--head-blobs", "--subset", "--rows", "--answer",
+               "--prior-rows")
 # subcommand -> (required flags, optional flags)
 _FLAGS_BY_SUBCOMMAND = {
     "rows": (("--mode",), ("--head-blobs", "--subset")),
@@ -93,6 +100,7 @@ _FLAGS_BY_SUBCOMMAND = {
     "payload": (("--rows", "--answer"), ()),
     "parse": (("--rows", "--answer"), ()),
     "decisions-report": ((), ()),
+    "resolve": (("--rows", "--answer"), ("--prior-rows",)),
 }
 # Subcommands that read the state JSON on stdin.
 _STATE_SUBCOMMANDS = ("rows", "payload", "decisions-report")
@@ -101,8 +109,9 @@ USAGE = ("usage: batch_card.py rows --mode fix-loop [--subset PATH]"
          " | rows --mode finalize --head-blobs PATH"
          " | select-questions --rows PATH | select --rows PATH --answer PATH"
          " | payload --rows PATH --answer PATH | parse --rows PATH"
-         " --answer PATH | decisions-report  (state on stdin for rows,"
-         " payload, decisions-report)\n")
+         " --answer PATH | decisions-report"
+         " | resolve --rows PATH --answer PATH [--prior-rows PATH]"
+         "  (state on stdin for rows, payload, decisions-report)\n")
 
 REASON_STATE_JSON = carry_state.REASON_STATE_JSON
 REASON_HEAD_BLOBS = carry_state.REASON_HEAD_BLOBS
@@ -111,6 +120,9 @@ REASON_SUBSET_EMPTY = "refused: subset names no last-pass finding\n"
 REASON_ROWS = "refused: rows file is missing or malformed\n"
 REASON_ANSWER = "refused: answer file is missing or malformed\n"
 REASON_ROWS_STATE = "refused: rows file does not match this state\n"
+REASON_REFS = "refused: refs file is missing or malformed\n"
+REASON_PRIOR_ROWS = "refused: prior rows file is missing or malformed\n"
+REASON_PRIOR_NEEDED = "refused: a prior-card reference needs --prior-rows\n"
 
 REASONS = (
     USAGE,
@@ -121,6 +133,9 @@ REASONS = (
     REASON_ROWS,
     REASON_ANSWER,
     REASON_ROWS_STATE,
+    REASON_REFS,
+    REASON_PRIOR_ROWS,
+    REASON_PRIOR_NEEDED,
 )
 
 # AskUserQuestion limits: 1-4 questions, 2-4 options each, header <= 12.
@@ -848,6 +863,265 @@ def parse(rows_doc, answer):
                 echo_text=echo_text(result)), None
 
 
+# --------------------------------------------------------------------------- #
+# resolve: a plain-English answer's references -> rows -> grammar for parse.
+# --------------------------------------------------------------------------- #
+REF_KINDS = ("number", "prior_number", "title", "marker")
+REF_MARKER_REMAINING = "remaining"
+REF_MARKERS = (REF_MARKER_REMAINING, "band:critical", "band:warning",
+               "band:medium", "band:" + carry_state.NV_BAND, "pending",
+               "changed", "absorbed")
+REF_STATUSES = ("one", "none", "many", "count_mismatch", "conflict", "bulk",
+                "blocked")
+_REF_KEYS = {"number": {"verb", "kind", "n"},
+             "prior_number": {"verb", "kind", "n"},
+             "title": {"verb", "kind", "text"},
+             "marker": {"verb", "kind", "marker"}}
+_REFS_DOC_KEYS = {"refs", "reason", "close_out"}
+_CANDIDATE_TITLE_CHARS = 80
+
+
+def _is_positive_int(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _valid_ref(ref):
+    if not (isinstance(ref, dict) and ref.get("verb") in batch_parse.VERBS
+            and ref.get("kind") in REF_KINDS):
+        return False
+    kind = ref["kind"]
+    keys = set(ref)
+    if kind == "marker":
+        if keys - {"count"} != _REF_KEYS[kind]:
+            return False
+        return (ref["marker"] in REF_MARKERS
+                and ("count" not in ref or _is_positive_int(ref["count"])))
+    if keys != _REF_KEYS[kind]:
+        return False
+    if kind == "title":
+        return isinstance(ref["text"], str) and bool(ref["text"].split())
+    return _is_positive_int(ref["n"])
+
+
+def _valid_refs_doc(doc):
+    """True for a refs document: exact keys, known verbs/kinds/markers,
+    counts and row numbers >= 1, non-blank title text."""
+    return (isinstance(doc, dict) and "refs" in doc
+            and set(doc) <= _REFS_DOC_KEYS
+            and isinstance(doc["refs"], list) and bool(doc["refs"])
+            and all(_valid_ref(ref) for ref in doc["refs"])
+            and (doc.get("reason") is None or isinstance(doc["reason"], str))
+            and isinstance(doc.get("close_out", False), bool))
+
+
+def _match_title(rows, text):
+    """Rows whose one-line title contains every word of `text`, case-folded.
+    Titles are diff data: matched as text, never interpreted."""
+    words = text.casefold().split()
+    return [r for r in rows
+            if all(w in _one_line(r.get("title")).casefold() for w in words)]
+
+
+def _marker_rows(rows, marker):
+    """Rows carrying a card marker (band, pending, changed, absorbed)."""
+    if marker.startswith("band:"):
+        band = marker[len("band:"):]
+        return [r for r in rows if r["band"] == band]
+    if marker == "pending":
+        return [r for r in rows if r.get("pending_since") is not None]
+    if marker == "changed":
+        return [r for r in rows if r.get("stale")]
+    if marker == "absorbed":
+        return [r for r in rows if r.get("absorbed_into") is not None]
+    return []
+
+
+def _count_status(matched, count):
+    """A described group is clear when it names rows and, when the owner
+    stated a count, exactly that many (D-02, D-16)."""
+    if count is not None and len(matched) != count:
+        return "count_mismatch"
+    return "one" if matched else "none"
+
+
+def _remap_prior(prior_row, rows):
+    """Current rows that are `prior_row`'s finding: the same stable_hash,
+    else the same (file, title) — the successor_links identity rule (D-07).
+    """
+    same_hash = [r for r in rows
+                 if r["stable_hash"] == prior_row["stable_hash"]]
+    if same_hash:
+        return same_hash
+    identity = (prior_row.get("file"), prior_row.get("title"))
+    return [r for r in rows if (r.get("file"), r.get("title")) == identity]
+
+
+def _claim(claimed, numbers):
+    """Claim `numbers` for one reference; False when any is already claimed
+    by an earlier reference (nothing is claimed then)."""
+    if claimed & set(numbers):
+        return False
+    claimed.update(numbers)
+    return True
+
+
+def _candidate(row):
+    return {"label": _label(row),
+            "title": _cut(_one_line(row.get("title")),
+                          _CANDIDATE_TITLE_CHARS)}
+
+
+def _ref_result(status, rows=(), candidates=()):
+    return {"status": status, "rows": sorted(r["n"] for r in rows),
+            "candidates": [_candidate(r) for r in candidates]}
+
+
+def _grammar_for(clauses, reason):
+    """The grammar for (verb, [numbers] | "rest") clauses: verbs in the
+    order fix, dismiss, defer; numbers ascending; ` -- reason` only when a
+    reason was given."""
+    parts = []
+    for verb in batch_parse.VERBS:
+        numbers = sorted({n for v, spec in clauses
+                          if v == verb and spec != "rest" for n in spec})
+        if numbers:
+            parts.append("%s %s" % (verb, ",".join(str(n) for n in numbers)))
+        if (verb, "rest") in clauses:
+            parts.append("%s rest" % verb)
+    grammar = "; ".join(parts)
+    return grammar + " -- " + reason if reason else grammar
+
+
+def _resolve_one(ref, rows, prior_rows, claimed):
+    """The result of one non-`remaining` reference; claims its rows."""
+    kind = ref["kind"]
+    if kind == "number":
+        matched = [r for r in rows if r["n"] == ref["n"]]
+        status = "one" if matched else "none"
+    elif kind == "prior_number":
+        if ref["n"] > len(prior_rows):
+            matched = []
+        else:
+            matched = _remap_prior(prior_rows[ref["n"] - 1], rows)
+        status = {0: "none", 1: "one"}.get(len(matched), "many")
+    elif kind == "title":
+        matched = _match_title(rows, ref["text"])
+        status = {0: "none", 1: "one"}.get(len(matched), "many")
+    else:
+        matched = _marker_rows(rows, ref["marker"])
+        status = _count_status(matched, ref.get("count"))
+    if status == "many":
+        return _ref_result("many", candidates=matched)
+    if status == "count_mismatch":
+        return _ref_result("count_mismatch", candidates=matched)
+    if status == "none":
+        return _ref_result("none")
+    if not _claim(claimed, [r["n"] for r in matched]):
+        return _ref_result("conflict", candidates=matched)
+    return _ref_result("one", rows=matched)
+
+
+def _resolve_remaining(ref, rows, claimed):
+    """The result of a `remaining` reference over the still-unclaimed rows.
+    With a count it names them by number, at any band, only when exactly
+    that many remain (D-16); without one it is the parser's `rest` (D-04).
+    """
+    unclaimed = [r for r in rows if r["n"] not in claimed]
+    count = ref.get("count")
+    if count is None:
+        reached = [r for r in unclaimed
+                   if r["band"] in batch_parse._rest_bands_for(ref["verb"])]
+        _claim(claimed, [r["n"] for r in reached])
+        return _ref_result("bulk", rows=reached)
+    status = _count_status(unclaimed, count)
+    if status == "count_mismatch":
+        return _ref_result("count_mismatch", candidates=unclaimed)
+    if status == "none":
+        return _ref_result("none")
+    _claim(claimed, [r["n"] for r in unclaimed])
+    return _ref_result("one", rows=unclaimed)
+
+
+def _is_stale(rows_doc, prior_rows_doc):
+    return (prior_rows_doc["at_pass"] != rows_doc["at_pass"]
+            or [r["stable_hash"] for r in prior_rows_doc["rows"]]
+            != [r["stable_hash"] for r in rows_doc["rows"]])
+
+
+def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
+    """(result, None) or (None, reason): the owner's references, resolved.
+
+    D-01: `parse` stays the only gate. This function decides nothing: it
+    maps each reference to current rows, builds a grammar string from the
+    clear ones, and dry-runs `parse` on it (parse writes nothing). The
+    caller acts only on what parse then accepts.
+
+    Owner text arrives only via the refs file (written with the Write tool,
+    never on a command line). Finding titles are matched as data.
+
+    Each reference gets a status: `one` (exactly one set of rows), `none`,
+    `many` (candidates listed as `#n file:line` + title), `count_mismatch`
+    (a stated count differs from the matched count, D-02/D-16; candidates
+    are the matched rows), `conflict` (a row an earlier reference already
+    named), `bulk` (`remaining` with no count -> the parser's `rest`, whose
+    bulk rules then apply, D-04) or `blocked` (`remaining` cannot be computed
+    because another reference is unclear). Non-`remaining` references are
+    resolved first, in order; then each `remaining` reference over the rows
+    still unclaimed.
+
+    `prior_number` references a row of an older card (`prior_rows_doc`):
+    it is re-mapped by stable_hash, then by unique (file, title), and
+    `stale` reports whether the card changed since (D-07).
+
+    `grammar` is built when every reference is `one` or `bulk` (even with no
+    reason, so the follow-up can show it); `ok` is true only when, in
+    addition, there is no conflict and parse accepts the grammar.
+    `needs_reason` is true when parse refused only for a missing reason.
+    `close_out` is echoed back unchanged.
+    """
+    if not _valid_refs_doc(refs_doc):
+        return None, REASON_REFS
+    refs = refs_doc["refs"]
+    if prior_rows_doc is None and any(r["kind"] == "prior_number"
+                                      for r in refs):
+        return None, REASON_PRIOR_NEEDED
+    rows = rows_doc["rows"]
+    prior_rows = prior_rows_doc["rows"] if prior_rows_doc is not None else []
+    results = [None] * len(refs)
+    claimed = set()
+    for i, ref in enumerate(refs):
+        if not (ref["kind"] == "marker"
+                and ref["marker"] == REF_MARKER_REMAINING):
+            results[i] = _resolve_one(ref, rows, prior_rows, claimed)
+    blocked = any(r is not None and r["status"] != "one" for r in results)
+    for i, ref in enumerate(refs):
+        if results[i] is None:
+            results[i] = (_ref_result("blocked") if blocked
+                          else _resolve_remaining(ref, rows, claimed))
+    verbs = {verb: sorted(n for ref, res in zip(refs, results)
+                          if ref["verb"] == verb for n in res["rows"])
+             for verb in batch_parse.VERBS}
+    grammar = None
+    parse_reason = None
+    if all(res["status"] in ("one", "bulk") for res in results):
+        clauses = [(ref["verb"],
+                    "rest" if res["status"] == "bulk" else res["rows"])
+                   for ref, res in zip(refs, results)]
+        grammar = _grammar_for(clauses, _one_line(refs_doc.get("reason")))
+        _parsed, parse_reason = parse(rows_doc, {"q1": grammar, "q2": None})
+    return {
+        "ok": grammar is not None and parse_reason is None,
+        "stale": (prior_rows_doc is not None
+                  and _is_stale(rows_doc, prior_rows_doc)),
+        "needs_reason": parse_reason == batch_parse.REASON_NO_REASON,
+        "close_out": refs_doc.get("close_out", False),
+        "refs": results,
+        "verbs": verbs,
+        "grammar": grammar,
+        "parse_reason": parse_reason,
+    }, None
+
+
 def echo_text(result):
     """The parse echo as one block of message text: the `echo` lines, then
     "Reason: …" when a reason applies. The prose puts this block where the
@@ -1080,6 +1354,22 @@ def _load_state(stdin_text):
     return state, None
 
 
+def _run_resolve(flags, rows_doc):
+    """resolve: pure over the rows documents; reads no stdin."""
+    refs_doc = carry_state.read_json_file(flags["--answer"])
+    if not _valid_refs_doc(refs_doc):
+        return _refuse(REASON_REFS), ""
+    prior_rows_doc = None
+    if "--prior-rows" in flags:
+        prior_rows_doc = carry_state.read_json_file(flags["--prior-rows"])
+        if not _valid_rows_doc(prior_rows_doc):
+            return _refuse(REASON_PRIOR_ROWS), ""
+    result, reason = resolve_refs(rows_doc, refs_doc, prior_rows_doc)
+    if reason is not None:
+        return _refuse(reason), ""
+    return 0, json.dumps(result, allow_nan=False)
+
+
 def _run_answer_side(sub, flags, state):
     rows_doc = carry_state.read_json_file(flags["--rows"])
     if not _valid_rows_doc(rows_doc):
@@ -1087,6 +1377,8 @@ def _run_answer_side(sub, flags, state):
     if sub == "select-questions":
         return 0, json.dumps(select_questions(rows_doc["rows"]),
                              allow_nan=False)
+    if sub == "resolve":
+        return _run_resolve(flags, rows_doc)
     answer = carry_state.read_json_file(flags["--answer"])
     if answer is None:
         return _refuse(REASON_ANSWER), ""
