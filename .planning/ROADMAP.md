@@ -80,7 +80,7 @@ Plans:
   3. A deferred or dismissed finding is not re-asked after an edit that does not touch the finding's evidence (regression fixture)
   4. When the finding's relevant evidence changes, the finding reopens and is presented again with the new evidence (regression fixture)
 
-**Plans**: 13 plans (7 executed + 6 gap closure)
+**Plans**: 16 plans (7 executed + 9 gap closure)
 
 Plans:
 **Wave 1**
@@ -114,6 +114,12 @@ Plans:
 - [x] 57-12-PLAN.md — Prose: deletion-only hunk range rule in 30-collect-score.md (WR-02), symmetric-window and D-16 wording in 90-finalize.md, IN-01/IN-02 doc fixes, phrase locks
 - [x] 57-13-PLAN.md — Gap-closure gate: full suite incl. test_replay, golden, replay, reverse-run red/green ledger addendum, DECN-02/03 re-marked complete, STATE.md
 
+**Gap closure, second round** *(after re-verification gaps_found 2026-10-26: split-row nearby edit lost (SC-4/DECN-03); owner ruling D-17; sequential waves 12-14)*
+
+- [ ] 57-14-PLAN.md — Reproduce-first: real-chain RED fixtures for the split-pass nearby stamp (inherited, own-decision absorbed, owed stamp lost) + fresh-lead negative; split-pass snapshot shape in TestGapClosure57; cross-module producibility guard (WR-02 holes closed)
+- [ ] 57-15-PLAN.md — score.py: `carried` arm in `_snapshot_for` + lead-obligation prior seeding so the split pass stamps `nearby_at` (D-17); unit pins; two end-to-end mutants; golden/import sets unchanged
+- [ ] 57-16-PLAN.md — Second-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for D-17 differences), reverse-run ledger vs the pre-fix tree, diff-context gap parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
+
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
 ### Phase 58: Clear actions, recovery and answers acted on
@@ -146,7 +152,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 13/13 | Executed, awaiting verification |  |
+| 57. Decision continuity within closure | 13/16 | Executed, awaiting verification |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
