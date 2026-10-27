@@ -24,6 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import fixstage  # noqa: E402  (the one exit table: render_case_arms)
 from test_git_safety_prose import OPTIONAL_EXPANSION  # noqa: E402
+from test_scope_args import (  # noqa: E402  (the real Phase 0 fence)
+    REENTRY, RERUN_POINTER, SCOPE, SHELLS, carrier_flag, finalize_mode,
+    normalizer_block, scope_args, read as read_scope)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
@@ -1546,6 +1549,325 @@ class TestPhase58Prose(unittest.TestCase):
         mutant = self.swap("**Same-turn rule",
                            MUTANT_C + "\n\n**Same-turn rule")
         self.assertNotEqual(subset_no_card_problems(mutant), [])
+
+
+# --- Phase 58 routing: ask only the gap, stale re-map, close-out carrier ---
+
+ASK_HEADING = "**Ask only what is missing (D-05, D-06).**"
+ASK_NEEDLES = ("Hold the whole answer and record nothing",
+               "never half-apply",
+               "ONE short AskUserQuestion",
+               "only the unclear piece",
+               "`#n file:line`",
+               "re-run the resolve fence",
+               "the whole answer together",
+               "one follow-up per gap",
+               "show the full card once",
+               "could not be matched",
+               "then stop asking")
+FOLLOWUP_HEADERS = ('header "Which row"', 'header "Which rows"',
+                    'header "Reason"')
+STALE_HEADING = "**Stale card (D-07).**"
+RESOLVE_PRIOR_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
+                      '--prior-rows "$PRIORROWSFILE"')
+STALE_NEEDLES = ("`prior_number`", "by finding identity",
+                 "shows the new numbers",
+                 " (your numbers re-mapped to the current card)",
+                 "is asked about alone")
+STEP2_START = "2. `fix_targets` non-empty"
+STEP3_START = "3. `fix_targets` empty"
+STEP2_NEEDLES = ("then the Rerun", "`close_out`", "**Close out**",
+                 "`--close-out-after-rerun`", "Step B committed nothing",
+                 "`close_out` is true", "go to **Close out** directly")
+STEP3_NEEDLE = "**Close out** directly when `close_out` is true"
+RERUN_HEADING = "**The Rerun.**"
+MARKER_REENTRY = '$ARGUMENTS = "${original_args} --close-out-after-rerun"'
+PLAIN_REENTRY = '$ARGUMENTS = "${original_args}"'
+MARKER_GUARD = "when the answer that started this Rerun carried close out"
+RERUN_NEEDLES = (PLAIN_REENTRY, MARKER_GUARD, "`close_out` true",
+                 MARKER_REENTRY, "never carried into a second Rerun")
+SUBSET_CLEAR = 'rm -f "$SUBSETFILE"; unset SUBSETFILE'
+OLD_SAME_ARGS = "with the SAME `$ARGUMENTS`"
+ORIGINAL_ARGS_DEF = ("`${original_args}` is this pass's `$ARGUMENTS` minus "
+                     "every whole-token `--finalize` and "
+                     "`--close-out-after-rerun`")
+CLOSE_OUT_BULLET = "> 1. **Close out** —"
+TYPED_BOTTOM_LINE_NEEDLES = ('"bottom line"', '"do what it says"',
+                             "`$SUGGESTFILE` exists",
+                             'cp "$SUGGESTFILE" "$ANSWERFILE"',
+                             "same gate, same bulk rules", "(D-09)",
+                             "any other plain-English answer")
+_MARKER_REENTRY_RE = re.compile(
+    r'\$ARGUMENTS = "(\$\{original_args\} --close-out[^"]*)"')
+_CLOSE_OUT_REENTRY_RE = re.compile(
+    r'\$ARGUMENTS = "(\$\{original_args\} --finalize[^"]*)"')
+_PRIOR_RUN_ON = ("49-foo --close-out-after-rerun --finalize")
+
+
+def ask_paragraph(card):
+    """The **Ask only what is missing** paragraph, up to the next bold
+    paragraph inside the Other bullet or the Stop here… route."""
+    start = card.index(ASK_HEADING)
+    ends = [e for e in (card.find("\n\n  **", start + 1),
+                        card.find(STOP_ROUTE, start)) if e >= 0]
+    return card[start:min(ends) if ends else len(card)]
+
+
+def followup_problems(card):
+    """[] when an unclear piece holds the whole answer, asks one small
+    question about only that piece, and falls back to the full card once."""
+    if NV_TYPED_BRANCH not in card or STOP_ROUTE not in card:
+        return ["Other path or Stop here… route missing"]
+    if ASK_HEADING not in other_path(card):
+        return ["no Ask only what is missing paragraph in the Other path"]
+    para = ask_paragraph(card)
+    problems = ["follow-up lacks: " + n for n in ASK_NEEDLES if n not in para]
+    problems += ["follow-up lacks reason choice: " + lab
+                 for lab in batch_parse.FINALIZE_Q2
+                 if "`%s`" % lab not in para]
+    for literal in FOLLOWUP_HEADERS:
+        if literal not in para:
+            problems.append("follow-up lacks " + literal)
+        elif len(header_value(literal)) > MAX_HEADER_CHARS:
+            problems.append("header too long: " + literal)
+    if para.count("never half-apply") != 1 or \
+            card.count("never half-apply") != 1:
+        problems.append("never half-apply is not stated exactly once")
+    return problems
+
+
+def stale_card_problems(card):
+    """[] when numbers from an older card are re-mapped by identity through
+    the `--prior-rows` twin fence and the echo shows the new numbers."""
+    if TRANSLATE_HEADING not in card or STALE_HEADING not in card:
+        return ["no Stale card paragraph"]
+    other = other_path(card)
+    if STALE_HEADING not in other:
+        return ["Stale card paragraph is outside the Other path"]
+    start = other.index(STALE_HEADING)
+    if start < other.index(TRANSLATE_HEADING):
+        return ["Stale card paragraph precedes Translate the answer"]
+    # the paragraph runs through its fence and the sentence after it
+    end = other.find("\n\n  ", other.find("```\n", other.find(
+        "```bash", start) + 1) + 1)
+    para = other[start:end if end >= 0 else len(other)]
+    problems = ["stale paragraph lacks: " + n for n in STALE_NEEDLES
+                if n not in para]
+    if RESOLVE_PRIOR_CALL not in para:
+        return problems + ["stale paragraph lacks the --prior-rows twin"]
+    call = para.index(RESOLVE_PRIOR_CALL)
+    fence = para.rfind("```bash", 0, call)
+    if fence < 0 or "```" in para[fence + len("```bash"):call]:
+        problems.append("--prior-rows call is not inside a bash fence")
+    return problems
+
+
+def close_out_routing_problems(card):
+    """[] when steps 2 and 3 route a translated close-out (D-17): via the
+    Rerun's marker after a commit, else straight to Close out."""
+    other = other_path(card)
+    if STEP2_START not in other or STEP3_START not in other:
+        return ["steps 2/3 missing"]
+    a = other.index(STEP2_START)
+    b = other.index(STEP3_START, a)
+    step2 = other[a:b]
+    step3 = other[b:other.index("\n", b)]
+    problems = ["step 2 lacks: " + n for n in STEP2_NEEDLES
+                if n not in step2]
+    if STEP3_NEEDLE not in step3:
+        problems.append("step 3 lacks: " + STEP3_NEEDLE)
+    return problems
+
+
+def rerun_paragraph(card):
+    start = card.index(RERUN_HEADING)
+    return card[start:card.index("\n\n", start)]
+
+
+def rerun_marker_problems(card):
+    """[] when the Rerun appends the close-out marker only for an answer
+    that carried close out, and every other Rerun re-enters plain."""
+    if RERUN_HEADING not in card:
+        return ["no Rerun paragraph"]
+    para = rerun_paragraph(card)
+    problems = ["Rerun lacks: " + n for n in RERUN_NEEDLES if n not in para]
+    if RERUN_POINTER not in para:
+        problems.append("Rerun lacks the empty-diff pointer")
+    if SUBSET_CLEAR not in para or "loop back to Phase 0" not in para or \
+            para.index(SUBSET_CLEAR) > para.index("loop back to Phase 0"):
+        problems.append("subset is not cleared before looping back")
+    if MARKER_GUARD in para and MARKER_REENTRY in para and \
+            para.index(MARKER_GUARD) > para.index(MARKER_REENTRY):
+        problems.append("marker re-entry is not guarded by close out")
+    if OLD_SAME_ARGS in para:
+        problems.append("Rerun still re-enters with the SAME $ARGUMENTS")
+    if card.count("${original_args} --close-out-after-rerun") != 1:
+        problems.append("marker re-entry appears %d times" % card.count(
+            "${original_args} --close-out-after-rerun"))
+    return problems
+
+
+def close_out_bullet(card):
+    start = card.index(CLOSE_OUT_BULLET)
+    return card[start:card.index("\n", start)]
+
+
+def original_args_problems(card):
+    """[] when `${original_args}` is defined once, in Close out, as
+    stripping both --finalize and the close-out marker."""
+    problems = []
+    if card.count(ORIGINAL_ARGS_DEF) != 1:
+        problems.append("definition x%d" % card.count(ORIGINAL_ARGS_DEF))
+    if CLOSE_OUT_BULLET not in card or RERUN_HEADING not in card:
+        return problems + ["Close out bullet or Rerun missing"]
+    bullet = close_out_bullet(card)
+    if REENTRY not in bullet:
+        problems.append("Close out lacks " + REENTRY)
+    if ORIGINAL_ARGS_DEF not in bullet:
+        problems.append("definition is not in the Close out bullet")
+    if "${original_args}" not in rerun_paragraph(card):
+        problems.append("Rerun does not use ${original_args}")
+    return problems
+
+
+def typed_opening(card):
+    """The Typed-answer bullet up to its parse fence."""
+    start = card.index(NV_TYPED_BRANCH)
+    return card[start:card.index("```bash", start)]
+
+
+def typed_bottom_line_problems(card):
+    """[] when typing "bottom line" copies the parser-checked suggestion
+    file-to-file into the answer and runs the same parse fence (D-09)."""
+    if NV_TYPED_BRANCH not in card:
+        return ["no Typed answer bullet"]
+    opening = typed_opening(card)
+    return ["typed opening lacks: " + n for n in TYPED_BOTTOM_LINE_NEEDLES
+            if n not in opening]
+
+
+def marker_reentry(card):
+    """The Rerun's marker re-entry string, read from the prose (or None)."""
+    if RERUN_HEADING not in card:
+        return None
+    hits = _MARKER_REENTRY_RE.findall(rerun_paragraph(card))
+    return hits[0] if len(hits) == 1 else None
+
+
+def close_out_reentry(card):
+    if CLOSE_OUT_BULLET not in card:
+        return None
+    hits = _CLOSE_OUT_REENTRY_RE.findall(close_out_bullet(card))
+    return hits[0] if len(hits) == 1 else None
+
+
+class TestPhase58Routing(unittest.TestCase):
+    """Ask only the gap, once (D-05, D-06, D-08); stale cards re-map by
+    identity (D-07); close out rides the Rerun as a one-shot marker (D-17);
+    typed "bottom line" takes the suggestion (D-09). Each has a mutant."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+
+    def swap(self, old, new, text=None):
+        text = self.card if text is None else text
+        self.assertIn(old, text)
+        mutant = text.replace(old, new, 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    def test_followup_holds(self):
+        self.assertEqual(followup_problems(self.card), [])
+
+    def test_mutant_followup_records_partial(self):
+        mutant = self.swap("Hold the whole answer and record nothing",
+                           "Record the parts that resolved")
+        self.assertNotEqual(followup_problems(mutant), [])
+
+    def test_stale_card_holds(self):
+        self.assertEqual(stale_card_problems(self.card), [])
+        self.assertEqual(self.text.count(RESOLVE_CALL), 2)
+
+    def test_mutant_stale_without_prior_rows(self):
+        mutant = self.swap(' --prior-rows "$PRIORROWSFILE"', "")
+        self.assertNotEqual(stale_card_problems(mutant), [])
+
+    def test_close_out_routing_holds(self):
+        self.assertEqual(close_out_routing_problems(self.card), [])
+
+    def test_mutant_close_out_routing_step3_reruns(self):
+        mutant = self.swap(", or " + STEP3_NEEDLE, "")
+        self.assertNotEqual(close_out_routing_problems(mutant), [])
+
+    def test_rerun_marker_holds(self):
+        self.assertEqual(rerun_marker_problems(self.card), [])
+
+    def test_mutant_marker_not_appended(self):
+        para = rerun_paragraph(self.card)
+        a = para.index(" — or, " + MARKER_GUARD)
+        b = para.index(MARKER_REENTRY) + len(MARKER_REENTRY)
+        mutant = self.swap(para[a:b], "")
+        self.assertNotEqual(rerun_marker_problems(mutant), [])
+        self.assertIsNone(marker_reentry(mutant))
+
+    def test_original_args_holds(self):
+        self.assertEqual(original_args_problems(self.card), [])
+
+    def test_mutant_marker_carried(self):
+        mutant = self.swap(ORIGINAL_ARGS_DEF, ORIGINAL_ARGS_DEF.replace(
+            " and `--close-out-after-rerun`", ""))
+        self.assertNotEqual(original_args_problems(mutant), [])
+
+    def test_typed_bottom_line_holds(self):
+        self.assertEqual(typed_bottom_line_problems(self.card), [])
+
+    def test_mutant_typed_bottom_line_no_copy(self):
+        mutant = self.swap('cp "$SUGGESTFILE" "$ANSWERFILE"',
+                           "write the suggestion to `$ANSWERFILE`")
+        self.assertNotEqual(typed_bottom_line_problems(mutant), [])
+
+
+class TestCarrierRoundTrip(unittest.TestCase):
+    """The exact re-entry strings the fix-loop prose carries, run through
+    the REAL 00-scope.md normalizer fence: the Rerun's marker is read back
+    once, and Close out's re-entry drops it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.card = card_section(read_text())
+        cls.block = normalizer_block(read_scope(SCOPE))
+
+    def test_rerun_marker_is_read_back(self):
+        carried = marker_reentry(self.card)
+        self.assertIsNotNone(carried, "no marker re-entry found")
+        args = carried.replace("${original_args}", "49-foo")
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                self.assertEqual(carrier_flag(self.block, args, shell), "1")
+                self.assertEqual(finalize_mode(self.block, args, shell), "0")
+                self.assertEqual(scope_args(self.block, args, shell),
+                                 "49-foo")
+
+    def test_close_out_drops_the_marker(self):
+        reentry = close_out_reentry(self.card)
+        self.assertIsNotNone(reentry, "no Close out re-entry found")
+        self.assertEqual(reentry, REENTRY)
+        args = reentry.replace("${original_args}", "49-foo")
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                self.assertEqual(carrier_flag(self.block, args, shell), "0")
+                self.assertEqual(finalize_mode(self.block, args, shell), "1")
+                self.assertEqual(scope_args(self.block, args, shell),
+                                 "49-foo")
+
+    def test_non_stripping_original_args_would_carry(self):
+        # What Close out would send if ${original_args} kept the marker:
+        # the definition sentence is what keeps this from happening.
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                self.assertEqual(
+                    carrier_flag(self.block, _PRIOR_RUN_ON, shell), "1")
 
 
 if __name__ == "__main__":
