@@ -124,7 +124,7 @@ Plans:
 
 - [x] 57-17-PLAN.md — Reproduce-first: real-chain RED fixtures for the same-lane out-ranking re-report (plain row at conf 100 and 90+critical, inherited split, own-absorbed split, owed stamp on a quiet pass) + green control; lead-order invariance guard across six row shapes (anti-whack-a-mole)
 - [x] 57-18-PLAN.md — score.py: carried-ness and the prior snapshot derived from ANY source record carried under the row's hash, read before dedup drops the duplicate (replaces the lead-only seed and same_hash_prior); WR-01 fixtures + 4 mutants; IN-01 docstring, IN-02 wrap; golden/import sets/anchors unchanged
-- [ ] 57-19-PLAN.md — Third-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for nearby_at/at_pass on out-ranked carried rows, each justified), reverse-run ledger vs the pre-fix tree, observation parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
+- [x] 57-19-PLAN.md — Third-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for nearby_at/at_pass on out-ranked carried rows, each justified), reverse-run ledger vs the pre-fix tree, observation parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
@@ -158,7 +158,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 18/19 | In Progress (third gap closure executing) |  |
+| 57. Decision continuity within closure | 19/19 | Executed, awaiting re-verification |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
