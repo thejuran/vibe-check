@@ -642,7 +642,7 @@ def nearby_scenario(offset=1):
     return s1, s2, hA
 
 
-def split_scenario(edit_a=False, real_diff=False):
+def split_scenario(edit_a=False, real_diff=False, rereport=None):
     """Pass 1: `security` B (line 12) leads a row holding `bugs` A (line 10)
     as a member; the owner dismisses the ROW. Pass 2: B's line is rewritten
     and B's lane answers its re-check `resolved` (the `ab_pipeline` pass-3
@@ -655,7 +655,13 @@ def split_scenario(edit_a=False, real_diff=False):
     line 12, which sits inside A's D-14 window (lines 5-15); `real_diff=True`
     passes exactly that diff and is the realistic split-pass counterpart, on
     which the split row must be re-asked once with "code next to it changed"
-    (D-17)."""
+    (D-17).
+
+    `rereport`: A's own lane reports it again on the split pass; at a score
+    that beats the carried copy (+15 persisted bonus: conf 100, or conf 90
+    with a higher severity) the fresh copy leads the row (CR-01 / SA-01). A
+    `(conf, severity)` tuple; `None` keeps the split pass free of fresh
+    findings."""
     L0 = base_file()
     a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
     b = fresh("security", 12, L0, "Injection at B", conf=80,
@@ -686,12 +692,15 @@ def split_scenario(edit_a=False, real_diff=False):
         ranges = {F: [[12, 12]]}
     else:
         ranges = {F: []}
-    s2, r2 = run_pass(s1, L1, [], 2, ranges, recheck_requests=[req],
+    finds2 = ([] if rereport is None else
+              [fresh("bugs", 10, L1, TITLE_A, conf=rereport[0],
+                     severity=rereport[1])])
+    s2, r2 = run_pass(s1, L1, finds2, 2, ranges, recheck_requests=[req],
                       verdicts=[verdict])
     return L1, s1, s2, r2, hB, score.stable_hash(F, L1[9], TITLE_A)
 
 
-def absorbed_split_scenario(owed_before_split=False):
+def absorbed_split_scenario(owed_before_split=False, rereport=None):
     """An own-decision finding absorbed as an obligation sidecar, then split
     out by the lead's nearby fix.
 
@@ -704,7 +713,13 @@ def absorbed_split_scenario(owed_before_split=False):
     `resolved`, so A splits back into a row of its own. The pass-3 diff names
     line 12 by default (the causing edit, D-17); with `owed_before_split` it
     is empty so the split itself carries no in-window edit and only the stamp
-    already owed can reopen A. -> (s1, s2, s3, r3, hA, hB)."""
+    already owed can reopen A. -> (s1, s2, s3, r3, hA, hB).
+
+    `rereport`: A's own lane reports it again on the split pass; at a score
+    that beats the carried copy (+15 persisted bonus: conf 100, or conf 90
+    with a higher severity) the fresh copy leads the row (CR-01 / SA-01). A
+    `(conf, severity)` tuple; `None` keeps the split pass free of fresh
+    findings."""
     L0 = base_file()
     s1, hA = pass1(L0, conf=STABLE_CONF)
     b = fresh("security", 12, L0, "Injection at B", conf=95,
@@ -726,9 +741,46 @@ def absorbed_split_scenario(owed_before_split=False):
     verdict = {"source": "recheck", "token": "TB", "agent": row["agent"],
                "verdict": "resolved", "reason": "line rewritten"}
     ranges3 = {F: []} if owed_before_split else {F: [[12, 12]]}
-    s3, r3 = run_pass(s2, L2, [], 3, ranges3, recheck_requests=[req],
+    finds3 = ([] if rereport is None else
+              [fresh("bugs", 10, L2, TITLE_A, conf=rereport[0],
+                     severity=rereport[1])])
+    s3, r3 = run_pass(s2, L2, finds3, 3, ranges3, recheck_requests=[req],
                       verdicts=[verdict])
     return s1, s2, s3, r3, hA, hB
+
+
+def plain_rereport_scenario(conf, severity):
+    """D-02 / D-14 with no exemption for a same-lane re-report (D-17's
+    no-exemption rule): pass 1 `bugs` A at line 10 dismissed; pass 2 line 12
+    (inside A's D-14 window, lines 5-15) is edited and A's OWN lane reports A
+    again at `conf` / `severity`. At conf 100, or conf 90 with a higher
+    severity, the fresh copy out-ranks the carried one (+15 persisted bonus)
+    and leads the row; the edit next to A must still re-ask it.
+    -> (L1, s2, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    L1 = list(L0)
+    L1[11] = "line_12 = 'edited'"
+    s2, _ = run_pass(s1, L1, [fresh("bugs", 10, L1, TITLE_A, conf=conf,
+                                    severity=severity)], 2, {F: [[12, 12]]})
+    return L1, s2, hA
+
+
+def owed_quiet_rereport_scenario(conf, severity):
+    """D-02 / D-14: a re-ask already owed survives a quiet pass on which A's
+    own lane re-reports it (the TestSameHashLeadKeepsNearbyStamp shape with
+    the SAME lane). Pass 1 `bugs` A dismissed; pass 2 line 11 edited (diff
+    [[11, 11]], A owes a nearby re-ask, nearby_at 2), no findings; pass 3 a
+    quiet diff with `bugs` A reported fresh at `conf` / `severity`.
+    -> (L2, s2, s3, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    L2 = list(L0)
+    L2[10] = "line_11 = 'edited'"
+    s2, _ = run_pass(s1, L2, [], 2, {F: [[11, 11]]})
+    s3, _ = run_pass(s2, L2, [fresh("bugs", 10, L2, TITLE_A, conf=conf,
+                                    severity=severity)], 3, {F: []})
+    return L2, s2, s3, hA
 
 
 class TestRegrouping(_Base):
@@ -916,6 +968,119 @@ class TestSplitPassNearby(_Base):
             owed_before_split=True)
         self.assertNotIn("nearby_at", row_of(s2, hB)["snapshot"])
         self.assertEqual(record_of(s2, hA)["snapshot"]["nearby_at"], 2)
+
+
+class TestSameLaneRereport(_Base):
+    """57-VERIFICATION.md re-verification 2 gap 1; 57-REVIEW-GAPS2.md CR-01
+    and SA-01: a decided finding's OWN lane reports it again at a score that
+    beats the carried copy (+15 persisted bonus), so the fresh copy leads the
+    row. An edit next to the finding (D-02 / D-14), or a re-ask already owed,
+    must still re-ask it: a same-lane re-report has no exemption (D-17).
+
+    Root cause: the scorer reads carried-ness and the prior snapshot from the
+    row's lead record only, and the carried twin sharing the fresh lead's
+    occurrence identity is deduped away before its evidence is read.
+
+    Expected on the unfixed scorer: a, a2, b, c and d fail at the row's
+    missing `nearby_at`; the control (the carried copy still leads at conf
+    75) is green and must stay green."""
+
+    def _assert_reasked(self, state, hA, nearby_at):
+        """The re-ask contract on the real chain, snapshot in every message."""
+        rec = self._current(state, hA)
+        snap = rec["snapshot"]
+        self.assertEqual(snap.get("nearby_at"), nearby_at,
+                         "re-reported row snapshot has no nearby_at: %r"
+                         % snap)
+        self.assertEqual(carry_state.decision_state(rec, state), "stale",
+                         "snapshot %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, state), "nearby",
+                         "snapshot %r" % snap)
+        self.assertIn(hA, carry_state.finalize_counts(
+            state, {})["outstanding_cw_hashes"], "snapshot %r" % snap)
+        self.assertNotEqual(e2e_gate(state, {}), "write",
+                            "snapshot %r" % snap)
+        crow = card_row(state, hA)
+        self.assertIsNotNone(crow, "re-asked row not on the card")
+        self.assertEqual((crow["stale"] or {}).get("cause"), "nearby",
+                         "snapshot %r" % snap)
+        return rec
+
+    def _assert_plain_led_by_fresh(self, s2, hA):
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        # Fixture self-check: the fresh same-lane copy leads, and the carried
+        # twin was deduped into the lead's own member ref.
+        self.assertEqual(row["status"], "new", row["snapshot"])
+        self.assertEqual(row["agent"], "bugs")
+        self.assertEqual(len(row["members"]), 1, row["members"])
+        return row
+
+    def test_a_plain_row_rereported_by_own_lane_at_conf_100(self):
+        _, s2, hA = plain_rereport_scenario(100, "warning")
+        self._assert_plain_led_by_fresh(s2, hA)
+        self._assert_band(s2, hA, "warning")
+        rec = self._assert_reasked(s2, hA, 2)
+        self.assertEqual(rec["snapshot"]["at_pass"], 2, rec["snapshot"])
+
+    def test_a2_plain_row_rereported_by_own_lane_at_higher_band(self):
+        """The re-report also lifts the band to critical. A same-lane rise is
+        not lane-backed (D-05) and nearby out-ranks severity in stale_cause,
+        so the cause is still "code next to it changed"."""
+        _, s2, hA = plain_rereport_scenario(100, "critical")
+        self._assert_plain_led_by_fresh(s2, hA)
+        self._assert_band(s2, hA, "critical")
+        rec = self._assert_reasked(s2, hA, 2)
+        self.assertEqual(rec["snapshot"]["at_pass"], 2, rec["snapshot"])
+
+    def test_b_inherited_split_led_by_own_lane_rereport(self):
+        _, s1, s2, r2, hB, hA = split_scenario(real_diff=True,
+                                               rereport=(100, "warning"))
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no split row for %s" % hA[:8])
+        self.assertEqual(row["status"], "new", row["snapshot"])
+        self.assertIsNone(record_of(s2, hB))
+        rec = self._assert_reasked(s2, hA, 2)
+        self.assertEqual(carry_state.covering_decision(rec, s2),
+                         (hB, s2["decisions"][hB]))
+
+    def test_c_own_decision_absorbed_split_led_by_own_lane_rereport(self):
+        s1, s2, s3, r3, hA, hB = absorbed_split_scenario(
+            rereport=(100, "warning"))
+        # Pass 2 holds what the fixture claims: A rides absorbed, current.
+        absorbed = self._current(s2, hA)
+        self.assertEqual(absorbed.get("absorbed_into"), hB)
+        self.assertEqual(carry_state.decision_state(absorbed, s2), "current")
+        row = row_of(s3, hA)
+        self.assertIsNotNone(row, "no split row for %s" % hA[:8])
+        self.assertEqual(row["status"], "new", row["snapshot"])
+        rec = self._current(s3, hA)
+        self.assertEqual(rec["snapshot"].get("nearby_at"), 3,
+                         "re-reported split row snapshot has no nearby_at: %r"
+                         % rec["snapshot"])
+        self.assertIsNone(rec.get("absorbed_into"))
+        self._assert_reasked(s3, hA, 3)
+
+    def test_d_owed_stamp_survives_own_lane_rereport_on_quiet_pass(self):
+        _, s2, s3, hA = owed_quiet_rereport_scenario(100, "warning")
+        owed = self._current(s2, hA)
+        self.assertEqual(owed["snapshot"].get("nearby_at"), 2)
+        self.assertEqual(carry_state.stale_cause(owed, s2), "nearby")
+        row = row_of(s3, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        self.assertEqual(row["status"], "new", row["snapshot"])
+        self._assert_band(s3, hA, "warning")
+        rec = self._assert_reasked(s3, hA, 2)
+        # Band and canonical are unchanged, so the prior is kept, not
+        # refreshed.
+        self.assertEqual(rec["snapshot"]["at_pass"], 2, rec["snapshot"])
+
+    def test_control_carried_copy_leads_at_conf_75(self):
+        _, s2, hA = plain_rereport_scenario(STABLE_CONF, "warning")
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        self.assertEqual(row["status"], "persisted", row["snapshot"])
+        self._assert_reasked(s2, hA, 2)
 
 
 # --------------------------------------------------------------------------- #
