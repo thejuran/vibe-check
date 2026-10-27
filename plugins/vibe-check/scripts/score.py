@@ -394,6 +394,21 @@ def _refreshed_obligation(obl, m, pass_number, changed_line_ranges):
     return dict(obl, snapshot=_snapshot_for(basis, pass_number, nearby=nearby))
 
 
+def _covered_entry(m, cov, capped):
+    """A carried_obligations entry for working record `m`, a covered member
+    of the owner's deferred row that fell below threshold (D-20): its own
+    current hash, this pass's capped score, the deferred row's stored band
+    (`cov["band"]`) and its own lane; no prior snapshot. Marked `covered` so
+    _kept_open_rows stamps it as carried. Pure; never raises."""
+    agent = m.get("agent")
+    return {"obligation": {"stable_hash": _current_hash(m),
+                           "orchestrator_score": capped,
+                           "band": cov["band"],
+                           "attribution": [agent] if isinstance(agent, str) else [],
+                           "snapshot": None},
+            "record": m, "lead": False, "covered": True}
+
+
 def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
                     changed_line_ranges):
     """Kept-open obligation rows for carried records this pass's filters dropped.
@@ -411,7 +426,13 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
     with this pass's carry status, HEAD read, `kept_open` reason and snapshot.
     A lead row's members are its own record plus this pass's members of that
     lead that neither ride in a kept row nor become rows of their own, so a
-    resolved or fixed member is never re-listed. Pure; never raises.
+    resolved or fixed member is never re-listed.
+
+    A covered member of a deferred row that fell sub-threshold (D-20; its
+    entry is marked `covered`, `_covered_entry`) has no prior snapshot of its
+    own, so `carried` is passed for it and the split pass's in-window edit
+    stamps it (D-17); every other kept-open row carries its stored snapshot
+    and is unaffected. Pure; never raises.
     """
     visible = {s.get("stable_hash") for s in kept}
     kept_idents = set()
@@ -449,7 +470,8 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
         row["kept_open"] = reason
         row["snapshot"] = obl.get("snapshot")
         row_nearby = _nearby_changed(row, changed_line_ranges)
-        row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby)
+        row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,
+                                        carried=bool(entry.get("covered")))
         own = _member_ref(m)
         own["obligation"] = _refreshed_obligation(obl, m, pass_number, changed_line_ranges)
         members = [own]
@@ -2088,6 +2110,12 @@ def run(envelope):
                   for k, v in (raw_head_blobs or {}).items()}
     touched_paths = {k: ([p for p in v if isinstance(p, str)] if isinstance(v, list) else [])
                      for k, v in (raw_touched or {}).items()}
+    # The owner's deferrals (D-20), bound by Phase 0.5 as `$DEFERRED_HASHES`.
+    # Absent on every envelope written before this key, so those score
+    # byte-identically; a non-list or non-str entry is ignored, never raised.
+    raw_deferred = envelope.get("deferred_hashes", [])
+    deferred_hashes = (frozenset(h for h in raw_deferred if isinstance(h, str))
+                       if isinstance(raw_deferred, list) else frozenset())
 
     threshold = THRESHOLDS.get(command, THRESHOLDS["review"])
 
@@ -2283,6 +2311,9 @@ def run(envelope):
     # sidecar — keyed by id() of its working record, so the two drop paths
     # below can keep it open instead of letting it vanish.
     carried_obligations = {}
+    # id() of a carried member the owner's deferral covered -> {"covering":
+    # the deferred row's stored hash, "band": that row's stored band} (D-20).
+    deferred_covered = {}
     members_of = {}
     # id() of every carried Needs-verification working record: never
     # re-admitted, and its stored stable_hash is kept verbatim.
@@ -2384,6 +2415,12 @@ def run(envelope):
             if p["status"] == "persisted":
                 persisted_ids.add(id(p))
             working.append(p)
+            # A member the owner's deferral covered (no obligation of its own:
+            # it never led a row) under the deferred row's stored band — the
+            # band the owner deferred it at (D-20).
+            if (not obligation and stored_hash is not None
+                    and stored_hash in deferred_hashes):
+                deferred_covered[id(p)] = {"covering": stored_hash, "band": cf.get("band")}
             if obligation:
                 carried_obligations[id(p)] = {"obligation": obligation, "record": p,
                                               "lead": False}
@@ -2754,11 +2791,13 @@ def run(envelope):
                 "reason": "absorbed-into: " + survivor["stable_hash"],
             })
         survivors.append((survivor, surface_score, row_carried, row_nearby))
-        survivor_sources.append([m for _, m, _, _, _ in scored_members])
+        survivor_sources.append(([m for _, m, _, _, _ in scored_members],
+                                 {id(m): c for c, m, _, _, _ in scored_members}))
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
     kept = []
-    for (survivor, sc, carried, row_nearby), sources in zip(survivors, survivor_sources):
+    for (survivor, sc, carried, row_nearby), (sources, capped_by_id) in zip(
+            survivors, survivor_sources):
         if sc < threshold:
             filtered.append({
                 "file": survivor.get("file"),
@@ -2766,8 +2805,18 @@ def run(envelope):
                 "title": survivor.get("title"),
                 "reason": "sub-threshold",
             })
-            dropped.extend((m, "sub-threshold") for m in sources
-                           if id(m) in carried_obligations)
+            # D-20: a deferred finding never leaves the open set on a score. A
+            # covered member of a deferred row is kept open under its own hash
+            # (57-REVIEW-GAPS3.md WR-02); a dismissed covered member below
+            # threshold still drops (intended), because only the owner's
+            # deferred hashes are indexed in `deferred_covered`.
+            for m in sources:
+                if id(m) in deferred_covered and id(m) not in carried_obligations:
+                    carried_obligations[id(m)] = _covered_entry(m, deferred_covered[id(m)], capped_by_id[id(m)])
+            dropped.extend(
+                (m, ("sub-threshold; deferred-by: " + deferred_covered[id(m)]["covering"])
+                 if id(m) in deferred_covered else "sub-threshold")
+                for m in sources if id(m) in carried_obligations)
             continue
         # `carried` and `nearby` are the row properties pooled in the group
         # loop over every carried record of this row's identity.

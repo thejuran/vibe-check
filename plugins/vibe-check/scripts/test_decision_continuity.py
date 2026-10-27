@@ -218,6 +218,9 @@ def run_pass(state, lines, findings, n, ranges, decided=frozenset(), **over):
         if isinstance(deferred, list):
             env["deferred_hashes"] = sorted(deferred)
     env.update(over)
+    # An override of None removes the key (an envelope written before it).
+    for k in [k for k, v in over.items() if v is None]:
+        del env[k]
     result = score.run(env)
     return append_pass(state, result, n, "h%d" % n), result
 
@@ -981,16 +984,26 @@ def far_twin_scenario():
     return s2, r2, s3, hA
 
 
-def deferred_covered_sub_threshold_scenario(kind):
+def deferred_covered_lines():
+    """(L0, L1): the deferred_covered_sub_threshold_scenario file before and
+    after the pass-2 edit of B's line."""
+    L0 = base_file()
+    L0[9] = "}"
+    L1 = list(L0)
+    L1[11] = "line_12 = 'fixed'"
+    return L0, L1
+
+
+def deferred_covered_sub_threshold_scenario(kind, **over):
     """57-REVIEW-GAPS3.md WR-02 under D-20: a deferred finding may never leave
     the open set on a score; a dismissed one below threshold may drop.
 
     low_entropy_split_scenario's exact inputs with the `}`-line `bugs` A at
     conf 75 (3-line current_code kept) and the owner's `kind` on the row led
     by the critical `security` B. Pass 2 resolves B and edits line 12, so A
-    splits out below threshold. -> (s1, s2, r2, hA, hB)."""
-    L0 = base_file()
-    L0[9] = "}"
+    splits out below threshold; `over` is forwarded to pass 2's run_pass.
+    -> (s1, s2, r2, hA, hB)."""
+    L0, L1 = deferred_covered_lines()
     a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
     a["current_code"] = "}\n" + L0[10] + "\n" + L0[11]
     b = fresh("security", 12, L0, "Injection at B", conf=95,
@@ -1001,15 +1014,13 @@ def deferred_covered_sub_threshold_scenario(kind):
     assert lead["agent"] == "security", lead
     hB = lead["stable_hash"]
     s1 = decide_on(s1, hB, kind=kind)
-    L1 = list(L0)
-    L1[11] = "line_12 = 'fixed'"
     req = {"token": "TB", "agents": [lead["agent"]], "stable_hash": hB,
            "file": lead["file"], "line": lead["line"], "agent": lead["agent"],
            "title": lead["title"]}
     verdict = {"source": "recheck", "token": "TB", "agent": lead["agent"],
                "verdict": "resolved", "reason": "line rewritten"}
     s2, r2 = run_pass(s1, L1, [], 2, {F: [[12, 12]]}, recheck_requests=[req],
-                      verdicts=[verdict])
+                      verdicts=[verdict], **over)
     return s1, s2, r2, score.stable_hash(F, "}", TITLE_A), hB
 
 
@@ -1523,6 +1534,52 @@ class TestDeferredStaysOpen(_Base):
         self.assertIsNone(record_of(s2, hA), r2["filtered"])
         self.assertEqual(carry_state.finalize_counts(s2, {})["outstanding_cw"],
                          0, r2["filtered"])
+        self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
+
+    def test_deferred_kept_open_row_shape(self):
+        """The kept-open row is the member under its OWN hash, at the band
+        the owner deferred it at, naming the covering decision, stamped by
+        the split pass's in-window edit (D-17)."""
+        _, s2, r2, hA, hB = deferred_covered_sub_threshold_scenario("defer")
+        self.assertEqual([f["stable_hash"] for f in r2["findings"]], [hA])
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, r2["filtered"])
+        self.assertEqual(row["kept_open"], "sub-threshold; deferred-by: " + hB)
+        self.assertIn(row["status"], ("persisted", "needs-recheck"))
+        self.assertEqual(row["band"], "warning")
+        self.assertEqual(row["stable_hash"], hA)
+        self.assertEqual(row["snapshot"].get("nearby_at"), 2, row["snapshot"])
+        self.assertEqual(row["orchestrator_score"], 65)
+        self.assertNotIn("obligation", row)
+
+    def test_deferred_kept_open_row_persists_on_the_next_pass(self):
+        """On a quiet pass the kept-open row is carried like any kept-open
+        row and stays open; only the owner's own decision closes it."""
+        _, s2, _, hA, _ = deferred_covered_sub_threshold_scenario("defer")
+        _, L1 = deferred_covered_lines()
+        s3, r3 = run_pass(s2, L1, [], 3, {F: []})
+        rec = self._current(s3, hA)
+        row = row_of(s3, hA)
+        self.assertIsNotNone(row, r3["filtered"])
+        self.assertIn("kept_open", row, row)
+        self.assertEqual(row["snapshot"].get("nearby_at"), 2, row["snapshot"])
+        self.assertEqual(carry_state.decision_state(rec, s3), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s3), "nearby")
+        self.assertIn(hA, carry_state.finalize_counts(
+            s3, {})["outstanding_cw_hashes"])
+        s3 = decide_on(s3, hA, "dismiss")
+        self.assertEqual(carry_state.decision_state(record_of(s3, hA), s3),
+                         "current")
+        self.assertNotIn(hA, carry_state.finalize_counts(
+            s3, {})["outstanding_cw_hashes"])
+
+    def test_envelope_without_deferred_hashes_scores_as_before(self):
+        """An envelope without `deferred_hashes` (every archived replay
+        envelope) synthesizes nothing: the member drops as before D-20."""
+        _, s2, r2, hA, _ = deferred_covered_sub_threshold_scenario(
+            "defer", deferred_hashes=None)
+        self.assertEqual(r2["findings"], [], r2["filtered"])
+        self.assertIsNone(record_of(s2, hA), r2["filtered"])
         self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
 
 
@@ -2407,6 +2464,10 @@ class TestPhase57Mutants(_Base):
          "test_p4_far_twin_latest_stamp_reaches_the_first_copy"),
         (TestPriorGate,
          "test_in01_edited_carried_lead_does_not_carry_its_stamp_onto_the_new_hash"),
+        (TestDeferredStaysOpen,
+         "test_deferred_covered_member_below_threshold_stays_open"),
+        (TestDeferredStaysOpen,
+         "test_dismissed_covered_member_below_threshold_may_drop"),
     )
 
     def _failures(self):
@@ -2434,6 +2495,43 @@ class TestPhase57Mutants(_Base):
         self.assertEqual(self._failures(), set())
         with mock.patch.object(score, "run", mod.run):
             return self._failures()
+
+    def test_deferral_kind_gate_keeps_a_dismissed_member_open(self):
+        """D-20 / WR-02 kind gate: only a member covered by one of the
+        owner's DEFERRED hashes is indexed. Without `stored_hash in
+        deferred_hashes` a dismissed covered member below threshold is kept
+        open too (dismissed lock trips); the deferred case is unaffected."""
+        failed = self._run_mutant(
+            "score_d20_no_kind_gate",
+            "and stored_hash in deferred_hashes", "and True")
+        self.assertIn("test_dismissed_", failed)
+        self.assertNotIn("test_deferred_", failed)
+
+    def test_no_synthesized_entry_drops_the_deferred_member(self):
+        """D-20 / WR-02: without the synthesized carried_obligations entry
+        the deferred covered member has no row and leaves the open set (the
+        57-20 red returns); the dismiss lock and the split stamp (s1) are
+        unaffected."""
+        failed = self._run_mutant(
+            "score_d20_no_entry",
+            "carried_obligations[id(m)] = _covered_entry(",
+            "pass  # (")
+        self.assertIn("test_deferred_", failed)
+        self.assertNotIn("test_dismissed_", failed)
+        self.assertNotIn("test_s1_", failed)
+
+    def test_kept_open_covered_row_without_carried_is_not_stamped(self):
+        """D-20 with D-17: the kept-open row of a deferred covered member
+        has no prior snapshot, so only `carried` lets the split pass's edit
+        stamp it. Without it the row reads current, the deferral closes it
+        and it is not outstanding; the dismiss lock and a real obligation's
+        kept-open row (p3, prior snapshot) are unaffected."""
+        failed = self._run_mutant(
+            "score_d20_no_carried",
+            'carried=bool(entry.get("covered"))', "carried=False")
+        self.assertIn("test_deferred_", failed)
+        self.assertNotIn("test_dismissed_", failed)
+        self.assertNotIn("test_p3_", failed)
 
     def test_carried_statuses_without_needs_recheck_loses_the_low_entropy_split(
             self):

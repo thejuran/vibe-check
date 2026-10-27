@@ -7713,8 +7713,8 @@ class TestPhase57Mutants(unittest.TestCase):
             assert row2["kept_open"] == "below-min-confidence", row2
             assert row2["snapshot"].get("nearby_at") == 2, row2["snapshot"]
         self._trips("score_m57_04",
-                    'row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby)',
-                    'row["snapshot"] = _snapshot_for(row, pass_number, nearby=False)',
+                    'row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,',
+                    'row["snapshot"] = _snapshot_for(row, pass_number, nearby=False,',
                     check)
 
     def test_m57_05_obligation_stamp_removed(self):
