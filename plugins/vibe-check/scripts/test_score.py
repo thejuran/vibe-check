@@ -4945,6 +4945,7 @@ class TestRetiredDomainCode(unittest.TestCase):
 # its older snapshot while all four site/evidence/status parts are unchanged.
 # --------------------------------------------------------------------------- #
 _SNAP_RANGES = {"src/a.py": [[8, 14]]}
+_SNAP_QUIET = {"changed_line_ranges": {}}
 
 
 def _snap_cf(canonical="  x = 1", **over):
@@ -4971,10 +4972,12 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(len(result["findings"]), 1, result)
         return result["findings"][0]
 
-    def _carried_with_snapshot(self, at_pass=1, canonical="  x = 1", **cf_over):
+    def _carried_with_snapshot(self, at_pass=1, canonical="  x = 1", env_over=None,
+                               **cf_over):
         # Re-score once without a snapshot to learn this pass's band, then hand
         # the carried entry a pass-1 snapshot that equals this pass's values.
-        probe = self._row(_snap_run([_snap_cf(canonical=canonical, **cf_over)]))
+        probe = self._row(_snap_run([_snap_cf(canonical=canonical, **cf_over)],
+                                    **(env_over or {})))
         snap = {"at_pass": at_pass, "file": probe["file"], "line": probe["line"],
                 "canonical_line_content": probe["canonical_line_content"],
                 "band": probe["band"]}
@@ -4999,9 +5002,14 @@ class TestSnapshot(unittest.TestCase):
         self.assertEqual(row["snapshot"]["at_pass"], 1)
 
     def test_unchanged_carried_keeps_older_snapshot(self):
-        probe, snap = self._carried_with_snapshot()
+        # A quiet pass: this pass's incremental diff does not reach line 10 or
+        # the lines beneath it (a change there stamps `nearby_at`, TestNearbyAt).
+        probe, snap = self._carried_with_snapshot(env_over=_SNAP_QUIET)
         self.assertEqual(probe["status"], "persisted")
-        row = self._row(_snap_run([_snap_cf(snapshot=snap)]))
+        # The stored stable_hash is the row's own (an unchanged line keeps its
+        # hash): a carried snapshot is a prior only under the row's hash.
+        row = self._row(_snap_run([_snap_cf(snapshot=snap, stable_hash=probe["stable_hash"])],
+                                  **_SNAP_QUIET))
         # The carried status is persisted (input said "new"): status is NOT a
         # snapshot component, band is.
         self.assertEqual(row["status"], "persisted")
@@ -5042,9 +5050,9 @@ class TestSnapshot(unittest.TestCase):
         # equals HEAD and the carry status reads needs-recheck on an untouched
         # line. The snapshot keys on HEAD canonical, so it is kept.
         frag = dict(current_code="fragment of the line")
-        probe, snap = self._carried_with_snapshot(**frag)
+        probe, snap = self._carried_with_snapshot(env_over=_SNAP_QUIET, **frag)
         self.assertEqual(probe["status"], "needs-recheck")
-        row = self._row(_snap_run([_snap_cf(snapshot=snap, **frag)]))
+        row = self._row(_snap_run([_snap_cf(snapshot=snap, **frag)], **_SNAP_QUIET))
         self.assertEqual(row["status"], "needs-recheck")
         self.assertEqual(row["snapshot"]["at_pass"], 1)
 
@@ -5925,7 +5933,11 @@ class TestKeptOpenMembers(unittest.TestCase):
         row = r2["findings"][0]
         self.assertEqual(_pairs(row), [("bugs", "logic B"), ("security", "inj A")])
         self.assertNotIn("obligation", row["members"][0])
-        self.assertEqual(row["members"][1]["obligation"], self._sidecar(R1))
+        # B's line 11 is a pass-2 change inside A's nearby window (line 10 and
+        # the 5 beneath), so A's sidecar snapshot is re-stamped at pass 2.
+        self.assertEqual(row["members"][1]["obligation"],
+                         dict(self._sidecar(R1),
+                              snapshot=dict(R1["snapshot"], at_pass=2, nearby_at=2)))
         rest = {k: v for k, v in row["members"][1].items() if k != "obligation"}
         self.assertEqual(rest, score._member_ref(cfA))
         # The sidecar never feeds the row: same envelope without A's stored fields.
@@ -5940,7 +5952,9 @@ class TestKeptOpenMembers(unittest.TestCase):
     def test_sidecar_passes_through_re_absorption(self):
         R1, cfA, B, r2 = self._ab()
         heads = {"security": "a_line", "bugs": "b_line"}
-        r3 = score.run(_hl_env([], _KO_RANGES, carryforward=_ko_next_cf(r2, heads),
+        # A quiet pass 3 (no change reaches A's window): the sidecar, including
+        # its pass-2 `nearby_at`, passes through verbatim.
+        r3 = score.run(_hl_env([], {}, carryforward=_ko_next_cf(r2, heads),
                                pass_number=3))
         self.assertEqual(_ko_rows(r3), [])
         self.assertEqual(len(r3["findings"]), 1)
@@ -5968,7 +5982,7 @@ class TestKeptOpenMembers(unittest.TestCase):
         self.assertEqual(obl["snapshot"],
                          {"at_pass": 3, "file": R1["file"], "line": R1["line"],
                           "canonical_line_content": "a_line_edited",
-                          "band": R1["band"]})
+                          "band": R1["band"], "nearby_at": 3})
         self.assertNotEqual(obl["snapshot"], R1["snapshot"])
 
     def _pass3(self, r2, a_head, **over):
@@ -6010,7 +6024,11 @@ class TestKeptOpenMembers(unittest.TestCase):
         r3, heads = self._pass3(r2, "a_line", min_confidence=70)
         a = self._assert_a_open(R1, r3, "below-min-confidence")
         self.assertEqual(a["status"], "persisted")
-        self.assertEqual(a["snapshot"]["at_pass"], R1["snapshot"]["at_pass"])
+        # A's snapshot was last refreshed at pass 2 (B's line 11 changed inside
+        # A's window); quiet pass 3 keeps it, `nearby_at` included.
+        r2_snap = r2["findings"][0]["members"][1]["obligation"]["snapshot"]
+        self.assertEqual(a["snapshot"], r2_snap)
+        self.assertEqual(a["snapshot"]["nearby_at"], 2)
         self._pass4(R1, r3, heads)
 
     def test_three_pass_lead_resolved_member_sub_threshold(self):
@@ -6128,7 +6146,10 @@ class TestKeptOpenMultiPass(unittest.TestCase):
             self.assertEqual(rows3[h]["kept_open"], "below-min-confidence")
             self.assertEqual(rows3[h]["band"], band)
             self.assertEqual(rows3[h]["snapshot"]["at_pass"], 3)
-        r4 = score.run(self._env(4, _p45_next_cf(r3), min_confidence=100))
+        # Pass 4 is quiet (nothing reaches the pinned windows), so each
+        # kept-open snapshot is kept verbatim.
+        r4 = score.run(self._env(4, _p45_next_cf(r3), min_confidence=100,
+                                 changed_line_ranges={}))
         rows4 = self._by_hash(r4)
         self.assertEqual(set(rows4), set(want))
         for h, band in want.items():
@@ -7408,3 +7429,414 @@ class TestRollbackNeedsVerification(unittest.TestCase):
             with open(old_path, "rb") as fh:
                 self.assertNotEqual(fh.read(), prior_old)
             self.assertFalse(os.path.exists(old_path + ".pre-downgrade.bak"))
+
+
+# --------------------------------------------------------------------------- #
+# Nearby-change stamp: every snapshot writer (survivor, kept-open row,
+# obligation member) stamps `snapshot.nearby_at` with the pass whose change
+# ranges reach the flagged line or the 5 lines beneath it, on a row that existed
+# before this pass, and carries a prior stamp forward otherwise. carry_state
+# compares the stamp, so an edit beside a decided line re-asks it once.
+# --------------------------------------------------------------------------- #
+_NA_HIT = {"src/a.py": [[11, 11]]}
+
+
+def _na_pass1(sc=score):
+    """Pass 1: A (security, src/a.py:10, "a_line", conf 70) alone, in-diff."""
+    A = _ko_find("A", "security", 10, 70, "inj A", "a_line")
+    r = sc.run(_hl_env([A], _KO_RANGES, pass_number=1))
+    assert len(r["findings"]) == 1, r
+    return r["findings"][0]
+
+
+def _na_pass2(R1, ranges, sc=score, **over):
+    cf = _carried(R1, {"security": "a_line"})
+    return sc.run(_hl_env([], ranges, carryforward=[cf], pass_number=2, **over))
+
+
+def _na_row(result, title="inj A"):
+    rows = [f for f in result["findings"] if f.get("title") == title]
+    assert len(rows) == 1, result
+    return rows[0]
+
+
+def _na_survivor_stamp(sc=score):
+    R1 = _na_pass1(sc)
+    return R1, _na_row(_na_pass2(R1, _NA_HIT, sc))
+
+
+def _na_keep_carry(sc=score):
+    """Pass 2 stamps A; quiet pass 3 (keep branch) -> the row at pass 3."""
+    R1, row2 = _na_survivor_stamp(sc)
+    r3 = sc.run(_hl_env([], {}, carryforward=_ko_next_cf(row2 and {"findings": [row2]},
+                                                         {"security": "a_line"}),
+                        pass_number=3))
+    return row2, _na_row(r3)
+
+
+def _na_refresh_carry(sc=score):
+    """Pass 2 stamps A; pass 3 is quiet but the carried snapshot's band differs
+    from this pass's band, so the refresh branch runs."""
+    R1, row2 = _na_survivor_stamp(sc)
+    cf = _ko_next_cf({"findings": [row2]}, {"security": "a_line"})
+    cf[0]["snapshot"] = dict(cf[0]["snapshot"], band="critical")
+    r3 = sc.run(_hl_env([], {}, carryforward=cf, pass_number=3))
+    return row2, _na_row(r3)
+
+
+def _na_kept_open(sc=score):
+    """A carried below min_confidence -> a kept-open row. Pass 2 hits the window;
+    pass 3 is quiet. -> (row2, row3)."""
+    R1 = _na_pass1(sc)
+    r2 = _na_pass2(R1, _NA_HIT, sc, min_confidence=100)
+    row2 = _na_row(r2)
+    r3 = sc.run(_hl_env([], {}, carryforward=_ko_next_cf(r2, {"security": "a_line"}),
+                        pass_number=3, min_confidence=100))
+    return row2, _na_row(r3)
+
+
+def _na_obligation(sc=score):
+    """A (pass 1, conf 52) is absorbed into a NEW B (bugs, line 11) on pass 2.
+    Pass 3 changes line 5 only: inside A's window (5..15), outside B's
+    (6..16) (D-14 symmetric windows). Pass 4 is quiet. -> (lead3, obl3, obl4)."""
+    A = _ko_find("A", "security", 10, 52, "inj A", "a_line")
+    R1 = sc.run(_hl_env([A], _KO_RANGES, pass_number=1))["findings"][0]
+    B = _ko_find("B", "bugs", 11, 90, "logic B", "b_line", category="logic-error")
+    r2 = sc.run(_hl_env([B], _KO_RANGES, carryforward=[_carried(R1, {"security": "a_line"})],
+                        pass_number=2))
+    heads = {"security": "a_line", "bugs": "b_line"}
+    r3 = sc.run(_hl_env([], {"src/a.py": [[5, 5]]},
+                        carryforward=_ko_next_cf(r2, heads), pass_number=3))
+    lead3 = _na_row(r3, "logic B")
+    r4 = sc.run(_hl_env([], {}, carryforward=_ko_next_cf(r3, heads), pass_number=4))
+    lead4 = _na_row(r4, "logic B")
+    obl = lambda row: [m for m in row["members"] if m["agent"] == "security"][0]["obligation"]
+    return R1, lead3, obl(lead3), obl(lead4)
+
+
+def _na_forge(ranges, sc=score):
+    """A FRESH finding arriving with a forged snapshot (older at_pass, a stamp)
+    and the stable_hash its row computes, so the forged snapshot would pass the
+    row's prior hash gate: only the ingress scrub keeps it out."""
+    f = _ko_find("F", "security", 10, 70, "inj A", "a_line",
+                 snapshot={"at_pass": 1, "file": "src/a.py", "line": 10,
+                           "canonical_line_content": "a_line", "band": "warning",
+                           "nearby_at": 1},
+                 stable_hash=score.stable_hash("src/a.py", "a_line", "inj A"))
+    return _na_row(sc.run(_hl_env([f], ranges, pass_number=2)))
+
+
+class TestNearbyAt(unittest.TestCase):
+
+    def test_survivor_stamps_nearby_at_when_window_hit(self):
+        R1, row = _na_survivor_stamp()
+        self.assertEqual((R1["band"], row["band"]), ("warning", "warning"))
+        self.assertNotIn("nearby_at", R1["snapshot"])
+        self.assertEqual(row["snapshot"]["nearby_at"], 2)
+        self.assertEqual(row["snapshot"]["at_pass"], 2)
+
+    def test_survivor_window_edges(self):
+        R1 = _na_pass1()
+        # D-14: symmetric; 5 above hits, 6 above misses (same below).
+        for at, hit in ((11, True), (13, True), (15, True), (16, False), (9, True),
+                        (5, True), (4, False)):
+            with self.subTest(at=at):
+                row = _na_row(_na_pass2(R1, {"src/a.py": [[at, at]]}))
+                self.assertEqual(row["band"], "warning")
+                if hit:
+                    self.assertEqual(row["snapshot"]["nearby_at"], 2)
+                else:
+                    self.assertNotIn("nearby_at", row["snapshot"])
+
+    def test_survivor_no_stamp_outside_window(self):
+        R1 = _na_pass1()
+        # D-14: 6 below (16) and 6 above (4) are both outside the window.
+        for ranges in ({"src/a.py": [[16, 16]]}, {"src/a.py": [[4, 4]]},
+                       {"src/b.py": [[10, 10]]}):
+            with self.subTest(ranges=ranges):
+                row = _na_row(_na_pass2(R1, ranges))
+                self.assertEqual((R1["band"], row["band"]), ("warning", "warning"))
+                self.assertNotIn("nearby_at", row["snapshot"])
+                self.assertEqual(row["snapshot"], R1["snapshot"])
+
+    def test_survivor_carries_prior_nearby_at_on_keep_branch(self):
+        row2, row3 = _na_keep_carry()
+        self.assertEqual((row2["band"], row3["band"]), ("warning", "warning"))
+        self.assertEqual(row3["snapshot"], row2["snapshot"])
+        self.assertEqual(row3["snapshot"]["nearby_at"], 2)
+        self.assertEqual(row3["snapshot"]["at_pass"], 2)
+
+    def test_survivor_carries_prior_nearby_at_on_refresh_branch(self):
+        row2, row3 = _na_refresh_carry()
+        self.assertEqual((row2["band"], row3["band"]), ("warning", "warning"))
+        self.assertEqual(row3["snapshot"]["at_pass"], 3)
+        self.assertEqual(row3["snapshot"]["band"], "warning")
+        self.assertEqual(row3["snapshot"]["nearby_at"], 2)
+
+    def test_kept_open_row_stamps_and_carries(self):
+        row2, row3 = _na_kept_open()
+        self.assertEqual((row2["band"], row3["band"]), ("warning", "warning"))
+        self.assertEqual(row2["kept_open"], "below-min-confidence")
+        self.assertEqual(row3["kept_open"], "below-min-confidence")
+        self.assertEqual(row2["snapshot"]["nearby_at"], 2)
+        self.assertEqual(row3["snapshot"]["nearby_at"], 2)
+        self.assertEqual(row3["snapshot"], row2["snapshot"])
+
+    def test_obligation_member_stamps_and_carries(self):
+        R1, lead3, obl3, obl4 = _na_obligation()
+        self.assertEqual(lead3["band"], "critical")
+        self.assertEqual(obl3["band"], R1["band"])
+        # The change reached the MEMBER's line, not the lead's window.
+        self.assertNotIn("nearby_at", lead3["snapshot"])
+        self.assertEqual(obl3["snapshot"]["nearby_at"], 3)
+        self.assertEqual(obl3["snapshot"]["at_pass"], 3)
+        self.assertEqual(obl4["snapshot"], obl3["snapshot"])
+
+    def test_independent_trigger_unchanged(self):
+        rec = {"file": "src/a.py", "line": 10}
+        cases = [
+            (rec, {}, {"src/a.py": [[15, 15]]}),
+            (rec, {}, {"src/a.py": [[16, 16]]}),
+            (rec, {}, {"src/a.py": [[9, 9]]}),
+            # D-14: the trigger widens with the window (5 above hits, 6 misses).
+            (rec, {}, {"src/a.py": [[5, 5]]}),
+            (rec, {}, {"src/a.py": [[4, 4]]}),
+            # Line-1 clip: a line near the top still sees an edit above it.
+            ({"file": "src/a.py", "line": 3}, {}, {"src/a.py": [[1, 1]]}),
+            (rec, {}, {"src/b.py": [[10, 10]]}),
+            (rec, {"src/a.py": []}, {}),
+            (rec, {"tests/test_a.py": []}, {}),
+            ({"file": "src/a.py", "line": None}, {}, {"src/a.py": [[1, 99]]}),
+            ({"file": "", "line": 10}, {"": []}, {"": [[10, 10]]}),
+            (rec, {}, None),
+        ]
+        for record, touched, ranges in cases:
+            with self.subTest(record=record, touched=touched, ranges=ranges):
+                want = (_nonempty(record.get("file"))
+                        and (record["file"] in touched
+                             or any(score._is_associated_test(p, record["file"])
+                                    for p in touched)
+                             or score._nearby_changed(record, ranges)))
+                self.assertEqual(score._independent_trigger(record, touched, ranges),
+                                 bool(want))
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count('status == "persisted" and not _independent_trigger('), 1)
+        self.assertEqual(src.count("return _nearby_changed(record, changed_line_ranges)"), 1)
+
+    def test_fresh_finding_cannot_forge_nearby_at(self):
+        for ranges in ({"src/a.py": [[20, 20]]}, _NA_HIT):
+            with self.subTest(ranges=ranges):
+                row = _na_forge(ranges)
+                self.assertEqual(row["status"], "new")
+                self.assertNotIn("nearby_at", row["snapshot"])
+                self.assertEqual(row["snapshot"]["at_pass"], 2)
+
+    def test_snapshot_for_carried_arm(self):
+        # A carried lead record (expanded member: no top-level snapshot) is
+        # stamped on a nearby change; a fresh finding never is.
+        bare = {"file": "src/a.py", "line": 10, "canonical_line_content": "a_line",
+                "band": "warning"}
+        snap = score._snapshot_for(dict(bare), 2, nearby=True, carried=True)
+        self.assertEqual(snap, {"at_pass": 2, "file": "src/a.py", "line": 10,
+                                "canonical_line_content": "a_line", "band": "warning",
+                                "nearby_at": 2})
+        self.assertNotIn("nearby_at",
+                         score._snapshot_for(dict(bare), 2, nearby=True, carried=False))
+        self.assertNotIn("nearby_at",
+                         score._snapshot_for(dict(bare), 2, nearby=False, carried=True))
+        prior = dict(bare, snapshot={"at_pass": 1, "file": "src/a.py", "line": 10,
+                                     "canonical_line_content": "a_line",
+                                     "band": "warning"})
+        self.assertEqual(
+            score._snapshot_for(prior, 2, nearby=True, carried=False).get("nearby_at"), 2)
+
+    def test_hash_and_golden_digest_unchanged(self):
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
+        R1, row = _na_survivor_stamp()
+        self.assertEqual(row["stable_hash"], R1["stable_hash"])
+
+
+def _nonempty(x):
+    return isinstance(x, str) and bool(x)
+
+
+class TestPhase57Mutants(unittest.TestCase):
+    """Each mutant removes one nearby-stamp or dedup guard from score.py; the
+    real scorer passes the scenario and the mutant fails it."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            cls.src = fh.read()
+
+    def _mod(self, name, old, new):
+        from test_confirmed_fix import _mutant
+        self.assertEqual(self.src.count(old), 1, "mutation target not unique: %r" % old)
+        return _mutant(SCORE_PY, name, old, new)
+
+    def _trips(self, name, old, new, check):
+        """`check(sc)` raises AssertionError when the guard is missing."""
+        check(score)
+        mod = self._mod(name, old, new)
+        with self.assertRaises(AssertionError):
+            check(mod)
+
+    def test_m57_01_stamp_removed(self):
+        def check(sc):
+            _, row = _na_survivor_stamp(sc)
+            assert row["snapshot"].get("nearby_at") == 2, row["snapshot"]
+        self._trips("score_m57_01",
+                    'cur["nearby_at"] = cur["at_pass"]\n',
+                    "pass\n", check)
+
+    def test_m57_02_keep_branch_carry_removed(self):
+        def check(sc):
+            _, row3 = _na_keep_carry(sc)
+            assert row3["snapshot"].get("nearby_at") == 2, row3["snapshot"]
+        self._trips("score_m57_02",
+                    'kept["nearby_at"] = prior_nearby\n',
+                    "pass\n", check)
+
+    def test_m57_03_refresh_branch_carry_removed(self):
+        def check(sc):
+            _, row3 = _na_refresh_carry(sc)
+            assert row3["snapshot"]["at_pass"] == 3, row3["snapshot"]
+            assert row3["snapshot"].get("nearby_at") == 2, row3["snapshot"]
+        self._trips("score_m57_03",
+                    'cur["nearby_at"] = prior_nearby\n',
+                    "pass\n", check)
+
+    def test_m57_04_kept_open_stamp_removed(self):
+        def check(sc):
+            row2, _ = _na_kept_open(sc)
+            assert row2["kept_open"] == "below-min-confidence", row2
+            assert row2["snapshot"].get("nearby_at") == 2, row2["snapshot"]
+        self._trips("score_m57_04",
+                    'row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,',
+                    'row["snapshot"] = _snapshot_for(row, pass_number, nearby=False,',
+                    check)
+
+    def test_m57_05_obligation_stamp_removed(self):
+        def check(sc):
+            _, _, obl3, _ = _na_obligation(sc)
+            assert obl3["snapshot"].get("nearby_at") == 3, obl3["snapshot"]
+        self._trips("score_m57_05",
+                    "return dict(obl, snapshot=_snapshot_for(basis, pass_number, "
+                    "nearby=nearby))",
+                    "return dict(obl, snapshot=_snapshot_for(basis, pass_number, "
+                    "nearby=False))",
+                    check)
+
+    def test_m57_06_ingress_snapshot_scrub_removed(self):
+        def check(sc):
+            for ranges in ({"src/a.py": [[20, 20]]}, _NA_HIT):
+                row = _na_forge(ranges, sc)
+                assert "nearby_at" not in row["snapshot"], row["snapshot"]
+        self._trips("score_m57_06",
+                    'if k not in ("status", "members", "snapshot", "resolution", '
+                    '"kept_open",',
+                    'if k not in ("status", "members", "resolution", "kept_open",',
+                    check)
+
+
+    def test_m57_07_dedup_obligation_attach_removed(self):
+        # The carried obligation is dropped when the fresh duplicate wins.
+        self._trips("score_m57_07",
+                    '                    ref_kept["obligation"] = _refreshed_obligation(\n',
+                    '                    _refreshed_obligation(\n',
+                    _od_check)
+
+    def test_m57_08_carried_arm_removed(self):
+        def check(sc):
+            snap = sc._snapshot_for({"file": "src/a.py", "line": 10,
+                                     "canonical_line_content": "a_line",
+                                     "band": "warning"},
+                                    2, nearby=True, carried=True)
+            assert snap.get("nearby_at") == 2, snap
+        self._trips("score_m57_08",
+                    "(isinstance(prior, dict) or carried)",
+                    "isinstance(prior, dict)", check)
+
+
+# --------------------------------------------------------------------------- #
+# Obligation-preserving member dedup: a carried record out-ranked by a FRESH
+# duplicate of the same occurrence inside a row led by a third finding keeps
+# its obligation on the surviving member ref (Phase 46 residual 1).
+# --------------------------------------------------------------------------- #
+def _od_pass1(sc=score):
+    A = _ko_find("A", "bugs", 10, 60, "logic A", "a_line", category="logic-error")
+    return sc.run(_hl_env([A], _KO_RANGES, pass_number=1))["findings"][0]
+
+
+def _od_dup(conf=100, id_="A2"):
+    return _ko_find(id_, "bugs", 10, conf, "logic A", "a_line", category="logic-error")
+
+
+def _od_c():
+    return _ko_find("C", "security", 11, 100, "inj C", "c_line")
+
+
+def _od_scenario(sc=score):
+    """Pass 2 (code unchanged, empty diff): carried A + a fresh A duplicate at
+    conf 100 + a fresh C that leads the row. -> (R1, cfA, dup, row)."""
+    R1 = _od_pass1(sc)
+    cf = _carried(R1, {"bugs": "a_line", "security": "c_line"})
+    dup = _od_dup()
+    r2 = sc.run(_hl_env([dup, _od_c()], {}, carryforward=[cf], pass_number=2))
+    assert len(r2["findings"]) == 1, r2
+    return R1, cf, dup, r2["findings"][0]
+
+
+def _od_check(sc=score):
+    R1, cf, dup, row = _od_scenario(sc)
+    assert row["agent"] == "security" and row["title"] == "inj C", row
+    bugs = [m for m in row["members"] if m["agent"] == "bugs"]
+    assert len(bugs) == 1, row["members"]
+    obl = bugs[0].get("obligation")
+    assert isinstance(obl, dict), bugs[0]
+    assert obl["stable_hash"] == R1["stable_hash"], obl
+    return R1, row, obl
+
+
+class TestObligationPreservingDedup(unittest.TestCase):
+
+    def test_fresh_duplicate_outranking_carried_keeps_obligation(self):
+        R1, cf, dup, _ = _od_scenario()
+        self.assertEqual(R1["band"], "medium")
+        # The fixture exercises the dedup branch: the fresh duplicate and the
+        # carried record share one occurrence identity.
+        self.assertEqual(score._finding_identity(dup), score._finding_identity(cf))
+        R1, row, obl = _od_check()
+        self.assertEqual(row["band"], "critical")
+        self.assertNotEqual(row["stable_hash"], R1["stable_hash"])
+        for k in _KO_STORED:
+            self.assertEqual(obl[k], R1[k], k)
+        self.assertEqual(obl["snapshot"], R1["snapshot"])
+        self.assertNotIn("obligation", row["members"][0])
+
+    def test_lead_own_record_is_not_given_an_obligation(self):
+        R1 = _od_pass1()
+        cf = _carried(R1, {"bugs": "a_line"})
+        r2 = score.run(_hl_env([_od_dup()], {}, carryforward=[cf], pass_number=2))
+        self.assertEqual(len(r2["findings"]), 1, r2)
+        row = r2["findings"][0]
+        self.assertEqual(row["stable_hash"], R1["stable_hash"])
+        self.assertEqual(len(row["members"]), 1)
+        self.assertNotIn("obligation", row["members"][0])
+
+    def test_dedup_without_carried_twin_unchanged(self):
+        r2 = score.run(_hl_env([_od_dup(), _od_dup(conf=60, id_="A3"), _od_c()], {},
+                               pass_number=2))
+        self.assertEqual(len(r2["findings"]), 1, r2)
+        row = r2["findings"][0]
+        bugs = [m for m in row["members"] if m["agent"] == "bugs"]
+        self.assertEqual(len(bugs), 1)
+        self.assertNotIn('"obligation"', json.dumps(r2))
+
+    def test_hash_and_golden_digest_unchanged(self):
+        self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
+        R1, row, _ = _od_check()
+        self.assertEqual(row["stable_hash"],
+                         score.stable_hash("src/a.py", "c_line", "inj C"))
+

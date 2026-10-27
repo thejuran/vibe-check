@@ -15,7 +15,7 @@ request's `snapshot_blob` equals the collect-time `head_blobs[file]` (both
 non-null). A `persisted` record (pinned line unchanged) also needs a trigger:
 its file or one of its associated tests was touched since it was raised
 (`touched_paths`), or the change ranges reach the pinned line or the 5 lines
-beneath it. Any `still-applies` keeps the record open and records
+above or below it. Any `still-applies` keeps the record open and records
 `recheck_settled`, so it is not re-asked until its code changes. When the
 envelope carries `head_blobs` and an eligible lead received no request, the
 scorer explains why it did not close.
@@ -880,7 +880,10 @@ class TestAssociatedTest(unittest.TestCase):
         self.assertTrue(score._independent_trigger(rec, [], {f: [[80, 85]]}))
         self.assertTrue(score._independent_trigger(rec, [], {f: [[85, 85]]}))
         self.assertFalse(score._independent_trigger(rec, [], {f: [[86, 90]]}))
-        self.assertFalse(score._independent_trigger(rec, [], {f: [[70, 79]]}))
+        # D-14: the window is symmetric; 5 above hits, 6 above misses.
+        self.assertFalse(score._independent_trigger(rec, [], {f: [[70, 74]]}))
+        self.assertTrue(score._independent_trigger(rec, [], {f: [[75, 75]]}))
+        self.assertTrue(score._independent_trigger(rec, [], {f: [[75, 79]]}))
         self.assertFalse(score._independent_trigger(rec, ["src/other.ts"], {"src/other.ts": [[80, 80]]}))
         # A record without a line has only the touched checks.
         self.assertFalse(score._independent_trigger({"file": f, "line": None}, [],

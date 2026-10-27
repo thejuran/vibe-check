@@ -13,7 +13,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 **Goal:** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable.
 
 - [x] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal (completed 2026-10-25)
-- [ ] **Phase 57: Decision continuity within closure** - Owner defer/dismiss decisions survive regrouping and unrelated edits, and reopen only on changed evidence
+- [x] **Phase 57: Decision continuity within closure** - Owner defer/dismiss decisions survive regrouping and unrelated edits, and reopen only on changed evidence (completed 2026-10-27)
 - [ ] **Phase 58: Clear actions, recovery and answers acted on** - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
 
 **Sequence:** Reproduce the closure failure first (Phase 56), repair it with targeted validation, then align decisions (Phase 57) and actions/recovery guidance (Phase 58). If the retry failure cannot be reproduced, stop that fix effort and reassess scope rather than invent a replacement project.
@@ -80,7 +80,58 @@ Plans:
   3. A deferred or dismissed finding is not re-asked after an edit that does not touch the finding's evidence (regression fixture)
   4. When the finding's relevant evidence changes, the finding reopens and is presented again with the new evidence (regression fixture)
 
-**Plans**: TBD
+**Plans**: 23 plans (7 executed + 16 gap closure)
+
+Plans:
+**Wave 1**
+
+- [x] 57-01-PLAN.md — Reproduce-first: harness + RED fixtures for R1a/R1b/R1c, R2, R3a-refined, R3b, R4, R5, R6, R7; "did not reproduce; dropped" record for N1-N6 (DECN-01 gate)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 57-02-PLAN.md — carry_state: line-free ordinary compare (D-01), nearby_at evidence (D-02), direction-aware band with gained-lane rule (D-05 refined/D-06/D-07), attribution on decisions, `decided` subcommand; flipped legacy tests
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 57-03-PLAN.md — carry_state: `covers` at decision time, `joined` reopen for a newcomer concern (D-08), inheritance for a covered member that splits (D-09)
+- [x] 57-04-PLAN.md — score.py: shared `_nearby_changed` window, `nearby_at` through all three snapshot writers, obligation-preserving member dedup (R5), mutants, replay numbers
+- [x] 57-05-PLAN.md — Prose: decided-record relocation by content in 30-collect-score.md, `$DECIDED_HASHES` fail-closed binding in 05-state.md, scoring.md identity sentence, prose locks
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 57-06-PLAN.md — Card: nearby / severity-rose-with-lane / D-10 joined suffixes (D-05, D-10, D-12), 90-finalize.md contract, exact-wording tests and locks
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 57-07-PLAN.md — Phase gate: ledger green, cross-module guards, end-to-end owner journey, full suite + golden + replay, STATE.md and carried item
+
+**Gap closure** *(after verification gaps_found 2026-10-26: CR-01, CR-02, WR-03 blocking; owner rulings D-14, D-15, D-16; sequential waves 6-11)*
+
+- [x] 57-08-PLAN.md — Reproduce-first: RED fixtures for CR-01, CR-02 (inherited rise + joined), WR-03 (both directions), D-14 edit above, D-15 concern count, WR-02 deletion hunk + prose lock
+- [x] 57-09-PLAN.md — carry_state: exclude separately-owed members from `covers` (CR-01), per-concern `lanes` on decisions for the rise rule and the card (WR-03/D-16), `covered_count` counts concerns (D-15), mutants
+- [x] 57-10-PLAN.md — carry_state + card: band/lanes on covers entries, inherited decisions run nearby -> joined -> lane-backed rise (CR-02/D-16), `covering_entry` for the card's was_band, mutants
+- [x] 57-11-PLAN.md — score.py: symmetric 5-line window shared with the Phase 56 trigger (D-14), flipped boundary tests, lower-bound mutant, replay candidate/diff with explicit allowances if any
+- [x] 57-12-PLAN.md — Prose: deletion-only hunk range rule in 30-collect-score.md (WR-02), symmetric-window and D-16 wording in 90-finalize.md, IN-01/IN-02 doc fixes, phrase locks
+- [x] 57-13-PLAN.md — Gap-closure gate: full suite incl. test_replay, golden, replay, reverse-run red/green ledger addendum, DECN-02/03 re-marked complete, STATE.md
+
+**Gap closure, second round** *(after re-verification gaps_found 2026-10-26: split-row nearby edit lost (SC-4/DECN-03); owner ruling D-17; sequential waves 12-14)*
+
+- [x] 57-14-PLAN.md — Reproduce-first: real-chain RED fixtures for the split-pass nearby stamp (inherited, own-decision absorbed, owed stamp lost) + fresh-lead negative; split-pass snapshot shape in TestGapClosure57; cross-module producibility guard (WR-02 holes closed)
+- [x] 57-15-PLAN.md — score.py: `carried` arm in `_snapshot_for` + lead-obligation prior seeding so the split pass stamps `nearby_at` (D-17); unit pins; two end-to-end mutants; golden/import sets unchanged
+- [x] 57-16-PLAN.md — Second-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for D-17 differences), reverse-run ledger vs the pre-fix tree, diff-context gap parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
+
+**Gap closure, third round** *(after re-verification 2 gaps_found 2026-10-27: same-lane fresh re-report out-ranks the carried record and drops the nearby stamp (SC-4/DECN-03; 57-REVIEW-GAPS2.md CR-01/SA-01, WR-01); root cause: carried-ness read from the lead only; sequential waves 15-17)*
+
+- [x] 57-17-PLAN.md — Reproduce-first: real-chain RED fixtures for the same-lane out-ranking re-report (plain row at conf 100 and 90+critical, inherited split, own-absorbed split, owed stamp on a quiet pass) + green control; lead-order invariance guard across six row shapes (anti-whack-a-mole)
+- [x] 57-18-PLAN.md — score.py: carried-ness and the prior snapshot derived from ANY source record carried under the row's hash, read before dedup drops the duplicate (replaces the lead-only seed and same_hash_prior); WR-01 fixtures + 4 mutants; IN-01 docstring, IN-02 wrap; golden/import sets/anchors unchanged
+- [x] 57-19-PLAN.md — Third-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for nearby_at/at_pass on out-ranked carried rows, each justified), reverse-run ledger vs the pre-fix tree, observation parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
+
+**Gap closure, fourth round — FINAL (D-19 hard stop)** *(after round-3 code review 2026-10-27 (57-REVIEW-GAPS3.md): CR-01 same-hash records at different lines / arrival-order lead, CR-02 carried twin filtered before grouping, IN-01, WR-01, WR-02; owner rulings D-19 (fix the mechanism; no fifth round) and D-20 (deferred stays open below threshold); sequential waves 18-21)*
+
+- [x] 57-20-PLAN.md — Reproduce-first: real-chain RED fixtures for CR-01 (cross-lane same hash at another line; same-lane arrival order), CR-02 (min_confidence-dropped twin), IN-01 (edited carried lead's foreign stamp), the far-twin pooled-prior shape, and D-20 (deferred covered member below threshold; dismiss locked as dropping); invariance guard widened to nine shapes
+- [x] 57-21-PLAN.md — score.py: carried-by-hash index built before any filter; nearby and prior pooled over every carried copy (latest owed stamp, never first-wins); one hash gate on every prior source (IN-01 in code); deterministic lead by line; 4 mutants re-anchored + 3 new
+- [x] 57-22-PLAN.md — D-20: `carry_state.py deferred` read, `$DEFERRED_HASHES` bound in 05-state.md and forwarded as the envelope's `deferred_hashes` (prose locks), score.py keeps a deferred covered member open under its own hash as a stamped kept-open row; dismiss unchanged; 3 mutants
+- [x] 57-23-PLAN.md — Final gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for pooled nearby_at/at_pass, each justified), reverse-run ledger vs the pre-fix tree, DECN-03 re-marked on green evidence, D-19 hard stop written into STATE/deferred-items, STATE/ROADMAP truthful
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
@@ -114,10 +165,27 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 0/TBD | Not started | - |
+| 57. Decision continuity within closure | 23/23 | Complete    | 2026-10-27 |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
+
+### 999.23: Decision continuity known limits (Phase 57 close, D-19/D-22)
+
+Phase 57 closed under the owner's D-19 hard stop with these reproduced defects carried, not fixed. Full repros: `.planning/phases/57-decision-continuity-within-closure/57-REVIEW-GAPS4.md` and `deferred-items.md`.
+
+- **Wrong-keeps (decision stays current after its evidence changed):**
+  - CR-01: same-hash copies kept open below threshold are not pooled. Two identical `return None` lines at 10 and 30, dismissed; an edit at 33 leaves the decision current. Zero-config.
+  - CR-02: absorbed-member obligation sidecars are not pooled; carry_state reads the first sidecar.
+  - CR-04 (predates the gap rounds): removing a guard beside a covered member never re-asks the row decision while the member stays in the row (D-14's "guarded upstream" case).
+- **Over-ask to align under D-21:** an edit beside a NEW identical copy re-asks the decided copy at pass 3 (test_p4 locks the old behaviour); round-4 WR-01: a member that joined a deferred row after the deferral is kept open at the deferred row's band.
+- **Deferral loss (D-20 edges):** min_confidence (valid 1–49; repro must use ≤49, e.g. 45) removing a deferred covered member drops it without a card; SA-02 `--all` `not-in-reviewed-set` drop (not reproduced — reproduce first).
+
+Root-cause direction (from the review): pool `carried_by_hash` into `_kept_open_rows` and the member-sidecar path, and make carry_state's per-hash read merge records instead of keeping the first. Reproduce first; each fix needs a real-chain fixture and a mutant. Not scheduled; promote via `/bm:review-backlog`.
+
+### 999.24: Diff context widens the nearby window (Phase 57 SC-3 minor gap)
+
+`changed_line_ranges` are built from default-context diffs (`git diff`, `gh pr diff --patch`; 3 context lines), not `-U0`. So the effective nearby/in_diff window is ~8 lines instead of 5, and 30-collect-score.md's deletion-hunk rule never fires on real diffs. Fails toward asking (over-asks; never a silent keep); predates Phase 57. Acceptance (from `.planning/phases/57-decision-continuity-within-closure/deferred-items.md`): (a) use `-U0` for every range-building diff, or build ranges from `+`/`-` markers; (b) check nothing else assumes 3-line context; (c) an end-to-end fixture that runs a real `git diff` through the documented hunk rule. Not scheduled.
 
 ### 999.12: Narrow: Cost visibility feasibility — separate task
 

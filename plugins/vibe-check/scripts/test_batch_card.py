@@ -23,7 +23,8 @@ import batch_parse  # noqa: E402
 import carry_state  # noqa: E402
 import finalize_gate  # noqa: E402
 from test_carry_state import (  # noqa: E402
-    ARCH_HASH, BUGS_HASH, F, HA, HB, ba_state, load_fixture, member_ref,
+    ARCH_HASH, BUGS_HASH, F, HA, HB, ba_row_state, ba_state, load_fixture,
+    member_ref,
     mk_finding, mk_pass, mk_state, snap, string_key_writes)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +63,40 @@ def ordering_state():
         mk_finding("warning", "persisted", HD, file="app/a.py", line=20),
     ]
     return mk_state([mk_pass(1, []), mk_pass(2, rows)])
+
+
+def inherited_state(kind):
+    """The CR-02 shapes from test_carry_state.TestGapClosure57: row HR
+    (bugs/"T1") decided on pass 1 covering c's "T3"; on pass 2 c's finding
+    is row HC of its own. "rise": HC is critical and `security` now also
+    reports T3. "joined": HC stays warning and `security` joins with a new
+    concern. Returns (state, record)."""
+    import test_carry_state as tcs
+    t = tcs.TestGapClosure57("test_g2a_inherited_decision_reopens_on_"
+                             "lane_backed_band_rise")
+    s1 = t._inherited_pass1()
+    second = "T3" if kind == "rise" else "SQL injection"
+    return t._inherited_pass2(
+        s1, "critical" if kind == "rise" else "warning",
+        [tcs.g_lead("c", "T3", "z = 3", 12),
+         tcs.g_member("security", second, "z = 3", line=12)])
+
+
+def joined_state():
+    """Row HC (lead plus its own member record, plus covered member "B")
+    dismissed on pass 2; on pass 3 a `security` member with a new concern
+    joins the row. The decision covered 2 findings here."""
+    def row(extra_members):
+        own = member_ref(title="t cccccc")
+        covered = member_ref(line=11, title="B")
+        return mk_finding("warning", "persisted", HC,
+                          members=[own, covered] + extra_members)
+    decided = dismiss(mk_state([mk_pass(1, []), mk_pass(2, [row([])])]), HC,
+                      reason="Guarded upstream")
+    s = copy.deepcopy(decided)
+    newcomer = dict(member_ref(line=12, title="C"), agent="security")
+    s["passes"] = [mk_pass(1, []), mk_pass(2, [row([newcomer])])]
+    return s
 
 
 class TempDirCase(unittest.TestCase):
@@ -127,9 +162,12 @@ class TestRows(unittest.TestCase):
         self.assertEqual(hashes, [HB])
 
     def test_rows_stale_decision_present_with_tag(self):
-        decided = dismiss(ba_state(row_band="warning", a_band="medium"), HA,
-                          reason="Accepted risk")
-        fresh = ba_state(row_band="warning", a_band="warning")
+        decided = dismiss(ba_row_state(row_band="warning", a_band="medium"),
+                          HA, reason="Accepted risk")
+        # A rise backed by a lane absent at decision time (`security` now
+        # reports A itself).
+        fresh = ba_row_state(row_band="warning", a_band="warning",
+                             lanes=("bugs", "security"))
         s = copy.deepcopy(decided)
         s["passes"] = fresh["passes"]
         rows = {r["stable_hash"]: r for r in rows_of(s)}
@@ -137,16 +175,150 @@ class TestRows(unittest.TestCase):
         self.assertEqual(rows[HA]["stale"], {
             "cause": "severity", "decision": "dismiss",
             "reason": "Accepted risk", "at_pass": 2, "was_band": "medium",
-            "via": "same_hash", "prior_hash": HA})
+            "via": "same_hash", "prior_hash": HA, "gained": ["security"]})
         self.assertIsNone(rows[HB]["stale"])
 
-    def test_rows_stale_line_move_cause_code(self):
+    def test_rows_line_move_is_not_stale(self):
+        # Flipped per Phase 57 D-01 (was: a line move produced a stale "code"
+        # row). A failed relocation (null canonical text) is still a code
+        # change.
         decided = dismiss(ba_state(a_snapshot=snap(1, line=11)), HA)
         s = copy.deepcopy(decided)
         s["passes"] = ba_state(a_snapshot=snap(1, line=14))["passes"]
+        self.assertNotIn(HA, [r["stable_hash"] for r in rows_of(s)])
+        s["passes"] = ba_state(a_snapshot=dict(
+            snap(1, line=14), canonical_line_content=None))["passes"]
         rows = {r["stable_hash"]: r for r in rows_of(s)}
         self.assertEqual(rows[HA]["stale"]["cause"], "code")
         self.assertEqual(rows[HA]["stale"]["was_band"], "warning")
+
+    def test_rows_stale_nearby_cause_and_tag(self):
+        decided = dismiss(ba_state(), HA, reason="Guarded")
+        s = copy.deepcopy(decided)
+        s["passes"] = ba_state(a_snapshot=dict(
+            snap(1, line=11), nearby_at=2))["passes"]
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertIn(HA, rows)
+        self.assertEqual(rows[HA]["stale"]["cause"], "nearby")
+        self.assertEqual(rows[HA]["stale"]["gained"], [])
+        self.assertNotIn("joined", rows[HA]["stale"])
+        self.assertNotIn("covered", rows[HA]["stale"])
+
+    def test_rows_stale_severity_rise_has_gained(self):
+        decided = dismiss(ba_row_state(row_band="warning", a_band="medium"),
+                          HA)
+        s = copy.deepcopy(decided)
+        s["passes"] = ba_row_state(row_band="warning", a_band="warning",
+                                   lanes=("bugs", "security"))["passes"]
+        # `perf` is on the row's attribution only (no member reports A): the
+        # card never names it (it reads carry_state.gained_lanes only).
+        row_a = [f for f in s["passes"][-1]["findings"]
+                 if f["stable_hash"] == HA][0]
+        row_a["attribution"] = row_a["attribution"] + ["perf"]
+        stale = {r["stable_hash"]: r for r in rows_of(s)}[HA]["stale"]
+        self.assertEqual(stale["cause"], "severity")
+        self.assertEqual(stale["gained"], ["security"])
+
+    def test_rows_stale_joined_has_covered_count(self):
+        s = joined_state()
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertIn(HC, rows)
+        stale = rows[HC]["stale"]
+        self.assertEqual(stale["cause"], "joined")
+        self.assertEqual(stale["covered"], 2)  # two concerns, D-15
+        self.assertEqual(stale["joined"], ["security"])
+        self.assertEqual(stale["gained"], [])
+
+    def test_rows_inherited_decision_stale_shows_it(self):
+        """A finding that split out of a decided row keeps the decision it
+        was covered by; when code next to it changes it reopens showing that
+        decision, never as a brand-new row."""
+        import test_decision_continuity as tdc
+        _l1, _s1, s2, _r2, h_lead, h = tdc.split_scenario()
+        self.assertIsNone(tdc.card_row(s2, h))
+        s3 = copy.deepcopy(s2)
+        for f in s3["passes"][-1]["findings"]:
+            if f["stable_hash"] == h:
+                f["snapshot"]["nearby_at"] = 3
+        row = tdc.card_row(s3, h)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["stale"]["cause"], "nearby")
+        self.assertEqual(row["stale"]["via"], "covering")
+        self.assertEqual(row["stale"]["prior_hash"], h_lead)
+        self.assertEqual(row["stale"]["decision"], "dismiss")
+        self.assertIn(" — code next to it changed since your decision on "
+                      "pass 1 (was: dismissed — %s)" % tdc.REASON,
+                      tdc.card_text_full(s3))
+        with mock.patch.object(carry_state, "covering_decision",
+                               return_value=None):
+            self.assertIsNone(batch_card._same_hash_stale(
+                tdc.record_of(s3, h), s3))
+
+    def test_rows_stale_inherited_severity_rise_tag(self):
+        import test_carry_state as tcs
+        s, rec = inherited_state("rise")
+        tag = batch_card._same_hash_stale(rec, s)
+        self.assertEqual(tag["via"], "covering")
+        self.assertEqual(tag["cause"], "severity")
+        self.assertEqual(tag["was_band"], "warning")
+        self.assertEqual(tag["gained"], ["security"])
+        self.assertEqual(tag["prior_hash"], tcs.HR)
+        self.assertEqual(tag["at_pass"], 1)
+        self.assertNotIn("joined", tag)
+        rows = {r["stable_hash"]: r for r in rows_of(s)}
+        self.assertEqual(rows[tcs.HC]["stale"], tag)
+
+    def test_rows_stale_inherited_joined_tag(self):
+        import test_carry_state as tcs
+        s, rec = inherited_state("joined")
+        tag = batch_card._same_hash_stale(rec, s)
+        self.assertEqual(tag["via"], "covering")
+        self.assertEqual(tag["cause"], "joined")
+        self.assertEqual(tag["covered"], 1)
+        self.assertEqual(tag["joined"], ["security"])
+        self.assertEqual(tag["gained"], [])
+        self.assertEqual(tag["prior_hash"], tcs.HR)
+
+    def test_inherited_was_band_reads_covering_entry_mutant(self):
+        """m9: the card's earlier band for an inherited decision is the
+        covers entry's, read through carry_state.covering_entry."""
+        s, rec = inherited_state("rise")
+        # The decided row's own evidence band is never the inherited one.
+        s["decisions"]["7" * 64]["evidence"]["band"] = "medium"
+        self.assertEqual(batch_card._same_hash_stale(rec, s)["was_band"],
+                         "warning")
+        with self.subTest("contrast m9: no entry -> the decision band"):
+            s["decisions"]["7" * 64]["band"] = "low"
+            with mock.patch.object(carry_state, "covering_entry",
+                                   return_value=None):
+                self.assertEqual(
+                    batch_card._same_hash_stale(rec, s)["was_band"], "low")
+            s["decisions"]["7" * 64]["band"] = "warning"
+        with self.subTest("contrast m9: the entry's band is reported"):
+            entry = dict(carry_state.covering_entry(rec, s), band="low")
+            with mock.patch.object(carry_state, "covering_entry",
+                                   return_value=entry):
+                self.assertEqual(
+                    batch_card._same_hash_stale(rec, s)["was_band"], "low")
+
+    def test_joined_lanes_come_from_carry_state(self):
+        """One function feeds both the reopen and the card: with
+        `carry_state.newcomer_lanes` forced empty the decided record is
+        current again AND its card row (with the D-10 note) disappears."""
+        import test_decision_continuity as tdc
+        _s1, s2, h = tdc.joined_scenario()
+        rec = tdc.record_of(s2, h)
+        note = "a new concern from security joined it"
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertIsNotNone(tdc.card_row(s2, h))
+        self.assertIn(note, tdc.card_text_full(s2))
+        with mock.patch.object(carry_state, "newcomer_lanes",
+                               return_value=[]):
+            self.assertEqual(carry_state.decision_state(rec, s2), "current")
+            self.assertIsNone(tdc.card_row(s2, h))
+            self.assertNotIn(note, tdc.card_text_full(s2))
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertIn(note, tdc.card_text_full(s2))
 
     def test_rows_stale_null_evidence_uses_record_band(self):
         s = ba_state(a_band="warning")
@@ -240,15 +412,14 @@ class TestRows(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 class TestReport(unittest.TestCase):
     def _state(self):
-        s = ba_state(row_band="warning", a_band="medium")
+        s = ba_row_state(row_band="warning", a_band="medium")
         s = dismiss(s, HB, reason="first")
         s = dismiss(s, HB, reason="second", at_pass=2)
         s = dismiss(s, HA, decision="defer", reason="later")
-        # HA's evidence goes stale (band change); HD is an orphan.
-        s["passes"][-1]["findings"][0]["members"][1]["obligation"]["band"] = (
-            "warning")
-        s["passes"][-1]["findings"][0]["members"][1]["obligation"][
-            "snapshot"]["band"] = "warning"
+        # HA's evidence goes stale (a band rise that a new lane reporting A
+        # itself backs); HD is an orphan.
+        s["passes"] = ba_row_state(row_band="warning", a_band="warning",
+                                   lanes=("bugs", "security"))["passes"]
         s["decisions"][HD] = {"decision": "dismiss", "reason": "gone",
                               "at_pass": 1, "band": "medium",
                               "evidence": snap(1)}
@@ -627,8 +798,12 @@ class TestParse(TempDirCase):
         self.assertIsNotNone(new)
         rec = [r for r in carry_state.open_findings(self.state)
                if r["stable_hash"] == HA][0]
+        # The stored evidence is _evidence_of on the four EVIDENCE_KEYS; an
+        # absent `nearby_at` stamp is left out, not stored as null.
+        ev = carry_state._evidence_of(rec)
+        self.assertIsNone(ev["nearby_at"])
         self.assertEqual(new["decisions"][HA]["evidence"],
-                         carry_state._evidence_of(rec))
+                         {k: ev[k] for k in carry_state.EVIDENCE_KEYS})
 
     def test_parse_round_trip_snapshotless_fixture(self):
         state = load_fixture()
@@ -1298,10 +1473,12 @@ class TestSuccessor(unittest.TestCase):
         with self.subTest("own stale decision wins"):
             s = successor_state()
             b = s["passes"][-1]["findings"][0]
+            # Decided at "low", now "medium": a rise on a record without a
+            # saved attribution re-asks (a drop would keep the decision).
             s["decisions"][HB] = dict(decision_for(b, 2, reason="mine"),
                                       evidence=dict(
                                           carry_state._evidence_of(b),
-                                          band="warning"))
+                                          band="low"))
             stale = stale_of(rows_of(s), HB)
             self.assertEqual((stale["via"], stale["prior_hash"],
                               stale["reason"]), ("same_hash", HB, "mine"))

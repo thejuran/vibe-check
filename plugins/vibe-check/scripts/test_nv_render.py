@@ -25,6 +25,7 @@ RENDER = os.path.join(PLUGIN_DIR, "phases", "review", "40-render.md")
 RENDER_ALL = os.path.join(PLUGIN_DIR, "phases", "review", "40-render-all.md")
 COLLECT = os.path.join(PLUGIN_DIR, "phases", "review", "30-collect-score.md")
 DISPATCH = os.path.join(PLUGIN_DIR, "phases", "review", "20-dispatch.md")
+STATE = os.path.join(PLUGIN_DIR, "phases", "review", "05-state.md")
 
 
 def norm(text):
@@ -145,6 +146,131 @@ def nv_evidence_fingerprint_holds(text):
             and _none_in(text, NAME_ONLY_FORBIDDEN))
 
 
+# Carried decided records: the paragraph after the Needs-verification block.
+# The phrases are checked INSIDE that paragraph only, so a phrase the NV block
+# also uses (`$RECHECK_REQUESTS`, `fixed-since-last`) cannot satisfy the lock.
+DECIDED_START = "**Carried decided records (Phase 57, D-01"
+DECIDED_END = "**Note:**"
+
+DECIDED_RELOCATION_PHRASES = (
+    "Carried decided records (Phase 57, D-01",
+    "is in `$DECIDED_HASHES`",
+    "`obligation.stable_hash`",
+    'the "stored first line" is the record\'s stored `canonical_line_content`',
+    "also sets the same `line` on the `$RECHECK_REQUESTS` entry whose "
+    "`stable_hash` is this record's",
+    "`verdict: record not carried`",
+    "The lead's own member record moves with the lead",
+    "a null canonical stays `fixed-since-last` for an ordinary record",
+    "`snapshot.nearby_at`",
+    "general relocation stays out of scope",
+)
+
+# Whole-file phrases the decided rule depends on: the NV heading (Phase 53
+# lock) and the NV block's scope sentence that hands over to the paragraph.
+DECIDED_CONTEXT_PHRASES = (
+    "relocation by content, NV only",
+    "to decided records only — undecided ordinary findings keep the "
+    "stored-line read",
+)
+
+
+def _section(text, start, end):
+    """The text from `start` up to the next `end` ("" when `start` is gone)."""
+    i = text.find(start)
+    if i < 0:
+        return ""
+    j = text.find(end, i + len(start))
+    return text[i:] if j < 0 else text[i:j]
+
+
+def decided_relocation_holds(text):
+    return (_all_in(_section(text, DECIDED_START, DECIDED_END),
+                    DECIDED_RELOCATION_PHRASES)
+            and _all_in(text, DECIDED_CONTEXT_PHRASES))
+
+
+# The step-2 `changed-line ranges` bullet: an ordinary hunk maps to its
+# new-side lines, and a hunk that only deletes (new-side count 0) still maps to
+# a range, the two new-side lines around the deletion point. Checked inside
+# that bullet only. test_decision_continuity's
+# `deletion_hunk_ranges` mirrors this mapping.
+DELETION_RANGE_START = "**changed-line ranges**"
+DELETION_RANGE_END = "\n   - **"
+
+DELETION_RANGE_PHRASES = (
+    "`[start, start + count - 1]`",
+    "A hunk that only deletes",
+    "header `+T,0`",
+    "`[max(T, 1), T + 1]`",
+    "either side of the deletion point",
+)
+
+
+def deletion_range_holds(text):
+    return _all_in(_section(text, DELETION_RANGE_START, DELETION_RANGE_END),
+                   DELETION_RANGE_PHRASES)
+
+
+# --- 05-state.md ------------------------------------------------------------
+
+STATE_START = "The state root may also carry `decisions`"
+STATE_END = "\n3. Narrow diff"
+
+STATE_BINDING_PHRASES = (
+    "Phase 0.5 binds `$DECIDED_HASHES`",
+    'carry_state.py" decided < "$STATE_FILE"',
+    "stopping before any HEAD read",
+    "exit 1",
+    "Any non-zero exit halts the run",
+    # Scoped to the decided read's own sentence: the deferred binding in the
+    # same bullet has its own "Never bind" sentence (DEFERRED_BINDING_PHRASES).
+    "Never bind `[]` on failure: an empty list silently reverts",
+    "relocates each entry in this list by content",
+    "an owner decision never removes a finding from `$CARRYFORWARD`",
+)
+
+
+def state_binding_holds(text):
+    return _all_in(_section(text, STATE_START, STATE_END),
+                   STATE_BINDING_PHRASES)
+
+
+# The owner's deferrals (D-20), bound in the same `decisions` bullet and
+# checked inside it only.
+DEFERRED_BINDING_PHRASES = (
+    "Phase 0.5 also binds `$DEFERRED_HASHES`",
+    'carry_state.py" deferred < "$STATE_FILE"',
+    "carry_state.py deferred failed",
+    "Never bind `[]` on failure: an empty list lets a deferred",
+    "lets a deferred finding that scores below threshold vanish",
+    "forwards it as the envelope's `deferred_hashes`",
+)
+
+
+def deferred_binding_holds(text):
+    return _all_in(_section(text, STATE_START, STATE_END),
+                   DEFERRED_BINDING_PHRASES)
+
+
+# --- 30-collect-score.md step 4: the envelope key ---------------------------
+
+ENVELOPE_DEFERRED_START = "**Carry-forward verdict keys (CARRY-01).**"
+ENVELOPE_DEFERRED_END = "\n   - `all_mode`"
+
+ENVELOPE_DEFERRED_PHRASES = (
+    "`deferred_hashes` = `$DEFERRED_HASHES`",
+    "a kept-open row, never a drop",
+    "(D-20)",
+)
+
+
+def envelope_deferred_holds(text):
+    return _all_in(_section(text, ENVELOPE_DEFERRED_START,
+                            ENVELOPE_DEFERRED_END),
+                   ENVELOPE_DEFERRED_PHRASES)
+
+
 # --- 20-dispatch.md ---------------------------------------------------------
 
 HINT_PHRASES = (
@@ -191,6 +317,13 @@ CASES = (
     ("nv_evidence_fingerprint_holds", nv_evidence_fingerprint_holds, COLLECT,
      FINGERPRINT_PHRASES),
     ("nv_recheck_hint_holds", nv_recheck_hint_holds, DISPATCH, HINT_PHRASES),
+    ("decided_relocation_holds", decided_relocation_holds, COLLECT,
+     DECIDED_RELOCATION_PHRASES + DECIDED_CONTEXT_PHRASES),
+    ("state_binding_holds", state_binding_holds, STATE, STATE_BINDING_PHRASES),
+    ("deferred_binding_holds", deferred_binding_holds, STATE,
+     DEFERRED_BINDING_PHRASES),
+    ("envelope_deferred_holds", envelope_deferred_holds, COLLECT,
+     ENVELOPE_DEFERRED_PHRASES),
 )
 
 
@@ -219,6 +352,27 @@ class TestNvRenderLocks(unittest.TestCase):
         for path in (RENDER, OUTPUT_FORMAT):
             with self.subTest(path=os.path.basename(path)):
                 self.assertNotIn(AUTO_CLOSE, norm(_read(path)))
+
+    def test_decided_relocation_holds(self):
+        self.assertTrue(decided_relocation_holds(_read(COLLECT)))
+
+    def test_state_binding_holds(self):
+        self.assertTrue(state_binding_holds(_read(STATE)))
+
+    def test_state_binding_one_helper_call(self):
+        self.assertEqual(_read(STATE).count('carry_state.py" decided'), 1)
+
+    def test_deferred_binding_holds(self):
+        self.assertTrue(deferred_binding_holds(_read(STATE)))
+
+    def test_deferred_binding_one_helper_call(self):
+        self.assertEqual(_read(STATE).count('carry_state.py" deferred'), 1)
+
+    def test_envelope_deferred_holds(self):
+        text = _read(COLLECT)
+        self.assertTrue(_section(text, ENVELOPE_DEFERRED_START,
+                                 ENVELOPE_DEFERRED_END))
+        self.assertTrue(envelope_deferred_holds(text))
 
     def test_name_only_wording_absent(self):
         flat = norm(_read(COLLECT))
@@ -269,6 +423,65 @@ class TestNvRenderMutation(unittest.TestCase):
     def test_recheck_hint_deleting_mutant(self):
         self._deleting("nv_recheck_hint_holds")
 
+    def _deleting_in_section(self, pred, path, start, end, phrases):
+        """Delete each phrase inside the locked section only: a copy of the
+        phrase elsewhere in the file must not keep the lock green."""
+        original = _read(path)
+        section = _section(original, start, end)
+        self.assertTrue(section)
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                mutant = original.replace(section, _delete(section, phrase), 1)
+                self._assert_trips(pred, original, mutant)
+
+    def test_decided_relocation_deleting_mutant(self):
+        self._deleting("decided_relocation_holds")
+
+    def test_decided_relocation_in_paragraph_deleting_mutant(self):
+        self._deleting_in_section(decided_relocation_holds, COLLECT,
+                                  DECIDED_START, DECIDED_END,
+                                  DECIDED_RELOCATION_PHRASES)
+
+    def test_decided_relocation_paragraph_removed_mutant(self):
+        original = _read(COLLECT)
+        section = _section(original, DECIDED_START, DECIDED_END)
+        self._assert_trips(decided_relocation_holds, original,
+                           original.replace(section, "", 1))
+
+    def test_state_binding_deleting_mutant(self):
+        self._deleting("state_binding_holds")
+
+    def test_state_binding_in_bullet_deleting_mutant(self):
+        self._deleting_in_section(state_binding_holds, STATE, STATE_START,
+                                  STATE_END, STATE_BINDING_PHRASES)
+
+    def test_state_binding_empty_on_failure_inserting_mutant(self):
+        original = _read(STATE)
+        mutant = original.replace(
+            "Never bind `[]` on failure: an empty list silently reverts",
+            "Bind `[]` on failure: an empty list silently reverts", 1)
+        self._assert_trips(state_binding_holds, original, mutant)
+
+    def test_deferred_binding_deleting_mutant(self):
+        self._deleting("deferred_binding_holds")
+
+    def test_deferred_binding_in_bullet_deleting_mutant(self):
+        self._deleting_in_section(deferred_binding_holds, STATE, STATE_START,
+                                  STATE_END, DEFERRED_BINDING_PHRASES)
+
+    def test_deferred_binding_empty_on_failure_inserting_mutant(self):
+        original = _read(STATE)
+        mutant = original.replace(
+            "Never bind `[]` on failure: an empty list lets a deferred",
+            "Bind `[]` on failure: an empty list lets a deferred", 1)
+        self._assert_trips(deferred_binding_holds, original, mutant)
+
+    def test_envelope_deferred_in_bullet_deleting_mutant(self):
+        self._deleting_in_section(envelope_deferred_holds, COLLECT,
+                                  ENVELOPE_DEFERRED_START,
+                                  ENVELOPE_DEFERRED_END,
+                                  ENVELOPE_DEFERRED_PHRASES)
+
     def test_auto_close_inserting_mutant(self):
         original = _read(RENDER)
         mutant = original + (
@@ -286,6 +499,42 @@ class TestNvRenderMutation(unittest.TestCase):
         mutant = original + ("\n   A symbol presence check is enough to keep "
                              "the record persisted.\n")
         self._assert_trips(nv_evidence_fingerprint_holds, original, mutant)
+
+
+class TestDeletionRangeLock(unittest.TestCase):
+    """WR-02: the deletion-only hunk mapping in 30-collect-score.md."""
+
+    SYNTHETIC = (
+        "2. Raw facts:\n"
+        "   - **changed-line ranges** — pass `changed_line_ranges`. A hunk "
+        "with new-side lines maps to `[start, start + count - 1]`. A hunk "
+        "that only deletes (unified-diff header `+T,0`) maps to "
+        "`[max(T, 1), T + 1]`: the new-side lines on either side of the "
+        "deletion point.\n"
+        "   - **±2 source window** — pass each finding's `source_window`.\n")
+
+    def test_deletion_range_rule_locked(self):
+        """RED until the 30-collect-score.md bullet states the mapping."""
+        self.assertTrue(deletion_range_holds(_read(COLLECT)))
+
+    def test_deletion_range_synthetic_holds(self):
+        self.assertTrue(deletion_range_holds(self.SYNTHETIC))
+
+    def test_deletion_range_removal_mutants(self):
+        for phrase in DELETION_RANGE_PHRASES:
+            with self.subTest(phrase=phrase):
+                mutant = _delete(self.SYNTHETIC, phrase)
+                self.assertNotEqual(mutant, self.SYNTHETIC)
+                self.assertFalse(deletion_range_holds(mutant))
+
+    def test_deletion_range_outside_bullet_mutant(self):
+        # The sentence moved to the next bullet no longer satisfies the lock.
+        sentence = self.SYNTHETIC.split("`changed_line_ranges`. ")[1].split(
+            "\n")[0]
+        moved = (self.SYNTHETIC.replace(sentence, "")
+                 + "   - **other** — " + sentence + "\n")
+        self.assertIn(sentence, moved)
+        self.assertFalse(deletion_range_holds(moved))
 
 
 if __name__ == "__main__":
