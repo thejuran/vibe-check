@@ -1516,6 +1516,64 @@ class TestPhase57Mutants(_Base):
             self.assertTrue(any("offset=%d" % offset in f for f in failed),
                             (offset, failed))
 
+    _SPLIT_TESTS = ("test_s1_inherited_member_split_by_nearby_fix_is_reasked",
+                    "test_s2_own_decision_absorbed_then_split_by_nearby_fix_is_reasked",
+                    "test_s3_owed_stamp_survives_the_split",
+                    "test_s4_fresh_lead_over_a_carried_member_is_not_stamped")
+
+    def _split_failures(self):
+        """The TestSplitPassNearby fixtures that fail, by short prefix."""
+        failed = set()
+        for name in self._SPLIT_TESTS:
+            res = unittest.TestResult()
+            TestSplitPassNearby(name).run(res)
+            self.assertEqual(res.errors, [])
+            if res.failures:
+                failed.add(name[:len("test_sN_")])
+        return failed
+
+    def test_split_pass_carried_arm_dropped_loses_the_split_edit(self):
+        """D-17 guard: `_snapshot_for`'s carried arm stamps a split row whose
+        lead record existed before this pass but has no top-level snapshot.
+        Without it the inherited split (s1: no obligation to seed a prior
+        from) loses the neighbour's fix; the owed stamp (s3, seeded prior) and
+        the fresh-lead negative (s4) are unaffected."""
+        from unittest import mock
+        from test_confirmed_fix import SCORE_PY, _mutant
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        old = "(isinstance(prior, dict) or carried)"
+        self.assertEqual(src.count(old), 1, "mutation target not unique")
+        mod = _mutant(SCORE_PY, "score_split_carried", old,
+                      "isinstance(prior, dict)")
+        self.assertEqual(self._split_failures(), set())
+        with mock.patch.object(score, "_snapshot_for", mod._snapshot_for):
+            failed = self._split_failures()
+        self.assertIn("test_s1_", failed)
+        self.assertNotIn("test_s3_", failed)
+        self.assertNotIn("test_s4_", failed)
+
+    def test_split_pass_lead_obligation_prior_not_seeded_loses_the_owed_stamp(
+            self):
+        """D-17 guard: a split row led by a member carrying its own obligation
+        under the row's own hash takes that obligation's snapshot as its
+        prior. Without the seed the re-ask owed before the split (s3) is
+        lost; the carried arm still stamps the split edit (s1) and the
+        fresh-lead negative (s4) is unaffected."""
+        from unittest import mock
+        from test_confirmed_fix import SCORE_PY, _mutant
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        old = 'survivor["snapshot"] = lead_obl["snapshot"]'
+        self.assertEqual(src.count(old), 1, "mutation target not unique")
+        mod = _mutant(SCORE_PY, "score_split_seed", old, "pass")
+        self.assertEqual(self._split_failures(), set())
+        with mock.patch.object(score, "run", mod.run):
+            failed = self._split_failures()
+        self.assertIn("test_s3_", failed)
+        self.assertNotIn("test_s1_", failed)
+        self.assertNotIn("test_s4_", failed)
+
 
 if __name__ == "__main__":
     unittest.main()
