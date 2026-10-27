@@ -1083,6 +1083,159 @@ class TestSameLaneRereport(_Base):
         self._assert_reasked(s2, hA, 2)
 
 
+# Which record leads: the carried copy (STABLE_CONF re-report, out-ranked by
+# the +15 persisted bonus), a fresh copy out-ranking it at the same band, or a
+# fresh copy that also lifts the band.
+LEAD_PERMUTATIONS = (("carried-leads", (STABLE_CONF, "warning")),
+                     ("fresh-leads-same-band", (100, "warning")),
+                     ("fresh-leads-higher-band", (100, "critical")))
+
+
+def _inv_plain(conf, severity):
+    _, s2, hA = plain_rereport_scenario(conf, severity)
+    return s2, hA, row_of(s2, hA)["status"]
+
+
+def _inv_inherited_split(conf, severity):
+    _, _, s2, _, _, hA = split_scenario(real_diff=True,
+                                        rereport=(conf, severity))
+    return s2, hA, row_of(s2, hA)["status"]
+
+
+def _inv_absorbed_split(conf, severity):
+    _, _, s3, _, hA, _ = absorbed_split_scenario(rereport=(conf, severity))
+    return s3, hA, row_of(s3, hA)["status"]
+
+
+def _inv_owed_quiet_same_lane(conf, severity):
+    _, _, s3, hA = owed_quiet_rereport_scenario(conf, severity)
+    return s3, hA, row_of(s3, hA)["status"]
+
+
+def _inv_owed_quiet_different_lane(conf, severity):
+    """TestSameHashLeadKeepsNearbyStamp with the re-report from `security`;
+    the lead marker is the row's agent."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    L2 = list(L0)
+    L2[10] = "line_11 = 'edited'"
+    s2, _ = run_pass(s1, L2, [], 2, {F: [[11, 11]]})
+    sec = fresh("security", 10, L2, TITLE_A, conf=conf, severity=severity,
+                category="injection")
+    s3, _ = run_pass(s2, L2, [sec], 3, {F: []})
+    return s3, hA, row_of(s3, hA)["agent"]
+
+
+def _inv_different_lane_dup_57_04(conf, severity):
+    """TestRegrouping r5: `security` C leads the row; a fresh `bugs` A
+    duplicate meets the carried decided A (pass-1 conf 60) in the group. The
+    lead marker is (C leads, the kept A member's agent_confidence): 60 when
+    the carried A was kept, the fresh conf when the duplicate out-ranked it."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=60)
+    dup = fresh("bugs", 10, L0, TITLE_A, conf=conf, severity=severity)
+    c = fresh("security", 11, L0, TITLE_C, conf=100, category="injection")
+    s2, r2 = run_pass(s1, L0, [dup, c], 2, {F: []})
+    hC = score.stable_hash(F, L0[10], TITLE_C)
+    lead = row_of(s2, hC)
+    kept = ([m.get("agent_confidence") for m in lead.get("members", [])
+             if m.get("agent") == "bugs"] if lead else [])
+    return s2, hA, (lead is not None and lead["agent"] == "security", kept)
+
+
+# name -> (build(conf, severity) -> (state, hA, lead marker),
+#          ((label, (conf, severity), expected lead marker), ...),
+#          expected triple, or None for "whatever carried-leads yields")
+_SAME_LANE = {"carried-leads": "persisted", "fresh-leads-same-band": "new",
+              "fresh-leads-higher-band": "new"}
+_REASK = ("stale", "nearby", True)
+
+
+def _same_lane_perms():
+    return tuple((label, cs, _SAME_LANE[label])
+                 for label, cs in LEAD_PERMUTATIONS)
+
+
+INVARIANCE_SCENARIOS = {
+    "plain": (_inv_plain, _same_lane_perms(), _REASK),
+    "inherited_split": (_inv_inherited_split, _same_lane_perms(), _REASK),
+    "absorbed_split": (_inv_absorbed_split, _same_lane_perms(), _REASK),
+    "owed_quiet_same_lane": (_inv_owed_quiet_same_lane, _same_lane_perms(),
+                             _REASK),
+    # A different lane at a higher band would corroborate into a lane-backed
+    # rise: D-05's own test, not this guard's.
+    "owed_quiet_different_lane": (
+        _inv_owed_quiet_different_lane,
+        (("carried-leads", (60, "warning"), "bugs"),
+         ("fresh-leads-same-band", (95, "warning"), "security")),
+        _REASK),
+    # A higher-band duplicate would take the row's lead from C and turn the
+    # shape into D-08's joined row (TestRegrouping r4), not this one.
+    "different_lane_dup_57_04": (
+        _inv_different_lane_dup_57_04,
+        ((LEAD_PERMUTATIONS[0][0], LEAD_PERMUTATIONS[0][1], (True, [60])),
+         (LEAD_PERMUTATIONS[1][0], LEAD_PERMUTATIONS[1][1], (True, [100]))),
+        None),
+}
+
+
+class TestLeadOrderInvariance(_Base):
+    """Whether a decided finding re-asks must not depend on which of its
+    records leads the row. Three review rounds (57-REVIEW.md,
+    57-REVIEW-GAPS.md Critical-1, 57-REVIEW-GAPS2.md CR-01) each found a
+    wrong-keep whose only trigger was a fresh record out-ranking the carried
+    one. This guard permutes the lead in every row shape the phase cares
+    about and asserts the decision outcome is identical.
+
+    Expected on the unfixed scorer: the fresh-leads permutations of plain,
+    inherited_split, absorbed_split and owed_quiet_same_lane fail (SUBFAILED);
+    every carried-leads baseline passes."""
+
+    def _triple(self, state, hA):
+        rec = self._current(state, hA)
+        st = carry_state.decision_state(rec, state)
+        return (st,
+                carry_state.stale_cause(rec, state) if st == "stale" else None,
+                hA in carry_state.finalize_counts(
+                    state, {})["outstanding_cw_hashes"])
+
+    def test_decision_outcome_does_not_depend_on_which_record_leads(self):
+        for name, (build, perms, want) in INVARIANCE_SCENARIOS.items():
+            baseline = None
+            for label, (conf, sev), marker in perms:
+                with self.subTest(scenario=name, lead=label):
+                    state, hA, got_marker = build(conf, sev)
+                    row = row_of(state, hA)
+                    snap = (row or {}).get("snapshot")
+                    # Self-check: the permutation really moved the lead.
+                    self.assertEqual(got_marker, marker,
+                                     "%s/%s did not permute the lead; row %r"
+                                     % (name, label, snap))
+                    triple = self._triple(state, hA)
+                    self.assertIsNotNone(
+                        triple[0], "%s/%s: decision lost; row %r"
+                        % (name, label, snap))
+                    if baseline is None:
+                        baseline = triple
+                    expect = want if want is not None else baseline
+                    self.assertEqual(
+                        triple, expect,
+                        "%s/%s: outcome depends on which record leads; "
+                        "row snapshot %r" % (name, label, snap))
+
+    def test_guard_covers_every_scenario_the_phase_cares_about(self):
+        self.assertEqual(set(INVARIANCE_SCENARIOS),
+                         {"plain", "inherited_split", "absorbed_split",
+                          "owed_quiet_same_lane",
+                          "owed_quiet_different_lane",
+                          "different_lane_dup_57_04"})
+        self.assertEqual(len(LEAD_PERMUTATIONS), 3)
+        self.assertEqual(LEAD_PERMUTATIONS[0][1][0], STABLE_CONF)
+        for name, (_, perms, _) in INVARIANCE_SCENARIOS.items():
+            self.assertEqual(perms[0][0], "carried-leads", name)
+            self.assertGreaterEqual(len(perms), 2, name)
+
+
 # --------------------------------------------------------------------------- #
 # Card wording (D-05, D-10, D-12): the reopen suffix says what changed.
 # --------------------------------------------------------------------------- #
