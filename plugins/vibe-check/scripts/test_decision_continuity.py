@@ -2365,23 +2365,18 @@ class TestPhase57Mutants(_Base):
 
     def test_split_pass_lead_obligation_prior_not_seeded_loses_the_owed_stamp(
             self):
-        """D-17 guard: the unified prior seed — a split row takes the stored
-        snapshot of any source record carried under the row's own hash (here
-        the lead member's own obligation) as its prior. Without the seed the
-        re-ask owed before the split (s3) is lost; the carried arm still
-        stamps the split edit (s1) and the fresh-lead negative (s4) is
-        unaffected."""
-        from unittest import mock
-        from test_confirmed_fix import SCORE_PY, _mutant
-        with open(SCORE_PY, "r", encoding="utf-8") as fh:
-            src = fh.read()
-        old = 'survivor["snapshot"] = obl["snapshot"]'
-        self.assertEqual(src.count(old), 1, "mutation target not unique")
-        mod = _mutant(SCORE_PY, "score_split_seed", old, "pass")
-        self.assertEqual(self._split_failures(), set())
-        with mock.patch.object(score, "run", mod.run):
-            failed = self._split_failures()
+        """D-17 guard: the pooled prior — a row takes, as its prior, the
+        pooled snapshot of the carried records under its own hash (here the
+        lead member's own obligation), assigned by `survivor["snapshot"] =
+        prior`. Without the assignment the re-ask owed before the split (s3),
+        the one owed before a same-lane re-report (d) and the far twin's
+        stamp (p4) are lost; the carried arm still stamps the split edit (s1)
+        and the fresh-lead negative (s4) is unaffected."""
+        failed = self._run_mutant(
+            "score_split_seed", 'survivor["snapshot"] = prior', "pass")
         self.assertIn("test_s3_", failed)
+        self.assertIn("test_d_", failed)
+        self.assertIn("test_p4_", failed)
         self.assertNotIn("test_s1_", failed)
         self.assertNotIn("test_s4_", failed)
 
@@ -2401,6 +2396,17 @@ class TestPhase57Mutants(_Base):
          "test_w1_needs_recheck_split_row_keeps_its_hash_and_is_stamped"),
         (TestWr01Guards,
          "test_w2_edited_lead_member_does_not_inherit_the_old_stamp"),
+        (TestPooledEvidence,
+         "test_p1_cross_lane_same_hash_other_line_nearby_reasks"),
+        (TestPooledEvidence, "test_q1_control_carried_copy_leads"),
+        (TestPooledEvidence,
+         "test_p2_same_lane_arrival_order_does_not_pick_the_outcome"),
+        (TestPooledEvidence,
+         "test_p3_min_confidence_dropped_twin_keeps_the_reask"),
+        (TestPooledEvidence,
+         "test_p4_far_twin_latest_stamp_reaches_the_first_copy"),
+        (TestPriorGate,
+         "test_in01_edited_carried_lead_does_not_carry_its_stamp_onto_the_new_hash"),
     )
 
     def _failures(self):
@@ -2444,49 +2450,134 @@ class TestPhase57Mutants(_Base):
         self.assertNotIn("test_w2_", failed)
 
     def test_seed_without_hash_equality_inherits_a_foreign_stamp(self):
-        """WR-01 arm 2: without hash equality the seed hands the old record's
-        owed stamp to the edited finding's new row (w2); the same-hash seeds
-        (s3, d) are unaffected."""
+        """WR-01 arm 2 / IN-01: the one hash gate every prior source passes
+        (`o.get("stable_hash") == survivor["stable_hash"]`). Without it the
+        old record's owed stamp reaches the edited finding's new row, both
+        through an edited lead member's obligation (w2) and through an edited
+        carried lead's own snapshot (in01); the same-hash priors (s3, d) are
+        unaffected."""
         failed = self._run_mutant(
             "score_seed_no_hash",
-            'if (obl.get("stable_hash") == survivor["stable_hash"]\n'
-            '                        and isinstance(obl.get("snapshot"), dict)):',
-            'if (isinstance(obl.get("snapshot"), dict)):')
+            'o.get("stable_hash") == survivor["stable_hash"]',
+            "True")
         self.assertIn("test_w2_", failed)
+        self.assertIn("test_in01_", failed)
         self.assertNotIn("test_s3_", failed)
         self.assertNotIn("test_d_", failed)
 
     def test_carried_from_lead_only_loses_the_same_lane_rereport(self):
-        """Carried-from-any-source: reading carried-ness off the lead only
-        (the pre-fix rule) loses the inherited split led by a fresh same-lane
-        re-report (b, nothing to seed); the carried-lead control and the
-        seeded owed stamp (d) are unaffected."""
+        """Carried-from-any-copy: reading carried-ness off the lead only
+        (the pre-fix rule) instead of `row_carried = bool(same_hash)` loses
+        the inherited split led by a fresh same-lane re-report (b, nothing to
+        seed); the carried-lead control and the seeded owed stamp (d) are
+        unaffected."""
         failed = self._run_mutant(
             "score_carried_lead_only",
-            "row_carried = any(\n"
-            "            m.get(\"status\") in _CARRIED_STATUSES\n"
-            "            and stable_hash(m.get(\"file\", \"\"), "
-            "d[\"canonical_for_hash\"],\n"
-            "                            m.get(\"title\", \"\")) "
-            "== survivor[\"stable_hash\"]\n"
-            "            for _, m, d, _, _ in scored_members)",
+            "row_carried = bool(same_hash)",
             "row_carried = survivor.get(\"status\") in _CARRIED_STATUSES")
         self.assertIn("test_b_", failed)
         self.assertNotIn("test_control_", failed)
         self.assertNotIn("test_d_", failed)
 
-    def test_seed_after_dedup_loses_the_dropped_duplicate_prior(self):
-        """Seed-before-dedup: when only the lead can seed the prior (the 57-15
-        rule), the same-identity carried twin the dedup drops takes its owed
-        stamp with it (d); a split led by the obligation member itself (s3)
-        is unaffected."""
+    def test_index_read_after_filtering_loses_the_dropped_twin(self):
+        """Index before every filter (57-REVIEW-GAPS3.md CR-02): when the row
+        reads only the carried copies that reached scoring (the pre-fix rule,
+        `same_hash` restricted to scored_members), the carried twin the
+        min_confidence filter dropped takes its owed re-ask with it (p3); a
+        twin that reaches scoring (d) and a split led by the obligation
+        member itself (s3) are unaffected."""
         failed = self._run_mutant(
             "score_seed_lead_only",
-            "entry = carried_obligations.get(id(m))",
-            "entry = carried_obligations.get(id(m)) if m is best_member "
-            "else None")
-        self.assertIn("test_d_", failed)
+            'same_hash = carried_by_hash.get(survivor["stable_hash"], ())',
+            'same_hash = [e for e in carried_by_hash.get(survivor["stable_hash"], ()) '
+            'if any(e[0] is t[1] for t in scored_members)]')
+        self.assertIn("test_p3_", failed)
+        self.assertNotIn("test_d_", failed)
         self.assertNotIn("test_s3_", failed)
+
+    def test_nearby_judged_at_the_lead_only_loses_the_other_copy(self):
+        """CR-01 nearby at every copy: judging nearby at the row's own line
+        only loses the edit beside a carried same-hash copy at another line,
+        across lanes (p1) and in either same-lane arrival order (p2); the
+        control where the carried copy leads (q1) and the inherited split
+        (s1) are unaffected."""
+        failed = self._run_mutant(
+            "score_nearby_lead_only",
+            "row_nearby = _any_nearby([survivor] + [r for r, _ in same_hash], "
+            "changed_line_ranges)",
+            "row_nearby = _nearby_changed(survivor, changed_line_ranges)")
+        self.assertIn("test_p1_", failed)
+        self.assertIn("test_p2_", failed)
+        self.assertNotIn("test_q1_", failed)
+        self.assertNotIn("test_s1_", failed)
+
+    def test_line_tie_break_dropped_makes_the_lead_arrival_dependent(self):
+        """CR-01 arrival order: without the line as the member sort's final
+        tie-break, two fully tied same-lane records of one identity are led by
+        whichever arrived first, so the [12, 10] order leads at line 12 (p2's
+        lead marker); the cross-lane copy (p1) and the dropped twin (p3) are
+        unaffected."""
+        failed = self._run_mutant(
+            "score_no_line_tie_break",
+            '_as_line(t[1].get("line")) or 0,',
+            "0,")
+        self.assertIn("test_p2_", failed)
+        self.assertNotIn("test_p1_", failed)
+        self.assertNotIn("test_p3_", failed)
+
+    def test_prior_rank_first_wins_loses_the_latest_stamp(self):
+        """D-19 latest stamp: the pooled prior is ranked, never positional.
+        In the far-twin fixture's pass 3 the line-10 row's candidates arrive
+        as [line-10 obligation (unstamped), line-30 obligation (nearby_at 2),
+        the lead's own line-10 snapshot (unstamped)], so taking the first
+        candidate hands the line-10 row — the record carry_state reads — no
+        stamp (p4); the dropped twin (p3) and the same-lane re-report (d) are
+        unaffected."""
+        failed = self._run_mutant(
+            "score_prior_first_wins",
+            "return min(candidates, key=_prior_rank)",
+            "return candidates[0]")
+        self.assertIn("test_p4_", failed)
+        self.assertNotIn("test_p3_", failed)
+        self.assertNotIn("test_d_", failed)
+
+
+class TestPooledPriorUnit(unittest.TestCase):
+    """score._pooled_prior / score._prior_rank: the latest owed stamp wins,
+    then the oldest at_pass; never positional; never raises."""
+
+    def test_no_candidates_is_none(self):
+        self.assertIsNone(score._pooled_prior([]))
+
+    def test_stamped_snapshot_wins_over_an_unstamped_older_one(self):
+        old = {"at_pass": 2}
+        stamped = {"at_pass": 3, "nearby_at": 3}
+        self.assertIs(score._pooled_prior([old, stamped]), stamped)
+        self.assertIs(score._pooled_prior([stamped, old]), stamped)
+
+    def test_equal_stamps_take_the_oldest_at_pass(self):
+        older = {"at_pass": 1, "nearby_at": 2}
+        newer = {"at_pass": 3, "nearby_at": 2}
+        self.assertIs(score._pooled_prior([newer, older]), older)
+        self.assertIs(score._pooled_prior([older, newer]), older)
+
+    def test_later_stamp_wins_over_an_earlier_one(self):
+        early = {"at_pass": 1, "nearby_at": 2}
+        late = {"at_pass": 2, "nearby_at": 4}
+        self.assertIs(score._pooled_prior([early, late]), late)
+
+    def test_non_int_nearby_at_ranks_after_a_stamped_one(self):
+        bad = {"at_pass": 1, "nearby_at": "2"}
+        stamped = {"at_pass": 3, "nearby_at": 2}
+        self.assertIs(score._pooled_prior([bad, stamped]), stamped)
+        self.assertLess(score._prior_rank(stamped), score._prior_rank(bad))
+
+    def test_prior_rank_never_raises(self):
+        for snap in ({}, {"nearby_at": None, "at_pass": "x"},
+                     {"nearby_at": True, "at_pass": 1.5}, None, []):
+            with self.subTest(snap=snap):
+                score._prior_rank(snap)
+
 
 if __name__ == "__main__":
     unittest.main()
