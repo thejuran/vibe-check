@@ -242,7 +242,9 @@ LIST_IN_CARD = (
 ECHO_VISIBLE = (
     "it must never be visible only inside a Bash call's output",
     "as the opening lines of the next message you print",
-    "as that card's closing \"From your finalize answer:\" block",
+    "when step 2 routes to the fix-loop card, that card is not shown (the "
+    "subset goes straight to its Step B), so print `echo_text` as message "
+    "text before reading `50-fix-loop.md`",
     "whose summary message opens with `echo_text`",
     "the stop message opens with `echo_text`",
 )
@@ -294,6 +296,121 @@ def bare_mixed_one_clarification_holds(text):
     bullet = need_text_bullet(text)
     return all(n in bullet for n in ("ONCE", "Never infer",
                                      "(no option selected) notes:"))
+
+
+# --------------------------------------------------------------------------- #
+# The card says what the parser does; a plain-English answer is translated.
+# --------------------------------------------------------------------------- #
+OPT_FIX_ALL = '> 3. **Fix all** — "{{bulk_fix_text}}"'
+BULK_SLOT = "{{bulk_fix_text}}"
+BULK_SOURCE = ("it is the `bulk_fix_text` field of `$ROWSFILE`, verbatim — the "
+               "helper names the Needs-verification rows Fix all leaves out by "
+               "number")
+OPT_DISMISS = ("Critical, warning and Needs-verification rows stay open unless "
+               "you name them by number in Mixed…")
+OPT_DEFER = "same rule for critical, warning and Needs-verification rows"
+OPT_MIXED = ("`fix all` covers critical, warning and medium rows; `dismiss all` "
+             "/ `defer all` cover medium rows only; a Needs-verification row is "
+             "never reached by `all` or `rest`")
+OLD_FIX_ALL = "Send every row, any band"
+
+
+def check_option_descriptions(text):
+    section = card_section(text)
+    problems = [n for n in (OPT_FIX_ALL, BULK_SOURCE, OPT_DISMISS, OPT_DEFER,
+                            OPT_MIXED) if section.count(n) != 1]
+    if text.count(BULK_SLOT) != 1:
+        problems.append("{{bulk_fix_text}} x%d" % text.count(BULK_SLOT))
+    if "lowest band" in section:
+        problems.append("Mixed… still says lowest band")
+    if OLD_FIX_ALL in text:
+        problems.append("Fix all still says any band")
+    return problems
+
+
+Q1_COUNTS = ("({{C}} critical/warning, {{V}} needs-verification, {{M}} medium"
+             "{{; P")
+Q1_V_DEFINED = "`C` / `V` / `M` = rows by band; C + V + M = N"
+
+
+def check_q1_header(text):
+    q1 = q1_line(card_section(text))
+    return [n for n in (Q1_COUNTS, Q1_V_DEFINED) if n not in q1]
+
+
+TRANSLATE_HEAD = "**Translate the answer (D-01).**"
+RESOLVE_CALL = 'resolve --rows "$ROWSFILE" --answer "$REFSFILE"'
+TRANSLATE_NEEDLES = (
+    "On `refused: empty answer` re-show the card once",
+    "On any other refusal go to **Translate the answer (D-01)**",
+    TRANSLATE_HEAD,
+    "from the OWNER's text only",
+    "to `$REFSFILE` with the Write tool",
+    "run the SAME parse fence above",
+    "Read your answer as: ",
+    "no confirm card",
+    "continue at **After the answer**",
+    "the Q2 pick still supplies the reason when the owner's text gave none",
+    "`close_out` is always false here",
+    "→ **Ask only what is missing (D-05, D-06)**",
+    'cp "$SUGGESTFILE" "$ANSWERFILE"',
+)
+
+
+def check_translate_path(text):
+    section = card_section(text)
+    problems = [n for n in TRANSLATE_NEEDLES if n not in section]
+    if "Re-show the SAME card" in section:
+        problems.append("a refusal still re-shows the SAME card")
+    if "close-out-after-rerun" in text:
+        problems.append("Finalize writes the close-out carrier")
+    fences = bash_fences(section)
+    if sum(RESOLVE_CALL in f for f in fences) != 1:
+        problems.append("resolve fence x%d" % sum(RESOLVE_CALL in f
+                                                   for f in fences))
+    if not any('["grammar"]' in f and '"$ANSWERFILE"' in f for f in fences):
+        problems.append("grammar not copied file-to-file into $ANSWERFILE")
+    parse_at = section.find(PARSE_CALL)
+    head_at = section.find(TRANSLATE_HEAD)
+    after_at = section.find("**After the answer**")
+    if not 0 <= parse_at < head_at:
+        problems.append("Translate paragraph not after the parse fence")
+    elif after_at >= 0 and head_at > after_at:
+        problems.append("Translate paragraph after After the answer")
+    return problems
+
+
+NV_STOP_NEW = ("re-checked automatically on every later run that reviews "
+               "changes while the repaired code is unchanged")
+NV_STOP_OLD = "re-checks it once"
+
+
+def check_nv_stop_reconciled(text):
+    problems = [] if NV_STOP_NEW in text else ["NV stop text not reconciled"]
+    if NV_STOP_OLD in text:
+        problems.append("NV stop text still says re-checks it once")
+    return problems
+
+
+BOTTOM_SLOT = ('{{\\n\\nBottom line suggests: <grammar> — type "bottom line" '
+               'in Other to take it}}')
+BOTTOM_NEEDLES = (
+    "**Bottom line as a choice (D-09).**",
+    "THIS session rendered the last pass's Bottom line",
+    "a separate `--finalize` invocation renders no report",
+    "re-translated against THIS card's rows",
+    "Finalize numbering differs from the fix-loop card",
+    'parse --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
+    'rm -f "$SUGGESTFILE"',
+    "never print a guessed one",
+)
+
+
+def check_bottom_line(text):
+    section = card_section(text)
+    problems = [] if BOTTOM_SLOT in q1_line(section) else ["Q1 lacks the slot"]
+    problems += [n for n in BOTTOM_NEEDLES if n not in section]
+    return problems
 
 
 class LockCase(unittest.TestCase):
@@ -501,6 +618,95 @@ class TestFinalizeCard(LockCase):
         with self.subTest("mutant: echo back to message text only"):
             self.assert_trips(check_list_in_card, remove(
                 self.text, "as the opening lines of the next message you print"))
+
+class TestPhase58Finalize(LockCase):
+    """Each description says what `batch_card.py parse` does, and a typed
+    answer the grammar refuses is translated, checked and acted on."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_option_descriptions_holds(self):
+        self.assert_holds(check_option_descriptions, self.text)
+
+    def test_mutant_option_descriptions(self):
+        with self.subTest("mutant: Fix all back to any band"):
+            self.assert_trips(check_option_descriptions, self._mutant(
+                OPT_FIX_ALL,
+                '> 3. **Fix all** — "Send every row, any band, to the '
+                'fix-loop card"'))
+        with self.subTest("mutant: Mixed… says lowest band again"):
+            self.assert_trips(check_option_descriptions, self._mutant(
+                OPT_MIXED, "`all` means every row of the lowest band"))
+        with self.subTest("mutant: Dismiss all forgets NV rows"):
+            self.assert_trips(check_option_descriptions, self._mutant(
+                OPT_DISMISS, "Critical/warning rows stay open unless you name "
+                             "them by number in Mixed…"))
+
+    def test_q1_header_holds(self):
+        self.assert_holds(check_q1_header, self.text)
+
+    def test_mutant_q1_header(self):
+        with self.subTest("mutant: NV count dropped from the header"):
+            self.assert_trips(check_q1_header, self._mutant(
+                "{{V}} needs-verification, ", ""))
+
+    def test_translate_path_holds(self):
+        self.assert_holds(check_translate_path, self.text)
+
+    def test_mutant_translate_path(self):
+        with self.subTest("mutant: refusal re-shows the SAME card again"):
+            self.assert_trips(check_translate_path, self._mutant(
+                "On any other refusal go to **Translate the answer (D-01)**.",
+                "Re-show the SAME card (D-06: an unparseable answer re-asks, "
+                "never guesses)."))
+        with self.subTest("mutant: Q2 no longer the fallback reason"):
+            self.assert_trips(check_translate_path, self._mutant(
+                "the Q2 pick still supplies the reason when the owner's text "
+                "gave none"))
+        with self.subTest("mutant: Finalize writes the close-out carrier"):
+            self.assert_trips(check_translate_path, inject_into_card(
+                self.text, "Re-enter with `--close-out-after-rerun`."))
+        with self.subTest("mutant: resolve fence removed"):
+            self.assert_trips(check_translate_path, self._mutant(
+                RESOLVE_CALL, 'resolve --rows "$ROWSFILE"'))
+
+    def test_nv_stop_reconciled_holds(self):
+        self.assert_holds(check_nv_stop_reconciled, self.text)
+
+    def test_mutant_nv_stop_reconciled(self):
+        with self.subTest("mutant: re-checks it once restored"):
+            self.assert_trips(check_nv_stop_reconciled, self._mutant(
+                NV_STOP_NEW, "the next review run re-checks it once"))
+
+    def test_mutant_echo_visible(self):
+        with self.subTest("mutant: old From-your-finalize-answer needle"):
+            self.assert_trips(check_list_in_card, self._mutant(
+                ECHO_VISIBLE[2],
+                "when step 2 routes to the fix-loop card, as that card's "
+                "closing \"From your finalize answer:\" block"))
+
+    def test_bottom_line_holds(self):
+        self.assert_holds(check_bottom_line, self.text)
+        self.assert_holds(check_no_nudge, self.text)
+
+    def test_mutant_bottom_line(self):
+        with self.subTest("mutant: guessed suggestion allowed"):
+            self.assert_trips(check_bottom_line,
+                              self._mutant("never print a guessed one"))
+        with self.subTest("mutant: session condition dropped"):
+            self.assert_trips(check_bottom_line, self._mutant(
+                "THIS session rendered the last pass's Bottom line"))
+        with self.subTest("mutant: nudge on the suggestion slot"):
+            self.assert_trips(check_no_nudge, self._mutant(
+                "in Other to take it}}", "in Other to take it (Recommended)}}"))
+
 
 # --------------------------------------------------------------------------- #
 # REVIEW.md rendering.
