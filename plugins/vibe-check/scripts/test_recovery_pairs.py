@@ -47,13 +47,19 @@ RETRYING_NAMES = ("_R_IR_NO_REVIEWER", "_R_IR_NO_ANSWER", "_R_IR_SNAPSHOT",
 # getattr, not a literal copy: a renamed constant fails loudly here.
 RETRYING = frozenset(getattr(score, n) for n in RETRYING_NAMES)
 
-NV_SUFFIX = ("code changed since last pass; Fix not yet confirmed: no eligible "
-             "reviewer ran this pass — Next run: retried automatically on the "
-             "next review of new changes. You can: commit further work and "
-             "re-run, or dismiss/defer it by number")
+NV_HEAD = "code changed since last pass; Fix not yet confirmed: "
+NV_REASON_PREFIX = "verdict: fix not yet confirmed: "
+# HEAD-era shortened suffix (parenthetical and trailing period dropped); used
+# only as mutant m, to prove the derived expectation rejects it.
+NV_SUFFIX_SHORT = ("code changed since last pass; Fix not yet confirmed: no eligible "
+                   "reviewer ran this pass — Next run: retried automatically on the "
+                   "next review of new changes. You can: commit further work and "
+                   "re-run, or dismiss/defer it by number`")
 CF_STAYS_OPEN = "The row stays in the section — it is still open."
 IR_STAYS_OPEN = "The row stays in its section — it is still open."
 TABLE_RULE = "the pair for that reason from the table below"
+VERIFIED_SEP_RULE = "then ` — ` and the pair for that reason from the table below"
+VERIFIED_LINE = "`Fix not yet verified: "
 README_NEW = "every later run that reviews changes"
 README_OLD = "gets **one** automatic independent re-check"
 OLD_TAIL = "retried on the next run that reviews changes"
@@ -167,6 +173,31 @@ def all_problems(text, mod=score):
             + honesty_problems(rows) + nv_row_problems(rows))
 
 
+def nv_suffix_from_table(text):
+    """The needs-recheck suffix for an item no eligible reviewer re-checked,
+    built from the Recovery pairs row for score._R_IR_NO_REVIEWER: the reason
+    without its verdict prefix, ` — `, then both cells verbatim."""
+    reason = getattr(score, "_R_IR_NO_REVIEWER")
+    rows = pairs_table(text) or []
+    hit = [r for r in rows if r[0] == reason]
+    if len(hit) != 1:
+        raise AssertionError("expected one row for %r, got %d" % (reason, len(hit)))
+    _, nxt, can = hit[0]
+    return NV_HEAD + reason[len(NV_REASON_PREFIX):] + " — " + nxt + " " + can
+
+
+def verified_sentence(text):
+    """The sentence of 40-render.md that renders the `Fix not yet verified:` line."""
+    i = text.find(VERIFIED_LINE)
+    if i < 0:
+        raise AssertionError("no `Fix not yet verified:` rule")
+    start = text.rfind("\n", 0, i) + 1
+    end = text.find(". The row stays", i)
+    if end < 0:
+        raise AssertionError("verified rule has no end")
+    return text[start:end]
+
+
 def _row_line(text, reason):
     for line in text.splitlines():
         if line.startswith("| `" + reason + "`"):
@@ -236,11 +267,18 @@ class TestReconciled(unittest.TestCase):
         self.assertFalse(README_OLD in text, "README still says: " + README_OLD)
 
     def test_nv_suffix_in_both_files(self):
+        suffix = nv_suffix_from_table(_read(RENDER_MD))
         for rel in (RENDER_MD, OUTPUT_MD):
             with self.subTest(file=rel):
                 text = _read(rel)
-                self.assertTrue(NV_SUFFIX in text, rel + " lacks the NV suffix")
+                self.assertTrue(suffix in text, rel + " lacks the NV suffix: " + suffix)
                 self.assertTrue(NV_RENDER_LINE in text, rel + " lacks: " + NV_RENDER_LINE)
+
+    def test_verified_line_names_its_separator(self):
+        sentence = verified_sentence(_read(RENDER_MD))
+        self.assertTrue(VERIFIED_SEP_RULE in sentence,
+                        "the `Fix not yet verified:` rule lacks: " + VERIFIED_SEP_RULE)
+        self.assertTrue(TABLE_RULE in VERIFIED_SEP_RULE)
 
     def test_rows_stay_open(self):
         text = _read(RENDER_MD)
@@ -292,6 +330,20 @@ class TestLockTrips(unittest.TestCase):
         with self.subTest(mutant="e"):
             self._trips(self.text.replace(MARKER, ""))
         self.assertIsNone(pairs_table(self.text.replace(MARKER, "")))
+
+    def test_m_template_suffix_without_parenthetical(self):
+        out = _read(OUTPUT_MD)
+        suffix = nv_suffix_from_table(self.text)
+        bad = out.replace(suffix + "`", NV_SUFFIX_SHORT)
+        with self.subTest(mutant="m"):
+            self.assertNotEqual(bad, out, "mutant did not change the text")
+            self.assertFalse(suffix in bad, "shortened template suffix not caught")
+
+    def test_n_verified_rule_without_separator(self):
+        bad = self.text.replace(VERIFIED_SEP_RULE, "then " + TABLE_RULE)
+        with self.subTest(mutant="n"):
+            self.assertNotEqual(bad, self.text, "mutant did not change the text")
+            self.assertFalse(VERIFIED_SEP_RULE in verified_sentence(bad))
 
 
 if __name__ == "__main__":
