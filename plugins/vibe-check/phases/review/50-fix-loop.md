@@ -11,15 +11,19 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
 
 <!-- LEGIBLE-03 (D-07): the card is a NEUTRAL menu — no preferred-default tag, suffix or any other nudge on ANY option in this file (D-03); the former what-next exception is gone with the what-next menu. -->
 
-**Close out carried from the previous pass (D-17).** When Phase 0 printed `CLOSE_OUT_AFTER_RERUN=1` — the Rerun that produced this pass re-entered with the whole-token `--close-out-after-rerun` marker because the owner's translated answer said close out (see **The Rerun**) — do not render the card on this pass: print "Closing out as you asked — the rerun's report is above." and go to **Close out** (the Stop here… option below) even when the rerun reported new findings; Finalize's card lists every undecided row, so nothing is skipped silently, and Finalize's gate still blocks until they are decided. The marker is consumed here: Close out re-enters with `${original_args} --finalize`, and `${original_args}` drops it, so no later pass sees it. The carry is read ONLY from that printed line — never from a temporary file written before the Rerun, none of which survive it.
+**Close out carried from the previous pass (D-17).** When Phase 0 printed `CLOSE_OUT_AFTER_RERUN=1` — the Rerun that produced this pass re-entered with the whole-token `--close-out-after-rerun` marker because the owner's translated answer said close out (see **The Rerun**) — do not render the card on this pass: print "Closing out as you asked — the rerun's report is above." and go to **Close out** (the Stop here… option below) even when the rerun reported new findings; Finalize's card lists every undecided row, so nothing is skipped silently, and Finalize's gate still blocks until they are decided. The marker is consumed here: Close out re-enters with `${original_args} --finalize`, and `${original_args}` drops it, so no later pass sees it. The carry is read ONLY from that printed line — never from a temporary file: the Rerun removes the answer files it consumed (see **The Rerun**).
 
 **Bind the rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Run EXACTLY ONE of the two fences below under bash — never an optional-flag expansion that adds `--subset` only when a variable is set: zsh does not word-split such an expansion (it reaches the helper as one argument, which it refuses), and a variable bound in Finalize's fence does not survive into this separate Bash call, so the flag would silently vanish and the card would list rows the owner never chose.
+
+**Temp paths are literals.** Every file this section creates prints its path when it is made: a path printed after `NAME=` is reused in a later fence only as that literal, substituted for `"$NAME"` — a shell variable does not survive into a separate Bash call (the `SUBSETFILE=` convention applies to every file this section creates).
 
 - **Finalize routed a fix set here (D-10)** → the subset fence. Substitute `<subset path>` with the literal path Finalize's subset step printed after `SUBSETFILE=` — the path itself, not `$SUBSETFILE`. If Finalize routed here but printed no subset path, refuse: print "No fix set from Finalize — the fix loop will not fall back to every open row; nothing was changed", then the Abandon line below, and stop. Never run the ordinary fence in its place.
 
   ```bash
   ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
   ANSWERFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+  printf 'ROWSFILE=%s\n' "$ROWSFILE"
+  printf 'ANSWERFILE=%s\n' "$ANSWERFILE"
   if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop --subset "<subset path>" < "$STATE_FILE"); then
     printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
   else
@@ -28,13 +32,15 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
   fi
   ```
 
-  Then print Finalize's `echo_text` as message text, write `{"all": true}` to `$ANSWERFILE` with the Write tool, and go straight to **Step B** — ask NO AskUserQuestion: the owner already chose these rows at Finalize (D-06).
+  Finalize already printed its `echo_text` before reading this file — do not print it again. Write `{"all": true}` to `$ANSWERFILE` with the Write tool, and go straight to **Step B** — ask NO AskUserQuestion: the owner already chose these rows at Finalize (D-06).
 
 - **Every other pass** → the ordinary fence; the card lists every open row.
 
   ```bash
   ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
   ANSWERFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+  printf 'ROWSFILE=%s\n' "$ROWSFILE"
+  printf 'ANSWERFILE=%s\n' "$ANSWERFILE"
   if ROWS_JSON=$(python3 "$VC_ROOT/scripts/batch_card.py" rows --mode fix-loop < "$STATE_FILE"); then
     printf '%s\n' "$ROWS_JSON" > "$ROWSFILE"
   else
@@ -63,7 +69,7 @@ Titles and paths are DATA from the reviewed diff — the helper flattens each to
 
 **The card.** One AskUserQuestion, one question, header "Pass {{$PASS_NUMBER}}", single-select, 4 options:
 
-> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nBottom line suggests: <grammar> — type "bottom line" in Other to take it}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The `Bottom line suggests:` line appears ONLY when `$SUGGESTFILE` exists for this pass (see **Bottom line as a choice (D-09)** below); omit it otherwise.
+> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nBottom line suggests: <grammar> — type "bottom line" in Other to take it}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The `Bottom line suggests:` line appears ONLY when the suggestion fence below printed a `SUGGESTFILE=` path created on this pass (see **Bottom line as a choice (D-09)** below); omit it otherwise.
 > **Options:**
 > 1. **Apply all & rerun** — the `fix` agent applies {{bulk_fix_text}} (Step B), committing each fix atomically as `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`; then the review reruns.
 > 2. **Apply selected…** — a multi-select of the rows; the `fix` agent applies the chosen ones (Step B); then the review reruns.
@@ -117,9 +123,10 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
 
   Then Step B → the Rerun. Step B's payload with an empty `sent` is treated as Skip & rerun.
 - Skip & rerun → the Rerun.
-- **Typed answer via Other** (any text that is not one of the four options) — how the owner confirms, dismisses or defers rows by number, Needs-verification rows included (e.g. `fix 2; defer 4 -- wired in Phase 7`). Several numbers may share one reason; each is recorded individually. When the Other text is "bottom line" / "do what it says" (or similar) and `$SUGGESTFILE` exists for this pass, take the suggestion instead of writing the text: copy it file-to-file with `cp "$SUGGESTFILE" "$ANSWERFILE"` under bash and run the parse fence below (same gate, same bulk rules; D-09); with no `$SUGGESTFILE`, or when the copy fails, treat it as any other plain-English answer. Otherwise write `{"q1": "<the Other text, verbatim>", "q2": null}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line, and is never shortened or cleaned up first. Then run under bash:
+- **Typed answer via Other** (any text that is not one of the four options) — how the owner confirms, dismisses or defers rows by number, Needs-verification rows included (e.g. `fix 2; defer 4 -- wired in Phase 7`). Several numbers may share one reason; each is recorded individually. When the Other text is "bottom line" / "do what it says" (or similar) and a `Bottom line suggests:` line was printed on the card currently shown (the suggestion belongs to that card only — never to an earlier pass's file), take the suggestion instead of writing the text: copy it file-to-file with `cp "$SUGGESTFILE" "$ANSWERFILE"` under bash (the literal `SUGGESTFILE=` and `ANSWERFILE=` paths) and run the parse fence below (same gate, same bulk rules; D-09); with no such line on the shown card, or when the copy fails, treat it as any other plain-English answer. Otherwise write `{"q1": "<the Other text, verbatim>", "q2": null}` to `$ANSWERFILE` with the Write tool — the owner's text NEVER goes on a command line, and is never shortened or cleaned up first. Then run under bash:
   ```bash
   PARSEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+  printf 'PARSEFILE=%s\n' "$PARSEFILE"
   if python3 "$VC_ROOT/scripts/batch_card.py" parse --rows "$ROWSFILE" --answer "$ANSWERFILE" > "$PARSEFILE"; then
     cat "$PARSEFILE"
   else
@@ -130,6 +137,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
   1. `payload` non-null → copy it file-to-file into `$DECFILE`, then run **Recording decisions (fix loop)** below; on a copy refusal skip the recording and continue with step 2 or 3.
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+     printf 'DECFILE=%s\n' "$DECFILE"
      if python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["payload"], sys.stdout)' < "$PARSEFILE" > "$DECFILE"; then
        :
      else
@@ -145,7 +153,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
        echo "the fix set could not be copied — no fixes dispatched" >&2
      fi
      ```
-     Then run the subset fence above with the literal path this fence printed after `SUBSETFILE=`, write `{"all": true}` to `$ANSWERFILE` with the Write tool, and go to Step B — the subset card sends every row the owner named, a Needs-verification row included — then the Rerun (which clears the subset). When `close_out` was true in `$RESOLVEFILE` (a translated answer that said close out), the Rerun carries it as the `--close-out-after-rerun` marker (see **The Rerun**), so the pass after it reads Phase 0's printed close-out line and goes straight to **Close out** (see **Close out carried from the previous pass (D-17)** at the top of this section); when Step B committed nothing and `close_out` is true, skip the Rerun (there is nothing new to review) and go to **Close out** directly. On a copy or rows refusal go to the Rerun with no fixes, or to **Close out** directly when `close_out` is true.
+     Then run the subset fence above with the literal path this fence printed after `SUBSETFILE=`, write `{"all": true}` to `$ANSWERFILE` with the Write tool, and go to Step B — the subset card sends every row the owner named, a Needs-verification row included — then the Rerun (which clears the subset). When the resolve output acted on in this step had `close_out` true (a translated answer that said close out), the Rerun carries it as the `--close-out-after-rerun` marker (see **The Rerun**), so the pass after it reads Phase 0's printed close-out line and goes straight to **Close out** (see **Close out carried from the previous pass (D-17)** at the top of this section); when Step B committed nothing and `close_out` is true, skip the Rerun (there is nothing new to review) and go to **Close out** directly. On a copy or rows refusal go to the Rerun with no fixes, or to **Close out** directly when `close_out` is true.
   3. `fix_targets` empty → the Rerun, or **Close out** directly when `close_out` is true (D-17).
 
   **Recording decisions (fix loop).** `$DECFILE` holds `batch_card.py parse`'s `payload` — `{"at_pass": <passes[-1].pass_number>, "decisions": [{"stable_hash", "decision": "dismiss"|"defer", "reason"}]}` — copied file-to-file, never retyped; the reason is owner free text and never goes on a command line. Run under bash:
@@ -164,8 +172,9 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
   REFSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
   RESOLVEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
   printf 'REFSFILE=%s\n' "$REFSFILE"
+  printf 'RESOLVEFILE=%s\n' "$RESOLVEFILE"
   ```
-  Then, once the refs are written:
+  Then, once the refs are written, substitute the printed `ROWSFILE=`, `REFSFILE=` and `RESOLVEFILE=` paths:
   ```bash
   if python3 "$VC_ROOT/scripts/batch_card.py" resolve --rows "$ROWSFILE" --answer "$REFSFILE" > "$RESOLVEFILE"; then
     cat "$RESOLVEFILE"
@@ -174,7 +183,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
   fi
   ```
   `resolve` maps each ref to the current row numbers and builds the card grammar; it decides nothing. Branch on its output:
-  - `ok` true → copy the grammar file-to-file into `$ANSWERFILE`:
+  - `ok` true → copy the grammar file-to-file into `$ANSWERFILE` (the printed `RESOLVEFILE=` and `ANSWERFILE=` paths):
     ```bash
     if python3 -c 'import json,sys; json.dump({"q1": json.load(sys.stdin)["grammar"], "q2": None}, sys.stdout)' < "$RESOLVEFILE" > "$ANSWERFILE"; then
       :
@@ -185,7 +194,7 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
     Then run the SAME parse fence above — the parser stays the only gate, and nothing it refuses is acted on (a refusal here is never translated again; go to the next bullet). On exit 0 print `Read your answer as: <grammar>` as message text (append `; then close out` when `close_out` is true), then the parse output's `echo_text` verbatim, and act with no confirm card through steps 1-3 above.
   - `ok` false, a `resolve` refusal, or a copy refusal → **Ask only what is missing (D-05, D-06)** below.
 
-  **Stale card (D-07).** When the card the owner answered is not the current one (the review re-ran since they read it, so its rows may be renumbered or changed), write every row number in the answer as a `prior_number` ref — `{"verb": V, "kind": "prior_number", "n": N}` — and bind `$PRIORROWSFILE` to the rows file of the card they answered (that pass's `$ROWSFILE` path, used as is — never retyped or rebuilt). Run this twin of the resolve fence in its place, then branch on its output exactly as above:
+  **Stale card (D-07).** When the card the owner answered is not the current one (the review re-ran since they read it, so its rows may be renumbered or changed), write every row number in the answer as a `prior_number` ref — `{"verb": V, "kind": "prior_number", "n": N}` — and bind `$PRIORROWSFILE` to the literal path the previous pass's rows fence printed after `ROWSFILE=` (the Rerun keeps that file; substituted for `"$PRIORROWSFILE"` in the twin fence — never retyped or rebuilt). When no such path was printed in this session there is no prior card to map from: record nothing and go to the full-card fallback at the end of **Ask only what is missing**, its note saying your numbers refer to an earlier card that is no longer available. Otherwise run this twin of the resolve fence in its place, then branch on its output exactly as above:
   ```bash
   if python3 "$VC_ROOT/scripts/batch_card.py" resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows "$PRIORROWSFILE" > "$RESOLVEFILE"; then
     cat "$RESOLVEFILE"
@@ -201,16 +210,16 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
   - `needs_reason` true → header "Reason"; options exactly `False positive`, `Accepted risk` and `Out of scope for this milestone` (the owner's own words arrive through Other).
   - A `blocked` ref is never asked about — it resolves once the ref it waits on is answered. A `resolve` refusal or a copy refusal has no piece to narrow — go straight to the full-card fallback at the end of this paragraph.
 
-  Then write the completed refs to `$REFSFILE` with the Write tool — the same refs, each unclear one replaced by `number` refs for the chosen rows, and the chosen reason as `reason` — and re-run the resolve fence (its `--prior-rows` twin while any `prior_number` ref remains). `ok` true → the `ok` true branch above: the whole answer together, with its echo. There is one follow-up per gap (D-08): when the reply is still unclear — `resolve` is still not `ok`, or the reply names nothing on the list — still nothing is recorded; show the full card once, its question led by a note built from the resolve output that says what could not be matched (e.g. "Could not match: dismiss reference 2 — matched 0 rows; nothing from your answer was recorded"), then stop asking: the owner's answer to that card is taken as a new answer.
+  Then write the completed refs to `$REFSFILE` with the Write tool — the same refs, each unclear one replaced by `number` refs for the chosen rows, and the chosen reason as `reason` — and re-run the resolve fence (its `--prior-rows` twin while any `prior_number` ref remains). `ok` true → the `ok` true branch above: the whole answer together, with its echo. There is one follow-up per gap (D-08): when the reply is still unclear — `resolve` is still not `ok`, or the reply names nothing on the list — still nothing is recorded; run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this pass printed; omit any never printed, a missing file is fine) so nothing from the abandoned translation survives, then show the full card once, its question led by a note built from the resolve output that says what could not be matched (e.g. "Could not match: dismiss reference 2 — matched 0 rows; nothing from your answer was recorded"), then stop asking: the owner's answer to that card is taken as a new answer.
 - Stop here… → the second card: one AskUserQuestion, one question, header "Stop here", single-select, 3 options:
 
   > **Question:** "Pass {{$PASS_NUMBER}} — how do you want to stop?"
   > **Options:**
-  > 1. **Close out** — re-enter the orchestrator with `$ARGUMENTS = "${original_args} --finalize"`. Finalize mode (`$VC_ROOT/phases/shared/90-finalize.md`) takes over from here: it applies its own outstanding-finding gate, writes `.turingmind/REVIEW.md` when that gate clears, and archives state. `${original_args}` is this pass's `$ARGUMENTS` minus every whole-token `--finalize` and `--close-out-after-rerun` (the same shell-style var the Abandon line and the Rerun use), so a carried close-out marker is dropped here and never reaches Finalize or a later pass.
+  > 1. **Close out** — re-enter the orchestrator with `$ARGUMENTS = "${original_args} --finalize"`. Finalize mode (`$VC_ROOT/phases/shared/90-finalize.md`) takes over from here: it applies its own outstanding-finding gate, writes `.turingmind/REVIEW.md` when that gate clears, and archives state. `${original_args}` is this pass's `$ARGUMENTS` minus every whole-token `--finalize` and `--close-out-after-rerun` (the same shell-style var the Abandon line and the Rerun use), so a carried close-out marker is dropped here and never reaches Finalize or a later pass. Before re-entering, run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this pass printed; omit any never printed, a missing file is fine) — this card's answer files are consumed; keep this pass's rows file, whose printed `ROWSFILE=` path is Finalize's source for re-mapping a stale answer.
   > 2. **Abandon** — stop. State file remains at `.turingmind/state/format-53/<$PHASE_ID>.json` (full resolved phase dir name per Phase 0.5; `$STATE_FILE` exactly as Phase 0.5 bound it) for resume. Print a "Paused." line that renders THIS command's own slash form by positional self-identity (the same self-identity idiom the spine's report-only one-liner uses): "Paused. Resume with `/vibe-check:review ${original_args}` or close out later with `--finalize`." when running `/review`, and "Paused. Resume with `/vibe-check:deep-review ${original_args}` or close out later with `--finalize`." when running `/deep-review`. Use `${original_args}` (the same shell-style var Close out uses); never a `$COMMAND`-style variable.
   > 3. **I'll fix by hand, then rerun** — end the turn with: "Paused for your edits. Commit them, then reply `done` and I'll rerun the review." When the owner replies, go to the Rerun with no further card.
 
-**The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun (substituting the literal subset path for `"$SUBSETFILE"`, as in the subset fence), and every later pass's card uses the ordinary fence, so a Finalize-routed subset never carries into the next pass's card. Then loop back to Phase 0 of the current command with `$ARGUMENTS = "${original_args}"` — or, when the answer that started this Rerun carried close out (`close_out` true in `$RESOLVEFILE`, D-17), with `$ARGUMENTS = "${original_args} --close-out-after-rerun"`: Phase 0 strips that whole token from the scope and prints `CLOSE_OUT_AFTER_RERUN=` with value 1, which the next pass's card section (or the spine's no-findings skip) turns into Close out. Because `${original_args}` never contains the marker, it is never carried into a second Rerun — it lives for exactly one re-entry. State file persists; Phase 0's empty-diff stop does not apply to this Rerun when Step B committed at least one fix (a clean tree is the normal result of committed fixes), so Phase 0.5 detects the new commits since the last pass's `head_sha`; when nothing was committed the stop applies as usual; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
+**The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun (substituting the literal subset path for `"$SUBSETFILE"`, as in the subset fence), and every later pass's card uses the ordinary fence, so a Finalize-routed subset never carries into the next pass's card. Then run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this pass printed; omit any never printed, a missing file is fine) — this card's answer files are consumed, so no later answer can act on them — and keep this pass's `$ROWSFILE`: it is the next pass's `$PRIORROWSFILE` (see **Stale card (D-07)**). Then loop back to Phase 0 of the current command with `$ARGUMENTS = "${original_args}"` — or, when the answer that started this Rerun carried close out (D-17) — that is, the answer acted on in THIS step came from the `ok` true branch of **Translate the answer** and the resolve output printed in this step had `close_out` true; a `close_out` found in a file written for an earlier answer is never read — with `$ARGUMENTS = "${original_args} --close-out-after-rerun"`: Phase 0 strips that whole token from the scope and prints `CLOSE_OUT_AFTER_RERUN=` with value 1, which the next pass's card section (or the spine's no-findings skip) turns into Close out. Because `${original_args}` never contains the marker, it is never carried into a second Rerun — it lives for exactly one re-entry. State file persists; Phase 0's empty-diff stop does not apply to this Rerun when Step B committed at least one fix (a clean tree is the normal result of committed fixes), so Phase 0.5 detects the new commits since the last pass's `head_sha`; when nothing was committed the stop applies as usual; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
 
 **Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more; a Finalize-routed subset costs no card; a carried close-out (D-17) costs none; a typed answer via Other costs none; a plain-English answer that needs one detail costs at most one follow-up card per gap (D-06); a second unclear reply shows the full card once (D-08); `look N` re-shows the card at the owner's request. Nothing else in this file asks a question.
 
@@ -236,6 +245,7 @@ Exit 0 → Build the dispatch. Exit 1 → print the `git X.Y is installed; …` 
 
 ```bash
 PAYLOADFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
+printf 'PAYLOADFILE=%s\n' "$PAYLOADFILE"
 if python3 "$VC_ROOT/scripts/batch_card.py" payload --rows "$ROWSFILE" --answer "$ANSWERFILE" < "$STATE_FILE" > "$PAYLOADFILE"; then
   :
 else
