@@ -1586,8 +1586,32 @@ def _inv_different_lane_dup_57_04(conf, severity):
     return s2, hA, (lead is not None and lead["agent"] == "security", kept)
 
 
-# name -> (build(conf, severity) -> (state, hA, lead marker),
-#          ((label, (conf, severity), expected lead marker), ...),
+def _inv_different_line_same_hash_cross_lane(sec_conf, _sev):
+    """CR-01 cross-lane: the lead marker is (row agent, row line)."""
+    s2, _, hA = cross_lane_same_hash_scenario(sec_conf)
+    row = row_of(s2, hA)
+    return s2, hA, (row["agent"], row["line"])
+
+
+def _inv_same_lane_arrival_order(order, _sev):
+    """CR-01 arrival order: the knob is the arrival ORDER of two tied
+    conf-100 same-lane reports; the marker is the row line, the self-check
+    that the lead is deterministic (not a permutation of the lead)."""
+    s2, _, hA = arrival_order_scenario(list(order))
+    return s2, hA, row_of(s2, hA)["line"]
+
+
+def _inv_min_confidence_dropped_twin(rereport, _sev, min_confidence):
+    """CR-02: the marker is (row status, whether a record was dropped
+    below min_confidence before grouping)."""
+    s2, r2, hA = min_conf_twin_scenario(min_confidence, rereport)
+    return s2, hA, (row_of(s2, hA)["status"],
+                    "below-min-confidence"
+                    in [f.get("reason") for f in r2["filtered"]])
+
+
+# name -> (build(<knobs unpacked>) -> (state, hA, lead marker),
+#          ((label, knobs, expected lead marker), ...),
 #          expected triple, or None for "whatever carried-leads yields")
 _SAME_LANE = {"carried-leads": "persisted", "fresh-leads-same-band": "new",
               "fresh-leads-higher-band": "new"}
@@ -1619,6 +1643,28 @@ INVARIANCE_SCENARIOS = {
         ((LEAD_PERMUTATIONS[0][0], LEAD_PERMUTATIONS[0][1], (True, [60])),
          (LEAD_PERMUTATIONS[1][0], LEAD_PERMUTATIONS[1][1], (True, [100]))),
         None),
+    # CR-01 cross-lane: a same-hash record at another line out-ranks the
+    # carried copy.
+    "different_line_same_hash_cross_lane": (
+        _inv_different_line_same_hash_cross_lane,
+        (("carried-leads", (60, "warning"), ("bugs", 12)),
+         ("fresh-leads-same-band", (100, "warning"), ("security", 10))),
+        _REASK),
+    # CR-01 arrival order. "carried-leads" is the baseline label the coverage
+    # lock requires; here both permutations are two fresh same-conf reports.
+    "same_lane_arrival_order": (
+        _inv_same_lane_arrival_order,
+        (("carried-leads", ((10, 12), "warning"), 10),
+         ("fresh-leads-reversed-arrival", ((12, 10), "warning"), 10)),
+        _REASK),
+    # CR-02: the carried twin is dropped by min_confidence before grouping.
+    "min_confidence_dropped_twin": (
+        _inv_min_confidence_dropped_twin,
+        (("carried-leads", (STABLE_CONF, "warning", None),
+          ("persisted", False)),
+         ("fresh-leads-same-band", (95, "warning", None), ("new", False)),
+         ("fresh-leads-twin-dropped", (95, "warning", 80), ("new", True))),
+        _REASK),
 }
 
 
@@ -1645,9 +1691,9 @@ class TestLeadOrderInvariance(_Base):
     def test_decision_outcome_does_not_depend_on_which_record_leads(self):
         for name, (build, perms, want) in INVARIANCE_SCENARIOS.items():
             baseline = None
-            for label, (conf, sev), marker in perms:
+            for label, knobs, marker in perms:
                 with self.subTest(scenario=name, lead=label):
-                    state, hA, got_marker = build(conf, sev)
+                    state, hA, got_marker = build(*knobs)
                     row = row_of(state, hA)
                     snap = (row or {}).get("snapshot")
                     # Self-check: the permutation really moved the lead.
@@ -1671,7 +1717,10 @@ class TestLeadOrderInvariance(_Base):
                          {"plain", "inherited_split", "absorbed_split",
                           "owed_quiet_same_lane",
                           "owed_quiet_different_lane",
-                          "different_lane_dup_57_04"})
+                          "different_lane_dup_57_04",
+                          "different_line_same_hash_cross_lane",
+                          "same_lane_arrival_order",
+                          "min_confidence_dropped_twin"})
         self.assertEqual(len(LEAD_PERMUTATIONS), 3)
         self.assertEqual(LEAD_PERMUTATIONS[0][1][0], STABLE_CONF)
         for name, (_, perms, _) in INVARIANCE_SCENARIOS.items():
