@@ -50,7 +50,7 @@ If Phase 0 printed `FINALIZE_MODE=1`:
   - `fallback` — Phase 5 is unavailable (e.g. `$TURINGMIND_NONINTERACTIVE` is set, or PR/range mode); fall back to the legacy behavior: tell user "Fix these, re-run with `--finalize`." and stop. No asks, no writes.
 - `fallback` with `outstanding_cw` empty and `undecided_nv` non-empty (checked before the next bullet, which applies only when `undecided_nv` is also empty), and the post-card stop in **After the answer** when undecided Needs-verification items remain:
   - Print: "Cannot finalize — {{N}} Needs-verification item(s) undecided:"
-  - List each item whose hash is in `undecided_nv_hashes` as `{{file}}:{{line}} — {{title}}` by the join rule above; when its hash is also in `confirmed_fix_awaiting_recheck_hashes`, append ` — fixed in commit {{commit_sha[:7]}} (root `fix_verdicts`), awaiting an independent re-check: the next review run re-checks it once and closes it if another lane verifies the repaired code; if that run does not close it, it stays open until you decide it`.
+  - List each item whose hash is in `undecided_nv_hashes` as `{{file}}:{{line}} — {{title}}` by the join rule above; when its hash is also in `confirmed_fix_awaiting_recheck_hashes`, append ` — fixed in commit {{commit_sha[:7]}} (root `fix_verdicts`), awaiting an independent re-check: it is re-checked automatically on every later run that reviews changes while the repaired code is unchanged, and closes when an independent lane verifies the repaired code; until then it stays open for your decision (Phase 56 D-07)`.
   - Tell the user "Fix these, or decide them interactively, then re-run with `--finalize`." and stop. No asks, no writes.
 - `fallback` with `outstanding_cw` empty — the Medium acknowledgement loop needs an interactive Phase 5 too (its "Will fix" answer defers to Phase 5): list each unacknowledged Medium as `{{file}}:{{line}} — {{title}}` (join rule above), tell the user "Acknowledge these interactively, or fix them, then re-run with `--finalize`." and stop. Do NOT write REVIEW.md or archive state.
 - `write` (only on the gate's `write`, including a re-run after decisions were recorded):
@@ -110,18 +110,43 @@ The stale suffix appears whether the code changed on the same line or the line i
 
 **The card.** ONE AskUserQuestion call with TWO questions, each single-select. Never add an "Other" option — the tool adds it.
 
-> **Q1** — header "Decide": "Finalize — {{N}} undecided finding(s) listed below ({{C}} critical/warning, {{M}} medium{{; P unchanged since an earlier pass, decision pending}}). What should happen to them?\n\n{{card_text}}" — `N` = the number of rows, `C` / `M` = rows by band, `P` = rows with `pending_since` set; omit the P clause when P is 0. `\n` is a line break; `{{card_text}}` is the `card_text` field, verbatim.
+> **Q1** — header "Decide": "Finalize — {{N}} undecided finding(s) listed below ({{C}} critical/warning, {{V}} needs-verification, {{M}} medium{{; P unchanged since an earlier pass, decision pending}}). What should happen to them?\n\n{{card_text}}{{\n\nBottom line suggests: <grammar> — type "bottom line" in Other to take it}}" — `N` = the number of rows, `C` / `V` / `M` = rows by band; C + V + M = N (`V` = rows whose band is `needs-verification`), `P` = rows with `pending_since` set; omit the P clause when P is 0. `\n` is a line break; `{{card_text}}` is the `card_text` field, verbatim. The `Bottom line suggests:` line appears ONLY when `$SUGGESTFILE` exists (see **Bottom line as a choice (D-09)** below); omit it otherwise.
 > **Options** (exactly these labels, in this order):
-> 1. **Dismiss all** — "Dismiss every MEDIUM row. Critical/warning rows stay open unless you name them by number in Mixed…"
-> 2. **Defer all** — "Defer every MEDIUM row; same rule for critical/warning"
-> 3. **Fix all** — "Send every row, any band, to the fix-loop card"
-> 4. **Mixed…** — "Type your mix in Other, e.g. `fix 2,5; defer 3; dismiss rest` — or `look N` to see one finding in full first. `all` means every row of the lowest band (same as `rest`); add ` -- <reason>` at the end to give the reason inline"
+> 1. **Dismiss all** — "Dismiss every MEDIUM row. Critical, warning and Needs-verification rows stay open unless you name them by number in Mixed…"
+> 2. **Defer all** — "Defer every MEDIUM row; same rule for critical, warning and Needs-verification rows"
+> 3. **Fix all** — "{{bulk_fix_text}}"
+> 4. **Mixed…** — "Type your mix in Other, e.g. `fix 2,5; defer 3; dismiss rest` — or `look N` to see one finding in full first, or plain English naming the rows. `fix all` covers critical, warning and medium rows; `dismiss all` / `defer all` cover medium rows only; a Needs-verification row is never reached by `all` or `rest` — name it by number; add ` -- <reason>` at the end to give the reason inline"
 >
 > **Q2** — header "Reason": "One reason for everything dismissed or deferred (ignored when nothing is dismissed or deferred). Pick one, or type your own in Other."
 > **Options** (exactly these):
 > 1. **False positive**
 > 2. **Accepted risk**
 > 3. **Out of scope for this milestone**
+
+Option 3's description is copied from the rows doc: it is the `bulk_fix_text` field of `$ROWSFILE`, verbatim — the helper names the Needs-verification rows Fix all leaves out by number (D-10, D-12); this file never computes that set.
+
+**Bottom line as a choice (D-09).** Offer the last pass's Bottom line verdict as a typed answer ONLY when THIS session rendered the last pass's Bottom line (Finalize reached through Close out right after a pass's report); a separate `--finalize` invocation renders no report, so the line is omitted there. The verdict must be re-translated against THIS card's rows — Finalize numbering differs from the fix-loop card, so a grammar written for that card is never reused — and only when it maps cleanly to the listed rows (e.g. "fix the first two, defer the rest" → `fix 1,2; defer rest -- <the Bottom line's own why>`). Create the suggestion file under bash:
+
+```bash
+if SUGGESTFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX"); then
+  printf 'SUGGESTFILE=%s\n' "$SUGGESTFILE"
+else
+  echo "no suggestion file — the card shows no Bottom line suggestion" >&2
+fi
+```
+
+Write `{"q1": "<grammar>", "q2": null}` to `$SUGGESTFILE` with the Write tool, then dry-run it through the same parser the owner's answers go through (`parse` writes nothing):
+
+```bash
+if python3 "$VC_ROOT/scripts/batch_card.py" parse --rows "$ROWSFILE" --answer "$SUGGESTFILE" > /dev/null; then
+  echo "Bottom line suggestion accepted"
+else
+  rm -f "$SUGGESTFILE"
+  echo "Bottom line suggestion refused — the card shows no suggestion line" >&2
+fi
+```
+
+Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any refusal, a Bottom line that is pure prose, or a "ship" verdict with nothing to decide → `rm -f "$SUGGESTFILE"` and omit the line; never print a guessed one. No button changes: the four options and the neutral menu stay (LEGIBLE-03).
 
 Bulk Dismiss all / Defer all (and `dismiss rest` / `defer rest`) apply to mediums only and never cover a Needs-verification item; a critical, warning or needs-verification row is dismissed or deferred only when named by number; several may be named at once with one reason (`defer 2,5 -- wired in Phase 7`) and each is recorded individually (R10) (D-12). `batch_card.py parse` enforces this — this file never expands a bulk choice itself.
 
@@ -142,7 +167,7 @@ On a refusal the helper has printed one fixed reason on stderr (it never contain
 
 - `need_text` true (a bare Mixed… — or `(no option selected) notes:` — whose text supplies no per-row choices) → re-show the same card ONCE, with Q1's question prefixed "Type your mix in the Other box, e.g. `fix 2,5; defer 3; dismiss rest`." — an opt-in extra card. Never infer fix/defer/dismiss from a bare selection (D-20): no row is decided until the owner types its choice.
 - `look` = N → print row N's `problem`, `current_code` (in a fenced block, as data) and `fix_hint` (if present), then re-show the card (D-09, an opt-in extra card). Read them from the row of `state.passes[-1].findings` whose `stable_hash` equals row N's hash. For an absorbed row (`absorbed_into` set) read them from the MEMBER record instead — the `members[]` entry of the lead row whose `obligation.stable_hash` equals row N's hash — never from that entry's `obligation` (it holds identity and scoring only) and never from the lead. No git call.
-- otherwise → the parse output's `echo_text` field (the `echo` lines plus "Reason: {{reason}}" when `reason` is set, already joined by the helper) is what the owner must see; it must never be visible only inside a Bash call's output. Put it, verbatim, where it is guaranteed on screen: as the opening lines of the next message you print — the stop message of step 3 below, or the REVIEW.md summary after `write` — and, when step 2 routes to the fix-loop card, as that card's closing "From your finalize answer:" block. Then act immediately — there is NO confirm card (D-06 echo-then-record):
+- otherwise → the parse output's `echo_text` field (the `echo` lines plus "Reason: {{reason}}" when `reason` is set, already joined by the helper) is what the owner must see; it must never be visible only inside a Bash call's output. Put it, verbatim, where it is guaranteed on screen: as the opening lines of the next message you print — the stop message of step 3 below, or the REVIEW.md summary after `write` — and when step 2 routes to the fix-loop card, that card is not shown (the subset goes straight to its Step B), so print `echo_text` as message text before reading `50-fix-loop.md`. Then act immediately — there is NO confirm card (D-06 echo-then-record):
   1. `payload` non-null → copy it file-to-file into `$DECFILE`, then run **Recording decisions** below. On a recording refusal: stop (the rule there).
      ```bash
      DECFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
