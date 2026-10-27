@@ -117,7 +117,7 @@ Plans:
 **Gap closure, second round** *(after re-verification gaps_found 2026-10-26: split-row nearby edit lost (SC-4/DECN-03); owner ruling D-17; sequential waves 12-14)*
 
 - [x] 57-14-PLAN.md — Reproduce-first: real-chain RED fixtures for the split-pass nearby stamp (inherited, own-decision absorbed, owed stamp lost) + fresh-lead negative; split-pass snapshot shape in TestGapClosure57; cross-module producibility guard (WR-02 holes closed)
-- [ ] 57-15-PLAN.md — score.py: `carried` arm in `_snapshot_for` + lead-obligation prior seeding so the split pass stamps `nearby_at` (D-17); unit pins; two end-to-end mutants; golden/import sets unchanged
+- [x] 57-15-PLAN.md — score.py: `carried` arm in `_snapshot_for` + lead-obligation prior seeding so the split pass stamps `nearby_at` (D-17); unit pins; two end-to-end mutants; golden/import sets unchanged
 - [ ] 57-16-PLAN.md — Second-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for D-17 differences), reverse-run ledger vs the pre-fix tree, diff-context gap parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
 
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
@@ -152,7 +152,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 14/16 | In Progress (second gap closure: 57-14 done) |  |
+| 57. Decision continuity within closure | 15/16 | In Progress (second gap closure: 57-15 done) |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
