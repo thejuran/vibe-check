@@ -184,6 +184,24 @@ Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any r
     ```
     Then run the SAME parse fence above — the parser stays the only gate, and nothing it refuses is acted on (a refusal here is never translated again; go to the next bullet). On exit 0 print `Read your answer as: <grammar>` as message text (append `; then close out` when `close_out` is true), then the parse output's `echo_text` verbatim, and act with no confirm card through steps 1-3 above.
   - `ok` false, a `resolve` refusal, or a copy refusal → **Ask only what is missing (D-05, D-06)** below.
+
+  **Stale card (D-07).** When the card the owner answered is not the current one (the review re-ran since they read it, so its rows may be renumbered or changed), write every row number in the answer as a `prior_number` ref — `{"verb": V, "kind": "prior_number", "n": N}` — and bind `$PRIORROWSFILE` to the rows file of the card they answered (that pass's `$ROWSFILE` path, used as is — never retyped or rebuilt). Run this twin of the resolve fence in its place, then branch on its output exactly as above:
+  ```bash
+  if python3 "$VC_ROOT/scripts/batch_card.py" resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows "$PRIORROWSFILE" > "$RESOLVEFILE"; then
+    cat "$RESOLVEFILE"
+  else
+    echo "— nothing was recorded; the answer could not be read." >&2
+  fi
+  ```
+  `resolve` re-maps each old number by finding identity (`stable_hash`, then file and title), never by position, so the grammar and the echo use the current rows and the owner sees where each one went: when `stale` is true, append ` (your numbers re-mapped to the current card)` to the `Read your answer as:` line, so the echo shows the new numbers. A `prior_number` that maps to no current row, or to more than one, comes back `none` or `many` and is asked about alone, below.
+
+  **Ask only what is missing (D-05, D-06).** Hold the whole answer and record nothing — never half-apply: no clause of the answer is recorded or sent to the fix agent while another clause of it is unclear, so "fix X, then close out" is carried out together or not at all. Ask ONE short AskUserQuestion about only the unclear piece — never the full card; when more than one piece is unclear, each gets its own question inside that same AskUserQuestion call. Single-select; the tool adds Other.
+  - A `many` or `conflict` ref → header "Which row"; the question names the verb and asks which listed row was meant. Options = the ref's `candidates`: each `label` (`#n file:line`) as an option, its `title` as the description. More than 4 candidates → list the labels in the question text instead and take the number through Other; exactly 1 → add a "None of these" option.
+  - A `none` or `count_mismatch` ref → header "Which rows"; the question says what did not match (the reference matched no row, or the stated count differs from the rows it matched) and that the rest of the answer is held until this is settled. Options = up to 4 `#n file:line` labels — the ref's `candidates` when it has them, else rows no other ref claimed; typed row numbers arrive through Other.
+  - `needs_reason` true → header "Reason"; options exactly `False positive`, `Accepted risk` and `Out of scope for this milestone` (the owner's own words arrive through Other).
+  - A `blocked` ref is never asked about — it resolves once the ref it waits on is answered. A `resolve` refusal or a copy refusal has no piece to narrow — go straight to the full-card fallback at the end of this paragraph.
+
+  Then write the completed refs to `$REFSFILE` with the Write tool — the same refs, each unclear one replaced by `number` refs for the chosen rows, and the chosen reason as `reason` — and re-run the resolve fence (its `--prior-rows` twin while any `prior_number` ref remains). `ok` true → the `ok` true branch above: the whole answer together, with its echo. There is one follow-up per gap (D-08): when the reply is still unclear — `resolve` is still not `ok`, or the reply names nothing on the list — still nothing is recorded; show the full card once, its question led by a note built from the resolve output that says what could not be matched (e.g. "Could not match: dismiss reference 2 — matched 0 rows; nothing from your answer was recorded"), then stop asking: the owner's answer to that card is taken as a new answer.
 - Stop here… → the second card: one AskUserQuestion, one question, header "Stop here", single-select, 3 options:
 
   > **Question:** "Pass {{$PASS_NUMBER}} — how do you want to stop?"
