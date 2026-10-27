@@ -1873,16 +1873,17 @@ class TestPhase57Mutants(_Base):
 
     def test_split_pass_lead_obligation_prior_not_seeded_loses_the_owed_stamp(
             self):
-        """D-17 guard: a split row led by a member carrying its own obligation
-        under the row's own hash takes that obligation's snapshot as its
-        prior. Without the seed the re-ask owed before the split (s3) is
-        lost; the carried arm still stamps the split edit (s1) and the
-        fresh-lead negative (s4) is unaffected."""
+        """D-17 guard: the unified prior seed — a split row takes the stored
+        snapshot of any source record carried under the row's own hash (here
+        the lead member's own obligation) as its prior. Without the seed the
+        re-ask owed before the split (s3) is lost; the carried arm still
+        stamps the split edit (s1) and the fresh-lead negative (s4) is
+        unaffected."""
         from unittest import mock
         from test_confirmed_fix import SCORE_PY, _mutant
         with open(SCORE_PY, "r", encoding="utf-8") as fh:
             src = fh.read()
-        old = 'survivor["snapshot"] = lead_obl["snapshot"]'
+        old = 'survivor["snapshot"] = obl["snapshot"]'
         self.assertEqual(src.count(old), 1, "mutation target not unique")
         mod = _mutant(SCORE_PY, "score_split_seed", old, "pass")
         self.assertEqual(self._split_failures(), set())
