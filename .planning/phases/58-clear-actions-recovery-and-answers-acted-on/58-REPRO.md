@@ -185,3 +185,36 @@ Current code (live grep, 58-06) for the removed text: `re-checks it once` 0, `ho
 
 - No live run and no paid run was performed (D-15). The cards were not driven by a model in an interactive session; prose behavior is evidenced by locks, mutants, real-fence runs and static traces only.
 - Nothing was filed in the backlog for bug C.
+
+---
+
+## Gate
+
+Run on 2026-10-27 at HEAD `41a381f` (the Task-1 doc commit; no plugin file differs from the last code commit 75bb831). Commands from `plugins/vibe-check` unless noted; bare `pytest`.
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `pytest -q` | `3465 passed, 4608 subtests passed in 162.51s` — 0 failed, 0 skipped reported. Baseline 3311 (Phase 57 gate) + 154 new tests from 58-01..58-05, 58-07..58-09 |
+| Replay tests | `pytest -q scripts/test_replay.py` | `64 passed, 10 subtests passed` |
+| Replay candidate | `python3 replay.py candidate --name phase58-gate --scorer rev:HEAD` (from `scripts/`) | exit 0; `REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1`; `kept 25 / protected 26`; **REGRESSED 0**; UNEVALUABLE 0; AMENDED 1 (unchanged from the 57-23 baseline: the pre-existing `triggarr-secret-in-logs/run-2`). Candidate scorer sha256 `3504d2da79e9ebab26bfedd01c7614c9b7cc06ade99c12b7e24e90003edd22fb`, identical to 57-23's |
+| Replay diff | `python3 replay.py diff --base rev:24c0c00 --scorer rev:HEAD --roots all --allow ../../../docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json` | exit 0; 170 runs compared, 0 differing, 0 unallowed; Differences: none |
+| Golden | `pytest -q scripts/test_score.py -k golden` | `9 passed, 491 deselected` |
+| Golden digest | `score.stable_hash('a.py','  x=1','title') == test_score.GOLDEN_DIGEST` (from `scripts/`) | `golden ok` |
+| Import sets | `pytest -q test_score.py -k ImportSet`; `pytest -q test_carry_state.py -k ImportSet` | `3 passed` each |
+| Frozen files | `git diff --stat 24dccdc..HEAD -- scripts/score.py scripts/batch_parse.py` | empty |
+| Carrier round-trip | `pytest -q scripts/test_fix_loop_card.py -k CarrierRoundTrip -v` | `3 passed` — each test loops over `SHELLS` = `/bin/bash` and `/bin/zsh` (both present) |
+
+**Mutant inventory** (every new test module carries at least one tripping mutant):
+
+| Module | Grep count | `-k "mutant or Trips" -v` | Plan |
+|---|---|---|---|
+| `test_card_scope.py` | `subTest("mutant` = 4 | 4 passed, 5 subtests | 58-01 (+ real-file m1-m5) |
+| `test_answer_resolve.py` | `subTest("mutant` = 5 | 5 passed, 10 subtests | 58-03 (+ real-file m1-m5) |
+| `test_recovery_pairs.py` | `subTest("mutant` = 0; `TestLockTrips` has 5 test methods (one per mutant) | 5 passed, 4 subtests | 58-02 (+ real-file a-l) |
+| `test_fix_loop_card.py` | `def test_mutant_` = 28 (24dccdc: 8, gained 20) | 47 passed, 29 subtests | 58-04, 58-08 |
+| `test_finalize_card.py` | `def test_mutant_` = 9 (24dccdc: 0, gained 9 methods carrying 20 mutant subtests) | 9 passed, 20 subtests | 58-05 (+ real-file M1-M12), 58-09 (+ real-file M1-M6) |
+| `test_scope_args.py` | `def test_m[4-7]_` = 4 (24dccdc: 0) | 4 passed | 58-07 |
+
+A passing mutant test asserts the lock *trips* on its mutant, so "passed" here means every mutant is caught. Each plan also applied its mutants to the real files and recorded the failing tests (tables in the SUMMARYs and in V1-V5 above).
+
+No plugin file was modified by 58-06: `git log --name-only --format= 24dccdc..HEAD -- plugins | grep -c .` = 32 before and after this plan's commits.
