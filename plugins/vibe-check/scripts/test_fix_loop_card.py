@@ -21,6 +21,7 @@ import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import batch_card  # noqa: E402  (title filler words)
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import fixstage  # noqa: E402  (the one exit table: render_case_arms)
 from test_git_safety_prose import OPTIONAL_EXPANSION  # noqa: E402
@@ -768,7 +769,7 @@ BOTTOM_LINE_QUESTION_NOTE = ("The `Bottom line suggests:` line appears ONLY "
                              "when the suggestion fence below printed a "
                              "`SUGGESTFILE=` path created on this pass")
 BOTTOM_LINE_NEEDLES = ("this pass's Bottom line in THIS session",
-                       'parse --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
+                       'suggest --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
                        'rm -f "$SUGGESTFILE"',
                        "never print a guessed one",
                        "the 4 options and the neutral menu stay")
@@ -1568,7 +1569,7 @@ ASK_NEEDLES = ("Hold the whole answer and record nothing",
                "could not be matched",
                "then stop asking")
 FOLLOWUP_HEADERS = ('header "Which row"', 'header "Which rows"',
-                    'header "Reason"')
+                    'header "Reason"', 'header "How many"')
 STALE_HEADING = "**Stale card (D-07).**"
 RESOLVE_PRIOR_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
                       '--prior-rows "$PRIORROWSFILE"')
@@ -2146,6 +2147,226 @@ class TestGapRoundFixLoop(unittest.TestCase):
                            "Then print Finalize's `echo_text` as message "
                            "text, write ")
         self.assertNotEqual(single_echo_problems(mutant), [])
+
+
+# --- Translate / Ask / Bottom line against the helper's own rules ---------
+
+TITLE_TEXT_NEW = '"text": "<the owner\'s words for that row, verbatim>"'
+TITLE_TEXT_OLD = '"text": "<the owner\'s words>"}'
+TITLE_RULE_NEEDLES = (TITLE_TEXT_NEW, "do not trim or clean them",
+                      "whole words only", "ignoring filler",
+                      "`port` never matches `import`",
+                      "the Browse recovery issue")
+_FILLER_LIST = re.compile(r"ignoring filler \(([^)]*)\)")
+
+PARSE_REFUSAL_BULLET = ("every ref is `one` or `bulk`, `needs_reason` is "
+                        "false and `parse_reason` is set")
+PARSE_REFUSAL_AFTER = ("no piece to narrow", "full-card fallback",
+                       "combined two bulk groups", "could not be checked")
+BLOCKED_BULLET = "- A `blocked` ref is never asked about"
+
+COUNT_NEEDED_HEAD = 'A `count_needed` ref → header "How many"'
+COUNT_NEEDED_NEEDLES = (COUNT_NEEDED_HEAD,
+                        "critical, warning or Needs-verification rows",
+                        "dismissed or deferred only when you state how many "
+                        "(D-18)",
+                        "`candidates`", "`#n file:line`", "through Other",
+                        '`"count": C`', "`number` refs")
+COMPLETED_REFS = "Then write the completed refs"
+
+SUGGEST_CALL = ('batch_card.py" suggest --rows "$ROWSFILE" --answer '
+                '"$SUGGESTFILE" > "$SUGGESTFILE.tmp" && mv '
+                '"$SUGGESTFILE.tmp" "$SUGGESTFILE"')
+SUGGEST_ELSE = 'rm -f "$SUGGESTFILE" "$SUGGESTFILE.tmp"'
+SUGGEST_SHOW = 'cat "$SUGGESTFILE"'
+SUGGEST_SCOPE = ("`fix` for any row but `dismiss`/`defer` for MEDIUM rows "
+                 "only (D-19)")
+SUGGEST_OWN_WORDS = "still needs your own words"
+PARSE_DRY_RUN = 'parse --rows "$ROWSFILE" --answer "$SUGGESTFILE"'
+
+
+def translate_paragraph(card):
+    """The **Translate the answer** paragraph, up to its first fence."""
+    other = other_path(card)
+    start = other.index(TRANSLATE_HEADING)
+    return other[start:other.index("```bash", start)]
+
+
+def title_rule_problems(card):
+    """[] when Translate passes the owner's title words verbatim and states
+    the helper's rule: whole words, filler ignored (WR-03)."""
+    if TRANSLATE_HEADING not in card:
+        return ["no Translate paragraph"]
+    para = translate_paragraph(card)
+    problems = ["Translate lacks: " + n for n in TITLE_RULE_NEEDLES
+                if n not in para]
+    if TITLE_TEXT_OLD in card:
+        problems.append("the unqualified title text form is still present")
+    m = _FILLER_LIST.search(para)
+    if not m:
+        problems.append("Translate lists no filler words")
+    else:
+        problems += ["filler word the helper does not ignore: " + w
+                     for w in (w.strip() for w in m.group(1).split("/"))
+                     if w not in batch_card._TITLE_FILLER]
+    return problems
+
+
+def ask_bullet(para, needle):
+    """The whole line of `para` that holds `needle`."""
+    at = para.index(needle)
+    bol = para.rindex("\n", 0, at) + 1
+    eol = para.find("\n", at)
+    return para[bol:eol if eol >= 0 else len(para)]
+
+
+def parse_refusal_branch_problems(card):
+    """[] when an `ok` false result with every ref clear (the parser refused
+    the built grammar) goes straight to the full-card fallback (WR-04)."""
+    para = ask_paragraph(card)
+    if PARSE_REFUSAL_BULLET not in para:
+        return ["Ask paragraph lacks the parser-refusal bullet"]
+    bullet = ask_bullet(para, PARSE_REFUSAL_BULLET)
+    problems = []
+    if not bullet.lstrip().startswith("- "):
+        problems.append("the parser-refusal branch is not its own bullet")
+    tail = bullet[bullet.index(PARSE_REFUSAL_BULLET):]
+    problems += ["parser-refusal bullet lacks: " + n
+                 for n in PARSE_REFUSAL_AFTER if n not in tail]
+    if batch_parse.REASON_REST_TWICE.strip() not in bullet:
+        problems.append("parser-refusal bullet does not name the "
+                        "rest-twice refusal")
+    if BLOCKED_BULLET not in para or \
+            para.index(PARSE_REFUSAL_BULLET) > para.index(BLOCKED_BULLET):
+        problems.append("parser-refusal bullet is not before the blocked "
+                        "bullet")
+    return problems
+
+
+def count_needed_problems(card):
+    """[] when an uncounted serious group is asked only its count (D-18)."""
+    para = ask_paragraph(card)
+    if COUNT_NEEDED_HEAD not in para:
+        return ["Ask paragraph lacks the count_needed bullet"]
+    bullet = ask_bullet(para, COUNT_NEEDED_HEAD)
+    problems = ["count_needed bullet lacks: " + n
+                for n in COUNT_NEEDED_NEEDLES if n not in bullet]
+    if len(header_value('header "How many"')) > MAX_HEADER_CHARS:
+        problems.append("How many header is too long")
+    if COMPLETED_REFS not in para:
+        return problems + ["no completed-refs sentence"]
+    at = para.index(COMPLETED_REFS)
+    sentence = para[at:para.index("re-run the resolve fence", at)]
+    if "`count_needed`" not in sentence:
+        problems.append("completed-refs sentence does not say how a "
+                        "count_needed ref is completed")
+    return problems
+
+
+def bottom_line_paragraph(card):
+    start = card.index(BOTTOM_LINE_HEAD)
+    end = card.find("\n\n**", start)
+    return card[start:end if end >= 0 else len(card)]
+
+
+def suggest_fence_problems(card):
+    """[] when the D-09 line comes from `batch_card.py suggest`, which keeps
+    dismiss/defer for medium rows only (D-19), and no parse dry-run is left."""
+    if BOTTOM_LINE_HEAD not in card:
+        return ["no Bottom line paragraph"]
+    para = bottom_line_paragraph(card)
+    problems = []
+    if card.count(SUGGEST_CALL) != 1 or SUGGEST_CALL not in para:
+        problems.append("the D-09 paragraph lacks the suggest call once")
+    else:
+        call = para.index(SUGGEST_CALL)
+        fence = para.rfind("```bash", 0, call)
+        close = para.find("```", call)
+        if fence < 0 or "```" in para[fence + len("```bash"):call] \
+                or close < 0:
+            problems.append("suggest call is not inside a bash fence")
+        else:
+            body = para[fence:close]
+            if SUGGEST_SHOW not in body[:body.find("else")]:
+                problems.append("suggest fence does not print the result")
+            if "else" not in body or SUGGEST_ELSE not in \
+                    body[body.index("else"):]:
+                problems.append("suggest fence's else arm keeps a file")
+    problems += ["Bottom line paragraph lacks: " + n
+                 for n in (SUGGEST_SCOPE, SUGGEST_OWN_WORDS) if n not in para]
+    if PARSE_DRY_RUN in card:
+        problems.append("the parse dry-run of the suggestion is still there")
+    return problems
+
+
+class TestGapRoundTranslate(unittest.TestCase):
+    """Translate, Ask and the Bottom line match the helper after the gap
+    round: verbatim title words, the parser-refusal branch, the How many
+    question, the suggest fence. Each lock has a mutant restoring the gap."""
+
+    def setUp(self):
+        self.card = card_section(read_text())
+
+    def swap(self, old, new):
+        self.assertIn(old, self.card)
+        mutant = self.card.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.card)
+        return mutant
+
+    def drop_line(self, needle):
+        self.assertIn(needle, self.card)
+        line = ask_bullet(self.card, needle)
+        return self.swap(line + "\n", "")
+
+    def test_title_rule_holds(self):
+        self.assertEqual(title_rule_problems(self.card), [])
+
+    def test_mutant_title_rule(self):
+        cases = {
+            "old text form": (TITLE_TEXT_NEW + "}", TITLE_TEXT_OLD),
+            "rule dropped": ("whole words only", "words"),
+            "filler the helper keeps": ("filler (the / a", "filler (the / of"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    title_rule_problems(self.swap(old, new)), [])
+
+    def test_parse_refusal_branch_holds(self):
+        self.assertEqual(parse_refusal_branch_problems(self.card), [])
+
+    def test_mutant_parse_refusal_branch(self):
+        mutant = self.drop_line(PARSE_REFUSAL_BULLET)
+        self.assertNotEqual(parse_refusal_branch_problems(mutant), [])
+
+    def test_count_needed_holds(self):
+        self.assertEqual(count_needed_problems(self.card), [])
+        self.assertEqual(followup_problems(self.card), [])
+
+    def test_mutant_count_needed(self):
+        mutant = self.drop_line(COUNT_NEEDED_HEAD)
+        self.assertNotEqual(count_needed_problems(mutant), [])
+        self.assertNotEqual(followup_problems(mutant), [])
+
+    def test_suggest_fence_holds(self):
+        self.assertEqual(suggest_fence_problems(self.card), [])
+        self.assertEqual(bottom_line_problems(self.card), [])
+
+    def test_mutant_suggest_fence(self):
+        cases = {
+            "parse dry-run restored": (
+                SUGGEST_CALL, 'batch_card.py" parse --rows "$ROWSFILE" '
+                '--answer "$SUGGESTFILE" > /dev/null'),
+            "else keeps the tmp file": (SUGGEST_ELSE, 'rm -f "$SUGGESTFILE"'),
+            "scope sentence dropped": (SUGGEST_SCOPE, "any verb"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    suggest_fence_problems(self.swap(old, new)), [])
+        mutant = self.swap(SUGGEST_CALL, 'batch_card.py" parse --rows '
+                           '"$ROWSFILE" --answer "$SUGGESTFILE" > /dev/null')
+        self.assertNotEqual(bottom_line_problems(mutant), [])
 
 
 if __name__ == "__main__":
