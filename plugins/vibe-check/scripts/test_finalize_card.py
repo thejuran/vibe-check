@@ -365,9 +365,10 @@ def check_translate_path(text):
     if "close-out-after-rerun" in text:
         problems.append("Finalize writes the close-out carrier")
     fences = bash_fences(section)
-    if sum(RESOLVE_CALL in f for f in fences) != 1:
-        problems.append("resolve fence x%d" % sum(RESOLVE_CALL in f
-                                                   for f in fences))
+    # The plain resolve fence, once; its --prior-rows twin is check_stale's.
+    plain = sum(RESOLVE_CALL in f and "--prior-rows" not in f for f in fences)
+    if plain != 1:
+        problems.append("resolve fence x%d" % plain)
     if not any('["grammar"]' in f and '"$ANSWERFILE"' in f for f in fences):
         problems.append("grammar not copied file-to-file into $ANSWERFILE")
     parse_at = section.find(PARSE_CALL)
@@ -410,6 +411,93 @@ def check_bottom_line(text):
     problems = [] if BOTTOM_SLOT in q1_line(section) else ["Q1 lacks the slot"]
     problems += [n for n in BOTTOM_NEEDLES if n not in section]
     return problems
+
+
+FOLLOWUP_HEAD = "**Ask only what is missing (D-05, D-06).**"
+AFTER_HEAD = "**After the answer** (branch on"
+FOLLOWUP_NEEDLES = (
+    FOLLOWUP_HEAD,
+    "record nothing",
+    "never half-apply",
+    "ONE short AskUserQuestion",
+    "only the unclear piece",
+    "`#n file:line`",
+    'header "Which row";',
+    'header "Which rows"',
+    'header "Reason"',
+    "asked only when both are absent",
+    "one follow-up per gap",
+    "show the full card once",
+    "could not be matched",
+    "continue at **After the answer**",
+)
+
+
+def followup_paragraph(text):
+    """The Finalize follow-up paragraph: from its heading to After the answer."""
+    section = card_section(text)
+    start = section.find(FOLLOWUP_HEAD)
+    end = section.find(AFTER_HEAD)
+    if start < 0 or end < start:
+        return ""
+    return section[start:end]
+
+
+def check_followup(text):
+    """A partly readable answer records nothing, asks ONE question about only
+    the gap (a reason only when neither the owner's text nor Q2 gave one),
+    and a second unclear reply shows the full card once, then stops."""
+    para = followup_paragraph(text)
+    if not para:
+        return ["no Ask-only-what-is-missing paragraph before After the answer"]
+    problems = [n for n in FOLLOWUP_NEEDLES if n not in para]
+    problems += ["Q2 label %r not offered" % q for q in batch_parse.FINALIZE_Q2
+                 if "`%s`" % q not in para]
+    return problems
+
+
+STALE_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
+              '--prior-rows "$PRIORROWSFILE"')
+STALE_NEEDLES = ("`prior_number`", "by finding identity",
+                 "shows the new numbers", "an earlier `--finalize`")
+
+
+def check_stale(text):
+    """A stale Finalize card is re-mapped by identity through the
+    --prior-rows twin fence, and the echo shows the new numbers."""
+    section = card_section(text)
+    problems = [n for n in STALE_NEEDLES if n not in section]
+    if not any(STALE_CALL in f for f in bash_fences(section)):
+        problems.append("no --prior-rows twin resolve fence")
+    return problems
+
+
+BUDGET_HEAD = "**Card budget.**"
+BUDGET_NEEDLES = (
+    "Finalize costs one card",
+    "a plain-English answer that needs one detail (at most one follow-up "
+    "card per gap, D-06)",
+    "a second unclear reply (which shows the full card once, D-08)",
+    "A bare Mixed… buys exactly one clarification.",
+)
+BUDGET_OLD = "or an unparseable answer adds another"
+
+
+def budget_line(text):
+    for line in card_section(text).splitlines():
+        if line.startswith(BUDGET_HEAD):
+            return line
+    return ""
+
+
+def check_budget(text):
+    """The budget names every extra card the file can show, and no longer
+    the open-ended 'unparseable answer' re-ask."""
+    line = budget_line(text)
+    problems = [n for n in BUDGET_NEEDLES if n not in line]
+    if BUDGET_OLD in text:
+        problems.append("budget still lets an unparseable answer add a card")
+    return problems + check_turn_and_budget(text)
 
 
 class LockCase(unittest.TestCase):
@@ -705,6 +793,62 @@ class TestPhase58Finalize(LockCase):
         with self.subTest("mutant: nudge on the suggestion slot"):
             self.assert_trips(check_no_nudge, self._mutant(
                 "in Other to take it}}", "in Other to take it (Recommended)}}"))
+
+
+class TestPhase58FinalizeRouting(LockCase):
+    """A partly readable Finalize answer asks only the gap, once; a stale
+    card is re-mapped by identity; the budget names every extra card."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_followup_holds(self):
+        self.assert_holds(check_followup, self.text)
+
+    def test_mutant_followup(self):
+        with self.subTest("mutant: follow-up no longer records nothing"):
+            self.assert_trips(check_followup, self._mutant("record nothing"))
+        with self.subTest("mutant: reason asked even when Q2 gave one"):
+            self.assert_trips(check_followup, self._mutant(
+                "asked only when both are absent"))
+        with self.subTest("mutant: open-ended re-asking"):
+            self.assert_trips(check_followup, self._mutant(
+                "show the full card once"))
+
+    def test_stale_holds(self):
+        self.assert_holds(check_stale, self.text)
+
+    def test_mutant_stale(self):
+        with self.subTest("mutant: stale card without --prior-rows"):
+            self.assert_trips(check_stale, self._mutant(
+                ' --prior-rows "$PRIORROWSFILE"'))
+        with self.subTest("mutant: echo keeps the old numbers"):
+            self.assert_trips(check_stale, self._mutant(
+                "shows the new numbers"))
+
+    def test_budget_holds(self):
+        self.assert_holds(check_budget, self.text)
+
+    def test_mutant_budget(self):
+        with self.subTest("mutant: old 'unparseable answer' clause restored"):
+            line = budget_line(self.text)
+            self.assertTrue(line)
+            self.assert_trips(check_budget, self._mutant(
+                line, "**Card budget.** Finalize costs one card. Only "
+                      "`look N`, a bare Mixed…, or an unparseable answer adds "
+                      "another, each at the owner's request. A bare Mixed… "
+                      "buys exactly one clarification. Nothing else in this "
+                      "file asks a question."))
+        with self.subTest("mutant: D-08 fallback dropped from the budget"):
+            self.assert_trips(check_budget, self._mutant(
+                " or a second unclear reply (which shows the full card once, "
+                "D-08)"))
 
 
 # --------------------------------------------------------------------------- #
