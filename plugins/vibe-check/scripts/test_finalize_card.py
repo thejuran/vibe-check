@@ -372,11 +372,10 @@ def check_translate_path(text):
         problems.append("grammar not copied file-to-file into $ANSWERFILE")
     parse_at = section.find(PARSE_CALL)
     head_at = section.find(TRANSLATE_HEAD)
-    after_at = section.find("**After the answer**")
-    if not 0 <= parse_at < head_at:
-        problems.append("Translate paragraph not after the parse fence")
-    elif after_at >= 0 and head_at > after_at:
-        problems.append("Translate paragraph after After the answer")
+    after_at = section.find("**After the answer** (branch on")
+    if not 0 <= parse_at < head_at < after_at:
+        problems.append("Translate paragraph not between the parse fence "
+                        "and After the answer")
     return problems
 
 
