@@ -80,7 +80,7 @@ Plans:
   3. A deferred or dismissed finding is not re-asked after an edit that does not touch the finding's evidence (regression fixture)
   4. When the finding's relevant evidence changes, the finding reopens and is presented again with the new evidence (regression fixture)
 
-**Plans**: 19 plans (7 executed + 12 gap closure)
+**Plans**: 23 plans (7 executed + 16 gap closure)
 
 Plans:
 **Wave 1**
@@ -126,6 +126,13 @@ Plans:
 - [x] 57-18-PLAN.md — score.py: carried-ness and the prior snapshot derived from ANY source record carried under the row's hash, read before dedup drops the duplicate (replaces the lead-only seed and same_hash_prior); WR-01 fixtures + 4 mutants; IN-01 docstring, IN-02 wrap; golden/import sets/anchors unchanged
 - [x] 57-19-PLAN.md — Third-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for nearby_at/at_pass on out-ranked carried rows, each justified), reverse-run ledger vs the pre-fix tree, observation parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
 
+**Gap closure, fourth round — FINAL (D-19 hard stop)** *(after round-3 code review 2026-10-27 (57-REVIEW-GAPS3.md): CR-01 same-hash records at different lines / arrival-order lead, CR-02 carried twin filtered before grouping, IN-01, WR-01, WR-02; owner rulings D-19 (fix the mechanism; no fifth round) and D-20 (deferred stays open below threshold); sequential waves 18-21)*
+
+- [ ] 57-20-PLAN.md — Reproduce-first: real-chain RED fixtures for CR-01 (cross-lane same hash at another line; same-lane arrival order), CR-02 (min_confidence-dropped twin), IN-01 (edited carried lead's foreign stamp), the far-twin pooled-prior shape, and D-20 (deferred covered member below threshold; dismiss locked as dropping); invariance guard widened to nine shapes
+- [ ] 57-21-PLAN.md — score.py: carried-by-hash index built before any filter; nearby and prior pooled over every carried copy (latest owed stamp, never first-wins); one hash gate on every prior source (IN-01 in code); deterministic lead by line; 4 mutants re-anchored + 3 new
+- [ ] 57-22-PLAN.md — D-20: `carry_state.py deferred` read, `$DEFERRED_HASHES` bound in 05-state.md and forwarded as the envelope's `deferred_hashes` (prose locks), score.py keeps a deferred covered member open under its own hash as a stamped kept-open row; dismiss unchanged; 3 mutants
+- [ ] 57-23-PLAN.md — Final gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for pooled nearby_at/at_pass, each justified), reverse-run ledger vs the pre-fix tree, DECN-03 re-marked on green evidence, D-19 hard stop written into STATE/deferred-items, STATE/ROADMAP truthful
+
 **Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
 
 ### Phase 58: Clear actions, recovery and answers acted on
@@ -158,7 +165,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 19/19 | In Progress (round-3 review blockers) |  |
+| 57. Decision continuity within closure | 19/23 | In Progress (fourth gap closure planned — final round, D-19) |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
