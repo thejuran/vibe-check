@@ -116,7 +116,7 @@ Plans:
 
 **Gap closure, second round** *(after re-verification gaps_found 2026-10-26: split-row nearby edit lost (SC-4/DECN-03); owner ruling D-17; sequential waves 12-14)*
 
-- [ ] 57-14-PLAN.md — Reproduce-first: real-chain RED fixtures for the split-pass nearby stamp (inherited, own-decision absorbed, owed stamp lost) + fresh-lead negative; split-pass snapshot shape in TestGapClosure57; cross-module producibility guard (WR-02 holes closed)
+- [x] 57-14-PLAN.md — Reproduce-first: real-chain RED fixtures for the split-pass nearby stamp (inherited, own-decision absorbed, owed stamp lost) + fresh-lead negative; split-pass snapshot shape in TestGapClosure57; cross-module producibility guard (WR-02 holes closed)
 - [ ] 57-15-PLAN.md — score.py: `carried` arm in `_snapshot_for` + lead-obligation prior seeding so the split pass stamps `nearby_at` (D-17); unit pins; two end-to-end mutants; golden/import sets unchanged
 - [ ] 57-16-PLAN.md — Second-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for D-17 differences), reverse-run ledger vs the pre-fix tree, diff-context gap parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
 
@@ -152,7 +152,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
-| 57. Decision continuity within closure | 13/16 | In Progress (second gap closure planned) |  |
+| 57. Decision continuity within closure | 14/16 | In Progress (second gap closure: 57-14 done) |  |
 | 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
 
 ## Backlog
