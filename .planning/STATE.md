@@ -2,32 +2,33 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: "Phase 57 fourth (final) gap closure executed (57-20..57-23); code review + re-verification next; D-19 hard stop in force"
-stopped_at: "Phase 57 pooled-evidence mechanism fix + D-20 deferred keep-open closed — next /bm:code-review 57 then /bm:verify-work 57; if a wrong-keep remains, close Phase 57 with a 999.x known limit (D-19), no fifth round"
-last_updated: "2026-10-27T10:54:05.000Z"
-last_activity: "2026-10-27 -- Phase 57 fourth gap closure 57-20..57-23 executed; DECN-03 re-marked complete; D-19 hard stop recorded"
+status: "Phase 57 complete with known limits (D-19/D-22; backlog 999.23, 999.24) — Phase 57 PR not yet opened"
+stopped_at: "Phase 57 closed 2026-10-27 — next: open Phase 57 PR (owner OK), then cut feat/v2.13-phase-58 from main and /bm:discuss-phase 58"
+last_updated: 2026-10-27T12:07:03.836Z
+last_activity: "2026-10-27 -- Phase 57 closed under D-19 hard stop: round-4 review reproduced 3 wrong-keeps (CR-01/02/04) → known limits in 999.23; D-21 (new identical copy is not new evidence), D-22 (close + park deferral edges); verification gaps_found non-blocking with 2 owner overrides; SC-3 diff-context → 999.24; suite 3311/0"
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 29
   completed_plans: 29
-  percent: 100
+  percent: 67
 ---
 
 # Project State
 
-**Current focus:** Phase 57 — decision-continuity-within-closure
+**Current focus:** Phase 58 — clear actions, recovery and answers acted on
 
 ## Current Position
 
-Phase: 57 (decision-continuity-within-closure) — FOURTH (FINAL) GAP CLOSURE EXECUTED, AWAITING REVIEW + RE-VERIFICATION
-Plan: 23 of 23 complete
-Status: Phase 57 fourth (final) gap closure executed (57-20..57-23); code review + re-verification next; D-19 hard stop in force
-Last activity: 2026-10-27 -- Phase 57 fourth gap closure 57-20..57-23 executed; DECN-03 re-marked complete on the 57-23 gate; D-19 hard stop recorded
+Phase: 58
+Plan: Not started
+Status: Phase 57 complete; Phase 58 not started (PR for Phase 57 first — one branch/PR per phase)
+Last activity: 2026-10-27 -- Phase 57 closed with known limits (999.23, 999.24)
 
 ## Operator Next Steps
 
-- NEXT: `/bm:code-review 57` (fourth-round review of 57-20..57-22), then `/bm:verify-work 57`. HARD STOP (D-19): if the review after this round still finds a wrong-keep, close Phase 57 with it documented as a known limit (backlog 999.x) rather than opening another round — no fifth structural round; only a reproduced data-loss / silent-finding-loss class may still add work. 57-23 gate (at HEAD 33a951e; plugins identical to the final code commit 92b135d): full suite 3311 passed, 0 failed, 0 SUBFAILED (3273 + 38 new); test_replay.py 64 passed; golden ok; import sets 3+3 passed; replay candidate REGRESSED 0 / UNEVALUABLE 0 / AMENDED 1 (pre-existing triggarr-secret-in-logs/run-2); replay diff vs rev:24c0c00 170 compared, 0 differing, 0 unallowed (no allowances file); reverse-run ledger: every 57-20 red reproduced at 8a0563a and green at 92b135d. Outcome: mechanism fixed — carried evidence pooled from an index built before any filter, nearby judged at every copy's line, latest owed stamp kept, deterministic lead by line, one hash gate on every prior source; D-20: a deferred covered member below threshold stays open under its own hash via `$DEFERRED_HASHES` -> `deferred_hashes`; nine-shape invariance guard; 10 mutants. DECN-03 re-marked complete. OPEN D-20 edge for the owner to rule on (reproduced by 57-23, not fixed — scope): a deferred covered member removed by the opt-in `min_confidence` filter (not by the threshold) still leaves the open list and Finalize writes; repro + candidate 999.x in deferred-items.md.
+- NEXT: open the Phase 57 PR from feat/v2.13-phase-57 to main (needs owner OK), merge, delete the branch, then cut feat/v2.13-phase-58 from main and run `/bm:discuss-phase 58`. Phase 57 closed 2026-10-27 under the D-19 hard stop: the round-4 review (57-REVIEW-GAPS4.md) reproduced wrong-keeps CR-01 (zero-config: same-hash copies kept open below threshold are not pooled), CR-02 (absorbed-member sidecars not pooled; carry_state reads the first record) and CR-04 (pre-existing: guard removed beside a covered member never re-asks). Owner rulings: D-21 (a new identical copy is not new evidence, so CR-03 is an over-ask, not a wrong-keep) and D-22 (close; park the min_confidence and --all deferral-loss edges). All carried in backlog 999.23. SC-3 diff-context window → 999.24. DECN-03 is complete with known limits. Verification: gaps_found, non-blocking, 2 owner overrides. Suite 3311 passed / 0 failed; replay 0 regressed.
+- (superseded) NEXT: `/bm:code-review 57` (fourth-round review of 57-20..57-22), then `/bm:verify-work 57`. HARD STOP (D-19): if the review after this round still finds a wrong-keep, close Phase 57 with it documented as a known limit (backlog 999.x) rather than opening another round — no fifth structural round; only a reproduced data-loss / silent-finding-loss class may still add work. 57-23 gate (at HEAD 33a951e; plugins identical to the final code commit 92b135d): full suite 3311 passed, 0 failed, 0 SUBFAILED (3273 + 38 new); test_replay.py 64 passed; golden ok; import sets 3+3 passed; replay candidate REGRESSED 0 / UNEVALUABLE 0 / AMENDED 1 (pre-existing triggarr-secret-in-logs/run-2); replay diff vs rev:24c0c00 170 compared, 0 differing, 0 unallowed (no allowances file); reverse-run ledger: every 57-20 red reproduced at 8a0563a and green at 92b135d. Outcome: mechanism fixed — carried evidence pooled from an index built before any filter, nearby judged at every copy's line, latest owed stamp kept, deterministic lead by line, one hash gate on every prior source; D-20: a deferred covered member below threshold stays open under its own hash via `$DEFERRED_HASHES` -> `deferred_hashes`; nine-shape invariance guard; 10 mutants. DECN-03 re-marked complete. OPEN D-20 edge for the owner to rule on (reproduced by 57-23, not fixed — scope): a deferred covered member removed by the opt-in `min_confidence` filter (not by the threshold) still leaves the open list and Finalize writes; repro + candidate 999.x in deferred-items.md.
 - Prior gap-closure gate (57-19): full suite 3273 passed, 0 failed; test_replay.py 64; golden ok; import sets unchanged; replay candidate REGRESSED 0; replay diff 170 runs, 0 differing; DECN-03 was re-marked complete, then reverted to In Progress by the round-3 review (57-REVIEW-GAPS3.md) and is now complete again on the 57-23 gate.
 - 57-22 done (70e0719, 6626edb, 92b135d): `carry_state.py deferred` (read-only, exit 2 on malformed state) lists the owner's defer decisions; 05-state.md Phase 0.5 binds it fail-closed as `$DEFERRED_HASHES`, 30-collect-score.md forwards it as envelope key `deferred_hashes` (both prose additions locked, 4 prose mutants); score.py keeps a covered member of a deferred row that falls below threshold as a kept-open row under its own hash at the deferred band, stamped as carried so the inherited deferral reads stale/nearby and blocks Finalize until the owner decides; dismissed still drops; no-key envelopes unchanged. 3 score.py mutants (kind gate, entry, carried stamp); m57-04 re-anchored. Full suite 3311 passed, 0 failed; golden ok; TestDiffMode 16. Residual noted (not fixed): a deferred covered member removed by min_confidence is not synthesized. NEXT: 57-23.
 - 57-21 done (1ff5702, 333a5cd): score.py builds `carried_by_hash` (every carried record by its current stable_hash) before the NV route, min_confidence and per-member drops; a row's carried-ness, nearby (judged at every copy's line) and prior (latest owed nearby_at, then oldest at_pass) are pooled from it; every prior source, the lead's own snapshot included, must carry the row's stable_hash (IN-01 closed in code); member sort ends with the line (deterministic lead). p1/p2/p3/p4/in01 and all invariance subtests green; only the D-20 defer test stays red (57-22). 4 mutants re-anchored (seed-after-dedup renamed test_index_read_after_filtering_loses_the_dropped_twin) + 3 new, ledger in 57-21-SUMMARY.md. Two test_score.py fixtures adjusted (forge fixture carries the row hash so m57-06 still trips; snapshot-keep fixture stores its real hash). Golden ok, TestDiffMode 16, carry_state.py untouched; full suite 1 failed (D-20) / 3290 passed. NEXT: 57-22.

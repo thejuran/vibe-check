@@ -107,3 +107,7 @@ Recorded by 57-23. Sources: 57-CONTEXT.md (D-19, D-20), 57-REVIEW-GAPS3.md, and 
   - 57-21 Deviation 2: a carried snapshot whose stored stable_hash differs from this pass's computed hash is no longer a prior. If a real carried row ever stores a hash that differs while its line is unchanged (for example, canonical-text drift between passes), its at_pass resets to this pass. Fails toward asking.
   - 57-22 Deviation 3: within a group, the drop order is source order, not covered-first. Reasons and rows are unchanged; presentation only.
   - 57-22 Deviation 1: the decided "Never bind" prose lock now targets a longer phrase. If that sentence is reworded later, the lock must be updated with it. Maintenance only.
+
+## Phase close (2026-10-27): D-19 hard stop applied
+
+Round-4 review (57-REVIEW-GAPS4.md) reproduced wrong-keeps CR-01, CR-02, CR-04 (CR-01 independently re-run by the orchestrator: edit@12 → nearby_at 2, edit@33 → None). Owner rulings D-21 (a new identical copy is not new evidence → CR-03 is not a wrong-keep; the pass-3 re-ask is an over-ask) and D-22 (close under D-19; park both deferral-loss edges). Everything open is carried as backlog **999.23** in ROADMAP.md. The min_confidence repro above must use min_confidence ≤49 (config maximum), e.g. 45 (round-4 IN-03).

@@ -63,8 +63,8 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 | VFIX-05 | Phase 56 | Complete |
 | VFIX-06 | Phase 56 | Complete |
 | DECN-01 | Phase 57 | Complete |
-| DECN-02 | Phase 57 | Complete (gap closure 57-08..57-23; D-20 deferred stays open, 57-22) |
-| DECN-03 | Phase 57 | Complete (gap closure 57-08..57-23) |
+| DECN-02 | Phase 57 | Complete (D-20 deferred stays open, 57-22); min_confidence/--all deferral edges and over-asks in 999.23/999.24 |
+| DECN-03 | Phase 57 | Complete with known limits (999.23; D-19/D-22) |
 | RECV-01 | Phase 58 | Pending |
 | RECV-02 | Phase 58 | Pending |
 | ANSR-01 | Phase 58 | Pending |
@@ -78,4 +78,4 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 
 ---
 *Requirements defined: 2026-10-23*
-*Last updated: 2026-10-27 after Phase 57 fourth (final) gap closure (DECN-03 complete on the 57-23 gate; D-19 hard stop in force)*
+*Last updated: 2026-10-27 after Phase 57 close under the D-19 hard stop (DECN-03 complete with known limits, backlog 999.23; SC-3 diff-context in 999.24)*
