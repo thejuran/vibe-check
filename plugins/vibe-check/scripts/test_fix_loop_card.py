@@ -1595,7 +1595,7 @@ CLOSE_OUT_BULLET = "> 1. **Close out** —"
 TYPED_BOTTOM_LINE_NEEDLES = ('"bottom line"', '"do what it says"',
                              "`$SUGGESTFILE` exists",
                              'cp "$SUGGESTFILE" "$ANSWERFILE"',
-                             "same gate, same bulk rules", "(D-09)",
+                             "same gate, same bulk rules; D-09",
                              "any other plain-English answer")
 _MARKER_REENTRY_RE = re.compile(
     r'\$ARGUMENTS = "(\$\{original_args\} --close-out[^"]*)"')
