@@ -549,6 +549,41 @@ class TestCloseOutCarrierMutants(_Base):
         self.assertEqual(carrier_flag(mutant, "foo--close-out-after-rerun"), "1")
 
 
+# D-20: a hand-typed marker on a first run is accepted as is. Documentation
+# only; the normalizer paragraph must say so.
+NORMALIZER_HEADING = "**Pre-mode universal-flag normalizer"
+D20_NEEDLE = ("A hand-typed `--close-out-after-rerun` on a first run is "
+              "accepted as is (D-20)")
+
+
+def d20_problems(scope_text):
+    """Problems with the D-20 sentence: it must sit in the normalizer
+    paragraph of 00-scope.md (the one line that starts with its heading)."""
+    paras = [ln for ln in scope_text.splitlines()
+             if ln.startswith(NORMALIZER_HEADING)]
+    if len(paras) != 1:
+        return ["expected one normalizer paragraph, found %d" % len(paras)]
+    if D20_NEEDLE not in paras[0]:
+        return ["normalizer paragraph lacks the D-20 sentence"]
+    return []
+
+
+class TestHandTypedMarkerDocumented(unittest.TestCase):
+    def test_d20_hand_typed_marker_documented(self):
+        self.assertEqual(d20_problems(read(SCOPE)), [])
+
+    def test_m8_d20_sentence_deleted_trips(self):
+        text = read(SCOPE)
+        para = [ln for ln in text.splitlines()
+                if ln.startswith(NORMALIZER_HEADING)][0]
+        start = para.find(D20_NEEDLE)
+        self.assertNotEqual(start, -1)
+        end = para.find(".", para.find("automatic Rerun", start)) + 1
+        mutant = text.replace(para, (para[:start] + para[end:]).rstrip())
+        self.assertNotEqual(mutant, text)
+        self.assertNotEqual(d20_problems(mutant), [])
+
+
 class TestSpineNoFindingsCarry(unittest.TestCase):
     def test_spines_honor_carried_close_out(self):
         for spine in SPINES:
