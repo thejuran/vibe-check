@@ -303,7 +303,7 @@ def _shape_finding(f):
     return out
 
 
-def _snapshot_for(row, pass_number, nearby=False):
+def _snapshot_for(row, pass_number, nearby=False, carried=False):
     """The decision snapshot for one emitted row: {at_pass, file, line,
     canonical_line_content, band} plus `nearby_at` when known.
 
@@ -318,9 +318,15 @@ def _snapshot_for(row, pass_number, nearby=False):
 
     `nearby` (this pass's change ranges reach the row's line or the lines
     above or below it, `_nearby_changed`) stamps `nearby_at` with this pass and forces
-    a fresh snapshot, but only on a row that existed before this pass (it
-    arrives with a prior snapshot): the change a finding is first raised on is
-    the code it is about, not a change since. Otherwise a prior `nearby_at` is carried on both the keep
+    a fresh snapshot, but only on a row that existed before this pass — it
+    arrives with a prior snapshot, or `carried` says its lead record existed
+    before this pass (an expanded member, status persisted or needs-recheck)
+    even though no top-level snapshot rides on it. So the pass a covered or
+    absorbed finding splits into its own row stamps when the change reaches it:
+    the neighbour's fix that caused the split is a nearby change, with no
+    exemption. A fresh finding (status new) never passes `carried=True`: the
+    change a finding is first raised on is the code it is about, not a change
+    since. Otherwise a prior `nearby_at` is carried on both the keep
     and the refresh branch, so one nearby edit re-asks once rather than every
     pass after it is forgotten; a snapshot that never had one stays without
     it. Pure; never raises.
@@ -334,7 +340,7 @@ def _snapshot_for(row, pass_number, nearby=False):
         "band": row.get("band"),
     }
     prior = row.get("snapshot")
-    if nearby and isinstance(prior, dict) and cur["at_pass"] is not None:
+    if nearby and (isinstance(prior, dict) or carried) and cur["at_pass"] is not None:
         cur["nearby_at"] = cur["at_pass"]
         return cur
     prior_nearby = _as_line(prior.get("nearby_at")) if isinstance(prior, dict) else None
@@ -351,6 +357,9 @@ def _snapshot_for(row, pass_number, nearby=False):
         cur["nearby_at"] = prior_nearby
     return cur
 
+
+# The carry statuses an expanded member can have; a fresh finding is "new".
+_CARRIED_STATUSES = ("persisted", "needs-recheck")
 
 _OBLIGATION_ROW_KEYS = ("stable_hash", "orchestrator_score", "band", "attribution")
 
@@ -2580,6 +2589,19 @@ def run(envelope):
         )
         if "status" not in survivor:
             survivor["status"] = "new"
+        # An absorbed record that becomes a row again under its own hash is that
+        # record's row (same_hash_prior keyed on the lead member's OWN
+        # obligation): its stored snapshot — an owed `nearby_at`, an older
+        # `at_pass` — is the prior _snapshot_for compares against, so the split
+        # never resets the evidence clock. Hash equality is required: a changed
+        # line hashes differently and is a different finding, whose code changed
+        # and is asked. A carried lead rep already has a top-level snapshot, so
+        # this is a no-op for it.
+        if id(best_member) in carried_obligations and "snapshot" not in survivor:
+            lead_obl = carried_obligations[id(best_member)]["obligation"]
+            if (lead_obl.get("stable_hash") == survivor["stable_hash"]
+                    and isinstance(lead_obl.get("snapshot"), dict)):
+                survivor["snapshot"] = lead_obl["snapshot"]
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
         # first, then the absorbed members in scored order, de-duplicated by
         # each member's lane-aware occurrence identity (never by (agent, title),
@@ -2590,7 +2612,9 @@ def run(envelope):
         # lane re-reporting the same finding on the same code, out-ranking the
         # carried row) is that record's row: it takes the record's stored
         # snapshot as its prior, so a `nearby_at` stamp (an owner re-ask still
-        # owed) and the older `at_pass` survive the change of lead.
+        # owed) and the older `at_pass` survive the change of lead. When the
+        # lead's own obligation already seeded the prior above, the
+        # `"snapshot" not in survivor` guard makes this a no-op.
         same_hash_prior = None
         for _, m, _, _, _ in scored_members:
             ident = _finding_identity(m)
@@ -2658,7 +2682,9 @@ def run(envelope):
                            if id(m) in carried_obligations)
             continue
         nearby = _nearby_changed(survivor, changed_line_ranges)
-        survivor["snapshot"] = _snapshot_for(survivor, pass_number, nearby=nearby)
+        # `carried`: the lead record existed before this pass (score.py set the
+        # status in the carry loop; a fresh finding defaults to "new").
+        survivor["snapshot"] = _snapshot_for(survivor, pass_number, nearby=nearby, carried=survivor.get("status") in _CARRIED_STATUSES)
         kept.append(survivor)
 
     # --- Kept-open obligations (D-02, D-12) ----------------------------------- #

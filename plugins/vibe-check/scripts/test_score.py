@@ -7626,6 +7626,25 @@ class TestNearbyAt(unittest.TestCase):
                 self.assertNotIn("nearby_at", row["snapshot"])
                 self.assertEqual(row["snapshot"]["at_pass"], 2)
 
+    def test_snapshot_for_carried_arm(self):
+        # A carried lead record (expanded member: no top-level snapshot) is
+        # stamped on a nearby change; a fresh finding never is.
+        bare = {"file": "src/a.py", "line": 10, "canonical_line_content": "a_line",
+                "band": "warning"}
+        snap = score._snapshot_for(dict(bare), 2, nearby=True, carried=True)
+        self.assertEqual(snap, {"at_pass": 2, "file": "src/a.py", "line": 10,
+                                "canonical_line_content": "a_line", "band": "warning",
+                                "nearby_at": 2})
+        self.assertNotIn("nearby_at",
+                         score._snapshot_for(dict(bare), 2, nearby=True, carried=False))
+        self.assertNotIn("nearby_at",
+                         score._snapshot_for(dict(bare), 2, nearby=False, carried=True))
+        prior = dict(bare, snapshot={"at_pass": 1, "file": "src/a.py", "line": 10,
+                                     "canonical_line_content": "a_line",
+                                     "band": "warning"})
+        self.assertEqual(
+            score._snapshot_for(prior, 2, nearby=True, carried=False).get("nearby_at"), 2)
+
     def test_hash_and_golden_digest_unchanged(self):
         self.assertEqual(score.stable_hash("a.py", "  x=1", "title"), GOLDEN_DIGEST)
         R1, row = _na_survivor_stamp()
@@ -7721,6 +7740,17 @@ class TestPhase57Mutants(unittest.TestCase):
                     '                    ref_kept["obligation"] = _refreshed_obligation(\n',
                     '                    _refreshed_obligation(\n',
                     _od_check)
+
+    def test_m57_08_carried_arm_removed(self):
+        def check(sc):
+            snap = sc._snapshot_for({"file": "src/a.py", "line": 10,
+                                     "canonical_line_content": "a_line",
+                                     "band": "warning"},
+                                    2, nearby=True, carried=True)
+            assert snap.get("nearby_at") == 2, snap
+        self._trips("score_m57_08",
+                    "(isinstance(prior, dict) or carried)",
+                    "isinstance(prior, dict)", check)
 
 
 # --------------------------------------------------------------------------- #

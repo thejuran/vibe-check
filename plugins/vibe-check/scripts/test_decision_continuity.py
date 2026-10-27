@@ -1259,7 +1259,7 @@ class TestCrossModuleGuards(_Base):
 
 
 # --------------------------------------------------------------------------- #
-# The owner's journey across seven passes (DECN-02/03; Phase 56 found two
+# The owner's journey across eight passes (DECN-02/03; Phase 56 found two
 # false-closure blockers that one-path-at-a-time tests missed).
 # --------------------------------------------------------------------------- #
 TITLE_D = "Missing audit log at D"
@@ -1376,7 +1376,9 @@ class TestPhase57EndToEnd(_Base):
 
         # Pass 7: line 13 is rewritten and both lanes that reported it answer
         # their re-check `resolved`; the compliance member becomes a row of
-        # its own and keeps the row decision (inherited, not asked).
+        # its own under the row decision. The rewrite of line 13 is the
+        # code next to it (line 14), so it is asked once with "code next to
+        # it changed" (D-17: no exemption for the neighbour's own fix).
         L3 = list(L2)
         L3[12] = "line_10 = 'fixed'"
         reqs = [{"token": "TS", "agents": ["security"], "stable_hash": hA,
@@ -1398,6 +1400,18 @@ class TestPhase57EndToEnd(_Base):
         self.assertNotIn(hD, s["decisions"])
         self.assertEqual(carry_state.covering_decision(rec, s),
                          (hA, s["decisions"][hA]))
+        self.assertEqual(rec["snapshot"].get("nearby_at"), 7)
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "nearby")
+        self.assertNotEqual(e2e_gate(s, {}), "write")
+        self.assertEqual([r["stable_hash"] for r in shown(s)], [hD])
+        s = decide_on(s, hD)  # the owner dismisses the split row on pass 7
+
+        # Pass 8: quiet -> not asked; the owner's own decision holds.
+        s, _ = run_pass(s, L3, [], 8, {F: []}, decided=target_decided(s))
+        self._assert_band(s, hD, "warning")
+        rec = self._current(s, hD)
+        self.assertIn(hD, s["decisions"])
         self.assertEqual(carry_state.decision_state(rec, s), "current")
         self.assertEqual(e2e_gate(s, {}), "write")
         self.assertEqual(shown(s), [])
