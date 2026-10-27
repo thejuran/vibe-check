@@ -188,6 +188,59 @@ Current code (live grep, 58-06) for the removed text: `re-checks it once` 0, `ho
 
 ---
 
+## Gap round (58-REVIEW.md)
+
+The owner ruled on 2026-10-27 (58-CONTEXT.md, "Gap round") that every 58-REVIEW.md warning and info item is fixed before verification. Each one was reproduced first with a failing test and then mutant-checked. The rulings D-18, D-19 and D-20 settle the three set-aside items.
+
+Every cell below comes from the closing plan's SUMMARY. In the commit column, the RED commit comes first and the GREEN commit second. A real-file mutant is an edit applied to the real plugin file, a run of the named tests, and then a revert. Each mutant listed failed at least one test, meaning it was killed. Gate numbers are in **Gap round gate** at the end of this file.
+
+| Finding | Plan | Reproduced by (failing test + RED line) | Fixed by (commit) | Mutant(s) on the real file |
+|---|---|---|---|---|
+| WR-01 (a stale `close_out` in `$RESOLVEFILE` turns a later answer into a close-out) | 58-14 | `TestGapRoundFixLoop::test_answer_files_holds`, `test_close_out_source_holds`. RED at 5041f95: "Rerun/Close out/D-08 fallback do not clear answer files"; "Rerun lacks CLOSE_OUT_SOURCE and NEVER_STALE; Rerun and step 2 still read close_out from `$RESOLVEFILE`"; carry paragraph "still says 'none of which survive it'" | 163de79 → 2bac051 | L2 (Rerun `rm -f` deleted): 2 failed. L3 ("none of which survive it" restored): 2 failed. L5 ("When `close_out` was true in `$RESOLVEFILE`" restored): 2 failed |
+| WR-02 (`$SUGGESTFILE` survives the Rerun; "bottom line" applies the previous pass's numbers) | 58-14, 58-16 | Fix loop: `test_answer_files_holds`. RED: "suggestion read from `$SUGGESTFILE` exists for this pass; typed bottom line not tied to the card shown". Finalize: `TestGapRoundFinalize::test_answer_files_holds`. RED at 6f41a9f: "no `rm -f` in step 2 / step 3 / D-08; Parse trusts any existing `$SUGGESTFILE`" | 163de79 → 2bac051; 2510f9c → 3bce0f4 | L2: 2 failed. L4 ("`$SUGGESTFILE` exists for this pass" restored): 3 failed. F2 (Finalize step 2 `rm -f` deleted): 1 failed. F3 ("`$SUGGESTFILE` exists for this card" restored): 2 failed |
+| WR-03 (title matching: filler words block clear answers; in-word fragments match the wrong row) | 58-10 (helper); 58-15 / 58-17 (prose) | Helper: `TestGapRound::test_v1_verbatim_title_clause_resolves`, RED `AssertionError: False is not true`. `test_filler_words_do_not_block_match`, RED `Tuples differ: ('none', []) != ('one', [5])`. `test_fragment_inside_a_word_is_none`, RED `Tuples differ: ('one', [2]) != ('none', [])` (`port` matched "import"). Prose: `test_title_rule_holds` failed in both card files ("every TITLE_RULE needle missing; the unqualified `"text": "<the owner's words>"}` form still present"). 58-15 V1 walk with the owner's verbatim `fix the Browse recovery issue, then dismiss the 7 fixed rows and close out`: resolve `"ok": true`, grammar `fix 5; dismiss 1,2,3,4,6,7,8 -- fixed (owner: "dismiss the 7 fixed rows")`, parse `"ok": true`, no follow-up | b648294 → c3f401e (+ cfb1edd in-test mutants); 1e63a4c → 0911d07; 2e81b59 → 140219f | m6 (substring matching restored): 2 failed. m7 (filler not stripped): 5 failed. T5 (old `text` form, fix loop): 4 failed. M13 (same, Finalize): 4 failed |
+| WR-04 (`ok:false` with every ref clear has no prose branch) | 58-10 (fixture); 58-15 / 58-17 (bullet) | Helper pin: `test_two_uncounted_remaining_is_ok_false_with_every_ref_clear` already passed at HEAD, as the plan allowed (ok false, every ref one/bulk, needs_reason false, `parse_reason == REASON_REST_TWICE`). Prose: `test_parse_refusal_branch_holds` failed in both card files ("Ask paragraph lacks the parser-refusal bullet") | b648294 (pin); 1e63a4c → 0911d07; 2e81b59 → 140219f | T6 (parser-refusal bullet deleted, fix loop): 2 failed. M14 (same, Finalize): 2 failed |
+| WR-05 (stale re-map: `$PRIORROWSFILE` points at a path that is never printed) | 58-14, 58-16 | Fix loop: `test_stale_source_holds`. RED: "lacks all four source needles; still names 'that pass's `$ROWSFILE` path, used as is'; Rerun lacks 'keep this pass's `$ROWSFILE`'". Finalize: `test_stale_holds`, `test_stale_source_holds`. RED: "3 new needles missing; 'an earlier `--finalize`' and 'used as is' present" | 163de79 → 2bac051; 2510f9c → 3bce0f4 | L6 ("that pass's `$ROWSFILE` path, used as is" restored): 2 failed. F4 ("an earlier `--finalize` built a card" restored): 3 failed. F5 ("that card's `$ROWSFILE` path, used as is" restored): 3 failed |
+| WR-06 (fences rely on `$RESOLVEFILE` across Bash calls but never print it) | 58-14, 58-16 | `test_printed_paths_holds` in both card files. RED: "unprinted ROWSFILE ×2, ANSWERFILE ×2, PARSEFILE, DECFILE, RESOLVEFILE, PAYLOADFILE; convention sentence appears 0 times" (fix loop); "ROWSFILE, ANSWERFILE, PARSEFILE, RESOLVEFILE, DECFILE unprinted" (Finalize). 58-14 fence walk, step F (variable form in a fresh shell): `bash: line 1: : No such file or directory` → "nothing was recorded". Steps C-E with printed literals: exit 0 | 163de79 → 2bac051; 2510f9c → 3bce0f4 | L1 (`printf 'RESOLVEFILE=%s'` deleted, fix loop): 2 failed. F1 (same, Finalize): 2 failed |
+| IN-01 (template needs-recheck suffix rewords the recovery cell) | 58-12 | `TestReconciled::test_nv_suffix_in_both_files`, failing for both `40-render.md` and `output-format.md` (5 failed, 20 passed at RED). `NV_SUFFIX` literal replaced by `nv_suffix_from_table` | 37453ca → af6df2e | m (template suffix reverted to the shortened wording): 2 failed. o (table-cell parenthetical dropped): 3 failed |
+| IN-02 (`Fix not yet verified:` line has no separator) | 58-12 | `TestReconciled::test_verified_line_names_its_separator` failed at RED | 37453ca → af6df2e | n (`then ` — ` and the pair` → `then the pair`): 2 failed |
+| IN-03 (`changed` marker covers `joined` rows) | 58-10 | `test_changed_marker_excludes_joined`, RED `Lists differ: [1, 2, 3, 4] != [1, 3, 4]` | b648294 → c3f401e | m8 (`changed` → any truthy `stale`): 3 failed |
+| IN-04 (`test_close_out_drops_the_marker` could not fail) | 58-13 | Before/after strip mutant (delete the normalizer's `--close-out-after-rerun` strip in the real `00-scope.md`). The OLD test **passed** (1 passed, 2 subtests), so it was decorative. The NEW test, which derives `${original_args}` through the real fence, **failed** in both `/bin/bash` and `/bin/zsh` | 0d62cd5 | Strip removed in real `00-scope.md`: old test passed, new test failed in both shells. In-memory twin `test_mutant_strip_removed_marker_would_carry` |
+| IN-05 (Finalize's echo printed twice on the Finalize → fix-loop route) | 58-14 | `test_single_echo_holds`. RED: "subset bullet lacks the do-not-print-again sentence; card still says 'Then print Finalize's `echo_text`'" | 163de79 → 2bac051 | L7 ("Then print Finalize's `echo_text` as message text, " restored): 4 failed |
+| SA-01 → D-18 (uncounted serious groups need a count) | 58-10, 58-15, 58-17 | Helper: `test_dismiss_serious_group_without_count_needs_count`, RED `'one' != 'count_needed'`. Prose: `test_count_needed_holds` failed in both card files ("Ask paragraph lacks the count_needed bullet"). `test_followup_holds` failed on the missing `header "How many"` | b648294 → c3f401e; 1e63a4c → 0911d07; 2e81b59 → 140219f | m9 (D-18 `_needs_count` early return removed): 2 failed. T7 (count_needed bullet deleted, fix loop): 3 failed. M15 (same, Finalize): 3 failed |
+| SA-02 → D-19 (Bottom line suggestion: dismiss/defer medium rows only) | 58-11, 58-15, 58-17 | Helper: `TestSuggest*` failed with `AttributeError: module 'batch_card' has no attribute 'suggest'`, and the CLI tests failed with exit 2 and USAGE (30 failed, 4 passed). Prose: `test_suggest_fence_holds` and `test_bottom_line_holds` failed in both card files ("the D-09 paragraph lacks the suggest call … the parse dry-run of the suggestion is still there") | aab19b2 → 4e1fe8a (+ 353a780 in-test mutants); 1e63a4c → 0911d07; 2e81b59 → 140219f | s1 (band filter → `_BANDS`): 12 failed. s2 (empty refusal removed): 6 failed. s3 (post-trim parse removed): 2 failed. T8 (parse dry-run restored, fix loop): 4 failed. M16 (same, Finalize): 5 failed |
+| SA-03 → D-20 (hand-typed `--close-out-after-rerun`: accepted and documented, no behaviour change) | 58-13 | D-20 needle `(D-20)` in the 00-scope.md normalizer paragraph. `test_d20_hand_typed_marker_documented` and `test_m8_d20_sentence_deleted_trips` failed before the sentence was added (2 failed). The fence is untouched | dac386d | D-20 sentence deleted in the real `00-scope.md`: `test_d20_hand_typed_marker_documented` FAILED, then restored, 2 passed |
+
+**Cross-file contract (58-16 ↔ 58-14).** 58-16 wrote the Finalize side first and left a requirement for 58-14. The fix-loop card must print its rows path and keep that file at Close out, because Finalize uses it to re-map a stale answer. Checked at HEAD f62468e:
+- `grep -c "printf 'ROWSFILE=%s" phases/review/50-fix-loop.md` = 2 (both rows fences, lines 25 and 42).
+- ``grep -c 'printed after `ROWSFILE=`' phases/shared/90-finalize.md`` = 1 (Stale card, line 198).
+- `grep -c 'rm -f[^`]*ROWSFILE'` = 0 in both files. No fence or instruction removes the rows file.
+
+The 50-fix-loop.md Close out line (220) reads:
+
+> Before re-entering, run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this pass printed; omit any never printed, a missing file is fine) — this card's answer files are consumed; keep this pass's rows file, whose printed `ROWSFILE=` path is Finalize's source for re-mapping a stale answer.
+
+The Rerun (line 224) also keeps it: "… and keep this pass's `$ROWSFILE`: it is the next pass's `$PRIORROWSFILE`". The contract holds.
+
+### What was not done (gap round)
+
+- There was no live or paid run (D-15). The gap fixes are evidenced only by unit tests, prose locks, real-file mutants and fresh-shell fence walks. The walks used fixture rows and Python standing in for the Write tool.
+- The model's own ref extraction is still unverified live. The walks show the helper and fences produce the right result from the refs the prose tells the model to write, e.g. the verbatim title text. They do not show that a model reading the card actually writes those refs.
+- The 58-14 / 58-15 / 58-16 / 58-17 Task 3 steps produced no commit. Every real-file mutant was killed on the first run, so no needle had to be added, and the evidence lives only in those SUMMARYs.
+
+### What changed for the owner
+
+- **Plain English is acted on.** The actual iPlayarr sentence, "fix the Browse recovery issue, then dismiss the 7 fixed rows and close out", now resolves without a follow-up question. The card fixes row 5, dismisses the other seven with your words as the reason, and closes out after the rerun.
+- **Short fragments no longer hit the wrong row.** A word fragment such as "port" no longer silently matches an unrelated finding like "import".
+- **Old answers can't come back.** A suggestion line or a "close out" from an earlier answer or an earlier pass can no longer be acted on later, because those answer files are deleted as soon as they are used.
+- **Serious rows need a count or your own words.** To dismiss or defer critical, warning or needs-verification rows as a group, you now give a count ("How many?"). Typing "bottom line" can only fix rows or dismiss/defer medium ones.
+- **Smaller fixes.**
+  - The recovery text on the report matches its table word for word.
+  - Finalize's echo prints once.
+  - Typing the internal close-out flag by hand is documented as the same as choosing Close out.
+
+---
+
 ## Gate
 
 Run on 2026-10-27 at HEAD `41a381f` (the Task-1 doc commit; no plugin file differs from the last code commit 75bb831). Commands from `plugins/vibe-check` unless noted; bare `pytest`.
