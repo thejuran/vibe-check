@@ -783,6 +783,77 @@ def owed_quiet_rereport_scenario(conf, severity):
     return L2, s2, s3, hA
 
 
+def low_entropy_split_scenario():
+    """WR-01 arm 1 (the `needs-recheck` arm of score._CARRIED_STATUSES): the
+    widened carry compare flips a low-entropy member to needs-recheck while
+    its hash (keyed on the `}` first line) is unchanged, so the covering
+    decision still binds and must be re-asked for the nearby fix.
+
+    Pass 1: line 10 is `}`; `bugs` A there quotes a 3-line fragment (so the
+    carry compare widens to it) and rides as a member of the row led by a
+    critical `security` B at line 12; the owner dismisses the row. Pass 2:
+    B's line is rewritten (inside A's carry window and D-14 window) and B's
+    lane answers its re-check `resolved`, so A splits into its own row.
+    A's conf is 90: at 75 the needs-recheck copy scores below threshold and
+    is filtered. -> (s1, s2, hA, hB)."""
+    L0 = base_file()
+    L0[9] = "}"
+    a = fresh("bugs", 10, L0, TITLE_A, conf=90)
+    a["current_code"] = "}\n" + L0[10] + "\n" + L0[11]
+    b = fresh("security", 12, L0, "Injection at B", conf=95,
+              severity="critical", category="injection")
+    s1, r1 = run_pass(empty_state(), L0, [a, b], 1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 1, r1["findings"]
+    lead = r1["findings"][0]
+    assert lead["agent"] == "security", lead
+    hB = lead["stable_hash"]
+    s1 = decide_on(s1, hB)
+    L1 = list(L0)
+    L1[11] = "line_12 = 'fixed'"
+    req = {"token": "TB", "agents": [lead["agent"]], "stable_hash": hB,
+           "file": lead["file"], "line": lead["line"], "agent": lead["agent"],
+           "title": lead["title"]}
+    verdict = {"source": "recheck", "token": "TB", "agent": lead["agent"],
+               "verdict": "resolved", "reason": "line rewritten"}
+    s2, _ = run_pass(s1, L1, [], 2, {F: [[12, 12]]}, recheck_requests=[req],
+                     verdicts=[verdict])
+    return s1, s2, score.stable_hash(F, "}", TITLE_A), hB
+
+
+def edited_lead_member_scenario():
+    """WR-01 arm 2 (hash equality on the prior seed): a record whose line
+    changed is a different finding; the seed's hash equality keeps the old
+    record's stamp off the new row.
+
+    Pass 1: `bugs` A at line 10 dismissed. Pass 2: a critical `security` B at
+    line 12 leads and A rides absorbed; the diff names line 12, so A's
+    obligation snapshot owes a re-ask (nearby_at 2). Pass 3: B's line is
+    rewritten and B's lane answers `resolved`, A's OWN line is edited too,
+    the diff is quiet, and A's lane re-reports the edited code at conf 100
+    (at 75 the row is sub-threshold and a kept-open row under the old hash
+    appears instead). -> (s2, s3, hA, hA2)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    b = fresh("security", 12, L0, "Injection at B", conf=95,
+              severity="critical", category="injection")
+    s2, r2 = run_pass(s1, L0, [b], 2, {F: [[12, 12]]})
+    assert len(r2["findings"]) == 1, r2["findings"]
+    row = r2["findings"][0]
+    assert row["agent"] == "security", row
+    hB = row["stable_hash"]
+    L2 = list(L0)
+    L2[11] = "line_12 = 'fixed'"
+    L2[9] = "line_10 = 'edited'"
+    req = {"token": "TB", "agents": [row["agent"]], "stable_hash": hB,
+           "file": F, "line": 12, "agent": row["agent"],
+           "title": row["title"]}
+    verdict = {"source": "recheck", "token": "TB", "agent": row["agent"],
+               "verdict": "resolved", "reason": "line rewritten"}
+    s3, _ = run_pass(s2, L2, [fresh("bugs", 10, L2, TITLE_A, conf=100)], 3,
+                     {F: []}, recheck_requests=[req], verdicts=[verdict])
+    return s2, s3, hA, score.stable_hash(F, L2[9], TITLE_A)
+
+
 class TestRegrouping(_Base):
     """D-08 (with the owner's 2026-10-26 refinement: a newcomer concern from
     an uncovered lane reopens the WHOLE decided row once, with the D-10
@@ -1081,6 +1152,50 @@ class TestSameLaneRereport(_Base):
         self.assertIsNotNone(row, "no row for %s" % hA[:8])
         self.assertEqual(row["status"], "persisted", row["snapshot"])
         self._assert_reasked(s2, hA, 2)
+
+
+class TestWr01Guards(_Base):
+    """57-REVIEW-GAPS2.md WR-01: the two guards in the touched region that had
+    no real-chain fixture. w1 locks the `needs-recheck` arm of
+    score._CARRIED_STATUSES; w2 locks the hash equality on the prior seed."""
+
+    def test_w1_needs_recheck_split_row_keeps_its_hash_and_is_stamped(self):
+        s1, s2, hA, hB = low_entropy_split_scenario()
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no split row for %s" % hA[:8])
+        snap = row.get("snapshot")
+        # Fixture self-checks: the widened compare flipped the status, the
+        # `}`-keyed hash is unchanged.
+        self.assertEqual(row["status"], "needs-recheck", snap)
+        self.assertEqual(row["stable_hash"], score.stable_hash(F, "}", TITLE_A))
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["snapshot"].get("nearby_at"), 2,
+                         "needs-recheck split row not stamped: %r"
+                         % rec["snapshot"])
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale",
+                         "snapshot %r" % rec["snapshot"])
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby",
+                         "snapshot %r" % rec["snapshot"])
+        self.assertIsNotNone(carry_state.covering_decision(rec, s2))
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"])
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+
+    def test_w2_edited_lead_member_does_not_inherit_the_old_stamp(self):
+        s2, s3, hA, hA2 = edited_lead_member_scenario()
+        # Fixture self-check: the old record owed a re-ask before the edit.
+        self.assertEqual(record_of(s2, hA)["snapshot"].get("nearby_at"), 2,
+                         record_of(s2, hA)["snapshot"])
+        self.assertNotEqual(hA, hA2)
+        row = row_of(s3, hA2)
+        self.assertIsNotNone(row, "no row for the edited finding %s" % hA2[:8])
+        snap = row["snapshot"]
+        self.assertNotIn("kept_open", row, snap)
+        self.assertEqual(snap["at_pass"], 3, snap)
+        self.assertNotIn("nearby_at", snap,
+                         "edited finding inherited a foreign stamp: %r" % snap)
+        self.assertIsNone(carry_state.decision_state(record_of(s3, hA2), s3),
+                          snap)
 
 
 # Which record leads: the carried copy (STABLE_CONF re-report, out-ranked by
@@ -1893,6 +2008,108 @@ class TestPhase57Mutants(_Base):
         self.assertNotIn("test_s1_", failed)
         self.assertNotIn("test_s4_", failed)
 
+
+    _ROW_TESTS = (
+        (TestSplitPassNearby,
+         "test_s1_inherited_member_split_by_nearby_fix_is_reasked"),
+        (TestSplitPassNearby, "test_s3_owed_stamp_survives_the_split"),
+        (TestSplitPassNearby,
+         "test_s4_fresh_lead_over_a_carried_member_is_not_stamped"),
+        (TestSameLaneRereport,
+         "test_b_inherited_split_led_by_own_lane_rereport"),
+        (TestSameLaneRereport,
+         "test_d_owed_stamp_survives_own_lane_rereport_on_quiet_pass"),
+        (TestSameLaneRereport, "test_control_carried_copy_leads_at_conf_75"),
+        (TestWr01Guards,
+         "test_w1_needs_recheck_split_row_keeps_its_hash_and_is_stamped"),
+        (TestWr01Guards,
+         "test_w2_edited_lead_member_does_not_inherit_the_old_stamp"),
+    )
+
+    def _failures(self):
+        """The _ROW_TESTS that fail, by short prefix (`test_s1_`, `test_b_`,
+        `test_w1_`, `test_control_`); an error (not a failure) fails here."""
+        failed = set()
+        for cls, name in self._ROW_TESTS:
+            res = unittest.TestResult()
+            cls(name).run(res)
+            self.assertEqual(res.errors, [], name)
+            if res.failures:
+                failed.add(name[:name.index("_", len("test_")) + 1])
+        return failed
+
+    def _run_mutant(self, name, old, new):
+        """Failures of _ROW_TESTS with the whole scorer run from `score.py`
+        with `old` replaced by `new`; asserts `old` is unique and the row
+        tests are green unmutated."""
+        from unittest import mock
+        from test_confirmed_fix import SCORE_PY, _mutant
+        with open(SCORE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count(old), 1, "mutation target not unique")
+        mod = _mutant(SCORE_PY, name, old, new)
+        self.assertEqual(self._failures(), set())
+        with mock.patch.object(score, "run", mod.run):
+            return self._failures()
+
+    def test_carried_statuses_without_needs_recheck_loses_the_low_entropy_split(
+            self):
+        """WR-01 arm 1: without `needs-recheck` in _CARRIED_STATUSES the
+        hash-preserving needs-recheck split row (w1) is no longer carried, so
+        the neighbour's fix is lost; a persisted split (s1) and the seed
+        guard (w2) are unaffected."""
+        failed = self._run_mutant(
+            "score_carried_no_recheck",
+            '_CARRIED_STATUSES = ("persisted", "needs-recheck")',
+            '_CARRIED_STATUSES = ("persisted",)')
+        self.assertIn("test_w1_", failed)
+        self.assertNotIn("test_s1_", failed)
+        self.assertNotIn("test_w2_", failed)
+
+    def test_seed_without_hash_equality_inherits_a_foreign_stamp(self):
+        """WR-01 arm 2: without hash equality the seed hands the old record's
+        owed stamp to the edited finding's new row (w2); the same-hash seeds
+        (s3, d) are unaffected."""
+        failed = self._run_mutant(
+            "score_seed_no_hash",
+            'if (obl.get("stable_hash") == survivor["stable_hash"]\n'
+            '                        and isinstance(obl.get("snapshot"), dict)):',
+            'if (isinstance(obl.get("snapshot"), dict)):')
+        self.assertIn("test_w2_", failed)
+        self.assertNotIn("test_s3_", failed)
+        self.assertNotIn("test_d_", failed)
+
+    def test_carried_from_lead_only_loses_the_same_lane_rereport(self):
+        """Carried-from-any-source: reading carried-ness off the lead only
+        (the pre-fix rule) loses the inherited split led by a fresh same-lane
+        re-report (b, nothing to seed); the carried-lead control and the
+        seeded owed stamp (d) are unaffected."""
+        failed = self._run_mutant(
+            "score_carried_lead_only",
+            "row_carried = any(\n"
+            "            m.get(\"status\") in _CARRIED_STATUSES\n"
+            "            and stable_hash(m.get(\"file\", \"\"), "
+            "d[\"canonical_for_hash\"],\n"
+            "                            m.get(\"title\", \"\")) "
+            "== survivor[\"stable_hash\"]\n"
+            "            for _, m, d, _, _ in scored_members)",
+            "row_carried = survivor.get(\"status\") in _CARRIED_STATUSES")
+        self.assertIn("test_b_", failed)
+        self.assertNotIn("test_control_", failed)
+        self.assertNotIn("test_d_", failed)
+
+    def test_seed_after_dedup_loses_the_dropped_duplicate_prior(self):
+        """Seed-before-dedup: when only the lead can seed the prior (the 57-15
+        rule), the same-identity carried twin the dedup drops takes its owed
+        stamp with it (d); a split led by the obligation member itself (s3)
+        is unaffected."""
+        failed = self._run_mutant(
+            "score_seed_lead_only",
+            "entry = carried_obligations.get(id(m))",
+            "entry = carried_obligations.get(id(m)) if m is best_member "
+            "else None")
+        self.assertIn("test_d_", failed)
+        self.assertNotIn("test_s3_", failed)
 
 if __name__ == "__main__":
     unittest.main()
