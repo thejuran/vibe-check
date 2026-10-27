@@ -71,6 +71,17 @@ After a copy, step 1 below sees "state file present" and the run continues as a 
      ```
      Any non-zero exit halts the run. Never bind `[]` on failure: an empty list silently reverts every decided row to the stored-line read. When there is no state file (pass 1), `$DECIDED_HASHES` is `[]` and the helper is not run. `30-collect-score.md` step 0 relocates each entry in this list by content before reading its canonical line. The binding moves no finding: an owner decision never removes a finding from `$CARRYFORWARD` (D-02: no expiry; closure is a Finalize-gate concept).
 
+     Phase 0.5 also binds `$DEFERRED_HASHES` from the same family — the JSON list of the hashes the owner deferred (D-20: a deferral never leaves the open set on a score; only the owner closes it):
+     ```bash
+     if DEFERRED_HASHES=$(python3 "$VC_ROOT/scripts/carry_state.py" deferred < "$STATE_FILE"); then
+       printf '%s\n' "$DEFERRED_HASHES"   # ["<stable_hash>", ...]
+     else
+       echo "I'm uncertain about the carry-forward — carry_state.py deferred failed; stopping before any HEAD read." >&2
+       exit 1
+     fi
+     ```
+     Any non-zero exit halts the run. Never bind `[]` on failure: an empty list lets a deferred finding that scores below threshold vanish from the open set. When there is no state file (pass 1), `$DEFERRED_HASHES` is `[]` and the helper is not run. `30-collect-score.md` step 4 forwards it as the envelope's `deferred_hashes`; the binding moves no finding and removes none.
+
 3. Narrow diff to incremental: `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged.
 
 4. If incremental diff empty AND `$CARRYFORWARD` empty AND Phase 0 printed `FINALIZE_MODE=0`: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop. A `FINALIZE_MODE=1` run never stops here: it continues to Phase 0.6 and Finalize (the spine's finalize flow), which reads `$STATE_FILE`, not the diff.

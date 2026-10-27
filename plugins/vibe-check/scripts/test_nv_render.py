@@ -223,7 +223,9 @@ STATE_BINDING_PHRASES = (
     "stopping before any HEAD read",
     "exit 1",
     "Any non-zero exit halts the run",
-    "Never bind `[]` on failure",
+    # Scoped to the decided read's own sentence: the deferred binding in the
+    # same bullet has its own "Never bind" sentence (DEFERRED_BINDING_PHRASES).
+    "Never bind `[]` on failure: an empty list silently reverts",
     "relocates each entry in this list by content",
     "an owner decision never removes a finding from `$CARRYFORWARD`",
 )
@@ -232,6 +234,41 @@ STATE_BINDING_PHRASES = (
 def state_binding_holds(text):
     return _all_in(_section(text, STATE_START, STATE_END),
                    STATE_BINDING_PHRASES)
+
+
+# The owner's deferrals (D-20), bound in the same `decisions` bullet and
+# checked inside it only.
+DEFERRED_BINDING_PHRASES = (
+    "Phase 0.5 also binds `$DEFERRED_HASHES`",
+    'carry_state.py" deferred < "$STATE_FILE"',
+    "carry_state.py deferred failed",
+    "Never bind `[]` on failure: an empty list lets a deferred",
+    "lets a deferred finding that scores below threshold vanish",
+    "forwards it as the envelope's `deferred_hashes`",
+)
+
+
+def deferred_binding_holds(text):
+    return _all_in(_section(text, STATE_START, STATE_END),
+                   DEFERRED_BINDING_PHRASES)
+
+
+# --- 30-collect-score.md step 4: the envelope key ---------------------------
+
+ENVELOPE_DEFERRED_START = "**Carry-forward verdict keys (CARRY-01).**"
+ENVELOPE_DEFERRED_END = "\n   - `all_mode`"
+
+ENVELOPE_DEFERRED_PHRASES = (
+    "`deferred_hashes` = `$DEFERRED_HASHES`",
+    "a kept-open row, never a drop",
+    "(D-20)",
+)
+
+
+def envelope_deferred_holds(text):
+    return _all_in(_section(text, ENVELOPE_DEFERRED_START,
+                            ENVELOPE_DEFERRED_END),
+                   ENVELOPE_DEFERRED_PHRASES)
 
 
 # --- 20-dispatch.md ---------------------------------------------------------
@@ -283,6 +320,10 @@ CASES = (
     ("decided_relocation_holds", decided_relocation_holds, COLLECT,
      DECIDED_RELOCATION_PHRASES + DECIDED_CONTEXT_PHRASES),
     ("state_binding_holds", state_binding_holds, STATE, STATE_BINDING_PHRASES),
+    ("deferred_binding_holds", deferred_binding_holds, STATE,
+     DEFERRED_BINDING_PHRASES),
+    ("envelope_deferred_holds", envelope_deferred_holds, COLLECT,
+     ENVELOPE_DEFERRED_PHRASES),
 )
 
 
@@ -320,6 +361,18 @@ class TestNvRenderLocks(unittest.TestCase):
 
     def test_state_binding_one_helper_call(self):
         self.assertEqual(_read(STATE).count('carry_state.py" decided'), 1)
+
+    def test_deferred_binding_holds(self):
+        self.assertTrue(deferred_binding_holds(_read(STATE)))
+
+    def test_deferred_binding_one_helper_call(self):
+        self.assertEqual(_read(STATE).count('carry_state.py" deferred'), 1)
+
+    def test_envelope_deferred_holds(self):
+        text = _read(COLLECT)
+        self.assertTrue(_section(text, ENVELOPE_DEFERRED_START,
+                                 ENVELOPE_DEFERRED_END))
+        self.assertTrue(envelope_deferred_holds(text))
 
     def test_name_only_wording_absent(self):
         flat = norm(_read(COLLECT))
@@ -404,9 +457,30 @@ class TestNvRenderMutation(unittest.TestCase):
 
     def test_state_binding_empty_on_failure_inserting_mutant(self):
         original = _read(STATE)
-        mutant = original.replace("Never bind `[]` on failure",
-                                  "Bind `[]` on failure", 1)
+        mutant = original.replace(
+            "Never bind `[]` on failure: an empty list silently reverts",
+            "Bind `[]` on failure: an empty list silently reverts", 1)
         self._assert_trips(state_binding_holds, original, mutant)
+
+    def test_deferred_binding_deleting_mutant(self):
+        self._deleting("deferred_binding_holds")
+
+    def test_deferred_binding_in_bullet_deleting_mutant(self):
+        self._deleting_in_section(deferred_binding_holds, STATE, STATE_START,
+                                  STATE_END, DEFERRED_BINDING_PHRASES)
+
+    def test_deferred_binding_empty_on_failure_inserting_mutant(self):
+        original = _read(STATE)
+        mutant = original.replace(
+            "Never bind `[]` on failure: an empty list lets a deferred",
+            "Bind `[]` on failure: an empty list lets a deferred", 1)
+        self._assert_trips(deferred_binding_holds, original, mutant)
+
+    def test_envelope_deferred_in_bullet_deleting_mutant(self):
+        self._deleting_in_section(envelope_deferred_holds, COLLECT,
+                                  ENVELOPE_DEFERRED_START,
+                                  ENVELOPE_DEFERRED_END,
+                                  ENVELOPE_DEFERRED_PHRASES)
 
     def test_auto_close_inserting_mutant(self):
         original = _read(RENDER)
