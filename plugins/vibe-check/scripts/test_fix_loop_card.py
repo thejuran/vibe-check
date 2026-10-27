@@ -299,7 +299,8 @@ PREFLIGHT_INVOCATION = 'fixstage.py" preflight --root "$GREPO"'
 BUILD_DISPATCH = "**Build the dispatch (deterministic).**"
 SUBSET_BULLET = "- **Finalize routed a fix set here (D-10)**"
 ORDINARY_BULLET = "- **Every other pass**"
-SUBSET_NO_CARD = ("Then print Finalize's `echo_text` as message text, write "
+SUBSET_NO_CARD = ("Finalize already printed its `echo_text` before reading "
+                  "this file — do not print it again. Write "
                   "`{\"all\": true}` to `$ANSWERFILE` with the Write tool, and "
                   "go straight to **Step B** — ask NO AskUserQuestion: the "
                   "owner already chose these rows at Finalize (D-06).")
@@ -764,7 +765,8 @@ BOTTOM_LINE_SLOT = ('{{\\n\\nBottom line suggests: <grammar> — type '
                     '"bottom line" in Other to take it}}')
 BOTTOM_LINE_HEAD = "**Bottom line as a choice (D-09).**"
 BOTTOM_LINE_QUESTION_NOTE = ("The `Bottom line suggests:` line appears ONLY "
-                             "when `$SUGGESTFILE` exists for this pass")
+                             "when the suggestion fence below printed a "
+                             "`SUGGESTFILE=` path created on this pass")
 BOTTOM_LINE_NEEDLES = ("this pass's Bottom line in THIS session",
                        'parse --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
                        'rm -f "$SUGGESTFILE"',
@@ -1593,7 +1595,7 @@ ORIGINAL_ARGS_DEF = ("`${original_args}` is this pass's `$ARGUMENTS` minus "
                      "`--close-out-after-rerun`")
 CLOSE_OUT_BULLET = "> 1. **Close out** —"
 TYPED_BOTTOM_LINE_NEEDLES = ('"bottom line"', '"do what it says"',
-                             "`$SUGGESTFILE` exists",
+                             "printed on the card currently shown",
                              'cp "$SUGGESTFILE" "$ANSWERFILE"',
                              "same gate, same bulk rules; D-09",
                              "any other plain-English answer")
@@ -1895,6 +1897,255 @@ class TestCarrierRoundTrip(unittest.TestCase):
             with self.subTest(shell=shell):
                 self.assertEqual(
                     carrier_flag(self.block, _PRIOR_RUN_ON, shell), "1")
+
+
+# --- Temp-file lifecycle in the fix-loop spine (WR-01, WR-02, WR-05, WR-06,
+# IN-05): every temp path is printed and reused as a literal, the answer
+# files are cleared at every exit, a close-out is read only from this step's
+# resolve output, the stale re-map has a reachable source, and Finalize's
+# echo is printed once. ---
+
+MKTEMP_RE = re.compile(r"^\s*(?:if )?([A-Z_]+FILE)=\$\(mktemp", re.M)
+PATH_CONVENTION = ("a path printed after `NAME=` is reused in a later fence "
+                   "only as that literal, substituted for `\"$NAME\"`")
+ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
+SUGGEST_OLD = "`$SUGGESTFILE` exists for this pass"
+SUGGEST_SHOWN = "printed on the card currently shown"
+SUGGEST_THIS_PASS = "created on this pass"
+CARRY_OLD = "none of which survive it"
+CARRY_NEW = "the Rerun removes the answer files it consumed"
+CLOSE_OUT_SOURCE = ("came from the `ok` true branch of **Translate the "
+                    "answer** and the resolve output printed in this step "
+                    "had `close_out` true")
+NEVER_STALE = ("a `close_out` found in a file written for an earlier answer "
+               "is never read")
+RERUN_OLD_SOURCE = "`close_out` true in `$RESOLVEFILE`"
+STEP2_OLD = "was true in `$RESOLVEFILE`"
+STEP2_NEW = "the resolve output acted on in this step had `close_out` true"
+STALE_SOURCE_NEEDLES = (
+    "the literal path the previous pass's rows fence printed after "
+    "`ROWSFILE=`",
+    "the Rerun keeps that file",
+    "substituted for `\"$PRIORROWSFILE\"`",
+    "no longer available")
+STALE_SOURCE_OLD = "that pass's `$ROWSFILE` path, used as is"
+KEEP_ROWS = "keep this pass's `$ROWSFILE`"
+SINGLE_ECHO = ("Finalize already printed its `echo_text` before reading this "
+               "file — do not print it again")
+ECHO_OLD = "Then print Finalize's `echo_text`"
+FULL_CARD_ONCE = "show the full card once"
+
+
+def bash_fences(text):
+    """Bodies of every ```bash fence in `text`."""
+    return re.findall(r"```bash\n(.*?)```", text, re.S)
+
+
+def printed_paths_problems(text):
+    """[] when every `NAME=$(mktemp …)` in the file prints its path in the
+    same fence, and the card says once that a printed path is reused only
+    as that literal (WR-06, WR-05)."""
+    problems = []
+    for body in bash_fences(text):
+        for name in MKTEMP_RE.findall(body):
+            printf = "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+            if printf not in body:
+                problems.append("unprinted temp path: " + name)
+    count = card_section(text).count(PATH_CONVENTION)
+    if count != 1:
+        problems.append("path convention sentence appears %d times" % count)
+    return problems
+
+
+def _cleared_before(chunk, anchor, where):
+    i, j = chunk.find(ANSWER_FILES_CLEAR), chunk.find(anchor)
+    if j < 0:
+        return ["%s: anchor %r missing" % (where, anchor)]
+    if i < 0 or i > j:
+        return ["%s: answer files not cleared before %r" % (where, anchor)]
+    return []
+
+
+def answer_files_problems(card):
+    """[] when the suggestion/refs/resolve files are removed at the Rerun,
+    at Close out and at the D-08 fallback, and a Bottom line suggestion
+    counts only when printed on the card currently shown (WR-01, WR-02)."""
+    problems = []
+    if RERUN_HEADING not in card or CLOSE_OUT_BULLET not in card or \
+            ASK_HEADING not in card or CLOSE_OUT_CARRY not in card:
+        return ["Rerun, Close out, Ask or carry paragraph missing"]
+    problems += _cleared_before(rerun_paragraph(card), "loop back to Phase 0",
+                                "Rerun")
+    if ANSWER_FILES_CLEAR not in close_out_bullet(card):
+        problems.append("Close out: answer files not cleared")
+    problems += _cleared_before(ask_paragraph(card), FULL_CARD_ONCE,
+                                "D-08 fallback")
+    if SUGGEST_OLD in card:
+        problems.append("suggestion still read from a file that may be stale")
+    if SUGGEST_SHOWN not in typed_opening(card):
+        problems.append("typed bottom line not tied to the card shown")
+    if SUGGEST_THIS_PASS not in question_line(card):
+        problems.append("question note not tied to this pass's suggestion")
+    start = card.index(CLOSE_OUT_CARRY)
+    carry = card[start:card.index("\n\n", start)]
+    if CARRY_OLD in carry:
+        problems.append("carry paragraph still says the files do not survive")
+    if CARRY_NEW not in carry:
+        problems.append("carry paragraph lacks: " + CARRY_NEW)
+    return problems
+
+
+def close_out_source_problems(card):
+    """[] when the Rerun's close-out marker and step 2's close-out route are
+    bound to the resolve output acted on in THIS step, never to a file left
+    by an earlier answer (WR-01)."""
+    problems = []
+    if RERUN_HEADING not in card:
+        return ["no Rerun paragraph"]
+    para = rerun_paragraph(card)
+    for needle in (CLOSE_OUT_SOURCE, NEVER_STALE):
+        if needle not in para:
+            problems.append("Rerun lacks: " + needle)
+    if RERUN_OLD_SOURCE in para:
+        problems.append("Rerun still reads close_out from $RESOLVEFILE")
+    other = other_path(card)
+    if STEP2_START not in other or STEP3_START not in other:
+        return problems + ["steps 2/3 missing"]
+    step2 = other[other.index(STEP2_START):other.index(STEP3_START)]
+    if STEP2_OLD in step2:
+        problems.append("step 2 still reads close_out from $RESOLVEFILE")
+    if STEP2_NEW not in step2:
+        problems.append("step 2 lacks: " + STEP2_NEW)
+    return problems
+
+
+def stale_source_problems(card):
+    """[] when a stale card's prior rows come from the literal path the
+    previous pass printed after `ROWSFILE=`, which the Rerun keeps, with a
+    fallback when no such path exists (WR-05)."""
+    if STALE_HEADING not in card or RERUN_HEADING not in card:
+        return ["no Stale card paragraph or Rerun"]
+    start = card.index(STALE_HEADING)
+    para = card[start:card.index("```bash", start)]
+    problems = ["stale source lacks: " + n for n in STALE_SOURCE_NEEDLES
+                if n not in para]
+    if STALE_SOURCE_OLD in para:
+        problems.append("stale source still names " + STALE_SOURCE_OLD)
+    if KEEP_ROWS not in rerun_paragraph(card):
+        problems.append("Rerun lacks: " + KEEP_ROWS)
+    return problems
+
+
+def single_echo_problems(card):
+    """[] when a Finalize-routed subset does not print Finalize's
+    `echo_text` a second time (IN-05)."""
+    if SUBSET_BULLET not in card or ORDINARY_BULLET not in card:
+        return ["subset or ordinary bullet missing"]
+    bullet = card[card.index(SUBSET_BULLET):card.index(ORDINARY_BULLET)]
+    problems = []
+    if SINGLE_ECHO not in bullet:
+        problems.append("subset bullet lacks: " + SINGLE_ECHO)
+    if ECHO_OLD in card:
+        problems.append("card still prints Finalize's echo_text again")
+    return problems
+
+
+class TestGapRoundFixLoop(unittest.TestCase):
+    """The fix-loop spine's temp files: printed paths, answer-file
+    lifecycle, close-out source, stale source, single echo. Each lock has
+    mutants that restore the reviewed defect."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+
+    def swap(self, old, new, text=None):
+        text = self.card if text is None else text
+        self.assertIn(old, text)
+        mutant = text.replace(old, new, 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    def test_printed_paths_holds(self):
+        self.assertEqual(printed_paths_problems(self.text), [])
+
+    def test_mutant_printed_paths(self):
+        for name in ("ROWSFILE", "ANSWERFILE", "PARSEFILE", "DECFILE",
+                     "SUBSETFILE", "SUGGESTFILE", "REFSFILE", "RESOLVEFILE",
+                     "PAYLOADFILE"):
+            with self.subTest(drop=name):
+                line = "printf '%s=%%s\\n' \"$%s\"\n" % (name, name)
+                self.assertIn(line, self.text)
+                at = self.text.index(line)
+                bol = self.text.rindex("\n", 0, at) + 1
+                mutant = self.text[:bol] + self.text[at + len(line):]
+                self.assertNotEqual(printed_paths_problems(mutant), [])
+        with self.subTest(drop="convention"):
+            mutant = self.swap(PATH_CONVENTION, "a path is reused",
+                               self.text)
+            self.assertNotEqual(printed_paths_problems(mutant), [])
+
+    def test_answer_files_holds(self):
+        self.assertEqual(answer_files_problems(self.card), [])
+
+    def test_mutant_answer_files(self):
+        rerun = rerun_paragraph(self.card)
+        ask = ask_paragraph(self.card)
+        bullet = close_out_bullet(self.card)
+        cases = {
+            "rerun keeps files": (rerun, rerun.replace(
+                ANSWER_FILES_CLEAR, ":", 1)),
+            "close out keeps files": (bullet, bullet.replace(
+                ANSWER_FILES_CLEAR, ":", 1)),
+            "fallback keeps files": (ask, ask.replace(
+                ANSWER_FILES_CLEAR, ":", 1)),
+            "carry: none survive": (CARRY_NEW, CARRY_OLD),
+            "typed: file exists": (SUGGEST_SHOWN, SUGGEST_OLD),
+            "question: file exists": (
+                "the suggestion fence below printed a `SUGGESTFILE=` path "
+                "created on this pass", SUGGEST_OLD),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new)
+                self.assertNotEqual(answer_files_problems(mutant), [])
+
+    def test_close_out_source_holds(self):
+        self.assertEqual(close_out_source_problems(self.card), [])
+
+    def test_mutant_close_out_source(self):
+        for label, (old, new) in {
+                "rerun source": (CLOSE_OUT_SOURCE,
+                                 "had `close_out` true in `$RESOLVEFILE`"),
+                "never stale dropped": (NEVER_STALE, "it is read"),
+                "step 2 reads the file": (STEP2_NEW,
+                                          "`close_out` " + STEP2_OLD),
+        }.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new)
+                self.assertNotEqual(close_out_source_problems(mutant), [])
+
+    def test_stale_source_holds(self):
+        self.assertEqual(stale_source_problems(self.card), [])
+
+    def test_mutant_stale_source(self):
+        for label, (old, new) in {
+                "used as is": (STALE_SOURCE_NEEDLES[0], STALE_SOURCE_OLD),
+                "no fallback": (STALE_SOURCE_NEEDLES[3], "gone"),
+                "rerun deletes rows": (KEEP_ROWS, "remove `$ROWSFILE`"),
+        }.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new)
+                self.assertNotEqual(stale_source_problems(mutant), [])
+
+    def test_single_echo_holds(self):
+        self.assertEqual(single_echo_problems(self.card), [])
+
+    def test_mutant_single_echo(self):
+        mutant = self.swap(SINGLE_ECHO + ". Write ",
+                           "Then print Finalize's `echo_text` as message "
+                           "text, write ")
+        self.assertNotEqual(single_echo_problems(mutant), [])
 
 
 if __name__ == "__main__":
