@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: "Phase 57 fourth (final, D-19) gap closure planned — 57-20..57-23 ready to execute"
-stopped_at: "Plans 57-20..57-23 written and plan-checked (1 revision) — next /bm:execute-phase 57 --gaps-only"
-last_updated: "2026-10-27T03:05:00.000Z"
-last_activity: "2026-10-27 -- fourth gap round planned (57-20 reproduce, 57-21 pooled carried-by-hash index + deterministic lead, 57-22 D-20 deferred stays open, 57-23 final gate with D-19 hard stop); plan-check passed after 1 revision (far-twin fixture conf)"
+status: "Executing Phase 57 fourth (final, D-19) gap closure — 57-20 done, 57-21 next"
+stopped_at: "Completed 57-20-PLAN.md (RED fixtures + invariance guard widened to nine scenarios)"
+last_updated: "2026-10-27T10:30:00.000Z"
+last_activity: "2026-10-27 -- 57-20 done: RED fixtures for CR-01 x2, CR-02, IN-01, far twin, D-20 defer (dismiss lock green); invariance guard 4 new SUBFAILED"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 29
-  completed_plans: 25
-  percent: 86
+  completed_plans: 26
+  percent: 90
 ---
 
 # Project State
@@ -20,13 +20,14 @@ progress:
 
 ## Current Position
 
-Phase: 57 (decision-continuity-within-closure) — FOURTH (FINAL) GAP CLOSURE PLANNED
-Plan: 19 of 23 complete
-Status: Phase 57 fourth gap closure planned (57-20..57-23, D-19 final round); ready to execute
-Last activity: 2026-10-27 -- fourth gap round planned and plan-checked (57-20..57-23)
+Phase: 57 (decision-continuity-within-closure) — EXECUTING FOURTH (FINAL) GAP CLOSURE
+Plan: 20 of 23 complete
+Status: Executing Phase 57 gap closure (57-20 done; 57-21 mechanism fix next)
+Last activity: 2026-10-27 -- 57-20 done (1ff95f1, 9fe0e0f): RED fixtures + invariance guard extension; score.py/carry_state.py untouched
 
 ## Operator Next Steps
 
+- 57-20 done (1ff95f1, 9fe0e0f): TestPooledEvidence p1/p2(both orders)/p3/p4, TestPriorGate in01 and TestDeferredStaysOpen defer are RED at the named defects; controls q1/q3 and the D-20 dismiss lock green; TestLeadOrderInvariance gains 3 scenarios with 4 SUBFAILED (cross-lane fresh-leads, arrival-order both, twin-dropped); coverage lock widened six -> nine; run_pass forwards deferred_hashes once carry_state.deferred exists (57-22 must run the whole module and record any flip). Red runs verbatim in 57-20-SUMMARY.md. NEXT: 57-21.
 - NEXT: `/bm:execute-phase 57 --gaps-only` — run 57-20 (RED fixtures) → 57-21 (mechanism fix) → 57-22 (D-20 deferred stays open) → 57-23 (final gate). D-19 HARD STOP: if the post-round review still finds a wrong-keep, close Phase 57 with it documented as a known limit in the backlog (999.x) — no fifth round.
 - (planned 2026-10-27) `/bm:plan-phase 57 --gaps` — owner chose (2026-10-27) one FINAL structural round (D-19: pool carried evidence before any filter, deterministic lead order; hard stop after it) and D-20 (deferred findings stay open below threshold). Round-3 review (57-REVIEW-GAPS3.md) reproduced 2 blockers after the 57-18 root fix: CR-01 two same-hash records on different lines (identical line text + title) — nearby check only looks around the lead's line, and identical input in a different arrival order flips the outcome; CR-02 a carried twin removed by min_confidence before grouping loses its evidence when a fresh re-report survives. WR-02: a DEFERRED covered finding that splits out below threshold leaves the open set with no card (silent loss; dismissed case is intended). Re-verification not yet run. DECN-03 back to In Progress.
 - Prior gap-closure gate (57-16): 57-18 done (8bd75ec, 90228be): score.py replaces the lead-only seed and same_hash_prior with one prior seed over every scored member (read before member dedup, stable_hash equality required) and computes `row_carried` from any carried record hashing to the row, passed to `_snapshot_for` as carried=; TestSameLaneRereport 6 passed, TestLeadOrderInvariance all subtests green; WR-01 locked by TestWr01Guards w1 (needs-recheck arm) / w2 (seed hash equality) and four mutants (no needs-recheck -> w1; no hash equality -> w2; carried-from-lead-only -> test_b; seed-after-dedup -> test_d); 57-15 seed mutant re-anchored; IN-01 resolved by docstring, IN-02 wrapped; golden ok, import sets pass, TestDiffMode 16 passed, carry_state.py untouched, owner journey unchanged; full suite 3273 passed, 0 failed. DECN-03 stays In Progress until the 57-19 gate. NEXT: `/bm:execute-phase 57 --gaps-only` with 57-19 (replay candidate/diff, reverse-run ledger, DECN-03 re-mark).
