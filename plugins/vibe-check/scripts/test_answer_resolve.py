@@ -398,7 +398,7 @@ class TestResolveGaps(unittest.TestCase):
         doc = synth_rows(3)
         for row in doc["rows"]:
             row.update(stale=None, absorbed_into=None)
-        doc["rows"][0]["stale"] = {"decision": "dismiss"}
+        doc["rows"][0]["stale"] = {"cause": "code", "decision": "dismiss"}
         doc["rows"][2]["absorbed_into"] = "%064x" % 1
         changed = resolve(doc, refs_doc([ref_marker("fix", "changed")]))
         absorbed = resolve(doc, refs_doc([ref_marker("fix", "absorbed")]))

@@ -872,13 +872,22 @@ REF_MARKERS = (REF_MARKER_REMAINING, "band:critical", "band:warning",
                "band:medium", "band:" + carry_state.NV_BAND, "pending",
                "changed", "absorbed")
 REF_STATUSES = ("one", "none", "many", "count_mismatch", "conflict", "bulk",
-                "blocked")
+                "blocked", "count_needed")
 _REF_KEYS = {"number": {"verb", "kind", "n"},
              "prior_number": {"verb", "kind", "n"},
              "title": {"verb", "kind", "text"},
              "marker": {"verb", "kind", "marker"}}
 _REFS_DOC_KEYS = {"refs", "reason", "close_out"}
 _CANDIDATE_TITLE_CHARS = 80
+# A title token is a maximal run of letters or digits. Filler is determiners
+# and card nouns only; prepositions are not filler and match as words.
+_TITLE_FILLER = frozenset((
+    "the", "a", "an", "this", "that", "these", "those", "one", "ones",
+    "issue", "issues", "bug", "bugs", "finding", "findings", "row", "rows",
+    "item", "items", "thing", "things", "problem", "problems"))
+# `changed` names rows whose card line says the finding changed; a `joined`
+# row's line says a new concern joined it instead.
+_CHANGED_CAUSES = ("code", "nearby", "severity")
 
 
 def _is_positive_int(value):
@@ -914,12 +923,23 @@ def _valid_refs_doc(doc):
             and isinstance(doc.get("close_out", False), bool))
 
 
+def _title_tokens(text):
+    """The case-folded letter/digit runs of the one-line form of `text`."""
+    spaced = "".join(ch if ch.isalnum() else " "
+                     for ch in _one_line(text).casefold())
+    return spaced.split()
+
+
 def _match_title(rows, text):
-    """Rows whose one-line title contains every word of `text`, case-folded.
-    Titles are diff data: matched as text, never interpreted."""
-    words = text.casefold().split()
+    """Rows whose title holds every non-filler token of `text` as a whole
+    token (maximal letter/digit runs, case-folded), in any order, never as
+    a substring; filler-only text matches no row. Titles are diff data:
+    matched as text, never interpreted."""
+    wanted = [t for t in _title_tokens(text) if t not in _TITLE_FILLER]
+    if not wanted:
+        return []
     return [r for r in rows
-            if all(w in _one_line(r.get("title")).casefold() for w in words)]
+            if set(_title_tokens(r.get("title"))).issuperset(wanted)]
 
 
 def _marker_rows(rows, marker):
@@ -930,7 +950,8 @@ def _marker_rows(rows, marker):
     if marker == "pending":
         return [r for r in rows if r.get("pending_since") is not None]
     if marker == "changed":
-        return [r for r in rows if r.get("stale")]
+        return [r for r in rows if isinstance(r.get("stale"), dict)
+                and r["stale"].get("cause") in _CHANGED_CAUSES]
     if marker == "absorbed":
         return [r for r in rows if r.get("absorbed_into") is not None]
     return []
@@ -942,6 +963,16 @@ def _count_status(matched, count):
     if count is not None and len(matched) != count:
         return "count_mismatch"
     return "one" if matched else "none"
+
+
+def _needs_count(ref, matched):
+    """True when an uncounted described group would dismiss or defer a row
+    that `rest` could not reach for that verb (critical, warning or
+    needs-verification): the owner must state how many (D-18)."""
+    if ref.get("count") is not None or ref["verb"] not in ("dismiss", "defer"):
+        return False
+    bulk_bands = batch_parse._rest_bands_for(ref["verb"])
+    return any(r["band"] not in bulk_bands for r in matched)
 
 
 def _remap_prior(prior_row, rows):
@@ -1009,6 +1040,8 @@ def _resolve_one(ref, rows, prior_rows, claimed):
         status = {0: "none", 1: "one"}.get(len(matched), "many")
     else:
         matched = _marker_rows(rows, ref["marker"])
+        if _needs_count(ref, matched):
+            return _ref_result("count_needed", candidates=matched)
         status = _count_status(matched, ref.get("count"))
     if status == "many":
         return _ref_result("many", candidates=matched)
@@ -1064,8 +1097,11 @@ def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
     (a stated count differs from the matched count, D-02/D-16; candidates
     are the matched rows), `conflict` (a row an earlier reference already
     named), `bulk` (`remaining` with no count -> the parser's `rest`, whose
-    bulk rules then apply, D-04) or `blocked` (`remaining` cannot be computed
-    because another reference is unclear). Non-`remaining` references are
+    bulk rules then apply, D-04), `blocked` (`remaining` cannot be computed
+    because another reference is unclear) or `count_needed` (a described
+    group with no stated count that would dismiss or defer a critical,
+    warning or needs-verification row, D-18; candidates are the matched
+    rows). Non-`remaining` references are
     resolved first, in order; then each `remaining` reference over the rows
     still unclaimed.
 
