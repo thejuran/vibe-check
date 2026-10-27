@@ -148,7 +148,26 @@ Plans:
   4. When a reference or reason is ambiguous or missing, or the card is stale, only the missing detail is asked — no guessing, no broadened decision, no full re-show (regression test)
   5. Whether finalize `fix N` still re-asks Apply/Skip (bug C) has a recorded verdict on current code; if it reproduces, the decided row proceeds to fixing without re-asking and a regression fixture covers it; if not, that is recorded and not filed
 
-**Plans**: TBD
+**Plans**: 6 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 58-01-PLAN.md — Helper renders "Apply all / Fix all" scope text naming excluded Needs-verification rows by number; D-12 text == behavior lock with mutants (RECV-01)
+- [ ] 58-02-PLAN.md — Per-reason recovery pairs (Next run / You can) for all 12 score.py reasons; NV suffix, output template and README reconciled; prose ↔ code lock (RECV-02)
+
+**Wave 2** *(blocked on 58-01)*
+
+- [ ] 58-03-PLAN.md — `batch_card.py resolve`: owner references → current rows (title/marker/counted complement/stale remap) with one/none/many/count-mismatch statuses; eight-row iPlayarr fixture; parse stays the only gate (ANSR-01, ANSR-02)
+
+**Wave 3** *(blocked on 58-01 + 58-03; 58-04 and 58-05 run in parallel)*
+
+- [ ] 58-04-PLAN.md — Fix-loop prose: translate → resolve → parse with "Read your answer as:", ask only the gap once, D-08 fallback, close-out carried (D-17), Bottom line suggestion slot, helper-rendered Apply all text, residue removed, bug-C lock strengthened against mutant C (ANSR-01/02/03, RECV-01)
+- [ ] 58-05-PLAN.md — Finalize prose: accurate Q1 header and Fix all / Dismiss all / Defer all / Mixed… descriptions, Mixed…/Other translation twin, NV stop text and echo sentence reconciled, session-conditional Bottom line line (ANSR-01/02, RECV-01/02)
+
+**Wave 4** *(blocked on 58-02 + 58-04 + 58-05)*
+
+- [ ] 58-06-PLAN.md — 58-REPRO.md: verdicts V1–V5, bug C "does not reproduce — fixed by 46d78e3 (v2.12)", inventory I-1..I-15; phase gate (full suite, replay 0 regressed, golden, mutant inventory) (ANSR-03 + all)
 
 **Source context (preserved from the 2026-10-21 roadmap item 3):** Correct the misleading "Fix all" label and explain which findings require individual decisions. Reconcile existing recovery guidance and actionable rejection/orphan explanations. Done when: labels match behavior and an inconclusive re-check has a clear, bounded recovery path without automatic closure or a new manual.
 
