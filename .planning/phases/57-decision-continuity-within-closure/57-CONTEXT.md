@@ -53,6 +53,9 @@ An owner's defer/dismiss decision stays bound to its evidence: it survives regro
 
 - **D-18 (orchestrator scope call, 2026-10-27, under the owner's standing rule that silent finding loss justifies new work):** The non-split shape of 57-REVIEW-GAPS2 CR-01/SA-01 (a same-lane fresh re-report out-ranks the carried record of a decided row that never splits, dropping its nearby evidence) is folded into the third gap closure rather than deferred. Same root cause, same code change; fixed at the root: a row's carried status and prior evidence come from any carried same-hash record in it, not only the lead. Not a product ruling; reversible by the owner.
 
+- **D-19 (owner, 2026-10-27, after round-3 review):** One FINAL structural gap round. Fix the mechanism, not the shape: collect every carried record of a finding's identity (stable_hash) BEFORE any filtering (min_confidence, sub-threshold, dedup), pool their evidence (reopen if ANY carried copy's line saw a nearby change; keep the latest owed stamp), and make row lead order deterministic (tie-break by line, never arrival order). HARD STOP: if the review after this round still finds a wrong-keep, close Phase 57 with it documented as a known limit (backlog) rather than opening another round.
+- **D-20 (owner, 2026-10-27):** A DEFERRED finding stays on the owner's open list even when it (or its split-out row) scores below the reporting threshold — a deferral can never disappear without the owner closing it. A DISMISSED finding below threshold may drop (intended).
+
 ### Carried forward (locked from earlier phases)
 - Reproduce first; non-reproducing paths are recorded and dropped, never replaced with invented work (owner rule, v2.13).
 - Never re-ask without new evidence (v2.11 rule; Phase 56 D-09).
