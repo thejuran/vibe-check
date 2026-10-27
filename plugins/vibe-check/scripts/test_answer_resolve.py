@@ -609,20 +609,160 @@ class TestResolveCli(TempDirCase):
 # Each resolve check is load-bearing: a mutant of it trips its lock.
 # --------------------------------------------------------------------------- #
 class TestResolveLockTrips(unittest.TestCase):
+    """Each mutant first differs from the real output, then trips the lock
+    check the real test uses. The parser is a second net for m5 only."""
+
     def test_m1_count_check_dropped(self):
-        self.skipTest("Task 3")
+        doc, refs = iplayarr_rows(), eight_row_refs(count=6)
+        real = resolve(doc, refs)
+        with self.subTest("real"):
+            check_count_mismatch(self, real)
+        with self.subTest("mutant: count check dropped"):
+            with mock.patch.object(
+                    batch_card, "_count_status",
+                    lambda matched, count: "one" if matched else "none"):
+                out = resolve(doc, refs)
+            self.assertNotEqual(out, real)
+            self.assertEqual(out["refs"][1]["status"], "one")
+            with self.assertRaises(AssertionError):
+                check_count_mismatch(self, out)
 
     def test_m2_many_treated_as_one(self):
-        self.skipTest("Task 3")
+        doc, refs = timeout_rows(), refs_doc([ref_title("fix", "timeout")])
+        real = resolve(doc, refs)
+        real_match = batch_card._match_title
+
+        def first_only(rows, text):
+            return real_match(rows, text)[:1]
+
+        with self.subTest("real"):
+            check_ambiguous_title(self, real)
+        with self.subTest("mutant: many treated as one"):
+            with mock.patch.object(batch_card, "_match_title", first_only):
+                out = resolve(doc, refs)
+            self.assertNotEqual(out, real)
+            self.assertEqual(out["refs"][0]["status"], "one")
+            with self.assertRaises(AssertionError):
+                check_ambiguous_title(self, out)
 
     def test_m3_rest_for_counted_ref(self):
-        self.skipTest("Task 3")
+        doc, refs = iplayarr_rows(), eight_row_refs()
+        real = resolve(doc, refs)
+        real_grammar = batch_card._grammar_for
+
+        def counted_as_rest(clauses, reason):
+            return real_grammar([(v, "rest" if v == "dismiss" else spec)
+                                 for v, spec in clauses], reason)
+
+        with self.subTest("real"):
+            check_no_broadening(self, doc, real)
+        with self.subTest("mutant: rest emitted for a counted reference"):
+            with mock.patch.object(batch_card, "_grammar_for",
+                                   counted_as_rest):
+                out = resolve(doc, refs)
+            self.assertNotEqual(out["grammar"], real["grammar"])
+            self.assertIn("dismiss rest", out["grammar"])
+            with self.assertRaises(AssertionError):
+                check_no_broadening(self, doc, out)
 
     def test_m4_hash_remap_skipped(self):
-        self.skipTest("Task 3")
+        prior, current = stale_pair()
+        refs = refs_doc([ref_prior("fix", 7)])
+        real = resolve(current, refs, prior)
+        real_remap = batch_card._remap_prior
+
+        def file_title_only(prior_row, rows):
+            return real_remap(dict(prior_row, stable_hash="no such hash"),
+                              rows)
+
+        with self.subTest("real"):
+            check_hash_remap(self, real, 5)
+        with self.subTest("mutant: hash remap skipped"):
+            with mock.patch.object(batch_card, "_remap_prior",
+                                   file_title_only):
+                out = resolve(current, refs, prior)
+            self.assertNotEqual(out, real)
+            self.assertEqual(out["refs"][0]["status"], "none")
+            with self.assertRaises(AssertionError):
+                check_hash_remap(self, out, 5)
 
     def test_m5_conflict_check_dropped(self):
-        self.skipTest("Task 3")
+        doc = iplayarr_rows()
+        refs = refs_doc([ref_number("fix", 5), ref_number("dismiss", 5)],
+                        reason="x")
+        real = resolve(doc, refs)
+
+        def reclaim(claimed, numbers):
+            claimed.update(numbers)
+            return True
+
+        with self.subTest("real"):
+            check_conflict(self, real)
+        with self.subTest("mutant: conflict check dropped"):
+            with mock.patch.object(batch_card, "_claim", reclaim):
+                out = resolve(doc, refs)
+            self.assertNotEqual(out, real)
+            self.assertEqual(out["refs"][1]["status"], "one")
+            # The parser still refuses the duplicate: a second net, not the
+            # lock this test guards.
+            self.assertEqual(out["parse_reason"],
+                             batch_parse.REASON_DUPLICATE)
+            with self.assertRaises(AssertionError):
+                check_conflict(self, out)
+
+
+class TestResolveCliContract(TempDirCase):
+    """Refusals are fixed REASONS lines with no owner text; resolve reads no
+    stdin."""
+
+    def _run(self, refs, prior=None, stdin_bytes=b""):
+        argv = ["resolve", "--rows", self.write("rows.json", iplayarr_rows()),
+                "--answer", self.write("refs.json", refs)]
+        if prior is not None:
+            argv += ["--prior-rows", self.write("prior.json", prior)]
+        return run_cli(argv, stdin_bytes=stdin_bytes)
+
+    def test_refusals_are_reasons_without_owner_text(self):
+        owner_words = ("Browse", "recovery", "zebra", "dismiss the 7")
+        cases = {
+            "bad verb": (refs_doc([dict(ref_title("fix", "Browse recovery"),
+                                        verb="zebra")],
+                                  reason=OWNER_REASON), None),
+            "prior needed": (refs_doc([ref_prior("fix", 5)],
+                                      reason=OWNER_REASON), None),
+            "prior malformed": (refs_doc([ref_prior("fix", 5)],
+                                         reason=OWNER_REASON),
+                                {"title": "Browse zebra"}),
+            "not json": ("Browse recovery zebra", None),
+        }
+        for name, (refs, prior) in cases.items():
+            with self.subTest(name):
+                proc = self._run(refs, prior)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+                err = proc.stderr.decode()
+                self.assertIn(err, RESOLVE_REASONS)
+                for word in owner_words:
+                    self.assertNotIn(word, err)
+
+    def test_usage_refusals(self):
+        rows = self.write("rows.json", iplayarr_rows())
+        refs = self.write("refs.json", eight_row_refs())
+        for argv in (["resolve", "--rows", rows],
+                     ["resolve", "--answer", refs],
+                     ["resolve", "--rows", rows, "--answer", refs, "--mode",
+                      "fix-loop"],
+                     ["resolve", "--rows", rows, "--answer", refs,
+                      "--prior-rows"]):
+            with self.subTest(argv=argv[1:]):
+                proc = run_cli(argv)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stderr.decode(), batch_card.USAGE)
+
+    def test_reads_no_stdin(self):
+        proc = self._run(eight_row_refs(), stdin_bytes=b"garbage \xff")
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertTrue(json.loads(proc.stdout)["ok"])
 
 
 if __name__ == "__main__":
