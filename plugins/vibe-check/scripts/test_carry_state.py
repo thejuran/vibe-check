@@ -2423,8 +2423,16 @@ class TestGapClosure57(unittest.TestCase):
     G3b (WR-03): a lane present only for an unrelated concern is not; a
         persistence-only rise keeps the decision.
     G6  (D-15): the card count counts concerns, not reviewer reports.
+    G2c (D-17): an inherited row in the split-pass shape (fresh snapshot at
+        the split pass, `nearby_at` at that pass) reopens with "nearby".
+    G2d (D-09): the same split-pass row without `nearby_at` (a quiet split)
+        keeps the decision.
 
-    Expected red before the fixes: 6 (G1, G2a, G2b, G3a, G3b, G6)."""
+    Expected red before the fixes: 6 (G1, G2a, G2b, G3a, G3b, G6). G2c and
+    G2d are green on the consumer as written; they pin carry_state to the
+    split-pass snapshot shape the scorer must write on the split pass
+    (test_decision_continuity TestCrossModuleGuards
+    test_split_row_snapshot_is_the_split_pass_shape)."""
 
     def test_g1_split_obligation_member_is_not_covered_by_row_decision(self):
         # The same-hash shape (a member whose obligation hash is the row's
@@ -2492,10 +2500,38 @@ class TestGapClosure57(unittest.TestCase):
         return s1
 
     def _inherited_pass2(self, s1, hc_band, hc_members):
+        """Pass 2: HC is a row of its own with a pass-1 prior snapshot. This
+        models a row that already existed before this pass (it split on an
+        earlier pass and survived a quiet pass unchanged, the
+        score._snapshot_for keep branch), never the split pass itself; see
+        `_inherited_split_pass2` for the split pass."""
         p2 = mk_state([mk_pass(1, []), mk_pass(2, [
             g_row(HR, "bugs", "T1", "x = 1", [g_lead()], ["bugs", "c"]),
             g_row(HC, "c", "T3", "z = 3", hc_members, ["c", "security"],
                   band=hc_band, line=12)])])
+        s = with_passes(s1, p2)
+        rec = record_of(s, HC)
+        self.assertNotIn(HC, s["decisions"])
+        self.assertEqual(carry_state.covering_decision(rec, s),
+                         (HR, s["decisions"][HR]))
+        self.assertEqual(carry_state.decision_state(record_of(s, HR), s),
+                         "current")
+        return s, rec
+
+    def _inherited_split_pass2(self, s1, nearby):
+        """The split-pass shape score.py writes when the member becomes a row
+        on this pass: a fresh snapshot at this pass, `nearby_at` at this pass
+        when the causing edit was within the member's D-14 window (D-17).
+        Contrast `_inherited_pass2`, whose pass-1 prior models a row that
+        split on an earlier pass and survived a quiet pass unchanged
+        (score._snapshot_for keep branch)."""
+        hc_row = g_row(HC, "c", "T3", "z = 3", [g_lead("c", "T3", "z = 3", 12)],
+                       ["c"], band="warning", line=12, at_pass=2)
+        if nearby:
+            hc_row["snapshot"]["nearby_at"] = 2
+        p2 = mk_state([mk_pass(1, []), mk_pass(2, [
+            g_row(HR, "bugs", "T1", "x = 1", [g_lead()], ["bugs", "c"]),
+            hc_row])])
         s = with_passes(s1, p2)
         rec = record_of(s, HC)
         self.assertNotIn(HC, s["decisions"])
@@ -2534,6 +2570,33 @@ class TestGapClosure57(unittest.TestCase):
         self.assertEqual(
             carry_state.finalize_counts(s)["outstanding_cw_hashes"],
             [HC])
+
+    def test_g2c_inherited_split_pass_with_nearby_stamp_reopens(self):
+        s1 = self._inherited_pass1()
+        s, rec = self._inherited_split_pass2(s1, nearby=True)
+        self.assertEqual(fixture_row(s, HC)["snapshot"],
+                         {"at_pass": 2, "file": F, "line": 12,
+                          "canonical_line_content": "z = 3",
+                          "band": "warning", "nearby_at": 2})
+        self.assertEqual(carry_state.covering_decision(rec, s),
+                         (HR, s["decisions"][HR]))
+        self.assertEqual(carry_state.decision_state(rec, s), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s), "nearby")
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"],
+            [HC])
+
+    def test_g2d_inherited_quiet_split_keeps(self):
+        s1 = self._inherited_pass1()
+        s, rec = self._inherited_split_pass2(s1, nearby=False)
+        self.assertNotIn("nearby_at", fixture_row(s, HC)["snapshot"])
+        self.assertEqual(fixture_row(s, HC)["snapshot"]["at_pass"], 2)
+        self.assertEqual(carry_state.covering_decision(rec, s),
+                         (HR, s["decisions"][HR]))
+        self.assertEqual(carry_state.decision_state(rec, s), "current")
+        self.assertIsNone(carry_state.stale_cause(rec, s))
+        self.assertEqual(
+            carry_state.finalize_counts(s)["outstanding_cw_hashes"], [])
 
     # ---- inherited path: entry band/lanes, legacy fallbacks, order ------ #
     def _c_entry(self, s):

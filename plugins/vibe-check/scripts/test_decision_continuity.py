@@ -1240,6 +1240,23 @@ class TestCrossModuleGuards(_Base):
                 if score._nearby_changed(dict(rec, line=line), ranges)]
         self.assertEqual(len(hits), 14, hits)
 
+    def test_split_row_snapshot_is_the_split_pass_shape(self):
+        """test_carry_state TestGapClosure57 `_inherited_split_pass2` is a
+        legitimate fixture only because score.py writes this exact snapshot
+        shape on the split pass: a fresh snapshot at the split pass with
+        `nearby_at` at that pass when the causing edit is inside the member's
+        D-14 window (D-17). This guard fails if the producer and that
+        hand-built consumer fixture drift apart (WR-02)."""
+        _, s1, s2, r2, hB, hA = split_scenario(real_diff=True)
+        snapshot = self._current(s2, hA)["snapshot"]
+        self.assertEqual(set(snapshot),
+                         {"at_pass", "file", "line", "canonical_line_content",
+                          "band", "nearby_at"})
+        self.assertEqual(snapshot["at_pass"], 2)
+        self.assertEqual(snapshot["nearby_at"], 2)
+        self.assertEqual(snapshot["line"], 10)
+        self.assertEqual(snapshot["file"], F)
+
 
 # --------------------------------------------------------------------------- #
 # The owner's journey across seven passes (DECN-02/03; Phase 56 found two
