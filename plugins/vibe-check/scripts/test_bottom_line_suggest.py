@@ -191,6 +191,78 @@ class TestSuggest(unittest.TestCase):
         self.assertIn("suggest --rows PATH --answer PATH", batch_card.USAGE)
 
 
+def check_trim_regated(tc):
+    """A trimmed grammar the gate refuses is never emitted: suggest returns
+    the parser's refusal instead."""
+    real_grammar_for = batch_card._grammar_for
+
+    def broken_grammar(clauses, reason):
+        return real_grammar_for(clauses, reason) + "; zebra"
+
+    with mock.patch.object(batch_card, "_grammar_for", broken_grammar):
+        out = batch_card.suggest(iplayarr_rows(), answer("fix 5"))
+    tc.assertEqual(out, (None, batch_parse.REASON_TOKEN))
+
+
+class TestSuggestLockTrips(unittest.TestCase):
+    """Each D-19 guard is load-bearing: its mutant trips the lock."""
+
+    def test_s1_band_filter_dropped(self):
+        with self.subTest("real"):
+            check_dismiss_critical_dropped(self)
+        with self.subTest("mutant: dismiss/defer keep every band"):
+            with mock.patch.object(batch_parse, "_rest_bands_for",
+                                   lambda verb: batch_parse._BANDS):
+                (out, dropped), _ = batch_card.suggest(
+                    iplayarr_rows(),
+                    answer("fix 5; dismiss 1,2 -- false positive"))
+                self.assertEqual(out["q1"],
+                                 "fix 5; dismiss 1,2 -- false positive")
+                self.assertEqual(dropped, [])
+                with self.assertRaises(AssertionError):
+                    check_dismiss_critical_dropped(self)
+
+    def test_s2_empty_refusal_dropped(self):
+        real_suggest = batch_card.suggest
+
+        def no_empty_refusal(rows_doc, ans):
+            result, reason = real_suggest(rows_doc, ans)
+            if reason == batch_card.REASON_SUGGEST_EMPTY:
+                return ({"q1": "", "q2": None}, []), None
+            return result, reason
+
+        with self.subTest("real"):
+            check_all_dropped_refuses(self)
+        with self.subTest("mutant: empty suggestion emitted"):
+            with mock.patch.object(batch_card, "suggest", no_empty_refusal):
+                with self.assertRaises(AssertionError):
+                    check_all_dropped_refuses(self)
+                with self.assertRaises(AssertionError):
+                    check_output_passes_parse(
+                        self, iplayarr_rows(), answer("dismiss 1,2,3 -- fp"))
+
+    def test_s3_final_dry_run_dropped(self):
+        real_parse = batch_card.parse
+        calls = []
+
+        def first_parse_only(rows_doc, ans):
+            calls.append(ans)
+            if len(calls) == 1:
+                return real_parse(rows_doc, ans)
+            return {}, None
+
+        with self.subTest("real"):
+            check_trim_regated(self)
+        with self.subTest("mutant: post-trim parse removed"):
+            with mock.patch.object(batch_card, "parse", first_parse_only):
+                with self.assertRaises(AssertionError):
+                    check_trim_regated(self)
+            emitted = calls[-1]
+            self.assertTrue(emitted["q1"].endswith("; zebra"))
+            self.assertEqual(real_parse(iplayarr_rows(), emitted),
+                             (None, batch_parse.REASON_TOKEN))
+
+
 class TestSuggestCli(TempDirCase):
     def _run(self, ans, rows_doc=None, stdin_bytes=b""):
         rows_doc = iplayarr_rows() if rows_doc is None else rows_doc
