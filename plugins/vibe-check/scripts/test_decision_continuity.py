@@ -642,12 +642,20 @@ def nearby_scenario(offset=1):
     return s1, s2, hA
 
 
-def split_scenario(edit_a=False):
+def split_scenario(edit_a=False, real_diff=False):
     """Pass 1: `security` B (line 12) leads a row holding `bugs` A (line 10)
     as a member; the owner dismisses the ROW. Pass 2: B's line is rewritten
     and B's lane answers its re-check `resolved` (the `ab_pipeline` pass-3
     request/verdict shape), so A becomes a row of its own. With `edit_a`,
-    A's own line is edited too. -> (L1, s1, s2, r2, hB, hA)."""
+    A's own line is edited too. -> (L1, s1, s2, r2, hB, hA).
+
+    The pass-2 diff: by default it is empty, the D-09 pure-inheritance shape
+    (a split whose causing edit lies outside the member's window), kept for
+    the r6 inheritance tests. A real incremental diff names B's rewritten
+    line 12, which sits inside A's D-14 window (lines 5-15); `real_diff=True`
+    passes exactly that diff and is the realistic split-pass counterpart, on
+    which the split row must be re-asked once with "code next to it changed"
+    (D-17)."""
     L0 = base_file()
     a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
     b = fresh("security", 12, L0, "Injection at B", conf=80,
@@ -666,14 +674,61 @@ def split_scenario(edit_a=False):
            "title": lead["title"]}
     verdict = {"source": "recheck", "token": "TB", "agent": lead["agent"],
                "verdict": "resolved", "reason": "line rewritten"}
-    # The diff omits B's rewritten line so the nearby-change rule (D-02) does
-    # not confound the inheritance check; with `edit_a` it names A's own line,
-    # as a real incremental diff would (out of the diff, the edited A scores
-    # below threshold and is filtered instead of asked).
-    ranges = {F: [[10, 10]]} if edit_a else {F: []}
+    # Default: an empty diff, the D-09 pure-inheritance shape (the causing
+    # edit is treated as outside A's window). `real_diff` names B's rewritten
+    # line 12, inside A's D-14 window, as a real incremental diff would (D-17).
+    # With `edit_a` the diff names A's own line, as a real incremental diff
+    # would (out of the diff, the edited A scores below threshold and is
+    # filtered instead of asked).
+    if edit_a:
+        ranges = {F: [[10, 10]]}
+    elif real_diff:
+        ranges = {F: [[12, 12]]}
+    else:
+        ranges = {F: []}
     s2, r2 = run_pass(s1, L1, [], 2, ranges, recheck_requests=[req],
                       verdicts=[verdict])
     return L1, s1, s2, r2, hB, score.stable_hash(F, L1[9], TITLE_A)
+
+
+def absorbed_split_scenario(owed_before_split=False):
+    """An own-decision finding absorbed as an obligation sidecar, then split
+    out by the lead's nearby fix.
+
+    Pass 1: `bugs` A at line 10 dismissed (its own decision). Pass 2: a
+    stronger `security` concern B at line 12 leads the group and A rides as a
+    member carrying its obligation. The pass-2 diff is unrelated (lines
+    30-31) by default; with `owed_before_split` it names line 12, inside A's
+    D-14 window, so A's obligation snapshot is stamped while it is absorbed.
+    Pass 3: B's line is rewritten and B's lane answers its re-check
+    `resolved`, so A splits back into a row of its own. The pass-3 diff names
+    line 12 by default (the causing edit, D-17); with `owed_before_split` it
+    is empty so the split itself carries no in-window edit and only the stamp
+    already owed can reopen A. -> (s1, s2, s3, r3, hA, hB)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    b = fresh("security", 12, L0, "Injection at B", conf=95,
+              severity="critical", category="injection")
+    ranges2 = {F: [[12, 12]]} if owed_before_split else {F: [[30, 31]]}
+    s2, r2 = run_pass(s1, L0, [b], 2, ranges2)
+    assert len(r2["findings"]) == 1, r2["findings"]
+    row = r2["findings"][0]
+    assert row["agent"] == "security", row
+    owed = [m for m in row.get("members", [])
+            if (m.get("obligation") or {}).get("stable_hash") == hA]
+    assert len(owed) == 1, row.get("members")
+    hB = row["stable_hash"]
+    L2 = list(L0)
+    L2[11] = "line_12 = 'fixed'"
+    req = {"token": "TB", "agents": [row["agent"]], "stable_hash": hB,
+           "file": F, "line": 12, "agent": row["agent"],
+           "title": row["title"]}
+    verdict = {"source": "recheck", "token": "TB", "agent": row["agent"],
+               "verdict": "resolved", "reason": "line rewritten"}
+    ranges3 = {F: []} if owed_before_split else {F: [[12, 12]]}
+    s3, r3 = run_pass(s2, L2, [], 3, ranges3, recheck_requests=[req],
+                      verdicts=[verdict])
+    return s1, s2, s3, r3, hA, hB
 
 
 class TestRegrouping(_Base):
@@ -788,6 +843,79 @@ class TestRegrouping(_Base):
                               "reason": "x"}, **extra)
                 self.assertIsNone(carry_state.record_decisions(
                     s1, {"at_pass": 1, "decisions": [entry]}))
+
+
+class TestSplitPassNearby(_Base):
+    """D-17 (57-VERIFICATION.md gap 1, 57-REVIEW-GAPS.md CR-01): when a
+    covered or absorbed finding splits into its own row on the pass whose
+    in-window edit caused the split, the new row is re-asked once with "code
+    next to it changed"; a re-ask already owed before the split survives it.
+
+    Expected on the unfixed scorer: s1, s2 and s3 fail at the split row's
+    missing `nearby_at` stamp (score._snapshot_for stamps only a row that
+    already holds a dict snapshot, and a split survivor has none). s4 is the
+    negative and stays green: a fresh lead over a carried member is never
+    stamped."""
+
+    def test_s1_inherited_member_split_by_nearby_fix_is_reasked(self):
+        _, s1, s2, r2, hB, hA = split_scenario(real_diff=True)
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["snapshot"].get("nearby_at"), 2,
+                         "split row snapshot has no nearby_at: %r"
+                         % rec["snapshot"])
+        self.assertEqual(rec["snapshot"]["at_pass"], 2)
+        # Fixture self-check: the causing edit is inside A's D-14 window.
+        self.assertTrue(score._nearby_changed(rec, {F: [[12, 12]]}))
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+        self.assertEqual(carry_state.covering_decision(rec, s2),
+                         (hB, s2["decisions"][hB]))
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"])
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+        crow = card_row(s2, hA)
+        self.assertIsNotNone(crow, "re-asked split row not on the card")
+        self.assertEqual((crow["stale"] or {}).get("cause"), "nearby")
+
+    def test_s2_own_decision_absorbed_then_split_by_nearby_fix_is_reasked(
+            self):
+        s1, s2, s3, r3, hA, hB = absorbed_split_scenario()
+        # Pass 2 holds what the fixture claims: A rides absorbed, current.
+        absorbed = self._current(s2, hA)
+        self.assertEqual(absorbed.get("absorbed_into"), hB)
+        self.assertEqual(carry_state.decision_state(absorbed, s2), "current")
+        rec = self._current(s3, hA)
+        self.assertEqual(rec["snapshot"].get("nearby_at"), 3,
+                         "split row snapshot has no nearby_at: %r"
+                         % rec["snapshot"])
+        self.assertIsNone(rec.get("absorbed_into"))
+        self.assertEqual(carry_state.decision_state(rec, s3), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s3), "nearby")
+        self.assertIn(hA, carry_state.finalize_counts(
+            s3, {})["outstanding_cw_hashes"])
+        self.assertNotEqual(e2e_gate(s3, {}), "write")
+
+    def test_s3_owed_stamp_survives_the_split(self):
+        s1, s2, s3, r3, hA, hB = absorbed_split_scenario(
+            owed_before_split=True)
+        absorbed = self._current(s2, hA)
+        self.assertEqual(absorbed["snapshot"].get("nearby_at"), 2)
+        self.assertEqual(carry_state.decision_state(absorbed, s2), "stale")
+        rec = self._current(s3, hA)
+        self.assertEqual(rec["snapshot"].get("nearby_at"), 2,
+                         "owed nearby_at lost at the split: %r"
+                         % rec["snapshot"])
+        self.assertIsNone(rec.get("absorbed_into"))
+        self.assertEqual(carry_state.decision_state(rec, s3), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s3), "nearby")
+        self.assertIn(hA, carry_state.finalize_counts(
+            s3, {})["outstanding_cw_hashes"])
+
+    def test_s4_fresh_lead_over_a_carried_member_is_not_stamped(self):
+        s1, s2, s3, r3, hA, hB = absorbed_split_scenario(
+            owed_before_split=True)
+        self.assertNotIn("nearby_at", row_of(s2, hB)["snapshot"])
+        self.assertEqual(record_of(s2, hA)["snapshot"]["nearby_at"], 2)
 
 
 # --------------------------------------------------------------------------- #
