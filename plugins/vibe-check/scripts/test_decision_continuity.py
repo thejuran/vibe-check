@@ -211,6 +211,12 @@ def run_pass(state, lines, findings, n, ranges, decided=frozenset(), **over):
            "carryforward": (next_cf(state, lines, decided)
                             if state["passes"] else []),
            "findings": findings}
+    if state["passes"]:
+        # The orchestrator binds `$DEFERRED_HASHES` in Phase 0.5 the way it
+        # binds `$DECIDED_HASHES`; the key is sent only when the read exists.
+        deferred = _deferred_read(state)
+        if isinstance(deferred, list):
+            env["deferred_hashes"] = sorted(deferred)
     env.update(over)
     result = score.run(env)
     return append_pass(state, result, n, "h%d" % n), result
@@ -221,6 +227,18 @@ def target_decided(state):
     decided`); empty while that read does not exist."""
     read = getattr(carry_state, "decided", lambda s: None)
     return frozenset(read(state) or [])
+
+
+def _deferred_read(state):
+    """`carry_state.py deferred` on `state`, or None while that read does not
+    exist."""
+    return getattr(carry_state, "deferred", lambda s: None)(state)
+
+
+def target_deferred(state):
+    """The deferred-hash list the orchestrator binds (`carry_state.py
+    deferred`); empty while that read does not exist."""
+    return frozenset(_deferred_read(state) or [])
 
 
 def decide_on(state, h, kind="dismiss", reason=REASON):
@@ -854,6 +872,147 @@ def edited_lead_member_scenario():
     return s2, s3, hA, score.stable_hash(F, L2[9], TITLE_A)
 
 
+def same_hash_lines():
+    """base_file() with lines 10 and 12 both `return None`: stable_hash has no
+    line number, so one title hashes identically at either line."""
+    L = base_file()
+    L[9] = L[11] = "return None"
+    return L
+
+
+def cross_lane_same_hash_scenario(sec_conf):
+    """57-REVIEW-GAPS3.md CR-01 (cross-lane): one identity, two lines.
+
+    Pass 1: `bugs` A at line 12 (`return None`), dismissed. Pass 2: `security`
+    reports the same title at line 10 (same text, so the same hash) at
+    `sec_conf`; the diff names line 17, inside line 12's D-14 window (7-17)
+    and outside line 10's (5-15). The decision binds the identity, so the
+    change next to the carried copy re-asks it whichever copy leads (D-02 /
+    D-14, D-17, D-19 pooling). -> (s2, r2, hA)."""
+    L0 = same_hash_lines()
+    s1, hA = pass1(L0, conf=STABLE_CONF, line=12)
+    s2, r2 = run_pass(s1, L0, [fresh("security", 10, L0, TITLE_A,
+                                     conf=sec_conf, category="injection")],
+                      2, {F: [[17, 17]]})
+    return s2, r2, hA
+
+
+def arrival_order_scenario(order):
+    """57-REVIEW-GAPS3.md CR-01 (same-lane arrival order): the decided `bugs`
+    A at line 12 is re-reported by its own lane at conf 100 at lines 10 and
+    12 (one hash), in the arrival `order` given; the diff names line 17
+    (inside line 12's window only). The two fresh records tie on every
+    score, so the lead must be chosen by line, never by arrival order, and
+    the re-ask owed at line 12 must hold either way (D-02 / D-14, D-17,
+    D-19). -> (s2, r2, hA)."""
+    L0 = same_hash_lines()
+    s1, hA = pass1(L0, conf=STABLE_CONF, line=12)
+    s2, r2 = run_pass(s1, L0, [fresh("bugs", n, L0, TITLE_A, conf=100)
+                               for n in order], 2, {F: [[17, 17]]})
+    return s2, r2, hA
+
+
+def min_conf_twin_scenario(min_confidence, rereport):
+    """57-REVIEW-GAPS3.md CR-02: a carried twin dropped by `min_confidence`
+    before grouping. Pass 1: `bugs` A at line 10, dismissed. Pass 2: line 12
+    is edited (inside A's D-14 window); A's own lane re-reports A at conf
+    `rereport` (None: no re-report). With `min_confidence` set the carried
+    copy scores below it and is dropped before the group sees it, so its
+    owed re-ask must still reach the row (D-19: pool before any filter).
+    The envelope key is ABSENT, not null, when `min_confidence` is None.
+    -> (s2, r2, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    L1 = list(L0)
+    L1[11] = "line_12 = 'edited'"
+    finds = ([fresh("bugs", 10, L1, TITLE_A, conf=rereport)]
+             if rereport is not None else [])
+    over = ({"min_confidence": min_confidence}
+            if min_confidence is not None else {})
+    s2, r2 = run_pass(s1, L1, finds, 2, {F: [[12, 12]]}, **over)
+    return s2, r2, hA
+
+
+def edited_carried_lead_scenario():
+    """57-REVIEW-GAPS3.md IN-01: a carried lead whose own line was edited is a
+    different finding and must not carry its old stamp onto the new hash
+    (every prior source passes the one hash gate).
+
+    Pass 1: `bugs` A at line 10, conf 90, dismissed. Pass 2: line 11 is
+    edited (diff [[11, 11]]), no findings, so A owes a re-ask (nearby_at 2).
+    Pass 3: A's OWN line is edited, the diff is quiet, no findings; the
+    carried lead re-hashes to hA2. Conf 90: at 75 the re-hashed row is
+    sub-threshold and a kept-open row under hA appears instead.
+    -> (s2, s3, hA, hA2)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=90)
+    L2 = list(L0)
+    L2[10] = "line_11 = 'edited'"
+    s2, _ = run_pass(s1, L2, [], 2, {F: [[11, 11]]})
+    L3 = list(L2)
+    L3[9] = "line_10 = 'edited'"
+    s3, _ = run_pass(s2, L3, [], 3, {F: []})
+    return s2, s3, hA, score.stable_hash(F, L3[9], TITLE_A)
+
+
+def far_twin_scenario():
+    """57-REVIEW-GAPS3.md, the far-twin shape that tells pooling ("the latest
+    owed stamp wins") from "the first copy wins" (D-19).
+
+    Lines 10 and 30 are both `return None`. Pass 1: `bugs` A at line 10,
+    dismissed. Pass 2: A's lane reports the same title at line 30 at conf
+    100 (NOT STABLE_CONF: a lone-lane conf-75 fresh finding out of the diff
+    scores under the deep-review cutoff and is filtered sub-threshold, so
+    the second row would never exist; lines 10 and 30 are separate sites
+    under the +-2 grouping, so the fresh copy must clear the cutoff on its
+    own); the diff names line 33, inside line 30's window and outside line
+    10's. Pass 3 is quiet with no findings.
+
+    The two copies are one identity; a change next to either copy re-asks
+    the decision (D-19), so the record carry_state reads (the first row with
+    hash hA) must carry the stamp owed at the other copy.
+    -> (s2, r2, s3, hA)."""
+    L0 = base_file()
+    L0[9] = L0[29] = "return None"
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    s2, r2 = run_pass(s1, L0, [fresh("bugs", 30, L0, TITLE_A, conf=100)], 2,
+                      {F: [[33, 33]]})
+    s3, _ = run_pass(s2, L0, [], 3, {F: []})
+    return s2, r2, s3, hA
+
+
+def deferred_covered_sub_threshold_scenario(kind):
+    """57-REVIEW-GAPS3.md WR-02 under D-20: a deferred finding may never leave
+    the open set on a score; a dismissed one below threshold may drop.
+
+    low_entropy_split_scenario's exact inputs with the `}`-line `bugs` A at
+    conf 75 (3-line current_code kept) and the owner's `kind` on the row led
+    by the critical `security` B. Pass 2 resolves B and edits line 12, so A
+    splits out below threshold. -> (s1, s2, r2, hA, hB)."""
+    L0 = base_file()
+    L0[9] = "}"
+    a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
+    a["current_code"] = "}\n" + L0[10] + "\n" + L0[11]
+    b = fresh("security", 12, L0, "Injection at B", conf=95,
+              severity="critical", category="injection")
+    s1, r1 = run_pass(empty_state(), L0, [a, b], 1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 1, r1["findings"]
+    lead = r1["findings"][0]
+    assert lead["agent"] == "security", lead
+    hB = lead["stable_hash"]
+    s1 = decide_on(s1, hB, kind=kind)
+    L1 = list(L0)
+    L1[11] = "line_12 = 'fixed'"
+    req = {"token": "TB", "agents": [lead["agent"]], "stable_hash": hB,
+           "file": lead["file"], "line": lead["line"], "agent": lead["agent"],
+           "title": lead["title"]}
+    verdict = {"source": "recheck", "token": "TB", "agent": lead["agent"],
+               "verdict": "resolved", "reason": "line rewritten"}
+    s2, r2 = run_pass(s1, L1, [], 2, {F: [[12, 12]]}, recheck_requests=[req],
+                      verdicts=[verdict])
+    return s1, s2, r2, score.stable_hash(F, "}", TITLE_A), hB
+
+
 class TestRegrouping(_Base):
     """D-08 (with the owner's 2026-10-26 refinement: a newcomer concern from
     an uncovered lane reopens the WHOLE decided row once, with the D-10
@@ -1196,6 +1355,175 @@ class TestWr01Guards(_Base):
                          "edited finding inherited a foreign stamp: %r" % snap)
         self.assertIsNone(carry_state.decision_state(record_of(s3, hA2), s3),
                           snap)
+
+
+class TestPooledEvidence(_Base):
+    """57-REVIEW-GAPS3.md CR-01 / CR-02 and D-19: every carried record of an
+    identity is pooled BEFORE any filter; nearby is judged at every copy's
+    line; the lead is deterministic by line.
+
+    Expected on the unfixed scorer: p1 (conf 100), p2 (both orders), p3
+    (min_confidence 80) and p4 fail; the controls (q1, q3) pass."""
+
+    def _assert_reasked(self, state, hA, nearby_at=2):
+        rec = self._current(state, hA)
+        snap = rec["snapshot"]
+        self.assertEqual(snap.get("nearby_at"), nearby_at,
+                         "row snapshot has no owed nearby_at: %r" % snap)
+        self.assertEqual(carry_state.decision_state(rec, state), "stale",
+                         "snapshot %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, state), "nearby",
+                         "snapshot %r" % snap)
+        self.assertIn(hA, carry_state.finalize_counts(
+            state, {})["outstanding_cw_hashes"], "snapshot %r" % snap)
+        self.assertNotEqual(e2e_gate(state, {}), "write",
+                            "snapshot %r" % snap)
+        return rec
+
+    def test_p1_cross_lane_same_hash_other_line_nearby_reasks(self):
+        s2, _, hA = cross_lane_same_hash_scenario(100)
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        snap = row.get("snapshot")
+        # Self-check: the fresh security copy leads at the other line.
+        self.assertEqual(row["agent"], "security", snap)
+        self.assertEqual(row["line"], 10, snap)
+        self._assert_reasked(s2, hA)
+        crow = card_row(s2, hA)
+        self.assertIsNotNone(crow, "re-asked row not on the card")
+        self.assertEqual((crow["stale"] or {}).get("cause"), "nearby",
+                         "snapshot %r" % snap)
+
+    def test_q1_control_carried_copy_leads(self):
+        s2, _, hA = cross_lane_same_hash_scenario(60)
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        snap = row.get("snapshot")
+        self.assertEqual(row["agent"], "bugs", snap)
+        self.assertEqual(row["line"], 12, snap)
+        self._assert_reasked(s2, hA)
+
+    def test_p2_same_lane_arrival_order_does_not_pick_the_outcome(self):
+        for order in ([10, 12], [12, 10]):
+            with self.subTest(order=order):
+                s2, _, hA = arrival_order_scenario(order)
+                row = row_of(s2, hA)
+                self.assertIsNotNone(row, "no row for %s" % hA[:8])
+                snap = row.get("snapshot")
+                # The lead is chosen by line, never by arrival order.
+                self.assertEqual(row["line"], 10,
+                                 "lead depends on arrival order %r; row %r"
+                                 % (order, snap))
+                self._assert_reasked(s2, hA)
+
+    def test_p3_min_confidence_dropped_twin_keeps_the_reask(self):
+        s2, r2, hA = min_conf_twin_scenario(80, 95)
+        # Self-check: the carried twin was dropped before grouping.
+        self.assertIn("below-min-confidence",
+                      [f.get("reason") for f in r2["filtered"]],
+                      r2["filtered"])
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        self.assertEqual(row["status"], "new", row.get("snapshot"))
+        self._assert_reasked(s2, hA)
+
+    def test_q3_controls_scored_twin_and_no_rereport(self):
+        s2, _, hA = min_conf_twin_scenario(None, 95)
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        self.assertEqual(row["status"], "new", row.get("snapshot"))
+        self._assert_reasked(s2, hA)
+        s2, _, hA = min_conf_twin_scenario(80, None)
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s" % hA[:8])
+        self.assertIn("kept_open", row, row.get("snapshot"))
+        self._assert_reasked(s2, hA)
+
+    def test_p4_far_twin_latest_stamp_reaches_the_first_copy(self):
+        s2, r2, s3, hA = far_twin_scenario()
+        rows2 = sorted((f for f in r2["findings"] if f["stable_hash"] == hA),
+                       key=lambda f: f["line"])
+        # Pass-2 self-checks: two rows of one identity, nothing filtered.
+        self.assertEqual([(f["line"], f["status"]) for f in rows2],
+                         [(10, "persisted"), (30, "new")],
+                         [f.get("snapshot") for f in rows2])
+        self.assertEqual(r2["filtered"], [])
+        self.assertEqual(rows2[1]["snapshot"].get("nearby_at"), 2,
+                         "line-30 copy not stamped: %r" % rows2[1]["snapshot"])
+        rows3 = [f for f in s3["passes"][-1]["findings"]
+                 if f.get("stable_hash") == hA]
+        self.assertEqual(len(rows3), 2, [f.get("snapshot") for f in rows3])
+        rec = self._current(s3, hA)
+        # carry_state keeps the first row of a hash.
+        self.assertEqual(rec["line"], 10, rec["snapshot"])
+        self._assert_reasked(s3, hA)
+
+
+class TestPriorGate(_Base):
+    """57-REVIEW-GAPS3.md IN-01: every prior source passes the one hash gate;
+    a carried lead whose own line was edited does not carry its old stamp
+    onto the new hash. Expected on the unfixed scorer: fails at the foreign
+    `nearby_at`."""
+
+    def test_in01_edited_carried_lead_does_not_carry_its_stamp_onto_the_new_hash(
+            self):
+        s2, s3, hA, hA2 = edited_carried_lead_scenario()
+        # Self-check: the old record owed a re-ask before the edit.
+        self.assertEqual(record_of(s2, hA)["snapshot"].get("nearby_at"), 2,
+                         record_of(s2, hA)["snapshot"])
+        self.assertNotEqual(hA, hA2)
+        row = row_of(s3, hA2)
+        self.assertIsNotNone(row, "no row for the edited finding %s" % hA2[:8])
+        snap = row["snapshot"]
+        self.assertEqual(row["status"], "needs-recheck", snap)
+        self.assertNotIn("kept_open", row, snap)
+        self.assertEqual(snap["at_pass"], 3, snap)
+        self.assertNotIn("nearby_at", snap,
+                         "edited finding inherited a foreign stamp: %r" % snap)
+        self.assertIsNone(carry_state.decision_state(record_of(s3, hA2), s3),
+                          snap)
+
+
+class TestDeferredStaysOpen(_Base):
+    """D-20 (57-REVIEW-GAPS3.md WR-02, defer variant): a DEFERRED finding
+    stays on the owner's open list even when its split-out row scores below
+    the reporting threshold; a DISMISSED one below threshold may drop.
+    Expected on the unfixed scorer: the defer test fails (record orphaned);
+    the dismiss lock passes and must stay green."""
+
+    def test_deferred_covered_member_below_threshold_stays_open(self):
+        _, s2, r2, hA, hB = deferred_covered_sub_threshold_scenario("defer")
+        rec = self._current(s2, hA)
+        snap = rec.get("snapshot")
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s; filtered %r"
+                             % (hA[:8], r2["filtered"]))
+        self.assertTrue(str(row.get("kept_open", "")).startswith(
+            "sub-threshold"), "row %r" % row)
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale",
+                         "snapshot %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby",
+                         "snapshot %r" % snap)
+        self.assertEqual(carry_state.covering_decision(rec, s2)[0], hB,
+                         "snapshot %r" % snap)
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"], "snapshot %r" % snap)
+        self.assertNotEqual(e2e_gate(s2, {}), "write", "snapshot %r" % snap)
+        crow = card_row(s2, hA)
+        self.assertIsNotNone(crow, "deferred row not on the card")
+        self.assertEqual((crow["stale"] or {}).get("cause"), "nearby",
+                         "snapshot %r" % snap)
+
+    def test_dismissed_covered_member_below_threshold_may_drop(self):
+        _, s2, r2, hA, _ = deferred_covered_sub_threshold_scenario("dismiss")
+        self.assertEqual(r2["findings"], [], r2["filtered"])
+        self.assertIn({"line": 10, "title": TITLE_A, "reason": "sub-threshold"},
+                      [{k: f.get(k) for k in ("line", "title", "reason")}
+                       for f in r2["filtered"]], r2["filtered"])
+        self.assertIsNone(record_of(s2, hA), r2["filtered"])
+        self.assertEqual(carry_state.finalize_counts(s2, {})["outstanding_cw"],
+                         0, r2["filtered"])
+        self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
 
 
 # Which record leads: the carried copy (STABLE_CONF re-report, out-ranked by
