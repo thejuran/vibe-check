@@ -381,14 +381,17 @@ Existing fixture worth extending for the eight-row case: `scripts/fixtures/iplay
 | A2 | A rerun on an unchanged tree under `/deep-review` uses the same state file as `/review` and dispatches no agents | V3 | if wrong, "/deep-review" advice could stay; medium. Verified from prose (`05-state.md:87-89`, key by mode), not from a live run |
 | A3 | Complement-with-count reading of "the 7 fixed rows" is acceptable to the owner | Open Q1 | owner may consider it guessing; this decides whether the reference case acts or asks |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **How does "the 7 fixed rows" resolve? (blocks the ANSR-01 regression test)**
    - What we know: the card has no "fixed" marker. On the eight-row card, after "the Browse recovery issue" resolves to #5, exactly 7 rows remain, and the owner stated 7.
    - Options: (a) a **complement-with-count** rule: "the N <words> rows" resolves to the remaining unassigned rows only when there are exactly N of them (no count → bulk `rest` semantics); (b) add a card-visible fix-status suffix (from the last pass's persisted `filtered[]` `verdict: fix not…`/`confirmed fix…` reasons, `45-persist.md:36`) so "fixed" becomes a real marker. Option (b) changes card text, and in iPlayarr 2.12.0 those rows carried no such reason anyway.
    - Recommendation: (a), with the count as the safety condition, tested with a mismatch mutant (owner says 6 → ask). The planner should state it in the plan as the D-02 marker choice (CONTEXT lists marker choice as Claude's discretion) and surface it to the owner at plan review, because it lets a description dismiss critical rows by implication.
+   - RESOLVED: owner ruling D-16 (58-CONTEXT.md, 2026-10-27) — complement-with-count, at any band, with a count-mismatch mutant; implemented by 58-03 (`remaining` marker with `count`).
 2. **Close-out after rerun when the rerun surfaces new findings.** Recommendation: go to Close out anyway. Finalize's card shows every undecided row, so nothing is skipped silently. Confirm with the owner only if the plan reviewer objects.
+   - RESOLVED: owner ruling D-17 — go to Close out anyway. Durable carrier across the automatic Rerun = the whole-token `--close-out-after-rerun` re-entry marker (58-07 spine side, 58-08 fix-loop side), mirroring how Close out appends `--finalize`; no new state-file field.
 3. **Fix-loop typed `fix N` path reuses the subset fence (`50-fix-loop.md:121`).** It is fine behaviorally; just make sure the residue cleanup (I-10) does not reintroduce Finalize-specific wording there.
+   - RESOLVED: moot once the I-10 residue ("From your finalize answer:" block, `<echo_text>` slot) is fully removed by 58-04 Task 2; the `list_in_card_problems` lock asserts both needles are absent from the whole file.
 
 ## Environment Availability
 
