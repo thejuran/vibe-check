@@ -805,8 +805,15 @@ HOLD_NEEDLES = ("A recorded dismiss or defer holds while its evidence is "
 
 def decision_hold_problems(card):
     """[] when the hold sentence says what Phase 57's stale check does."""
-    problems = ["hold sentence lacks: " + n for n in HOLD_NEEDLES
-                if card.count(n) != 1]
+    problems = []
+    if card.count(HOLD_NEEDLES[0]) != 1:
+        problems.append("hold sentence missing or repeated")
+        sentence = ""
+    else:
+        start = card.index(HOLD_NEEDLES[0])
+        sentence = card[start:card.index("\n", start)]
+    problems += ["hold sentence lacks: " + n for n in HOLD_NEEDLES[1:]
+                 if n not in sentence]
     if "holds until its own line is edited" in card:
         problems.append("the pre-Phase-57 hold sentence is back")
     return problems

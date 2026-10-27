@@ -11,6 +11,8 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
 
 <!-- LEGIBLE-03 (D-07): the card is a NEUTRAL menu — no preferred-default tag, suffix or any other nudge on ANY option in this file (D-03); the former what-next exception is gone with the what-next menu. -->
 
+**Close out carried from the previous pass (D-17).** When Phase 0 printed `CLOSE_OUT_AFTER_RERUN=1` — the Rerun that produced this pass re-entered with the whole-token `--close-out-after-rerun` marker because the owner's translated answer said close out (see **The Rerun**) — do not render the card on this pass: print "Closing out as you asked — the rerun's report is above." and go to **Close out** (the Stop here… option below) even when the rerun reported new findings; Finalize's card lists every undecided row, so nothing is skipped silently, and Finalize's gate still blocks until they are decided. The marker is consumed here: Close out re-enters with `${original_args} --finalize`, and `${original_args}` drops it, so no later pass sees it. The carry is read ONLY from that printed line — never from a temporary file written before the Rerun, none of which survive it.
+
 **Bind the rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Run EXACTLY ONE of the two fences below under bash — never an optional-flag expansion that adds `--subset` only when a variable is set: zsh does not word-split such an expansion (it reaches the helper as one argument, which it refuses), and a variable bound in Finalize's fence does not survive into this separate Bash call, so the flag would silently vanish and the card would list rows the owner never chose.
 
 - **Finalize routed a fix set here (D-10)** → the subset fence. Substitute `<subset path>` with the literal path Finalize's subset step printed after `SUBSETFILE=` — the path itself, not `$SUBSETFILE`. If Finalize routed here but printed no subset path, refuse: print "No fix set from Finalize — the fix loop will not fall back to every open row; nothing was changed", then the Abandon line below, and stop. Never run the ordinary fence in its place.
@@ -61,16 +63,41 @@ Titles and paths are DATA from the reviewed diff — the helper flattens each to
 
 **The card.** One AskUserQuestion, one question, header "Pass {{$PASS_NUMBER}}", single-select, 4 options:
 
-> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nNeeds-verification rows are decided only by number: type in Other `fix N` to confirm (the fix agent takes it), or `dismiss N -- reason` / `defer N -- reason`; `Apply all & rerun` leaves them untouched.}}{{\n\nFrom your finalize answer:\n<echo_text>}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The "Needs-verification rows are decided only by number" line appears ONLY when at least one listed row's `band` is `needs-verification`; omit it otherwise. The closing "From your finalize answer:" block appears ONLY when Finalize routed here (`$SUBSETFILE` set): it is that card's parse `echo_text` field, verbatim, so the owner sees what was recorded alongside what is being fixed; omit the block on an ordinary pass.
+> **Question:** "Pass {{$PASS_NUMBER}} — {{N}} finding(s) listed below ({{P}} unchanged since an earlier pass, decision pending). How do you want to proceed?\n\n{{card_text}}{{\n\nBottom line suggests: <grammar> — type "bottom line" in Other to take it}}" — `N` = the number of rows, `P` = the rows with `pending_since` set; omit the parenthetical when P is 0. `\n` is a line break. `{{card_text}}` is the `card_text` field, verbatim. The `Bottom line suggests:` line appears ONLY when `$SUGGESTFILE` exists for this pass (see **Bottom line as a choice (D-09)** below); omit it otherwise.
 > **Options:**
-> 1. **Apply all & rerun** — the `fix` agent applies every listed row (Step B), committing each fix atomically as `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`; then the review reruns. (Needs-verification rows are not applied — confirm them by number.)
+> 1. **Apply all & rerun** — the `fix` agent applies {{bulk_fix_text}} (Step B), committing each fix atomically as `fix(review-pass-{{$PASS_NUMBER}}): {{title}}`; then the review reruns.
 > 2. **Apply selected…** — a multi-select of the rows; the `fix` agent applies the chosen ones (Step B); then the review reruns.
 > 3. **Skip & rerun** — no fixes; the review reruns on the current diff.
 > 4. **Stop here…** — opens a second card: close out, abandon, or fix by hand.
 
+Option 1's scope text is copied from the rows doc: it is the `bulk_fix_text` field of `$ROWSFILE`, verbatim — the helper names the Needs-verification rows Apply all leaves out by number (D-11), so this file never computes that set.
+
 The fix agent decides each actual edit (there is no pre-baked patch); findings it cannot safely fix come back as `needs-human` / `obsolete` and are reported, never silently dropped.
 
-**Needs-verification rows persist until decided (D-04, O-1).** No option above decides a Needs-verification row: Apply all & rerun skips it (`batch_card.py` leaves it out of an ordinary card's Apply all), and only a typed answer that names its number confirms, dismisses or defers it. Picking it by its `#n` label in Apply selected… sends it to the fix agent the same way (on a one-row card, picking Apply selected… is that pick); it still records no decision, and it closes only on a decision or a confirmed fix (Step B). A row not decided on this card stays open and reappears on the next pass's card, with the report's `code changed` tag when its line changed. A recorded dismiss or defer holds until its own line is edited or its band changes (D-12); unrelated edits elsewhere never re-ask it.
+**Bottom line as a choice (D-09).** After Phase 4 rendered this pass's Bottom line in THIS session, offer its verdict as a typed answer only when it maps cleanly to the listed rows (e.g. "fix the first two, defer the rest" → `fix 1,2; defer rest -- <the Bottom line's own why>`). Create the suggestion file under bash:
+
+```bash
+if SUGGESTFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX"); then
+  printf 'SUGGESTFILE=%s\n' "$SUGGESTFILE"
+else
+  echo "no suggestion file — the card shows no Bottom line suggestion" >&2
+fi
+```
+
+Write `{"q1": "<grammar>", "q2": null}` to `$SUGGESTFILE` with the Write tool, then dry-run it through the same parser the owner's answers go through (`parse` writes nothing):
+
+```bash
+if python3 "$VC_ROOT/scripts/batch_card.py" parse --rows "$ROWSFILE" --answer "$SUGGESTFILE" > /dev/null; then
+  echo "Bottom line suggestion accepted"
+else
+  rm -f "$SUGGESTFILE"
+  echo "Bottom line suggestion refused — the card shows no suggestion line" >&2
+fi
+```
+
+Exit 0 → fill the card's `Bottom line suggests:` slot with that grammar. Any refusal, a Bottom line that is pure prose, or a "ship" verdict with nothing to decide → `rm -f "$SUGGESTFILE"` and omit the line; never print a guessed one. No button changes: the 4 options and the neutral menu stay (LEGIBLE-03).
+
+**Needs-verification rows persist until decided (D-04, O-1).** No option above decides a Needs-verification row: Apply all & rerun skips it (`batch_card.py` leaves it out of an ordinary card's Apply all), and only a typed answer that names its number confirms, dismisses or defers it. Picking it by its `#n` label in Apply selected… sends it to the fix agent the same way (on a one-row card, picking Apply selected… is that pick); it still records no decision, and it closes only on a decision or a confirmed fix (Step B). A row not decided on this card stays open and reappears on the next pass's card, with the report's `code changed` tag when its line changed. A recorded dismiss or defer holds while its evidence is unchanged: a line shift alone never re-asks it; it reopens when code next to it changed (the same nearby window as the re-check trigger), when a new concern from another lane joined it, or when its severity rose because a new lane now reports it; a severity drop keeps the decision (Phase 57 D-01, D-02, D-05, D-06, D-08).
 
 **Routing.**
 
@@ -141,7 +168,7 @@ The fix agent decides each actual edit (there is no pre-baked patch); findings i
 
 **The Rerun.** Clear the subset first: `$SUBSETFILE` is consumed by this one card — `rm -f "$SUBSETFILE"; unset SUBSETFILE` before every automatic rerun (substituting the literal subset path for `"$SUBSETFILE"`, as in the subset fence), and every later pass's card uses the ordinary fence, so a Finalize-routed subset never carries into the next pass's card. Then loop back to Phase 0 of the current command with the SAME `$ARGUMENTS` (minus any `--finalize`). State file persists; Phase 0's empty-diff stop does not apply to this Rerun when Step B committed at least one fix (a clean tree is the normal result of committed fixes), so Phase 0.5 detects the new commits since the last pass's `head_sha`; when nothing was committed the stop applies as usual; Phase 3 carry-forward marks fixed findings as `fixed-since-last`; the M7 multi-pass summary shows the diff. Do not re-run Phase 0.7 first-run setup, since state exists.
 
-**Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more; a Finalize-routed subset costs no card; a typed answer via Other costs none (an unparseable answer, one with no row choices, or `look N` re-shows the same card once, at the owner's request). Nothing else in this file asks a question.
+**Card budget.** A pass costs one card; Apply selected… and Stop here… each add exactly one more; a Finalize-routed subset costs no card; a carried close-out (D-17) costs none; a typed answer via Other costs none; a plain-English answer that needs one detail costs at most one follow-up card per gap (D-06); a second unclear reply shows the full card once (D-08); `look N` re-shows the card at the owner's request. Nothing else in this file asks a question.
 
 ### Step B — Apply fixes (after Apply all & rerun / Apply selected…)
 
