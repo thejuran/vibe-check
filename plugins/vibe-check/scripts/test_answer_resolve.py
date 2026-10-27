@@ -614,6 +614,70 @@ class TestGapRound(unittest.TestCase):
         self.assertEqual(out["parse_reason"], batch_parse.REASON_REST_TWICE)
 
 
+class TestGapRoundLockTrips(unittest.TestCase):
+    """Each gap-round guard is load-bearing: its mutant trips the lock."""
+
+    def test_m6_substring_matching_restored(self):
+        def substring_match(rows, text):
+            words = text.casefold().split()
+            return [r for r in rows if all(
+                w in batch_card._one_line(r.get("title")).casefold()
+                for w in words)]
+
+        with self.subTest("real"):
+            check_fragments_none(self)
+        with self.subTest("mutant: substring title match"):
+            with mock.patch.object(batch_card, "_match_title",
+                                   substring_match):
+                self.assertNotEqual(title_status(fragment_rows(), "port"),
+                                    ("none", []))
+                with self.assertRaises(AssertionError):
+                    check_fragments_none(self)
+
+    def test_m7_filler_not_stripped(self):
+        doc, refs = iplayarr_rows(), verbatim_refs()
+        with self.subTest("real"):
+            check_verbatim_clause(self, resolve(doc, refs))
+        with self.subTest("mutant: filler kept"):
+            with mock.patch.object(batch_card, "_TITLE_FILLER", frozenset()):
+                out = resolve(doc, refs)
+            self.assertEqual(out["refs"][0]["status"], "none")
+            with self.assertRaises(AssertionError):
+                check_verbatim_clause(self, out)
+
+    def test_m8_changed_includes_joined(self):
+        doc = stale_cause_rows()
+        refs = refs_doc([ref_marker("fix", "changed")])
+        real_marker_rows = batch_card._marker_rows
+
+        def any_stale(rows, marker):
+            if marker == "changed":
+                return [r for r in rows if r.get("stale")]
+            return real_marker_rows(rows, marker)
+
+        with self.subTest("real"):
+            check_changed_excludes_joined(self, resolve(doc, refs))
+        with self.subTest("mutant: changed includes joined"):
+            with mock.patch.object(batch_card, "_marker_rows", any_stale):
+                out = resolve(doc, refs)
+            self.assertIn(2, out["refs"][0]["rows"])
+            with self.assertRaises(AssertionError):
+                check_changed_excludes_joined(self, out)
+
+    def test_m9_serious_group_without_count_acts(self):
+        doc, refs = nv_dismiss_case()
+        with self.subTest("real"):
+            check_count_needed(self, resolve(doc, refs), ["#6"])
+        with self.subTest("mutant: D-18 check removed"):
+            with mock.patch.object(batch_card, "_needs_count",
+                                   lambda ref, matched: False):
+                out = resolve(doc, refs)
+            self.assertEqual(out["refs"][0]["status"], "one")
+            self.assertEqual(out["refs"][0]["rows"], [6])
+            with self.assertRaises(AssertionError):
+                check_count_needed(self, out, ["#6"])
+
+
 # --------------------------------------------------------------------------- #
 # Stale card: prior numbers re-mapped by finding identity (D-07).
 # --------------------------------------------------------------------------- #
