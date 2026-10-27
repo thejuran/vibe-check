@@ -459,16 +459,105 @@ def check_followup(text):
 STALE_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
               '--prior-rows "$PRIORROWSFILE"')
 STALE_NEEDLES = ("`prior_number`", "by finding identity",
-                 "shows the new numbers", "an earlier `--finalize`")
+                 "shows the new numbers",
+                 "the fix-loop card shown before Close out in this session",
+                 "printed after `ROWSFILE=`", "no longer available")
+# The unreachable prior-card source: no earlier --finalize card survives into
+# a later invocation, and a rows path is never carried as a shell variable.
+STALE_FORBIDDEN = ("an earlier `--finalize`",
+                   "that card's `$ROWSFILE` path, used as is")
 
 
 def check_stale(text):
     """A stale Finalize card is re-mapped by identity through the
-    --prior-rows twin fence, and the echo shows the new numbers."""
+    --prior-rows twin fence from the fix-loop card's printed rows path, and
+    the echo shows the new numbers; with no printed path it falls back."""
     section = card_section(text)
     problems = [n for n in STALE_NEEDLES if n not in section]
+    problems += ["stale source still names %r" % n for n in STALE_FORBIDDEN
+                 if n in section]
     if not any(STALE_CALL in f for f in bash_fences(section)):
         problems.append("no --prior-rows twin resolve fence")
+    return problems
+
+
+MKTEMP_RE = re.compile(r"^\s*(?:if )?([A-Z_]+FILE)=\$\(mktemp", re.M)
+PATH_CONVENTION = ("a path printed after `NAME=` is reused in a later fence "
+                   "only as that literal, substituted for `\"$NAME\"`")
+
+
+def check_printed_paths(text):
+    """Every temp file the card creates prints its path in the same fence,
+    and one sentence says a printed path is reused only as that literal."""
+    section = card_section(text)
+    problems = []
+    for body in bash_fences(section):
+        for name in MKTEMP_RE.findall(body):
+            printf = "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+            if printf not in body:
+                problems.append("%s created but its path is not printed" % name)
+    count = section.count(PATH_CONVENTION)
+    if count != 1:
+        problems.append("path convention sentence appears %d times" % count)
+    return problems
+
+
+ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
+STEP2_HEAD = "  2. `fix` non-empty"
+STEP3_HEAD = "  3. `fix` empty"
+STEP3_END = "Never jump to `write`"
+FIXLOOP_READ = "Read $VC_ROOT/phases/review/50-fix-loop.md"
+D08_HEAD = "one follow-up per gap (D-08)"
+PARSE_HEAD = "**Parse.**"
+BOTTOM_HEAD = "**Bottom line as a choice (D-09).**"
+SUGGEST_OLD = "`$SUGGESTFILE` exists for this card"
+
+
+def _line_starting(section, head):
+    for line in section.splitlines():
+        if line.startswith(head):
+            return line
+    return ""
+
+
+def _clear_before(chunk, anchor, where):
+    i, j = chunk.find(ANSWER_FILES_CLEAR), chunk.find(anchor)
+    if j < 0:
+        return ["%s: anchor %r missing" % (where, anchor)]
+    if i < 0 or i > j:
+        return ["%s: answer files not cleared before %r" % (where, anchor)]
+    return []
+
+
+def check_answer_files(text):
+    """Once the answer is acted on, the suggestion/refs/resolve files are
+    removed (fix-loop hand-off, gate re-run, D-08 fallback), and a Bottom
+    line suggestion counts only when printed on the card currently shown."""
+    section = card_section(text)
+    problems = []
+    s2, s3 = section.find(STEP2_HEAD), section.find(STEP3_HEAD)
+    s3_end = section.find(STEP3_END, s3)
+    if s2 < 0 or s3 < s2 or s3_end < s3:
+        return ["After the answer steps 2/3 not found"]
+    problems += _clear_before(section[s2:s3], FIXLOOP_READ, "step 2")
+    problems += _clear_before(section[s3:s3_end], "RE-RUN the counts step",
+                              "step 3")
+    para = followup_paragraph(text)
+    d08 = para.find(D08_HEAD)
+    if d08 < 0:
+        problems.append("D-08 fallback sentence missing")
+    else:
+        problems += _clear_before(para[d08:], "show the full card once",
+                                  "D-08 fallback")
+    parse = _line_starting(section, PARSE_HEAD)
+    if SUGGEST_OLD in parse:
+        problems.append("Parse still trusts any existing $SUGGESTFILE")
+    if "printed on the card currently shown" not in parse:
+        problems.append("Parse does not tie 'bottom line' to the shown card")
+    if "created for this card" not in q1_line(section):
+        problems.append("Q1 suggestion line not tied to this card's file")
+    if "was removed at Close out" not in _line_starting(section, BOTTOM_HEAD):
+        problems.append("D-09 does not say the fix-loop file was removed")
     return problems
 
 
@@ -849,6 +938,69 @@ class TestPhase58FinalizeRouting(LockCase):
             self.assert_trips(check_budget, self._mutant(
                 " or a second unclear reply (which shows the full card once, "
                 "D-08)"))
+
+
+class TestGapRoundFinalize(LockCase):
+    """Every Finalize temp path is printed and reused only as a literal; the
+    answer files are cleared once the answer is acted on; the stale re-map
+    reads the fix-loop card's printed rows path or falls back."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_printed_paths_holds(self):
+        self.assert_holds(check_printed_paths, self.text)
+
+    def test_mutant_printed_paths(self):
+        with self.subTest("mutant: RESOLVEFILE path not printed"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                "printf 'RESOLVEFILE=%s\\n' \"$RESOLVEFILE\"\n"))
+        with self.subTest("mutant: convention sentence dropped"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                PATH_CONVENTION, "a path is reused"))
+
+    def test_answer_files_holds(self):
+        self.assert_holds(check_answer_files, self.text)
+
+    def test_mutant_answer_files(self):
+        s2 = self.text.index(STEP2_HEAD)
+        s3 = self.text.index(STEP3_HEAD)
+        step2 = self.text[s2:s3]
+        with self.subTest("mutant: step 2 keeps the answer files"):
+            mutant = (self.text[:s2]
+                      + step2.replace(ANSWER_FILES_CLEAR, "true", 1)
+                      + self.text[s3:])
+            self.assert_trips(check_answer_files, mutant)
+        with self.subTest("mutant: any existing SUGGESTFILE counts again"):
+            self.assert_trips(check_answer_files, self._mutant(
+                "printed on the card currently shown",
+                "printed on the card currently shown and " + SUGGEST_OLD))
+        with self.subTest("mutant: D-09 forgets the Close out removal"):
+            self.assert_trips(check_answer_files, self._mutant(
+                "was removed at Close out", "was kept"))
+
+    def test_stale_source_holds(self):
+        self.assert_holds(check_stale, self.text)
+
+    def test_mutant_stale_source(self):
+        anchor = "the fix-loop card shown before Close out in this session"
+        with self.subTest("mutant: earlier --finalize case restored"):
+            self.assert_trips(check_stale, self._mutant(
+                anchor, anchor + ", or " + STALE_FORBIDDEN[0]
+                + " built a card the owner is still answering"))
+        with self.subTest("mutant: 'used as is' source restored"):
+            self.assert_trips(check_stale, self._mutant(
+                "printed after `ROWSFILE=`",
+                "printed after `ROWSFILE=` (" + STALE_FORBIDDEN[1] + ")"))
+        with self.subTest("mutant: no-path fallback dropped"):
+            self.assert_trips(check_stale, self._mutant(
+                "no longer available", "gone"))
 
 
 # --------------------------------------------------------------------------- #
