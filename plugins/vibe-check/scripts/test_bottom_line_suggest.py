@@ -83,7 +83,20 @@ def check_output_passes_parse(tc, rows_doc, ans):
     tc.assertIsNotNone(parsed)
 
 
+def check_reason_one_line(tc):
+    out, _dropped = suggest_ok(iplayarr_rows(),
+                               answer("defer 8 -- line1\nline2\ttab"))
+    tc.assertEqual(out["q1"], "defer 8 -- line1 line2 tab")
+
+
+EMPTY_GUARD = ("    if not clauses:\n"
+               "        return None, REASON_SUGGEST_EMPTY\n")
+
+
 class TestSuggest(unittest.TestCase):
+    def test_reason_is_one_line(self):
+        check_reason_one_line(self)
+
     def test_fixture_bands(self):
         bands = [r["band"] for r in iplayarr_rows()["rows"]]
         self.assertEqual(bands, ["critical"] * 3 + ["warning"] * 4
@@ -223,23 +236,33 @@ class TestSuggestLockTrips(unittest.TestCase):
                     check_dismiss_critical_dropped(self)
 
     def test_s2_empty_refusal_dropped(self):
-        real_suggest = batch_card.suggest
-
-        def no_empty_refusal(rows_doc, ans):
-            result, reason = real_suggest(rows_doc, ans)
-            if reason == batch_card.REASON_SUGGEST_EMPTY:
-                return ({"q1": "", "q2": None}, []), None
-            return result, reason
-
+        # The mutant is the real module source with the `if not clauses`
+        # guard removed, compiled in memory into its own namespace.
+        with open(batch_card.__file__, encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertEqual(source.count(EMPTY_GUARD), 1)
+        ns = {"__name__": "batch_card_mutant",
+              "__file__": batch_card.__file__}
+        exec(compile(source.replace(EMPTY_GUARD, ""), batch_card.__file__,
+                     "exec"), ns)
         with self.subTest("real"):
             check_all_dropped_refuses(self)
-        with self.subTest("mutant: empty suggestion emitted"):
-            with mock.patch.object(batch_card, "suggest", no_empty_refusal):
+        with self.subTest("mutant: empty-suggestion guard removed"):
+            self.assertEqual(ns["suggest"](iplayarr_rows(),
+                                           answer("dismiss 1,2,3 -- fp")),
+                             (None, batch_parse.REASON_EMPTY))
+            with mock.patch.object(batch_card, "suggest", ns["suggest"]):
                 with self.assertRaises(AssertionError):
                     check_all_dropped_refuses(self)
+
+    def test_s4_reason_not_flattened(self):
+        with self.subTest("real"):
+            check_reason_one_line(self)
+        with self.subTest("mutant: _one_line leaves line breaks"):
+            with mock.patch.object(batch_card, "_one_line",
+                                   lambda v: v if isinstance(v, str) else ""):
                 with self.assertRaises(AssertionError):
-                    check_output_passes_parse(
-                        self, iplayarr_rows(), answer("dismiss 1,2,3 -- fp"))
+                    check_reason_one_line(self)
 
     def test_s3_final_dry_run_dropped(self):
         real_parse = batch_card.parse

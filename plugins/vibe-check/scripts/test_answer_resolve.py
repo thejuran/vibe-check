@@ -32,7 +32,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SIX_ROW_FIXTURE = os.path.join(HERE, "fixtures",
                                "iplayarr45-six-row-state.json")
 
-NEW_REASON_NAMES = ("REASON_REFS", "REASON_PRIOR_ROWS", "REASON_PRIOR_NEEDED")
+NEW_REASON_NAMES = ("REASON_REFS", "REASON_PRIOR_ROWS", "REASON_PRIOR_NEEDED",
+                    "REASON_PRIOR_SUBSET")
 RESOLVE_REASONS = set(ALL_REASONS) | {
     getattr(batch_card, name) for name in NEW_REASON_NAMES
     if hasattr(batch_card, name)}
@@ -635,15 +636,15 @@ class TestGapRoundLockTrips(unittest.TestCase):
                     check_fragments_none(self)
 
     def test_m7_filler_not_stripped(self):
-        doc, refs = iplayarr_rows(), verbatim_refs()
         with self.subTest("real"):
-            check_verbatim_clause(self, resolve(doc, refs))
+            check_filler_only_none(self, iplayarr_rows(), ("a", "this one"))
         with self.subTest("mutant: filler kept"):
             with mock.patch.object(batch_card, "_TITLE_FILLER", frozenset()):
-                out = resolve(doc, refs)
-            self.assertEqual(out["refs"][0]["status"], "none")
-            with self.assertRaises(AssertionError):
-                check_verbatim_clause(self, out)
+                self.assertNotEqual(title_status(iplayarr_rows(), "a")[0],
+                                    "none")
+                with self.assertRaises(AssertionError):
+                    check_filler_only_none(self, iplayarr_rows(),
+                                           ("a", "this one"))
 
     def test_m8_changed_includes_joined(self):
         doc = stale_cause_rows()
@@ -676,6 +677,261 @@ class TestGapRoundLockTrips(unittest.TestCase):
             self.assertEqual(out["refs"][0]["rows"], [6])
             with self.assertRaises(AssertionError):
                 check_count_needed(self, out, ["#6"])
+
+
+# --------------------------------------------------------------------------- #
+# Final round: a fix-subset rows file is never the prior card (WR-03); a
+# title reference picks the single best-matching row, and only with a clear
+# margin (WR-02).
+# --------------------------------------------------------------------------- #
+REVIEWER_PHRASINGS = (
+    ("the retry budget warning", 7),
+    ("the relay failover critical", 1),
+    ("the browse recovery one you flagged", 5),
+    ("the Browse recovery issue from earlier", 5),
+    ("the cursor bug in browse", 5),
+    ("Browse recovery (#5)", 5),
+    ("Retry budget's reset", 7),
+)
+# Row 4 retitled so it shares relay/budget/reset/after with row 7 and
+# relay/failover/after with row 1: coincidental overlap everywhere.
+OVERLAP_TITLE = "Relay budget reset after failover"
+# (text, status, rows the reference names or the candidates it lists,
+#  top score minus runner-up score)
+OVERLAP_CASES = (
+    ("the relay budget reset", "many", [4, 7], 0),
+    ("a relay after", "many", [1, 4, 7], 0),
+    ("relay reset", "many", [4, 7], 0),
+    ("the retry relay budget reset", "one", [7], 1),
+    ("failover budget", "one", [4], 1),
+    ("the relay failover budget", "one", [4], 1),
+    ("the deadline relay", "many", [1, 3, 4, 6], 0),
+)
+
+
+def subset_prior_doc():
+    """A `rows --subset` document for the pass-3 fix of row 5 (Browse
+    recovery), which it numbers 1."""
+    return {"at_pass": 3, "mode": "fix-loop", "subset": True,
+            "rows": _renumber([copy.deepcopy(iplayarr_rows()["rows"][4])])}
+
+
+def subset_prior_refs():
+    return refs_doc([ref_prior("dismiss", 1)], reason="fp")
+
+
+def overlap_rows():
+    return _retitled(iplayarr_rows(), 4, OVERLAP_TITLE)
+
+
+def title_ref(rows_doc, text):
+    """(the title reference's result, the whole resolve output)."""
+    out = resolve(rows_doc, refs_doc([ref_title("fix", text)]))
+    return out["refs"][0], out
+
+
+def candidate_numbers(ref):
+    return [int(c["label"].split()[0][1:]) for c in ref["candidates"]]
+
+
+def check_subset_prior_refused(tc):
+    out, reason = batch_card.resolve_refs(
+        iplayarr_rows(at_pass=4), subset_prior_refs(), subset_prior_doc())
+    tc.assertIsNone(out)
+    tc.assertEqual(reason, batch_card.REASON_PRIOR_SUBSET)
+
+
+def check_filler_only_none(tc, rows_doc, texts):
+    for text in texts:
+        ref, out = title_ref(rows_doc, text)
+        tc.assertEqual(ref["status"], "none", text)
+        tc.assertEqual(ref["candidates"], [], text)
+        tc.assertFalse(out["ok"])
+
+
+def check_tie_is_many(tc):
+    doc = _retitled(iplayarr_rows(), 4, "Browse recovery lost the page")
+    ref, out = title_ref(doc, "browse recovery")
+    tc.assertEqual(ref["status"], "many")
+    tc.assertEqual(ref["rows"], [])
+    tc.assertEqual(candidate_numbers(ref)[:2], [4, 5])
+    tc.assertFalse(out["ok"])
+
+
+def check_weak_match(tc):
+    ref, out = title_ref(iplayarr_rows(), "retries budget")
+    tc.assertEqual(ref["status"], "none")
+    tc.assertEqual(ref["rows"], [])
+    tc.assertEqual(len(ref["candidates"]), 1)
+    tc.assertTrue(ref["candidates"][0]["label"].startswith("#7 "))
+    tc.assertFalse(out["ok"])
+
+
+def check_adversarial_overlap(tc):
+    """Margin 0 always asks; a row is picked only with margin >= 1 at the
+    minimum; nothing breaks a tie."""
+    doc = overlap_rows()
+    for text, status, numbers, margin in OVERLAP_CASES:
+        ref, out = title_ref(doc, text)
+        tc.assertEqual(ref["status"], status, text)
+        if status == "one":
+            tc.assertEqual(ref["rows"], numbers, text)
+            tc.assertEqual(candidate_numbers(ref), [], text)
+        else:
+            tc.assertEqual(ref["rows"], [], text)
+            tc.assertEqual(candidate_numbers(ref), numbers, text)
+            tc.assertFalse(out["ok"], text)
+        scores = sorted((s for s, _r in batch_card._title_scores(
+            doc["rows"], text)), reverse=True)
+        top, runner_up = scores[0], scores[1]
+        tc.assertEqual(top - runner_up, margin, text)
+        wanted = [t for t in batch_card._title_tokens(text)
+                  if t not in batch_card._TITLE_FILLER]
+        if status == "one":
+            tc.assertGreaterEqual(top - runner_up, 1, text)
+            tc.assertTrue(top >= batch_card._TITLE_MIN_MATCH
+                          or top == len(wanted), text)
+        else:
+            tc.assertEqual(top, runner_up, text)
+
+
+class TestFinalRound(unittest.TestCase):
+    def test_subset_rows_as_prior_is_refused(self):
+        check_subset_prior_refused(self)
+        # The card's own rows file (no subset key) still re-maps.
+        out = resolve(iplayarr_rows(at_pass=4), subset_prior_refs(),
+                      iplayarr_rows(at_pass=3))
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["grammar"], "dismiss 1 -- fp")
+
+    def test_reviewer_phrasings_resolve(self):
+        for text, n in REVIEWER_PHRASINGS:
+            with self.subTest(text):
+                self.assertEqual(title_status(iplayarr_rows(), text),
+                                 ("one", [n]))
+
+    def test_single_token_exact_still_matches(self):
+        self.assertEqual(title_status(iplayarr_rows(), "budget"),
+                         ("one", [7]))
+        self.assertEqual(title_status(fragment_rows(), "import"),
+                         ("one", [2]))
+        check_fragments_none(self)
+
+    def test_multi_token_tie_is_many(self):
+        check_tie_is_many(self)
+
+    def test_weak_match_is_none_with_likely_row(self):
+        check_weak_match(self)
+
+    def test_adversarial_overlap_margin(self):
+        doc = overlap_rows()
+        self.assertEqual(doc["rows"][3]["title"], OVERLAP_TITLE)
+        for text, status, numbers, margin in OVERLAP_CASES:
+            with self.subTest(text):
+                ref, _out = title_ref(doc, text)
+                self.assertEqual((ref["status"], ref["rows"]
+                                  or candidate_numbers(ref)),
+                                 (status, numbers))
+        check_adversarial_overlap(self)
+
+    def test_verbatim_sentence_still_end_to_end(self):
+        check_verbatim_clause(self, resolve(iplayarr_rows(), verbatim_refs()))
+
+    def test_filler_only_still_none(self):
+        check_filler_only_none(self, iplayarr_rows(),
+                               ("the warning", "this critical one"))
+        # Titles that contain band words: band words stay filler, so a band
+        # word alone still names no row.
+        doc = _retitled(iplayarr_rows(), 4, "Warning text duplicated in banner")
+        doc = _retitled(doc, 3, "Critical section lock is never released")
+        doc = _retitled(doc, 2, "Medium-size buffer overflows on resize")
+        check_filler_only_none(self, doc, ("the warning", "this critical one",
+                                           "that medium one"))
+
+
+class TestFinalRoundLockTrips(unittest.TestCase):
+    """Each final-round guard is load-bearing: its mutant trips the lock."""
+
+    @staticmethod
+    def _mutant_match(on_tie=None, minimum=None):
+        """A _match_title built from the real scores with one rule changed:
+        `on_tie(best, scored)` replaces the tie result; `minimum` replaces the
+        unique-row minimum."""
+        def match(rows, text):
+            scored = batch_card._title_scores(rows, text)
+            wanted = [t for t in batch_card._title_tokens(text)
+                      if t not in batch_card._TITLE_FILLER]
+            top = max((s for s, _r in scored), default=0)
+            if not wanted or top == 0:
+                return []
+            best = [r for s, r in scored if s == top]
+            if len(best) >= 2:
+                return on_tie(best, scored) if on_tie else best
+            floor = minimum if minimum is not None else min(
+                batch_card._TITLE_MIN_MATCH, len(wanted))
+            return best if top >= floor else []
+        return match
+
+    def test_m10_tie_broken_by_first_row(self):
+        with self.subTest("real"):
+            check_tie_is_many(self)
+        with self.subTest("mutant: tie broken by first row"):
+            mutant = self._mutant_match(on_tie=lambda best, scored: best[:1])
+            with mock.patch.object(batch_card, "_match_title", mutant):
+                doc = _retitled(iplayarr_rows(), 4,
+                                "Browse recovery lost the page")
+                self.assertEqual(title_status(doc, "browse recovery"),
+                                 ("one", [4]))
+                with self.assertRaises(AssertionError):
+                    check_tie_is_many(self)
+
+    def test_m11_minimum_dropped(self):
+        with self.subTest("real"):
+            check_weak_match(self)
+        with self.subTest("mutant: a unique score of 1 always matches"):
+            mutant = self._mutant_match(minimum=1)
+            with mock.patch.object(batch_card, "_match_title", mutant):
+                self.assertEqual(title_status(iplayarr_rows(),
+                                              "retries budget"), ("one", [7]))
+                with self.assertRaises(AssertionError):
+                    check_weak_match(self)
+
+    def test_m12_subset_prior_accepted(self):
+        with self.subTest("real"):
+            check_subset_prior_refused(self)
+        with self.subTest("mutant: subset check removed"):
+            with mock.patch.object(batch_card, "_is_subset_doc",
+                                   lambda doc: False):
+                out = resolve(iplayarr_rows(at_pass=4), subset_prior_refs(),
+                              subset_prior_doc())
+                self.assertEqual(out["grammar"], "dismiss 5 -- fp")
+                with self.assertRaises(AssertionError):
+                    check_subset_prior_refused(self)
+
+    def test_m13_none_candidates_dropped(self):
+        with self.subTest("real"):
+            check_weak_match(self)
+        with self.subTest("mutant: none lists no candidate"):
+            with mock.patch.object(batch_card, "_title_candidates",
+                                   lambda rows, text: []):
+                with self.assertRaises(AssertionError):
+                    check_weak_match(self)
+
+    def test_m16_tie_broken_by_overlap_ratio(self):
+        def by_ratio(best, scored):
+            score = {r["n"]: s for s, r in scored}
+            return [max(best, key=lambda r: score[r["n"]] / len(
+                batch_card._title_tokens(r.get("title"))))]
+
+        with self.subTest("real"):
+            check_adversarial_overlap(self)
+        with self.subTest("mutant: tie broken by overlap ratio"):
+            mutant = self._mutant_match(on_tie=by_ratio)
+            with mock.patch.object(batch_card, "_match_title", mutant):
+                self.assertEqual(title_status(overlap_rows(), "a relay after"),
+                                 ("one", [4]))
+                with self.assertRaises(AssertionError):
+                    check_adversarial_overlap(self)
 
 
 # --------------------------------------------------------------------------- #
@@ -786,6 +1042,17 @@ class TestResolveCli(TempDirCase):
                              prior={"rows": "nope"})
         self.assertEqual(proc.returncode, 2)
         self.assertEqual(proc.stderr.decode(), batch_card.REASON_PRIOR_ROWS)
+
+    def test_cli_prior_rows_subset_refused(self):
+        proc = self._resolve(subset_prior_refs(),
+                             rows=iplayarr_rows(at_pass=4),
+                             prior=subset_prior_doc())
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        err = proc.stderr.decode()
+        self.assertEqual(err, batch_card.REASON_PRIOR_SUBSET)
+        self.assertIn(err, RESOLVE_REASONS)
+        self.assertNotIn("Browse", err)
 
     def test_cli_malformed_refs(self):
         good = ref_title("fix", "Browse recovery zebra")
