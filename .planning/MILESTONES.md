@@ -1,5 +1,30 @@
 # Milestones
 
+## v2.13 Reliable fix closure and recovery (Shipped: 2026-10-28)
+
+**Phases:** 56–58 (56: 6/6 plans, 57: 23/23 incl. four gap rounds, 58: 23/23 incl. two review rounds + a rollback) · **Release:** 2.13.0 (tag `v2.13`; one squash PR per phase into main, then a release PR) · **Git:** a6c1a24..8e70383 = 4 commits on main (3 squashed phase PRs), 172 files, +40,104/−1,603; plugin 35 files, +15,290/−262 · **Timeline:** 2026-10-18 → 2026-10-28 · **Suite:** 3588 passed, 0 failed · **Audit:** tech_debt, 14/14 requirements (`milestones/v2.13-MILESTONE-AUDIT.md`)
+
+**Not measured.** No B3 or holdout run; this is a closure/recovery release judged by reproduced-failure regression fixtures, mutants and replay (0 regressed). v2.11 (5/18 · 15/15, MISS) remains the last measured result.
+
+**Key accomplishments:**
+
+- **Verified fixes close (P56):** an independent reviewer's confirmation closes a fixed finding on a later run without a dummy edit or a repeated owner confirmation; the owner's six-row iPlayarr case (code added beneath an unchanged pinned line, a tests-only fix, four Codex-origin rows) closes with no "fixed in <sha>" dismissal; `/review` closes a `/deep-review`-only finding or says why it cannot; stale evidence and "still applies" keep findings open.
+- **Decision continuity (P57):** defer/dismiss decisions survive line shifts, regrouping and unrelated edits; a decision reopens on a nearby edit, a corroborated severity rise or a newcomer concern, and the card says which; a deferred finding stays open below threshold instead of vanishing.
+- **Clear actions and recovery (P58):** "Fix all"/"Apply all" name the rows they skip; each inconclusive re-check reason prints "Next run:" / "You can:" recovery steps that match the code; a clear plain-English answer to a decision card is translated to the card grammar and acted on, and an unclear one gets one follow-up about only the missing piece.
+- **Reproduce-first discipline held:** every change landed behind a failing fixture; non-reproducing paths were recorded and dropped (57: N1–N6; 58: bug C, fixed in v2.12).
+
+### Known limits (owner-accepted)
+
+- **999.23:** three wrong-keep shapes where a decided finding is not re-asked after its evidence changes (CR-01, CR-02, CR-04), plus min_confidence and `--all` deferral-loss edges — Phase 57 closed under the D-19 hard stop.
+- **999.24:** default-context diffs widen the nearby window to ~8 lines (over-asks only).
+- **999.25:** Finalize `$BLOBFILE` across Bash calls (fails safe: Finalize stops).
+- **999.26:** wordier plain-English title references ask instead of resolving (fails safe).
+- **Unverified live:** the model's own extraction of references from a free-text card answer (D-15; UAT kept in 58-HUMAN-UAT.md).
+
+Known deferred items at close: 6 (see STATE.md Deferred Items)
+
+---
+
 ## v2.12 Quiet without hiding (Shipped: 2026-10-17 — UNMET, measurement incomplete; shipped under owner waiver)
 
 **Phases:** 51–54 executed (51: 10/10 plans, 52: 14/14, 53: 14/14, 54: 14/15 + follow-ups 54-16/54-17); Phase 55 measurement campaign DEFERRED · **Release:** 2.12.0 (tag `v2.12` → a4b0c3f, fast-forward of main, atomic push) · **Git:** v2.11.1..v2.12 = 408 commits, 733 files, +170,141/−973 (mostly design evidence and measurement tooling under docs/design/) · **Timeline:** 2026-10-07 → 2026-10-17

@@ -16,22 +16,15 @@ Catch real defects in a developer's changes before they ship — with high cover
 low noise — so a reviewer who can't manually audit the code can trust the agent's output
 as their safety net.
 
-## Current Milestone: v2.13 Reliable fix closure and recovery (started 2026-10-23)
+## Current Milestone: none (next not yet scoped)
 
-**Goal:** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable.
+Start with `/bm:new-milestone`. Candidates: backlog 999.23–999.26 (v2.13 known limits) and 999.12 (cost visibility feasibility).
 
-**Target features:**
-- Verified fixes stay fixed (remaining 999.22): bounded retry of the independent re-check on current evidence; the reported six-row case (code added beneath an unchanged pinned line, tests-only `arrFacade` fix, four Codex-origin rows); `/review` unable to close a `/deep-review`-only finding
-- Decision continuity within closure: defer/dismiss decisions survive regrouping and unrelated edits, and reopen when relevant evidence changes
-- Clear actions and recovery (999.13 subset): truthful "Fix all" label, bounded recovery guidance for an inconclusive re-check, plain-English decision-card answers translated instead of re-asked, check whether finalize `fix N` still re-asks Apply/Skip
+## Last Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
 
-**Progress:** Phase 56 (Verified fixes close) complete 2026-10-25 — VFIX-01..06 validated: independent re-checks close fixed findings on current code (six-row iPlayarr case closes with no dismissal), inconclusive re-checks retry on later runs, stale evidence and still-applies verdicts stay blocking; Needs-verification items close only after a code change (owner ruling). Phase 57 (Decision continuity) complete 2026-10-27 with known limits (999.23, 999.24). Phase 58 (Clear actions, recovery and answers acted on) complete 2026-10-28 — RECV-01/02, ANSR-01/02/03 validated: labels name what they skip, per-reason recovery pairs, plain-English card answers translated and acted on (strict title matching; wordier phrasings ask, 999.26), bug C did not reproduce; verification human_needed (live ref extraction) approved by owner. All v2.13 phases complete; next: Phase 58 PR, then milestone audit.
+**Goal (met, with owner-accepted known limits):** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable. 14/14 requirements (VFIX-01..06, DECN-01..03, RECV-01..02, ANSR-01..03); audit tech_debt; suite 3588/0. Not B3-measured. Known limits: 999.23 (wrong-keep shapes, D-19 hard stop), 999.24 (diff context), 999.25 ($BLOBFILE), 999.26 (wordier title references); live ref extraction unverified (D-15). Archive: `.planning/milestones/v2.13-ROADMAP.md`.
 
-**Working rule:** reproduce each failure on current code before fixing it; a failure that does not reproduce is recorded and dropped, not replaced with invented work. Local tests and existing replay evidence first; any live check is separately bounded and approved.
-
-**Not in this milestone:** cost visibility (999.12, separate nonblocking task), broad deduplication rewrite, scoring retune, new reviewer lane, orchestrator changes, B3/holdout measurement campaign, paid runs without an approved proposal. Lower-value items stay [archived with reopening conditions](backlog/archive/2026-10-18/ROI-DEFERRED.md). Historical milestone goals below are not instructions to resume their campaigns.
-
-## Last Milestone: v2.12 Quiet without hiding (SHIPPED 2026-10-17 as 2.12.0 — UNMET, measurement incomplete; owner waiver)
+## Earlier Milestone: v2.12 Quiet without hiding (SHIPPED 2026-10-17 as 2.12.0 — UNMET, measurement incomplete; owner waiver)
 
 **Goal:** Fewer bogus findings without losing real catches or breaking the accepted-fix workflow. Closes v2.11's false-alarm miss (5/18 vs ≤3/18) with an independent sealed holdout, not by re-tuning on B3 alone.
 
@@ -47,7 +40,7 @@ Design spec: `docs/superpowers/specs/2026-10-08-quiet-without-hiding-v2.12-desig
 
 **Progress:** Phase 51 complete (2026-10-09): six-case holdout sealed (`SEAL.json` committed alone, a23e325; seal-order OK), HOLD-01..04 validated. Owner rule locked during the real run: a case's own source code outside tuning-side places is not a leak (all six slots cleared, none replaced). Phase 52 complete (2026-10-10; review gates closed 2026-10-12): hardening + accepted-fix harness, HARD/FLOW validated. Phase 53 complete (2026-10-15): three-outcome reachability replaces Rule 2, evidence-based suppression, never-filtered Needs-verification group that blocks finalize and counts as an alarm, per-member second-opinion (owner-approved severity correction with disclosed same-line-proxy limitation), Phase-53 state at `.turingmind/state/format-53/`; QUIET-01..09 validated; dev rehearsal on fingerprint 5bee4c11… signed off (7/7 catches; should-quiet-4 recorded residual, no exemption). Phase 54 subsequently closed under the owner-approved reduced scope; Phase 55 measurement remains deferred. See the archived v2.12 roadmap for the final release record.
 
-## Last Milestone: v2.11 Quiet loop (SHIPPED 2026-10-08 as 2.11.0 + 2.11.1)
+## Earlier Milestone: v2.11 Quiet loop (SHIPPED 2026-10-08 as 2.11.0 + 2.11.1)
 
 **Goal (met, except the false-alarm bar):** A deep-review pass costs the owner one decision card, a finding is asked about once, and a lane that has nothing to read does not run. Catch rate held at 15/15. False alarms came in at 5/18 against a bar of ≤3/18, a MISS the owner accepted.
 
@@ -94,7 +87,11 @@ results + README. Backlog effects: 999.12 promoted in, 999.8 absorbed, 999.13 re
 after this milestone; gitleaks (999.2), SARIF (999.3), PR-posting (999.5) unchanged/deferred.
 Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-design.md`.
 
-## Current State: v2.12 shipped (2026-10-17)
+## Current State: v2.13 shipped (2026-10-28)
+
+**v2.13 shipped as plugin 2.13.0** (tag `v2.13`; one squash PR per phase into main, then a release PR). Reliable fix closure and recovery: an independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation (the six-row case incl. Codex-origin and tests-only fixes closes with no dismissal); owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence; "Fix all" names what it skips; inconclusive re-checks print per-reason recovery steps; clear plain-English card answers are acted on. Not B3-measured — v2.11 (5/18 · 15/15, MISS) remains the last measured result. Known limits in backlog 999.23–999.26. Next milestone: not scoped.
+
+### Earlier: v2.12 shipped (2026-10-17)
 
 **v2.12 shipped as plugin 2.12.0** (annotated tag `v2.12` → `a4b0c3f`; main fast-forwarded; one atomic push of main, the tag and feat/v2.12, verified on the remote). **Outcome: UNMET — measurement incomplete; shipped under owner waiver.** The noise target (B3 ≤3/18 · 15/15) was not demonstrated — the release measurement campaign was not completed (owner credit-budget decision 2026-10-17); v2.11 (5/18 · 15/15, MISS) remains the last measured result. What shipped is a reliability release: three-outcome reachability replaces the helper-gap rule, a never-filtered Needs-verification group blocks Finalize until decided, fix-loop/Finalize hardening, and format-53 state preservation with no-overwrite migration and archives. The 21-file post-review delta was independently reviewed; three follow-up fixes (88ed70e) were locally tested and replay-checked without independent re-review. Deferred: the measurement campaign, the one-pass confirmed-fix re-check behavior, the "Fix all" label. Next milestone: not scoped.
 
@@ -331,17 +328,17 @@ crash-proofed and built the test-sufficiency agent on top of.
 - ✓ Detection agents cannot mutate the reviewed repo via git (PreToolUse guard plus before/after snapshot) — v2.11
 - ⚠ B3 catch rate unchanged (15/15), but false alarms 5/18 vs ≤3/18: MISS, shipped as measured by owner decision — v2.11
 - ✓ Shipped 2.11.0 + 2.11.1 through gates-first atomic, hash-verified publishes — v2.11
+- ✓ Independently verified fixes close without dummy code changes or repetitive manual dismissal; stale or still-applicable findings stay open — v2.13
+- ⚠ Owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence — v2.13, with known limits (999.23 wrong-keep shapes, 999.24 over-asks)
+- ✓ Action labels match behavior; an inconclusive re-check has a clear, bounded recovery path — v2.13
+- ✓ A clear owner answer is acted on, not asked again; an unclear one gets one follow-up — v2.13 (live model extraction unverified; wordier phrasings ask, 999.26)
 
 ### Active
 
-<!-- v2.13 Reliable fix closure and recovery — see REQUIREMENTS.md for REQ-IDs -->
+<!-- No active milestone. Next requirements are defined by /bm:new-milestone. -->
 
-- [ ] Independently verified fixes close without dummy code changes or repetitive manual dismissal; stale or still-applicable findings stay open
-- [ ] Owner defer/dismiss decisions survive regrouping and unrelated edits, bound to their evidence
-- [ ] Action labels match behavior; an inconclusive re-check has a clear, bounded recovery path
-- [ ] A clear owner answer is acted on, not asked again
+(v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
-(v2.12 Active items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
 Deferred to a later milestone: gitleaks deterministic secret-scan (999.2 — owner-deferred at
 v2.10 scoping), CI reach (999.3 SARIF, 999.5 PR-posting), docs pass (999.13 — re-sequenced
@@ -432,6 +429,10 @@ hardening (CLOSE-01 PASS, owner sign-off).
 | v2.11: release waivers instead of re-measuring post-measurement commits (11c8afc; Phase-50 fix commits) | The changes touch no reviewer, scorer or detection path, B3 runs never exercise them, and a re-run costs ~3–4 owner-hours | ✓ Good — disclosed in README, tag bodies and RUN-METHOD-NOTES; parity-checked |
 | v2.11: fix the audit-found Close-out/`--finalize` defect as a 2.11.1 patch before archiving | v2.11's headline feature was unreachable in the orchestrator's own mode; the fix was small and low-risk | ✓ Good — shipped same day; audit re-run clean |
 | v2.11: leave the command spines' finalize trigger unchanged (D-01) and strip `--finalize` only in Phase 0 | Smallest change that fixes every documented shape | ⚠️ Revisit — the spine's substring reading vs the whole-token strip is tech debt |
+| v2.13: reproduce every failure on current code before fixing; drop non-reproducing paths | Avoid invented work; each fix needs a failing fixture | ✓ Good — 57 N1–N6 and 58 bug C dropped with records; every change landed behind a red fixture |
+| v2.13 (D-19/D-22): hard stop Phase 57 after four structural rounds; carry remaining wrong-keeps as 999.23 | Each "root fix" round moved the pooling gap to the next unpooled path; diminishing returns | ⚠️ Revisit — 999.23 shapes can silently keep a decided finding; a fix must merge at carry_state's per-hash read |
+| v2.13 (D-23): roll back the best-unique title matcher; strict all-words match, else ask | The looser matcher misdirected a dismissal in review | ✓ Good — fails safe; wordier phrasings ask (999.26) |
+| v2.13: one branch and one PR per phase | Smaller reviewable units than one milestone branch | ✓ Good — three clean squash merges |
 
 ## Evolution
 
@@ -451,4 +452,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-25 after Phase 56 (verified fixes close)*
+*Last updated: 2026-10-28 after v2.13 milestone*

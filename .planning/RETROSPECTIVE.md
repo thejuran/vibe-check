@@ -248,6 +248,43 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 
 ---
 
+## Milestone: v2.13 — Reliable fix closure and recovery
+
+**Shipped:** 2026-10-28 (2.13.0; not B3-measured)
+**Phases:** 56–58 | **Plans:** 52 (6 + 23 + 23)
+
+### What Was Built
+- Independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation; the six-row iPlayarr case closes with no dismissal
+- Decisions bound to evidence: survive line shifts, regrouping and unrelated edits; reopen on a nearby edit, corroborated severity rise or newcomer concern; deferred findings stay open below threshold
+- "Fix all" names what it skips; per-reason "Next run:" / "You can:" recovery steps; plain-English card answers translated through the same strict parser and acted on
+
+### What Worked
+- Reproduce-first: every change behind a failing fixture; non-reproducing paths (57 N1–N6, 58 bug C) recorded and dropped instead of becoming invented work
+- Post-execution code review (turned on 2026-10-25) caught real false-closure and wrong-keep bugs that plan-checking and passing plan tests missed — in every phase
+- One branch and one PR per phase kept merges small and clean
+- Owner hard stops (D-19, D-21 rollback) ended loops that weren't converging
+
+### What Was Inefficient
+- Phase 57 took four structural gap rounds (23 plans for 3 requirements): each "root fix" moved the pooling gap to the next unpooled producer path
+- Phase 58 needed two review rounds and a rollback of a looser title matcher that misdirected a dismissal
+- Verifier reports went stale against close-out doc edits (ROADMAP Phase 58 header, REQUIREMENTS wording) and had to be re-checked at audit
+
+### Patterns Established
+- Hard stop after N structural rounds: carry remaining reproduced defects as numbered backlog items with their repros as acceptance fixtures
+- Fail-safe preference for ambiguity: when an answer or match is unclear, ask one narrow follow-up rather than guess
+- Printed-path rule for temp files across Bash calls (shell variables don't survive)
+
+### Key Lessons
+- When the same defect class keeps reappearing in new code paths, fix it at the single consumer (carry_state's per-hash read), not at each producer
+- Keep code review on for anything touching closure or decision logic
+- Requirement counts understate effort when the requirement is an invariant over many code paths (DECN-03)
+
+### Cost Observations
+- No paid measurement runs; all evidence local (pytest, mutants, replay)
+- Notable: review-driven gap rounds dominated the milestone's session time
+
+---
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Efficacy |
@@ -255,6 +292,7 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 | v2.1 FastAPI review agent | 3 (1-3) | 3 | 2026-06-18 | EFF-02 PASS (N=3, 3/3 criticals) |
 | v2.2 Codex adversarial reviewer | 3 (4-6) | 6 | 2026-06-21 | EFF-01/EFF-02 PASS (2 cross-confirms, de-auth degraded) |
 | v2.5 Sharper, more legible reviews | 4 (19-22) | 8 | 2026-06-28 | CLOSE-01 PASS (`--all` self-dogfood, owner sign-off, 2 self-defects caught + fixed) |
+| v2.13 Reliable fix closure and recovery | 3 (56-58) | 52 | 2026-10-28 | Not measured (regression fixtures + replay 0 regressed; known limits 999.23–999.26) |
 
 **Recurring pattern:** every milestone closes with an efficacy test + owner sign-off as the human
 bar — the right verification shape for a prompt-only review plugin where coverage, not unit tests, is
