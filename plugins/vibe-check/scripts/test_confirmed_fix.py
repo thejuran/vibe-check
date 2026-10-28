@@ -1168,9 +1168,7 @@ CONTRACT_REASONS = (
 COLLECT_NEEDLES = ("`head_blobs`", "`touched_paths`",
                    "re-read NOW, after the agents returned and the gitsnap "
                    "compare passed") + CONTRACT_REASONS
-RENDER_NEEDLES = ("Fix not yet confirmed:",
-                  "retried on the next run that reviews changes",
-                  "run /deep-review", "dismiss",
+RENDER_NEEDLES = ("Fix not yet confirmed:", "Next run:", "You can:", "by number",
                   "Closed — fix confirmed by the {{agents}} lane")
 OLD_RENDER_SENTENCE = "The independent re-check runs only on the first rerun after the fix"
 OLD_OUTPUT_SUFFIX = "code changed since last pass; awaiting your decision"

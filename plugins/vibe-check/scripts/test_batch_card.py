@@ -1321,10 +1321,11 @@ class TestCliContract(TempDirCase):
     def test_sealed_tuples(self):
         self.assertEqual(batch_card.KNOWN_FLAGS,
                          ("--mode", "--head-blobs", "--subset", "--rows",
-                          "--answer"))
+                          "--answer", "--prior-rows"))
         self.assertEqual(batch_card.SUBCOMMANDS,
                          ("rows", "select-questions", "select", "payload",
-                          "parse", "decisions-report"))
+                          "parse", "decisions-report", "resolve",
+                          "suggest"))
 
     def test_select_questions_cli(self):
         path = self.write("rows.json", synth_rows(5))

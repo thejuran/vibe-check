@@ -403,5 +403,201 @@ class TestRerunAfterCommittedFix(unittest.TestCase):
         self.assertFalse(rerun_exempt(mutant))
 
 
+# The fix loop's close-out carrier (D-17). When the owner's translated answer
+# says "close out after the rerun", the Rerun re-enters with this whole-token
+# marker; tmp files do not survive the loop back to Phase 0, only $ARGUMENTS
+# and the JSON state do. Phase 0 must strip it from $SCOPE_ARGS (it is not a
+# scope arg) and print one CLOSE_OUT_AFTER_RERUN=<0|1> line the fix-loop card
+# and the spines' no-findings skip read.
+MARKER = "--close-out-after-rerun"
+MARKER_STRIP_EXPR = "s/ --close-out-after-rerun( --close-out-after-rerun)* / /g"
+MARKER_MATCH = '*" --close-out-after-rerun "*)'
+MARKER_LINE = "CLOSE_OUT_AFTER_RERUN="
+SPINE_NO_FINDINGS_CARRY = "CLOSE_OUT_AFTER_RERUN=1"
+NO_FINDINGS = "No issues to fix"
+CLOSING_OUT = "closing out as you asked"
+CARRIER_SANDBOX_INPUT = "49-foo --close-out-after-rerun"
+
+CARRIER_CASES = [
+    ("49-foo --close-out-after-rerun", "49-foo"),
+    ("--close-out-after-rerun 49-foo", "49-foo"),
+    ("--close-out-after-rerun", ""),
+    ("--all --fix --close-out-after-rerun", "--all --fix"),
+    ("49-foo --close-out-after-rerun --finalize", "49-foo"),
+    ("--close-out-after-rerun --close-out-after-rerun", ""),
+    ("a --finalize --close-out-after-rerun --finalize b", "a b"),
+]
+
+CARRIER_NEGATIVES = [
+    "foo--close-out-after-rerun",
+    "--close-out-after-rerun=1",
+    "path/--close-out-after-rerun",
+    "--close-out-after-rerunx",
+]
+
+
+def carrier_flag(block, arguments, shell="/bin/bash"):
+    """Run the normalizer fence and return the value of its one
+    `CLOSE_OUT_AFTER_RERUN=<0|1>` output line (which must equal
+    $CLOSE_OUT_AFTER_RERUN)."""
+    flags = ["-f"] if shell.endswith("zsh") else []
+    proc = subprocess.run(
+        [shell, *flags, "-c",
+         block + '\nprintf "VAR=%s\\n" "$CLOSE_OUT_AFTER_RERUN"\n'],
+        env=dict(os.environ, ARGUMENTS=arguments),
+        capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    lines = proc.stdout.splitlines()
+    printed = [ln for ln in lines if ln.startswith(MARKER_LINE)]
+    assert len(printed) == 1, "expected one CLOSE_OUT_AFTER_RERUN= line, got %r" % lines
+    value = printed[0][len(MARKER_LINE):]
+    assert lines[-1] == "VAR=" + value, (lines, value)
+    return value
+
+
+def no_findings_carry_problems(spine_text):
+    """Problems with a spine's Phase 5 no-findings skip: it must be exactly one
+    line and, on that line, honor a carried close-out by re-entering Finalize."""
+    lines = [ln for ln in spine_text.splitlines() if NO_FINDINGS in ln]
+    if len(lines) != 1:
+        return ["expected one line holding %r, found %d" % (NO_FINDINGS, len(lines))]
+    line = lines[0]
+    return ["no-findings bullet lacks %r" % need
+            for need in (SPINE_NO_FINDINGS_CARRY, REENTRY, CLOSING_OUT)
+            if need not in line]
+
+
+class TestCloseOutCarrierStrip(_Base):
+    def test_carrier_table(self):
+        self.check_table(CARRIER_CASES)
+
+    def test_negatives_survive(self):
+        self.check_table([(x, x) for x in CARRIER_NEGATIVES])
+
+    def test_marker_passes_gsd_sandbox(self):
+        sandbox = sandbox_regex(self.text)
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                out = scope_args(self.block, CARRIER_SANDBOX_INPUT, shell)
+                self.assertEqual(out, "49-foo")
+                self.assertTrue(sandbox.fullmatch(out), out)
+
+    @unittest.skipUnless(len(SHELLS) == 2, "/bin/zsh not present")
+    def test_bash_equals_zsh(self):
+        inputs = [a for a, _ in CARRIER_CASES] + CARRIER_NEGATIVES
+        for arguments in inputs:
+            with self.subTest(arguments=arguments):
+                self.assertEqual(scope_args(self.block, arguments, "/bin/bash"),
+                                 scope_args(self.block, arguments, "/bin/zsh"))
+                self.assertEqual(carrier_flag(self.block, arguments, "/bin/bash"),
+                                 carrier_flag(self.block, arguments, "/bin/zsh"))
+
+
+class TestCloseOutCarrierFlag(_Base):
+    def test_carrier_cases_are_1(self):
+        for shell in SHELLS:
+            for arguments, _ in CARRIER_CASES:
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(carrier_flag(self.block, arguments, shell), "1")
+
+    def test_marker_never_sets_finalize_mode(self):
+        for shell in SHELLS:
+            for arguments, _ in CARRIER_CASES:
+                want = "1" if "--finalize" in arguments.split() else "0"
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(finalize_mode(self.block, arguments, shell), want)
+        self.assertEqual(finalize_mode(self.block, MARKER), "0")
+
+    def test_negatives_are_0(self):
+        for shell in SHELLS:
+            for arguments in CARRIER_NEGATIVES:
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(carrier_flag(self.block, arguments, shell), "0")
+
+    def test_marker_never_inferred(self):
+        inputs = ([a for a, _ in FINALIZE_CASES] + [a for a, _ in REGRESSION_CASES]
+                  + INVARIANCE_BASES)
+        for shell in SHELLS:
+            for arguments in inputs:
+                with self.subTest(shell=shell, arguments=arguments):
+                    self.assertEqual(carrier_flag(self.block, arguments, shell), "0")
+
+
+class TestCloseOutCarrierMutants(_Base):
+    def test_m4_strip_removed_poisons_gsd_sandbox(self):
+        self.assertIn(MARKER_STRIP_EXPR + "; ", self.block)
+        mutant = self.block.replace(MARKER_STRIP_EXPR + "; ", "")
+        self.assertNotEqual(mutant, self.block)
+        out = scope_args(mutant, CARRIER_SANDBOX_INPUT)
+        self.assertIn(MARKER, out)
+        self.assertIsNone(sandbox_regex(self.text).fullmatch(out))
+
+    def test_m5_case_line_removed_prints_no_line(self):
+        mutant = "\n".join(
+            ln for ln in self.block.splitlines()
+            if MARKER_MATCH not in ln and "printf '" + MARKER_LINE not in ln)
+        self.assertNotEqual(mutant.strip(), self.block.strip())
+        self.assertEqual(carrier_flag(self.block, MARKER), "1")
+        with self.assertRaises(AssertionError):
+            carrier_flag(mutant, MARKER)
+
+    def test_m6_substring_match_routes_negatives_to_1(self):
+        self.assertIn(MARKER_MATCH, self.block)
+        mutant = self.block.replace(MARKER_MATCH, '*"--close-out-after-rerun"*)')
+        self.assertNotEqual(mutant, self.block)
+        self.assertEqual(carrier_flag(self.block, "foo--close-out-after-rerun"), "0")
+        self.assertEqual(carrier_flag(mutant, "foo--close-out-after-rerun"), "1")
+
+
+# D-20: a hand-typed marker on a first run is accepted as is. Documentation
+# only; the normalizer paragraph must say so.
+NORMALIZER_HEADING = "**Pre-mode universal-flag normalizer"
+D20_NEEDLE = ("A hand-typed `--close-out-after-rerun` on a first run is "
+              "accepted as is (D-20)")
+
+
+def d20_problems(scope_text):
+    """Problems with the D-20 sentence: it must sit in the normalizer
+    paragraph of 00-scope.md (the one line that starts with its heading)."""
+    paras = [ln for ln in scope_text.splitlines()
+             if ln.startswith(NORMALIZER_HEADING)]
+    if len(paras) != 1:
+        return ["expected one normalizer paragraph, found %d" % len(paras)]
+    if D20_NEEDLE not in paras[0]:
+        return ["normalizer paragraph lacks the D-20 sentence"]
+    return []
+
+
+class TestHandTypedMarkerDocumented(unittest.TestCase):
+    def test_d20_hand_typed_marker_documented(self):
+        self.assertEqual(d20_problems(read(SCOPE)), [])
+
+    def test_m8_d20_sentence_deleted_trips(self):
+        text = read(SCOPE)
+        para = [ln for ln in text.splitlines()
+                if ln.startswith(NORMALIZER_HEADING)][0]
+        start = para.find(D20_NEEDLE)
+        self.assertNotEqual(start, -1)
+        end = para.find(".", para.find("automatic Rerun", start)) + 1
+        mutant = text.replace(para, (para[:start] + para[end:]).rstrip())
+        self.assertNotEqual(mutant, text)
+        self.assertNotEqual(d20_problems(mutant), [])
+
+
+class TestSpineNoFindingsCarry(unittest.TestCase):
+    def test_spines_honor_carried_close_out(self):
+        for spine in SPINES:
+            with self.subTest(spine=os.path.basename(spine)):
+                self.assertEqual(no_findings_carry_problems(read(spine)), [])
+
+    def test_m7_bullet_without_marker_clause_fails_lock(self):
+        text = read(SPINES[0])
+        line = stop_line(text, NO_FINDINGS)
+        self.assertIn(" — unless", line)
+        mutant = text.replace(line, line.split(" — unless")[0] + ")")
+        self.assertNotEqual(mutant, text)
+        self.assertNotEqual(no_findings_carry_problems(mutant), [])
+
+
 if __name__ == "__main__":
     unittest.main()

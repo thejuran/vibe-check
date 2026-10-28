@@ -26,14 +26,14 @@ Detailed source context (owner examples, file paths, repro steps): ROADMAP.md it
 
 ### Clear actions and recovery (RECV) — 999.13 subset
 
-- [ ] **RECV-01**: The "Fix all" label states what it actually does, and the card says which findings need individual decisions
-- [ ] **RECV-02**: An inconclusive re-check shows a clear, bounded recovery path (what happens next run, what the owner can do now) with no automatic closure and no new manual; existing recovery guidance and rejection/orphan explanations match actual behavior
+- [x] **RECV-01**: The "Fix all" label states what it actually does, and the card says which findings need individual decisions
+- [x] **RECV-02**: An inconclusive re-check shows a clear, bounded recovery path (what happens next run, what the owner can do now) with no automatic closure and no new manual; existing recovery guidance and rejection/orphan explanations match actual behavior
 
 ### Answers acted on (ANSR)
 
-- [ ] **ANSR-01**: An unambiguous plain-English answer to a decision card is translated into that card's validated grammar (preserving targets and reason, bound to the current card) and the authorized fix/dismiss/close-out workflow continues without re-showing the card
-- [ ] **ANSR-02**: When a reference or reason is ambiguous or missing, or the card is stale, only the missing detail is asked — no guessing, no broadening the decision, no full re-show
-- [ ] **ANSR-03**: Whether finalize `fix N` still re-asks Apply/Skip is checked on current code; if it does, the decided row proceeds to fixing without re-asking (regression fixture); if not, that is recorded and not filed
+- [x] **ANSR-01**: An unambiguous plain-English answer to a decision card is translated into that card's validated grammar (preserving targets and reason, bound to the current card) and the authorized fix/dismiss/close-out workflow continues without re-showing the card
+- [x] **ANSR-02**: When a reference or reason is ambiguous or missing, or the card is stale, only the missing detail is asked — no guessing, no broadening the decision, no full re-show
+- [x] **ANSR-03**: Whether finalize `fix N` still re-asks Apply/Skip is checked on current code; if it does, the decided row proceeds to fixing without re-asking (regression fixture); if not, that is recorded and not filed
 
 ## Future Requirements
 
@@ -65,11 +65,11 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 | DECN-01 | Phase 57 | Complete |
 | DECN-02 | Phase 57 | Complete (D-20 deferred stays open, 57-22); min_confidence/--all deferral edges and over-asks in 999.23/999.24 |
 | DECN-03 | Phase 57 | Complete with known limits (999.23; D-19/D-22) |
-| RECV-01 | Phase 58 | Pending |
-| RECV-02 | Phase 58 | Pending |
-| ANSR-01 | Phase 58 | Pending |
-| ANSR-02 | Phase 58 | Pending |
-| ANSR-03 | Phase 58 | Pending |
+| RECV-01 | Phase 58 | Complete |
+| RECV-02 | Phase 58 | Complete |
+| ANSR-01 | Phase 58 | Complete (live ref extraction unverified, owner-approved human_needed; wordier phrasings ask, 999.26) |
+| ANSR-02 | Phase 58 | Complete |
+| ANSR-03 | Phase 58 | Complete (bug C does not reproduce — fixed by 46d78e3, v2.12; not filed) |
 
 **Coverage:**
 - v2.13 requirements: 14 total
@@ -78,4 +78,4 @@ None deferred from this scoping. Separate nonblocking task: 999.12 cost visibili
 
 ---
 *Requirements defined: 2026-10-23*
-*Last updated: 2026-10-27 after Phase 57 close under the D-19 hard stop (DECN-03 complete with known limits, backlog 999.23; SC-3 diff-context in 999.24)*
+*Last updated: 2026-10-28 after Phase 58 close (verification human_needed, owner-approved; known limits 999.25, 999.26)*

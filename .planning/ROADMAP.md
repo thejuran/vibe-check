@@ -6,7 +6,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 
 - ✅ v2.11 Quiet loop -- Phases 45–50 (2.11.0 and 2.11.1 shipped 2026-10-08)
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
-- 🚧 v2.13 Reliable fix closure and recovery -- Phases 56–58 (in progress; planning)
+- 🚧 v2.13 Reliable fix closure and recovery -- Phases 56–58 (all phases complete; milestone audit/close pending)
 
 ### 🚧 v2.13 Reliable fix closure and recovery (Phases 56–58, in progress)
 
@@ -14,7 +14,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 
 - [x] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal (completed 2026-10-25)
 - [x] **Phase 57: Decision continuity within closure** - Owner defer/dismiss decisions survive regrouping and unrelated edits, and reopen only on changed evidence (completed 2026-10-27)
-- [ ] **Phase 58: Clear actions, recovery and answers acted on** - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
+- [x] **Phase 58: Clear actions, recovery and answers acted on** (completed 2026-10-28) - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
 
 **Sequence:** Reproduce the closure failure first (Phase 56), repair it with targeted validation, then align decisions (Phase 57) and actions/recovery guidance (Phase 58). If the retry failure cannot be reproduced, stop that fix effort and reassess scope rather than invent a replacement project.
 
@@ -148,7 +148,43 @@ Plans:
   4. When a reference or reason is ambiguous or missing, or the card is stale, only the missing detail is asked — no guessing, no broadened decision, no full re-show (regression test)
   5. Whether finalize `fix N` still re-asks Apply/Skip (bug C) has a recorded verdict on current code; if it reproduces, the decided row proceeds to fixing without re-asking and a regression fixture covers it; if not, that is recorded and not filed
 
-**Plans**: TBD
+**Plans**: 23 plans (9 main + 9 gap round from 58-REVIEW.md + 4 final round (D-21 hard stop) + 1 CR-01 rollback (D-23))
+
+Plans:
+**Main (Waves 1–7)**
+
+- [x] 58-01-PLAN.md — Helper renders "Apply all / Fix all" scope text naming excluded Needs-verification rows by number; text == behavior lock (RECV-01)
+- [x] 58-02-PLAN.md — Per-reason recovery pairs (Next run / You can) for all 12 score.py reasons; template and README reconciled (RECV-02)
+- [x] 58-07-PLAN.md — Whole-token `--close-out-after-rerun` carrier recognized by Phase 0; no-findings skip honors it (ANSR-01/02)
+- [x] 58-03-PLAN.md — `batch_card.py resolve`: owner references → current rows; eight-row iPlayarr fixture; parse stays the only gate (ANSR-01/02)
+- [x] 58-04-PLAN.md — Fix-loop: translate → resolve → parse → "Read your answer as:" and act; bug-C lock strengthened (ANSR-01/03, RECV-01)
+- [x] 58-08-PLAN.md — Fix-loop: ask only the gap, D-08 fallback, stale remap, close-out across the Rerun, "bottom line" (ANSR-01/02)
+- [x] 58-05-PLAN.md — Finalize: truthful Q1 header and descriptions; Mixed…/Other translation (ANSR-01, RECV-01/02)
+- [x] 58-09-PLAN.md — Finalize: ask only the gap, fallback, stale remap, card budget; bug-C trace (ANSR-02/03)
+- [x] 58-06-PLAN.md — 58-REPRO.md verdicts V1–V5 (bug C does not reproduce — fixed by 46d78e3, v2.12); phase gate
+
+**Gap round (58-REVIEW.md: WR-01..06, IN-01..05, SA-01..03 → D-18..D-20)**
+
+- [x] 58-10-PLAN.md — Whole-token title matching, `changed` excludes joined, counted serious groups (`count_needed`, D-18)
+- [x] 58-11-PLAN.md — `batch_card.py suggest`: Bottom line limited to fixes + medium dismiss/defer (D-19)
+- [x] 58-12-PLAN.md — Recovery-text joins (IN-01, IN-02)
+- [x] 58-13-PLAN.md — Carrier round-trip through the real normalizer (IN-04); hand-typed flag documented (D-20)
+- [x] 58-14-PLAN.md — Fix-loop printed temp paths, answer-file cleanup, reachable stale source, single echo (WR-01/02/05/06, IN-05)
+- [x] 58-15-PLAN.md — Fix-loop verbatim title words, parser-refusal branch, "How many", suggest fence (WR-03/04, D-18/19)
+- [x] 58-16-PLAN.md — Finalize printed paths, answer-file cleanup, reachable stale source (WR-02/05/06)
+- [x] 58-17-PLAN.md — Finalize twin of 58-15 (WR-03/04, D-18/19)
+- [x] 58-18-PLAN.md — Gap-round gate and ledger
+
+**Final round (58-REVIEW-GAPS.md, D-21 hard stop)**
+
+- [x] 58-19-PLAN.md — Prior-subset refusal (WR-03), suggest one-line reason (IN-05), IN-03 mutant; best-unique title match later rolled back by 58-23
+- [x] 58-20-PLAN.md — Fix-loop: fallback keeps the suggestion (WR-01), `CARDROWSFILE=` stale source (WR-03), subset-dispatch fence walk, trimmed note (IN-01)
+- [x] 58-21-PLAN.md — Finalize mirror of 58-20
+- [x] 58-22-PLAN.md — Final-round gate and ledger
+
+**CR-01 rollback (58-REVIEW-FINAL.md, D-23)**
+
+- [x] 58-23-PLAN.md — Strict all-words title matcher restored (CR-01 phrasings ask, never act); best-match prose reverted; gate
 
 **Source context (preserved from the 2026-10-21 roadmap item 3):** Correct the misleading "Fix all" label and explain which findings require individual decisions. Reconcile existing recovery guidance and actionable rejection/orphan explanations. Done when: labels match behavior and an inconclusive re-check has a clear, bounded recovery path without automatic closure or a new manual.
 
@@ -166,7 +202,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
 | 57. Decision continuity within closure | 23/23 | Complete    | 2026-10-27 |
-| 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
+| 58. Clear actions, recovery and answers acted on | 23/23 | Complete    | 2026-10-28 |
 
 ## Backlog
 
@@ -186,6 +222,14 @@ Root-cause direction (from the review): pool `carried_by_hash` into `_kept_open_
 ### 999.24: Diff context widens the nearby window (Phase 57 SC-3 minor gap)
 
 `changed_line_ranges` are built from default-context diffs (`git diff`, `gh pr diff --patch`; 3 context lines), not `-U0`. So the effective nearby/in_diff window is ~8 lines instead of 5, and 30-collect-score.md's deletion-hunk rule never fires on real diffs. Fails toward asking (over-asks; never a silent keep); predates Phase 57. Acceptance (from `.planning/phases/57-decision-continuity-within-closure/deferred-items.md`): (a) use `-U0` for every range-building diff, or build ranges from `+`/`-` markers; (b) check nothing else assumes 3-line context; (c) an end-to-end fixture that runs a real `git diff` through the documented hunk rule. Not scheduled.
+
+### 999.25: Finalize `$BLOBFILE` relies on a shell variable across Bash calls (Phase 58 D-22)
+
+`90-finalize.md` builds `$BLOBFILE` in one fence and reuses it as `"$BLOBFILE"` in later fences without printing its path. Shell variables do not survive between Bash calls in Claude Code, so the counts/gate step can see an empty path. Fails safe: Finalize stops and writes nothing. It predates Phase 58; found by the 58-REVIEW-GAPS.md re-review. Fix: bring it under the printed-path rule Phase 58 applied to every other temp file (print `BLOBFILE=<path>`, reuse the literal), with a fence-walk test in a fresh shell and a mutant. Part of the remaining 999.13 reconciliation. Not scheduled.
+
+### 999.26: Plain-English title references: wordier phrasings ask (Phase 58 D-23 known limits)
+
+After the CR-01 rollback (58-REVIEW-FINAL.md), a title reference names a row only when that row's title holds every word the owner used, filler aside. Wordier but clear phrasings ("the retry budget warning", "the Browse recovery issue from earlier", inflections like "retries budget") get one follow-up question with the likely row as a button. This fails safe: nothing is acted on wrongly. The best-unique-match attempt (58-19) was rolled back because it dismissed a row the owner meant to fix. Safer design from the reviewer: act only when the best row contains ALL of the owner's non-filler words (treat small words like on/and/in as filler); otherwise offer the best partial row as a one-click choice in the follow-up. Also carried: tie candidates capped at 4 (a 5th tied row may not appear as a button); on a carried-close-out pass the Close out text points at that pass's card file rather than "the card the owner read"; the fallback note after the subset-file refusal has no specified wording; the "How many" follow-up offers single-row buttons; no Unicode normalization of titles. Reproduce first; any matcher change needs adversarial fixtures that put the target's key word next to two words from another title. Not scheduled.
 
 ### 999.12: Narrow: Cost visibility feasibility — separate task
 

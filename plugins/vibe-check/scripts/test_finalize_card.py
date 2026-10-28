@@ -242,7 +242,9 @@ LIST_IN_CARD = (
 ECHO_VISIBLE = (
     "it must never be visible only inside a Bash call's output",
     "as the opening lines of the next message you print",
-    "as that card's closing \"From your finalize answer:\" block",
+    "when step 2 routes to the fix-loop card, that card is not shown (the "
+    "subset goes straight to its Step B), so print `echo_text` as message "
+    "text before reading `50-fix-loop.md`",
     "whose summary message opens with `echo_text`",
     "the stop message opens with `echo_text`",
 )
@@ -294,6 +296,555 @@ def bare_mixed_one_clarification_holds(text):
     bullet = need_text_bullet(text)
     return all(n in bullet for n in ("ONCE", "Never infer",
                                      "(no option selected) notes:"))
+
+
+# --------------------------------------------------------------------------- #
+# The card says what the parser does; a plain-English answer is translated.
+# --------------------------------------------------------------------------- #
+OPT_FIX_ALL = '> 3. **Fix all** — "{{bulk_fix_text}}"'
+BULK_SLOT = "{{bulk_fix_text}}"
+BULK_SOURCE = ("it is the `bulk_fix_text` field of `$ROWSFILE`, verbatim — the "
+               "helper names the Needs-verification rows Fix all leaves out by "
+               "number")
+OPT_DISMISS = ("Critical, warning and Needs-verification rows stay open unless "
+               "you name them by number in Mixed…")
+OPT_DEFER = "same rule for critical, warning and Needs-verification rows"
+OPT_MIXED = ("`fix all` covers critical, warning and medium rows; `dismiss all` "
+             "/ `defer all` cover medium rows only; a Needs-verification row is "
+             "never reached by `all` or `rest`")
+OLD_FIX_ALL = "Send every row, any band"
+
+
+def check_option_descriptions(text):
+    section = card_section(text)
+    problems = [n for n in (OPT_FIX_ALL, BULK_SOURCE, OPT_DISMISS, OPT_DEFER,
+                            OPT_MIXED) if section.count(n) != 1]
+    if text.count(BULK_SLOT) != 1:
+        problems.append("{{bulk_fix_text}} x%d" % text.count(BULK_SLOT))
+    if "lowest band" in section:
+        problems.append("Mixed… still says lowest band")
+    if OLD_FIX_ALL in text:
+        problems.append("Fix all still says any band")
+    return problems
+
+
+Q1_COUNTS = ("({{C}} critical/warning, {{V}} needs-verification, {{M}} medium"
+             "{{; P")
+Q1_V_DEFINED = "`C` / `V` / `M` = rows by band; C + V + M = N"
+
+
+def check_q1_header(text):
+    q1 = q1_line(card_section(text))
+    return [n for n in (Q1_COUNTS, Q1_V_DEFINED) if n not in q1]
+
+
+TRANSLATE_HEAD = "**Translate the answer (D-01).**"
+RESOLVE_CALL = 'resolve --rows "$ROWSFILE" --answer "$REFSFILE"'
+TRANSLATE_NEEDLES = (
+    "On `refused: empty answer` re-show the card once",
+    "On any other refusal go to **Translate the answer (D-01)**",
+    TRANSLATE_HEAD,
+    "from the OWNER's text only",
+    "to `$REFSFILE` with the Write tool",
+    "run the SAME parse fence above",
+    "Read your answer as: ",
+    "no confirm card",
+    "continue at **After the answer**",
+    "the Q2 pick still supplies the reason when the owner's text gave none",
+    "`close_out` is always false here",
+    "→ **Ask only what is missing (D-05, D-06)**",
+    'cp "$SUGGESTFILE" "$ANSWERFILE"',
+)
+
+
+def check_translate_path(text):
+    section = card_section(text)
+    problems = [n for n in TRANSLATE_NEEDLES if n not in section]
+    if "Re-show the SAME card" in section:
+        problems.append("a refusal still re-shows the SAME card")
+    if "close-out-after-rerun" in text:
+        problems.append("Finalize writes the close-out carrier")
+    fences = bash_fences(section)
+    # The plain resolve fence, once; its --prior-rows twin is check_stale's.
+    plain = sum(RESOLVE_CALL in f and "--prior-rows" not in f for f in fences)
+    if plain != 1:
+        problems.append("resolve fence x%d" % plain)
+    if not any('["grammar"]' in f and '"$ANSWERFILE"' in f for f in fences):
+        problems.append("grammar not copied file-to-file into $ANSWERFILE")
+    parse_at = section.find(PARSE_CALL)
+    head_at = section.find(TRANSLATE_HEAD)
+    after_at = section.find("**After the answer** (branch on")
+    if not 0 <= parse_at < head_at < after_at:
+        problems.append("Translate paragraph not between the parse fence "
+                        "and After the answer")
+    return problems
+
+
+NV_STOP_NEW = ("re-checked automatically on every later run that reviews "
+               "changes while the repaired code is unchanged")
+NV_STOP_OLD = "re-checks it once"
+
+
+def check_nv_stop_reconciled(text):
+    problems = [] if NV_STOP_NEW in text else ["NV stop text not reconciled"]
+    if NV_STOP_OLD in text:
+        problems.append("NV stop text still says re-checks it once")
+    return problems
+
+
+BOTTOM_SLOT = ('{{\\n\\nBottom line suggests: <grammar> — type "bottom line" '
+               'in Other to take it}}')
+BOTTOM_NEEDLES = (
+    "**Bottom line as a choice (D-09).**",
+    "THIS session rendered the last pass's Bottom line",
+    "a separate `--finalize` invocation renders no report",
+    "re-translated against THIS card's rows",
+    "Finalize numbering differs from the fix-loop card",
+    'suggest --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
+    'rm -f "$SUGGESTFILE"',
+    "never print a guessed one",
+)
+
+
+def check_bottom_line(text):
+    section = card_section(text)
+    problems = [] if BOTTOM_SLOT in q1_line(section) else ["Q1 lacks the slot"]
+    problems += [n for n in BOTTOM_NEEDLES if n not in section]
+    return problems
+
+
+FOLLOWUP_HEAD = "**Ask only what is missing (D-05, D-06).**"
+AFTER_HEAD = "**After the answer** (branch on"
+FOLLOWUP_NEEDLES = (
+    FOLLOWUP_HEAD,
+    "record nothing",
+    "never half-apply",
+    "ONE short AskUserQuestion",
+    "only the unclear piece",
+    "`#n file:line`",
+    'header "Which row";',
+    'header "Which rows"',
+    'header "Reason"',
+    'header "How many"',
+    "asked only when both are absent",
+    "one follow-up per gap",
+    "show the full card once",
+    "could not be matched",
+    "continue at **After the answer**",
+)
+
+
+def followup_paragraph(text):
+    """The Finalize follow-up paragraph: from its heading to After the answer."""
+    section = card_section(text)
+    start = section.find(FOLLOWUP_HEAD)
+    end = section.find(AFTER_HEAD)
+    if start < 0 or end < start:
+        return ""
+    return section[start:end]
+
+
+def check_followup(text):
+    """A partly readable answer records nothing, asks ONE question about only
+    the gap (a reason only when neither the owner's text nor Q2 gave one),
+    and a second unclear reply shows the full card once, then stops."""
+    para = followup_paragraph(text)
+    if not para:
+        return ["no Ask-only-what-is-missing paragraph before After the answer"]
+    problems = [n for n in FOLLOWUP_NEEDLES if n not in para]
+    problems += ["Q2 label %r not offered" % q for q in batch_parse.FINALIZE_Q2
+                 if "`%s`" % q not in para]
+    return problems
+
+
+STALE_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
+              '--prior-rows "$PRIORROWSFILE"')
+STALE_CARD_SOURCE = "printed after `CARDROWSFILE=`"
+STALE_NEVER_SUBSET = "never a path printed only after `ROWSFILE=`"
+STALE_ORDINARY = "the ordinary fence that rendered the card the owner read"
+STALE_NEEDLES = ("`prior_number`", "by finding identity",
+                 "shows the new numbers",
+                 "the fix-loop card shown before Close out in this session",
+                 STALE_CARD_SOURCE, STALE_NEVER_SUBSET, STALE_ORDINARY,
+                 "no longer available")
+# The unreachable prior-card source: no earlier --finalize card survives into
+# a later invocation, and a rows path is never carried as a shell variable.
+STALE_FORBIDDEN = ("an earlier `--finalize`",
+                   "that card's `$ROWSFILE` path, used as is")
+# Checked against the Stale card paragraph only: a positional "last printed"
+# rule binds the subset fence's fix set after a D-17 pass, and a
+# `ROWSFILE=`-only source cannot tell the card's print from the subset's
+# (WR-03). Elsewhere "the printed `ROWSFILE=`" is the ordinary substitution.
+STALE_PARA_FORBIDDEN = ("the last `ROWSFILE=` line",
+                        "rows fence printed after `ROWSFILE=`")
+STALE_HEAD = "**Stale card (D-07).**"
+
+
+def stale_paragraph(text):
+    """The Finalize **Stale card (D-07)** paragraph, up to its twin fence."""
+    section = card_section(text)
+    start = section.find(STALE_HEAD)
+    if start < 0:
+        return ""
+    end = section.find("```bash", start)
+    return section[start:end if end >= 0 else len(section)]
+
+
+def check_stale(text):
+    """A stale Finalize card is re-mapped by identity through the
+    --prior-rows twin fence from the fix-loop card's printed rows path, and
+    the echo shows the new numbers; with no printed path it falls back."""
+    section = card_section(text)
+    problems = [n for n in STALE_NEEDLES if n not in section]
+    problems += ["stale source still names %r" % n for n in STALE_FORBIDDEN
+                 if n in section]
+    para = stale_paragraph(text)
+    if not para:
+        problems.append("no Stale card paragraph")
+    problems += ["stale source binds %r" % n for n in STALE_PARA_FORBIDDEN
+                 if n in para]
+    if not any(STALE_CALL in f for f in bash_fences(section)):
+        problems.append("no --prior-rows twin resolve fence")
+    return problems
+
+
+MKTEMP_RE = re.compile(r"^\s*(?:if )?([A-Z_]+FILE)=\$\(mktemp", re.M)
+PATH_CONVENTION = ("a path printed after `NAME=` is reused in a later fence "
+                   "only as that literal, substituted for `\"$NAME\"`")
+
+
+def check_printed_paths(text):
+    """Every temp file the card creates prints its path in the same fence,
+    and one sentence says a printed path is reused only as that literal."""
+    section = card_section(text)
+    problems = []
+    for body in bash_fences(section):
+        for name in MKTEMP_RE.findall(body):
+            printf = "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+            if printf not in body:
+                problems.append("%s created but its path is not printed" % name)
+    count = section.count(PATH_CONVENTION)
+    if count != 1:
+        problems.append("path convention sentence appears %d times" % count)
+    return problems
+
+
+ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
+TRANSLATION_FILES_CLEAR = 'rm -f "$REFSFILE" "$RESOLVEFILE"'
+KEEP_SUGGEST = "keep `$SUGGESTFILE`"
+FULL_CARD_ONCE = "show the full card once"
+Q1_SUGGEST_COND = "the `suggest` fence below exited 0 for this card"
+Q1_SUGGEST_OLD = "printed a `SUGGESTFILE=` path created for this card"
+STEP2_HEAD = "  2. `fix` non-empty"
+STEP3_HEAD = "  3. `fix` empty"
+STEP3_END = "Never jump to `write`"
+FIXLOOP_READ = "Read $VC_ROOT/phases/review/50-fix-loop.md"
+D08_HEAD = "one follow-up per gap (D-08)"
+PARSE_HEAD = "**Parse.**"
+BOTTOM_HEAD = "**Bottom line as a choice (D-09).**"
+SUGGEST_OLD = "`$SUGGESTFILE` exists for this card"
+
+
+def _line_starting(section, head):
+    for line in section.splitlines():
+        if line.startswith(head):
+            return line
+    return ""
+
+
+def _clear_before(chunk, anchor, where):
+    i, j = chunk.find(ANSWER_FILES_CLEAR), chunk.find(anchor)
+    if j < 0:
+        return ["%s: anchor %r missing" % (where, anchor)]
+    if i < 0 or i > j:
+        return ["%s: answer files not cleared before %r" % (where, anchor)]
+    return []
+
+
+def d08_fallback_problems(chunk):
+    """The D-08 full-card fallback removes only the translation's refs and
+    resolve files and keeps the suggestion: the full card shown next is the
+    same card, so its `Bottom line suggests:` line must still work (WR-01)."""
+    problems = []
+    if TRANSLATION_FILES_CLEAR not in chunk:
+        problems.append("D-08 fallback: refs/resolve files not cleared "
+                        "before the full card")
+    if KEEP_SUGGEST not in chunk:
+        problems.append("D-08 fallback: keep sentence missing")
+    if ANSWER_FILES_CLEAR in chunk or '"$SUGGESTFILE" "$REFSFILE"' in chunk:
+        problems.append("D-08 fallback still removes the suggestion file")
+    return problems
+
+
+def check_answer_files(text):
+    """Once the answer is acted on, the suggestion/refs/resolve files are
+    removed (fix-loop hand-off, gate re-run, D-08 fallback), and a Bottom
+    line suggestion counts only when printed on the card currently shown."""
+    section = card_section(text)
+    problems = []
+    s2, s3 = section.find(STEP2_HEAD), section.find(STEP3_HEAD)
+    s3_end = section.find(STEP3_END, s3)
+    if s2 < 0 or s3 < s2 or s3_end < s3:
+        return ["After the answer steps 2/3 not found"]
+    problems += _clear_before(section[s2:s3], FIXLOOP_READ, "step 2")
+    problems += _clear_before(section[s3:s3_end], "RE-RUN the counts step",
+                              "step 3")
+    para = followup_paragraph(text)
+    d08 = para.find(D08_HEAD)
+    if d08 < 0 or para.find(FULL_CARD_ONCE, d08) < 0:
+        problems.append("D-08 fallback sentence missing")
+    else:
+        problems += d08_fallback_problems(
+            para[d08:para.index(FULL_CARD_ONCE, d08)])
+    parse = _line_starting(section, PARSE_HEAD)
+    if SUGGEST_OLD in parse:
+        problems.append("Parse still trusts any existing $SUGGESTFILE")
+    if "printed on the card currently shown" not in parse:
+        problems.append("Parse does not tie 'bottom line' to the shown card")
+    q1 = q1_line(section)
+    if Q1_SUGGEST_COND not in q1:
+        problems.append("Q1 suggestion line not tied to the suggest exit")
+    if Q1_SUGGEST_OLD in q1:
+        problems.append("Q1 suggestion line still keyed to a printed path")
+    if "was removed at Close out" not in _line_starting(section, BOTTOM_HEAD):
+        problems.append("D-09 does not say the fix-loop file was removed")
+    return problems
+
+
+BUDGET_HEAD = "**Card budget.**"
+BUDGET_NEEDLES = (
+    "Finalize costs one card",
+    "a plain-English answer that needs one detail (at most one follow-up "
+    "card per gap, D-06)",
+    "a second unclear reply (which shows the full card once, D-08)",
+    "A bare Mixed… buys exactly one clarification.",
+)
+BUDGET_OLD = "or an unparseable answer adds another"
+
+
+def budget_line(text):
+    for line in card_section(text).splitlines():
+        if line.startswith(BUDGET_HEAD):
+            return line
+    return ""
+
+
+def check_budget(text):
+    """The budget names every extra card the file can show, and no longer
+    the open-ended 'unparseable answer' re-ask."""
+    line = budget_line(text)
+    problems = [n for n in BUDGET_NEEDLES if n not in line]
+    if BUDGET_OLD in text:
+        problems.append("budget still lets an unparseable answer add a card")
+    return problems + check_turn_and_budget(text)
+
+
+# --------------------------------------------------------------------------- #
+# Translate / Ask / Bottom line against the helper's own rules (twin of the
+# fix-loop card's locks).
+# --------------------------------------------------------------------------- #
+TITLE_TEXT_NEW = '"text": "<the owner\'s words for that row, verbatim>"'
+TITLE_TEXT_OLD = '"text": "<the owner\'s words>"}'
+STRICT_MATCH = ("every word the owner used for a row, filler aside, "
+                "must be in that row's title")
+PARTIAL_ASKS = "a partial match is not a match — ask"
+TITLE_RULE_NEEDLES = (TITLE_TEXT_NEW, "do not trim or clean them",
+                      "whole words only", "ignoring filler",
+                      "`port` never matches `import`",
+                      "the Browse recovery issue", STRICT_MATCH, PARTIAL_ASKS)
+_FILLER_LIST = re.compile(r"ignoring filler \(([^)]*)\)")
+
+PARSE_REFUSAL_BULLET = ("every ref is `one` or `bulk`, `needs_reason` is "
+                        "false and `parse_reason` is set")
+PARSE_REFUSAL_AFTER = ("no piece to narrow", "full-card fallback",
+                       "combined two bulk groups", "could not be checked")
+BLOCKED_BULLET = "- A `blocked` ref is never asked about"
+
+COUNT_NEEDED_HEAD = 'A `count_needed` ref → header "How many"'
+COUNT_NEEDED_NEEDLES = (COUNT_NEEDED_HEAD,
+                        "critical, warning or Needs-verification rows",
+                        "dismissed or deferred only when you state how many "
+                        "(D-18)",
+                        "`candidates`", "`#n file:line`", "through Other",
+                        '`"count": C`', "`number` refs",
+                        "(a Q2 pick never supplies a count)")
+COMPLETED_REFS = "Then write the completed refs"
+
+SUGGEST_CALL = ('batch_card.py" suggest --rows "$ROWSFILE" --answer '
+                '"$SUGGESTFILE" > "$SUGGESTFILE.tmp" && mv '
+                '"$SUGGESTFILE.tmp" "$SUGGESTFILE"')
+SUGGEST_ELSE = 'rm -f "$SUGGESTFILE" "$SUGGESTFILE.tmp"'
+SUGGEST_SHOW = 'cat "$SUGGESTFILE"'
+SUGGEST_SCOPE = ("`fix` for any row but `dismiss`/`defer` for MEDIUM rows "
+                 "only (D-19)")
+SUGGEST_OWN_WORDS = "still needs your own words"
+PARSE_DRY_RUN = 'parse --rows "$ROWSFILE" --answer "$SUGGESTFILE"'
+
+
+def translate_paragraph(text):
+    """The Finalize **Translate the answer** paragraph, up to its fence."""
+    section = card_section(text)
+    start = section.find(TRANSLATE_HEAD)
+    if start < 0:
+        return ""
+    end = section.find("```bash", start)
+    return section[start:end if end >= 0 else len(section)]
+
+
+def _bullet(para, needle):
+    """The whole line of `para` that holds `needle`."""
+    at = para.index(needle)
+    bol = para.rindex("\n", 0, at) + 1
+    eol = para.find("\n", at)
+    return para[bol:eol if eol >= 0 else len(para)]
+
+
+def check_title_rule(text):
+    """Translate passes the owner's title words verbatim and states the
+    helper's rule: whole words, filler ignored (WR-03)."""
+    para = translate_paragraph(text)
+    if not para:
+        return ["no Translate paragraph"]
+    problems = ["Translate lacks: " + n for n in TITLE_RULE_NEEDLES
+                if n not in para]
+    if TITLE_TEXT_OLD in text:
+        problems.append("the unqualified title text form is still present")
+    m = _FILLER_LIST.search(para)
+    if not m:
+        problems.append("Translate lists no filler words")
+    else:
+        problems += ["filler word the helper does not ignore: " + w
+                     for w in (w.strip() for w in m.group(1).split("/"))
+                     if w not in batch_card._TITLE_FILLER]
+    return problems
+
+
+def check_parse_refusal_branch(text):
+    """An `ok` false result with every ref clear (the parser refused the
+    built grammar) goes straight to the full-card fallback (WR-04)."""
+    para = followup_paragraph(text)
+    if PARSE_REFUSAL_BULLET not in para:
+        return ["Ask paragraph lacks the parser-refusal bullet"]
+    bullet = _bullet(para, PARSE_REFUSAL_BULLET)
+    problems = []
+    if not bullet.lstrip().startswith("- "):
+        problems.append("the parser-refusal branch is not its own bullet")
+    tail = bullet[bullet.index(PARSE_REFUSAL_BULLET):]
+    problems += ["parser-refusal bullet lacks: " + n
+                 for n in PARSE_REFUSAL_AFTER if n not in tail]
+    if batch_parse.REASON_REST_TWICE.strip() not in bullet:
+        problems.append("parser-refusal bullet does not name the "
+                        "rest-twice refusal")
+    if BLOCKED_BULLET not in para or \
+            para.index(PARSE_REFUSAL_BULLET) > para.index(BLOCKED_BULLET):
+        problems.append("parser-refusal bullet is not before the blocked "
+                        "bullet")
+    return problems
+
+
+def check_count_needed(text):
+    """An uncounted serious group is asked only its count (D-18); a Q2 pick
+    never stands in for the count."""
+    para = followup_paragraph(text)
+    if COUNT_NEEDED_HEAD not in para:
+        return ["Ask paragraph lacks the count_needed bullet"]
+    bullet = _bullet(para, COUNT_NEEDED_HEAD)
+    problems = ["count_needed bullet lacks: " + n
+                for n in COUNT_NEEDED_NEEDLES if n not in bullet]
+    if COMPLETED_REFS not in para:
+        return problems + ["no completed-refs sentence"]
+    at = para.index(COMPLETED_REFS)
+    end = para.find("re-run the resolve fence", at)
+    sentence = para[at:end if end >= 0 else len(para)]
+    if "`count_needed`" not in sentence:
+        problems.append("completed-refs sentence does not say how a "
+                        "count_needed ref is completed")
+    return problems
+
+
+def check_suggest_fence(text):
+    """The D-09 line comes from `batch_card.py suggest`, which keeps
+    dismiss/defer for medium rows only (D-19); no parse dry-run is left."""
+    section = card_section(text)
+    start = section.find(BOTTOM_HEAD)
+    if start < 0:
+        return ["no Bottom line paragraph"]
+    end = section.find("\n\n**", start)
+    para = section[start:end if end >= 0 else len(section)]
+    problems = []
+    fences = [f for f in bash_fences(para) if SUGGEST_CALL in f]
+    if len(fences) != 1 or text.count(SUGGEST_CALL) != 1:
+        problems.append("the D-09 paragraph lacks the suggest call once")
+    else:
+        body = fences[0]
+        if "else" not in body:
+            problems.append("suggest fence has no else arm")
+        else:
+            then, other = body.split("else", 1)
+            if SUGGEST_SHOW not in then:
+                problems.append("suggest fence does not print the result")
+            if SUGGEST_ELSE not in other:
+                problems.append("suggest fence's else arm keeps a file")
+    problems += ["Bottom line paragraph lacks: " + n
+                 for n in (SUGGEST_SCOPE, SUGGEST_OWN_WORDS) if n not in para]
+    if PARSE_DRY_RUN in text:
+        problems.append("the parse dry-run of the suggestion is still there")
+    return problems
+
+
+ROWS_PRINT = "printf 'ROWSFILE=%s\\n' \"$ROWSFILE\""
+CARD_PRINT = "printf 'CARDROWSFILE=%s\\n' \"$ROWSFILE\""
+# Every helper call on this card reads the card's rows as `"$ROWSFILE"`;
+# the counts are pinned so no call is moved onto another name (T-58-21-04).
+ROWS_CALL_PINS = {
+    'suggest --rows "$ROWSFILE" --answer "$SUGGESTFILE"': 1,
+    'parse --rows "$ROWSFILE" --answer "$ANSWERFILE"': 1,
+    'resolve --rows "$ROWSFILE" --answer "$REFSFILE" > "$RESOLVEFILE"': 1,
+    'resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows '
+    '"$PRIORROWSFILE"': 1,
+    '--rows "$ROWSFILE"': 4,
+}
+
+
+def check_card_rows_print(text):
+    """Finalize's rows fence renders a card, so besides `ROWSFILE=` it prints
+    the same path as `CARDROWSFILE=` -- the next fix-loop pass re-maps a
+    stale answer from that print only. Nothing reads `$CARDROWSFILE`."""
+    section = card_section(text)
+    fences = [f for f in bash_fences(section) if ROWS_CALL in f]
+    if len(fences) != 1:
+        return ["Finalize rows fence not found once"]
+    body = fences[0]
+    problems = []
+    if ROWS_PRINT not in body:
+        problems.append("rows fence prints no ROWSFILE=")
+    elif CARD_PRINT not in body[body.index(ROWS_PRINT):]:
+        problems.append("rows fence prints no CARDROWSFILE= after ROWSFILE=")
+    for needle in ("printf 'ROWSFILE=%s", "printf 'CARDROWSFILE=%s"):
+        n = text.count(needle)
+        if n != 1:
+            problems.append("%s printed %d times" % (needle, n))
+    if "$CARDROWSFILE" in text:
+        problems.append("$CARDROWSFILE is consumed")
+    for call, want in ROWS_CALL_PINS.items():
+        n = text.count(call)
+        if n != want:
+            problems.append("%r appears %d times, want %d" % (call, n, want))
+    return problems
+
+
+TRIM_HEAD = "Exit 0 → fill the card's"
+TRIM_NOTE = "need your own words)"
+TRIM_COUNT_ONLY = "the count only, never which rows"
+
+
+def check_trim_note(text):
+    """A trimmed Bottom line suggestion ends with a count-only note (IN-01)."""
+    line = _line_starting(card_section(text), TRIM_HEAD)
+    if not line:
+        return ["no Exit 0 sentence"]
+    return ["Exit 0 sentence lacks: " + n
+            for n in (TRIM_NOTE, TRIM_COUNT_ONLY) if n not in line]
 
 
 class LockCase(unittest.TestCase):
@@ -501,6 +1052,381 @@ class TestFinalizeCard(LockCase):
         with self.subTest("mutant: echo back to message text only"):
             self.assert_trips(check_list_in_card, remove(
                 self.text, "as the opening lines of the next message you print"))
+
+class TestPhase58Finalize(LockCase):
+    """Each description says what `batch_card.py parse` does, and a typed
+    answer the grammar refuses is translated, checked and acted on."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_option_descriptions_holds(self):
+        self.assert_holds(check_option_descriptions, self.text)
+
+    def test_mutant_option_descriptions(self):
+        with self.subTest("mutant: Fix all back to any band"):
+            self.assert_trips(check_option_descriptions, self._mutant(
+                OPT_FIX_ALL,
+                '> 3. **Fix all** — "Send every row, any band, to the '
+                'fix-loop card"'))
+        with self.subTest("mutant: Mixed… says lowest band again"):
+            self.assert_trips(check_option_descriptions, self._mutant(
+                OPT_MIXED, "`all` means every row of the lowest band"))
+        with self.subTest("mutant: Dismiss all forgets NV rows"):
+            self.assert_trips(check_option_descriptions, self._mutant(
+                OPT_DISMISS, "Critical/warning rows stay open unless you name "
+                             "them by number in Mixed…"))
+
+    def test_q1_header_holds(self):
+        self.assert_holds(check_q1_header, self.text)
+
+    def test_mutant_q1_header(self):
+        with self.subTest("mutant: NV count dropped from the header"):
+            self.assert_trips(check_q1_header, self._mutant(
+                "{{V}} needs-verification, ", ""))
+
+    def test_translate_path_holds(self):
+        self.assert_holds(check_translate_path, self.text)
+
+    def test_mutant_translate_path(self):
+        with self.subTest("mutant: refusal re-shows the SAME card again"):
+            self.assert_trips(check_translate_path, self._mutant(
+                "On any other refusal go to **Translate the answer (D-01)**.",
+                "Re-show the SAME card (D-06: an unparseable answer re-asks, "
+                "never guesses)."))
+        with self.subTest("mutant: Q2 no longer the fallback reason"):
+            self.assert_trips(check_translate_path, self._mutant(
+                "the Q2 pick still supplies the reason when the owner's text "
+                "gave none"))
+        with self.subTest("mutant: Finalize writes the close-out carrier"):
+            self.assert_trips(check_translate_path, inject_into_card(
+                self.text, "Re-enter with `--close-out-after-rerun`."))
+        with self.subTest("mutant: resolve fence removed"):
+            self.assert_trips(check_translate_path, self._mutant(
+                RESOLVE_CALL, 'resolve --rows "$ROWSFILE"'))
+
+    def test_nv_stop_reconciled_holds(self):
+        self.assert_holds(check_nv_stop_reconciled, self.text)
+
+    def test_mutant_nv_stop_reconciled(self):
+        with self.subTest("mutant: re-checks it once restored"):
+            self.assert_trips(check_nv_stop_reconciled, self._mutant(
+                NV_STOP_NEW, "the next review run re-checks it once"))
+
+    def test_mutant_echo_visible(self):
+        with self.subTest("mutant: old From-your-finalize-answer needle"):
+            self.assert_trips(check_list_in_card, self._mutant(
+                ECHO_VISIBLE[2],
+                "when step 2 routes to the fix-loop card, as that card's "
+                "closing \"From your finalize answer:\" block"))
+
+    def test_bottom_line_holds(self):
+        self.assert_holds(check_bottom_line, self.text)
+        self.assert_holds(check_no_nudge, self.text)
+
+    def test_mutant_bottom_line(self):
+        with self.subTest("mutant: guessed suggestion allowed"):
+            self.assert_trips(check_bottom_line,
+                              self._mutant("never print a guessed one"))
+        with self.subTest("mutant: session condition dropped"):
+            self.assert_trips(check_bottom_line, self._mutant(
+                "THIS session rendered the last pass's Bottom line"))
+        with self.subTest("mutant: nudge on the suggestion slot"):
+            self.assert_trips(check_no_nudge, self._mutant(
+                "in Other to take it}}", "in Other to take it (Recommended)}}"))
+
+
+class TestPhase58FinalizeRouting(LockCase):
+    """A partly readable Finalize answer asks only the gap, once; a stale
+    card is re-mapped by identity; the budget names every extra card."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_followup_holds(self):
+        self.assert_holds(check_followup, self.text)
+
+    def test_mutant_followup(self):
+        with self.subTest("mutant: follow-up no longer records nothing"):
+            self.assert_trips(check_followup, self._mutant("record nothing"))
+        with self.subTest("mutant: reason asked even when Q2 gave one"):
+            self.assert_trips(check_followup, self._mutant(
+                "asked only when both are absent"))
+        with self.subTest("mutant: open-ended re-asking"):
+            self.assert_trips(check_followup, self._mutant(
+                "show the full card once"))
+
+    def test_stale_holds(self):
+        self.assert_holds(check_stale, self.text)
+
+    def test_mutant_stale(self):
+        with self.subTest("mutant: stale card without --prior-rows"):
+            self.assert_trips(check_stale, self._mutant(
+                ' --prior-rows "$PRIORROWSFILE"'))
+        with self.subTest("mutant: echo keeps the old numbers"):
+            self.assert_trips(check_stale, self._mutant(
+                "shows the new numbers"))
+
+    def test_budget_holds(self):
+        self.assert_holds(check_budget, self.text)
+
+    def test_mutant_budget(self):
+        with self.subTest("mutant: old 'unparseable answer' clause restored"):
+            line = budget_line(self.text)
+            self.assertTrue(line)
+            self.assert_trips(check_budget, self._mutant(
+                line, "**Card budget.** Finalize costs one card. Only "
+                      "`look N`, a bare Mixed…, or an unparseable answer adds "
+                      "another, each at the owner's request. A bare Mixed… "
+                      "buys exactly one clarification. Nothing else in this "
+                      "file asks a question."))
+        with self.subTest("mutant: D-08 fallback dropped from the budget"):
+            self.assert_trips(check_budget, self._mutant(
+                " or a second unclear reply (which shows the full card once, "
+                "D-08)"))
+
+
+class TestGapRoundFinalize(LockCase):
+    """Every Finalize temp path is printed and reused only as a literal; the
+    answer files are cleared once the answer is acted on; the stale re-map
+    reads the fix-loop card's printed rows path or falls back."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def test_printed_paths_holds(self):
+        self.assert_holds(check_printed_paths, self.text)
+
+    def test_mutant_printed_paths(self):
+        with self.subTest("mutant: RESOLVEFILE path not printed"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                "printf 'RESOLVEFILE=%s\\n' \"$RESOLVEFILE\"\n"))
+        with self.subTest("mutant: convention sentence dropped"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                PATH_CONVENTION, "a path is reused"))
+
+    def test_answer_files_holds(self):
+        self.assert_holds(check_answer_files, self.text)
+
+    def test_mutant_answer_files(self):
+        s2 = self.text.index(STEP2_HEAD)
+        s3 = self.text.index(STEP3_HEAD)
+        step2 = self.text[s2:s3]
+        with self.subTest("mutant: step 2 keeps the answer files"):
+            mutant = (self.text[:s2]
+                      + step2.replace(ANSWER_FILES_CLEAR, "true", 1)
+                      + self.text[s3:])
+            self.assert_trips(check_answer_files, mutant)
+        with self.subTest("mutant: any existing SUGGESTFILE counts again"):
+            self.assert_trips(check_answer_files, self._mutant(
+                "printed on the card currently shown",
+                "printed on the card currently shown and " + SUGGEST_OLD))
+        with self.subTest("mutant: D-09 forgets the Close out removal"):
+            self.assert_trips(check_answer_files, self._mutant(
+                "was removed at Close out", "was kept"))
+
+    def test_stale_source_holds(self):
+        self.assert_holds(check_stale, self.text)
+
+    def test_mutant_stale_source(self):
+        anchor = "the fix-loop card shown before Close out in this session"
+        with self.subTest("mutant: earlier --finalize case restored"):
+            self.assert_trips(check_stale, self._mutant(
+                anchor, anchor + ", or " + STALE_FORBIDDEN[0]
+                + " built a card the owner is still answering"))
+        with self.subTest("mutant: 'used as is' source restored"):
+            self.assert_trips(check_stale, self._mutant(
+                STALE_CARD_SOURCE,
+                STALE_CARD_SOURCE + " (" + STALE_FORBIDDEN[1] + ")"))
+        with self.subTest("mutant: no-path fallback dropped"):
+            self.assert_trips(check_stale, self._mutant(
+                "no longer available", "gone"))
+
+
+class TestGapRoundFinalizeTranslate(LockCase):
+    """Finalize's Translate, Ask and Bottom line match the helper the same
+    way the fix-loop card does: verbatim title words, the parser-refusal
+    branch, the How many question, the suggest fence."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def _drop_line(self, needle):
+        self.assertIn(needle, self.text)
+        return self._mutant(_bullet(self.text, needle) + "\n")
+
+    def test_title_rule_holds(self):
+        self.assert_holds(check_title_rule, self.text)
+
+    def test_mutant_title_rule(self):
+        cases = {
+            "old text form": (TITLE_TEXT_NEW + "}", TITLE_TEXT_OLD),
+            "rule dropped": ("whole words only", "words"),
+            "filler the helper keeps": ("filler (the / a", "filler (the / of"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assert_trips(check_title_rule, self._mutant(old, new))
+
+    def test_parse_refusal_branch_holds(self):
+        self.assert_holds(check_parse_refusal_branch, self.text)
+
+    def test_mutant_parse_refusal_branch(self):
+        self.assert_trips(check_parse_refusal_branch,
+                          self._drop_line(PARSE_REFUSAL_BULLET))
+
+    def test_count_needed_holds(self):
+        self.assert_holds(check_count_needed, self.text)
+        self.assert_holds(check_followup, self.text)
+
+    def test_mutant_count_needed(self):
+        mutant = self._drop_line(COUNT_NEEDED_HEAD)
+        self.assert_trips(check_count_needed, mutant)
+        self.assert_trips(check_followup, mutant)
+        with self.subTest("Q2 clause dropped"):
+            self.assert_trips(check_count_needed, self._mutant(
+                " (a Q2 pick never supplies a count)"))
+
+    def test_suggest_fence_holds(self):
+        self.assert_holds(check_suggest_fence, self.text)
+        self.assert_holds(check_bottom_line, self.text)
+
+    def test_mutant_suggest_fence(self):
+        restored = ('batch_card.py" parse --rows "$ROWSFILE" --answer '
+                    '"$SUGGESTFILE" > /dev/null')
+        cases = {
+            "parse dry-run restored": (SUGGEST_CALL, restored),
+            "else keeps the tmp file": (SUGGEST_ELSE, 'rm -f "$SUGGESTFILE"'),
+            "scope sentence dropped": (SUGGEST_SCOPE, "any verb"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assert_trips(check_suggest_fence, self._mutant(old, new))
+        self.assert_trips(check_bottom_line,
+                          self._mutant(SUGGEST_CALL, restored))
+
+
+class TestFinalRoundFinalize(LockCase):
+    """WR-01, WR-03(a), WR-02 and IN-01 on the Finalize card, the mirror of
+    the fix loop's final round, each with mutants restoring the defect."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def _d08_mutant(self, old, new):
+        """Replace `old` inside the D-08 sentence only."""
+        start = self.text.index(D08_HEAD)
+        end = self.text.index(FULL_CARD_ONCE, start)
+        chunk = self.text[start:end]
+        self.assertIn(old, chunk)
+        return (self.text[:start] + chunk.replace(old, new, 1)
+                + self.text[end:])
+
+    def test_answer_files_holds(self):
+        self.assert_holds(check_answer_files, self.text)
+
+    def test_stale_source_holds(self):
+        self.assert_holds(check_stale, self.text)
+
+    def test_card_rows_print_holds(self):
+        self.assert_holds(check_card_rows_print, self.text)
+        self.assert_holds(check_printed_paths, self.text)
+
+    def test_trim_note_holds(self):
+        self.assert_holds(check_trim_note, self.text)
+
+    def test_title_rule_holds(self):
+        self.assert_holds(check_title_rule, self.text)
+
+    def test_mutant_answer_files(self):
+        with self.subTest("fallback deletes the suggestion"):
+            self.assert_trips(check_answer_files, self._d08_mutant(
+                TRANSLATION_FILES_CLEAR, ANSWER_FILES_CLEAR))
+        with self.subTest("fallback drops keep"):
+            self.assert_trips(check_answer_files, self._d08_mutant(
+                KEEP_SUGGEST, "remove `$SUGGESTFILE`"))
+        with self.subTest("Q1 condition restored"):
+            self.assert_trips(check_answer_files, self._mutant(
+                Q1_SUGGEST_COND, "the suggestion fence below "
+                + Q1_SUGGEST_OLD))
+
+    def test_mutant_stale_source(self):
+        para = stale_paragraph(self.text)
+        self.assertIn(STALE_NEVER_SUBSET, para)
+        never = para[para.index(STALE_NEVER_SUBSET):]
+        never = never[:never.index("prior card)") + len("prior card)")]
+        cases = {
+            "never-clause deleted": (never, ""),
+            "last printed rule": (STALE_CARD_SOURCE,
+                                  "printed on the last `ROWSFILE=` line "
+                                  "printed in this session"),
+            "ROWSFILE= source": ("the fix-loop card's rows fence "
+                                 + STALE_CARD_SOURCE,
+                                 "that card's rows fence printed after "
+                                 "`ROWSFILE=`"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assert_trips(check_stale, self._mutant(old, new))
+
+    def test_mutant_card_rows_print(self):
+        cases = {
+            "fence loses CARDROWSFILE=": (CARD_PRINT + "\n", ""),
+            "twin reads CARDROWSFILE": (
+                'resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows',
+                'resolve --rows "$CARDROWSFILE" --answer "$REFSFILE" '
+                '--prior-rows'),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assert_trips(check_card_rows_print,
+                                  self._mutant(old, new))
+
+    def test_mutant_trim_note(self):
+        for label, (old, new) in {
+                "note dropped": (TRIM_NOTE, ")"),
+                "names rows": (TRIM_COUNT_ONLY, "list which rows"),
+        }.items():
+            with self.subTest(label):
+                self.assert_trips(check_trim_note, self._mutant(old, new))
+
+    def test_mutant_title_rule(self):
+        for label, needle in {"strict rule dropped": STRICT_MATCH,
+                              "partial asks dropped": PARTIAL_ASKS}.items():
+            with self.subTest(label):
+                self.assert_trips(check_title_rule,
+                                  self._mutant(needle, "the row"))
+
 
 # --------------------------------------------------------------------------- #
 # REVIEW.md rendering.

@@ -10,6 +10,7 @@ checks each carry a mutant subtest proving the check would trip.
 """
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -21,9 +22,13 @@ import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import batch_card  # noqa: E402  (title filler words)
 import batch_parse  # noqa: E402  (sibling module: the card labels)
 import fixstage  # noqa: E402  (the one exit table: render_case_arms)
 from test_git_safety_prose import OPTIONAL_EXPANSION  # noqa: E402
+from test_scope_args import (  # noqa: E402  (the real Phase 0 fence)
+    REENTRY, RERUN_POINTER, SCOPE, SHELLS, carrier_flag, finalize_mode,
+    normalizer_block, scope_args, read as read_scope)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_DIR = os.path.normpath(os.path.join(HERE, ".."))
@@ -296,11 +301,19 @@ PREFLIGHT_INVOCATION = 'fixstage.py" preflight --root "$GREPO"'
 BUILD_DISPATCH = "**Build the dispatch (deterministic).**"
 SUBSET_BULLET = "- **Finalize routed a fix set here (D-10)**"
 ORDINARY_BULLET = "- **Every other pass**"
-SUBSET_NO_CARD = ("Then print Finalize's `echo_text` as message text, write "
+SUBSET_NO_CARD = ("Finalize already printed its `echo_text` before reading "
+                  "this file — do not print it again. Write "
                   "`{\"all\": true}` to `$ANSWERFILE` with the Write tool, and "
                   "go straight to **Step B** — ask NO AskUserQuestion: the "
                   "owner already chose these rows at Finalize (D-06).")
 BUDGET_NO_CARD = "a Finalize-routed subset costs no card"
+# Words that name the Finalize-routed case, and verbs that would show it a
+# card. A sentence outside the subset bullet holding one of each is a
+# second, contradicting rule (bug C, mutant C).
+SUBSET_CASE_WORDS = ("Finalize routed", "Finalize-routed", "$SUBSETFILE")
+SUBSET_CARD_VERBS = ("AskUserQuestion", "show the card", "Apply or Skip")
+MUTANT_C = ("When Finalize routed a fix set, show the card below so the "
+            "owner can Apply or Skip.")
 
 
 def case_blocks(text):
@@ -411,6 +424,14 @@ def subset_no_card_problems(card):
     budget = [l for l in card.split("\n") if l.startswith("**Card budget.**")]
     if len(budget) != 1 or BUDGET_NO_CARD not in budget[0]:
         problems.append("card budget does not say the subset costs no card")
+    # The bullet is the only rule for a Finalize-routed set: no sentence
+    # anywhere else in the card section may tie that case to a card.
+    rest = card.replace(bullet, "", 1)
+    for sentence in re.split(r"\. |\n", rest):
+        if (any(w in sentence for w in SUBSET_CASE_WORDS)
+                and any(v in sentence for v in SUBSET_CARD_VERBS)):
+            problems.append("off-bullet sentence asks a card for the "
+                            "Finalize-routed set: " + sentence.strip()[:80])
     return problems
 
 
@@ -567,6 +588,7 @@ LIST_IN_CARD = (
     "When `card_text_truncated` is true",
     "ALSO print the `list_text` field verbatim as message text",
 )
+FINALIZE_ECHO_RESIDUE = ("From your finalize answer:", "<echo_text>")
 
 
 def question_line(card):
@@ -579,10 +601,14 @@ def list_in_card_problems(card):
     """[] when the numbered list is carried INSIDE the card's question."""
     problems = [n for n in LIST_IN_CARD if card.count(n) != 1]
     question = question_line(card)
-    for needle in ("{{card_text}}", "From your finalize answer:",
-                   "<echo_text>", "listed below"):
+    for needle in ("{{card_text}}", "listed below"):
         if needle not in question:
             problems.append("question lacks " + needle)
+    # No card is shown on a Finalize-routed pass, so the card never carries
+    # a "From your finalize answer:" block (I-10).
+    for gone in FINALIZE_ECHO_RESIDUE:
+        if gone in card:
+            problems.append("finalize-answer residue in the card: " + gone)
     if "Message text above the card" in card:
         problems.append("list printed as message text above the card")
     return problems
@@ -624,15 +650,200 @@ NV_DECIDED_LINE = (
 NV_APPLY_ALL_NOTE = ("(Needs-verification rows are not applied — confirm "
                      "them by number.)")
 NV_TYPED_BRANCH = "**Typed answer via Other**"
-NV_CARD_NEEDLES = (NV_DECIDED_LINE, NV_APPLY_ALL_NOTE, NV_TYPED_BRANCH)
+# Apply all's scope is rendered by the helper (58-01 `bulk_fix_text`), which
+# names the Needs-verification rows it leaves out by number (D-10..D-12).
+BULK_FIX_SLOT = "{{bulk_fix_text}}"
+BULK_FIX_NOTE = ("is the `bulk_fix_text` field of `$ROWSFILE`, verbatim — "
+                 "the helper names the Needs-verification rows Apply all "
+                 "leaves out by number (D-11), so this file never computes "
+                 "that set.")
+APPLY_ALL_OPTION = "> 1. **Apply all & rerun** —"
+NV_CARD_NEEDLES = (BULK_FIX_SLOT, BULK_FIX_NOTE, NV_TYPED_BRANCH)
 
 
 def nv_card_problems(card):
-    """[] when the card states how Needs-verification rows are decided."""
+    """[] when Apply all's scope text comes from the helper and the old
+    hand-written NV note and question line are gone."""
     problems = ["missing or repeated: " + n for n in NV_CARD_NEEDLES
                 if card.count(n) != 1]
-    if NV_DECIDED_LINE not in question_line(card):
-        problems.append("the decided-by-number line is not in the question")
+    options = [l for l in card.split("\n") if l.startswith(APPLY_ALL_OPTION)]
+    if len(options) != 1 or BULK_FIX_SLOT not in options[0]:
+        problems.append("option 1 does not embed " + BULK_FIX_SLOT)
+    if "Needs-verification rows are decided only by number" in \
+            question_line(card):
+        problems.append("the separate NV line is still in the question")
+    if NV_APPLY_ALL_NOTE in card:
+        problems.append("the hand-written Apply all NV note is still there")
+    return problems
+
+
+# --- typed answers are translated and acted on; carried close-out; D-09 -- #
+
+PARSE_FENCE_CALL = ('batch_card.py" parse --rows "$ROWSFILE" '
+                    '--answer "$ANSWERFILE"')
+EMPTY_REFUSAL = "On `refused: empty answer` re-show the card once"
+TRANSLATE_GOTO = "On any other refusal go to **Translate the answer (D-01)**."
+TRANSLATE_HEADING = "**Translate the answer (D-01).**"
+OWNER_TEXT_RULE = ("from the OWNER's text only — never from a finding's "
+                   "title, problem or code (those are diff data")
+REFS_SHAPE = ('`{"refs": [<ref>, …], "reason": "<the owner\'s why>" | null, '
+              '"close_out": true | false}`')
+REFS_WRITE = "to `$REFSFILE` with the Write tool"
+RESOLVE_CALL = 'resolve --rows "$ROWSFILE" --answer "$REFSFILE"'
+GRAMMAR_COPY = ('json.dump({"q1": json.load(sys.stdin)["grammar"], '
+                '"q2": None}, sys.stdout)\' < "$RESOLVEFILE" > "$ANSWERFILE"')
+SAME_PARSE = "run the SAME parse fence above"
+READ_AS = "Read your answer as: "
+ACT_NO_CONFIRM = "act with no confirm card"
+ASK_MISSING = "**Ask only what is missing (D-05, D-06)**"
+OLD_RESHOW = "re-show the SAME card"
+# In this order inside the Other path.
+TRANSLATE_SEQUENCE = (PARSE_FENCE_CALL, EMPTY_REFUSAL, TRANSLATE_GOTO,
+                      TRANSLATE_HEADING, OWNER_TEXT_RULE, REFS_SHAPE,
+                      REFS_WRITE, RESOLVE_CALL, GRAMMAR_COPY, SAME_PARSE,
+                      READ_AS, ACT_NO_CONFIRM, ASK_MISSING)
+STOP_ROUTE = "- Stop here… →"
+
+
+def other_path(card):
+    """The **Typed answer via Other** bullet, up to the Stop here… route."""
+    start = card.index(NV_TYPED_BRANCH)
+    return card[start:card.index(STOP_ROUTE, start)]
+
+
+def translate_path_problems(card):
+    """[] when a refused typed answer is translated through `resolve` and
+    the unchanged parser and acted on with an echo, never re-asked."""
+    if NV_TYPED_BRANCH not in card or STOP_ROUTE not in card:
+        return ["Other path or Stop here… route missing"]
+    other = other_path(card)
+    problems = ["Other path lacks: " + n for n in TRANSLATE_SEQUENCE
+                if n not in other]
+    if problems:
+        return problems
+    at = [other.index(n) for n in TRANSLATE_SEQUENCE]
+    if at != sorted(at):
+        problems.append("Other path steps are out of order")
+    call = other.index(RESOLVE_CALL)
+    fence = other.rfind("```bash", 0, call)
+    if fence < 0 or "```" in other[fence + len("```bash"):call]:
+        problems.append("resolve call is not inside a bash fence")
+    if OLD_RESHOW in card:
+        problems.append("a refusal still re-shows the SAME card")
+    return problems
+
+
+CLOSE_OUT_CARRY = "**Close out carried from the previous pass (D-17).**"
+CARRY_LINE = "CLOSE_OUT_AFTER_RERUN=1"
+CARRY_NEEDLES = (CARRY_LINE, "do not render the card",
+                 "even when the rerun reported new findings",
+                 "${original_args} --finalize", "drops it")
+# The tmp files do not survive the Rerun, so the carry never reads them.
+CARRY_FORBIDDEN = ("$RESOLVEFILE", "close_out")
+BIND_ROWS = "**Bind the rows.**"
+
+
+def close_out_carry_problems(text):
+    """[] when the fix loop reads a carried close-out from Phase 0's printed
+    line, before any fence, and goes to Close out without the card."""
+    card = card_section(text)
+    if CLOSE_OUT_CARRY not in card:
+        return ["no carried close-out paragraph"]
+    start = card.index(CLOSE_OUT_CARRY)
+    para = card[start:card.index("\n\n", start)]
+    problems = ["carry paragraph lacks: " + n for n in CARRY_NEEDLES
+                if n not in para]
+    problems += ["carry paragraph reads a tmp-file token: " + n
+                 for n in CARRY_FORBIDDEN if n in para]
+    if BIND_ROWS not in card or start > card.index(BIND_ROWS) \
+            or start > card.index("```bash"):
+        problems.append("carry paragraph is not before the rows fences")
+    if text.count(CARRY_LINE) != 1:
+        problems.append("%s x%d" % (CARRY_LINE, text.count(CARRY_LINE)))
+    return problems
+
+
+BOTTOM_LINE_SLOT = ('{{\\n\\nBottom line suggests: <grammar> — type '
+                    '"bottom line" in Other to take it}}')
+BOTTOM_LINE_HEAD = "**Bottom line as a choice (D-09).**"
+BOTTOM_LINE_QUESTION_NOTE = ("The `Bottom line suggests:` line appears ONLY "
+                             "when the `suggest` fence below exited 0 on "
+                             "this pass")
+BOTTOM_LINE_NEEDLES = ("this pass's Bottom line in THIS session",
+                       'suggest --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
+                       'rm -f "$SUGGESTFILE"',
+                       "never print a guessed one",
+                       "the 4 options and the neutral menu stay")
+
+
+def bottom_line_problems(card):
+    """[] when the card offers the Bottom line's verdict only as a parser-
+    accepted grammar line, with no nudge on any option (D-09, LEGIBLE-03)."""
+    problems = []
+    question = question_line(card)
+    if BOTTOM_LINE_SLOT not in question:
+        problems.append("question lacks the Bottom line slot")
+    if BOTTOM_LINE_QUESTION_NOTE not in card:
+        problems.append("question note lacks the ONLY-when rule")
+    if BOTTOM_LINE_HEAD not in card:
+        return problems + ["no Bottom line paragraph"]
+    start = card.index(BOTTOM_LINE_HEAD)
+    end = card.find("\n\n**", start)
+    para = card[start:end if end >= 0 else len(card)]
+    problems += ["Bottom line paragraph lacks: " + n
+                 for n in BOTTOM_LINE_NEEDLES if n not in para]
+    if nudge_count(card):
+        problems.append("a nudge in the card")
+    return problems
+
+
+OLD_HOLD = ("A recorded dismiss or defer holds until its own line is edited "
+            "or its band changes (D-12); unrelated edits elsewhere never "
+            "re-ask it.")
+HOLD_NEEDLES = ("A recorded dismiss or defer holds while its evidence is "
+                "unchanged",
+                "a line shift alone never re-asks it",
+                "code next to it changed",
+                "a new concern from another lane joined it",
+                "its severity rose because a new lane now reports it",
+                "a severity drop keeps the decision",
+                "(Phase 57 D-01, D-02, D-05, D-06, D-08)")
+
+
+def decision_hold_problems(card):
+    """[] when the hold sentence says what Phase 57's stale check does."""
+    problems = []
+    if card.count(HOLD_NEEDLES[0]) != 1:
+        problems.append("hold sentence missing or repeated")
+        sentence = ""
+    else:
+        start = card.index(HOLD_NEEDLES[0])
+        sentence = card[start:card.index("\n", start)]
+    problems += ["hold sentence lacks: " + n for n in HOLD_NEEDLES[1:]
+                 if n not in sentence]
+    if "holds until its own line is edited" in card:
+        problems.append("the pre-Phase-57 hold sentence is back")
+    return problems
+
+
+BUDGET_NEEDLES = (
+    "A pass costs one card", BUDGET_NO_CARD,
+    "a carried close-out (D-17) costs none",
+    "a plain-English answer that needs one detail costs at most one "
+    "follow-up card per gap (D-06)",
+    "a second unclear reply shows the full card once (D-08)",
+    "`look N` re-shows the card at the owner's request")
+
+
+def budget_problems(text):
+    """[] when the one budget line enumerates every card the loop can show."""
+    lines = [l for l in text.split("\n") if l.startswith("**Card budget.**")]
+    if len(lines) != 1:
+        return ["expected one Card budget line, found %d" % len(lines)]
+    problems = ["budget lacks: " + n for n in BUDGET_NEEDLES
+                if n not in lines[0]]
+    if "an unparseable answer" in lines[0]:
+        problems.append("budget still re-shows on an unparseable answer")
     return problems
 
 
@@ -763,11 +974,18 @@ class TestFixLoopCard(unittest.TestCase):
                 mutant = self.card.replace(needle, "", 1)
                 self.assertNotEqual(mutant, self.card)
                 self.assertNotEqual(nv_card_problems(mutant), [])
-        with self.subTest("mutant: NV line moved out of the question"):
+        with self.subTest("mutant: option 1 back to the hand-written note"):
+            mutant = self.card.replace(
+                BULK_FIX_SLOT, "every listed row " + NV_APPLY_ALL_NOTE, 1)
+            self.assertNotEqual(mutant, self.card)
+            self.assertNotEqual(nv_card_problems(mutant), [])
+        with self.subTest("mutant: the separate NV line back in the question"):
             question = question_line(self.card)
             mutant = self.card.replace(
-                question, question.replace(NV_DECIDED_LINE, "", 1), 1)
-            mutant += "\n" + NV_DECIDED_LINE + "\n"
+                question, question.replace(
+                    "{{card_text}}", "{{card_text}}{{\\n\\n" +
+                    NV_DECIDED_LINE + "}}", 1), 1)
+            self.assertNotEqual(mutant, self.card)
             self.assertNotEqual(nv_card_problems(mutant), [])
 
     # (i) card budget
@@ -837,6 +1055,9 @@ class TestFixLoopCard(unittest.TestCase):
     # call's output is collapsed by the terminal and never seen)
     def test_list_lives_in_the_card_question(self):
         self.assertEqual(list_in_card_problems(self.card), [])
+        for gone in FINALIZE_ECHO_RESIDUE:
+            with self.subTest(absent_from_file=gone):
+                self.assertNotIn(gone, self.text)
 
     def test_list_in_card_trips_on_mutants(self):
         question = question_line(self.card)
@@ -844,9 +1065,13 @@ class TestFixLoopCard(unittest.TestCase):
             mutant = self.card.replace(
                 question, question.replace("{{card_text}}", ""), 1)
             self.assertNotEqual(list_in_card_problems(mutant), [])
-        with self.subTest("mutant: finalize echo dropped"):
+        with self.subTest("mutant: finalize echo block re-inserted (I-10)"):
             mutant = self.card.replace(
-                question, question.replace("<echo_text>", ""), 1)
+                question, question.replace(
+                    "{{card_text}}",
+                    "{{card_text}}{{\\n\\nFrom your finalize answer:"
+                    "\\n<echo_text>}}", 1), 1)
+            self.assertNotEqual(mutant, self.card)
             self.assertNotEqual(list_in_card_problems(mutant), [])
         with self.subTest("mutant: back to a list printed above the card"):
             mutant = self.card + "\n**Message text above the card.** Print"
@@ -1197,6 +1422,1342 @@ class TestExit9BothConsumers(unittest.TestCase):
         # The harness really reaches the case: rc 8 selects the 8) arm.
         self.assertIn("published-unverified",
                       run_commit_fence(self.fix_text, 8))
+
+
+class TestPhase58Prose(unittest.TestCase):
+    """A clear typed answer is translated and acted on (ANSR-01), a carried
+    close-out is read from Phase 0's printed line (D-17), the Bottom line is
+    offered as grammar (D-09), Apply all's scope comes from the helper
+    (RECV-01), stale residue is gone (D-14). Each check has a mutant."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+
+    def swap(self, old, new, text=None):
+        text = self.card if text is None else text
+        self.assertIn(old, text)
+        mutant = text.replace(old, new, 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    # translated Other path (D-01..D-04, I-13)
+    def test_translate_path_holds(self):
+        self.assertEqual(translate_path_problems(self.card), [])
+
+    def test_mutant_translate_reshows_same_card(self):
+        mutant = self.swap(TRANSLATE_GOTO, "On any other refusal "
+                           + OLD_RESHOW + " once.")
+        self.assertNotEqual(translate_path_problems(mutant), [])
+
+    def test_mutant_translate_reads_titles(self):
+        mutant = self.swap(OWNER_TEXT_RULE,
+                           "from the owner's text and the finding titles")
+        self.assertNotEqual(translate_path_problems(mutant), [])
+
+    def test_mutant_translate_skips_parse(self):
+        mutant = self.swap(SAME_PARSE, "use the grammar as parsed")
+        self.assertNotEqual(translate_path_problems(mutant), [])
+
+    # carried close-out (D-17)
+    def test_close_out_carry_holds(self):
+        self.assertEqual(close_out_carry_problems(self.text), [])
+
+    def test_mutant_close_out_carry_new_findings_show_card(self):
+        mutant = self.swap("even when the rerun reported new findings",
+                           "unless the rerun reported new findings",
+                           self.text)
+        self.assertNotEqual(close_out_carry_problems(mutant), [])
+
+    def test_mutant_close_out_carry_reads_tmp_file(self):
+        mutant = self.swap(CARRY_LINE, "`close_out` true in `$RESOLVEFILE`",
+                           self.text)
+        self.assertNotEqual(close_out_carry_problems(mutant), [])
+
+    # Bottom line as a choice (D-09)
+    def test_bottom_line_holds(self):
+        self.assertEqual(bottom_line_problems(self.card), [])
+        self.assertEqual(nudge_count(self.text), 0)
+
+    def test_mutant_bottom_line_guessed(self):
+        mutant = self.swap("never print a guessed one",
+                           "print your best guess")
+        self.assertNotEqual(bottom_line_problems(mutant), [])
+
+    def test_mutant_bottom_line_recommended(self):
+        slot = BOTTOM_LINE_SLOT
+        mutant = self.swap(slot, slot.replace(
+            "to take it}}", "to take it (Recommended)}}"))
+        self.assertGreater(nudge_count(mutant), 0)
+        self.assertNotEqual(bottom_line_problems(mutant), [])
+
+    # Apply all names the excluded NV rows from the helper (D-10..D-12)
+    def test_nv_bulk_fix_holds(self):
+        self.assertEqual(nv_card_problems(self.card), [])
+        self.assertEqual(self.text.count(BULK_FIX_SLOT), 1)
+
+    def test_mutant_nv_hand_written_note(self):
+        mutant = self.swap(BULK_FIX_SLOT, "every listed row. "
+                           + NV_APPLY_ALL_NOTE)
+        self.assertNotEqual(nv_card_problems(mutant), [])
+
+    # residue (I-10)
+    def test_residue_holds(self):
+        self.assertEqual(list_in_card_problems(self.card), [])
+
+    def test_mutant_residue_finalize_echo(self):
+        question = question_line(self.card)
+        mutant = self.swap(question, question.replace(
+            "{{card_text}}", "{{card_text}}{{\\n\\nFrom your finalize "
+            "answer:\\n<echo_text>}}", 1))
+        self.assertNotEqual(list_in_card_problems(mutant), [])
+
+    # decision hold matches Phase 57 (I-12)
+    def test_decision_hold_holds(self):
+        self.assertEqual(decision_hold_problems(self.card), [])
+
+    def test_mutant_decision_hold_restored(self):
+        start = self.card.index(HOLD_NEEDLES[0])
+        end = self.card.index(HOLD_NEEDLES[-1], start) + len(HOLD_NEEDLES[-1])
+        if self.card[end:end + 1] == ".":
+            end += 1
+        mutant = self.swap(self.card[start:end], OLD_HOLD)
+        self.assertNotEqual(decision_hold_problems(mutant), [])
+
+    # card budget (D-14, Pitfall 4)
+    def test_budget_holds(self):
+        self.assertEqual(budget_problems(self.text), [])
+        self.assertEqual(self.text.count("A pass costs one card"), 1)
+
+    def test_mutant_budget_unparseable_reshows(self):
+        mutant = self.swap(
+            "at the owner's request.", "at the owner's request (an "
+            "unparseable answer … re-shows the same card once).", self.text)
+        self.assertNotEqual(budget_problems(mutant), [])
+
+    # bug C (ANSR-03): the subset bullet is the only rule
+    def test_mutant_subset_a_no_ask_clause_deleted(self):
+        clause = (" — ask NO AskUserQuestion: the owner already chose these "
+                  "rows at Finalize (D-06)")
+        mutant = self.swap(clause, "")
+        self.assertNotEqual(subset_no_card_problems(mutant), [])
+
+    def test_mutant_subset_b_asks_apply_skip(self):
+        clause = (" — ask NO AskUserQuestion: the owner already chose these "
+                  "rows at Finalize (D-06)")
+        mutant = self.swap(clause, " then ask one AskUserQuestion (Apply / "
+                           "Skip) before Step B")
+        self.assertNotEqual(subset_no_card_problems(mutant), [])
+
+    def test_mutant_subset_off_bullet_instruction(self):
+        mutant = self.swap("**Same-turn rule",
+                           MUTANT_C + "\n\n**Same-turn rule")
+        self.assertNotEqual(subset_no_card_problems(mutant), [])
+
+
+# --- Phase 58 routing: ask only the gap, stale re-map, close-out carrier ---
+
+ASK_HEADING = "**Ask only what is missing (D-05, D-06).**"
+ASK_NEEDLES = ("Hold the whole answer and record nothing",
+               "never half-apply",
+               "ONE short AskUserQuestion",
+               "only the unclear piece",
+               "`#n file:line`",
+               "re-run the resolve fence",
+               "the whole answer together",
+               "one follow-up per gap",
+               "show the full card once",
+               "could not be matched",
+               "then stop asking")
+FOLLOWUP_HEADERS = ('header "Which row"', 'header "Which rows"',
+                    'header "Reason"', 'header "How many"')
+STALE_HEADING = "**Stale card (D-07).**"
+RESOLVE_PRIOR_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
+                      '--prior-rows "$PRIORROWSFILE"')
+STALE_NEEDLES = ("`prior_number`", "by finding identity",
+                 "shows the new numbers",
+                 " (your numbers re-mapped to the current card)",
+                 "is asked about alone")
+STEP2_START = "2. `fix_targets` non-empty"
+STEP3_START = "3. `fix_targets` empty"
+STEP2_NEEDLES = ("then the Rerun", "`close_out`", "**Close out**",
+                 "`--close-out-after-rerun`", "Step B committed nothing",
+                 "`close_out` is true", "go to **Close out** directly")
+STEP3_NEEDLE = "**Close out** directly when `close_out` is true"
+RERUN_HEADING = "**The Rerun.**"
+MARKER_REENTRY = '$ARGUMENTS = "${original_args} --close-out-after-rerun"'
+PLAIN_REENTRY = '$ARGUMENTS = "${original_args}"'
+MARKER_GUARD = "when the answer that started this Rerun carried close out"
+RERUN_NEEDLES = (PLAIN_REENTRY, MARKER_GUARD, "`close_out` true",
+                 MARKER_REENTRY, "never carried into a second Rerun")
+SUBSET_CLEAR = 'rm -f "$SUBSETFILE"; unset SUBSETFILE'
+OLD_SAME_ARGS = "with the SAME `$ARGUMENTS`"
+ORIGINAL_ARGS_DEF = ("`${original_args}` is this pass's `$ARGUMENTS` minus "
+                     "every whole-token `--finalize` and "
+                     "`--close-out-after-rerun`")
+CLOSE_OUT_BULLET = "> 1. **Close out** —"
+TYPED_BOTTOM_LINE_NEEDLES = ('"bottom line"', '"do what it says"',
+                             "printed on the card currently shown",
+                             'cp "$SUGGESTFILE" "$ANSWERFILE"',
+                             "same gate, same bulk rules; D-09",
+                             "any other plain-English answer")
+_MARKER_REENTRY_RE = re.compile(
+    r'\$ARGUMENTS = "(\$\{original_args\} --close-out[^"]*)"')
+_CLOSE_OUT_REENTRY_RE = re.compile(
+    r'\$ARGUMENTS = "(\$\{original_args\} --finalize[^"]*)"')
+_PRIOR_RUN_ON = ("49-foo --close-out-after-rerun --finalize")
+# The Rerun's own re-entry with the marker on: the $ARGUMENTS of the pass
+# whose card then answers Close out.
+_PRIOR_RERUN = "49-foo --close-out-after-rerun"
+MARKER_STRIP_CLAUSE = ("s/ --close-out-after-rerun"
+                       "( --close-out-after-rerun)* / /g")
+
+
+def ask_paragraph(card):
+    """The **Ask only what is missing** paragraph, up to the next bold
+    paragraph inside the Other bullet or the Stop here… route."""
+    start = card.index(ASK_HEADING)
+    ends = [e for e in (card.find("\n\n  **", start + 1),
+                        card.find(STOP_ROUTE, start)) if e >= 0]
+    return card[start:min(ends) if ends else len(card)]
+
+
+def followup_problems(card):
+    """[] when an unclear piece holds the whole answer, asks one small
+    question about only that piece, and falls back to the full card once."""
+    if NV_TYPED_BRANCH not in card or STOP_ROUTE not in card:
+        return ["Other path or Stop here… route missing"]
+    if ASK_HEADING not in other_path(card):
+        return ["no Ask only what is missing paragraph in the Other path"]
+    para = ask_paragraph(card)
+    problems = ["follow-up lacks: " + n for n in ASK_NEEDLES if n not in para]
+    problems += ["follow-up lacks reason choice: " + lab
+                 for lab in batch_parse.FINALIZE_Q2
+                 if "`%s`" % lab not in para]
+    for literal in FOLLOWUP_HEADERS:
+        if literal not in para:
+            problems.append("follow-up lacks " + literal)
+        elif len(header_value(literal)) > MAX_HEADER_CHARS:
+            problems.append("header too long: " + literal)
+    if para.count("never half-apply") != 1 or \
+            card.count("never half-apply") != 1:
+        problems.append("never half-apply is not stated exactly once")
+    return problems
+
+
+def stale_card_problems(card):
+    """[] when numbers from an older card are re-mapped by identity through
+    the `--prior-rows` twin fence and the echo shows the new numbers."""
+    if TRANSLATE_HEADING not in card or STALE_HEADING not in card:
+        return ["no Stale card paragraph"]
+    other = other_path(card)
+    if STALE_HEADING not in other:
+        return ["Stale card paragraph is outside the Other path"]
+    start = other.index(STALE_HEADING)
+    if start < other.index(TRANSLATE_HEADING):
+        return ["Stale card paragraph precedes Translate the answer"]
+    # the paragraph runs through its fence and the sentence after it
+    end = other.find("\n\n  ", other.find("```\n", other.find(
+        "```bash", start) + 1) + 1)
+    para = other[start:end if end >= 0 else len(other)]
+    problems = ["stale paragraph lacks: " + n for n in STALE_NEEDLES
+                if n not in para]
+    if RESOLVE_PRIOR_CALL not in para:
+        return problems + ["stale paragraph lacks the --prior-rows twin"]
+    call = para.index(RESOLVE_PRIOR_CALL)
+    fence = para.rfind("```bash", 0, call)
+    if fence < 0 or "```" in para[fence + len("```bash"):call]:
+        problems.append("--prior-rows call is not inside a bash fence")
+    return problems
+
+
+def close_out_routing_problems(card):
+    """[] when steps 2 and 3 route a translated close-out (D-17): via the
+    Rerun's marker after a commit, else straight to Close out."""
+    other = other_path(card)
+    if STEP2_START not in other or STEP3_START not in other:
+        return ["steps 2/3 missing"]
+    a = other.index(STEP2_START)
+    b = other.index(STEP3_START, a)
+    step2 = other[a:b]
+    step3 = other[b:other.index("\n", b)]
+    problems = ["step 2 lacks: " + n for n in STEP2_NEEDLES
+                if n not in step2]
+    if STEP3_NEEDLE not in step3:
+        problems.append("step 3 lacks: " + STEP3_NEEDLE)
+    return problems
+
+
+def rerun_paragraph(card):
+    start = card.index(RERUN_HEADING)
+    return card[start:card.index("\n\n", start)]
+
+
+def rerun_marker_problems(card):
+    """[] when the Rerun appends the close-out marker only for an answer
+    that carried close out, and every other Rerun re-enters plain."""
+    if RERUN_HEADING not in card:
+        return ["no Rerun paragraph"]
+    para = rerun_paragraph(card)
+    problems = ["Rerun lacks: " + n for n in RERUN_NEEDLES if n not in para]
+    if RERUN_POINTER not in para:
+        problems.append("Rerun lacks the empty-diff pointer")
+    if SUBSET_CLEAR not in para or "loop back to Phase 0" not in para or \
+            para.index(SUBSET_CLEAR) > para.index("loop back to Phase 0"):
+        problems.append("subset is not cleared before looping back")
+    if MARKER_GUARD in para and MARKER_REENTRY in para and \
+            para.index(MARKER_GUARD) > para.index(MARKER_REENTRY):
+        problems.append("marker re-entry is not guarded by close out")
+    if OLD_SAME_ARGS in para:
+        problems.append("Rerun still re-enters with the SAME $ARGUMENTS")
+    if card.count("${original_args} --close-out-after-rerun") != 1:
+        problems.append("marker re-entry appears %d times" % card.count(
+            "${original_args} --close-out-after-rerun"))
+    return problems
+
+
+def close_out_bullet(card):
+    start = card.index(CLOSE_OUT_BULLET)
+    return card[start:card.index("\n", start)]
+
+
+def original_args_problems(card):
+    """[] when `${original_args}` is defined once, in Close out, as
+    stripping both --finalize and the close-out marker."""
+    problems = []
+    if card.count(ORIGINAL_ARGS_DEF) != 1:
+        problems.append("definition x%d" % card.count(ORIGINAL_ARGS_DEF))
+    if CLOSE_OUT_BULLET not in card or RERUN_HEADING not in card:
+        return problems + ["Close out bullet or Rerun missing"]
+    bullet = close_out_bullet(card)
+    if REENTRY not in bullet:
+        problems.append("Close out lacks " + REENTRY)
+    if ORIGINAL_ARGS_DEF not in bullet:
+        problems.append("definition is not in the Close out bullet")
+    if "${original_args}" not in rerun_paragraph(card):
+        problems.append("Rerun does not use ${original_args}")
+    return problems
+
+
+def typed_opening(card):
+    """The Typed-answer bullet up to its parse fence."""
+    start = card.index(NV_TYPED_BRANCH)
+    return card[start:card.index("```bash", start)]
+
+
+def typed_bottom_line_problems(card):
+    """[] when typing "bottom line" copies the parser-checked suggestion
+    file-to-file into the answer and runs the same parse fence (D-09)."""
+    if NV_TYPED_BRANCH not in card:
+        return ["no Typed answer bullet"]
+    opening = typed_opening(card)
+    return ["typed opening lacks: " + n for n in TYPED_BOTTOM_LINE_NEEDLES
+            if n not in opening]
+
+
+def marker_reentry(card):
+    """The Rerun's marker re-entry string, read from the prose (or None)."""
+    if RERUN_HEADING not in card:
+        return None
+    hits = _MARKER_REENTRY_RE.findall(rerun_paragraph(card))
+    return hits[0] if len(hits) == 1 else None
+
+
+def close_out_reentry(card):
+    if CLOSE_OUT_BULLET not in card:
+        return None
+    hits = _CLOSE_OUT_REENTRY_RE.findall(close_out_bullet(card))
+    return hits[0] if len(hits) == 1 else None
+
+
+class TestPhase58Routing(unittest.TestCase):
+    """Ask only the gap, once (D-05, D-06, D-08); stale cards re-map by
+    identity (D-07); close out rides the Rerun as a one-shot marker (D-17);
+    typed "bottom line" takes the suggestion (D-09). Each has a mutant."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+
+    def swap(self, old, new, text=None):
+        text = self.card if text is None else text
+        self.assertIn(old, text)
+        mutant = text.replace(old, new, 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    def test_followup_holds(self):
+        self.assertEqual(followup_problems(self.card), [])
+
+    def test_mutant_followup_records_partial(self):
+        mutant = self.swap("Hold the whole answer and record nothing",
+                           "Record the parts that resolved")
+        self.assertNotEqual(followup_problems(mutant), [])
+
+    def test_stale_card_holds(self):
+        self.assertEqual(stale_card_problems(self.card), [])
+        self.assertEqual(self.text.count(RESOLVE_CALL), 2)
+
+    def test_mutant_stale_without_prior_rows(self):
+        mutant = self.swap(' --prior-rows "$PRIORROWSFILE"', "")
+        self.assertNotEqual(stale_card_problems(mutant), [])
+
+    def test_close_out_routing_holds(self):
+        self.assertEqual(close_out_routing_problems(self.card), [])
+
+    def test_mutant_close_out_routing_step3_reruns(self):
+        mutant = self.swap(", or " + STEP3_NEEDLE, "")
+        self.assertNotEqual(close_out_routing_problems(mutant), [])
+
+    def test_rerun_marker_holds(self):
+        self.assertEqual(rerun_marker_problems(self.card), [])
+
+    def test_mutant_marker_not_appended(self):
+        para = rerun_paragraph(self.card)
+        a = para.index(" — or, " + MARKER_GUARD)
+        b = para.index(MARKER_REENTRY) + len(MARKER_REENTRY)
+        mutant = self.swap(para[a:b], "")
+        self.assertNotEqual(rerun_marker_problems(mutant), [])
+        self.assertIsNone(marker_reentry(mutant))
+
+    def test_original_args_holds(self):
+        self.assertEqual(original_args_problems(self.card), [])
+
+    def test_mutant_marker_carried(self):
+        mutant = self.swap(ORIGINAL_ARGS_DEF, ORIGINAL_ARGS_DEF.replace(
+            " and `--close-out-after-rerun`", ""))
+        self.assertNotEqual(original_args_problems(mutant), [])
+
+    def test_typed_bottom_line_holds(self):
+        self.assertEqual(typed_bottom_line_problems(self.card), [])
+
+    def test_mutant_typed_bottom_line_no_copy(self):
+        mutant = self.swap('cp "$SUGGESTFILE" "$ANSWERFILE"',
+                           "write the suggestion to `$ANSWERFILE`")
+        self.assertNotEqual(typed_bottom_line_problems(mutant), [])
+
+
+class TestCarrierRoundTrip(unittest.TestCase):
+    """The exact re-entry strings the fix-loop prose carries, run through
+    the REAL 00-scope.md normalizer fence: the Rerun's marker is read back
+    once, and Close out's re-entry drops it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.card = card_section(read_text())
+        cls.block = normalizer_block(read_scope(SCOPE))
+
+    def test_rerun_marker_is_read_back(self):
+        carried = marker_reentry(self.card)
+        self.assertIsNotNone(carried, "no marker re-entry found")
+        args = carried.replace("${original_args}", "49-foo")
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                self.assertEqual(carrier_flag(self.block, args, shell), "1")
+                self.assertEqual(finalize_mode(self.block, args, shell), "0")
+                self.assertEqual(scope_args(self.block, args, shell),
+                                 "49-foo")
+
+    def test_close_out_drops_the_marker(self):
+        # The pass that reaches Close out was entered by the Rerun with the
+        # marker on. ${original_args} is that pass's $ARGUMENTS minus the
+        # whole-token flags, i.e. what the real normalizer derives, so build
+        # it through the fence rather than typing the clean value in.
+        reentry = close_out_reentry(self.card)
+        self.assertIsNotNone(reentry, "no Close out re-entry found")
+        self.assertEqual(reentry, REENTRY)
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                original_args = scope_args(self.block, _PRIOR_RERUN, shell)
+                self.assertEqual(original_args, "49-foo")
+                args = reentry.replace("${original_args}", original_args)
+                self.assertEqual(carrier_flag(self.block, args, shell), "0")
+                self.assertEqual(finalize_mode(self.block, args, shell), "1")
+                self.assertEqual(scope_args(self.block, args, shell),
+                                 "49-foo")
+
+    def test_mutant_strip_removed_marker_would_carry(self):
+        # Without the normalizer's marker strip, ${original_args} keeps the
+        # marker and Close out's re-entry would carry it into Finalize.
+        clause = MARKER_STRIP_CLAUSE + "; "
+        self.assertIn(clause, self.block)
+        mutated = self.block.replace(clause, "")
+        self.assertNotEqual(mutated, self.block)
+        reentry = close_out_reentry(self.card)
+        self.assertIsNotNone(reentry, "no Close out re-entry found")
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                original_args = scope_args(mutated, _PRIOR_RERUN, shell)
+                self.assertIn("--close-out-after-rerun", original_args)
+                args = reentry.replace("${original_args}", original_args)
+                self.assertNotEqual(carrier_flag(mutated, args, shell), "0")
+
+    def test_non_stripping_original_args_would_carry(self):
+        # What Close out would send if ${original_args} kept the marker:
+        # the definition sentence is what keeps this from happening.
+        for shell in SHELLS:
+            with self.subTest(shell=shell):
+                self.assertEqual(
+                    carrier_flag(self.block, _PRIOR_RUN_ON, shell), "1")
+
+
+# --- Temp-file lifecycle in the fix-loop spine (WR-01, WR-02, WR-05, WR-06,
+# IN-05): every temp path is printed and reused as a literal, the answer
+# files are cleared at every exit, a close-out is read only from this step's
+# resolve output, the stale re-map has a reachable source, and Finalize's
+# echo is printed once. ---
+
+MKTEMP_RE = re.compile(r"^\s*(?:if )?([A-Z_]+FILE)=\$\(mktemp", re.M)
+PATH_CONVENTION = ("a path printed after `NAME=` is reused in a later fence "
+                   "only as that literal, substituted for `\"$NAME\"`")
+ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
+SUGGEST_OLD = "`$SUGGESTFILE` exists for this pass"
+SUGGEST_SHOWN = "printed on the card currently shown"
+SUGGEST_THIS_PASS = "the `suggest` fence below exited 0 on this pass"
+TRANSLATION_FILES_CLEAR = 'rm -f "$REFSFILE" "$RESOLVEFILE"'
+KEEP_SUGGEST = "keep `$SUGGESTFILE`"
+D08_START = "one follow-up per gap (D-08)"
+CARRY_OLD = "none of which survive it"
+CARRY_NEW = "the Rerun removes the answer files it consumed"
+CLOSE_OUT_SOURCE = ("came from the `ok` true branch of **Translate the "
+                    "answer** and the resolve output printed in this step "
+                    "had `close_out` true")
+NEVER_STALE = ("a `close_out` found in a file written for an earlier answer "
+               "is never read")
+RERUN_OLD_SOURCE = "`close_out` true in `$RESOLVEFILE`"
+STEP2_OLD = "was true in `$RESOLVEFILE`"
+STEP2_NEW = "the resolve output acted on in this step had `close_out` true"
+STALE_CARD_SOURCE = ("the literal path printed after `CARDROWSFILE=` by the "
+                     "rows fence that rendered the card the owner read")
+STALE_NEVER_SUBSET = "never a path printed only after `ROWSFILE=`"
+STALE_SOURCE_OLD2 = "the previous pass's rows fence printed after `ROWSFILE=`"
+STALE_SOURCE_NEEDLES = (
+    STALE_CARD_SOURCE,
+    "the Rerun keeps that file",
+    "substituted for `\"$PRIORROWSFILE\"`",
+    "no longer available",
+    STALE_NEVER_SUBSET)
+STALE_SOURCE_OLD = "that pass's `$ROWSFILE` path, used as is"
+KEEP_ROWS = ("keep this pass's card rows file (the path printed after "
+             "`CARDROWSFILE=`)")
+KEEP_ROWS_OLD = "keep this pass's `$ROWSFILE`"
+CLOSE_OUT_KEEPS = "whose printed `CARDROWSFILE=` path is Finalize's source"
+CLOSE_OUT_KEEPS_OLD = "whose printed `ROWSFILE=` path is Finalize's source"
+SINGLE_ECHO = ("Finalize already printed its `echo_text` before reading this "
+               "file — do not print it again")
+ECHO_OLD = "Then print Finalize's `echo_text`"
+FULL_CARD_ONCE = "show the full card once"
+
+
+def bash_fences(text):
+    """Bodies of every ```bash fence in `text`."""
+    return re.findall(r"```bash\n(.*?)```", text, re.S)
+
+
+def printed_paths_problems(text):
+    """[] when every `NAME=$(mktemp …)` in the file prints its path in the
+    same fence, and the card says once that a printed path is reused only
+    as that literal (WR-06, WR-05)."""
+    problems = []
+    for body in bash_fences(text):
+        for name in MKTEMP_RE.findall(body):
+            printf = "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+            if printf not in body:
+                problems.append("unprinted temp path: " + name)
+    count = card_section(text).count(PATH_CONVENTION)
+    if count != 1:
+        problems.append("path convention sentence appears %d times" % count)
+    return problems
+
+
+def _cleared_before(chunk, anchor, where):
+    i, j = chunk.find(ANSWER_FILES_CLEAR), chunk.find(anchor)
+    if j < 0:
+        return ["%s: anchor %r missing" % (where, anchor)]
+    if i < 0 or i > j:
+        return ["%s: answer files not cleared before %r" % (where, anchor)]
+    return []
+
+
+def d08_fallback_problems(ask):
+    """[] when the D-08 full-card fallback removes only the translation's
+    refs and resolve files and keeps the suggestion: the full card shown
+    next is the same card, so its `Bottom line suggests:` line must still
+    work (WR-01)."""
+    if D08_START not in ask or FULL_CARD_ONCE not in ask:
+        return ["D-08 fallback: sentence missing"]
+    start = ask.index(D08_START)
+    chunk = ask[start:ask.index(FULL_CARD_ONCE, start)]
+    problems = []
+    if TRANSLATION_FILES_CLEAR not in chunk:
+        problems.append("D-08 fallback: refs/resolve files not cleared "
+                        "before the full card")
+    if KEEP_SUGGEST not in chunk:
+        problems.append("D-08 fallback: does not keep the suggestion")
+    if ANSWER_FILES_CLEAR in chunk or '"$SUGGESTFILE" "$REFSFILE"' in chunk:
+        problems.append("D-08 fallback: removes the suggestion the "
+                        "re-shown card still offers")
+    return problems
+
+
+def answer_files_problems(card):
+    """[] when the suggestion/refs/resolve files are removed at the Rerun,
+    at Close out and at the D-08 fallback, and a Bottom line suggestion
+    counts only when printed on the card currently shown (WR-01, WR-02)."""
+    problems = []
+    if RERUN_HEADING not in card or CLOSE_OUT_BULLET not in card or \
+            ASK_HEADING not in card or CLOSE_OUT_CARRY not in card:
+        return ["Rerun, Close out, Ask or carry paragraph missing"]
+    problems += _cleared_before(rerun_paragraph(card), "loop back to Phase 0",
+                                "Rerun")
+    if ANSWER_FILES_CLEAR not in close_out_bullet(card):
+        problems.append("Close out: answer files not cleared")
+    problems += d08_fallback_problems(ask_paragraph(card))
+    if SUGGEST_OLD in card:
+        problems.append("suggestion still read from a file that may be stale")
+    if SUGGEST_SHOWN not in typed_opening(card):
+        problems.append("typed bottom line not tied to the card shown")
+    if SUGGEST_THIS_PASS not in question_line(card):
+        problems.append("question note not tied to this pass's suggestion")
+    start = card.index(CLOSE_OUT_CARRY)
+    carry = card[start:card.index("\n\n", start)]
+    if CARRY_OLD in carry:
+        problems.append("carry paragraph still says the files do not survive")
+    if CARRY_NEW not in carry:
+        problems.append("carry paragraph lacks: " + CARRY_NEW)
+    return problems
+
+
+def close_out_source_problems(card):
+    """[] when the Rerun's close-out marker and step 2's close-out route are
+    bound to the resolve output acted on in THIS step, never to a file left
+    by an earlier answer (WR-01)."""
+    problems = []
+    if RERUN_HEADING not in card:
+        return ["no Rerun paragraph"]
+    para = rerun_paragraph(card)
+    for needle in (CLOSE_OUT_SOURCE, NEVER_STALE):
+        if needle not in para:
+            problems.append("Rerun lacks: " + needle)
+    if RERUN_OLD_SOURCE in para:
+        problems.append("Rerun still reads close_out from $RESOLVEFILE")
+    other = other_path(card)
+    if STEP2_START not in other or STEP3_START not in other:
+        return problems + ["steps 2/3 missing"]
+    step2 = other[other.index(STEP2_START):other.index(STEP3_START)]
+    if STEP2_OLD in step2:
+        problems.append("step 2 still reads close_out from $RESOLVEFILE")
+    if STEP2_NEW not in step2:
+        problems.append("step 2 lacks: " + STEP2_NEW)
+    return problems
+
+
+def stale_source_problems(card):
+    """[] when a stale card's prior rows come from the literal path the
+    previous pass printed after `ROWSFILE=`, which the Rerun keeps, with a
+    fallback when no such path exists (WR-05)."""
+    if STALE_HEADING not in card or RERUN_HEADING not in card:
+        return ["no Stale card paragraph or Rerun"]
+    start = card.index(STALE_HEADING)
+    para = card[start:card.index("```bash", start)]
+    problems = ["stale source lacks: " + n for n in STALE_SOURCE_NEEDLES
+                if n not in para]
+    for old in (STALE_SOURCE_OLD, STALE_SOURCE_OLD2):
+        if old in para:
+            problems.append("stale source still names " + old)
+    if KEEP_ROWS not in rerun_paragraph(card):
+        problems.append("Rerun lacks: " + KEEP_ROWS)
+    if KEEP_ROWS_OLD in rerun_paragraph(card):
+        problems.append("Rerun still keeps the rows file by $ROWSFILE")
+    if CLOSE_OUT_BULLET not in card:
+        return problems + ["no Close out bullet"]
+    bullet = close_out_bullet(card)
+    if CLOSE_OUT_KEEPS not in bullet:
+        problems.append("Close out lacks: " + CLOSE_OUT_KEEPS)
+    if CLOSE_OUT_KEEPS_OLD in bullet:
+        problems.append("Close out still names the ROWSFILE= print")
+    return problems
+
+
+def single_echo_problems(card):
+    """[] when a Finalize-routed subset does not print Finalize's
+    `echo_text` a second time (IN-05)."""
+    if SUBSET_BULLET not in card or ORDINARY_BULLET not in card:
+        return ["subset or ordinary bullet missing"]
+    bullet = card[card.index(SUBSET_BULLET):card.index(ORDINARY_BULLET)]
+    problems = []
+    if SINGLE_ECHO not in bullet:
+        problems.append("subset bullet lacks: " + SINGLE_ECHO)
+    if ECHO_OLD in card:
+        problems.append("card still prints Finalize's echo_text again")
+    return problems
+
+
+class TestGapRoundFixLoop(unittest.TestCase):
+    """The fix-loop spine's temp files: printed paths, answer-file
+    lifecycle, close-out source, stale source, single echo. Each lock has
+    mutants that restore the reviewed defect."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+
+    def swap(self, old, new, text=None):
+        text = self.card if text is None else text
+        self.assertIn(old, text)
+        mutant = text.replace(old, new, 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    def test_printed_paths_holds(self):
+        self.assertEqual(printed_paths_problems(self.text), [])
+
+    def test_mutant_printed_paths(self):
+        for name in ("ROWSFILE", "ANSWERFILE", "PARSEFILE", "DECFILE",
+                     "SUBSETFILE", "SUGGESTFILE", "REFSFILE", "RESOLVEFILE",
+                     "PAYLOADFILE"):
+            with self.subTest(drop=name):
+                line = "printf '%s=%%s\\n' \"$%s\"\n" % (name, name)
+                self.assertIn(line, self.text)
+                at = self.text.index(line)
+                bol = self.text.rindex("\n", 0, at) + 1
+                mutant = self.text[:bol] + self.text[at + len(line):]
+                self.assertNotEqual(printed_paths_problems(mutant), [])
+        with self.subTest(drop="convention"):
+            mutant = self.swap(PATH_CONVENTION, "a path is reused",
+                               self.text)
+            self.assertNotEqual(printed_paths_problems(mutant), [])
+
+    def test_answer_files_holds(self):
+        self.assertEqual(answer_files_problems(self.card), [])
+
+    def test_mutant_answer_files(self):
+        rerun = rerun_paragraph(self.card)
+        ask = ask_paragraph(self.card)
+        bullet = close_out_bullet(self.card)
+        cases = {
+            "rerun keeps files": (rerun, rerun.replace(
+                ANSWER_FILES_CLEAR, ":", 1)),
+            "close out keeps files": (bullet, bullet.replace(
+                ANSWER_FILES_CLEAR, ":", 1)),
+            "fallback keeps files": (ask, ask.replace(
+                TRANSLATION_FILES_CLEAR, ":", 1)),
+            "carry: none survive": (CARRY_NEW, CARRY_OLD),
+            "typed: file exists": (SUGGEST_SHOWN, SUGGEST_OLD),
+            "question: file exists": (SUGGEST_THIS_PASS, SUGGEST_OLD),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new)
+                self.assertNotEqual(answer_files_problems(mutant), [])
+
+    def test_close_out_source_holds(self):
+        self.assertEqual(close_out_source_problems(self.card), [])
+
+    def test_mutant_close_out_source(self):
+        for label, (old, new) in {
+                "rerun source": (CLOSE_OUT_SOURCE,
+                                 "had `close_out` true in `$RESOLVEFILE`"),
+                "never stale dropped": (NEVER_STALE, "it is read"),
+                "step 2 reads the file": (STEP2_NEW,
+                                          "`close_out` " + STEP2_OLD),
+        }.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new)
+                self.assertNotEqual(close_out_source_problems(mutant), [])
+
+    def test_stale_source_holds(self):
+        self.assertEqual(stale_source_problems(self.card), [])
+
+    def test_mutant_stale_source(self):
+        for label, (old, new) in {
+                "used as is": (STALE_SOURCE_NEEDLES[0], STALE_SOURCE_OLD),
+                "no fallback": (STALE_SOURCE_NEEDLES[3], "gone"),
+                "rerun deletes rows": (KEEP_ROWS, "remove `$ROWSFILE`"),
+                "subset print bound": (STALE_NEVER_SUBSET, "any path"),
+        }.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new)
+                self.assertNotEqual(stale_source_problems(mutant), [])
+
+    def test_single_echo_holds(self):
+        self.assertEqual(single_echo_problems(self.card), [])
+
+    def test_mutant_single_echo(self):
+        mutant = self.swap(SINGLE_ECHO + ". Write ",
+                           "Then print Finalize's `echo_text` as message "
+                           "text, write ")
+        self.assertNotEqual(single_echo_problems(mutant), [])
+
+
+# --- Translate / Ask / Bottom line against the helper's own rules ---------
+
+TITLE_TEXT_NEW = '"text": "<the owner\'s words for that row, verbatim>"'
+TITLE_TEXT_OLD = '"text": "<the owner\'s words>"}'
+STRICT_MATCH = ("every word the owner used for a row, filler aside, "
+                "must be in that row's title")
+PARTIAL_ASKS = "a partial match is not a match — ask"
+TITLE_RULE_NEEDLES = (TITLE_TEXT_NEW, "do not trim or clean them",
+                      "whole words only", "ignoring filler",
+                      "`port` never matches `import`",
+                      "the Browse recovery issue", STRICT_MATCH, PARTIAL_ASKS)
+_FILLER_LIST = re.compile(r"ignoring filler \(([^)]*)\)")
+
+PARSE_REFUSAL_BULLET = ("every ref is `one` or `bulk`, `needs_reason` is "
+                        "false and `parse_reason` is set")
+PARSE_REFUSAL_AFTER = ("no piece to narrow", "full-card fallback",
+                       "combined two bulk groups", "could not be checked")
+BLOCKED_BULLET = "- A `blocked` ref is never asked about"
+
+COUNT_NEEDED_HEAD = 'A `count_needed` ref → header "How many"'
+COUNT_NEEDED_NEEDLES = (COUNT_NEEDED_HEAD,
+                        "critical, warning or Needs-verification rows",
+                        "dismissed or deferred only when you state how many "
+                        "(D-18)",
+                        "`candidates`", "`#n file:line`", "through Other",
+                        '`"count": C`', "`number` refs")
+COMPLETED_REFS = "Then write the completed refs"
+
+SUGGEST_CALL = ('batch_card.py" suggest --rows "$ROWSFILE" --answer '
+                '"$SUGGESTFILE" > "$SUGGESTFILE.tmp" && mv '
+                '"$SUGGESTFILE.tmp" "$SUGGESTFILE"')
+SUGGEST_ELSE = 'rm -f "$SUGGESTFILE" "$SUGGESTFILE.tmp"'
+SUGGEST_SHOW = 'cat "$SUGGESTFILE"'
+SUGGEST_SCOPE = ("`fix` for any row but `dismiss`/`defer` for MEDIUM rows "
+                 "only (D-19)")
+SUGGEST_OWN_WORDS = "still needs your own words"
+PARSE_DRY_RUN = 'parse --rows "$ROWSFILE" --answer "$SUGGESTFILE"'
+
+
+def translate_paragraph(card):
+    """The **Translate the answer** paragraph, up to its first fence."""
+    other = other_path(card)
+    start = other.index(TRANSLATE_HEADING)
+    return other[start:other.index("```bash", start)]
+
+
+def title_rule_problems(card):
+    """[] when Translate passes the owner's title words verbatim and states
+    the helper's rule: whole words, filler ignored (WR-03)."""
+    if TRANSLATE_HEADING not in card:
+        return ["no Translate paragraph"]
+    para = translate_paragraph(card)
+    problems = ["Translate lacks: " + n for n in TITLE_RULE_NEEDLES
+                if n not in para]
+    if TITLE_TEXT_OLD in card:
+        problems.append("the unqualified title text form is still present")
+    m = _FILLER_LIST.search(para)
+    if not m:
+        problems.append("Translate lists no filler words")
+    else:
+        problems += ["filler word the helper does not ignore: " + w
+                     for w in (w.strip() for w in m.group(1).split("/"))
+                     if w not in batch_card._TITLE_FILLER]
+    return problems
+
+
+def ask_bullet(para, needle):
+    """The whole line of `para` that holds `needle`."""
+    at = para.index(needle)
+    bol = para.rindex("\n", 0, at) + 1
+    eol = para.find("\n", at)
+    return para[bol:eol if eol >= 0 else len(para)]
+
+
+def parse_refusal_branch_problems(card):
+    """[] when an `ok` false result with every ref clear (the parser refused
+    the built grammar) goes straight to the full-card fallback (WR-04)."""
+    para = ask_paragraph(card)
+    if PARSE_REFUSAL_BULLET not in para:
+        return ["Ask paragraph lacks the parser-refusal bullet"]
+    bullet = ask_bullet(para, PARSE_REFUSAL_BULLET)
+    problems = []
+    if not bullet.lstrip().startswith("- "):
+        problems.append("the parser-refusal branch is not its own bullet")
+    tail = bullet[bullet.index(PARSE_REFUSAL_BULLET):]
+    problems += ["parser-refusal bullet lacks: " + n
+                 for n in PARSE_REFUSAL_AFTER if n not in tail]
+    if batch_parse.REASON_REST_TWICE.strip() not in bullet:
+        problems.append("parser-refusal bullet does not name the "
+                        "rest-twice refusal")
+    if BLOCKED_BULLET not in para or \
+            para.index(PARSE_REFUSAL_BULLET) > para.index(BLOCKED_BULLET):
+        problems.append("parser-refusal bullet is not before the blocked "
+                        "bullet")
+    return problems
+
+
+def count_needed_problems(card):
+    """[] when an uncounted serious group is asked only its count (D-18)."""
+    para = ask_paragraph(card)
+    if COUNT_NEEDED_HEAD not in para:
+        return ["Ask paragraph lacks the count_needed bullet"]
+    bullet = ask_bullet(para, COUNT_NEEDED_HEAD)
+    problems = ["count_needed bullet lacks: " + n
+                for n in COUNT_NEEDED_NEEDLES if n not in bullet]
+    if len(header_value('header "How many"')) > MAX_HEADER_CHARS:
+        problems.append("How many header is too long")
+    if COMPLETED_REFS not in para:
+        return problems + ["no completed-refs sentence"]
+    at = para.index(COMPLETED_REFS)
+    sentence = para[at:para.index("re-run the resolve fence", at)]
+    if "`count_needed`" not in sentence:
+        problems.append("completed-refs sentence does not say how a "
+                        "count_needed ref is completed")
+    return problems
+
+
+def bottom_line_paragraph(card):
+    start = card.index(BOTTOM_LINE_HEAD)
+    end = card.find("\n\n**", start)
+    return card[start:end if end >= 0 else len(card)]
+
+
+def suggest_fence_problems(card):
+    """[] when the D-09 line comes from `batch_card.py suggest`, which keeps
+    dismiss/defer for medium rows only (D-19), and no parse dry-run is left."""
+    if BOTTOM_LINE_HEAD not in card:
+        return ["no Bottom line paragraph"]
+    para = bottom_line_paragraph(card)
+    problems = []
+    if card.count(SUGGEST_CALL) != 1 or SUGGEST_CALL not in para:
+        problems.append("the D-09 paragraph lacks the suggest call once")
+    else:
+        call = para.index(SUGGEST_CALL)
+        fence = para.rfind("```bash", 0, call)
+        close = para.find("```", call)
+        if fence < 0 or "```" in para[fence + len("```bash"):call] \
+                or close < 0:
+            problems.append("suggest call is not inside a bash fence")
+        else:
+            body = para[fence:close]
+            if SUGGEST_SHOW not in body[:body.find("else")]:
+                problems.append("suggest fence does not print the result")
+            if "else" not in body or SUGGEST_ELSE not in \
+                    body[body.index("else"):]:
+                problems.append("suggest fence's else arm keeps a file")
+    problems += ["Bottom line paragraph lacks: " + n
+                 for n in (SUGGEST_SCOPE, SUGGEST_OWN_WORDS) if n not in para]
+    if PARSE_DRY_RUN in card:
+        problems.append("the parse dry-run of the suggestion is still there")
+    return problems
+
+
+class TestGapRoundTranslate(unittest.TestCase):
+    """Translate, Ask and the Bottom line match the helper after the gap
+    round: verbatim title words, the parser-refusal branch, the How many
+    question, the suggest fence. Each lock has a mutant restoring the gap."""
+
+    def setUp(self):
+        self.card = card_section(read_text())
+
+    def swap(self, old, new):
+        self.assertIn(old, self.card)
+        mutant = self.card.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.card)
+        return mutant
+
+    def drop_line(self, needle):
+        self.assertIn(needle, self.card)
+        line = ask_bullet(self.card, needle)
+        return self.swap(line + "\n", "")
+
+    def test_title_rule_holds(self):
+        self.assertEqual(title_rule_problems(self.card), [])
+
+    def test_mutant_title_rule(self):
+        cases = {
+            "old text form": (TITLE_TEXT_NEW + "}", TITLE_TEXT_OLD),
+            "rule dropped": ("whole words only", "words"),
+            "filler the helper keeps": ("filler (the / a", "filler (the / of"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    title_rule_problems(self.swap(old, new)), [])
+
+    def test_parse_refusal_branch_holds(self):
+        self.assertEqual(parse_refusal_branch_problems(self.card), [])
+
+    def test_mutant_parse_refusal_branch(self):
+        mutant = self.drop_line(PARSE_REFUSAL_BULLET)
+        self.assertNotEqual(parse_refusal_branch_problems(mutant), [])
+
+    def test_count_needed_holds(self):
+        self.assertEqual(count_needed_problems(self.card), [])
+        self.assertEqual(followup_problems(self.card), [])
+
+    def test_mutant_count_needed(self):
+        mutant = self.drop_line(COUNT_NEEDED_HEAD)
+        self.assertNotEqual(count_needed_problems(mutant), [])
+        self.assertNotEqual(followup_problems(mutant), [])
+
+    def test_suggest_fence_holds(self):
+        self.assertEqual(suggest_fence_problems(self.card), [])
+        self.assertEqual(bottom_line_problems(self.card), [])
+
+    def test_mutant_suggest_fence(self):
+        cases = {
+            "parse dry-run restored": (
+                SUGGEST_CALL, 'batch_card.py" parse --rows "$ROWSFILE" '
+                '--answer "$SUGGESTFILE" > /dev/null'),
+            "else keeps the tmp file": (SUGGEST_ELSE, 'rm -f "$SUGGESTFILE"'),
+            "scope sentence dropped": (SUGGEST_SCOPE, "any verb"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    suggest_fence_problems(self.swap(old, new)), [])
+        mutant = self.swap(SUGGEST_CALL, 'batch_card.py" parse --rows '
+                           '"$ROWSFILE" --answer "$SUGGESTFILE" > /dev/null')
+        self.assertNotEqual(bottom_line_problems(mutant), [])
+
+
+# --- Final round (WR-01, WR-03(a), WR-02, IN-01): the D-08 fallback keeps
+# the suggestion the re-shown card still offers; only the fence that
+# renders a card prints `CARDROWSFILE=`, the one name the stale re-map may
+# bind; Step B still dispatches from the `ROWSFILE=` print; Translate states
+# the best-match rule; a trimmed suggestion says how many, never which. ---
+
+TRIM_ANCHOR = "Exit 0 → fill the card's"
+TRIM_NOTE = "need your own words)"
+TRIM_COUNT_ONLY = "the count only, never which rows"
+ROWS_PRINT = "printf 'ROWSFILE=%s\\n' \"$ROWSFILE\""
+CARD_PRINT = "printf 'CARDROWSFILE=%s\\n' \"$ROWSFILE\""
+SUBSET_NO_CARDROWS = "prints `ROWSFILE=` only, never `CARDROWSFILE=`"
+SUBSET_STEP_B = ("Step B's `\"$ROWSFILE\"` is the path this fence printed "
+                 "after `ROWSFILE=`")
+STEP2_ANCHOR = "run the subset fence above"
+STEP2_ROWS = "Step B reads the `ROWSFILE=` path the subset fence printed"
+STEP2_CARD_KEPT = ("this pass's `CARDROWSFILE=` path stays the one the next "
+                   "pass re-maps from")
+PAYLOAD_NEEDLE = 'batch_card.py" payload'
+# Step B's dispatch fence, byte for byte: it reads the `ROWSFILE=` print of
+# the rows it dispatches on every route (ordinary card, D-10 subset, step 2).
+STEP_B_FENCE = (
+    'PAYLOADFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")\n'
+    "printf 'PAYLOADFILE=%s\\n' \"$PAYLOADFILE\"\n"
+    'if python3 "$VC_ROOT/scripts/batch_card.py" payload --rows "$ROWSFILE" '
+    '--answer "$ANSWERFILE" < "$STATE_FILE" > "$PAYLOADFILE"; then\n'
+    "  :\n"
+    "else\n"
+    '  echo "batch_card.py refused — no fixes dispatched; nothing was '
+    'changed" >&2\n'
+    "fi\n")
+
+
+def _fence_after(text, anchor):
+    """Body of the first ```bash fence after `anchor` (None if absent)."""
+    if anchor not in text:
+        return None
+    start = text.find("```bash\n", text.index(anchor))
+    if start < 0:
+        return None
+    start += len("```bash\n")
+    return text[start:text.index("```", start)]
+
+
+def _fence_holding(text, needle):
+    """Body of the ```bash fence that holds `needle` (None if absent)."""
+    if needle not in text:
+        return None
+    at = text.index(needle)
+    start = text.rindex("```bash\n", 0, at) + len("```bash\n")
+    return text[start:text.index("```", at)]
+
+
+def trim_note_problems(card):
+    """[] when a trimmed Bottom line suggestion ends with a count-only note
+    on the card (IN-01)."""
+    if TRIM_ANCHOR not in card:
+        return ["no D-09 Exit 0 sentence"]
+    line = ask_bullet(card, TRIM_ANCHOR)
+    return ["Exit 0 sentence lacks: " + n
+            for n in (TRIM_NOTE, TRIM_COUNT_ONLY) if n not in line]
+
+
+def card_rows_name_problems(text):
+    """[] when every rows fence prints `ROWSFILE=` (Step B's source), only
+    the ordinary card fence also prints `CARDROWSFILE=` (the stale re-map's
+    only source), and Step B's fence is unchanged (WR-03(a))."""
+    card = card_section(text)
+    if SUBSET_BULLET not in card or ORDINARY_BULLET not in card:
+        return ["subset or ordinary bullet missing"]
+    problems = []
+    bullet = card[card.index(SUBSET_BULLET):card.index(ORDINARY_BULLET)]
+    subset = _fence_after(bullet, SUBSET_BULLET) or ""
+    if ROWS_PRINT not in subset or "--subset" not in subset:
+        problems.append("subset fence does not print ROWSFILE= for --subset")
+    if "CARDROWSFILE" in subset:
+        problems.append("subset fence prints CARDROWSFILE= (a fix set "
+                        "presented as a card)")
+    ordinary = _fence_after(card, ORDINARY_BULLET) or ""
+    if ROWS_PRINT not in ordinary:
+        problems.append("ordinary fence does not print ROWSFILE=")
+    if CARD_PRINT not in ordinary:
+        problems.append("ordinary fence does not print CARDROWSFILE=")
+    elif ROWS_PRINT in ordinary and \
+            ordinary.index(CARD_PRINT) < ordinary.index(ROWS_PRINT):
+        problems.append("CARDROWSFILE= printed before ROWSFILE=")
+    for lit, want in (("printf 'ROWSFILE=%s", 2),
+                      ("printf 'CARDROWSFILE=%s", 1)):
+        if card.count(lit) != want:
+            problems.append("%s printed %d times, want %d"
+                            % (lit, card.count(lit), want))
+    tail = bullet[bullet.rindex("```"):]
+    problems += ["subset bullet lacks: " + n
+                 for n in (SUBSET_NO_CARDROWS, SUBSET_STEP_B)
+                 if n not in tail]
+    if STEP2_ANCHOR not in card:
+        problems.append("no step-2 subset sentence")
+    else:
+        step2 = ask_bullet(card, STEP2_ANCHOR)
+        problems += ["step 2 lacks: " + n
+                     for n in (STEP2_ROWS, STEP2_CARD_KEPT) if n not in step2]
+    if text.count(PAYLOAD_CALL) != 1:
+        problems.append("payload call appears %d times"
+                        % text.count(PAYLOAD_CALL))
+    fence = _fence_holding(step_b_section(text), PAYLOAD_NEEDLE)
+    if fence != STEP_B_FENCE:
+        problems.append("Step B payload fence changed")
+    return problems
+
+
+class TestFinalRoundFixLoop(unittest.TestCase):
+    """WR-01, WR-03(a), WR-02 and IN-01 locks on the fix-loop card, each
+    with mutants restoring the reviewed defect."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+
+    def swap(self, old, new, text=None):
+        text = self.card if text is None else text
+        self.assertIn(old, text)
+        mutant = text.replace(old, new, 1)
+        self.assertNotEqual(mutant, text)
+        return mutant
+
+    def test_answer_files_holds(self):
+        self.assertEqual(answer_files_problems(self.card), [])
+
+    def test_trim_note_holds(self):
+        self.assertEqual(trim_note_problems(self.card), [])
+
+    def test_stale_source_holds(self):
+        self.assertEqual(stale_source_problems(self.card), [])
+
+    def test_card_rows_name_holds(self):
+        self.assertEqual(card_rows_name_problems(self.text), [])
+
+    def test_title_rule_holds(self):
+        self.assertEqual(title_rule_problems(self.card), [])
+
+    def test_mutant_answer_files(self):
+        cases = {
+            "fallback deletes the suggestion": (TRANSLATION_FILES_CLEAR,
+                                                ANSWER_FILES_CLEAR),
+            "fallback drops keep": (KEEP_SUGGEST, "remove `$SUGGESTFILE`"),
+            "question: file exists": (SUGGEST_THIS_PASS, SUGGEST_OLD),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    answer_files_problems(self.swap(old, new)), [])
+
+    def test_mutant_trim_note(self):
+        for label, (old, new) in {
+                "note dropped": (TRIM_NOTE, ")"),
+                "names rows": (TRIM_COUNT_ONLY, "list which rows"),
+        }.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    trim_note_problems(self.swap(old, new)), [])
+
+    def test_mutant_card_rows_name(self):
+        line = "  " + CARD_PRINT + "\n"
+        rows_line = "  " + ROWS_PRINT + "\n"
+        cases = {
+            "ordinary loses CARDROWSFILE=": (line, ""),
+            # the first ROWSFILE= print is the subset fence's
+            "subset gains CARDROWSFILE=": (rows_line, rows_line + line),
+            "Step B reads CARDROWSFILE": (PAYLOAD_CALL, PAYLOAD_CALL.replace(
+                '"$ROWSFILE"', '"$CARDROWSFILE"')),
+            "subset print renamed": (rows_line, rows_line.replace(
+                "'ROWSFILE=", "'SUBSETROWSFILE=")),
+            "subset tail dropped": (SUBSET_NO_CARDROWS, "prints its rows"),
+            "step 2 binding dropped": (STEP2_ROWS, "Step B runs"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                mutant = self.swap(old, new, self.text)
+                self.assertNotEqual(card_rows_name_problems(mutant), [])
+
+    def test_mutant_stale_source(self):
+        cases = {
+            "ROWSFILE= source": (STALE_CARD_SOURCE,
+                                 "the literal path " + STALE_SOURCE_OLD2),
+            "never-clause dropped": (STALE_NEVER_SUBSET, "any path"),
+            "rerun keeps $ROWSFILE": (KEEP_ROWS, KEEP_ROWS_OLD),
+            "close out names ROWSFILE=": (CLOSE_OUT_KEEPS,
+                                          CLOSE_OUT_KEEPS_OLD),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    stale_source_problems(self.swap(old, new)), [])
+
+    def test_mutant_title_rule(self):
+        for label, needle in {"strict rule dropped": STRICT_MATCH,
+                              "partial asks dropped": PARTIAL_ASKS}.items():
+            with self.subTest(label):
+                self.assertNotEqual(
+                    title_rule_problems(self.swap(needle, "the row")), [])
+
+
+SIX_ROW_FIXTURE = os.path.join(HERE, "fixtures",
+                               "iplayarr45-six-row-state.json")
+CHOSEN_PREFIX = "a264e9e9"
+_PRINTED_RE = re.compile(r"^([A-Z_]+FILE)=(.+)$", re.M)
+_FILE_REF_RE = re.compile(r'"\$([A-Z_]+FILE)"')
+
+
+def _printed(stdout):
+    """{NAME: path} for every `NAME=path` line a fence printed."""
+    return dict(_PRINTED_RE.findall(stdout))
+
+
+class TestSubsetDispatchWalk(unittest.TestCase):
+    """Runs the real rows and Step B fences in fresh shells, each with only
+    PATH, VC_ROOT, TMPDIR and STATE_FILE, carrying printed paths forward as
+    literals. On both subset routes Step B must dispatch exactly the fix
+    subset; bound to the card's rows it would dispatch rows the owner did
+    not choose (WR-03(a))."""
+
+    def setUp(self):
+        self.text = read_text()
+        self.card = card_section(self.text)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            state = json.load(fh)
+        hashes = [f["stable_hash"] for f in state["passes"][-1]["findings"]]
+        chosen = [h for h in hashes if h.startswith(CHOSEN_PREFIX)]
+        self.assertEqual(len(chosen), 1)
+        self.chosen = set(chosen)
+        self.unchosen = set(hashes) - self.chosen
+        self.assertEqual(len(self.unchosen), 5)
+        self.subset_path = os.path.join(self.tmp, "subset.json")
+        with open(self.subset_path, "w", encoding="utf-8") as fh:
+            json.dump(chosen, fh)
+        bullet = self.card[self.card.index(SUBSET_BULLET):
+                           self.card.index(ORDINARY_BULLET)]
+        self.subset_fence = _fence_after(bullet, SUBSET_BULLET)
+        self.ordinary_fence = _fence_after(self.card, ORDINARY_BULLET)
+        self.step_b_fence = _fence_holding(step_b_section(self.text),
+                                           PAYLOAD_NEEDLE)
+        self.used = set()
+
+    def _run_fresh(self, script):
+        tmpdir = tempfile.mkdtemp(dir=self.tmp)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "VC_ROOT": PLUGIN_DIR, "TMPDIR": tmpdir,
+               "STATE_FILE": SIX_ROW_FIXTURE}
+        proc = subprocess.run(["bash", "-s"], input=script, env=env,
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return _printed(proc.stdout)
+
+    def _literal(self, fence, subs):
+        for name, path in subs.items():
+            ref = '"$%s"' % name
+            self.assertIn(ref, fence, "fence does not read " + ref)
+            fence = fence.replace(ref, '"%s"' % path)
+            self.used.add(name)
+        return fence
+
+    def _subset_shell(self):
+        self.assertIn('"<subset path>"', self.subset_fence)
+        printed = self._run_fresh(self.subset_fence.replace(
+            '"<subset path>"', '"%s"' % self.subset_path))
+        self.assertIn("ROWSFILE", printed)
+        self.assertIn("ANSWERFILE", printed)
+        self.assertNotIn("CARDROWSFILE", printed)
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertIs(doc.get("subset"), True)
+        self.assertEqual(len(doc["rows"]), 1)
+        return printed
+
+    def _ordinary_shell(self):
+        printed = self._run_fresh(self.ordinary_fence)
+        self.assertIn("ROWSFILE", printed)
+        if "CARDROWSFILE" in printed:
+            self.assertEqual(printed["CARDROWSFILE"], printed["ROWSFILE"])
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertEqual(len(doc["rows"]), 6)
+        self.assertNotIn("subset", doc)
+        return printed
+
+    def _step_b(self, rows_path, answer_path):
+        with open(answer_path, "w", encoding="utf-8") as fh:
+            json.dump({"all": True}, fh)
+        printed = self._run_fresh(self._literal(
+            self.step_b_fence, {"ROWSFILE": rows_path,
+                                "ANSWERFILE": answer_path}))
+        self.assertIn("PAYLOADFILE", printed)
+        self.used.add("PAYLOADFILE")
+        with open(printed["PAYLOADFILE"], encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def assert_only_chosen(self, payload):
+        sent = set(payload["sent"])
+        self.assertEqual(sent, self.chosen)
+        self.assertEqual(sent & self.unchosen, set())
+        self.assertEqual(len(payload["findings"]), 1)
+
+    def test_d10_route_dispatches_only_the_subset(self):
+        sub = self._subset_shell()
+        self.assert_only_chosen(self._step_b(sub["ROWSFILE"],
+                                             sub["ANSWERFILE"]))
+
+    def test_step2_route_dispatches_only_the_subset(self):
+        card = self._ordinary_shell()
+        sub = self._subset_shell()
+        self.assertNotEqual(sub["ROWSFILE"], card["ROWSFILE"])
+        # Step B reads the most recent ROWSFILE= print on this pass.
+        self.assert_only_chosen(self._step_b(sub["ROWSFILE"],
+                                             sub["ANSWERFILE"]))
+
+    def test_mutant_step_b_bound_to_card_rows(self):
+        card = self._ordinary_shell()
+        sub = self._subset_shell()
+        card_rows = card.get("CARDROWSFILE", card["ROWSFILE"])
+        sent = set(self._step_b(card_rows, sub["ANSWERFILE"])["sent"])
+        with self.assertRaises(AssertionError):
+            self.assertEqual(sent, self.chosen)
+        self.assertTrue(self.unchosen & sent)
+        self.assertEqual(len(sent), 6)
+
+    def test_subset_walk_needs_only_literal_paths(self):
+        fences = (self.subset_fence, self.ordinary_fence, self.step_b_fence)
+        for fence in fences:
+            self.assertNotIn("$CARDROWSFILE", fence)
+        made = set()
+        for fence in fences:
+            made.update(MKTEMP_RE.findall(fence))
+        read = set()
+        for fence in fences:
+            read.update(_FILE_REF_RE.findall(fence))
+        self.assertEqual(read - made - {"STATE_FILE"}, set())
+        self.assertEqual(
+            set(_FILE_REF_RE.findall(self.step_b_fence)) - {"PAYLOADFILE",
+                                                           "STATE_FILE"},
+            {"ROWSFILE", "ANSWERFILE"})
+        self.test_step2_route_dispatches_only_the_subset()
+        self.assertEqual(self.used - {"ROWSFILE", "ANSWERFILE",
+                                      "PAYLOADFILE"}, set())
 
 
 if __name__ == "__main__":

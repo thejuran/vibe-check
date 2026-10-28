@@ -2,32 +2,32 @@
 gsd_state_version: 1.0
 milestone: v2.13
 milestone_name: Reliable fix closure and recovery
-status: "Phase 57 complete with known limits (D-19/D-22; backlog 999.23, 999.24) — Phase 57 PR not yet opened"
-stopped_at: "Phase 57 closed 2026-10-27 — next: open Phase 57 PR (owner OK), then cut feat/v2.13-phase-58 from main and /bm:discuss-phase 58"
-last_updated: 2026-10-27T12:07:03.836Z
-last_activity: "2026-10-27 -- Phase 57 closed under D-19 hard stop: round-4 review reproduced 3 wrong-keeps (CR-01/02/04) → known limits in 999.23; D-21 (new identical copy is not new evidence), D-22 (close + park deferral edges); verification gaps_found non-blocking with 2 owner overrides; SC-3 diff-context → 999.24; suite 3311/0"
+status: "All v2.13 phases complete — Phase 58 closed 2026-10-28 (human_needed, owner-approved); Phase 58 PR not yet opened"
+stopped_at: "Phase 58 complete 2026-10-28 — next: open the Phase 58 PR from feat/v2.13-phase-58 (owner OK), merge, delete branch; then /bm:audit-milestone for v2.13"
+last_updated: 2026-10-28T18:23:42.000Z
+last_activity: "2026-10-28 -- Phase 58 closed: 23 plans (main + gap round from code review + final round D-21 + CR-01 matcher rollback D-23); RECV-01/02, ANSR-01/02/03 complete; bug C does not reproduce; suite 3588/0, replay 0 regressed; verification human_needed approved by owner; backlog 999.25, 999.26"
 progress:
   total_phases: 3
-  completed_phases: 2
-  total_plans: 29
-  completed_plans: 29
-  percent: 67
+  completed_phases: 3
+  total_plans: 52
+  completed_plans: 52
+  percent: 100
 ---
 
 # Project State
 
-**Current focus:** Phase 58 — clear actions, recovery and answers acted on
+**Current focus:** v2.13 close — Phase 58 PR, then milestone audit
 
 ## Current Position
 
 Phase: 58
-Plan: Not started
-Status: Phase 57 complete; Phase 58 not started (PR for Phase 57 first — one branch/PR per phase)
-Last activity: 2026-10-27 -- Phase 57 closed with known limits (999.23, 999.24)
+Plan: 23 of 23 complete
+Status: Phase 58 complete (verification human_needed, owner-approved 2026-10-28); all v2.13 phases complete
+Last activity: 2026-10-28 -- Phase 58 closed with known limits (999.25, 999.26)
 
 ## Operator Next Steps
 
-- NEXT: open the Phase 57 PR from feat/v2.13-phase-57 to main (needs owner OK), merge, delete the branch, then cut feat/v2.13-phase-58 from main and run `/bm:discuss-phase 58`. Phase 57 closed 2026-10-27 under the D-19 hard stop: the round-4 review (57-REVIEW-GAPS4.md) reproduced wrong-keeps CR-01 (zero-config: same-hash copies kept open below threshold are not pooled), CR-02 (absorbed-member sidecars not pooled; carry_state reads the first record) and CR-04 (pre-existing: guard removed beside a covered member never re-asks). Owner rulings: D-21 (a new identical copy is not new evidence, so CR-03 is an over-ask, not a wrong-keep) and D-22 (close; park the min_confidence and --all deferral-loss edges). All carried in backlog 999.23. SC-3 diff-context window → 999.24. DECN-03 is complete with known limits. Verification: gaps_found, non-blocking, 2 owner overrides. Suite 3311 passed / 0 failed; replay 0 regressed.
+- NEXT: open the Phase 58 PR from feat/v2.13-phase-58 to main (needs owner OK), merge, delete the branch, then `/bm:audit-milestone` for v2.13. Phase 58 closed 2026-10-28: 23 plans; code review → gap round (D-18..D-20) → final round under the D-21 hard stop → final review CR-01 (best-unique title matcher misdirected a dismissal) rolled back per D-23; verification human_needed (live ref extraction unverified, D-15) approved by owner; live UAT kept in 58-HUMAN-UAT.md; backlog 999.25 (BLOBFILE), 999.26 (wordier phrasings ask). Suite 3588/0; replay 0 regressed. Earlier: Phase 57 PR #2 merged to main (24dccdc). Earlier note: Phase 57 closed 2026-10-27 under the D-19 hard stop: the round-4 review (57-REVIEW-GAPS4.md) reproduced wrong-keeps CR-01 (zero-config: same-hash copies kept open below threshold are not pooled), CR-02 (absorbed-member sidecars not pooled; carry_state reads the first record) and CR-04 (pre-existing: guard removed beside a covered member never re-asks). Owner rulings: D-21 (a new identical copy is not new evidence, so CR-03 is an over-ask, not a wrong-keep) and D-22 (close; park the min_confidence and --all deferral-loss edges). All carried in backlog 999.23. SC-3 diff-context window → 999.24. DECN-03 is complete with known limits. Verification: gaps_found, non-blocking, 2 owner overrides. Suite 3311 passed / 0 failed; replay 0 regressed.
 - (superseded) NEXT: `/bm:code-review 57` (fourth-round review of 57-20..57-22), then `/bm:verify-work 57`. HARD STOP (D-19): if the review after this round still finds a wrong-keep, close Phase 57 with it documented as a known limit (backlog 999.x) rather than opening another round — no fifth structural round; only a reproduced data-loss / silent-finding-loss class may still add work. 57-23 gate (at HEAD 33a951e; plugins identical to the final code commit 92b135d): full suite 3311 passed, 0 failed, 0 SUBFAILED (3273 + 38 new); test_replay.py 64 passed; golden ok; import sets 3+3 passed; replay candidate REGRESSED 0 / UNEVALUABLE 0 / AMENDED 1 (pre-existing triggarr-secret-in-logs/run-2); replay diff vs rev:24c0c00 170 compared, 0 differing, 0 unallowed (no allowances file); reverse-run ledger: every 57-20 red reproduced at 8a0563a and green at 92b135d. Outcome: mechanism fixed — carried evidence pooled from an index built before any filter, nearby judged at every copy's line, latest owed stamp kept, deterministic lead by line, one hash gate on every prior source; D-20: a deferred covered member below threshold stays open under its own hash via `$DEFERRED_HASHES` -> `deferred_hashes`; nine-shape invariance guard; 10 mutants. DECN-03 re-marked complete. OPEN D-20 edge for the owner to rule on (reproduced by 57-23, not fixed — scope): a deferred covered member removed by the opt-in `min_confidence` filter (not by the threshold) still leaves the open list and Finalize writes; repro + candidate 999.x in deferred-items.md.
 - Prior gap-closure gate (57-19): full suite 3273 passed, 0 failed; test_replay.py 64; golden ok; import sets unchanged; replay candidate REGRESSED 0; replay diff 170 runs, 0 differing; DECN-03 was re-marked complete, then reverted to In Progress by the round-3 review (57-REVIEW-GAPS3.md) and is now complete again on the 57-23 gate.
 - 57-22 done (70e0719, 6626edb, 92b135d): `carry_state.py deferred` (read-only, exit 2 on malformed state) lists the owner's defer decisions; 05-state.md Phase 0.5 binds it fail-closed as `$DEFERRED_HASHES`, 30-collect-score.md forwards it as envelope key `deferred_hashes` (both prose additions locked, 4 prose mutants); score.py keeps a covered member of a deferred row that falls below threshold as a kept-open row under its own hash at the deferred band, stamped as carried so the inherited deferral reads stale/nearby and blocks Finalize until the owner decides; dismissed still drops; no-key envelopes unchanged. 3 score.py mutants (kind gate, entry, carried stamp); m57-04 re-anchored. Full suite 3311 passed, 0 failed; golden ok; TestDiffMode 16. Residual noted (not fixed): a deferred covered member removed by min_confidence is not synthesized. NEXT: 57-23.

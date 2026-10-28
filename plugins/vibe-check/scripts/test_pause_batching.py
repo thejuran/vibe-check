@@ -373,8 +373,25 @@ SKIP_FINALIZE_NOW = "- Phase 0 printed `FINALIZE_MODE=0` (finalize has"
 SKIP_FINALIZE_116F14A = "- `$ARGUMENTS` does NOT contain `--finalize` (finalize has"
 
 
+# The second reviewed edit: the no-findings skip bullet honors the fix loop's
+# carried close-out (D-17). pinned_skip_section() removes exactly this clause
+# (required byte-for-byte, once), so its wording is pinned with the rest.
+SKIP_CARRY_CLAUSE = (
+    " — unless Phase 0 printed `CLOSE_OUT_AFTER_RERUN=1` (the fix loop's Rerun "
+    "carried the owner's close-out, D-17): then print \"✅ No issues to fix — "
+    "closing out as you asked.\" and re-enter the orchestrator with "
+    "`$ARGUMENTS = \"${original_args} --finalize\"`, exactly as the fix-loop "
+    "card's Close out does; `${original_args}` is this run's `$ARGUMENTS` minus "
+    "every whole-token `--finalize` and `--close-out-after-rerun`)"
+)
+SKIP_CARRY_NOW = "and stop" + SKIP_CARRY_CLAUSE
+SKIP_CARRY_116F14A = "and stop)"
+
+
 def pinned_skip_section(text):
     section = skip_section_to_h2(text)
+    if section.count(SKIP_CARRY_NOW) == 1:
+        section = section.replace(SKIP_CARRY_NOW, SKIP_CARRY_116F14A)
     if section.count(SKIP_FINALIZE_NOW) != 1:
         return section
     return section.replace(SKIP_FINALIZE_NOW, SKIP_FINALIZE_116F14A)
@@ -393,6 +410,16 @@ class TestSkipSectionsByteIdentical(unittest.TestCase):
             section = skip_section_to_h2(text)
             mutant = text.replace(section, section.replace(
                 "At least one finding was reported", "At least one finding was listed", 1))
+            with self.subTest(path=path):
+                self.assertNotEqual(mutant, text)
+                self.assertNotEqual(sha256_hex(pinned_skip_section(mutant)), digest)
+
+    def test_skip_digest_mutant_inside_carry_clause(self):
+        for path, digest in SKIP_SHA256.items():
+            text = read_prose(path)
+            self.assertEqual(text.count(SKIP_CARRY_CLAUSE), 1, path)
+            mutant = text.replace(SKIP_CARRY_CLAUSE, SKIP_CARRY_CLAUSE.replace(
+                "closing out as you asked", "closing out as asked"))
             with self.subTest(path=path):
                 self.assertNotEqual(mutant, text)
                 self.assertNotEqual(sha256_hex(pinned_skip_section(mutant)), digest)
