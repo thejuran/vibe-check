@@ -2194,12 +2194,13 @@ class TestGapRoundFixLoop(unittest.TestCase):
 
 TITLE_TEXT_NEW = '"text": "<the owner\'s words for that row, verbatim>"'
 TITLE_TEXT_OLD = '"text": "<the owner\'s words>"}'
-BEST_MATCH = "the single row whose title holds the most of them"
-TIE_ASKS = "a tie or a weak match still asks"
+STRICT_MATCH = ("every word the owner used for a row, filler aside, "
+                "must be in that row's title")
+PARTIAL_ASKS = "a partial match is not a match — ask"
 TITLE_RULE_NEEDLES = (TITLE_TEXT_NEW, "do not trim or clean them",
                       "whole words only", "ignoring filler",
                       "`port` never matches `import`",
-                      "the Browse recovery issue", BEST_MATCH, TIE_ASKS)
+                      "the Browse recovery issue", STRICT_MATCH, PARTIAL_ASKS)
 _FILLER_LIST = re.compile(r"ignoring filler \(([^)]*)\)")
 
 PARSE_REFUSAL_BULLET = ("every ref is `one` or `bulk`, `needs_reason` is "
@@ -2607,8 +2608,8 @@ class TestFinalRoundFixLoop(unittest.TestCase):
                     stale_source_problems(self.swap(old, new)), [])
 
     def test_mutant_title_rule(self):
-        for label, needle in {"best match dropped": BEST_MATCH,
-                              "tie asks dropped": TIE_ASKS}.items():
+        for label, needle in {"strict rule dropped": STRICT_MATCH,
+                              "partial asks dropped": PARTIAL_ASKS}.items():
             with self.subTest(label):
                 self.assertNotEqual(
                     title_rule_problems(self.swap(needle, "the row")), [])

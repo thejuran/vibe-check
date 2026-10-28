@@ -903,9 +903,6 @@ _TITLE_FILLER = frozenset((
     "issue", "issues", "bug", "bugs", "finding", "findings", "row", "rows",
     "item", "items", "thing", "things", "problem", "problems",
     "critical", "warning", "medium", "needs", "verification", "s"))
-# A single best row must hold at least this many of the reference's words
-# (or every word of a one-word reference).
-_TITLE_MIN_MATCH = 2
 # Most rows a title reference lists as candidates.
 _TITLE_CANDIDATES_MAX = 4
 # `changed` names rows whose card line says the finding changed; a `joined`
@@ -969,24 +966,17 @@ def _title_scores(rows, text):
 
 
 def _match_title(rows, text):
-    """[] (no match), [row] (one match) or the tied top rows (n ascending).
-
-    The single best-scoring row is a match only when its score beats every
-    other row's by at least one and reaches `_TITLE_MIN_MATCH` (or the full
-    count of a one-word reference). A tie returns every tied row and
-    nothing breaks it (not row order, title length or overlap ratio); a
-    weak unique row, or filler-only text, matches no row."""
+    """Rows whose title holds EVERY non-filler token of `text` as a whole
+    token (maximal letter/digit runs, case-folded), in any order, never as
+    a substring; n ascending. A row holding only some of the words is not
+    a match, however many it holds: the reference then names no row and
+    the follow-up lists the likely rows. Filler-only text matches no row.
+    Titles are diff data: matched as text, never interpreted."""
     wanted = _title_wanted(text)
-    scored = _title_scores(rows, text)
-    top = max((score for score, _row in scored), default=0)
-    if not wanted or top == 0:
+    if not wanted:
         return []
-    best = [row for score, row in scored if score == top]
-    if len(best) >= 2:
-        return best
-    if top >= _TITLE_MIN_MATCH or top == len(wanted):
-        return best
-    return []
+    return [r for r in rows
+            if set(_title_tokens(r.get("title"))).issuperset(wanted)]
 
 
 def _title_candidates(rows, text):
