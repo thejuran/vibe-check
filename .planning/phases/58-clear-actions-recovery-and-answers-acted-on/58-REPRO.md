@@ -304,3 +304,65 @@ Run on 2026-10-27 at HEAD `f62468e` (the 58-17 docs commit; the last plugin chan
 A passing mutant test asserts that the lock trips on its mutant, so "passed" means every mutant was caught. Each gap plan also applied its mutants to the real file, recorded the failing tests and reverted. The SUMMARYs of 58-10..58-17 and the ledger below hold those tables. The finalize-card gain is +7 methods, below the "≥ 9" the 58-18 plan estimated. Its nine real-file mutants (F1-F5, M13-M16) were all killed per 58-16 / 58-17.
 
 Plugin history since 24dccdc: `git log --name-only --format= 24dccdc..HEAD -- plugins | grep -c .` = 55 before this plan's commits (18 distinct files). 58-18 changes no plugin file.
+
+---
+
+## Final round gate
+
+Run on 2026-10-27 (replay reports stamped 2026-10-28T00:42Z UTC) at HEAD `0525ba0` (the 58-21 docs commit; the last plugin change is 925b7c6). This is the first run after the final-round plans 58-19, 58-20 and 58-21 had all landed. Branch `feat/v2.13-phase-58`; `git status --porcelain plugins/` was empty before the run. The commands are the same as the 58-18 gate. They were run from `plugins/vibe-check` unless noted, in one `bash -s` fence, with bare `pytest`. Replay reports were written to the session scratchpad. No live or paid run (D-15).
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `pytest -q` | `3582 passed, 4755 subtests passed in 160.53s (0:02:40)`: 0 failed. 3542 (58-18 gate) + 40 new tests (per SUMMARYs: 58-19 +16, 58-20 +14, 58-21 +10) |
+| Replay tests | `pytest -q scripts/test_replay.py` | `64 passed, 10 subtests passed in 10.46s` |
+| Replay candidate | `python3 replay.py candidate --name phase58-final-gate --scorer rev:HEAD --out <scratchpad>/phase58-final-candidate.md` (from `scripts/`) | exit 0. `REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1`; `kept 25 / protected 26`; **REGRESSED 0**; UNEVALUABLE 0. The amended run is still `runs/triggarr-secret-in-logs/run-2` (`axis-false`, ledger 008). Candidate scorer sha256 `3504d2da79e9ebab26bfedd01c7614c9b7cc06ade99c12b7e24e90003edd22fb`, identical to the 58-18 / 58-06 / 57-23 gates. Report HEAD line `0525ba04a632e3d61e54b626ffa51b98f941a56b` |
+| Replay diff | `python3 replay.py diff --base rev:24c0c00 --scorer rev:HEAD --roots all --allow ../../../docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json --out <scratchpad>/phase58-final-diff.md` | exit 0; runs compared 170, runs differing 0, runs differing (allowed) 0, runs with unallowed differences 0; Differences: none |
+| Golden | `pytest -q scripts/test_score.py -k golden` | `9 passed, 491 deselected` |
+| Golden digest | `score.stable_hash('a.py','  x=1','title') == test_score.GOLDEN_DIGEST` (from `scripts/`) | `golden ok` |
+| Import sets | `pytest -q scripts/test_score.py -k ImportSet`; `pytest -q scripts/test_carry_state.py -k ImportSet`; `pytest -q scripts/test_batch_card.py -k import_set` | `3 passed, 497 deselected`; `3 passed, 223 deselected`; `1 passed, 99 deselected` |
+| Frozen files | `git diff --stat 24dccdc..HEAD -- plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/batch_parse.py` (repo root) | empty |
+| Carrier round-trip | `pytest -q scripts/test_fix_loop_card.py -k CarrierRoundTrip -v` | `4 passed, 136 deselected` (unchanged from 58-18's 4) |
+| Subset dispatch walk | `pytest -q scripts/test_fix_loop_card.py -k SubsetDispatchWalk` | `4 passed, 136 deselected` |
+
+**Mutant inventory, final round.** Counts are taken at the 58-18 gate commit `f62468e` (with `git show f62468e:<file> | grep -c`) and at HEAD:
+
+| Module | Grep | f62468e → HEAD | Final-round plans |
+|---|---|---|---|
+| `test_answer_resolve.py` | `def test_m[0-9]*_\|subTest("mutant` | 18 → 28 (+10) | 58-19 (in-test m10-m13, m16; real-file m10-m16) |
+| `test_bottom_line_suggest.py` | `def test_s[1-9]_` | 3 → 4 (+1, s4) | 58-19 (s4 for IN-05; s2 rewritten as an in-memory source mutant for IN-03) |
+| `test_fix_loop_card.py` | `def test_mutant_` | 38 → 44 (+6) | 58-20 (real-file N1-N10) |
+| `test_finalize_card.py` | `def test_mutant_` | 16 → 21 (+5) | 58-21 (real-file F6-F14) |
+
+The 58-18 grep for `test_bottom_line_suggest.py` was `def test_s[1-3]_`. It is widened to `[1-9]` here so it counts the new s4. Each final-round plan also applied its mutants to the real file, recorded the failing tests and reverted. Every real-file mutant was killed on the first run (see the ledger above this section and the 58-19..58-21 SUMMARYs).
+
+**Cross-file contract under the `CARDROWSFILE=` naming (option (b)).** No fence was renamed. The ordinary card fence (and Finalize's rows fence) now print a second name, `CARDROWSFILE=`, for the same path, and only that name is the stale-card source. Checked at HEAD `0525ba0` from `plugins/vibe-check` (FL = `phases/review/50-fix-loop.md`, FN = `phases/shared/90-finalize.md`):
+
+| grep | Expected | Observed |
+|---|---|---|
+| `printf 'ROWSFILE=%s` in FL | 2 (subset fence + ordinary fence) | 2 |
+| `printf 'CARDROWSFILE=%s` in FL | 1 (ordinary fence only) | 1 |
+| `printf 'ROWSFILE=%s` in FN | 1 | 1 |
+| `printf 'CARDROWSFILE=%s` in FN | 1 | 1 |
+| `SUBSETROWSFILE` in `phases/` | 0 | 0 (no file) |
+| `SUBSETROWSFILE` in `scripts/` | 0 | **1**, in `scripts/test_fix_loop_card.py:2586`: the in-test mutant `"subset print renamed": (rows_line, rows_line.replace("'ROWSFILE=", "'SUBSETROWSFILE="))` added by ea6880f (58-20). This string is the rejected option (a) being injected so that the lock is shown to trip on it, not a use of the name. The gitignored `__pycache__` bytecode of that test also contains it. No plugin prose or helper names it |
+| `$CARDROWSFILE` in FL / FN | 0 / 0 (printed, never consumed) | 0 / 0 |
+| ``printed after `CARDROWSFILE=` `` in FL / FN | ≥ 2 / 1 | 2 / 1 |
+| ``never a path printed only after `ROWSFILE=` `` in FL / FN | 1 / 1 | 1 / 1 |
+| ``the last `ROWSFILE=` line`` in FL / FN | 0 / 0 | 0 / 0 |
+| `payload --rows "$ROWSFILE" --answer "$ANSWERFILE"` in FL | 1 | 1 |
+| `git diff 24dccdc..HEAD -- FL \| grep -c '^[-+].*payload --rows'` | 0 (Step B fence untouched) | 0 |
+| `rm -f[^`]*ROWSFILE` in FL / FN | 0 / 0 | 0 / 0 |
+| `rm -f "$REFSFILE" "$RESOLVEFILE"` in FL / FN | 1 / 1 (D-08 fallback) | 1 / 1 |
+| `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` in FL / FN | 2 / 2 (Rerun + Close out / steps 2 + 3) | 2 / 2 |
+| `REASON_PRIOR_SUBSET` in `scripts/batch_card.py` | ≥ 3 | 3 |
+| `TestSubsetDispatchWalk` | 4 passed | 4 passed |
+
+The D-08 fallback sentence in each card file shows the suggestion file kept (WR-01):
+
+> 50-fix-loop.md:216: … still nothing is recorded; run `rm -f "$REFSFILE" "$RESOLVEFILE"` (the literal paths this pass printed; omit any never printed, a missing file is fine) so nothing from the abandoned translation survives — keep `$SUGGESTFILE`: the full card shown next is the same card and still offers its `Bottom line suggests:` line; the suggestion file goes only when the card changes (the Rerun, Close out) — then show the full card once, …
+
+> 90-finalize.md:217: … still nothing is recorded; run `rm -f "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) so nothing from the abandoned translation survives — keep `$SUGGESTFILE`: the full card shown next is the same card and still offers its `Bottom line suggests:` line; step 2 or step 3 removes it once an answer is acted on — then show the full card once, …
+
+Every check matches its expectation except the `SUBSETROWSFILE` count in `scripts/`. That count is 1 and not 0, because of the mutant string described in its row. The contract is about prose and helpers, which never name `SUBSETROWSFILE`, so the contract holds.
+
+Plugin history since 24dccdc: `git log --name-only --format= 24dccdc..HEAD -- plugins | grep -c .` = 63 (18 distinct files) before this plan's commits. 58-22 changes no plugin file. `git log --name-only --format= 0525ba0..HEAD -- plugins | grep -c .` = 0 after its commits.
