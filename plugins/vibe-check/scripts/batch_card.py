@@ -42,7 +42,8 @@ exits 2. Reasons never contain a hash, a title, a path or owner text.
   parse             The finalize card answer -> fix / dismiss / defer lists,
                     the record-decisions payload and the fix targets.
   resolve           A plain-English answer's references -> current row
-                    numbers and a grammar string for `parse` to validate.
+                    numbers and a grammar string for `parse` to validate;
+                    a prior rows file that is a fix subset is refused.
   suggest           The report's Bottom line answer trimmed to what one
                     typed "bottom line" may apply: `fix` for any row,
                     `dismiss`/`defer` for medium rows only.
@@ -130,6 +131,8 @@ REASON_ROWS_STATE = "refused: rows file does not match this state\n"
 REASON_REFS = "refused: refs file is missing or malformed\n"
 REASON_PRIOR_ROWS = "refused: prior rows file is missing or malformed\n"
 REASON_PRIOR_NEEDED = "refused: a prior-card reference needs --prior-rows\n"
+REASON_PRIOR_SUBSET = ("refused: prior rows file is a fix subset, not a"
+                       " card\n")
 REASON_SUGGEST_EMPTY = "refused: the suggestion leaves nothing to suggest\n"
 # Printed on stderr by `suggest` when it dropped rows: a count, never a title.
 SUGGEST_TRIMMED = ("suggestion trimmed: %d serious row(s) dropped — dismiss or"
@@ -147,6 +150,7 @@ REASONS = (
     REASON_REFS,
     REASON_PRIOR_ROWS,
     REASON_PRIOR_NEEDED,
+    REASON_PRIOR_SUBSET,
     REASON_SUGGEST_EMPTY,
 )
 
@@ -891,12 +895,19 @@ _REF_KEYS = {"number": {"verb", "kind", "n"},
              "marker": {"verb", "kind", "marker"}}
 _REFS_DOC_KEYS = {"refs", "reason", "close_out"}
 _CANDIDATE_TITLE_CHARS = 80
-# A title token is a maximal run of letters or digits. Filler is determiners
-# and card nouns only; prepositions are not filler and match as words.
+# A title token is a maximal run of letters or digits. Filler is
+# determiners, card nouns, band words and the possessive fragment `s` (from
+# `'s`); prepositions are not filler and count as words.
 _TITLE_FILLER = frozenset((
     "the", "a", "an", "this", "that", "these", "those", "one", "ones",
     "issue", "issues", "bug", "bugs", "finding", "findings", "row", "rows",
-    "item", "items", "thing", "things", "problem", "problems"))
+    "item", "items", "thing", "things", "problem", "problems",
+    "critical", "warning", "medium", "needs", "verification", "s"))
+# A single best row must hold at least this many of the reference's words
+# (or every word of a one-word reference).
+_TITLE_MIN_MATCH = 2
+# Most rows a title reference lists as candidates.
+_TITLE_CANDIDATES_MAX = 4
 # `changed` names rows whose card line says the finding changed; a `joined`
 # row's line says a new concern joined it instead.
 _CHANGED_CAUSES = ("code", "nearby", "severity")
@@ -942,16 +953,50 @@ def _title_tokens(text):
     return spaced.split()
 
 
+def _title_wanted(text):
+    """The distinct non-filler tokens of a title reference."""
+    return {t for t in _title_tokens(text) if t not in _TITLE_FILLER}
+
+
+def _title_scores(rows, text):
+    """[(score, row)] in row order: a row's score is how many distinct
+    non-filler tokens of `text` its title holds as whole tokens (maximal
+    letter/digit runs, case-folded, any order, never a substring). Titles
+    are diff data: matched as text, never interpreted."""
+    wanted = _title_wanted(text)
+    return [(len(wanted & set(_title_tokens(r.get("title")))), r)
+            for r in rows]
+
+
 def _match_title(rows, text):
-    """Rows whose title holds every non-filler token of `text` as a whole
-    token (maximal letter/digit runs, case-folded), in any order, never as
-    a substring; filler-only text matches no row. Titles are diff data:
-    matched as text, never interpreted."""
-    wanted = [t for t in _title_tokens(text) if t not in _TITLE_FILLER]
-    if not wanted:
+    """[] (no match), [row] (one match) or the tied top rows (n ascending).
+
+    The single best-scoring row is a match only when its score beats every
+    other row's by at least one and reaches `_TITLE_MIN_MATCH` (or the full
+    count of a one-word reference). A tie returns every tied row and
+    nothing breaks it (not row order, title length or overlap ratio); a
+    weak unique row, or filler-only text, matches no row."""
+    wanted = _title_wanted(text)
+    scored = _title_scores(rows, text)
+    top = max((score for score, _row in scored), default=0)
+    if not wanted or top == 0:
         return []
-    return [r for r in rows
-            if set(_title_tokens(r.get("title"))).issuperset(wanted)]
+    best = [row for score, row in scored if score == top]
+    if len(best) >= 2:
+        return best
+    if top >= _TITLE_MIN_MATCH or top == len(wanted):
+        return best
+    return []
+
+
+def _title_candidates(rows, text):
+    """Rows holding at least one word of `text`, best score first (then by
+    row number), at most `_TITLE_CANDIDATES_MAX`: the likely rows a
+    follow-up lists when a title reference matched none."""
+    scored = [(score, row) for score, row in _title_scores(rows, text)
+              if score >= 1]
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["n"]))
+    return [row for _score, row in scored[:_TITLE_CANDIDATES_MAX]]
 
 
 def _marker_rows(rows, marker):
@@ -1049,7 +1094,13 @@ def _resolve_one(ref, rows, prior_rows, claimed):
         status = {0: "none", 1: "one"}.get(len(matched), "many")
     elif kind == "title":
         matched = _match_title(rows, ref["text"])
-        status = {0: "none", 1: "one"}.get(len(matched), "many")
+        if not matched:
+            return _ref_result(
+                "none", candidates=_title_candidates(rows, ref["text"]))
+        if len(matched) > 1:
+            return _ref_result("many",
+                               candidates=matched[:_TITLE_CANDIDATES_MAX])
+        status = "one"
     else:
         matched = _marker_rows(rows, ref["marker"])
         if _needs_count(ref, matched):
@@ -1093,6 +1144,11 @@ def _is_stale(rows_doc, prior_rows_doc):
             != [r["stable_hash"] for r in rows_doc["rows"]])
 
 
+def _is_subset_doc(doc):
+    """True for a `rows --subset` document: a fix set, never a card."""
+    return doc.get("subset") is True
+
+
 def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
     """(result, None) or (None, reason): the owner's references, resolved.
 
@@ -1117,9 +1173,14 @@ def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
     resolved first, in order; then each `remaining` reference over the rows
     still unclaimed.
 
+    A title reference names the single best-matching row (see
+    `_match_title`); a tie is `many` (up to four tied rows listed) and a
+    weak or absent match is `none` with the likely rows as candidates.
+
     `prior_number` references a row of an older card (`prior_rows_doc`):
     it is re-mapped by stable_hash, then by unique (file, title), and
-    `stale` reports whether the card changed since (D-07).
+    `stale` reports whether the card changed since (D-07). A prior rows
+    file built for a fix subset is not a card and is refused.
 
     `grammar` is built when every reference is `one` or `bulk` (even with no
     reason, so the follow-up can show it); `ok` is true only when, in
@@ -1129,6 +1190,8 @@ def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
     """
     if not _valid_refs_doc(refs_doc):
         return None, REASON_REFS
+    if prior_rows_doc is not None and _is_subset_doc(prior_rows_doc):
+        return None, REASON_PRIOR_SUBSET
     refs = refs_doc["refs"]
     if prior_rows_doc is None and any(r["kind"] == "prior_number"
                                       for r in refs):
@@ -1212,8 +1275,8 @@ def suggest(rows_doc, answer):
             kept_decision = True
     if not clauses:
         return None, REASON_SUGGEST_EMPTY
-    grammar = _grammar_for(clauses,
-                           result["reason"] if kept_decision else None)
+    grammar = _grammar_for(clauses, _one_line(result["reason"])
+                           if kept_decision else None)
     suggestion = {"q1": grammar, "q2": None}
     _checked, reason = parse(rows_doc, suggestion)
     if reason is not None:
