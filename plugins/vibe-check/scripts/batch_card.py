@@ -1163,9 +1163,10 @@ def resolve_refs(rows_doc, refs_doc, prior_rows_doc=None):
     resolved first, in order; then each `remaining` reference over the rows
     still unclaimed.
 
-    A title reference names the single best-matching row (see
-    `_match_title`); a tie is `many` (up to four tied rows listed) and a
-    weak or absent match is `none` with the likely rows as candidates.
+    A title reference names a row only when that row's title holds every
+    non-filler word of the reference (see `_match_title`, D-23); several
+    such rows are `many`, and a partial or absent match is `none` with the
+    likely rows as candidates -- a partial match never acts.
 
     `prior_number` references a row of an older card (`prior_rows_doc`):
     it is re-mapped by stable_hash, then by unique (file, title), and

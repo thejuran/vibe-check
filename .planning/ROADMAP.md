@@ -37,38 +37,154 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
   4. Under `/review`, a finding raised only by a `/deep-review` agent (e.g. `test-sufficiency`) either closes via an eligible independent recheck or shows a clear, bounded explanation of why it cannot close there — it no longer sits silently at "needs recheck" (if reproduced; otherwise the drop is recorded)
   5. Safeguards hold under the same regression coverage: evidence from changed code is rejected as stale, a "still applies" verdict keeps the finding open, and the existing test suite stays green
 
-**Plans**: 9 plans
+**Plans**: 6 plans
 
 Plans:
 **Wave 1**
 
-- [ ] 58-01-PLAN.md — Helper renders "Apply all / Fix all" scope text naming excluded Needs-verification rows by number; D-12 text == behavior lock with mutants (RECV-01)
-- [ ] 58-02-PLAN.md — Per-reason recovery pairs (Next run / You can) for all 12 score.py reasons; NV suffix, output template and README reconciled; prose ↔ code lock (RECV-02)
-- [ ] 58-07-PLAN.md — D-17 carrier, spine side: Phase 0 recognizes the whole-token `--close-out-after-rerun` re-entry marker (strip from `$SCOPE_ARGS`, print `CLOSE_OUT_AFTER_RERUN=<0|1>`, same shape as `--finalize`); spines' no-findings skip honors it; real-fence lock under bash/zsh with mutants (ANSR-01/02)
+- [x] 56-01-PLAN.md — Reproduce-first: six-row fixture from real iPlayarr state + RED score fixtures (P2a/P2b/P2c/P3, VFIX-06 negatives)
+- [x] 56-02-PLAN.md — Reproduce-first: one-pass limit RED in score/carry_state/prose + prose-contract locks for all Phase 56 prose changes
 
-**Wave 2** *(blocked on 58-01)*
+**Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 58-03-PLAN.md — `batch_card.py resolve`: owner references → current rows (title/marker/counted complement/stale remap) with one/none/many/count-mismatch statuses; eight-row iPlayarr fixture; parse stays the only gate (ANSR-01, ANSR-02)
+- [x] 56-03-PLAN.md — Scorer: `independent` route, bound-plain members, D-04 trigger, D-06 test association, `recheck_settled`, D-11 reason, schema decision, mutants
+- [x] 56-05-PLAN.md — Prose: Phase 0.5 touched paths + applied forwarding, Phase 2 independent re-check step, Phase 3 head_blobs, D-03/D-11 render wording
 
-**Wave 3** *(blocked on 58-01 + 58-03 + 58-07)*
+**Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 58-04-PLAN.md — Fix-loop prose, part 1: translate → resolve → parse with "Read your answer as:" and act (ok branch), carried close-out paragraph reading Phase 0's `CLOSE_OUT_AFTER_RERUN=1`, Bottom line suggestion slot, helper-rendered Apply all text, residue removed, bug-C lock strengthened against mutant C (ANSR-01/03, RECV-01)
+- [x] 56-04-PLAN.md — Remove the one-pass limit for applied verdicts (score.py age gate + carry_state awaiting), blob-bound and settled-aware
 
-**Wave 4** *(blocked on 58-04 + 58-07)*
+**Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 58-08-PLAN.md — Fix-loop prose, part 2: ask only the gap once (D-05/D-06), D-08 fallback, D-07 stale remap, D-17 routing, Rerun appends `--close-out-after-rerun` only when close_out was true and `${original_args}` strips it (consumed once), typed "bottom line"; round-trip test reads the carrier back through the real Phase 0 fence (ANSR-01/02)
+- [x] 56-06-PLAN.md — Phase gate: six-row end-to-end through append_pass/finalize_counts/e2e_gate; full suite, golden digest, replay diff, red/green ledger
 
-**Wave 5** *(blocked on 58-01 + 58-03 + 58-04 + 58-08 — the Finalize twin reads the landed fix-loop prose)*
+<a id="closure-999-22"></a>
 
-- [ ] 58-05-PLAN.md — Finalize prose, part 1: accurate Q1 header and Fix all / Dismiss all / Defer all / Mixed… descriptions, Mixed…/Other translation twin (ok branch, Q2 as fallback reason), NV stop text and echo sentence reconciled, session-conditional Bottom line line (ANSR-01, RECV-01/02)
+**Source context (preserved from the 2026-10-21 roadmap item 1):** First reproduce the one-pass independent re-check limit and relevant carried-Codex/general closure paths. Repair demonstrated failures with a bounded retry on current evidence, without a dummy code change or repeated owner confirmation. Preserve independent verification and reject stale evidence. Done when: focused regression scenarios cover an inconclusive check followed by a successful retry on unchanged repaired code, changed-code rejection, and a still-applies verdict remaining open.
 
-**Wave 6** *(blocked on 58-05 + 58-08)*
+**Reported regression example (2026-10-20):** Six open rows are already fixed, but the scorer cannot close them automatically. Each row's pinned line is unchanged: fixes added code beneath it, while the `arrFacade` fix added only tests. Four of the six findings came from Codex, which cannot be asked to recheck its own findings. The relevant reviewers and full test runs confirm each fix, yet the rows still require dismissal with a reason such as "fixed in <sha>" on the finding card or at close-out.
 
-- [ ] 58-09-PLAN.md — Finalize prose, part 2: ask only the gap once (Q2-aware), D-08 fallback, D-07 stale remap, Card budget; neighbour suite; bug-C static trace recorded (ANSR-02/03)
+**Implementation coverage:** Reproduce this six-row case and cover both code added beneath an unchanged pinned line and the tests-only `arrFacade` fix, including the four Codex-origin rows. Verify that eligible independent evidence can close fixed findings without changing their pinned lines merely to trigger rechecking or requiring repetitive manual dismissal. Retain evidence freshness checks and keep unresolved or still-applicable findings open. Source: owner-provided example; row IDs, fix SHAs and test-run references were not supplied and should be recovered when building the regression fixture.
 
-**Wave 7** *(blocked on everything above)*
+**Added closure path (owner decision 2026-10-21): `/review` cannot close a `/deep-review`-only finding.** A carried finding closes only when its own originating agent rechecks it, so a finding raised by an agent `/vibe-check:review` never dispatches (e.g. `test-sufficiency`) stays "needs recheck" under `/review` regardless of whether the code is fixed. Source: `.planning/milestones/v2.12-phases/52-hardening-accepted-fix-harness/deferred-items.md` ("From 52-11 (still open)"), previously an undecided product question. Reproduce it first alongside the six-row case; if reproduced, cover it in the same closure regression scenarios — an eligible independent recheck under `/review` (or a clear, bounded explanation of why it cannot close there) — without weakening independent verification.
 
-- [ ] 58-06-PLAN.md — 58-REPRO.md: verdicts V1–V5, bug C "does not reproduce — fixed by 46d78e3 (v2.12)", inventory I-1..I-15; phase gate (full suite, replay 0 regressed, golden, mutant inventory incl. the carrier round-trip) (ANSR-03 + all)
+### Phase 57: Decision continuity within closure
+
+**Goal**: An owner's defer/dismiss decision stays bound to its evidence — it survives regrouping and edits unrelated to the finding, and the finding reopens only when its relevant evidence changes
+**Depends on**: Phase 56 (closure path repaired first so decision binding is tested against the final closure behavior; identity rules change only for demonstrated failures)
+**Requirements**: DECN-01, DECN-02, DECN-03
+**Success Criteria** (what must be TRUE):
+
+  1. Before any identity-rule change, a lost defer/dismiss decision on regrouping and on unrelated edits has a recorded reproduction verdict on current code — a failing fixture, or a written "did not reproduce; dropped" note with no rule change made
+  2. A deferred or dismissed finding keeps its decision and recorded reason when findings are regrouped (regression fixture)
+  3. A deferred or dismissed finding is not re-asked after an edit that does not touch the finding's evidence (regression fixture)
+  4. When the finding's relevant evidence changes, the finding reopens and is presented again with the new evidence (regression fixture)
+
+**Plans**: 23 plans (7 executed + 16 gap closure)
+
+Plans:
+**Wave 1**
+
+- [x] 57-01-PLAN.md — Reproduce-first: harness + RED fixtures for R1a/R1b/R1c, R2, R3a-refined, R3b, R4, R5, R6, R7; "did not reproduce; dropped" record for N1-N6 (DECN-01 gate)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 57-02-PLAN.md — carry_state: line-free ordinary compare (D-01), nearby_at evidence (D-02), direction-aware band with gained-lane rule (D-05 refined/D-06/D-07), attribution on decisions, `decided` subcommand; flipped legacy tests
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 57-03-PLAN.md — carry_state: `covers` at decision time, `joined` reopen for a newcomer concern (D-08), inheritance for a covered member that splits (D-09)
+- [x] 57-04-PLAN.md — score.py: shared `_nearby_changed` window, `nearby_at` through all three snapshot writers, obligation-preserving member dedup (R5), mutants, replay numbers
+- [x] 57-05-PLAN.md — Prose: decided-record relocation by content in 30-collect-score.md, `$DECIDED_HASHES` fail-closed binding in 05-state.md, scoring.md identity sentence, prose locks
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 57-06-PLAN.md — Card: nearby / severity-rose-with-lane / D-10 joined suffixes (D-05, D-10, D-12), 90-finalize.md contract, exact-wording tests and locks
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 57-07-PLAN.md — Phase gate: ledger green, cross-module guards, end-to-end owner journey, full suite + golden + replay, STATE.md and carried item
+
+**Gap closure** *(after verification gaps_found 2026-10-26: CR-01, CR-02, WR-03 blocking; owner rulings D-14, D-15, D-16; sequential waves 6-11)*
+
+- [x] 57-08-PLAN.md — Reproduce-first: RED fixtures for CR-01, CR-02 (inherited rise + joined), WR-03 (both directions), D-14 edit above, D-15 concern count, WR-02 deletion hunk + prose lock
+- [x] 57-09-PLAN.md — carry_state: exclude separately-owed members from `covers` (CR-01), per-concern `lanes` on decisions for the rise rule and the card (WR-03/D-16), `covered_count` counts concerns (D-15), mutants
+- [x] 57-10-PLAN.md — carry_state + card: band/lanes on covers entries, inherited decisions run nearby -> joined -> lane-backed rise (CR-02/D-16), `covering_entry` for the card's was_band, mutants
+- [x] 57-11-PLAN.md — score.py: symmetric 5-line window shared with the Phase 56 trigger (D-14), flipped boundary tests, lower-bound mutant, replay candidate/diff with explicit allowances if any
+- [x] 57-12-PLAN.md — Prose: deletion-only hunk range rule in 30-collect-score.md (WR-02), symmetric-window and D-16 wording in 90-finalize.md, IN-01/IN-02 doc fixes, phrase locks
+- [x] 57-13-PLAN.md — Gap-closure gate: full suite incl. test_replay, golden, replay, reverse-run red/green ledger addendum, DECN-02/03 re-marked complete, STATE.md
+
+**Gap closure, second round** *(after re-verification gaps_found 2026-10-26: split-row nearby edit lost (SC-4/DECN-03); owner ruling D-17; sequential waves 12-14)*
+
+- [x] 57-14-PLAN.md — Reproduce-first: real-chain RED fixtures for the split-pass nearby stamp (inherited, own-decision absorbed, owed stamp lost) + fresh-lead negative; split-pass snapshot shape in TestGapClosure57; cross-module producibility guard (WR-02 holes closed)
+- [x] 57-15-PLAN.md — score.py: `carried` arm in `_snapshot_for` + lead-obligation prior seeding so the split pass stamps `nearby_at` (D-17); unit pins; two end-to-end mutants; golden/import sets unchanged
+- [x] 57-16-PLAN.md — Second-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for D-17 differences), reverse-run ledger vs the pre-fix tree, diff-context gap parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
+
+**Gap closure, third round** *(after re-verification 2 gaps_found 2026-10-27: same-lane fresh re-report out-ranks the carried record and drops the nearby stamp (SC-4/DECN-03; 57-REVIEW-GAPS2.md CR-01/SA-01, WR-01); root cause: carried-ness read from the lead only; sequential waves 15-17)*
+
+- [x] 57-17-PLAN.md — Reproduce-first: real-chain RED fixtures for the same-lane out-ranking re-report (plain row at conf 100 and 90+critical, inherited split, own-absorbed split, owed stamp on a quiet pass) + green control; lead-order invariance guard across six row shapes (anti-whack-a-mole)
+- [x] 57-18-PLAN.md — score.py: carried-ness and the prior snapshot derived from ANY source record carried under the row's hash, read before dedup drops the duplicate (replaces the lead-only seed and same_hash_prior); WR-01 fixtures + 4 mutants; IN-01 docstring, IN-02 wrap; golden/import sets/anchors unchanged
+- [x] 57-19-PLAN.md — Third-round gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for nearby_at/at_pass on out-ranked carried rows, each justified), reverse-run ledger vs the pre-fix tree, observation parked, DECN-03 re-marked on green evidence, STATE/ROADMAP truthful
+
+**Gap closure, fourth round — FINAL (D-19 hard stop)** *(after round-3 code review 2026-10-27 (57-REVIEW-GAPS3.md): CR-01 same-hash records at different lines / arrival-order lead, CR-02 carried twin filtered before grouping, IN-01, WR-01, WR-02; owner rulings D-19 (fix the mechanism; no fifth round) and D-20 (deferred stays open below threshold); sequential waves 18-21)*
+
+- [x] 57-20-PLAN.md — Reproduce-first: real-chain RED fixtures for CR-01 (cross-lane same hash at another line; same-lane arrival order), CR-02 (min_confidence-dropped twin), IN-01 (edited carried lead's foreign stamp), the far-twin pooled-prior shape, and D-20 (deferred covered member below threshold; dismiss locked as dropping); invariance guard widened to nine shapes
+- [x] 57-21-PLAN.md — score.py: carried-by-hash index built before any filter; nearby and prior pooled over every carried copy (latest owed stamp, never first-wins); one hash gate on every prior source (IN-01 in code); deterministic lead by line; 4 mutants re-anchored + 3 new
+- [x] 57-22-PLAN.md — D-20: `carry_state.py deferred` read, `$DEFERRED_HASHES` bound in 05-state.md and forwarded as the envelope's `deferred_hashes` (prose locks), score.py keeps a deferred covered member open under its own hash as a stamped kept-open row; dismiss unchanged; 3 mutants
+- [x] 57-23-PLAN.md — Final gate: full suite incl. test_replay, golden, import sets, replay candidate/diff (allowances only for pooled nearby_at/at_pass, each justified), reverse-run ledger vs the pre-fix tree, DECN-03 re-marked on green evidence, D-19 hard stop written into STATE/deferred-items, STATE/ROADMAP truthful
+
+**Source context (preserved from the 2026-10-21 roadmap item 2):** Reproduce any lost defer/dismiss decision on regrouping or unrelated edits before changing identity rules. Fix only demonstrated failures in the closure/recovery path; keep decisions bound to their evidence. Done when: regression fixtures preserve applicable decisions and reopen findings when relevant evidence changes. Broader duplicate presentation and cross-repo gate consumers are excluded.
+
+### Phase 58: Clear actions, recovery and answers acted on
+
+**Goal**: The owner can tell what each action does and what to do after an inconclusive re-check, and a clear plain-English answer to a decision card is carried out instead of being asked again (999.13 subset)
+**Depends on**: Phase 56 (recovery guidance must describe the repaired closure behavior) and Phase 57 (decision cards reflect preserved decisions)
+**Requirements**: RECV-01, RECV-02, ANSR-01, ANSR-02, ANSR-03
+**Success Criteria** (what must be TRUE):
+
+  1. The "Fix all" label states what it actually does, and the card says which findings need individual decisions; a test locks the card text to the behavior
+  2. After an inconclusive re-check, the output states what happens next run and what the owner can do now, with no automatic closure and no new manual; existing recovery guidance and rejection/orphan explanations are reconciled to match actual behavior
+  3. An unambiguous plain-English answer to a decision card (e.g. "fix the Browse recovery issue, then dismiss the 7 fixed rows and close out" on the eight-row card) is translated into that card's validated grammar — `fix 5; dismiss 1,2,3,4,6,7,8` with the reason preserved — and the fix/dismiss/close-out workflow continues without re-showing the card (regression test)
+  4. When a reference or reason is ambiguous or missing, or the card is stale, only the missing detail is asked — no guessing, no broadened decision, no full re-show (regression test)
+  5. Whether finalize `fix N` still re-asks Apply/Skip (bug C) has a recorded verdict on current code; if it reproduces, the decided row proceeds to fixing without re-asking and a regression fixture covers it; if not, that is recorded and not filed
+
+**Plans**: 23 plans (9 main + 9 gap round from 58-REVIEW.md + 4 final round (D-21 hard stop) + 1 CR-01 rollback (D-23))
+
+Plans:
+**Main (Waves 1–7)**
+
+- [x] 58-01-PLAN.md — Helper renders "Apply all / Fix all" scope text naming excluded Needs-verification rows by number; text == behavior lock (RECV-01)
+- [x] 58-02-PLAN.md — Per-reason recovery pairs (Next run / You can) for all 12 score.py reasons; template and README reconciled (RECV-02)
+- [x] 58-07-PLAN.md — Whole-token `--close-out-after-rerun` carrier recognized by Phase 0; no-findings skip honors it (ANSR-01/02)
+- [x] 58-03-PLAN.md — `batch_card.py resolve`: owner references → current rows; eight-row iPlayarr fixture; parse stays the only gate (ANSR-01/02)
+- [x] 58-04-PLAN.md — Fix-loop: translate → resolve → parse → "Read your answer as:" and act; bug-C lock strengthened (ANSR-01/03, RECV-01)
+- [x] 58-08-PLAN.md — Fix-loop: ask only the gap, D-08 fallback, stale remap, close-out across the Rerun, "bottom line" (ANSR-01/02)
+- [x] 58-05-PLAN.md — Finalize: truthful Q1 header and descriptions; Mixed…/Other translation (ANSR-01, RECV-01/02)
+- [x] 58-09-PLAN.md — Finalize: ask only the gap, fallback, stale remap, card budget; bug-C trace (ANSR-02/03)
+- [x] 58-06-PLAN.md — 58-REPRO.md verdicts V1–V5 (bug C does not reproduce — fixed by 46d78e3, v2.12); phase gate
+
+**Gap round (58-REVIEW.md: WR-01..06, IN-01..05, SA-01..03 → D-18..D-20)**
+
+- [x] 58-10-PLAN.md — Whole-token title matching, `changed` excludes joined, counted serious groups (`count_needed`, D-18)
+- [x] 58-11-PLAN.md — `batch_card.py suggest`: Bottom line limited to fixes + medium dismiss/defer (D-19)
+- [x] 58-12-PLAN.md — Recovery-text joins (IN-01, IN-02)
+- [x] 58-13-PLAN.md — Carrier round-trip through the real normalizer (IN-04); hand-typed flag documented (D-20)
+- [x] 58-14-PLAN.md — Fix-loop printed temp paths, answer-file cleanup, reachable stale source, single echo (WR-01/02/05/06, IN-05)
+- [x] 58-15-PLAN.md — Fix-loop verbatim title words, parser-refusal branch, "How many", suggest fence (WR-03/04, D-18/19)
+- [x] 58-16-PLAN.md — Finalize printed paths, answer-file cleanup, reachable stale source (WR-02/05/06)
+- [x] 58-17-PLAN.md — Finalize twin of 58-15 (WR-03/04, D-18/19)
+- [x] 58-18-PLAN.md — Gap-round gate and ledger
+
+**Final round (58-REVIEW-GAPS.md, D-21 hard stop)**
+
+- [x] 58-19-PLAN.md — Prior-subset refusal (WR-03), suggest one-line reason (IN-05), IN-03 mutant; best-unique title match later rolled back by 58-23
+- [x] 58-20-PLAN.md — Fix-loop: fallback keeps the suggestion (WR-01), `CARDROWSFILE=` stale source (WR-03), subset-dispatch fence walk, trimmed note (IN-01)
+- [x] 58-21-PLAN.md — Finalize mirror of 58-20
+- [x] 58-22-PLAN.md — Final-round gate and ledger
+
+**CR-01 rollback (58-REVIEW-FINAL.md, D-23)**
+
+- [x] 58-23-PLAN.md — Strict all-words title matcher restored (CR-01 phrasings ask, never act); best-match prose reverted; gate
 
 **Source context (preserved from the 2026-10-21 roadmap item 3):** Correct the misleading "Fix all" label and explain which findings require individual decisions. Reconcile existing recovery guidance and actionable rejection/orphan explanations. Done when: labels match behavior and an inconclusive re-check has a clear, bounded recovery path without automatic closure or a new manual.
 
