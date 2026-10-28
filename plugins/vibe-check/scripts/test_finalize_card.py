@@ -459,14 +459,35 @@ def check_followup(text):
 
 STALE_CALL = ('resolve --rows "$ROWSFILE" --answer "$REFSFILE" '
               '--prior-rows "$PRIORROWSFILE"')
+STALE_CARD_SOURCE = "printed after `CARDROWSFILE=`"
+STALE_NEVER_SUBSET = "never a path printed only after `ROWSFILE=`"
+STALE_ORDINARY = "the ordinary fence that rendered the card the owner read"
 STALE_NEEDLES = ("`prior_number`", "by finding identity",
                  "shows the new numbers",
                  "the fix-loop card shown before Close out in this session",
-                 "printed after `ROWSFILE=`", "no longer available")
+                 STALE_CARD_SOURCE, STALE_NEVER_SUBSET, STALE_ORDINARY,
+                 "no longer available")
 # The unreachable prior-card source: no earlier --finalize card survives into
 # a later invocation, and a rows path is never carried as a shell variable.
 STALE_FORBIDDEN = ("an earlier `--finalize`",
                    "that card's `$ROWSFILE` path, used as is")
+# Checked against the Stale card paragraph only: a positional "last printed"
+# rule binds the subset fence's fix set after a D-17 pass, and a
+# `ROWSFILE=`-only source cannot tell the card's print from the subset's
+# (WR-03). Elsewhere "the printed `ROWSFILE=`" is the ordinary substitution.
+STALE_PARA_FORBIDDEN = ("the last `ROWSFILE=` line",
+                        "rows fence printed after `ROWSFILE=`")
+STALE_HEAD = "**Stale card (D-07).**"
+
+
+def stale_paragraph(text):
+    """The Finalize **Stale card (D-07)** paragraph, up to its twin fence."""
+    section = card_section(text)
+    start = section.find(STALE_HEAD)
+    if start < 0:
+        return ""
+    end = section.find("```bash", start)
+    return section[start:end if end >= 0 else len(section)]
 
 
 def check_stale(text):
@@ -477,6 +498,11 @@ def check_stale(text):
     problems = [n for n in STALE_NEEDLES if n not in section]
     problems += ["stale source still names %r" % n for n in STALE_FORBIDDEN
                  if n in section]
+    para = stale_paragraph(text)
+    if not para:
+        problems.append("no Stale card paragraph")
+    problems += ["stale source binds %r" % n for n in STALE_PARA_FORBIDDEN
+                 if n in para]
     if not any(STALE_CALL in f for f in bash_fences(section)):
         problems.append("no --prior-rows twin resolve fence")
     return problems
@@ -504,6 +530,11 @@ def check_printed_paths(text):
 
 
 ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
+TRANSLATION_FILES_CLEAR = 'rm -f "$REFSFILE" "$RESOLVEFILE"'
+KEEP_SUGGEST = "keep `$SUGGESTFILE`"
+FULL_CARD_ONCE = "show the full card once"
+Q1_SUGGEST_COND = "the `suggest` fence below exited 0 for this card"
+Q1_SUGGEST_OLD = "printed a `SUGGESTFILE=` path created for this card"
 STEP2_HEAD = "  2. `fix` non-empty"
 STEP3_HEAD = "  3. `fix` empty"
 STEP3_END = "Never jump to `write`"
@@ -530,6 +561,21 @@ def _clear_before(chunk, anchor, where):
     return []
 
 
+def d08_fallback_problems(chunk):
+    """The D-08 full-card fallback removes only the translation's refs and
+    resolve files and keeps the suggestion: the full card shown next is the
+    same card, so its `Bottom line suggests:` line must still work (WR-01)."""
+    problems = []
+    if TRANSLATION_FILES_CLEAR not in chunk:
+        problems.append("D-08 fallback: refs/resolve files not cleared "
+                        "before the full card")
+    if KEEP_SUGGEST not in chunk:
+        problems.append("D-08 fallback: keep sentence missing")
+    if ANSWER_FILES_CLEAR in chunk or '"$SUGGESTFILE" "$REFSFILE"' in chunk:
+        problems.append("D-08 fallback still removes the suggestion file")
+    return problems
+
+
 def check_answer_files(text):
     """Once the answer is acted on, the suggestion/refs/resolve files are
     removed (fix-loop hand-off, gate re-run, D-08 fallback), and a Bottom
@@ -545,18 +591,21 @@ def check_answer_files(text):
                               "step 3")
     para = followup_paragraph(text)
     d08 = para.find(D08_HEAD)
-    if d08 < 0:
+    if d08 < 0 or para.find(FULL_CARD_ONCE, d08) < 0:
         problems.append("D-08 fallback sentence missing")
     else:
-        problems += _clear_before(para[d08:], "show the full card once",
-                                  "D-08 fallback")
+        problems += d08_fallback_problems(
+            para[d08:para.index(FULL_CARD_ONCE, d08)])
     parse = _line_starting(section, PARSE_HEAD)
     if SUGGEST_OLD in parse:
         problems.append("Parse still trusts any existing $SUGGESTFILE")
     if "printed on the card currently shown" not in parse:
         problems.append("Parse does not tie 'bottom line' to the shown card")
-    if "created for this card" not in q1_line(section):
-        problems.append("Q1 suggestion line not tied to this card's file")
+    q1 = q1_line(section)
+    if Q1_SUGGEST_COND not in q1:
+        problems.append("Q1 suggestion line not tied to the suggest exit")
+    if Q1_SUGGEST_OLD in q1:
+        problems.append("Q1 suggestion line still keyed to a printed path")
     if "was removed at Close out" not in _line_starting(section, BOTTOM_HEAD):
         problems.append("D-09 does not say the fix-loop file was removed")
     return problems
@@ -596,10 +645,12 @@ def check_budget(text):
 # --------------------------------------------------------------------------- #
 TITLE_TEXT_NEW = '"text": "<the owner\'s words for that row, verbatim>"'
 TITLE_TEXT_OLD = '"text": "<the owner\'s words>"}'
+BEST_MATCH = "the single row whose title holds the most of them"
+TIE_ASKS = "a tie or a weak match still asks"
 TITLE_RULE_NEEDLES = (TITLE_TEXT_NEW, "do not trim or clean them",
                       "whole words only", "ignoring filler",
                       "`port` never matches `import`",
-                      "the Browse recovery issue")
+                      "the Browse recovery issue", BEST_MATCH, TIE_ASKS)
 _FILLER_LIST = re.compile(r"ignoring filler \(([^)]*)\)")
 
 PARSE_REFUSAL_BULLET = ("every ref is `one` or `bulk`, `needs_reason` is "
@@ -738,6 +789,61 @@ def check_suggest_fence(text):
     if PARSE_DRY_RUN in text:
         problems.append("the parse dry-run of the suggestion is still there")
     return problems
+
+
+ROWS_PRINT = "printf 'ROWSFILE=%s\\n' \"$ROWSFILE\""
+CARD_PRINT = "printf 'CARDROWSFILE=%s\\n' \"$ROWSFILE\""
+# Every helper call on this card reads the card's rows as `"$ROWSFILE"`;
+# the counts are pinned so no call is moved onto another name (T-58-21-04).
+ROWS_CALL_PINS = {
+    'suggest --rows "$ROWSFILE" --answer "$SUGGESTFILE"': 1,
+    'parse --rows "$ROWSFILE" --answer "$ANSWERFILE"': 1,
+    'resolve --rows "$ROWSFILE" --answer "$REFSFILE" > "$RESOLVEFILE"': 1,
+    'resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows '
+    '"$PRIORROWSFILE"': 1,
+    '--rows "$ROWSFILE"': 4,
+}
+
+
+def check_card_rows_print(text):
+    """Finalize's rows fence renders a card, so besides `ROWSFILE=` it prints
+    the same path as `CARDROWSFILE=` -- the next fix-loop pass re-maps a
+    stale answer from that print only. Nothing reads `$CARDROWSFILE`."""
+    section = card_section(text)
+    fences = [f for f in bash_fences(section) if ROWS_CALL in f]
+    if len(fences) != 1:
+        return ["Finalize rows fence not found once"]
+    body = fences[0]
+    problems = []
+    if ROWS_PRINT not in body:
+        problems.append("rows fence prints no ROWSFILE=")
+    elif CARD_PRINT not in body[body.index(ROWS_PRINT):]:
+        problems.append("rows fence prints no CARDROWSFILE= after ROWSFILE=")
+    for needle in ("printf 'ROWSFILE=%s", "printf 'CARDROWSFILE=%s"):
+        n = text.count(needle)
+        if n != 1:
+            problems.append("%s printed %d times" % (needle, n))
+    if "$CARDROWSFILE" in text:
+        problems.append("$CARDROWSFILE is consumed")
+    for call, want in ROWS_CALL_PINS.items():
+        n = text.count(call)
+        if n != want:
+            problems.append("%r appears %d times, want %d" % (call, n, want))
+    return problems
+
+
+TRIM_HEAD = "Exit 0 → fill the card's"
+TRIM_NOTE = "need your own words)"
+TRIM_COUNT_ONLY = "the count only, never which rows"
+
+
+def check_trim_note(text):
+    """A trimmed Bottom line suggestion ends with a count-only note (IN-01)."""
+    line = _line_starting(card_section(text), TRIM_HEAD)
+    if not line:
+        return ["no Exit 0 sentence"]
+    return ["Exit 0 sentence lacks: " + n
+            for n in (TRIM_NOTE, TRIM_COUNT_ONLY) if n not in line]
 
 
 class LockCase(unittest.TestCase):
@@ -1147,8 +1253,8 @@ class TestGapRoundFinalize(LockCase):
                 + " built a card the owner is still answering"))
         with self.subTest("mutant: 'used as is' source restored"):
             self.assert_trips(check_stale, self._mutant(
-                "printed after `ROWSFILE=`",
-                "printed after `ROWSFILE=` (" + STALE_FORBIDDEN[1] + ")"))
+                STALE_CARD_SOURCE,
+                STALE_CARD_SOURCE + " (" + STALE_FORBIDDEN[1] + ")"))
         with self.subTest("mutant: no-path fallback dropped"):
             self.assert_trips(check_stale, self._mutant(
                 "no longer available", "gone"))
@@ -1221,6 +1327,104 @@ class TestGapRoundFinalizeTranslate(LockCase):
                 self.assert_trips(check_suggest_fence, self._mutant(old, new))
         self.assert_trips(check_bottom_line,
                           self._mutant(SUGGEST_CALL, restored))
+
+
+class TestFinalRoundFinalize(LockCase):
+    """WR-01, WR-03(a), WR-02 and IN-01 on the Finalize card, the mirror of
+    the fix loop's final round, each with mutants restoring the defect."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+
+    def _mutant(self, old, new=""):
+        self.assertIn(old, self.text)
+        mutant = self.text.replace(old, new, 1)
+        self.assertNotEqual(mutant, self.text)
+        return mutant
+
+    def _d08_mutant(self, old, new):
+        """Replace `old` inside the D-08 sentence only."""
+        start = self.text.index(D08_HEAD)
+        end = self.text.index(FULL_CARD_ONCE, start)
+        chunk = self.text[start:end]
+        self.assertIn(old, chunk)
+        return (self.text[:start] + chunk.replace(old, new, 1)
+                + self.text[end:])
+
+    def test_answer_files_holds(self):
+        self.assert_holds(check_answer_files, self.text)
+
+    def test_stale_source_holds(self):
+        self.assert_holds(check_stale, self.text)
+
+    def test_card_rows_print_holds(self):
+        self.assert_holds(check_card_rows_print, self.text)
+        self.assert_holds(check_printed_paths, self.text)
+
+    def test_trim_note_holds(self):
+        self.assert_holds(check_trim_note, self.text)
+
+    def test_title_rule_holds(self):
+        self.assert_holds(check_title_rule, self.text)
+
+    def test_mutant_answer_files(self):
+        with self.subTest("fallback deletes the suggestion"):
+            self.assert_trips(check_answer_files, self._d08_mutant(
+                TRANSLATION_FILES_CLEAR, ANSWER_FILES_CLEAR))
+        with self.subTest("fallback drops keep"):
+            self.assert_trips(check_answer_files, self._d08_mutant(
+                KEEP_SUGGEST, "remove `$SUGGESTFILE`"))
+        with self.subTest("Q1 condition restored"):
+            self.assert_trips(check_answer_files, self._mutant(
+                Q1_SUGGEST_COND, "the suggestion fence below "
+                + Q1_SUGGEST_OLD))
+
+    def test_mutant_stale_source(self):
+        para = stale_paragraph(self.text)
+        self.assertIn(STALE_NEVER_SUBSET, para)
+        never = para[para.index(STALE_NEVER_SUBSET):]
+        never = never[:never.index("prior card)") + len("prior card)")]
+        cases = {
+            "never-clause deleted": (never, ""),
+            "last printed rule": (STALE_CARD_SOURCE,
+                                  "printed on the last `ROWSFILE=` line "
+                                  "printed in this session"),
+            "ROWSFILE= source": ("the fix-loop card's rows fence "
+                                 + STALE_CARD_SOURCE,
+                                 "that card's rows fence printed after "
+                                 "`ROWSFILE=`"),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assert_trips(check_stale, self._mutant(old, new))
+
+    def test_mutant_card_rows_print(self):
+        cases = {
+            "fence loses CARDROWSFILE=": (CARD_PRINT + "\n", ""),
+            "twin reads CARDROWSFILE": (
+                'resolve --rows "$ROWSFILE" --answer "$REFSFILE" --prior-rows',
+                'resolve --rows "$CARDROWSFILE" --answer "$REFSFILE" '
+                '--prior-rows'),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(label):
+                self.assert_trips(check_card_rows_print,
+                                  self._mutant(old, new))
+
+    def test_mutant_trim_note(self):
+        for label, (old, new) in {
+                "note dropped": (TRIM_NOTE, ")"),
+                "names rows": (TRIM_COUNT_ONLY, "list which rows"),
+        }.items():
+            with self.subTest(label):
+                self.assert_trips(check_trim_note, self._mutant(old, new))
+
+    def test_mutant_title_rule(self):
+        for label, needle in {"best match dropped": BEST_MATCH,
+                              "tie asks dropped": TIE_ASKS}.items():
+            with self.subTest(label):
+                self.assert_trips(check_title_rule,
+                                  self._mutant(needle, "the row"))
 
 
 # --------------------------------------------------------------------------- #
