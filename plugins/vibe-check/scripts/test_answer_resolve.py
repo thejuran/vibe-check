@@ -680,32 +680,36 @@ class TestGapRoundLockTrips(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# Final round: a fix-subset rows file is never the prior card (WR-03); a
-# title reference picks the single best-matching row, and only with a clear
-# margin (WR-02).
+# Final round: a fix-subset rows file is never the prior card (WR-03). A
+# title reference names a row only when that row's title holds every
+# non-filler word of it (D-23 strict rule); a partial match asks, listing
+# the likely rows first.
 # --------------------------------------------------------------------------- #
+# Phrasings whose every non-filler word is in one title: they resolve.
 REVIEWER_PHRASINGS = (
     ("the retry budget warning", 7),
     ("the relay failover critical", 1),
+    ("Retry budget's reset", 7),
+)
+# Phrasings with a word no title holds: they ask, the meant row listed first.
+REVIEWER_PHRASINGS_ASK = (
     ("the browse recovery one you flagged", 5),
     ("the Browse recovery issue from earlier", 5),
     ("the cursor bug in browse", 5),
     ("Browse recovery (#5)", 5),
-    ("Retry budget's reset", 7),
 )
 # Row 4 retitled so it shares relay/budget/reset/after with row 7 and
 # relay/failover/after with row 1: coincidental overlap everywhere.
 OVERLAP_TITLE = "Relay budget reset after failover"
-# (text, status, rows the reference names or the candidates it lists,
-#  top score minus runner-up score)
+# (text, status, rows the reference names or the candidates it lists)
 OVERLAP_CASES = (
-    ("the relay budget reset", "many", [4, 7], 0),
-    ("a relay after", "many", [1, 4, 7], 0),
-    ("relay reset", "many", [4, 7], 0),
-    ("the retry relay budget reset", "one", [7], 1),
-    ("failover budget", "one", [4], 1),
-    ("the relay failover budget", "one", [4], 1),
-    ("the deadline relay", "many", [1, 3, 4, 6], 0),
+    ("the relay budget reset", "many", [4, 7]),
+    ("a relay after", "many", [1, 4, 7]),
+    ("relay reset", "many", [4, 7]),
+    ("the retry relay budget reset", "one", [7]),
+    ("failover budget", "one", [4]),
+    ("the relay failover budget", "one", [4]),
+    ("the deadline relay", "none", [1, 3, 4, 6]),
 )
 
 
@@ -758,6 +762,14 @@ def check_tie_is_many(tc):
     tc.assertFalse(out["ok"])
 
 
+def _strict_holds(row, text):
+    """True when `row`'s title holds every non-filler word of `text`."""
+    wanted = {t for t in batch_card._title_tokens(text)
+              if t not in batch_card._TITLE_FILLER}
+    return bool(wanted) and wanted <= set(
+        batch_card._title_tokens(row.get("title")))
+
+
 def check_weak_match(tc):
     ref, out = title_ref(iplayarr_rows(), "retries budget")
     tc.assertEqual(ref["status"], "none")
@@ -768,10 +780,11 @@ def check_weak_match(tc):
 
 
 def check_adversarial_overlap(tc):
-    """Margin 0 always asks; a row is picked only with margin >= 1 at the
-    minimum; nothing breaks a tie."""
+    """A row is named only when it is the one row whose title holds every
+    non-filler word; several such rows ask (nothing breaks the tie); no
+    such row asks with the likely rows listed."""
     doc = overlap_rows()
-    for text, status, numbers, margin in OVERLAP_CASES:
+    for text, status, numbers in OVERLAP_CASES:
         ref, out = title_ref(doc, text)
         tc.assertEqual(ref["status"], status, text)
         if status == "one":
@@ -781,18 +794,10 @@ def check_adversarial_overlap(tc):
             tc.assertEqual(ref["rows"], [], text)
             tc.assertEqual(candidate_numbers(ref), numbers, text)
             tc.assertFalse(out["ok"], text)
-        scores = sorted((s for s, _r in batch_card._title_scores(
-            doc["rows"], text)), reverse=True)
-        top, runner_up = scores[0], scores[1]
-        tc.assertEqual(top - runner_up, margin, text)
-        wanted = [t for t in batch_card._title_tokens(text)
-                  if t not in batch_card._TITLE_FILLER]
-        if status == "one":
-            tc.assertGreaterEqual(top - runner_up, 1, text)
-            tc.assertTrue(top >= batch_card._TITLE_MIN_MATCH
-                          or top == len(wanted), text)
-        else:
-            tc.assertEqual(top, runner_up, text)
+        holders = [r["n"] for r in doc["rows"]
+                   if _strict_holds(r, text)]
+        tc.assertEqual(status, {0: "none", 1: "one"}.get(len(holders),
+                                                         "many"), text)
 
 
 class TestFinalRound(unittest.TestCase):
@@ -810,6 +815,15 @@ class TestFinalRound(unittest.TestCase):
                 self.assertEqual(title_status(iplayarr_rows(), text),
                                  ("one", [n]))
 
+    def test_partial_phrasings_ask_with_likely_row_first(self):
+        for text, n in REVIEWER_PHRASINGS_ASK:
+            with self.subTest(text):
+                ref, out = title_ref(iplayarr_rows(), text)
+                self.assertEqual((ref["status"], ref["rows"]), ("none", []))
+                self.assertEqual(candidate_numbers(ref)[0], n)
+                self.assertFalse(out["ok"])
+                self.assertIsNone(out["grammar"])
+
     def test_single_token_exact_still_matches(self):
         self.assertEqual(title_status(iplayarr_rows(), "budget"),
                          ("one", [7]))
@@ -826,7 +840,7 @@ class TestFinalRound(unittest.TestCase):
     def test_adversarial_overlap_margin(self):
         doc = overlap_rows()
         self.assertEqual(doc["rows"][3]["title"], OVERLAP_TITLE)
-        for text, status, numbers, margin in OVERLAP_CASES:
+        for text, status, numbers in OVERLAP_CASES:
             with self.subTest(text):
                 ref, _out = title_ref(doc, text)
                 self.assertEqual((ref["status"], ref["rows"]
@@ -853,23 +867,20 @@ class TestFinalRoundLockTrips(unittest.TestCase):
     """Each final-round guard is load-bearing: its mutant trips the lock."""
 
     @staticmethod
-    def _mutant_match(on_tie=None, minimum=None):
-        """A _match_title built from the real scores with one rule changed:
-        `on_tie(best, scored)` replaces the tie result; `minimum` replaces the
-        unique-row minimum."""
+    def _mutant_match(on_tie=None, partial_acts=False):
+        """A strict _match_title with one rule changed: `on_tie(best,
+        scored)` replaces the several-holders result; `partial_acts` lets a
+        unique best-scoring row match without holding every word."""
         def match(rows, text):
             scored = batch_card._title_scores(rows, text)
-            wanted = [t for t in batch_card._title_tokens(text)
-                      if t not in batch_card._TITLE_FILLER]
+            holders = [r for r in rows if _strict_holds(r, text)]
+            if len(holders) >= 2:
+                return on_tie(holders, scored) if on_tie else holders
+            if holders or not partial_acts:
+                return holders
             top = max((s for s, _r in scored), default=0)
-            if not wanted or top == 0:
-                return []
             best = [r for s, r in scored if s == top]
-            if len(best) >= 2:
-                return on_tie(best, scored) if on_tie else best
-            floor = minimum if minimum is not None else min(
-                batch_card._TITLE_MIN_MATCH, len(wanted))
-            return best if top >= floor else []
+            return best if top and len(best) == 1 else []
         return match
 
     def test_m10_tie_broken_by_first_row(self):
@@ -885,11 +896,11 @@ class TestFinalRoundLockTrips(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     check_tie_is_many(self)
 
-    def test_m11_minimum_dropped(self):
+    def test_m11_partial_match_acts(self):
         with self.subTest("real"):
             check_weak_match(self)
-        with self.subTest("mutant: a unique score of 1 always matches"):
-            mutant = self._mutant_match(minimum=1)
+        with self.subTest("mutant: a unique best partial row matches"):
+            mutant = self._mutant_match(partial_acts=True)
             with mock.patch.object(batch_card, "_match_title", mutant):
                 self.assertEqual(title_status(iplayarr_rows(),
                                               "retries budget"), ("one", [7]))
@@ -932,6 +943,76 @@ class TestFinalRoundLockTrips(unittest.TestCase):
                                  ("one", [4]))
                 with self.assertRaises(AssertionError):
                     check_adversarial_overlap(self)
+
+
+# --------------------------------------------------------------------------- #
+# CR-01 (D-23): a partial title match never acts. The owner's distinctive
+# words miss their row by inflection ("list" vs "lists") while another row
+# shares incidental words ("browse", "page"); that row must not be picked.
+# --------------------------------------------------------------------------- #
+CR01_PHRASINGS = (
+    # (owner's words for the row, the row meant, the row a best pick took)
+    ("the option list on the browse page", 4, 5),
+    ("the deadline expiry on add and search", 6, 8),
+)
+
+
+def cr01_sentence_refs(text):
+    """Refs the Translate step builds for "fix <text>, then dismiss the
+    other 7 fixed rows and close out"."""
+    return refs_doc([ref_title("fix", text),
+                     ref_marker("dismiss", "remaining", 7)],
+                    reason=OWNER_REASON, close_out=True)
+
+
+def check_cr01_asks(tc):
+    rows_doc = iplayarr_rows()
+    for text, _meant, _wrong in CR01_PHRASINGS:
+        status, rows = title_status(rows_doc, text)
+        tc.assertIn(status, ("none", "many"), text)
+        tc.assertEqual(rows, [], text)
+
+
+def check_cr01_sentence_records_nothing(tc):
+    rows_doc = iplayarr_rows()
+    for text, meant, _wrong in CR01_PHRASINGS:
+        out = resolve(rows_doc, cr01_sentence_refs(text))
+        tc.assertFalse(out["ok"], text)
+        tc.assertIn(out["refs"][0]["status"], ("none", "many"), text)
+        tc.assertEqual(out["refs"][0]["rows"], [], text)
+        tc.assertEqual(out["refs"][1]["status"], "blocked", text)
+        tc.assertIsNone(out["grammar"], text)
+        tc.assertNotIn(meant, out["verbs"].get("dismiss", []), text)
+
+
+class TestCR01StrictTitle(unittest.TestCase):
+    def test_cr01_phrasings_ask(self):
+        check_cr01_asks(self)
+
+    def test_cr01_meant_row_listed_not_picked(self):
+        for text, meant, wrong in CR01_PHRASINGS:
+            with self.subTest(text):
+                ref, _out = title_ref(iplayarr_rows(), text)
+                self.assertNotEqual(ref["rows"], [wrong])
+                self.assertIn(meant, candidate_numbers(ref))
+
+    def test_cr01_sentence_records_nothing_and_asks(self):
+        check_cr01_sentence_records_nothing(self)
+
+    def test_cr01_verbatim_iplayarr_still_resolves(self):
+        out = resolve(iplayarr_rows(), verbatim_refs())
+        check_verbatim_clause(self, out)
+        self.assertTrue(out["close_out"])
+        self.assertEqual(out["verbs"]["fix"], [5])
+        self.assertEqual(out["verbs"]["dismiss"], [1, 2, 3, 4, 6, 7, 8])
+
+    def test_cr01_mutant_best_unique_pick_trips(self):
+        mutant = TestFinalRoundLockTrips._mutant_match(partial_acts=True)
+        with mock.patch.object(batch_card, "_match_title", mutant):
+            with self.assertRaises(AssertionError):
+                check_cr01_asks(self)
+            with self.assertRaises(AssertionError):
+                check_cr01_sentence_records_nothing(self)
 
 
 # --------------------------------------------------------------------------- #
