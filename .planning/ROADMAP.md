@@ -6,7 +6,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 
 - ✅ v2.11 Quiet loop -- Phases 45–50 (2.11.0 and 2.11.1 shipped 2026-10-08)
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
-- 🚧 v2.13 Reliable fix closure and recovery -- Phases 56–58 (in progress; planning)
+- 🚧 v2.13 Reliable fix closure and recovery -- Phases 56–58 (all phases complete; milestone audit/close pending)
 
 ### 🚧 v2.13 Reliable fix closure and recovery (Phases 56–58, in progress)
 
@@ -14,7 +14,7 @@ Updated 2026-10-23 (v2.13 roadmap written: three phases, 56–58, mapped to the 
 
 - [x] **Phase 56: Verified fixes close** - Reproduce the closure failures, then let eligible independent evidence close fixed findings without dummy edits or repeated dismissal (completed 2026-10-25)
 - [x] **Phase 57: Decision continuity within closure** - Owner defer/dismiss decisions survive regrouping and unrelated edits, and reopen only on changed evidence (completed 2026-10-27)
-- [ ] **Phase 58: Clear actions, recovery and answers acted on** - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
+- [x] **Phase 58: Clear actions, recovery and answers acted on** (completed 2026-10-28) - Labels match behavior, an inconclusive re-check has a bounded recovery path, and a clear owner answer is acted on instead of re-asked
 
 **Sequence:** Reproduce the closure failure first (Phase 56), repair it with targeted validation, then align decisions (Phase 57) and actions/recovery guidance (Phase 58). If the retry failure cannot be reproduced, stop that fix effort and reassess scope rather than invent a replacement project.
 
@@ -202,7 +202,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 56. Verified fixes close | 6/6 | Complete    | 2026-10-25 |
 | 57. Decision continuity within closure | 23/23 | Complete    | 2026-10-27 |
-| 58. Clear actions, recovery and answers acted on | 0/TBD | Not started | - |
+| 58. Clear actions, recovery and answers acted on | 23/23 | Complete    | 2026-10-28 |
 
 ## Backlog
 
