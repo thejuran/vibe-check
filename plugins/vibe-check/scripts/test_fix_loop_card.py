@@ -767,8 +767,8 @@ BOTTOM_LINE_SLOT = ('{{\\n\\nBottom line suggests: <grammar> — type '
                     '"bottom line" in Other to take it}}')
 BOTTOM_LINE_HEAD = "**Bottom line as a choice (D-09).**"
 BOTTOM_LINE_QUESTION_NOTE = ("The `Bottom line suggests:` line appears ONLY "
-                             "when the suggestion fence below printed a "
-                             "`SUGGESTFILE=` path created on this pass")
+                             "when the `suggest` fence below exited 0 on "
+                             "this pass")
 BOTTOM_LINE_NEEDLES = ("this pass's Bottom line in THIS session",
                        'suggest --rows "$ROWSFILE" --answer "$SUGGESTFILE"',
                        'rm -f "$SUGGESTFILE"',
