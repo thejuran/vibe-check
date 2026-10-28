@@ -402,3 +402,35 @@ The D-08 fallback sentence in each card file shows the suggestion file kept (WR-
 Every check matches its expectation except the `SUBSETROWSFILE` count in `scripts/`. That count is 1 and not 0, because of the mutant string described in its row. The contract is about prose and helpers, which never name `SUBSETROWSFILE`, so the contract holds.
 
 Plugin history since 24dccdc: `git log --name-only --format= 24dccdc..HEAD -- plugins | grep -c .` = 63 (18 distinct files) before this plan's commits. 58-22 changes no plugin file. `git log --name-only --format= 0525ba0..HEAD -- plugins | grep -c .` = 0 after its commits.
+
+## CR-01 rollback (58-REVIEW-FINAL.md, D-23)
+
+Owner ruling D-23. This is a rollback, not a new review round. The D-21 hard stop still holds, and no further review round runs.
+
+**Rolled back:** the 58-19 (WR-02) best-unique title pick in `batch_card._match_title`. Under that pick, a row acted when it had the top score, led the next row by at least 1, and scored at least 2. `_TITLE_MIN_MATCH` was removed with it. The matcher is back to the 58-10 strict rule (8739927): a title ref names a row only when that row's title holds every non-filler whole token of the ref. One such row gives `one`, several give `many`, and none gives `none`. A partial match never acts, however many words it shares. In the Translate paragraph of `50-fix-loop.md` and `90-finalize.md`, the "picks the single row whose title holds the most of them … a tie or a weak match still asks" sentence is replaced. Both files now carry identical text: "every word the owner used for a row, filler aside, must be in that row's title … a partial match is not a match — ask, as when several rows match, with the likely rows as the buttons". `grep -ci "best-match\|best match\|most of the owner"` gives 0 in both files.
+
+**Kept:** the ranked likely-row candidates for `none` (`_title_scores` and `_title_candidates`, which feed the follow-up buttons only), `_title_tokens`, `_title_wanted`, whole-token splitting, the band words and possessive `s` in `_TITLE_FILLER`, WR-01 (suggestion kept on the D-08 fallback), WR-03 (`CARDROWSFILE=` + `REASON_PRIOR_SUBSET`), IN-01, IN-03 and IN-05. The band words stay because under the strict rule a filler word can only drop a requirement. No test showed one widening a match to a wrong row, and every CR-01 fixture asks with the band words in place.
+
+**RED (801c3bb, before the fix):** `pytest -q scripts/test_answer_resolve.py -k CR01` gave `4 failed, 3 passed`. The first failing line was `test_answer_resolve.py:972`: `AssertionError: 'one' not found in ('none', 'many') : the option list on the browse page`. The full-sentence check failed with `True is not false : the option list on the browse page`. In that run, `ok` was true and the grammar was `fix 5; dismiss 1,2,3,4,6,7,8`.
+
+**GREEN (817c9f9):** after the fix, `pytest -q scripts/test_answer_resolve.py` gave `88 passed`. "the option list on the browse page" and "the deadline expiry on add and search" now give `none`, and the meant rows #4 and #6 appear among the candidates. The fix-then-dismiss-the-other-7 sentence gives `ok: false`, title `none`, remaining `blocked`, grammar `None`. The verbatim iPlayarr sentence still gives `fix 5; dismiss 1,2,3,4,6,7,8`. The kept-fix selection (`-k "SubsetDispatchWalk or FinalRound or card_rows or PRIOR"` over fix-loop, finalize and bottom-line-suggest) gave `25 passed`.
+
+**Mutant r1 (real file):** I put the best-unique pick back into `scripts/batch_card.py` with a scratchpad Python script. `pytest -q scripts/test_answer_resolve.py -k CR01` then gave `4 failed, 3 passed`: `test_cr01_phrasings_ask`, `test_cr01_sentence_records_nothing_and_asks`, and both subtests of `test_cr01_meant_row_listed_not_picked`. I restored the file with `git checkout -- scripts/batch_card.py`, and `git status --porcelain plugins/` was then empty.
+
+**Gate at HEAD 817c9f9** (run from `plugins/vibe-check` in one `bash -s` fence, bare `pytest`, reports written to the session scratchpad):
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `pytest -q` | `3588 passed, 4757 subtests passed in 219.35s` (0 failed) |
+| Replay tests | `pytest -q scripts/test_replay.py` | `64 passed, 10 subtests passed` |
+| Replay candidate | `python3 replay.py candidate --name phase58-cr01-gate --scorer rev:HEAD --out <scratchpad>/phase58-cr01-candidate.md` (from `scripts/`) | exit 0; `REPRODUCED 25 / 26 · UNEVALUABLE 0 · AMENDED 1`; `kept 25 / protected 26`; **REGRESSED 0**. The amended run is `runs/triggarr-secret-in-logs/run-2` (`axis-false`, ledger 008), unchanged. Scorer sha256 `3504d2da79e9ebab26bfedd01c7614c9b7cc06ade99c12b7e24e90003edd22fb`, identical to the earlier gates |
+| Replay diff | `python3 replay.py diff --base rev:24c0c00 --scorer rev:HEAD --roots all --allow ../../../docs/design/b3-ground-truth/ALLOWANCES-phase53-nv.json --out <scratchpad>/phase58-cr01-diff.md` | exit 0; runs compared 170, differing 0, differing (allowed) 0, unallowed 0; Differences: none |
+| Golden tests | `pytest -q scripts/test_score.py -k golden` | `9 passed, 491 deselected` |
+| Golden digest | `score.stable_hash('a.py','  x=1','title') == test_score.GOLDEN_DIGEST` | `golden ok` |
+| Frozen files | `git diff 24dccdc -- plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/batch_parse.py` | empty |
+| Imports | `batch_card.py` top-level imports | json, os, sys, carry_state, batch_parse (no re or unicodedata) |
+
+**Known limits re-opened (backlog):**
+- **WR-02 (re-opened):** wordier phrasings get a follow-up again. "the browse recovery one you flagged", "the Browse recovery issue from earlier", "the cursor bug in browse" and "Browse recovery (#5)" each contain a word no title holds. They now ask, with #5 listed first among the candidates, and the owner clicks it.
+- **Reviewer's safer design (not built):** act only when the best row holds all of the owner's non-filler words, and otherwise offer that row as a one-click choice. A broader function-word filler list ("on", "in", "and", "you", "flagged", "earlier", …) would let more wordy phrasings resolve without the CR-01 risk. It would need its own fixtures and mutants.
+- **Info items carried as is:** IN-01 (the follow-up lists at most 4 tied rows), IN-02 (the close-out card pointer), IN-03 (the wording of the subset-refusal note).
