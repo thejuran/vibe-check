@@ -4074,5 +4074,137 @@ class TestRealDiffRanges60(_RealChain):
         self.assert_reopens(s2, hA, 50)
 
 
+PR_TOP_FIVE = ["pr_top_%d = 0" % i for i in range(5)]
+
+
+class TestCoordinateSpaces60(_RealChain):
+    """Coordinate-space probes: diff text whose sections number lines in
+    different files (each commit of a PR patch series; HEAD vs index vs
+    working tree in a concatenated diff). Every diff here is `-U0` so the
+    documented header rule yields exact ranges and each probe isolates the
+    coordinate question from the context-width question.
+
+    A `_probe` test asserts what SHOULD happen and fails while the shape
+    reproduces; a `_control` test reads the same change from one diff in one
+    coordinate space."""
+
+    def _u0(self, repo, *args):
+        return repo.git("diff", *RANGE_GIT_FLAGS, "-U0", *args).stdout
+
+    def _pr_repo(self):
+        """Commit A edits line 10; commit B inserts 5 lines at the top, so
+        the edit sits at line 15 of the head file."""
+        L0 = base_file()
+        repo = RealDiffRepo.make(self, L0)
+        LA = _edited(L0, 10)
+        repo.write(LA)
+        repo.commit("A: edit line 10")
+        LB = PR_TOP_FIVE + LA
+        repo.write(LB)
+        repo.commit("B: insert five lines at the top")
+        return repo, LB
+
+    def test_cs60_pr_series_probe(self):
+        """`gh pr diff --patch` emits the commit series (mbox), like
+        `git format-patch --stdout`: each commit's hunks are numbered in that
+        commit's own file, so commit A's edit is read at line 10, not 15."""
+        repo, LB = self._pr_repo()
+        series = repo.git("format-patch", "--stdout", "-U0",
+                          *RANGE_GIT_FLAGS, "%s..HEAD" % repo.base).stdout
+        self.assertEqual(len(re.findall(r"^From [0-9a-f]{40} ", series,
+                                        re.M)), 2)
+        ranges = header_rule_ranges(series)
+        self.assertEqual(ranges.get(F), [[10, 10], [1, 5]])
+        self.assertTrue(scored_in_diff(LB, 15, ranges),
+                        "the head-file line of commit A's edit (15) is not "
+                        "in the patch-series ranges")
+
+    def test_cs60_pr_cumulative_control(self):
+        repo, LB = self._pr_repo()
+        ranges = header_rule_ranges(self._u0(repo, repo.base, "HEAD"))
+        self.assertEqual(ranges.get(F), [[1, 5], [15, 15]])
+        self.assertTrue(scored_in_diff(LB, 15, ranges))
+
+    def _mixed_repo(self):
+        """Decision at 40; a COMMITTED edit at line 35, then an UNCOMMITTED
+        insertion of 10 lines at the top: on disk the decided line is 50 and
+        the edit is at 45 (inside 45..55)."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        repo.write(_edited(L0, 35))
+        repo.commit("edit line 35")
+        L2 = TOP_TEN + _edited(L0, 35)
+        repo.write(L2)
+        return repo, L2, s1, hA
+
+    def test_cs60_mixed_concat_probe(self):
+        """The GSD / incremental assembly: `<base>..HEAD` + `--staged` +
+        unstaged, concatenated. The committed edit keeps its HEAD line (35)
+        while the decision is read on the working tree (50)."""
+        repo, L2, s1, hA = self._mixed_repo()
+        concat = (self._u0(repo, "%s..HEAD" % repo.base)
+                  + self._u0(repo, "--staged") + self._u0(repo))
+        ranges = header_rule_ranges(concat)
+        self.assertEqual(ranges.get(F), [[35, 35], [1, 10]])
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_cs60_single_diff_control(self):
+        repo, L2, s1, hA = self._mixed_repo()
+        ranges = header_rule_ranges(self._u0(repo, repo.base))
+        self.assertEqual(ranges.get(F), [[1, 10], [45, 45]])
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+    def _staged_repo(self, at):
+        """Decision at 40; an edit at line `at` is STAGED, then 10 lines are
+        inserted at the top WITHOUT staging. On disk the decided line is 50
+        and the staged edit is at `at + 10`. `git diff HEAD` numbers lines
+        in the working tree; `git diff --staged` numbers them in the index,
+        where the staged edit is still at `at`."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        repo.write(_edited(L0, at))
+        repo.git("add", F)
+        L2 = TOP_TEN + _edited(L0, at)
+        repo.write(L2)
+        head, staged = self._u0(repo, "HEAD"), self._u0(repo, "--staged")
+        return L2, s1, hA, head, staged
+
+    def test_cs60_default_staged_concat_probe(self):
+        """Probe A (wrong reopen): the default route assembles `git diff
+        HEAD` + `git diff --staged`. The edit at 48 is outside the decided
+        line's window (35..45, on disk 45..55 with the edit at 58), so the
+        decision should be kept; the staged section adds the index line 48,
+        which falls inside the shifted window."""
+        L2, s1, hA, head, staged = self._staged_repo(48)
+        self.assertEqual(header_rule_ranges(staged).get(F), [[48, 48]])
+        ranges = header_rule_ranges(head + staged)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58], [48, 48]])
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_cs60_default_staged_finding_probe(self):
+        """Probe B (mislocated finding): a reviewer reading the `--staged`
+        section quotes the changed line as 48; scored against the
+        working-tree ranges of `git diff HEAD`, that line is in the diff only
+        if index and working-tree numbering agree."""
+        L2, _, _, head, _ = self._staged_repo(48)
+        ranges = header_rule_ranges(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
+        self.assertTrue(scored_in_diff(L2, 48, ranges),
+                        "line 48 (the staged section's own numbering) is "
+                        "not in the working-tree ranges")
+
+    def test_cs60_default_head_only_control(self):
+        L2, s1, hA, head, _ = self._staged_repo(48)
+        ranges = header_rule_ranges(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_cs60_default_head_only_boundary_control(self):
+        L2, s1, hA, head, _ = self._staged_repo(45)
+        ranges = header_rule_ranges(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [55, 55]])
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+
 if __name__ == "__main__":
     unittest.main()

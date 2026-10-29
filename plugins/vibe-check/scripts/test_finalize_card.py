@@ -11,9 +11,14 @@ applied to the real text (must return []) AND to a mutant of it (must return
 something), so no lock is decorative: a check that cannot trip fails here.
 """
 
+import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+import textwrap
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1620,6 +1625,181 @@ class TestNeedsVerificationFinalizeProse(LockCase):
     def test_state_file_is_the_format53_location(self):
         self.assertIn("`.turingmind/state/format-53/`", self.text)
         self.assertIn("format-53/", self.schema)
+
+
+# --------------------------------------------------------------------------- #
+# Fresh-shell walk over the Finalize fences. Each fence runs in its own
+# `bash -s` with only PATH, VC_ROOT, TMPDIR and STATE_FILE, the way separate
+# Bash calls run: a temp path survives from one fence to the next only as a
+# printed `NAME=<path>` literal substituted for `"$NAME"`.
+# --------------------------------------------------------------------------- #
+SIX_ROW_FIXTURE = os.path.join(HERE, "fixtures",
+                               "iplayarr45-six-row-state.json")
+_PRINTED_RE = re.compile(r"^([A-Z_]+FILE)=(.+)$", re.M)
+_FILE_REF_RE = re.compile(r'"\$([A-Z_]+FILE)"')
+
+COUNTS_CALL = 'carry_state.py" finalize-counts --head-blobs "$BLOBFILE"'
+GATE_CALL = 'scripts/finalize_gate.py"'
+GATE_INPUT_VAR = '"$FINALIZE_GATE_INPUT_JSON"'
+COUNTS_HALT = "carry_state.py failed; nothing was written or archived"
+
+
+def _printed(stdout):
+    """{NAME: path} for every `NAME=path` line a fence printed."""
+    return dict(_PRINTED_RE.findall(stdout))
+
+
+def _fence_after(text, anchor):
+    """Body of the first ```bash fence after `anchor` (None if absent)."""
+    if anchor not in text:
+        return None
+    start = text.find("```bash\n", text.index(anchor))
+    if start < 0:
+        return None
+    start += len("```bash\n")
+    return text[start:text.index("```", start)]
+
+
+def _fence_holding(text, needle):
+    """Body of the ```bash fence that holds `needle` (None if absent)."""
+    if needle not in text:
+        return None
+    at = text.index(needle)
+    start = text.rindex("```bash\n", 0, at) + len("```bash\n")
+    return text[start:text.index("```", at)]
+
+
+def _print_line(name):
+    return "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+
+
+def blobfile_fence(text):
+    """The fence that creates the HEAD-fingerprints file and prints
+    `BLOBFILE=<path>`, or None."""
+    return _fence_holding(text, _print_line("BLOBFILE"))
+
+
+def gate_fence(text):
+    """The fence that runs finalize_gate.py on the gate input."""
+    return _fence_holding(text, GATE_CALL)
+
+
+class TestFinalizeFreshShellWalk(unittest.TestCase):
+    """FINL-01 / D-09: every Finalize fence, run in a fresh shell with the
+    printed paths carried as literals, reaches counts -> gate -> card rows."""
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def _run_fresh(self, script, state_file=SIX_ROW_FIXTURE):
+        """(returncode, stdout, stderr) of `script` in a fresh bash."""
+        tmpdir = tempfile.mkdtemp(dir=self.tmp)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "VC_ROOT": PLUGIN_DIR, "TMPDIR": tmpdir,
+               "STATE_FILE": state_file}
+        proc = subprocess.run(["bash", "-s"], input=textwrap.dedent(script),
+                              env=env, capture_output=True, text=True,
+                              timeout=60)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def _literal(self, fence, subs):
+        for name, path in subs.items():
+            ref = '"$%s"' % name
+            self.assertIn(ref, fence, "fence does not read " + ref)
+            fence = fence.replace(ref, '"%s"' % path)
+        return fence
+
+    def _made_file(self, name):
+        """Run the fence that prints `NAME=` fresh; return the printed path."""
+        fence = _fence_holding(self.text, _print_line(name))
+        self.assertIsNotNone(fence, "no Finalize fence prints %s=" % name)
+        rc, out, err = self._run_fresh(fence)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        self.assertIn(name, printed)
+        return printed[name]
+
+    def test_walk_reaches_counts_gate_report(self):
+        self.assertIsNotNone(
+            blobfile_fence(self.text),
+            "no Finalize fence prints BLOBFILE= (D-09): the counts and rows "
+            "fences read \"$BLOBFILE\", which no fresh shell holds, so "
+            "carry_state.py refuses the empty path and Finalize stops")
+        blob = self._made_file("BLOBFILE")
+        with open(blob, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+
+        counts_fence = _fence_holding(self.text, COUNTS_CALL)
+        rc, out, err = self._run_fresh(
+            self._literal(counts_fence, {"BLOBFILE": blob}))
+        self.assertEqual(rc, 0, err)
+        counts = json.loads(out.strip().splitlines()[-1])
+
+        gate = gate_fence(self.text)
+        self.assertNotIn(GATE_INPUT_VAR, gate,
+                         "the gate fence reads a variable set in an earlier "
+                         "Bash call")
+        flags = {"flags": {"state_file_present": True,
+                           "outstanding_cw": counts["outstanding_cw"],
+                           "unacknowledged_medium":
+                               counts["unacknowledged_medium"],
+                           "undecided_nv": counts["undecided_nv"],
+                           "noninteractive": False, "pr_mode": False,
+                           "range_mode": False}}
+        subs = {}
+        for name in sorted(set(_FILE_REF_RE.findall(gate)) - {"STATE_FILE"}):
+            path = self._made_file(name)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(flags, fh)
+            subs[name] = path
+        rc, out, err = self._run_fresh(self._literal(gate, subs))
+        self.assertEqual(rc, 0, err)
+        action = json.loads(out.strip().splitlines()[-1])["action"]
+        self.assertEqual(action, "outstanding-to-phase-5")
+
+        rows_fence = _fence_holding(self.text, ROWS_CALL)
+        rc, out, err = self._run_fresh(
+            self._literal(rows_fence, {"BLOBFILE": blob}))
+        self.assertEqual(rc, 0, err)
+        rows_path = _printed(out)["ROWSFILE"]
+        with open(rows_path, encoding="utf-8") as fh:
+            self.assertTrue(json.load(fh)["rows"])
+
+    def test_counts_fence_without_literal_exits_two(self):
+        """999.25 as the owner sees it: the counts fence run in a fresh shell
+        with "$BLOBFILE" left as a variable. The helper refuses the empty
+        path (exit 2, REASON_HEAD_BLOBS) and the fence halts with its
+        uncertain sentence."""
+        counts_fence = _fence_holding(self.text, COUNTS_CALL)
+        self.assertIsNotNone(counts_fence)
+        rc, out, err = self._run_fresh(counts_fence)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out, "")
+        self.assertIn(carry_state.REASON_HEAD_BLOBS.strip(), err)
+        self.assertIn(COUNTS_HALT, err)
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            helper = subprocess.run(
+                [sys.executable,
+                 os.path.join(PLUGIN_DIR, "scripts", "carry_state.py"),
+                 "finalize-counts", "--head-blobs", ""],
+                stdin=fh, capture_output=True, text=True, timeout=60)
+        self.assertEqual(helper.returncode, 2, helper.stderr)
+        self.assertEqual(helper.stderr, carry_state.REASON_HEAD_BLOBS)
+
+    def test_gate_fence_reads_cross_call_variable_today(self):
+        """Pitfall 6: the gate fence pipes "$FINALIZE_GATE_INPUT_JSON", set
+        in an earlier Bash call; a fresh shell sends the gate empty stdin and
+        Finalize halts as uncertain."""
+        gate = gate_fence(self.text)
+        self.assertIsNotNone(gate)
+        # The one line to invert (assertNotIn) once the gate input is
+        # carried as a printed literal instead of a shell variable.
+        self.assertIn(GATE_INPUT_VAR, gate)
+        rc, _, err = self._run_fresh(gate)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("finalize_gate.py failed", err)
 
 
 if __name__ == "__main__":
