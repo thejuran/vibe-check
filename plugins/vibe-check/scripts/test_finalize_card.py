@@ -6,6 +6,14 @@ for every undecided finding. The rows, the parse of the answer, the
 record-decisions payload and the fix subset all come from `batch_card.py`;
 the prose only renders and routes. These tests pin that shape.
 
+The Finalize path itself is locked too: every temp path any fence creates is
+printed (`check_printed_paths`, whole file) and every path a fence reads was
+created by a fence (`check_file_refs_created`); the gate reads a printed
+GATEFILE, never a cross-call variable (`no_cross_call_gate_input`); the
+rebuild-once, refused-step and write-boundary rules (`retry_rule_holds`,
+`refused_rule_holds`, `write_boundary_holds`); and a fresh-shell walk runs the
+real fences on both routes (`TestFinalizeFreshShellWalk`).
+
 Every lock is a check function that returns a list of problems. Each one is
 applied to the real text (must return []) AND to a mutant of it (must return
 something), so no lock is decorative: a check that cannot trip fails here.
@@ -521,11 +529,13 @@ PATH_CONVENTION = ("a path printed after `NAME=` is reused in a later fence "
 
 
 def check_printed_paths(text):
-    """Every temp file the card creates prints its path in the same fence,
-    and one sentence says a printed path is reused only as that literal."""
+    """Every temp file ANY Finalize fence creates prints its path in the same
+    fence (the whole file: a card-section-only scan is how 999.25 slipped,
+    58 SA-01), and one card sentence says a printed path is reused only as
+    that literal."""
     section = card_section(text)
     problems = []
-    for body in bash_fences(section):
+    for body in bash_fences(text):
         for name in MKTEMP_RE.findall(body):
             printf = "printf '%s=%%s\\n' \"$%s\"" % (name, name)
             if printf not in body:
@@ -535,6 +545,48 @@ def check_printed_paths(text):
         problems.append("path convention sentence appears %d times" % count)
     return problems
 
+
+# Paths a Finalize fence may read without creating them in this file:
+# STATE_FILE is bound by Phase 0.5; PRIORROWSFILE is bound to the path the
+# fix-loop card's rows fence printed after `CARDROWSFILE=` (50-fix-loop.md).
+EXTERNAL_FILE_REFS = {
+    "STATE_FILE": None,
+    "PRIORROWSFILE": ("bind `$PRIORROWSFILE` to the path the fix-loop card's "
+                      "rows fence printed after `CARDROWSFILE=`"),
+}
+
+
+def check_file_refs_created(text):
+    """Every `"$NAME"` a fence reads is created by a `NAME=$(mktemp` fence of
+    this file, except the externally bound paths, whose binding sentence
+    must be present."""
+    fences = bash_fences(text)
+    made = set()
+    for body in fences:
+        made |= set(MKTEMP_RE.findall(body))
+    reads = set()
+    for body in fences:
+        reads |= set(_FILE_REF_RE.findall(body))
+    problems = []
+    for name in sorted(reads - made):
+        if name not in EXTERNAL_FILE_REFS:
+            problems.append("%s read but never created by a fence" % name)
+        elif (EXTERNAL_FILE_REFS[name] is not None
+              and EXTERNAL_FILE_REFS[name] not in text):
+            problems.append("%s read with no binding sentence" % name)
+    return problems
+
+
+def no_cross_call_gate_input(text):
+    """Pitfall 6: the gate reads the printed GATEFILE, never a variable set
+    in an earlier Bash call."""
+    problems = []
+    if "FINALIZE_GATE_INPUT_JSON" in text:
+        problems.append("the cross-call gate variable is back")
+    if not any('finalize_gate.py" < "$GATEFILE"' in body
+               for body in bash_fences(text)):
+        problems.append("the gate fence does not read < \"$GATEFILE\"")
+    return problems
 
 ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
 TRANSLATION_FILES_CLEAR = 'rm -f "$REFSFILE" "$RESOLVEFILE"'
@@ -1226,6 +1278,12 @@ class TestGapRoundFinalize(LockCase):
         with self.subTest("mutant: RESOLVEFILE path not printed"):
             self.assert_trips(check_printed_paths, self._mutant(
                 "printf 'RESOLVEFILE=%s\\n' \"$RESOLVEFILE\"\n"))
+        with self.subTest("mutant: BLOBFILE path not printed"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                "printf 'BLOBFILE=%s\\n' \"$BLOBFILE\"\n"))
+        with self.subTest("mutant: GATEFILE path not printed"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                "printf 'GATEFILE=%s\\n' \"$GATEFILE\"\n"))
         with self.subTest("mutant: convention sentence dropped"):
             self.assert_trips(check_printed_paths, self._mutant(
                 PATH_CONVENTION, "a path is reused"))
@@ -1272,6 +1330,31 @@ class TestGapRoundFinalize(LockCase):
         with self.subTest("mutant (c): the record-decisions fence deleted"):
             fence = _fence_holding(self.text, RECORD_CALL)
             self.assert_trips(write_boundary_holds, self._mutant(fence, ""))
+
+    def test_file_refs_created_holds(self):
+        self.assert_holds(check_file_refs_created, self.text)
+
+    def test_mutant_file_refs_created(self):
+        with self.subTest("mutant: BLOBFILE mktemp fence removed"):
+            fence = blobfile_fence(self.text)
+            self.assertIsNotNone(fence)
+            mutant = self._mutant("```bash\n" + fence + "```", "")
+            self.assert_trips(check_file_refs_created, mutant)
+            # the walk's extractor finds no BLOBFILE= fence to run either
+            self.assertIsNone(blobfile_fence(mutant))
+        with self.subTest("mutant: PRIORROWSFILE binding sentence dropped"):
+            self.assert_trips(check_file_refs_created, self._mutant(
+                EXTERNAL_FILE_REFS["PRIORROWSFILE"], "use a prior rows file"))
+
+    def test_no_cross_call_gate_input_holds(self):
+        self.assert_holds(no_cross_call_gate_input, self.text)
+
+    def test_mutant_cross_call_gate_input(self):
+        with self.subTest("mutant: cross-call gate input restored"):
+            self.assert_trips(no_cross_call_gate_input, self._mutant(
+                'python3 "$VC_ROOT/scripts/finalize_gate.py" < "$GATEFILE"',
+                'printf \'%s\' "$FINALIZE_GATE_INPUT_JSON" | '
+                'python3 "$VC_ROOT/scripts/finalize_gate.py"'))
 
     def test_answer_files_holds(self):
         self.assert_holds(check_answer_files, self.text)
