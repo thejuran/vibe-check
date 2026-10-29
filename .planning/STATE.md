@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: ready_to_execute
-last_updated: "2026-10-29T01:21:09.000Z"
-last_activity: 2026-10-29 — Phase 59 planned: 6 plans in 6 sequential waves (research, pattern map, plan-checker PASSED with 3 non-blocking warnings)
+status: executing
+last_updated: "2026-10-29T01:30:26.000Z"
+last_activity: 2026-10-29 -- 59-01 complete (red fixtures at 82ec58b)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 17
 ---
 
 # Project State
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.14 Decision reliability — Phase 59 (stale decisions and lost deferrals) next; Phases 60–61 follow (Lean orchestration after release; Reviewer efficiency conditional)
+**Current focus:** Phase 59: stale-decisions-and-lost-deferrals
 
 ## Current Position
 
-Phase: 59 (Stale decisions and lost deferrals) — planned, not started
-Plan: 0 of 6
-Status: Ready to execute
-Last activity: 2026-10-29 — Phase 59 planned: 6 plans in 6 sequential waves (research, pattern map, plan-checker PASSED with 3 non-blocking warnings)
+Phase: 59 (stale-decisions-and-lost-deferrals) — EXECUTING
+Plan: 2 of 6
+Status: Executing Phase 59
+Last activity: 2026-10-29 -- 59-01 complete (red fixtures at 82ec58b)
 
 ## Operator Next Steps
 
@@ -78,6 +78,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 59-01 complete (82ec58b red fixtures, ca9834d 59-REPRO.md). Five shapes red on the real chain (CR-01 edit@33, CR-01 multi-pass, CR-02, CR-04, DEFR-01 min_confidence=45); controls green; full suite 5 failed / 3594 passed. Decisions: RED SHA for the 59-06 reverse run is 82ec58b; SA-02 did not reproduce on the real chain and is dropped, pinned by test_nv_render.all_carryforward_bypass_holds + deleting mutant. STALE-01 and DEFR-02 marked complete; DEFR-01 waits for its fix (59-03). Next: 59-02.
 
 2026-10-28: v2.14 roadmap written: Phase 59 Stale decisions and lost deferrals (STALE-01..06, DEFR-01..02), Phase 60 Exact change evidence and reliable Finalize (EVID-01..03, FINL-01..02), Phase 61 Release gate (GATE-01..03). 16/16 mapped (REQUIREMENTS.md said 18; corrected — 16 IDs are defined). Awaiting owner approval; uncommitted.
 

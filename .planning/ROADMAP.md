@@ -33,7 +33,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 59. Stale decisions and lost deferrals | 0/6 | Planned | - |
+| 59. Stale decisions and lost deferrals | 1/6 | In Progress|  |
 | 60. Exact change evidence and reliable Finalize | 0/TBD | Not started | - |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
@@ -58,7 +58,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 Plans:
 **Wave 1**
 
-- [ ] 59-01-PLAN.md — Red real-chain fixtures for CR-01 (edit@33 + multi-pass), CR-02, CR-04, DEFR-01@45; SA-02 prose pin; REPRO_59; 59-REPRO.md ledger (no production edits)
+- [x] 59-01-PLAN.md — Red real-chain fixtures for CR-01 (edit@33 + multi-pass), CR-02, CR-04, DEFR-01@45; SA-02 prose pin; REPRO_59; 59-REPRO.md ledger (no production edits)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
