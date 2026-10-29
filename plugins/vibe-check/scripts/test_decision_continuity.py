@@ -1591,8 +1591,12 @@ class TestStaleDecisions59(_Base):
                          "snapshot %r" % snap)
         self.assertEqual(carry_state.stale_cause(rec, state), "nearby",
                          "snapshot %r" % snap)
-        self.assertIn(hA, carry_state.finalize_counts(
-            state, {})["outstanding_cw_hashes"], "snapshot %r" % snap)
+        # The re-ask lands in the gate list of the record's own band: the
+        # CR-01 copies score medium (conf 60), the CR-04 row is critical.
+        key = ("unacknowledged_medium_hashes" if rec.get("band") == "medium"
+               else "outstanding_cw_hashes")
+        self.assertIn(hA, carry_state.finalize_counts(state, {})[key],
+                      "snapshot %r" % snap)
         self.assertNotEqual(e2e_gate(state, {}), "write",
                             "snapshot %r" % snap)
         return rec

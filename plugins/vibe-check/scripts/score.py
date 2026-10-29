@@ -410,7 +410,7 @@ def _covered_entry(m, cov, capped):
 
 
 def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
-                    changed_line_ranges):
+                    changed_line_ranges, carried_by_hash=None):
     """Kept-open obligation rows for carried records this pass's filters dropped.
 
     `dropped` lists (working record, reason) pairs collected by the
@@ -420,19 +420,26 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
     expanded members that entered scoring this pass.
 
     A row is emitted only while its obligation hash is not already visible (a
-    kept row's stable_hash, a kept row's member sidecar, or an earlier emitted
-    obligation row). It is the last row the owner saw — stored stable_hash,
+    kept row's stable_hash or a kept row's member sidecar), and once per
+    dropped occurrence (`_finding_identity`): two copies of one identity
+    dropped in the same pass each get their own row, so no copy leaves
+    tracking (999.23 CR-01 multi-pass); carry_state reads them as one
+    decision. It is the last row the owner saw — stored stable_hash,
     orchestrator_score, band and attribution copied verbatim, never re-scored —
     with this pass's carry status, HEAD read, `kept_open` reason and snapshot.
     A lead row's members are its own record plus this pass's members of that
     lead that neither ride in a kept row nor become rows of their own, so a
     resolved or fixed member is never re-listed.
 
-    A covered member of a deferred row that fell sub-threshold (D-20; its
-    entry is marked `covered`, `_covered_entry`) has no prior snapshot of its
-    own, so `carried` is passed for it and the split pass's in-window edit
-    stamps it (D-17); every other kept-open row carries its stored snapshot
-    and is unaffected. Pure; never raises.
+    Evidence is pooled over every carried copy of the obligation hash in
+    `carried_by_hash` (the D-19 index, built before any filter; 999.23
+    CR-01): the prior is the pooled snapshot carrying the latest owed stamp
+    (every source passes the one hash gate), nearby is judged at every
+    copy's line, and the row counts as carried when any carried record
+    hashes to it — which includes a covered member of a deferred row that
+    fell sub-threshold (D-20, `_covered_entry`): it has no prior snapshot of
+    its own, so the split pass's in-window edit stamps it (D-17).
+    Pure; never raises.
     """
     visible = {s.get("stable_hash") for s in kept}
     kept_idents = set()
@@ -447,13 +454,14 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
                    if carried_obligations[id(m)]["obligation"]["stable_hash"] not in visible}
     rows = []
     done = set()
+    emitted = set()
     for m, reason in dropped:
         if id(m) in done:
             continue
         done.add(id(m))
         entry = carried_obligations[id(m)]
         obl = entry["obligation"]
-        if obl["stable_hash"] in visible:
+        if obl["stable_hash"] in visible or _finding_identity(m) in emitted:
             continue
         row = {k: v for k, v in entry["record"].items() if k not in ("members", "obligation")}
         # The still-applies memory is this pass's guard output on the working
@@ -468,10 +476,19 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
         row["canonical_line_content"] = m.get("canonical_line_content")
         row.pop("kept_open", None)
         row["kept_open"] = reason
-        row["snapshot"] = obl.get("snapshot")
-        row_nearby = _nearby_changed(row, changed_line_ranges)
+        same = (carried_by_hash or {}).get(obl["stable_hash"], ())
+        candidates = [
+            o["snapshot"] for _, o in same
+            if o is not None
+            and o.get("stable_hash") == obl["stable_hash"]
+            and isinstance(o.get("snapshot"), dict)]
+        if isinstance(obl.get("snapshot"), dict):
+            candidates.append(obl["snapshot"])
+        prior = _pooled_prior(candidates)
+        row["snapshot"] = prior if prior is not None else obl.get("snapshot")
+        row_nearby = _any_nearby([row] + [r for r, _ in same], changed_line_ranges)
         row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,
-                                        carried=bool(entry.get("covered")))
+                                        carried=bool(same))
         own = _member_ref(m)
         own["obligation"] = _refreshed_obligation(obl, m, pass_number, changed_line_ranges)
         members = [own]
@@ -486,7 +503,7 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
                         changed_line_ranges)
                 members.append(ref)
         row["members"] = members
-        visible.add(obl["stable_hash"])
+        emitted.add(_finding_identity(m))
         rows.append(row)
     return rows
 
@@ -2832,7 +2849,8 @@ def run(envelope):
     # owner decision closes it. Appended after the threshold loop so the
     # sub-threshold drop never sees it.
     kept.extend(_kept_open_rows(dropped, kept, pass_number, carried_obligations,
-                                members_of, changed_line_ranges))
+                                members_of, changed_line_ranges,
+                                carried_by_hash=carried_by_hash))
 
     # --- Needs-verification rows (QUIET-06/07, R8) ----------------------------- #
     # Appended after the threshold loop, like the suppression rows, so no filter
