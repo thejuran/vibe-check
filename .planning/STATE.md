@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: ready_to_plan
-last_updated: "2026-10-29T17:47:49.000Z"
+last_updated: "2026-10-29T17:52:26.000Z"
 last_activity: 2026-10-29 -- Phase 60 context gathered (4 owner decisions: IN-04 folded in, Finalize rebuild-once, saved PR diff, Phase-59 cycle rule)
 progress:
   total_phases: 3
@@ -32,7 +32,7 @@ Last activity: 2026-10-29
 
 ## Operator Next Steps
 
-- Phase 59 executed + reviewed + verified (gaps parked to 999.23 by owner); its PR is not opened yet. Open/merge it, then branch `feat/v2.14-phase-60` from `main` before executing Phase 60.
+- Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
 - Phase 60 context captured (60-CONTEXT.md); next `/bm:plan-phase 60`.
 - Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
