@@ -34,7 +34,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
-| 60. Exact change evidence and reliable Finalize | 0/TBD | Not started | - |
+| 60. Exact change evidence and reliable Finalize | 1/5 | In Progress|  |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
 ## Phase Details
@@ -94,12 +94,12 @@ Plans:
   4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
   5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
 
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 60-01-PLAN.md — Reproduction verdicts: red real-diff/coordinate/Finalize-walk fixtures, REPRO_60, 60-REPRO.md (RED SHA)
+- [x] 60-01-PLAN.md — Reproduction verdicts: red real-diff/coordinate/Finalize-walk fixtures, REPRO_60, 60-REPRO.md (RED SHA)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

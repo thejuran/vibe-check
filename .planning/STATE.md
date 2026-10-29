@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: ready_to_execute
-last_updated: "2026-10-29T18:45:20.000Z"
-last_activity: 2026-10-29 -- Phase 60 planned (5 plans, 4 waves; plan-checker passed after 1 revision)
+status: executing
+last_updated: "2026-10-29T19:20:47.000Z"
+last_activity: 2026-10-29 -- 60-01 complete (RED SHA ce9f8b8; 9 verdicts in 60-REPRO.md)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
   percent: 33
-stopped_at: Phase 60 planned — ready to execute
+stopped_at: Completed 60-01-PLAN.md — next 60-02 (range builder) and 60-03 (Finalize)
 ---
 
 # Project State
@@ -21,14 +21,14 @@ stopped_at: Phase 60 planned — ready to execute
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 60 — exact change evidence and reliable finalize
+**Current focus:** Phase 60: exact-change-evidence-and-reliable-finalize
 
 ## Current Position
 
-Phase: 60
-Plan: 0 of 5 complete
-Status: Ready to execute
-Last activity: 2026-10-29 -- Phase 60 planning complete
+Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 60
+Last activity: 2026-10-29 -- 60-01 complete (reproduction verdicts recorded at RED SHA ce9f8b8)
 
 ## Operator Next Steps
 
@@ -80,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 60-01 complete (43d1905, 2121c57, ce9f8b8 RED SHA, cda9220 60-REPRO.md). 999.24 reproduced on real git diffs: default-context header ranges are 3 lines wider each side (L+8 edit re-asks a decision), the +T,0 deletion rule never fires, IN-04 net-deletion replace is a boundary keep. Coordinate probes all reproduced -> fixed by 60-04: PR-SERIES (patch-series ranges miss the head line), MIXED-COORD (GSD/incremental concatenation silent keep), DEFAULT-STAGED (index-coordinate --staged section wrongly reopens). ALL-ROUTE recorded as unsupported fixture (TestRouteAll pending in 60-04). 999.25 reproduced: no fence prints BLOBFILE=, and the gate fence reads $FINALIZE_GATE_INPUT_JSON across calls. Full suite at ce9f8b8: 15 failed (exactly the named red set) / 3655 passed. Next: 60-02 and 60-03.
 
 2026-10-29: Phase 60 context gathered. Owner decisions: ranges from actual +/- markers (gh pr diff has no -U0); 57 IN-04 net-deletion replace edge folded in (D-02); Finalize rebuilds HEAD fingerprints once then stops with a plain no-write message, refusals never auto-retried (D-07/D-08); PR route proven by a checked-in real patch, live fetch reported as not exercised (D-05); Phase-59 one-cycle rule (D-10). Next: /bm:plan-phase 60.
 

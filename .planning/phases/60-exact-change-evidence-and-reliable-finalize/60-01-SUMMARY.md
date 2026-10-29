@@ -120,6 +120,12 @@ The controls pass, so one diff in one coordinate space gives the right answer in
 - **Cost if wrong:** Low. 60-05 reads the same field.
 - **Commit:** ce9f8b8
 
+**5. [Rule 2 - Truthful state] EVID-01, EVID-02 and FINL-01 are not marked complete**
+- **Found during:** State updates
+- **Issue:** The `requirements.mark-complete` step for the plan's `requirements:` list ticked EVID-01, EVID-02 and FINL-01. This plan only records red fixtures. No exact ranges and no printed `BLOBFILE=` exist yet, so none of the three requirements is met.
+- **Fix:** Reverted REQUIREMENTS.md, which was clean before this step. The three stay Pending until 60-02, 60-03 and 60-04 turn their fixtures green.
+- **Cost if wrong:** Low. A later plan's state step ticks them.
+
 ## Assumption Drift (advisory)
 
 - **Found during:** Task 2 (DEFAULT-STAGED Probe B)
