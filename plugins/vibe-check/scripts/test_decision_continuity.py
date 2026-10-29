@@ -994,7 +994,7 @@ def _two_copy_lines():
     return L0
 
 
-def cr01_scenario(edit, quiet_first=False):
+def cr01_scenario(edit, quiet_first=False, order=(10, 30)):
     """57-REVIEW-GAPS4.md CR-01 (zero-config, kept-open copies): one decided
     identity at two lines, neither copy re-reported.
 
@@ -1004,12 +1004,13 @@ def cr01_scenario(edit, quiet_first=False):
     The last pass has no findings and a diff naming line `edit`: line 33 is
     inside line 30's D-14 window (25-35) and outside line 10's (5-15), so
     the change beside the second copy must re-ask the decision; line 45 is
-    outside both windows and must not.
+    outside both windows and must not. `order` is the arrival order of the
+    two pass-1 copies.
     -> (s, r, hA) for the last pass."""
     L0 = _two_copy_lines()
     s1, r1 = run_pass(empty_state(), L0,
-                      [fresh("bugs", 10, L0, TITLE_A, conf=60),
-                       fresh("bugs", 30, L0, TITLE_A, conf=60)], 1,
+                      [fresh("bugs", n, L0, TITLE_A, conf=60)
+                       for n in order], 1,
                       {F: [[1, 200]]})
     hA = r1["findings"][0]["stable_hash"]
     s1 = decide_on(s1, hA)
@@ -1037,7 +1038,7 @@ def cr01_three_copies_scenario():
     return s2, r2, hA
 
 
-def cr02_scenario(edit=33):
+def cr02_scenario(edit=33, confs=(95, 95)):
     """57-REVIEW-GAPS4.md CR-02 (member sidecars): one decided identity at two
     lines, both copies absorbed under new leads.
 
@@ -1047,7 +1048,9 @@ def cr02_scenario(edit=33):
     carried copy becomes a member sidecar with its own obligation; the diff
     names line `edit` (33: inside line 30's window only). The decision
     binds the identity, so whichever sidecar carry_state reads, the change
-    beside the second copy must re-ask it. -> (s2, r2, hA)."""
+    beside the second copy must re-ask it. `confs` is (X conf, Y conf): the
+    higher one sorts its injection row, and its sidecar, first.
+    -> (s2, r2, hA)."""
     L0 = _two_copy_lines()
     s1, r1 = run_pass(empty_state(), L0,
                       [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
@@ -1056,15 +1059,17 @@ def cr02_scenario(edit=33):
     hA = r1["findings"][0]["stable_hash"]
     s1 = decide_on(s1, hA)
     s2, r2 = run_pass(s1, L0,
-                      [fresh("security", 10, L0, "Injection X", conf=95,
-                             severity="critical", category="injection"),
-                       fresh("security", 30, L0, "Injection Y", conf=95,
-                             severity="critical", category="injection")],
+                      [fresh("security", 10, L0, "Injection X",
+                             conf=confs[0], severity="critical",
+                             category="injection"),
+                       fresh("security", 30, L0, "Injection Y",
+                             conf=confs[1], severity="critical",
+                             category="injection")],
                       2, {F: [[edit, edit]]})
     return s2, r2, hA
 
 
-def cr04_scenario(edit_line=6, ranges_line=6):
+def cr04_scenario(edit_line=6, ranges_line=6, lead="security"):
     """57-REVIEW-GAPS4.md CR-04 (covered member's own window): a decided row
     whose covered member sits at a different line from the lead.
 
@@ -1076,25 +1081,34 @@ def cr04_scenario(edit_line=6, ranges_line=6):
     Line 6 is inside A@10's D-14 window (5-15) and outside B@12's (7-17),
     so removing the guard beside the covered finding must re-ask the
     decision; line 20 is outside both and must not.
+
+    `lead="bugs"` flips the lead: A is reported at conf 100 severity
+    "critical" and B at conf 60 severity "warning", so A leads the row and
+    the decision is taken on A's hash (returned in hB's place).
     -> (s1, s2, r2, hB)."""
     L0 = base_file()
-    s1, r1 = run_pass(empty_state(), L0,
-                      [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
-                       fresh("security", 12, L0, "Injection at B", conf=95,
-                             severity="critical", category="injection")],
-                      1, {F: [[1, 200]]})
+    if lead == "bugs":
+        a_kw = {"conf": 100, "severity": "critical"}
+        b_kw = {"conf": 60, "severity": "warning"}
+    else:
+        a_kw = {"conf": STABLE_CONF}
+        b_kw = {"conf": 95, "severity": "critical"}
+
+    def reports(lines):
+        return [fresh("bugs", 10, lines, TITLE_A, **a_kw),
+                fresh("security", 12, lines, "Injection at B",
+                      category="injection", **b_kw)]
+
+    s1, r1 = run_pass(empty_state(), L0, reports(L0), 1, {F: [[1, 200]]})
     assert len(r1["findings"]) == 1, r1["findings"]
-    lead = r1["findings"][0]
-    assert lead["agent"] == "security", lead
-    hB = lead["stable_hash"]
+    row1 = r1["findings"][0]
+    assert row1["agent"] == lead, row1
+    hB = row1["stable_hash"]
     s1 = decide_on(s1, hB)
     L1 = list(L0)
     L1[edit_line - 1] = "# guard removed"
-    s2, r2 = run_pass(s1, L1,
-                      [fresh("bugs", 10, L1, TITLE_A, conf=STABLE_CONF),
-                       fresh("security", 12, L1, "Injection at B", conf=95,
-                             severity="critical", category="injection")],
-                      2, {F: [[ranges_line, ranges_line]]})
+    s2, r2 = run_pass(s1, L1, reports(L1), 2,
+                      {F: [[ranges_line, ranges_line]]})
     return s1, s2, r2, hB
 
 
@@ -2293,12 +2307,46 @@ def _inv_min_confidence_dropped_twin(rereport, _sev, min_confidence):
                     in [f.get("reason") for f in r2["filtered"]])
 
 
+def _inv_cr01_kept_open_copies(order, _sev):
+    """CR-01 kept-open copies: the knob is the arrival order of the two
+    pass-1 copies; the marker is the line of the record carry_state reads
+    for the identity (the first kept-open copy), which follows the order."""
+    s2, _, hA = cr01_scenario(33, order=order)
+    return s2, hA, record_of(s2, hA)["line"]
+
+
+def _inv_cr02_sidecar_order(edit, confs):
+    """CR-02 member sidecars: the knobs are the edited line (beside the first
+    or the second copy) and the two injection confidences (which injection
+    row is critical). Rows sort by line, so the record carry_state reads is
+    always the line-10 sidecar; what moves is which sidecar holds the nearby
+    stamp and which row leads by band. The marker is (critical row lines,
+    line of the stamped sidecar)."""
+    s2, _, hA = cr02_scenario(edit, confs=confs)
+    rows = s2["passes"][-1]["findings"]
+    stamped = [f["line"] for f in rows for m in f.get("members", [])
+               if (m.get("obligation") or {}).get("stable_hash") == hA
+               and m["obligation"]["snapshot"].get("nearby_at")]
+    return s2, hA, (tuple(f["line"] for f in rows
+                          if f["band"] == "critical"), tuple(stamped))
+
+
+def _inv_cr04_lead_flip(lead, _sev):
+    """CR-04 covered member: the knob is which finding leads the row; the
+    decision is taken on the lead's hash and the marker is the row agent."""
+    _, s2, _, h = cr04_scenario(6, 6, lead=lead)
+    return s2, h, row_of(s2, h)["agent"]
+
+
 # name -> (build(<knobs unpacked>) -> (state, hA, lead marker),
 #          ((label, knobs, expected lead marker), ...),
 #          expected triple, or None for "whatever carried-leads yields")
 _SAME_LANE = {"carried-leads": "persisted", "fresh-leads-same-band": "new",
               "fresh-leads-higher-band": "new"}
 _REASK = ("stale", "nearby", True)
+# A medium-band identity re-asks through the medium gate list, not the
+# critical/warning one the triple's third element reads.
+_REASK_MEDIUM = ("stale", "nearby", False)
 
 
 def _same_lane_perms():
@@ -2348,6 +2396,31 @@ INVARIANCE_SCENARIOS = {
          ("fresh-leads-same-band", (95, "warning", None), ("new", False)),
          ("fresh-leads-twin-dropped", (95, "warning", 80), ("new", True))),
         _REASK),
+    # 999.23 CR-01: two kept-open copies (conf 60, medium band), edit beside
+    # the line-30 copy. The arrival order moves the representative record.
+    "cr01_kept_open_copies": (
+        _inv_cr01_kept_open_copies,
+        (("carried-leads", ((10, 30), None), 10),
+         ("reversed-arrival", ((30, 10), None), 30)),
+        _REASK_MEDIUM),
+    # 999.23 CR-02: both copies absorbed as member sidecars under critical
+    # leads. The stamp sits on the second sidecar (edit@33) or the first
+    # (edit@13), under either injection row leading by band.
+    "cr02_sidecar_order": (
+        _inv_cr02_sidecar_order,
+        (("carried-leads", (33, (95, 90)), ((10,), (30,))),
+         ("lead-flip", (33, (90, 95)), ((30,), (30,))),
+         ("stamp-on-first-sidecar", (13, (95, 90)), ((10,), (10,))),
+         ("stamp-on-first-sidecar-lead-flip", (13, (90, 95)),
+          ((30,), (10,)))),
+        _REASK),
+    # 999.23 CR-04: the removed guard at line 6 is beside A@10 only. Either
+    # the security finding leads (A is the covered member) or A leads.
+    "cr04_lead_flip": (
+        _inv_cr04_lead_flip,
+        (("carried-leads", ("security", None), "security"),
+         ("lead-flip", ("bugs", None), "bugs")),
+        _REASK),
 }
 
 
@@ -2361,7 +2434,12 @@ class TestLeadOrderInvariance(_Base):
 
     Expected on the unfixed scorer: the fresh-leads permutations of plain,
     inherited_split, absorbed_split and owed_quiet_same_lane fail (SUBFAILED);
-    every carried-leads baseline passes."""
+    every carried-leads baseline passes.
+
+    The Phase-59 shapes (999.23 CR-01 kept-open copies, CR-02 member
+    sidecars, CR-04 covered member) are cr01_kept_open_copies,
+    cr02_sidecar_order and cr04_lead_flip; the split and merge shapes are the
+    existing inherited_split and absorbed_split entries."""
 
     def _triple(self, state, hA):
         rec = self._current(state, hA)
@@ -2403,7 +2481,10 @@ class TestLeadOrderInvariance(_Base):
                           "different_lane_dup_57_04",
                           "different_line_same_hash_cross_lane",
                           "same_lane_arrival_order",
-                          "min_confidence_dropped_twin"})
+                          "min_confidence_dropped_twin",
+                          "cr01_kept_open_copies",
+                          "cr02_sidecar_order",
+                          "cr04_lead_flip"})
         self.assertEqual(len(LEAD_PERMUTATIONS), 3)
         self.assertEqual(LEAD_PERMUTATIONS[0][1][0], STABLE_CONF)
         for name, (_, perms, _) in INVARIANCE_SCENARIOS.items():
