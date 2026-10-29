@@ -1781,6 +1781,47 @@ class TestStaleDecisions59(_Base):
                          "record %r" % snap)
         self.assertIn(hA, carry_state.finalize_counts(
             s2, {})["outstanding_cw_hashes"], "record %r" % snap)
+        # The representative is still the line-10 sidecar (rows first, array
+        # order); only its nearby stamp comes from the line-30 copy.
+        self.assertEqual((rec["line"], snap.get("line"), snap.get("nearby_at")),
+                         (10, 10, 2), "record %r" % snap)
+
+    def _sidecar_obligations(self, state, h):
+        """{line: obligation} of the stored member sidecars with hash `h`."""
+        return {m.get("line"): m["obligation"]
+                for f in state["passes"][-1]["findings"]
+                for m in f.get("members") or []
+                if isinstance(m.get("obligation"), dict)
+                and m["obligation"].get("stable_hash") == h}
+
+    def test_cr02_redecision_after_merge_reads_current(self):
+        """The single writer reads the merged view: re-deciding after the
+        re-ask stores the latest stamp, so the decision reads current."""
+        s2, _, hA = cr02_scenario(33)
+        s2b = decide_on(s2, hA)
+        self.assertEqual(s2b["decisions"][hA]["evidence"].get("nearby_at"), 2,
+                         s2b["decisions"][hA])
+        self.assertEqual(carry_state.decision_state(record_of(s2b, hA), s2b),
+                         "current", record_of(s2b, hA)["snapshot"])
+        self.assertNotIn(hA, carry_state.finalize_counts(
+            s2b, {})["outstanding_cw_hashes"])
+
+    def test_cr02_merge_does_not_mutate_state(self):
+        """The merge works on copies: reading the state leaves every stored
+        sidecar snapshot exactly as score.py wrote it."""
+        s2, _, hA = cr02_scenario(33)
+        before = json.dumps(s2, sort_keys=True)
+        obls = self._sidecar_obligations(s2, hA)
+        # Self-check: the line-10 copy is unstamped, the line-30 copy owes it.
+        self.assertEqual(sorted(obls), [10, 30], obls)
+        self.assertNotIn("nearby_at", obls[10]["snapshot"], obls[10])
+        self.assertEqual(obls[30]["snapshot"].get("nearby_at"), 2, obls[30])
+        carry_state.open_findings(s2)
+        carry_state.finalize_counts(s2, {})
+        carry_state.decision_state(record_of(s2, hA), s2)
+        self.assertNotIn("nearby_at",
+                         self._sidecar_obligations(s2, hA)[10]["snapshot"])
+        self.assertEqual(json.dumps(s2, sort_keys=True), before)
 
     def test_cr02_pooled_prior_carries_the_latest_owed_stamp(self):
         s3, r3, hA = pooled_prior_scenario()
@@ -2828,14 +2869,6 @@ class TestSameHashLeadKeepsNearbyStamp(_Base):
         self.assertNotEqual(e2e_gate(s3, {}), "write")
 
 
-# Row fixtures still red until the read-side merge (CR-02).
-# TestPhase57Mutants._failures skips them so the mutant baselines stay green;
-# 59-03 empties this set (and every mutant then runs them too).
-_EXPECTED_RED_UNTIL_59_03 = frozenset((
-    "test_cr02_edit_beside_the_second_sidecar_reasks",
-))
-
-
 class TestPhase57Mutants(_Base):
     """Guards that span modules: each mutant removes one link and the
     journey's assertion it protects fails."""
@@ -2998,6 +3031,9 @@ class TestPhase57Mutants(_Base):
         (TestStaleDecisions59,
          "test_cr02_edit_beside_the_second_sidecar_reasks"),
         (TestStaleDecisions59,
+         "test_cr02_redecision_after_merge_reads_current"),
+        (TestStaleDecisions59, "test_cr02_merge_does_not_mutate_state"),
+        (TestStaleDecisions59,
          "test_cr02_pooled_prior_carries_the_latest_owed_stamp"),
         (TestStaleDecisions59,
          "test_cr04_removed_guard_beside_covered_member_reasks"),
@@ -3016,11 +3052,9 @@ class TestPhase57Mutants(_Base):
     def _failures(self):
         """The _ROW_TESTS that fail, by short prefix (`test_s1_`, `test_b_`,
         `test_w1_`, `test_control_`) and by full name; an error (not a
-        failure) fails here. Names in _EXPECTED_RED_UNTIL_59_03 are skipped."""
+        failure) fails here."""
         failed = set()
         for cls, name in self._ROW_TESTS:
-            if name in _EXPECTED_RED_UNTIL_59_03:
-                continue
             res = unittest.TestResult()
             cls(name).run(res)
             self.assertEqual(res.errors, [], name)
@@ -3029,19 +3063,43 @@ class TestPhase57Mutants(_Base):
                 failed.add(name)
         return failed
 
-    def _run_mutant(self, name, old, new):
+    # The row tests that need carry_state's read-side merge (CR-02): red when
+    # it is off, whatever the scorer does.
+    _READ_MERGE_ONLY = frozenset((
+        "test_cr02_",
+        "test_cr02_edit_beside_the_second_sidecar_reasks",
+        "test_cr02_redecision_after_merge_reads_current"))
+
+    def _run_mutant(self, name, old, new, read_merge=True):
         """Failures of _ROW_TESTS with the whole scorer run from `score.py`
         with `old` replaced by `new`; asserts `old` is unique and the row
-        tests are green unmutated."""
+        tests are green unmutated.
+
+        With `read_merge=False` both runs read the state without
+        carry_state's `_merge_nearby`, so a producer-side guard the read-side
+        merge would also cover is measured on its own (defense in depth: each
+        layer keeps its own lock). The baseline is then exactly
+        _READ_MERGE_ONLY, which is subtracted from the result."""
+        import contextlib
         from unittest import mock
-        from test_confirmed_fix import SCORE_PY, _mutant
+        from test_confirmed_fix import CARRY_STATE_PY, SCORE_PY, _mutant
         with open(SCORE_PY, "r", encoding="utf-8") as fh:
             src = fh.read()
         self.assertEqual(src.count(old), 1, "mutation target not unique")
         mod = _mutant(SCORE_PY, name, old, new)
-        self.assertEqual(self._failures(), set())
-        with mock.patch.object(score, "run", mod.run):
-            return self._failures()
+        if read_merge:
+            reader, baseline = contextlib.nullcontext(), set()
+        else:
+            no_merge = _mutant(CARRY_STATE_PY, "cs_no_merge_" + name,
+                               "records = _merge_nearby(records, rows + sidecars)",
+                               "records = list(records)")
+            reader = mock.patch.object(carry_state, "_check_state",
+                                       no_merge._check_state)
+            baseline = set(self._READ_MERGE_ONLY)
+        with reader:
+            self.assertEqual(self._failures(), baseline)
+            with mock.patch.object(score, "run", mod.run):
+                return self._failures() - baseline
 
     def test_deferral_kind_gate_keeps_a_dismissed_member_open(self):
         """D-20 / WR-02 kind gate: only a member covered by one of the
@@ -3165,12 +3223,14 @@ class TestPhase57Mutants(_Base):
         nearby at the row's lead line only loses the edit beside a carried
         same-hash copy at another line across lanes (p1) and the removed
         guard beside a covered member (cr04); the control where the carried
-        copy leads (q1) and the inherited split (s1) are unaffected."""
+        copy leads (q1) and the inherited split (s1) are unaffected. Measured
+        without the read-side merge, which also lifts p1's other-copy stamp."""
         failed = self._run_mutant(
             "score_nearby_lead_only",
             "row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, "
             "changed_line_ranges)",
-            "row_nearby = _any_nearby([survivor], changed_line_ranges)")
+            "row_nearby = _any_nearby([survivor], changed_line_ranges)",
+            read_merge=False)
         self.assertIn("test_p1_", failed)
         self.assertIn("test_cr04_", failed)
         self.assertNotIn("test_q1_", failed)
@@ -3225,11 +3285,13 @@ class TestPhase57Mutants(_Base):
     def test_kept_open_own_line_only_loses_the_other_copy(self):
         """CR-01: a kept-open row is judged at every carried copy's line.
         Judging its own line only loses the edit beside the second copy
-        (cr01); the edit outside both windows (c59) is unaffected."""
+        (cr01); the edit outside both windows (c59) is unaffected. Measured
+        without the read-side merge, which also lifts the line-30 row's
+        stamp onto the line-10 representative."""
         failed = self._run_mutant(
             "score_ko_own_line_only",
             "_any_nearby([row] + [r for r, _ in same], changed_line_ranges)",
-            "_any_nearby([row], changed_line_ranges)")
+            "_any_nearby([row], changed_line_ranges)", read_merge=False)
         self.assertIn("test_cr01_edit_beside_the_second_copy_reasks", failed)
         self.assertNotIn("test_c59_", failed)
 
@@ -3326,6 +3388,37 @@ class TestPhase57Mutants(_Base):
             "_any_nearby([survivor] + [r for r, _ in same_hash] + covered_m")
         self.assertIn("test_p4_", failed)
         self.assertNotIn("test_cr04_", failed)
+
+
+class TestPhase59CarryStateMutants(_Base):
+    """The read-side guard in carry_state: each mutant removes one link and
+    only the fixture it protects fails."""
+
+    def test_first_record_per_hash_wins_loses_the_sidecar_stamp(self):
+        """CR-02 / STALE-03: without `_merge_nearby` the first record per
+        hash (the line-10 sidecar) represents the decision alone and the
+        line-30 sidecar's stamp is lost, so the edit beside the second copy
+        reads current again. CR-01 and CR-04 are unaffected: their
+        representative row carries its own stamp."""
+        from unittest import mock
+        from test_confirmed_fix import CARRY_STATE_PY, _mutant
+        anchor = "records = _merge_nearby(records, rows + sidecars)"
+        with open(CARRY_STATE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count(anchor), 1, "mutation target not unique")
+        mod = _mutant(CARRY_STATE_PY, "cs_first_wins", anchor,
+                      "records = list(records)")
+        s2, _, hA = cr02_scenario(33)
+        s1c, _, h1 = cr01_scenario(33)
+        _, s4, _, h4 = cr04_scenario(6, 6)
+
+        def states():
+            return tuple(carry_state.decision_state(record_of(s, h), s)
+                         for s, h in ((s2, hA), (s1c, h1), (s4, h4)))
+
+        self.assertEqual(states(), ("stale", "stale", "stale"))
+        with mock.patch.object(carry_state, "_check_state", mod._check_state):
+            self.assertEqual(states(), ("current", "stale", "stale"))
 
 
 class TestPooledPriorUnit(unittest.TestCase):

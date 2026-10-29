@@ -305,8 +305,52 @@ def _member_obligations(row):
     return out, None
 
 
+def _merge_nearby(records, sources):
+    """`records` with each representative's `snapshot.nearby_at` raised to the
+    latest well-formed stamp any open record of the same hash in `sources`
+    carries (rows and member sidecars alike).
+
+    One decision binds an identity, so whichever same-hash record represents
+    it, a change beside any copy must read the same (STALE-03). Without the
+    merge the first record per hash wins and a later sidecar's stamp is lost
+    (999.23 CR-02: an edit beside the second absorbed copy kept the decision
+    current). Only `nearby_at` is merged: the representative's line, band,
+    at_pass and code still describe the record itself. A stamp is
+    well-formed when it is a plain int >= 1 (`True` and strings are ignored).
+    A legacy state whose same-hash copies hold diverging stamps now re-asks,
+    failing toward asking.
+
+    Pure: a changed record is a new dict with a new snapshot dict; the state's
+    own rows and snapshots are never mutated. Records without a dict snapshot,
+    and hashes with no well-formed stamp anywhere, pass through unchanged."""
+    latest = {}
+    for rec in sources:
+        snap = rec.get("snapshot")
+        if not isinstance(snap, dict):
+            continue
+        stamp = snap.get("nearby_at")
+        if not (_is_count(stamp) and stamp >= 1):
+            continue
+        h = rec["stable_hash"]
+        if stamp > latest.get(h, 0):
+            latest[h] = stamp
+    out = []
+    for rec in records:
+        snap = rec.get("snapshot")
+        stamp = latest.get(rec["stable_hash"])
+        if (isinstance(snap, dict) and stamp is not None
+                and snap.get("nearby_at") != stamp):
+            rec = dict(rec, snapshot=dict(snap, nearby_at=stamp))
+        out.append(rec)
+    return out
+
+
 def _check_state(state):
-    """(last pass, open records, None) or (None, None, reason)."""
+    """(last pass, open records, None) or (None, None, reason).
+
+    The open records are one per hash (rows first, then member sidecars in
+    array order), each carrying the latest nearby stamp of every same-hash
+    copy (`_merge_nearby`)."""
     last, reason = _last_pass(state)
     if reason is not None:
         return None, None, reason
@@ -345,6 +389,7 @@ def _check_state(state):
             continue
         seen.add(rec["stable_hash"])
         records.append(rec)
+    records = _merge_nearby(records, rows + sidecars)
     return last, records, None
 
 
