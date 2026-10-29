@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: "Phase 60 verification gaps_found — 3 blocking gaps; gap closure next"
-last_updated: "2026-10-29T23:30:00.000Z"
-last_activity: 2026-10-29 -- Phase 60 verified gaps_found (3/6; 3 blocking gaps; code review 0C/6W/3I)
+status: executing
+last_updated: "2026-10-29T21:15:57.000Z"
+last_activity: 2026-10-29 -- 60-06 complete (diff_ranges suppressBlankEmpty + fail-closed refusals; RED 11d2b76, GREEN b878870)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
   percent: 33
-stopped_at: "Phase 60 verification gaps_found (3 blocking: GSD/incremental range-source shell variable, git-config-altered diffs, Finalize retry does not rebuild GATEFILE) — next /bm:plan-phase 60 --gaps"
 ---
 
 # Project State
@@ -25,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 ## Current Position
 
-Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTED, AWAITING VERIFICATION
-Plan: 5 of 5 complete
-Status: Phase 60 verifying — all 5 plans executed, not merged
-Last activity: 2026-10-29 -- 60-05 complete (cycle closed; reverse run red at ce9f8b8, suite 3765 passed, replay no deltas; EVID-01..03 + FINL-01..02 complete)
+Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
+Plan: 7 of 9
+Status: Executing Phase 60
+Last activity: 2026-10-29 -- 60-06 complete (RED 11d2b76, GREEN b878870; suite 3773 passed)
 
 ## Operator Next Steps
 
-- Phase 60 executed (5/5 plans; ledger closed in 60-REPRO.md). Next: phase verification, then the Phase 60 PR from `feat/v2.14-phase-60`.
+- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 planned (waves: 06∥08 → 07 → 09). Next: `/bm:execute-phase 60 --gaps-only`, then re-verification, then the Phase 60 PR from `feat/v2.14-phase-60`.
 - Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R5 install resync before any manual check, replay deltas none.
 - Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
 - Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
