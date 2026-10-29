@@ -1020,6 +1020,23 @@ def cr01_scenario(edit, quiet_first=False):
     return s, r, hA
 
 
+def cr01_three_copies_scenario():
+    """The CR-01 shape with three copies: `bugs` reports the same title at
+    lines 10, 30 and 50 (all `return None`, one hash) at conf 60; the owner
+    dismisses hA. Pass 2 has no findings and a diff naming lines 33 and 53,
+    inside the D-14 windows of the copies at 30 and 50 and outside line
+    10's. -> (s2, r2, hA)."""
+    L0 = _two_copy_lines()
+    L0[49] = "return None"
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", n, L0, TITLE_A, conf=60)
+                       for n in (10, 30, 50)], 1, {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    s2, r2 = run_pass(s1, L0, [], 2, {F: [[33, 33], [53, 53]]})
+    return s2, r2, hA
+
+
 def cr02_scenario(edit=33):
     """57-REVIEW-GAPS4.md CR-02 (member sidecars): one decided identity at two
     lines, both copies absorbed under new leads.
@@ -1903,6 +1920,82 @@ class TestStaleDecisions59(_Base):
         self.assertEqual(carry_state.decision_state(rec, s2), "current",
                          rec["snapshot"])
         self.assertEqual(e2e_gate(s2, {}), "write", rec["snapshot"])
+
+    # D-04 / D-05: the spot the card names. `carry_state.stale_spots` is the
+    # one reader; same-spot reopens name none.
+    def _spots(self, state, h):
+        rec = self._current(state, h)
+        return carry_state.stale_spots(rec, state), rec["snapshot"]
+
+    def test_sp59_cr01_spot_is_the_other_copy(self):
+        s2, _, hA = cr01_scenario(33)
+        spots, snap = self._spots(s2, hA)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 0}, snap)
+        # The copy whose own line changed names no other spot.
+        rows = sorted((f for f in s2["passes"][-1]["findings"]
+                       if f.get("stable_hash") == hA), key=lambda f: f["line"])
+        self.assertEqual([f["line"] for f in rows], [10, 30])
+        self.assertNotIn("nearby_spots", rows[1]["snapshot"], rows[1]["snapshot"])
+
+    def test_sp59_cr04_spot_is_the_grouped_member(self):
+        _, s2, _, hB = cr04_scenario(6, 6)
+        spots, snap = self._spots(s2, hB)
+        self.assertEqual(spots, {"line": 10, "kind": "grouped", "others": 0}, snap)
+
+    def test_sp59_cr02_merged_stamp_names_the_other_sidecar(self):
+        s2, _, hA = cr02_scenario(33)
+        spots, snap = self._spots(s2, hA)
+        # The representative is the line-10 sidecar; the stamp and its spot
+        # come from the line-30 copy at read time.
+        self.assertEqual(snap.get("line"), 10, snap)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 0}, snap)
+        self.assertNotIn("nearby_spots", json.dumps(s2["passes"]),
+                         "the derived spot was persisted")
+
+    def test_sp59_three_copies_lowest_line_plus_count(self):
+        s2, _, hA = cr01_three_copies_scenario()
+        spots, snap = self._spots(s2, hA)
+        self.assertEqual(snap.get("line"), 10, snap)
+        self.assertEqual(snap.get("nearby_spots"), [[30, "copy"], [50, "copy"]], snap)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 1}, snap)
+
+    def test_sp59_quiet_pass_keeps_the_spots(self):
+        s2, _, hA = cr01_scenario(33)
+        s3, _ = run_pass(s2, _two_copy_lines(), [], 3, {F: []})
+        spots, snap = self._spots(s3, hA)
+        self.assertEqual(snap.get("nearby_at"), 2, snap)
+        self.assertEqual(snap.get("nearby_spots"), [[30, "copy"]], snap)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 0}, snap)
+        # The line-30 row may pool the line-10 copy's prior; a carried spot
+        # at its own line is the row itself and is dropped.
+        row30 = [f for f in s3["passes"][-1]["findings"]
+                 if f.get("stable_hash") == hA and f.get("line") == 30]
+        self.assertEqual(len(row30), 1, s3["passes"][-1]["findings"])
+        self.assertNotIn([30, "copy"], row30[0]["snapshot"].get("nearby_spots") or [],
+                         row30[0]["snapshot"])
+
+    def test_sp59_malformed_spots_read_as_none(self):
+        wf = carry_state._well_formed_spots
+        for bad in ([[True, "copy"]], [["30", "copy"]], [[30, "elsewhere"]],
+                    "x", [[0, "copy"]], [[30]], [(30, "copy")], None):
+            self.assertIsNone(wf(bad), bad)
+        self.assertEqual(wf([[50, "copy"], [30, "grouped"]]),
+                         [[30, "grouped"], [50, "copy"]])
+        self.assertEqual(wf([]), [])
+        # A stale-by-nearby record whose stored spots are malformed reads as
+        # no spot (today's wording), never as a crafted line.
+        s2, _, hA = cr01_scenario(33)
+        rec = self._current(s2, hA)
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+        for bad in ([[True, "copy"]], [["30", "copy"]], [[30, "elsewhere"]],
+                    "x", []):
+            forged = dict(rec, snapshot=dict(rec["snapshot"], nearby_spots=bad))
+            self.assertIsNone(carry_state.stale_spots(forged, s2), bad)
+        # A record that is not stale names no spot, whatever it carries.
+        s45, _, h45 = cr01_scenario(45)
+        cur = self._current(s45, h45)
+        forged = dict(cur, snapshot=dict(cur["snapshot"], nearby_spots=[[30, "copy"]]))
+        self.assertIsNone(carry_state.stale_spots(forged, s45))
 
 
 class TestPriorGate(_Base):
@@ -3047,6 +3140,13 @@ class TestPhase57Mutants(_Base):
         (TestStaleDecisions59,
          "test_m59_member_with_own_obligation_reasks_itself_not_the_row"),
         (TestStaleDecisions59, "test_n59_fresh_member_is_not_evidence_for_the_row"),
+        (TestStaleDecisions59, "test_sp59_cr01_spot_is_the_other_copy"),
+        (TestStaleDecisions59, "test_sp59_cr04_spot_is_the_grouped_member"),
+        (TestStaleDecisions59,
+         "test_sp59_cr02_merged_stamp_names_the_other_sidecar"),
+        (TestStaleDecisions59, "test_sp59_three_copies_lowest_line_plus_count"),
+        (TestStaleDecisions59, "test_sp59_quiet_pass_keeps_the_spots"),
+        (TestStaleDecisions59, "test_sp59_malformed_spots_read_as_none"),
     )
 
     def _failures(self):
@@ -3068,7 +3168,9 @@ class TestPhase57Mutants(_Base):
     _READ_MERGE_ONLY = frozenset((
         "test_cr02_",
         "test_cr02_edit_beside_the_second_sidecar_reasks",
-        "test_cr02_redecision_after_merge_reads_current"))
+        "test_cr02_redecision_after_merge_reads_current",
+        "test_sp59_",
+        "test_sp59_cr02_merged_stamp_names_the_other_sidecar"))
 
     def _run_mutant(self, name, old, new, read_merge=True):
         """Failures of _ROW_TESTS with the whole scorer run from `score.py`
@@ -3144,6 +3246,27 @@ class TestPhase57Mutants(_Base):
         self.assertNotIn("test_dmx_", failed)
         self.assertNotIn("test_p3_", failed)
         self.assertNotIn("test_deferred_", failed)
+
+    def test_spots_not_recorded_loses_the_other_copy_line(self):
+        """D-04 / D-05: without recording `nearby_spots` on the fresh stamp
+        the card can no longer name the other copy (cr01), the grouped
+        member (cr04), the lowest of several spots or the carried spot on a
+        quiet pass. The re-asks themselves are unaffected (spots are
+        presentation data), and so is CR-02's spot, which carry_state
+        derives at read time from the lifted stamp."""
+        failed = self._run_mutant(
+            "score_spots_not_recorded", 'cur["nearby_spots"] = spots', "pass")
+        self.assertIn("test_sp59_", failed)
+        for name in ("test_sp59_cr01_spot_is_the_other_copy",
+                     "test_sp59_cr04_spot_is_the_grouped_member",
+                     "test_sp59_three_copies_lowest_line_plus_count",
+                     "test_sp59_quiet_pass_keeps_the_spots"):
+            self.assertIn(name, failed)
+        self.assertNotIn("test_sp59_cr02_merged_stamp_names_the_other_sidecar",
+                         failed)
+        self.assertNotIn("test_sp59_malformed_spots_read_as_none", failed)
+        self.assertNotIn("test_cr01_", failed)
+        self.assertNotIn("test_cr04_", failed)
 
     def test_kept_open_covered_row_without_carried_is_not_stamped(self):
         """D-20 with D-17: the kept-open row of a deferred covered member
@@ -3419,6 +3542,46 @@ class TestPhase59CarryStateMutants(_Base):
         self.assertEqual(states(), ("stale", "stale", "stale"))
         with mock.patch.object(carry_state, "_check_state", mod._check_state):
             self.assertEqual(states(), ("current", "stale", "stale"))
+
+
+class TestSnapshotSpotsUnit(unittest.TestCase):
+    """score._snapshot_for carries a validated prior `nearby_spots` with the
+    prior `nearby_at` on the refresh branch (the keep branch is locked by
+    test_sp59_quiet_pass_keeps_the_spots), and never carries a malformed
+    list."""
+
+    _ROW = {"file": F, "line": 11, "canonical_line_content": "return None",
+            "band": "medium"}
+
+    def _prior(self, spots):
+        return {"at_pass": 2, "file": F, "line": 10,
+                "canonical_line_content": "return None", "band": "medium",
+                "nearby_at": 2, "nearby_spots": spots}
+
+    def test_refresh_branch_carries_the_spots(self):
+        snap = score._snapshot_for(dict(self._ROW, snapshot=self._prior([[30, "copy"]])), 3)
+        self.assertEqual((snap["at_pass"], snap.get("nearby_at"), snap.get("nearby_spots")),
+                         (3, 2, [[30, "copy"]]), snap)
+
+    def test_malformed_prior_spots_are_not_carried(self):
+        for bad in ([[True, "copy"]], [["30", "copy"]], [[30, "elsewhere"]],
+                    "x", [[0, "copy"]], [[30]], []):
+            snap = score._snapshot_for(dict(self._ROW, snapshot=self._prior(bad)), 3)
+            self.assertEqual(snap.get("nearby_at"), 2, snap)
+            self.assertNotIn("nearby_spots", snap, bad)
+
+    def test_spots_without_a_stamp_are_not_carried(self):
+        prior = self._prior([[30, "copy"]])
+        del prior["nearby_at"]
+        snap = score._snapshot_for(dict(self._ROW, snapshot=prior), 3)
+        self.assertNotIn("nearby_spots", snap, snap)
+
+    def test_nearby_spots_sorted_deduped_copies_first(self):
+        ranges = {F: [[33, 33], [53, 53], [8, 8]]}
+        recs = [{"file": F, "line": n} for n in (50, 30, 10)]
+        grouped = [{"file": F, "line": 30}, {"file": F, "line": 6}]
+        self.assertEqual(score._nearby_spots(10, recs, grouped, ranges),
+                         [[6, "grouped"], [30, "copy"], [50, "copy"]])
 
 
 class TestPooledPriorUnit(unittest.TestCase):

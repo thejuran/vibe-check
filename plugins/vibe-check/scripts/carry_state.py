@@ -305,6 +305,47 @@ def _member_obligations(row):
     return out, None
 
 
+_SPOT_KINDS = ("copy", "grouped")
+
+
+def _well_formed_spots(value):
+    """`value` (a snapshot's `nearby_spots`) as a list of [line, kind] pairs
+    sorted by line, when it is a list whose every item is a 2-item list of a
+    line (a plain int >= 1; `True` is rejected) and a kind in _SPOT_KINDS;
+    else None. An empty list is well-formed and names no spot. The card
+    renders only these ints and fixed words, so a hand-edited state file
+    cannot steer its text."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for item in value:
+        if not (isinstance(item, list) and len(item) == 2):
+            return None
+        line, kind = item
+        if not (_is_count(line) and line >= 1) or kind not in _SPOT_KINDS:
+            return None
+        out.append([line, kind])
+    return sorted(out)
+
+
+def _lifted_spots(source, rep_line):
+    """The spots behind a stamp lifted from same-hash record `source` onto a
+    representative at `rep_line`: the source's own well-formed spots when it
+    has any (its stamp names them), else the source's line as another copy.
+    A spot at the representative's own line is dropped; sorted by line and
+    de-duplicated."""
+    snap = source.get("snapshot")
+    spots = _well_formed_spots(snap.get("nearby_spots")) if isinstance(snap, dict) else None
+    if not spots:
+        line = source.get("line")
+        spots = [[line, "copy"]] if _is_count(line) and line >= 1 else []
+    seen = {}
+    for line, kind in spots:
+        if line != rep_line and line not in seen:
+            seen[line] = kind
+    return [[line, seen[line]] for line in sorted(seen)]
+
+
 def _merge_nearby(records, sources):
     """`records` with each representative's `snapshot.nearby_at` raised to the
     latest well-formed stamp any open record of the same hash in `sources`
@@ -320,10 +361,16 @@ def _merge_nearby(records, sources):
     A legacy state whose same-hash copies hold diverging stamps now re-asks,
     failing toward asking.
 
+    When the stamp is lifted from a copy at another line, the copy's spot is
+    derived onto the representative's copied snapshot as `nearby_spots`
+    (`_lifted_spots`; D-04), so the card names the line that changed. It is
+    derived at read time only and never written to the state.
+
     Pure: a changed record is a new dict with a new snapshot dict; the state's
     own rows and snapshots are never mutated. Records without a dict snapshot,
     and hashes with no well-formed stamp anywhere, pass through unchanged."""
     latest = {}
+    source_of = {}
     for rec in sources:
         snap = rec.get("snapshot")
         if not isinstance(snap, dict):
@@ -334,13 +381,19 @@ def _merge_nearby(records, sources):
         h = rec["stable_hash"]
         if stamp > latest.get(h, 0):
             latest[h] = stamp
+            source_of[h] = rec
     out = []
     for rec in records:
         snap = rec.get("snapshot")
         stamp = latest.get(rec["stable_hash"])
         if (isinstance(snap, dict) and stamp is not None
                 and snap.get("nearby_at") != stamp):
-            rec = dict(rec, snapshot=dict(snap, nearby_at=stamp))
+            spots = _lifted_spots(source_of[rec["stable_hash"]], rec.get("line"))
+            if spots:
+                rec = dict(rec, snapshot=dict(snap, nearby_at=stamp, nearby_spots=spots))
+            else:
+                lifted = dict(snap, nearby_at=stamp)
+                rec = dict(rec, snapshot={k: v for k, v in lifted.items() if k != "nearby_spots"})
         out.append(rec)
     return out
 
@@ -782,6 +835,23 @@ def covered_count(record, state):
               if isinstance(m, dict) and _identity(m) in identities}
     titles.discard(record.get("title"))
     return 1 + len(titles)
+
+
+def stale_spots(record, state):
+    """The other spot whose change re-asks this record, for the card: the
+    single reader batch_card.py renders the D-04/D-05 wording from, never
+    `nearby_spots` itself. {"line", "kind", "others"} — the lowest-line spot
+    ("copy": another copy of the line; "grouped": a finding grouped in the
+    row) and how many other spots changed too — when `stale_cause` is
+    "nearby" and the snapshot names a well-formed, non-empty spot list
+    (`_well_formed_spots`), else None. A reopen caused by the record's own
+    line names no spot and returns None, so its card keeps today's
+    wording."""
+    snap = record.get("snapshot")
+    spots = _well_formed_spots(snap.get("nearby_spots")) if isinstance(snap, dict) else None
+    if not spots or stale_cause(record, state) != "nearby":
+        return None
+    return {"line": spots[0][0], "kind": spots[0][1], "others": len(spots) - 1}
 
 
 def _joined_newcomer(record, state):
