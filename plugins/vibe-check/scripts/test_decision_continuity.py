@@ -61,6 +61,7 @@ import carry_state  # noqa: E402
 import score  # noqa: E402
 from test_carry_state import append_pass, e2e_gate  # noqa: E402
 from test_score import GOLDEN_DIGEST  # noqa: E402
+import test_nv_render  # noqa: E402
 
 
 F = "src/a.py"
@@ -984,6 +985,102 @@ def far_twin_scenario():
     return s2, r2, s3, hA
 
 
+def _two_copy_lines():
+    """`base_file()` with lines 10 and 30 both `return None`: one title hashes
+    identically at either line, and the two sites are far apart (separate
+    groups under the +-2 grouping, separate D-14 windows)."""
+    L0 = base_file()
+    L0[9] = L0[29] = "return None"
+    return L0
+
+
+def cr01_scenario(edit, quiet_first=False):
+    """57-REVIEW-GAPS4.md CR-01 (zero-config, kept-open copies): one decided
+    identity at two lines, neither copy re-reported.
+
+    Pass 1: `bugs` reports the same title at lines 10 and 30 (both
+    `return None`, so one hash) at conf 60; the owner dismisses hA. With
+    `quiet_first`, a quiet pass follows with no findings and an empty diff.
+    The last pass has no findings and a diff naming line `edit`: line 33 is
+    inside line 30's D-14 window (25-35) and outside line 10's (5-15), so
+    the change beside the second copy must re-ask the decision; line 45 is
+    outside both windows and must not.
+    -> (s, r, hA) for the last pass."""
+    L0 = _two_copy_lines()
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=60),
+                       fresh("bugs", 30, L0, TITLE_A, conf=60)], 1,
+                      {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    if quiet_first:
+        s1, _ = run_pass(s1, L0, [], 2, {F: []})
+    n = s1["passes"][-1]["pass_number"] + 1
+    s, r = run_pass(s1, L0, [], n, {F: [[edit, edit]]})
+    return s, r, hA
+
+
+def cr02_scenario(edit=33):
+    """57-REVIEW-GAPS4.md CR-02 (member sidecars): one decided identity at two
+    lines, both copies absorbed under new leads.
+
+    Pass 1: `bugs` reports the same title at lines 10 and 30 (one hash) at
+    conf 75; the owner dismisses hA. Pass 2: a critical `security` finding
+    leads at each line ("Injection X" at 10, "Injection Y" at 30), so each
+    carried copy becomes a member sidecar with its own obligation; the diff
+    names line `edit` (33: inside line 30's window only). The decision
+    binds the identity, so whichever sidecar carry_state reads, the change
+    beside the second copy must re-ask it. -> (s2, r2, hA)."""
+    L0 = _two_copy_lines()
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
+                       fresh("bugs", 30, L0, TITLE_A, conf=STABLE_CONF)], 1,
+                      {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    s2, r2 = run_pass(s1, L0,
+                      [fresh("security", 10, L0, "Injection X", conf=95,
+                             severity="critical", category="injection"),
+                       fresh("security", 30, L0, "Injection Y", conf=95,
+                             severity="critical", category="injection")],
+                      2, {F: [[edit, edit]]})
+    return s2, r2, hA
+
+
+def cr04_scenario(edit_line=6, ranges_line=6):
+    """57-REVIEW-GAPS4.md CR-04 (covered member's own window): a decided row
+    whose covered member sits at a different line from the lead.
+
+    Pass 1: `bugs` A at line 10 (conf 75) and a critical `security` B at
+    line 12 (conf 95) group into one row led by B (hash hB; A is covered
+    with no obligation of its own); the owner dismisses hB. Pass 2: line
+    `edit_line` is rewritten in place to `# guard removed` (no line shift),
+    A and B are re-reported unchanged, and the diff names `ranges_line`.
+    Line 6 is inside A@10's D-14 window (5-15) and outside B@12's (7-17),
+    so removing the guard beside the covered finding must re-ask the
+    decision; line 20 is outside both and must not.
+    -> (s1, s2, r2, hB)."""
+    L0 = base_file()
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
+                       fresh("security", 12, L0, "Injection at B", conf=95,
+                             severity="critical", category="injection")],
+                      1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 1, r1["findings"]
+    lead = r1["findings"][0]
+    assert lead["agent"] == "security", lead
+    hB = lead["stable_hash"]
+    s1 = decide_on(s1, hB)
+    L1 = list(L0)
+    L1[edit_line - 1] = "# guard removed"
+    s2, r2 = run_pass(s1, L1,
+                      [fresh("bugs", 10, L1, TITLE_A, conf=STABLE_CONF),
+                       fresh("security", 12, L1, "Injection at B", conf=95,
+                             severity="critical", category="injection")],
+                      2, {F: [[ranges_line, ranges_line]]})
+    return s1, s2, r2, hB
+
+
 def deferred_covered_lines():
     """(L0, L1): the deferred_covered_sub_threshold_scenario file before and
     after the pass-2 edit of B's line."""
@@ -994,7 +1091,8 @@ def deferred_covered_lines():
     return L0, L1
 
 
-def deferred_covered_sub_threshold_scenario(kind, **over):
+def deferred_covered_sub_threshold_scenario(kind, member_conf=STABLE_CONF,
+                                            **over):
     """57-REVIEW-GAPS3.md WR-02 under D-20: a deferred finding may never leave
     the open set on a score; a dismissed one below threshold may drop.
 
@@ -1002,9 +1100,12 @@ def deferred_covered_sub_threshold_scenario(kind, **over):
     conf 75 (3-line current_code kept) and the owner's `kind` on the row led
     by the critical `security` B. Pass 2 resolves B and edits line 12, so A
     splits out below threshold; `over` is forwarded to pass 2's run_pass.
+    `member_conf` is A's agent confidence (the config accepts
+    `min_confidence` 0-49 only, so a min_confidence drop of A needs it
+    below STABLE_CONF).
     -> (s1, s2, r2, hA, hB)."""
     L0, L1 = deferred_covered_lines()
-    a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
+    a = fresh("bugs", 10, L0, TITLE_A, conf=member_conf)
     a["current_code"] = "}\n" + L0[10] + "\n" + L0[11]
     b = fresh("security", 12, L0, "Injection at B", conf=95,
               severity="critical", category="injection")
@@ -1470,6 +1571,80 @@ class TestPooledEvidence(_Base):
         self._assert_reasked(s3, hA)
 
 
+class TestStaleDecisions59(_Base):
+    """57-REVIEW-GAPS4.md CR-01 (edit beside the second kept-open copy, and
+    its multi-pass variant where the second copy is lost from tracking after
+    a quiet pass), CR-02 (edit beside the second member sidecar) and CR-04
+    (a removed guard beside a covered member): a change inside the D-14
+    window of ANY copy or covered finding of a decided identity re-asks it;
+    a change outside every window keeps it (STALE-04).
+
+    Expected on the unfixed scorer: test_cr01_*, test_cr02_* and test_cr04_*
+    fail; the test_c59_* controls pass."""
+
+    def _assert_reasked(self, state, hA, nearby_at):
+        rec = self._current(state, hA)
+        snap = rec["snapshot"]
+        self.assertEqual(snap.get("nearby_at"), nearby_at,
+                         "row snapshot has no owed nearby_at: %r" % snap)
+        self.assertEqual(carry_state.decision_state(rec, state), "stale",
+                         "snapshot %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, state), "nearby",
+                         "snapshot %r" % snap)
+        self.assertIn(hA, carry_state.finalize_counts(
+            state, {})["outstanding_cw_hashes"], "snapshot %r" % snap)
+        self.assertNotEqual(e2e_gate(state, {}), "write",
+                            "snapshot %r" % snap)
+        return rec
+
+    def test_cr01_edit_beside_the_second_copy_reasks(self):
+        s2, _, hA = cr01_scenario(33)
+        self._assert_reasked(s2, hA, 2)
+
+    def test_cr01_multipass_second_copy_stays_tracked(self):
+        s3, _, hA = cr01_scenario(33, quiet_first=True)
+        # Pass 2 was quiet: both copies of the decided identity stay tracked.
+        rows2 = [f for f in s3["passes"][-2]["findings"]
+                 if f.get("stable_hash") == hA]
+        self.assertEqual(sorted(f["line"] for f in rows2), [10, 30],
+                         "pass-2 kept-open rows %r"
+                         % [(f["line"], f.get("kept_open")) for f in rows2])
+        for f in rows2:
+            self.assertIn("kept_open", f, f.get("snapshot"))
+        self._assert_reasked(s3, hA, 3)
+
+    def test_c59_cr01_edit_at_45_keeps_decision(self):
+        s2, _, hA = cr01_scenario(45)
+        rec = self._current(s2, hA)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current",
+                         rec["snapshot"])
+        self.assertEqual(e2e_gate(s2, {}), "write", rec["snapshot"])
+
+    def test_cr02_edit_beside_the_second_sidecar_reasks(self):
+        s2, _, hA = cr02_scenario(33)
+        rec = self._current(s2, hA)
+        snap = rec.get("snapshot")
+        # The decision state itself, not only the gate: the gate is already
+        # outstanding because the two injection rows are undecided.
+        self.assertEqual(carry_state.decision_state(record_of(s2, hA), s2),
+                         "stale", "record %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby",
+                         "record %r" % snap)
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"], "record %r" % snap)
+
+    def test_cr04_removed_guard_beside_covered_member_reasks(self):
+        _, s2, _, hB = cr04_scenario(6, 6)
+        self._assert_reasked(s2, hB, 2)
+
+    def test_c59_cr04_edit_at_line_20_keeps_decision(self):
+        _, s2, _, hB = cr04_scenario(20, 20)
+        rec = self._current(s2, hB)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current",
+                         rec["snapshot"])
+        self.assertEqual(e2e_gate(s2, {}), "write", rec["snapshot"])
+
+
 class TestPriorGate(_Base):
     """57-REVIEW-GAPS3.md IN-01: every prior source passes the one hash gate;
     a carried lead whose own line was edited does not carry its old stamp
@@ -1580,6 +1755,32 @@ class TestDeferredStaysOpen(_Base):
             "defer", deferred_hashes=None)
         self.assertEqual(r2["findings"], [], r2["filtered"])
         self.assertIsNone(record_of(s2, hA), r2["filtered"])
+        self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
+
+    def test_dmc_deferred_covered_member_below_min_confidence_stays_open(self):
+        """DEFR-01: a valid `min_confidence` (45) drops the deferred covered
+        member A (conf 40) before grouping; the deferral must keep it on the
+        owner's open list, exactly as the sub-threshold drop does."""
+        _, s2, r2, hA, _ = deferred_covered_sub_threshold_scenario(
+            "defer", min_confidence=45, member_conf=40)
+        self.assertIn({"line": 10, "reason": "below-min-confidence"},
+                      [{k: f.get(k) for k in ("line", "reason")}
+                       for f in r2["filtered"]], r2["filtered"])
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s; filtered %r"
+                             % (hA[:8], r2["filtered"]))
+        self.assertTrue(str(row.get("kept_open", "")).startswith(
+            "below-min-confidence"), "row %r" % row)
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"], r2["filtered"])
+        self.assertNotEqual(e2e_gate(s2, {}), "write", r2["filtered"])
+
+    def test_dmx_dismissed_covered_member_below_min_confidence_may_drop(self):
+        """D-20 control: a DISMISSED covered member dropped by
+        `min_confidence` may leave the open set."""
+        _, s2, r2, hA, _ = deferred_covered_sub_threshold_scenario(
+            "dismiss", min_confidence=45, member_conf=40)
+        self.assertIsNone(row_of(s2, hA), r2["filtered"])
         self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
 
 
@@ -1889,6 +2090,92 @@ DID_NOT_REPRODUCE = (
      "probe_result": "both closed through a re-check on pass 2",
      "disposition": "no real lost-decision case; fixtures synthetic"},
 )
+
+
+# --------------------------------------------------------------------------- #
+# Reproduction verdicts for the wrong-keep and lost-deferral shapes, recorded
+# on the unfixed code before any fix. A reproduced shape names its failing
+# real-chain fixture; a shape that does not reproduce on the real chain is
+# recorded and dropped, backed by an executing pin.
+# --------------------------------------------------------------------------- #
+_DROPPED_59 = "did not reproduce on the real chain; dropped — no code change"
+REPRO_59 = (
+    {"id": "CR-01", "decision": "STALE-01",
+     "scenario": "one dismissed identity at lines 10 and 30 (bugs, conf 60), "
+                 "no re-report; the next pass edits line 33",
+     "probe_result": "edit@33 -> kept-open @10 only, nearby_at None, "
+                     "current, gate write",
+     "disposition": "reproduced; fixed by 59-02",
+     "fixture": "test_cr01_edit_beside_the_second_copy_reasks"},
+    {"id": "CR-01-multipass", "decision": "STALE-01",
+     "scenario": "same pass 1; pass 2 quiet; pass 3 edits line 33",
+     "probe_result": "pass 2 emits one kept-open row (@10), the @30 copy is "
+                     "gone from state; pass 3 -> current, gate write",
+     "disposition": "reproduced; fixed by 59-02",
+     "fixture": "test_cr01_multipass_second_copy_stays_tracked"},
+    {"id": "CR-02", "decision": "STALE-01",
+     "scenario": "same two copies at conf 75, dismissed; pass 2 critical "
+                 "security leads at 10 and 30 absorb both copies; edit@33",
+     "probe_result": "the record read is the @10 sidecar, nearby_at None -> "
+                     "current (the gate is outstanding only for the two "
+                     "undecided injection rows)",
+     "disposition": "reproduced; fixed by 59-03",
+     "fixture": "test_cr02_edit_beside_the_second_sidecar_reasks"},
+    {"id": "CR-04", "decision": "STALE-01",
+     "scenario": "bugs A@10 covered by critical security B@12 (row hB), "
+                 "dismissed; pass 2 removes the guard at line 6",
+     "probe_result": "hB @12 current, nearby_at None, gate write",
+     "disposition": "reproduced; fixed by 59-02",
+     "fixture": "test_cr04_removed_guard_beside_covered_member_reasks"},
+    {"id": "DEFR-01-min-confidence-45", "decision": "DEFR-01",
+     "scenario": "deferred covered member A at conf 40 split out on pass 2 "
+                 "with min_confidence 45",
+     "probe_result": "rows [], filtered below-min-confidence, no record, "
+                     "gate write",
+     "disposition": "reproduced; fixed by 59-03",
+     "fixture": "test_dmc_deferred_covered_member_below_min_confidence_"
+                "stays_open"},
+    {"id": "SA-02", "decision": "DEFR-02",
+     "scenario": "--all run: a deferred covered member outside the reviewed "
+                 "set",
+     "probe_result": "score-level probe drops the member not-in-reviewed-set "
+                     "with no kept-open row, but 05-state-all.md (ii) forces "
+                     "$CARRYFORWARD = [] and skips steps 2-5, so "
+                     "$DEFERRED_HASHES is never bound in --all",
+     "disposition": _DROPPED_59,
+     "fixture": "test_nv_render.all_carryforward_bypass_holds"},
+)
+
+
+class TestRepro59Record(unittest.TestCase):
+
+    def test_repro_59_record_is_complete(self):
+        by_id = {r["id"]: r for r in REPRO_59}
+        self.assertEqual(set(by_id), {"CR-01", "CR-01-multipass", "CR-02",
+                                      "CR-04", "DEFR-01-min-confidence-45",
+                                      "SA-02"})
+        for row in REPRO_59:
+            with self.subTest(id=row["id"]):
+                self.assertEqual(set(row), {"id", "decision", "scenario",
+                                            "probe_result", "disposition",
+                                            "fixture"})
+                self.assertTrue(row["scenario"].strip())
+                self.assertTrue(row["probe_result"].strip())
+        sa02 = by_id["SA-02"]
+        self.assertTrue(sa02["disposition"].startswith(
+            "did not reproduce on the real chain; dropped"))
+        self.assertEqual(sa02["fixture"],
+                         "test_nv_render.all_carryforward_bypass_holds")
+        self.assertTrue(callable(getattr(
+            test_nv_render, sa02["fixture"].split(".", 1)[1], None)))
+        for row in REPRO_59:
+            if row["id"] == "SA-02":
+                continue
+            with self.subTest(id=row["id"]):
+                self.assertTrue(row["disposition"].startswith("reproduced"))
+                fn = (getattr(TestStaleDecisions59, row["fixture"], None)
+                      or getattr(TestDeferredStaysOpen, row["fixture"], None))
+                self.assertTrue(callable(fn), row["fixture"])
 
 
 class TestDidNotReproduceRecord(unittest.TestCase):
