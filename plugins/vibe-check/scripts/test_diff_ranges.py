@@ -66,11 +66,20 @@ COLLECT_MD = os.path.join(PLUGIN_ROOT, "phases", "review",
                           "30-collect-score.md")
 STATE_ALL_MD = os.path.join(PLUGIN_ROOT, "phases", "review",
                             "05-state-all.md")
+SCOPE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "00-scope.md")
+STATE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "05-state.md")
 PR_FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures", "pr-cumulative.diff")
 
 # The flags every range-building git call in the review prose passes.
-PROSE_FLAGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/",
-               "--dst-prefix=b/")
+PROSE_FLAGS = ("--no-color", "--no-ext-diff",
+               "--no-textconv", "--no-relative",
+               "--src-prefix=a/", "--dst-prefix=b/")
+
+# The quoted literal placeholders the GSD and pass >= 2 rows carry; the agent
+# substitutes the printed sha (a shell variable does not survive into a
+# separate Bash call).
+GSD_PLACEHOLDER = '"<phase-start-sha>"'
+INCR_PLACEHOLDER = '"<last-reviewed-sha>"'
 
 BASE = [str(n) for n in range(1, 31)]
 
@@ -1115,6 +1124,34 @@ def prose_range_fence(text):
     return "\n".join(ln.strip() for ln in body.split("\n"))
 
 
+def prose_range_row(text, route):
+    """The range-source cell (column 2) of the table row whose route cell
+    starts with `route`."""
+    for ln in _range_bullet(text).split("\n"):
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) >= 2 and cells[0].startswith(route):
+            return cells[1]
+    raise AssertionError("no range-source row for %r" % route)
+
+
+LITERAL_SHA_SENTENCE = ("a shell variable does not survive into a separate "
+                        "Bash call")
+
+
+def literal_sha_rule_holds(text):
+    """Problems with the literal-substitution rule in the range bullet of
+    30-collect-score.md ([] when it holds)."""
+    bullet = _range_bullet(text)
+    problems = []
+    if LITERAL_SHA_SENTENCE not in bullet:
+        problems.append("range bullet does not say a shell variable does not "
+                        "survive into a separate Bash call")
+    if "substitute" not in bullet:
+        problems.append("range bullet does not tell the agent to substitute "
+                        "the literal sha")
+    return problems
+
+
 def prose_range_source(text, route):
     """The first backticked command in the range-source table row whose
     route cell starts with `route`."""
@@ -1136,29 +1173,116 @@ class TestProseRangeFence(_Repo):
         self.text = _collect_text()
         self.fence = prose_range_fence(self.text)
         self.default_source = prose_range_source(self.text, "default")
+        self.gsd_source = prose_range_source(self.text, "GSD")
+        self.incr_source = prose_range_source(self.text, "default or GSD")
         L = list(BASE)
         L[11] = "twelve"
         del L[20]  # line 21
         self.write_lines(L)
 
-    def run_fence(self, source, vc_root=PLUGIN_ROOT):
+    def run_fence(self, source, vc_root=PLUGIN_ROOT, cwd=None):
+        """Run the fence in a fresh `bash -s`: nothing bound by an earlier
+        Bash call (PHASE_START, LAST_REVIEWED_SHA) survives into it."""
         self.assertIn("<range source>", self.fence)
         script = self.fence.replace("<range source>", source)
         env = gitfixture.helper_env()
         env["VC_ROOT"] = vc_root
-        return subprocess.run(["bash", "-s"], input=script, cwd=self.repo,
-                              env=env, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, text=True, timeout=60)
+        env.pop("PHASE_START", None)
+        env.pop("LAST_REVIEWED_SHA", None)
+        return subprocess.run(["bash", "-s"], input=script,
+                              cwd=cwd or self.repo, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=60)
 
     def test_fence_shape(self):
         self.assertIn("set -o pipefail", self.fence)
         self.assertIn('python3 "$VC_ROOT/scripts/diff_ranges.py"', self.fence)
+        flags = " ".join(PROSE_FLAGS)
         self.assertEqual(
             self.default_source,
-            "git diff --no-color --no-ext-diff --src-prefix=a/ "
-            "--dst-prefix=b/ HEAD")
+            "git diff --no-color --no-ext-diff --no-textconv --no-relative "
+            "--src-prefix=a/ --dst-prefix=b/ HEAD")
+        self.assertEqual(self.gsd_source,
+                         "git diff %s %s" % (flags, GSD_PLACEHOLDER))
+        self.assertNotIn("$", self.gsd_source)
+        self.assertEqual(self.incr_source,
+                         "git diff %s %s" % (flags, INCR_PLACEHOLDER))
+        self.assertNotIn("$", self.incr_source)
+        self.assertEqual(prose_range_source(self.text, "range"),
+                         "git diff %s <range>" % flags)
         self.assertEqual(prose_range_source(self.text, "PR"),
                          "gh pr diff <ref> --color never")
+
+    # ------------------------------------------------ GSD / pass >= 2 rows
+
+    def _committed_then_uncommitted(self):
+        """BASE committed (returned sha), then a committed edit at line 3,
+        then an uncommitted edit at line 5 — the 60-VERIFICATION repro."""
+        self.git("checkout", "--", "f.txt")
+        sha0 = self.git("rev-parse", "HEAD").stdout.strip()
+        L = list(BASE)
+        L[2] = "three"
+        self.commit_lines(L)
+        L[4] = "five"
+        self.write_lines(L)
+        # The fixture holds what the test thinks: HEAD alone sees only the
+        # uncommitted edit; the base sha sees both.
+        self.assertEqual(self.ranges(self.diff()), {"f.txt": [[5, 5]]})
+        self.assertEqual(
+            self.ranges(self.git("diff", *PROSE_FLAGS, sha0).stdout),
+            {"f.txt": [[3, 3], [5, 5]]})
+        return sha0
+
+    def _route_fresh_shell(self, source, placeholder):
+        sha0 = self._committed_then_uncommitted()
+        self.assertIn(placeholder, source)
+        proc = self.run_fence(source.replace(placeholder, '"%s"' % sha0))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout),
+                         {"f.txt": [[3, 3], [5, 5]]})
+
+    def test_gsd_route_fresh_shell_includes_committed_change(self):
+        self._route_fresh_shell(self.gsd_source, GSD_PLACEHOLDER)
+
+    def test_incremental_route_fresh_shell_includes_committed_change(self):
+        self._route_fresh_shell(self.incr_source, INCR_PLACEHOLDER)
+
+    def test_gsd_empty_phase_start_uses_head(self):
+        cell = prose_range_row(self.text, "GSD")
+        self.assertIn("PHASE_START=", cell)
+        self.assertIn("HEAD", cell)
+        self._committed_then_uncommitted()
+        self.assertIn(GSD_PLACEHOLDER, self.gsd_source)
+        proc = self.run_fence(self.gsd_source.replace(GSD_PLACEHOLDER,
+                                                      "HEAD"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"f.txt": [[5, 5]]})
+
+    def test_unsubstituted_variable_halts_instead_of_narrowing(self):
+        self._committed_then_uncommitted()
+        for source, placeholder, var in (
+                (self.gsd_source, GSD_PLACEHOLDER, "$PHASE_START"),
+                (self.incr_source, INCR_PLACEHOLDER, "$LAST_REVIEWED_SHA")):
+            token = placeholder.strip('"')
+            with self.subTest(row=var, form="quoted, left unsubstituted"):
+                self.assertIn(placeholder, source)
+                quoted = source.replace(token, var)
+                self.assertIn('"%s"' % var, quoted)
+                self._assert_halted(self.run_fence(quoted))
+            with self.subTest(row=var, form="old unquoted variable"):
+                # Why the quotes matter: the unquoted variable vanishes in a
+                # fresh shell, `git diff <flags>` diffs index vs working
+                # tree, and the committed edit at line 3 silently drops out.
+                unquoted = source.replace(placeholder, var)
+                proc = self.run_fence(unquoted)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout),
+                                 {"f.txt": [[5, 5]]})
+
+    def test_literal_substitution_sentence_present(self):
+        self.assertEqual(literal_sha_rule_holds(self.text), [])
+        mutant = self.text.replace(LITERAL_SHA_SENTENCE, "")
+        self.assertNotEqual(literal_sha_rule_holds(mutant), [])
 
     def test_default_route_matches_in_process(self):
         proc = self.run_fence(self.default_source)
@@ -1168,13 +1292,58 @@ class TestProseRangeFence(_Repo):
         self.assertEqual(json.loads(proc.stdout), want)
 
     def test_hostile_external_diff_config_changes_nothing(self):
+        L = list(BASE)
+        L[10] = ""  # a committed blank line 11 directly above the edit
+        self.commit_lines(L)
+        L[11] = "twelve"
+        del L[20]  # line 21
+        self.write_lines(L)
         clean = self.run_fence(self.default_source)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertEqual(json.loads(clean.stdout),
+                         {"f.txt": [[12, 12], [20, 21]]})
+        old_flags = ("--no-color", "--no-ext-diff", "--src-prefix=a/",
+                     "--dst-prefix=b/")
+        before = self.git("diff", *old_flags, "HEAD").stdout
         self.git("config", "diff.external", "false")
         self.git("config", "color.ui", "always")
         self.git("config", "diff.noprefix", "true")
+        self.git("config", "diff.suppressBlankEmpty", "true")
+        gitfixture.write(self.repo, ".gitattributes", "f.txt diff=pre\n")
+        self.git("config", "diff.pre.textconv",
+                 "sh -c 'printf \"x\\ny\\n\"; cat \"$1\"' --")
+        # Each hostile setting really changes git's own output...
+        raw = self.git("diff", "--no-ext-diff", "HEAD").stdout
+        self.assertIn("\x1b[", raw)
+        self.assertNotIn("+++ b/f.txt", raw)
+        after = self.git("diff", *old_flags, "HEAD").stdout
+        self.assertNotEqual(after, before)
+        self.assertIn("\n\n", after)  # blank context printed empty
+        # textconv prepends two lines: the edit moves two lines down
+        self.assertEqual(self.ranges(after),
+                         {"f.txt": [[14, 14], [22, 23]]})
+        # ...but the fenced ranges are unchanged.
         hostile = self.run_fence(self.default_source)
         self.assertEqual(hostile.returncode, 0, hostile.stderr)
         self.assertEqual(hostile.stdout, clean.stdout)
+
+    def test_diff_relative_from_subdirectory_changes_nothing(self):
+        want = self.ranges(self.diff())
+        self.assertEqual(want, {"f.txt": [[12, 12], [20, 21]]})
+        self.git("config", "diff.relative", "true")
+        sub = os.path.join(self.repo, "sub")
+        os.makedirs(sub)
+        # The fixture holds what the test thinks: from sub/, git diff under
+        # diff.relative hides the root-level f.txt edit entirely.
+        raw = subprocess.run(
+            ["git", "diff", "--no-color", "--no-ext-diff", "HEAD"], cwd=sub,
+            env=gitfixture.helper_env(), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, timeout=60)
+        self.assertEqual(raw.returncode, 0, raw.stderr)
+        self.assertEqual(raw.stdout, "")
+        proc = self.run_fence(self.default_source, cwd=sub)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), want)
 
     def test_empty_diff_prints_empty_object(self):
         self.git("checkout", "--", "f.txt")
@@ -1216,6 +1385,122 @@ class TestProseRangeFence(_Repo):
                               stderr=subprocess.PIPE, text=True, timeout=60)
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(json.loads(proc.stdout), {})
+
+
+
+# --------------------------------------------------------------------------- #
+# 00-scope.md prints PHASE_START= so a later Bash call can carry the literal
+# --------------------------------------------------------------------------- #
+def _fence_holding(text, needle):
+    """Body of the ```bash fence that holds `needle` (None if absent)."""
+    if needle not in text:
+        return None
+    at = text.index(needle)
+    start = text.rindex("```bash\n", 0, at) + len("```bash\n")
+    return text[start:text.index("```", at)]
+
+
+class TestScopePhaseStartFence(_Repo):
+    """The phase-range fence in 00-scope.md, read from the file and run in a
+    fresh `bash -s` with PHASE_DIR set."""
+
+    NEEDLE = "PHASE_START=$(git log"
+
+    def setUp(self):
+        super().setUp()
+        with open(SCOPE_MD, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertEqual(text.count(self.NEEDLE), 1)
+        self.fence = _fence_holding(text, self.NEEDLE)
+        self.assertIsNotNone(self.fence)
+
+    def run_scope(self, phase_dir):
+        env = gitfixture.helper_env()
+        env["PHASE_DIR"] = phase_dir
+        env.pop("PHASE_START", None)
+        return subprocess.run(["bash", "-s"], input=self.fence,
+                              cwd=self.repo, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=60)
+
+    def test_prints_first_commit_touching_phase_dir(self):
+        gitfixture.write(self.repo, ".planning/phases/01-x/a.md", "a\n")
+        self.git("add", "--", ".planning/phases/01-x/a.md")
+        self.git("commit", "-q", "-m", "phase dir")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        gitfixture.write(self.repo, ".planning/phases/01-x/b.md", "b\n")
+        self.git("add", "--", ".planning/phases/01-x/b.md")
+        self.git("commit", "-q", "-m", "phase dir again")
+        proc = self.run_scope(".planning/phases/01-x/")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = proc.stdout.splitlines()
+        printed = [ln for ln in lines if ln.startswith("PHASE_START=")]
+        self.assertEqual(printed, ["PHASE_START=" + first])
+        self.assertEqual(len(first), 40)
+
+    def test_no_history_prints_empty_value(self):
+        proc = self.run_scope(".planning/phases/02-y/")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = proc.stdout.splitlines()
+        self.assertIn("PHASE_START=", lines)
+        self.assertEqual(
+            [ln for ln in lines if ln.startswith("PHASE_START=")],
+            ["PHASE_START="])
+        self.assertIn("has no commit history yet", proc.stdout)
+
+
+# --------------------------------------------------------------------------- #
+# Every abbreviated range-source line carries the full flagged command
+# --------------------------------------------------------------------------- #
+RANGE_SOURCE_PREFIX = "Range source for 30-collect-score:"
+
+
+def range_source_lines(paths=(SCOPE_MD, STATE_MD)):
+    """(path, line) for every `Range source for 30-collect-score:` line."""
+    out = []
+    for path in paths:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh.read().split("\n"):
+                if ln.strip().startswith(RANGE_SOURCE_PREFIX):
+                    out.append((os.path.basename(path), ln.strip()))
+    return out
+
+
+def range_source_line_problems(line):
+    """Problems with one range-source line's first backticked command."""
+    parts = line.split("`")
+    if len(parts) < 3:
+        return ["no backticked command"]
+    cmd = parts[1]
+    if cmd.startswith("gh pr diff"):
+        return []
+    problems = []
+    tokens = cmd.split(" ")
+    if tokens[:2] != ["git", "diff"]:
+        problems.append("not a git diff command: %r" % cmd)
+    elif tuple(tokens[2:2 + len(PROSE_FLAGS)]) != PROSE_FLAGS:
+        problems.append("missing the fixed flags in order: %r" % cmd)
+    if "$" in cmd:
+        problems.append("shell variable in the command: %r" % cmd)
+    return problems
+
+
+class TestRangeSourceLines(unittest.TestCase):
+
+    def test_exactly_four_lines(self):
+        names = [name for name, _ in range_source_lines()]
+        self.assertEqual(names, ["00-scope.md"] * 3 + ["05-state.md"])
+
+    def test_every_line_is_fully_flagged(self):
+        for name, line in range_source_lines():
+            with self.subTest(file=name, line=line[:80]):
+                self.assertEqual(range_source_line_problems(line), [])
+
+    def test_check_trips_on_bare_command(self):
+        for bad in ("Range source for 30-collect-score: `git diff HEAD` x",
+                    "Range source for 30-collect-score: `git diff "
+                    + " ".join(PROSE_FLAGS) + " $PHASE_START` x"):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(range_source_line_problems(bad), [])
 
 
 if __name__ == "__main__":
