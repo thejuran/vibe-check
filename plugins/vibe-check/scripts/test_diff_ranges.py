@@ -31,6 +31,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -165,6 +166,13 @@ class TestShapesRealGit(_Repo):
         L[18:18] = moved  # re-inserted after old line 20
         self.write_lines(L)
         self.assert_all_contexts({"f.txt": [[2, 3], [19, 20]]})
+
+    def test_adjacent_blocks_merge(self):
+        L = list(BASE)
+        del L[10]  # line 11
+        del L[8]   # line 9; the two deletion pairs [8, 9] and [9, 10] touch
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[8, 10]]})
 
     def test_new_file(self):
         self.write_lines(["a", "b", "c"], rel="g.txt")
@@ -330,6 +338,25 @@ class TestRefusals(_Repo):
         self.assertEqual(self._refusal(text + "+extra\n"),
                          self.dr.REASON_LONG_BODY)
 
+    def test_refuses_extra_deleted_line_inside_budget(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.diff("-U0")
+        self.assertIn("\n-10\n+ten\n", text)
+        bad = text.replace("\n-10\n", "\n-10\n-extra\n", 1)
+        self.assertEqual(self._refusal(bad), self.dr.REASON_LONG_BODY)
+
+    def test_refuses_long_body_after_no_newline_marker(self):
+        self.commit_lines(BASE, newline=False)
+        L = list(BASE)
+        L[29] = "thirty"
+        self.write_lines(L, newline=False)
+        text = self.diff("-U0")
+        self.assertTrue(text.endswith("\\ No newline at end of file\n"))
+        self.assertEqual(self._refusal(text + "+extra\n"),
+                         self.dr.REASON_LONG_BODY)
+
     def test_refuses_unexpected_body_line(self):
         L = list(BASE)
         L[9] = "ten"
@@ -491,6 +518,190 @@ class TestReplayPin(unittest.TestCase):
     def test_builder_differs_on_the_same_text(self):
         self.assertEqual(diff_ranges.ranges_from_diff(DELETE_LINE_9_DEFAULT),
                          {"f.txt": [[8, 9]]})
+
+
+# --------------------------------------------------------------------------- #
+# Mutants: every guard is load-bearing
+# --------------------------------------------------------------------------- #
+with open(DIFF_RANGES_PY, "r", encoding="utf-8") as _fh:
+    SOURCE = _fh.read()
+
+
+class TestMutants(unittest.TestCase):
+    """Each mutant swaps one exact piece of diff_ranges.py source (asserted
+    present exactly once, so a refactor cannot leave a mutant that changes
+    nothing), executes the swapped copy as a module, and reruns a named test
+    against it through `dr`. The named test must pass on the real module and
+    fail on the mutant."""
+
+    def mutant(self, old, new):
+        self.assertEqual(SOURCE.count(old), 1, "mutant anchor not unique: %r"
+                         % old)
+        mod = types.ModuleType("diff_ranges_mutant")
+        mod.__file__ = DIFF_RANGES_PY
+        code = compile(SOURCE.replace(old, new), "<diff_ranges mutant>",
+                       "exec")
+        exec(code, mod.__dict__)  # our own source, one token swapped
+        return mod
+
+    @staticmethod
+    def _passes(cls, name, mod):
+        case = cls(name)
+        case.dr = mod
+        result = unittest.TestResult()
+        case.run(result)
+        return result.wasSuccessful()
+
+    def assert_trips(self, old, new, cls, name):
+        mod = self.mutant(old, new)
+        self.assertTrue(self._passes(cls, name, diff_ranges),
+                        "%s.%s fails on the real module" % (cls.__name__, name))
+        self.assertFalse(self._passes(cls, name, mod),
+                         "mutant survives %s.%s" % (cls.__name__, name))
+        return mod
+
+    # M1: read the header counts instead of walking the markers.
+    def test_m1_header_count_reader(self):
+        mod = self.assert_trips(
+            "    _close_block(out, path, block)\n    return i\n",
+            "    out.setdefault(path, []).append(\n"
+            "        [new_start, new_start + new_count - 1])\n    return i\n",
+            TestShapesRealGit, "test_delete_one_line")
+        self.assertEqual(mod.ranges_from_diff(DELETE_LINE_9_DEFAULT),
+                         {"f.txt": [[6, 11]]})
+
+    # M2: drop the net-deletion extension (D-02).
+    def test_m2_net_deletion_extension(self):
+        mod = self.assert_trips(
+            "            if deleted > added:\n",
+            "            if False:\n",
+            TestShapesRealGit, "test_net_deletion_replace_extends_one_line")
+        text = ("diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n"
+                "@@ -10,3 +10 @@\n-10\n-11\n-12\n+one\n")
+        self.assertEqual(mod.ranges_from_diff(text), {"f.txt": [[10, 10]]})
+        self.assertEqual(diff_ranges.ranges_from_diff(text),
+                         {"f.txt": [[10, 11]]})
+
+    # M3: stop the body at a `+++ ` line instead of consuming the budget.
+    def test_m3_budget_consumption(self):
+        self.assert_trips(
+            "        body = lines[i]\n",
+            "        body = lines[i]\n"
+            "        if body.startswith(\"+++ \"):\n"
+            "            break\n",
+            TestHazards, "test_content_lines_that_look_like_file_headers")
+
+    # M4: drop the commit-series refusal.
+    def test_m4_mbox_refusal(self):
+        self.assert_trips(
+            "        if _is_mbox(line):\n",
+            "        if False:\n",
+            TestRefusals, "test_refuses_commit_series")
+
+    # M5: universal line splitting instead of "\n" only.
+    def test_m5_split_on_newline_only(self):
+        self.assert_trips(
+            'lines = text.split("\\n")',
+            "lines = (text.splitlines() or [\"\"])",
+            TestHazards, "test_form_feed_and_line_separator_do_not_desync")
+
+    # M6: a pure deletion covers only one line.
+    def test_m6_pure_deletion_pair(self):
+        self.assert_trips(
+            "[max(start - 1, 1), start]",
+            "[start, start]",
+            TestShapesRealGit, "test_delete_one_line")
+
+    # M7: ignore that an empty new side is numbered by the line before it.
+    def test_m7_zero_count_cursor(self):
+        self.assert_trips(
+            "cursor = new_start + 1 if new_count == 0 else new_start",
+            "cursor = new_start",
+            TestShapesRealGit, "test_delete_one_line")
+
+    # M8: drop the combined-diff refusal.
+    def test_m8_combined_refusal(self):
+        self.assert_trips(
+            '        if line.startswith("@@@"):\n',
+            "        if False:\n",
+            TestRefusals, "test_refuses_combined_diff")
+
+    # M9: a short body ends quietly instead of refusing.
+    def test_m9_short_body_refusal(self):
+        self.assert_trips(
+            "            raise RangeError(REASON_SHORT_BODY)\n",
+            "            break\n",
+            TestRefusals, "test_refuses_short_body")
+
+    # M10: no overflow check inside the hunk.
+    def test_m10_budget_overflow_refusal(self):
+        self.assert_trips(
+            "        if old_left < 0 or new_left < 0:\n",
+            "        if False:\n",
+            TestRefusals, "test_refuses_extra_deleted_line_inside_budget")
+
+    # M11: no check for body lines left over after the hunk.
+    def test_m11_leftover_body_refusal(self):
+        self.assert_trips(
+            "        if after_hunk and _is_stray_body_line(line):\n",
+            "        if False:\n",
+            TestRefusals, "test_refuses_long_body")
+
+    # M12: an unexpected body line is skipped instead of refused.
+    def test_m12_bad_body_line_refusal(self):
+        self.assert_trips(
+            "        else:\n            raise RangeError(REASON_BAD_BODY_LINE)\n",
+            "        else:\n            continue\n",
+            TestRefusals, "test_refuses_unexpected_body_line")
+
+    # M13: a `\` marker inside the body is not skipped.
+    def test_m13_no_newline_marker_in_body(self):
+        self.assert_trips(
+            '        if tag == "\\\\":\n            continue\n',
+            "",
+            TestHazards, "test_no_newline_marker_consumes_no_budget")
+
+    # M14: a `\` marker after the hunk resets the leftover-line check.
+    def test_m14_no_newline_marker_after_hunk(self):
+        self.assert_trips(
+            '        if line.startswith("\\\\"):\n            continue\n',
+            "",
+            TestRefusals, "test_refuses_long_body_after_no_newline_marker")
+
+    # M15: keep git's trailing tab on a path with a space.
+    def test_m15_trailing_tab(self):
+        self.assert_trips(
+            '    if path.endswith("\\t"):\n',
+            "    if False:\n",
+            TestHazards, "test_path_with_space_trailing_tab")
+
+    # M16: key a C-quoted path by its quoted text.
+    def test_m16_quoted_path(self):
+        self.assert_trips(
+            " or path.startswith('\"')",
+            "",
+            TestHazards, "test_quoted_path_is_skipped")
+
+    # M17: treat `/dev/null` as a file.
+    def test_m17_dev_null(self):
+        self.assert_trips(
+            'path == "/dev/null" or ',
+            "",
+            TestShapesRealGit, "test_deleted_file_has_no_key")
+
+    # M18: never merge touching ranges.
+    def test_m18_merge(self):
+        self.assert_trips(
+            "        if merged and start <= merged[-1][1] + 1:\n",
+            "        if False:\n",
+            TestShapesRealGit, "test_adjacent_blocks_merge")
+
+    # M19: keys in input order instead of sorted.
+    def test_m19_sorted_keys(self):
+        self.assert_trips(
+            "for p in sorted(out)}",
+            "for p in out}",
+            TestShapesRealGit, "test_two_files_both_keys_sorted")
 
 
 if __name__ == "__main__":
