@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T01:56:30.000Z"
-last_activity: 2026-10-29 -- 59-03 complete (read-side merge + min_confidence deferral; CR-02/DEFR-01 green; suite fully green)
+last_updated: "2026-10-29T02:03:38.599Z"
+last_activity: 2026-10-29 -- 59-04 complete (nearby_spots on stamped snapshots + carry_state.stale_spots reader; suite fully green)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 3
-  percent: 50
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 59 (stale-decisions-and-lost-deferrals) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Executing Phase 59
-Last activity: 2026-10-29 -- 59-03 complete (read-side merge + min_confidence deferral; CR-02/DEFR-01 green; suite fully green)
+Last activity: 2026-10-29 -- 59-04 complete (nearby_spots on stamped snapshots + carry_state.stale_spots reader; suite fully green)
 
 ## Operator Next Steps
 
@@ -78,6 +78,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 59-04 complete (f8b9055, 3e31654). score.py records `nearby_spots` ([line, "copy"|"grouped"], sorted, own line excluded) on a fresh nearby stamp only when another spot fired, and carries it with nearby_at on keep/refresh (own-line spots dropped on carry). carry_state: `_well_formed_spots` validator, `_merge_nearby` derives the lifted source copy's spot on the read copy (never persisted), `stale_spots(record, state)` -> {line, kind, others} is the card's single reader. Six test_sp59_ tests + TestSnapshotSpotsUnit + mutant test_spots_not_recorded_loses_the_other_copy_line; test_sp59_ joined _READ_MERGE_ONLY. Full suite 3630 passed, 0 failed; replay 64 passed; GOLDEN unmoved. Advisory: tie-broken pooled priors pick spots by carryforward order. STALE-02/05 stay pending until 59-05 wording. Next: 59-05.
 
 2026-10-29: 59-03 complete (1927508, a56b48c). DEFR-01 green at 1927508: the min_confidence branch keeps a deferred covered member open as kept_open 'below-min-confidence <N>; deferred-by: <hB>' (score 0). CR-02 green at a56b48c: carry_state._merge_nearby lifts the latest well-formed nearby_at per hash onto the representative, on copies, once in _check_state, so record_decisions stores the merged view. _EXPECTED_RED_UNTIL_59_03 removed. Full suite 3619 passed, 0 failed; replay 64 passed; GOLDEN unmoved. Decision: the merge also covers CR-01/p1 at read time, so two producer mutants now run with read_merge=False (each layer keeps its own lock). STALE-03/04 marked complete; STALE-02 and DEFR-01 wait for the card work in 59-04/05. Next: 59-04.
 
