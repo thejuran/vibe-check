@@ -3,12 +3,13 @@ phase: 59-stale-decisions-and-lost-deferrals
 verified: 2026-10-29T02:37:08Z
 status: gaps_found
 score: 4/5 must-haves verified (one partial)
-has_blocking_gaps: true
-overrides_applied: 0
+has_blocking_gaps: false
+overrides_applied: 1
 gaps:
   - truth: "SC2 / STALE-02: the card states the correct reopen reason for every reproduced wrong-keep shape"
     status: partial
     severity: blocking
+    override: "owner parked to ROADMAP 999.23 on 2026-10-29 (wording-only; no silent keep; STALE-06 one-cycle bound + scope rule)"
     reason: >
       WR-01 (59-REVIEW.md): `_nearby_spots` unconditionally excludes `own_line`
       from the spots it reports (score.py:671-686, called at :510-512 and
@@ -180,3 +181,8 @@ Separately, REQUIREMENTS.md's STALE-05/STALE-06 checkboxes lag the actual (verif
 
 _Verified: 2026-10-29T02:37:08Z_
 _Verifier: Claude (bm-verifier)_
+
+
+## Owner override (2026-10-29)
+
+The owner chose to park WR-01 (SC2 multi-spot wording) and WR-02 (SC4 note persistence) as residuals in ROADMAP 999.23 rather than open a second repair round. Rationale: both are card-wording gaps — the decision still reopens and the deferred obligation stays open — so neither is a silent keep, data loss, or gate failure; STALE-06 bounds the phase to one cycle. SC2 is therefore met for every reproduced shape's reopen/keep result and partly met for the reason wording in the multi-spot case.

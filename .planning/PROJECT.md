@@ -25,6 +25,8 @@ as their safety net.
 - Exact change evidence and reliable Finalize (999.24, 999.25): nearby/in-diff ranges from actual additions/deletions, not display context; Finalize's blob-file path survives fresh Bash calls via the printed-path convention.
 - Release gate: targeted real-chain regressions, full offline suite, archived replay (only named reopen/retention differences allowed), mode/recovery checks; live checks only under a separately approved bounded proposal, else documented gap + waiver. Ships independently.
 
+**Progress:** Phase 59 complete (2026-10-29) — CR-01, CR-01 multi-pass, CR-02, CR-04 and the `min_confidence=45` deferral loss fixed with red-before/green-after real-chain fixtures; SA-02 did not reproduce (dropped, pinned). Card-wording residuals WR-01/WR-02 owner-parked to 999.23. Next: Phase 60.
+
 **Out of scope:** cost reporting, orchestration extraction, reviewer/model changes, scoring changes, 999.26. Lean orchestration (999.12 + Finalize extraction) follows; Reviewer efficiency stays conditional. Full scope: [Roadmap](ROADMAP.md).
 
 ## Last Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
@@ -464,4 +466,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-28 after v2.14 milestone start*
+*Last updated: 2026-10-29 after Phase 59 (stale decisions and lost deferrals)*

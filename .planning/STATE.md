@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: executing
-last_updated: "2026-10-29T02:12:32.780Z"
+status: ready_to_plan
+last_updated: 2026-10-29T15:08:12.562Z
 last_activity: 2026-10-29 -- 59-05 complete (card names the other spot / several spots and the deferred-below-min_confidence note; STALE-02 + DEFR-01 complete; suite 3642 passed)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 5
-  percent: 83
+  completed_plans: 6
+  percent: 0
+stopped_at: Phase 59 complete (6/6) — ready to discuss Phase 60
 ---
 
 # Project State
@@ -20,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 59: stale-decisions-and-lost-deferrals
+**Current focus:** Phase 60 — exact change evidence and reliable finalize
 
 ## Current Position
 
-Phase: 59 (stale-decisions-and-lost-deferrals) — EXECUTING
-Plan: 6 of 6
-Status: Executing Phase 59
-Last activity: 2026-10-29 -- 59-05 complete (card names the other spot / several spots and the deferred-below-min_confidence note; STALE-02 + DEFR-01 complete; suite 3642 passed)
+Phase: 60
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-29
 
 ## Operator Next Steps
 
