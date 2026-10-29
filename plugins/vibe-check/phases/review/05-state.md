@@ -83,6 +83,7 @@ After a copy, step 1 below sees "state file present" and the run continues as a 
      Any non-zero exit halts the run. Never bind `[]` on failure: an empty list lets a deferred finding that scores below threshold vanish from the open set. When there is no state file (pass 1), `$DEFERRED_HASHES` is `[]` and the helper is not run. `30-collect-score.md` step 4 forwards it as the envelope's `deferred_hashes`; the binding moves no finding and removes none.
 
 3. Narrow diff to incremental: `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged.
+   Range source for 30-collect-score: `git diff $LAST_REVIEWED_SHA` (one diff, last reviewed commit vs working tree, so committed and uncommitted changes share working-tree line numbers).
 
 4. If incremental diff empty AND `$CARRYFORWARD` empty AND Phase 0 printed `FINALIZE_MODE=0`: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop. A `FINALIZE_MODE=1` run never stops here: it continues to Phase 0.6 and Finalize (the spine's finalize flow), which reads `$STATE_FILE`, not the diff.
 
