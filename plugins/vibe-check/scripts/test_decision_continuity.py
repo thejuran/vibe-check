@@ -4099,9 +4099,13 @@ class TestCoordinateSpaces60(_RealChain):
     documented header rule yields exact ranges and each probe isolates the
     coordinate question from the context-width question.
 
-    A `_probe` test asserts what SHOULD happen and fails while the shape
-    reproduces; a `_control` test reads the same change from one diff in one
-    coordinate space."""
+    Each shape reproduced on the unfixed code. A `_probe` test now reads the
+    change the way the review prose does since the fix (one range source per
+    route, through the exact-range builder) and asserts the right outcome;
+    the old reading (the commit series, or the concatenated assembly) stays in
+    the same test as a documenting assertion of the wrong ranges it gave. A
+    `_control` test reads the same change from one diff in one coordinate
+    space under the header rule."""
 
     def _u0(self, repo, *args):
         return repo.git("diff", *RANGE_GIT_FLAGS, "-U0", *args).stdout
@@ -4122,17 +4126,30 @@ class TestCoordinateSpaces60(_RealChain):
     def test_cs60_pr_series_probe(self):
         """`gh pr diff --patch` emits the commit series (mbox), like
         `git format-patch --stdout`: each commit's hunks are numbered in that
-        commit's own file, so commit A's edit is read at line 10, not 15."""
+        commit's own file, so commit A's edit is read at line 10, not 15.
+        The PR range source is now the cumulative diff, and the builder
+        refuses a series, so the edit is read at its head line."""
+        import diff_ranges
         repo, LB = self._pr_repo()
         series = repo.git("format-patch", "--stdout", "-U0",
                           *RANGE_GIT_FLAGS, "%s..HEAD" % repo.base).stdout
         self.assertEqual(len(re.findall(r"^From [0-9a-f]{40} ", series,
                                         re.M)), 2)
-        ranges = header_rule_ranges(series)
-        self.assertEqual(ranges.get(F), [[10, 10], [1, 5]])
+        # The old reading: per-commit line numbers, the edit missed at 15.
+        old = header_rule_ranges(series)
+        self.assertEqual(old.get(F), [[10, 10], [1, 5]])
+        self.assertFalse(scored_in_diff(LB, 15, old))
+        # The builder refuses the series (fail closed) ...
+        with self.assertRaises(diff_ranges.RangeError) as cm:
+            _builder()(series)
+        self.assertEqual(str(cm.exception), diff_ranges.REASON_MBOX)
+        # ... and the cumulative range source reads the edit at line 15.
+        ranges = _builder()(repo.git("diff", *RANGE_GIT_FLAGS, repo.base,
+                                     "HEAD").stdout)
+        self.assertEqual(ranges.get(F), [[1, 5], [15, 15]])
         self.assertTrue(scored_in_diff(LB, 15, ranges),
                         "the head-file line of commit A's edit (15) is not "
-                        "in the patch-series ranges")
+                        "in the cumulative ranges")
 
     def test_cs60_pr_cumulative_control(self):
         repo, LB = self._pr_repo()
@@ -4153,14 +4170,20 @@ class TestCoordinateSpaces60(_RealChain):
         return repo, L2, s1, hA
 
     def test_cs60_mixed_concat_probe(self):
-        """The GSD / incremental assembly: `<base>..HEAD` + `--staged` +
+        """The old GSD / incremental assembly: `<base>..HEAD` + `--staged` +
         unstaged, concatenated. The committed edit keeps its HEAD line (35)
-        while the decision is read on the working tree (50)."""
+        while the decision is read on the working tree (50), a silent keep.
+        The range source is now the single `git diff <base>` (commit vs
+        working tree), read by the builder."""
         repo, L2, s1, hA = self._mixed_repo()
         concat = (self._u0(repo, "%s..HEAD" % repo.base)
                   + self._u0(repo, "--staged") + self._u0(repo))
-        ranges = header_rule_ranges(concat)
-        self.assertEqual(ranges.get(F), [[35, 35], [1, 10]])
+        old = header_rule_ranges(concat)
+        self.assertEqual(old.get(F), [[35, 35], [1, 10]])
+        self.assert_keeps(self._pass2(s1, L2, old), hA, 50)
+        ranges = _builder()(repo.git("diff", *RANGE_GIT_FLAGS,
+                                     repo.base).stdout)
+        self.assertEqual(ranges.get(F), [[1, 10], [45, 45]])
         self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
 
     def test_cs60_single_diff_control(self):
@@ -4185,28 +4208,39 @@ class TestCoordinateSpaces60(_RealChain):
         return L2, s1, hA, head, staged
 
     def test_cs60_default_staged_concat_probe(self):
-        """Probe A (wrong reopen): the default route assembles `git diff
+        """Probe A (wrong reopen): the old default assembly was `git diff
         HEAD` + `git diff --staged`. The edit at 48 is outside the decided
         line's window (35..45, on disk 45..55 with the edit at 58), so the
         decision should be kept; the staged section adds the index line 48,
-        which falls inside the shifted window."""
+        which falls inside the shifted window. The range source is now
+        `git diff HEAD` alone, read by the builder."""
         L2, s1, hA, head, staged = self._staged_repo(48)
         self.assertEqual(header_rule_ranges(staged).get(F), [[48, 48]])
-        ranges = header_rule_ranges(head + staged)
-        self.assertEqual(ranges.get(F), [[1, 10], [58, 58], [48, 48]])
+        old = header_rule_ranges(head + staged)
+        self.assertEqual(old.get(F), [[1, 10], [58, 58], [48, 48]])
+        self.assert_reopens(self._pass2(s1, L2, old), hA, 50)
+        ranges = _builder()(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
         self.assert_keeps(self._pass2(s1, L2, ranges), hA, 50)
 
     def test_cs60_default_staged_finding_probe(self):
-        """Probe B (mislocated finding): a reviewer reading the `--staged`
-        section quotes the changed line as 48; scored against the
-        working-tree ranges of `git diff HEAD`, that line is in the diff only
-        if index and working-tree numbering agree."""
+        """Probe B (coordinate disagreement): the `--staged` section numbers
+        the staged edit 48, the working tree numbers it 58. On disk line 48
+        is unchanged code (old line 38), so it is correctly outside the
+        working-tree ranges; what the probe showed is that the two sections
+        disagree on numbering, not that a changed line was lost. The fix is
+        the coordinate contract: findings and ranges both use working-tree
+        line numbers (the file as it is on disk), where the staged edit is
+        at 58 and in the diff."""
         L2, _, _, head, _ = self._staged_repo(48)
-        ranges = header_rule_ranges(head)
+        ranges = _builder()(head)
         self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
-        self.assertTrue(scored_in_diff(L2, 48, ranges),
-                        "line 48 (the staged section's own numbering) is "
-                        "not in the working-tree ranges")
+        self.assertEqual(L2[47], base_file()[37])
+        self.assertFalse(scored_in_diff(L2, 48, ranges))
+        self.assertEqual(L2[57], "line_48 = 'edited'")
+        self.assertTrue(scored_in_diff(L2, 58, ranges),
+                        "the staged edit's working-tree line (58) is not in "
+                        "the working-tree ranges")
 
     def test_cs60_default_head_only_control(self):
         L2, s1, hA, head, _ = self._staged_repo(48)
@@ -4224,7 +4258,8 @@ class TestCoordinateSpaces60(_RealChain):
 # --------------------------------------------------------------------------- #
 # Reproduction verdicts for the change-evidence and Finalize shapes, recorded
 # on the unfixed code before any fix. `fixture` names one or more tests or
-# test classes (joined by " + ") in this module or test_finalize_card.py.
+# test classes (joined by " + ") in this module, test_finalize_card.py or
+# test_diff_ranges.py.
 # --------------------------------------------------------------------------- #
 _REPRODUCED_60_04 = "reproduced; fixed by 60-04"
 _DROPPED_60 = "did not reproduce; dropped"
@@ -4311,14 +4346,15 @@ REPRO_60 = (
      "fixture": "test_gate_fence_reads_cross_call_variable_today"},
 )
 # Fixtures a REPRO_60 row may name before the test exists.
-_REPRO_60_PENDING_FIXTURES = {"TestRouteAll"}
+_REPRO_60_PENDING_FIXTURES = set()
 
 
 def _suite_defines(name):
-    """True when `name` is a `def` or `class` in this module or in
-    test_finalize_card.py."""
+    """True when `name` is a `def` or `class` in this module,
+    test_finalize_card.py or test_diff_ranges.py."""
     pat = re.compile(r"^\s*(?:def|class) %s\b" % re.escape(name), re.M)
-    for mod in ("test_decision_continuity.py", "test_finalize_card.py"):
+    for mod in ("test_decision_continuity.py", "test_finalize_card.py",
+                "test_diff_ranges.py"):
         with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
             if pat.search(fh.read()):
                 return True

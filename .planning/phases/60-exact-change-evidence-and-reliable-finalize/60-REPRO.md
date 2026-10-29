@@ -50,7 +50,7 @@ E       ModuleNotFoundError: No module named 'diff_ranges'
 10 failed, 148 deselected in 1.11s
 ```
 
-Green at: <pending — 60-02 (builder) and 60-04 (prose routes ranges through it)>
+Green at: `53fb637` (60-02 builder; `TestRealDiffRanges60` 10 passed) + `66d63de` (60-04: the `changed-line ranges` bullet now pipes one range source per route through `scripts/diff_ranges.py` and no longer reads hunk headers).
 
 ---
 
@@ -112,7 +112,7 @@ E       AssertionError: False is not true : the head-file line of commit A's edi
 1 failed, 157 deselected in 0.16s
 ```
 
-Green at: <pending — 60-04>
+Green at: 60-04. Prose `66d63de` (PR range source `gh pr diff <ref> --color never`, never `--patch`); route tests `39f6dbd` (`TestRoutePR`: pinned real capture + series refused with `REASON_MBOX`); the probe reads the cumulative diff through the builder and passes in the 60-04 Task 3 commit (the old series reading stays in it as a documenting assertion).
 
 ---
 
@@ -132,7 +132,7 @@ E   AssertionError: 'current' != 'stale'
 1 failed, 157 deselected in 0.18s
 ```
 
-Green at: <pending — 60-04>
+Green at: 60-04. Arm chosen: single-diff range source (reproduced) — GSD pass 1 `git diff $PHASE_START` (`git diff HEAD` when empty), any stateful route pass >= 2 `git diff $LAST_REVIEWED_SHA` (`66d63de`, 30-collect-score.md table, 00-scope.md mode 4, 05-state.md step 3). Route tests `39f6dbd` (`TestRouteGSD`, `TestRouteIncremental`); the probe now reads `git diff <base>` through the builder and passes in the 60-04 Task 3 commit, with the concatenated reading kept as a documenting assertion (silent keep).
 
 ---
 
@@ -158,7 +158,7 @@ E       AssertionError: False is not true : line 48 (the staged section's own nu
 1 failed, 157 deselected in 0.17s
 ```
 
-Green at: <pending — 60-04>
+Green at: 60-04. Arm chosen: `git diff HEAD` alone as the range source (reproduced), with the explicit working-tree coordinate contract (`66d63de`); reviewers still receive all three default-route commands unchanged. Route tests `39f6dbd` (`TestRouteDefault`, literal working-tree ranges `[[1, 10], [58, 58]]`, staged with a real `git add`). Probe A now keeps through the builder on `git diff HEAD`; Probe B is recorded as what it is: coordinate disagreement between the two sections, not a lost changed line — the line it flags (48 on disk) is unchanged code, so under the contract it is correctly outside the ranges, and the staged edit's working-tree line 58 is inside them. Both pass in the 60-04 Task 3 commit.
 
 ---
 
@@ -177,7 +177,7 @@ $ pytest -q test_decision_continuity.py -k TestRepro60Record
 3 passed, 155 deselected, 26 subtests passed in 0.06s
 ```
 
-Green at: <pending — 60-04 (adds TestRouteAll, empties the pending allowlist)>
+Green at: 60-04. `TestRouteAll` added in `39f6dbd` (test_diff_ranges.py: asserts 05-state-all.md (ii) still forces `$PASS_NUMBER = 1` and `$CARRYFORWARD = []`, `ranges_from_diff("") == {}`, and `score.run` with `all_mode=True, changed_line_ranges={}` keeps a reviewed-set finding). `_REPRO_60_PENDING_FIXTURES` emptied and the fixture lookup extended to test_diff_ranges.py in the 60-04 Task 3 commit.
 
 ---
 
@@ -230,6 +230,33 @@ Green at: <pending — 60-03 (inverted)>
 - `TestFinalizeFreshShellWalk` (2): `test_counts_fence_without_literal_exits_two`, `test_gate_fence_reads_cross_call_variable_today`.
 - `TestRepro60Record` (3): record complete, every fixture exists (with the `TestRouteAll` allowlist), fixture lookup trips on a missing name.
 - Unchanged locks still green: `TestNearbyEdit`, `TestRepro59Record`, `TestGolden` (GOLDEN_DIGEST untouched); `test_finalize_card.py` outside the walk (70 passed).
+
+## D-04 audit — other context assumptions
+
+Audit grep, run from the repo root at 60-04 (after the prose fix):
+
+```
+grep -rn -i -E "three lines of context|3 lines of context|-U[0-9]|--unified|context lines|hunk header|hunk_ranges|\+start,count" \
+  plugins/vibe-check/phases plugins/vibe-check/agents plugins/vibe-check/templates plugins/vibe-check/scripts/*.py | grep -v scripts/test_
+```
+
+Hits: `30-collect-score.md:64` (the rewritten bullet, which now says never to read hunk headers), `diff_ranges.py:10,18` (the builder's own docstring: display context does not change its answer), `replay.py:203,204,386` (`hunk_ranges`). No agent or template hit. Every hit and every candidate D-04 names:
+
+| Location | What it assumes | Verdict |
+|----------|-----------------|---------|
+| `phases/review/30-collect-score.md` `changed-line ranges` bullet | Ranges were read from each hunk header `+start,count`, so git's three context lines on each side were counted as changed and a deletion header never appeared | fixed in 60-04 (`66d63de`): ranges come only from `+`/`-` body lines via `scripts/diff_ranges.py`, one range source per route, fail-closed fence; builder from 60-02 (`53fb637`) |
+| `phases/review/00-scope.md` mode 1 (default): `git diff HEAD` + `git diff --staged` + `git status --short` | The two diff sections were both range sources; `--staged` numbers lines in the index, not the working tree (DEFAULT-STAGED reproduced) | fixed in 60-04: range source is `git diff HEAD` alone with the working-tree coordinate contract; the three reviewer commands are byte-identical (reviewers keep the staged view) |
+| `phases/review/00-scope.md` mode 4 (GSD): `$PHASE_RANGE` + staged + unstaged | Concatenating `<base>..HEAD` (HEAD lines) with staged/unstaged (index/working-tree lines) gives one coordinate space (MIXED-COORD reproduced) | fixed in 60-04: range source `git diff $PHASE_START` (`git diff HEAD` when empty); reviewers' diff assembly unchanged |
+| `phases/review/05-state.md` step 3 (incremental): `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged | Same mixed-coordinate concatenation on pass >= 2 (MIXED-COORD reproduced) | fixed in 60-04: range source `git diff $LAST_REVIEWED_SHA`; reviewers' incremental diff unchanged |
+| `phases/review/00-scope.md` mode 2 (PR): `gh pr diff <ref> --patch` | The `--patch` commit series numbers each hunk in its own commit's file (PR-SERIES reproduced) | fixed in 60-04: range source `gh pr diff <ref> --color never` (cumulative); the builder refuses a series (`REASON_MBOX`); the agents' `--patch` view is unchanged (agents' view only) |
+| `--all` (mode 5, `05-state-all.md` (ii)) | None: no diff on any pass, `changed_line_ranges = {}`, `in_diff` never gates | unaffected — unsupported fixture recorded per D-06 (`TestRouteAll`, `39f6dbd`) |
+| `30-collect-score.md` `±2 source window` bullet (`source_window`) | A finding-centred ±2 window read from HEAD for silenced markers; it never reads diff context | unaffected — independent of diff context width |
+| `score.py` re-check trigger `_independent_trigger` -> `_nearby_changed` (and `_line_in_ranges` for `in_diff`) | Consumes `changed_line_ranges` as given | unaffected code — fixed by construction, because its input is now exact |
+| `replay.py` `replay.hunk_ranges` (lines 203-204, used at 386) | Reads ranges from new-side headers, context included | unaffected — intentionally context-inclusive: it rebuilds envelopes of archived B3 runs whose ranges were read that way, so replay must reproduce them; pinned by `TestReplayPin`; the replay gate in the next phase (GATE-02) depends on it. Do not change. `git diff --stat -- plugins/vibe-check/scripts/replay.py` is empty at 60-04 |
+| Stored `snapshot.nearby_at` stamps written from the old, wider ranges | A stamp may have been set by a context line | unaffected — fails toward asking (an extra re-ask, never a silent keep); no migration |
+| `diff_ranges.py` docstring (lines 10, 18) | Mentions `-U0` / default context only to state the answer does not depend on them | unaffected — documentation of the builder's contract |
+
+D-05: the live `gh pr diff` fetch was not exercised; the PR route is proven on a checked-in capture. Provenance of `plugins/vibe-check/scripts/fixtures/pr-cumulative.diff`: captured from `gh` (not a fallback) on 2026-10-29 with `gh pr diff 5 --color never` — PR #5 of this repo, base `f2b6a3674d0d0dc62ab6dca3a00816c070943884`, head `98f63aa7834af6a04c5a38d925d8b1ca457111bc` (`gh pr view 5 --json headRefOid,baseRefOid`), squash-merged as the single-parent commit `6dfac6436427cc385fe1937f73ed841fef6c8ffb`. Cut: four whole file sections at `diff --git` boundaries (capture lines 4897-5182: `50-fix-loop.md`, `90-finalize.md`, `batch_card.py`, `carry_state.py`), 286 lines, no mbox line, scanned for `key|token|secret|password` (0 hits). Cross-check at capture time: the same four paths from the local `git diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ f2b6a36 98f63aa…` (f2b6a36 is the merge base) through the builder gave identical ranges. All three SHAs pass `git rev-parse --verify <sha>^{commit}`.
 
 ## Reverse run
 
