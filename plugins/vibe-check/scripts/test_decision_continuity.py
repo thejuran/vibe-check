@@ -50,7 +50,9 @@ adds to carry_state are read with getattr so this module always imports.
 
 import json
 import os
+import re
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,6 +60,8 @@ sys.path.insert(0, HERE)
 
 import batch_card  # noqa: E402
 import carry_state  # noqa: E402
+import gitfixture  # noqa: E402
+import replay  # noqa: E402
 import score  # noqa: E402
 from test_carry_state import append_pass, e2e_gate  # noqa: E402
 from test_score import GOLDEN_DIGEST  # noqa: E402
@@ -3789,6 +3793,285 @@ class TestPooledPriorUnit(unittest.TestCase):
                      {"nearby_at": True, "at_pass": 1.5}, None, []):
             with self.subTest(snap=snap):
                 score._prior_rank(snap)
+
+
+# --------------------------------------------------------------------------- #
+# Exact change evidence: real `git diff` text through the range rules.
+#
+# Every diff here comes from a throwaway repo the test builds with
+# gitfixture (null global/system git config), so the developer's own
+# `diff.noprefix`, colour or external-diff settings never reach the text.
+# --------------------------------------------------------------------------- #
+RANGE_GIT_FLAGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/",
+                   "--dst-prefix=b/")
+_HEADER_RULE_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+# A pass-1 confidence at which a lone `bugs` finding is kept both inside and
+# outside the changed ranges (90 vs 70), so the +20 in-diff term shows as a
+# score difference instead of a keep/drop.
+IN_DIFF_CONF = 80
+
+
+def header_rule_ranges(text):
+    """The changed-line ranges the 30-collect-score.md "changed-line ranges"
+    bullet builds today, as an executable twin: per `+++ b/<path>` file, each
+    hunk header `@@ ... +start[,count] @@` (no count means 1) gives
+    `[start, start + count - 1]` when count >= 1, and the deletion-point pair
+    `[max(start, 1), start + 1]` when count == 0. Only the headers are read,
+    so git's unchanged context lines are inside every range.
+
+    Kept as the 999.24 evidence: on a default-context diff the ranges are
+    three lines wider on each side than the edit, and a pure deletion never
+    produces a `+T,0` header, so the deletion rule never fires.
+    """
+    out = {}
+    cur = None
+    for ln in (text or "").split("\n"):
+        if ln.startswith("+++ "):
+            path = ln[4:].rstrip("\t").strip()
+            if path == "/dev/null":
+                cur = None
+            else:
+                cur = path[2:] if path.startswith("b/") else path
+            continue
+        m = _HEADER_RULE_HUNK_RE.match(ln)
+        if m and cur:
+            start = int(m.group(1))
+            count = 1 if m.group(2) is None else int(m.group(2))
+            if count >= 1:
+                rng = [start, start + count - 1]
+            else:
+                rng = [max(start, 1), start + 1]
+            out.setdefault(cur, []).append(rng)
+    return out
+
+
+class RealDiffRepo:
+    """A temp git repo holding `src/a.py`, removed when the test ends."""
+
+    def __init__(self, test, lines):
+        tmp = tempfile.TemporaryDirectory()
+        test.addCleanup(tmp.cleanup)
+        self.repo = gitfixture.make_repo(tmp.name)
+        self.write(lines)
+        self.stage(F)
+        self.commit("base")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    @classmethod
+    def make(cls, test, lines):
+        """Commit `lines` as `src/a.py` in a fresh repo."""
+        return cls(test, lines)
+
+    def git(self, *args):
+        return gitfixture.git(self.repo, *args)
+
+    def write(self, lines):
+        gitfixture.write(self.repo, F, "\n".join(lines) + "\n")
+
+    def read(self):
+        with open(os.path.join(self.repo, F), encoding="utf-8") as fh:
+            return fh.read().split("\n")[:-1]
+
+    def stage(self, rel=F):
+        self.git("add", rel)
+
+    def commit(self, msg):
+        self.git("commit", "-q", "-a", "-m", msg)
+
+    def diff(self, *extra):
+        """`git diff <RANGE_GIT_FLAGS> <extra> HEAD` (working tree vs HEAD)."""
+        return self.git("diff", *RANGE_GIT_FLAGS, *extra, "HEAD").stdout
+
+
+def _builder():
+    """The exact-range builder, `diff_ranges.ranges_from_diff`.
+
+    Imported here, not at module top, on purpose: until the builder exists
+    only the tests that call this helper fail (No module named
+    'diff_ranges'), while the rest of this module still imports and runs.
+    """
+    import diff_ranges
+    return diff_ranges.ranges_from_diff
+
+
+def scored_in_diff(lines, line, ranges):
+    """Whether the real scorer counts a fresh finding at `line` as in the
+    diff under `ranges`: its score with `ranges` minus its score with no
+    ranges is either the +20 in-diff term or nothing."""
+    def score_with(r):
+        _, res = run_pass(empty_state(), lines,
+                          [fresh("bugs", line, lines, TITLE_A,
+                                 conf=IN_DIFF_CONF)], 1, r)
+        assert len(res["findings"]) == 1, res["filtered"]
+        return res["findings"][0]["orchestrator_score"]
+    delta = score_with(ranges) - score_with({})
+    assert delta in (0, 20), delta
+    return delta == 20
+
+
+def _edited(lines, at):
+    out = list(lines)
+    out[at - 1] = "line_%02d = 'edited'" % at
+    return out
+
+
+TOP_TEN = ["top_%d = 0" % i for i in range(10)]
+
+
+class _RealChain(_Base):
+    """A decision at line 40 driven through pass 2 on real diff ranges."""
+
+    def _decide40(self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF, line=40)
+        self._assert_band(s1, hA, "warning")
+        return L0, s1, hA
+
+    def _pass2(self, s1, L2, ranges):
+        s2, _ = run_pass(s1, L2, [], 2, ranges, decided=target_decided(s1))
+        return s2
+
+    def assert_reopens(self, s2, hA, line):
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["line"], line)
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+        self.assertEqual(row_of(s2, hA)["snapshot"].get("nearby_at"), 2)
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+
+    def assert_keeps(self, s2, hA, line):
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["line"], line)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current")
+        self.assertNotIn("nearby_at", row_of(s2, hA)["snapshot"])
+        self.assertEqual(e2e_gate(s2, {}), "write")
+
+
+class TestRepro60Evidence(_RealChain):
+    """999.24 as it is today: the ranges the documented header rule builds
+    from a real default-context `git diff`."""
+
+    def test_header_rule_twin_agrees_with_replay_except_deletion_headers(self):
+        synthetic = ("diff --git a/src/a.py b/src/a.py\n"
+                     "--- a/src/a.py\n+++ b/src/a.py\n"
+                     "@@ -3,2 +3,4 @@\n x\n+y\n+z\n x\n"
+                     "@@ -10 +12 @@\n-a\n+b\n"
+                     "@@ -20,2 +21,0 @@\n-c\n-d\n")
+        self.assertEqual(replay.hunk_ranges(synthetic),
+                         {F: [[3, 6], [12, 12]]})
+        self.assertEqual(header_rule_ranges(synthetic),
+                         {F: [[3, 6], [12, 12], [21, 22]]})
+
+    def test_default_context_widens_and_deletion_rule_never_fires(self):
+        repo = RealDiffRepo.make(self, base_file())
+        L2 = base_file()
+        del L2[33]  # line 34 deleted, nothing else
+        repo.write(L2)
+        default, exact = repo.diff(), repo.diff("-U0")
+        self.assertIn("@@ -31,7 +31,6 @@", default)
+        self.assertIn("@@ -34 +33,0 @@", exact)
+        self.assertEqual(header_rule_ranges(default), {F: [[31, 36]]})
+        self.assertEqual(header_rule_ranges(exact), {F: [[33, 34]]})
+        self.assertIsNone(re.search(r"^@@ .* \+\d+,0 @@", default, re.M),
+                          "a default-context diff printed a deletion header")
+
+    def test_edit_eight_beneath_reopens_through_default_context(self):
+        """The owner-visible over-ask: an edit 8 lines from a decision (well
+        outside the 5-line window) re-asks it, because the default diff's
+        header covers lines 45-51."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        L2 = _edited(L0, 48)
+        repo.write(L2)
+        default = repo.diff()
+        self.assertIn("@@ -45,7 +45,7 @@", default)
+        ranges = header_rule_ranges(default)
+        self.assertEqual(ranges, {F: [[45, 51]]})
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 40)
+        with self.subTest("the same edit read from its own line keeps"):
+            exact = header_rule_ranges(repo.diff("-U0"))
+            self.assertEqual(exact, {F: [[48, 48]]})
+            self.assert_keeps(self._pass2(s1, L2, exact), hA, 40)
+
+
+class TestRealDiffRanges60(_RealChain):
+    """EVID-01/EVID-02 (D-03): a real `git diff` of each hunk shape, fed
+    through the exact-range builder, reopens a decision at the 5-line
+    boundary and keeps it one line further out. The ranges always come from
+    the builder; none is written by hand here."""
+
+    def _case(self, L2, want):
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        repo.write(L2)
+        build = _builder()
+        ranges = build(repo.diff())
+        self.assertEqual(ranges.get(F), want)
+        for ctx in ("-U0", "-U10"):
+            with self.subTest(context=ctx):
+                self.assertEqual(build(repo.diff(ctx)), ranges)
+        return self._pass2(s1, L2, ranges), hA
+
+    def test_rd60_ordinary_reopens(self):
+        s2, hA = self._case(_edited(base_file(), 45), [[45, 45]])
+        self.assert_reopens(s2, hA, 40)
+
+    def test_rd60_ordinary_keeps(self):
+        s2, hA = self._case(_edited(base_file(), 46), [[46, 46]])
+        self.assert_keeps(s2, hA, 40)
+
+    def test_rd60_deletion_reopens(self):
+        L2 = base_file()
+        del L2[33]  # line 34; the decided line moves to 39 (window 34..44)
+        s2, hA = self._case(L2, [[33, 34]])
+        self.assert_reopens(s2, hA, 39)
+
+    def test_rd60_deletion_keeps(self):
+        L2 = base_file()
+        del L2[32]  # line 33
+        s2, hA = self._case(L2, [[32, 33]])
+        self.assert_keeps(s2, hA, 39)
+
+    def test_rd60_insertion_reopens(self):
+        L2 = base_file()
+        L2.insert(44, "inserted = 0")  # new line 45
+        s2, hA = self._case(L2, [[45, 45]])
+        self.assert_reopens(s2, hA, 40)
+
+    def test_rd60_insertion_keeps(self):
+        L2 = base_file()
+        L2.insert(45, "inserted = 0")  # new line 46
+        s2, hA = self._case(L2, [[46, 46]])
+        self.assert_keeps(s2, hA, 40)
+
+    def test_rd60_net_deletion_reopens(self):
+        """D-02: lines 32-34 replaced by one line. The replacement is line
+        32; the hunk also covers line 33 (the line after it, as a pure
+        deletion's T + 1 does), which is inside the window of the decided
+        line, now 38 (33..43)."""
+        L2 = base_file()
+        L2[31:34] = ["replaced = 0"]
+        s2, hA = self._case(L2, [[32, 33]])
+        self.assert_reopens(s2, hA, 38)
+
+    def test_rd60_net_deletion_keeps(self):
+        L2 = base_file()
+        L2[30:33] = ["replaced = 0"]  # lines 31-33 -> one line
+        s2, hA = self._case(L2, [[31, 32]])
+        self.assert_keeps(s2, hA, 38)
+
+    def test_rd60_relocated_keeps(self):
+        """D-01: ten lines inserted at the top; the decision follows its
+        code to line 50 and nothing near it changed."""
+        s2, hA = self._case(TOP_TEN + base_file(), [[1, 10]])
+        self.assert_keeps(s2, hA, 50)
+
+    def test_rd60_relocated_reopens(self):
+        """The same shift plus an edit to old line 45 (now 55): the edit is
+        read in the shifted coordinates and reopens the moved decision."""
+        L2 = TOP_TEN + _edited(base_file(), 45)
+        s2, hA = self._case(L2, [[1, 10], [55, 55]])
+        self.assert_reopens(s2, hA, 50)
 
 
 if __name__ == "__main__":
