@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T21:15:57.000Z"
-last_activity: 2026-10-29 -- 60-06 complete (diff_ranges suppressBlankEmpty + fail-closed refusals; RED 11d2b76, GREEN b878870)
+last_updated: "2026-10-29T21:18:03.532Z"
+last_activity: 2026-10-29 -- 60-08 complete (Finalize rebuild re-mints GATEFILE; RED f100185, GREEN c0ece7e)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 33
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Executing Phase 60
-Last activity: 2026-10-29 -- 60-06 complete (RED 11d2b76, GREEN b878870; suite 3773 passed)
+Last activity: 2026-10-29 -- 60-08 complete (Finalize rebuild re-mints GATEFILE; RED f100185, GREEN c0ece7e)
 
 ## Operator Next Steps
 
@@ -81,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 60-08 complete (f100185 red, c0ece7e green). Finalize's one automatic rebuild now names a missing or empty GATEFILE= as a trigger, re-runs the gate-input fence for a NEW GATEFILE=, writes the seven-key flags from the REBUILT COUNTS_JSON, and never reuses an earlier GATEFILE=. Fresh-shell walk: empty GATEFILE halts, reusing it halts identically, new BLOBFILE + new GATEFILE reaches `write`. test_finalize_card 89 passed; pause/nv/fix-loop locks 199 passed. FINL-02 stays unchecked until 60-09 + re-verification. Next: 60-07.
 
 2026-10-29: 60-05 complete (fc019b2 ledger, 9e0bb86 residuals/roadmap/requirements). Reverse run at RED SHA ce9f8b8 with current tests copied into a scratch worktree: all 15 60-01 red fixtures fail again (10 TestRealDiffRanges60, 4 TestCoordinateSpaces60 probes, Finalize walk), plus every 60-03 walk/lock and test_diff_ranges.py at collection; worktree removed. Suite at close 3765 passed, 0 failed; test_replay 64 passed; replay.py/test_replay.py/score.py/finalize_gate.py byte-unchanged since ce9f8b8 -> no replay deltas for GATE-02. Every verdict has a Green at: SHA. Residuals R1-R11 in 60-REPRO.md (R1 finalize_gate traceback helper-side only; R5 install resync before any manual check; R6 live gh pr diff fetch not exercised = EVID-03 known limit). No open silent keep; no second round (D-10). EVID-01..03, FINL-01..02 ticked. Next: Phase 60 verification, then PR.
 
