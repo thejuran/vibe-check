@@ -6,7 +6,7 @@
 - **Scope of evidence:** no live or paid run; no network; the live `gh pr diff` fetch was not exercised (D-05). Every verdict below is a local pytest run. Range evidence comes from real `git diff` / `git format-patch` text in throwaway repos built with `gitfixture` (null global and system git config), fed through `header_rule_ranges` — an executable twin of the current `30-collect-score.md` "changed-line ranges" bullet — and then through the real `score.run -> append_pass -> carry_state -> finalize_gate` chain (`run_pass`, `pass1`, `e2e_gate`). Finalize evidence runs the real `90-finalize.md` fences in fresh `bash -s` shells with only PATH, VC_ROOT, TMPDIR and STATE_FILE (`fixtures/iplayarr45-six-row-state.json`). The PR series shape is reproduced with `git format-patch --stdout`, the same mbox commit-series shape `gh pr diff --patch` emits; no real PR was fetched.
 - **Rule applied:** reproduce first; work is added only for the four qualifying classes (reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, broken required workflow). A shape that reproduced is a failing fixture committed at `ce9f8b8` and mapped to the plan that fixes it; a shape that did not reproduce would be recorded and dropped (none of the three coordinate probes fell into that arm). The `--all` route has no diff and is recorded as an unsupported fixture.
 
-In-suite record: `test_decision_continuity.REPRO_60` (nine rows), locked by `TestRepro60Record` (exact id set, exact row keys, the three coordinate dispositions limited to `reproduced; fixed by 60-04` / `did not reproduce; dropped`, and every named fixture resolved by a `def` / `class` in `test_decision_continuity.py` or `test_finalize_card.py`; `TestRouteAll` is the one allowed forward reference, held in `_REPRO_60_PENDING_FIXTURES`, which 60-04 must empty).
+In-suite record: `test_decision_continuity.REPRO_60` (twelve rows since 60-09 added the three gap-round rows GSD-SHELL-VAR, CONFIG-ALTERED-DIFF and GATEFILE-RETRY; nine at first recording), locked by `TestRepro60Record` (exact twelve-id set, exact row keys, each gap-round row's disposition starting `reproduced; fixed by 60-0`, the three coordinate dispositions limited to `reproduced; fixed by 60-04` / `did not reproduce; dropped`, and every named fixture resolved by a `def` / `class` in `test_decision_continuity.py` or `test_finalize_card.py`; `TestRouteAll` is the one allowed forward reference, held in `_REPRO_60_PENDING_FIXTURES`, which 60-04 must empty).
 
 Full suite at `ce9f8b8` (from `plugins/vibe-check/scripts`): `pytest -q` -> `15 failed, 3655 passed, 4832 subtests passed in 172.55s (0:02:52)`. The 15 failures are exactly:
 
@@ -359,6 +359,172 @@ $ pytest -q -p no:cacheprovider test_replay.py
   - Archived envelopes replay ranges as they were recorded, so the exact-range change cannot move them. If Phase 61 sees replay drift, no Phase-60 change explains it, and it must be treated as a finding.
 - GOLDEN_DIGEST is unchanged (`TestGolden` passes in the full run).
 
+## Gap round (60-VERIFICATION, 2026-10-29)
+
+60-VERIFICATION.md (committed at `2f84d2e`, "docs(60): verification gaps_found") found three blocking gaps after the first close. `2f84d2e` is the pre-gap-round production base: every gap below was reproduced there, and the reverse run below uses it. The same rule applies: reproduce first, and add work only for the four qualifying classes. All three qualify. GSD-SHELL-VAR is a silent loss of a qualifying finding (a committed change drops out of the ranges with exit 0). CONFIG-ALTERED-DIFF is a broken required workflow (every pass halts under `diff.suppressBlankEmpty`) plus a fail-open on colored text. GATEFILE-RETRY is a broken required workflow (the documented Finalize retry cannot recover). Each gap was fixed by its own red -> green pair (60-06, 60-07, 60-08). The pytest output below is copied from those plans' SUMMARYs, not retyped.
+
+## V10 — GSD-SHELL-VAR: the GSD / pass-2+ range source reads a shell variable a fresh Bash call does not hold (EVID-03)
+
+**Verdict: REPRODUCED at `2f84d2e` -> fixed by 60-07.**
+
+**Failure as the owner would see it.** No error is shown. On a GSD review, or on any pass 2+, the range-source row was `git diff <flags> $PHASE_START` / `$LAST_REVIEWED_SHA`. Each Bash call is a fresh shell, so the variable is empty there, and the unquoted empty word disappears. git then runs `git diff <flags>` (index vs working tree), which exits 0 with only the uncommitted lines. In the probe (committed edit at line 3, uncommitted edit at line 5) the ranges were `{"f.txt": [[5, 5]]}`. The committed change is missing, so a finding on it loses `in_diff` and a decision on it is never reopened: a silent keep.
+
+**Fixture.** `TestProseRangeFence::test_gsd_route_fresh_shell_includes_committed_change`, `test_incremental_route_fresh_shell_includes_committed_change`, `test_unsubstituted_variable_halts_instead_of_narrowing` (its "old unquoted variable" subtests document the narrowing: rc 0, `[[5, 5]]`), and `TestScopePhaseStartFence` (00-scope.md must print `PHASE_START=` for the literal to be carried). All are in `test_diff_ranges.py`.
+
+**Command and output at the RED SHA `b1bc970`:**
+
+```
+$ pytest -q -p no:cacheprovider test_diff_ranges.py -k "ProseRangeFence or ScopePhaseStart or RangeSourceLines"
+14 failed, 9 passed, 82 deselected, 5 subtests passed in 1.59s
+```
+
+The failing set includes the two fresh-shell route tests (the quoted `"<phase-start-sha>"` / `"<last-reviewed-sha>"` placeholder was not in the row), both "quoted, left unsubstituted" subtests, `test_gsd_empty_phase_start_uses_head`, `test_literal_substitution_sentence_present` and both `TestScopePhaseStartFence` tests.
+
+Green at: 2a63cb5 (60-07). The GSD and pass-2+ rows now end in a quoted literal placeholder that the agent substitutes from the printed `PHASE_START=` line or from `head_sha`. A fresh-shell run gives `{"f.txt": [[3, 3], [5, 5]]}`. A quoted placeholder left empty makes git exit 128 (`fatal: ambiguous argument ''`), and the fence halts through `pipefail` instead of narrowing.
+
+---
+
+## V11 — CONFIG-ALTERED-DIFF: repo or user git config changes the text the range builder reads (EVID-01)
+
+**Verdict: REPRODUCED at `2f84d2e` -> fixed by 60-06 (builder) + 60-07 (fixed flags).**
+
+**Failure as the owner would see it.** There are two faces. (a) With `diff.suppressBlankEmpty=true`, an ordinary edit next to a blank line gives a hunk body line that is empty instead of a single space. `diff_ranges.py` refused it with `unexpected line in hunk body` (exit 2), so every review pass halted. (b) A colored diff (no `--no-color`, `color.ui=always`) parsed to `{}` with exit 0: no ranges, no error, and every finding outside the diff. A textconv driver shifted the ranges (`[[14, 14], [22, 23]]` for the real `[[12, 12], [20, 21]]`), and `diff.relative` run from a subdirectory dropped them (`{}`).
+
+**Fixture.** `TestHazards::test_suppress_blank_empty_context_is_context`, `TestRefusals::test_refuses_colored_diff`, `TestRefusals::test_refuses_non_diff_text` (60-06), and `TestProseRangeFence::test_diff_relative_from_subdirectory_changes_nothing` with `test_hostile_external_diff_config_changes_nothing` (60-07). All are in `test_diff_ranges.py`.
+
+**Command and output at the RED SHAs:**
+
+```
+$ pytest -q -p no:cacheprovider test_diff_ranges.py            # at 11d2b76 (60-06 red)
+12 failed, 82 passed, 60 subtests passed in 7.67s
+
+$ pytest -q -p no:cacheprovider test_diff_ranges.py -k "ProseRangeFence or ScopePhaseStart or RangeSourceLines"   # at b1bc970 (60-07 red)
+14 failed, 9 passed, 82 deselected, 5 subtests passed in 1.59s
+```
+
+At `11d2b76` the suppressBlankEmpty subtests failed with `RangeError: unexpected line in hunk body`. The colored and non-diff refusals failed because no `RangeError` was raised, and `test_colored_diff_exits_two_with_reason_only` got rc 0 instead of 2. At `b1bc970`, under textconv, the fence printed `{"f.txt": [[14, 14], [22, 23]]}`, and from `sub/` it printed `{}`.
+
+Green at: b878870 (60-06: an empty hunk body line is read as blank context; any line starting with ESC is refused with `colored or escaped diff`, and non-empty text with no diff line is refused with `not a unified diff`, both exit 2; empty, binary-only and mode-only diffs stay `{}`) + 2a63cb5 (60-07: every range-building git command carries `--no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/`).
+
+---
+
+## V12 — GATEFILE-RETRY: Finalize's one rebuild re-mints BLOBFILE but reuses a broken GATEFILE (FINL-02)
+
+**Verdict: REPRODUCED at `2f84d2e` -> fixed by 60-08.**
+
+**Failure as the owner would see it.** On attempt 1 the `GATEFILE=` write leaves an empty file, and the gate fence stops with "I'm uncertain about Finalize mode — finalize_gate.py failed; nothing was written or archived." (the traceback goes to `<GATEFILE>.err`). The documented one automatic rebuild re-minted only `BLOBFILE`. Re-running the gate on the same `GATEFILE` halts in exactly the same way, so the retry the prose promises cannot recover.
+
+**Fixture.** `TestFinalizeFreshShellWalk::test_retry_mints_new_gatefile_after_gate_input_failure` (a fresh-shell walk: an empty GATEFILE halts, re-running on the same file halts the same way, a re-minted GATEFILE with flags from the rebuilt counts passes, and the rule text must hold) and `test_gatefile_missing_path_is_a_named_trigger`, both in `test_finalize_card.py`. The `TestGapRoundFinalize::test_retry_rule_holds` / `test_mutant_retry_rule` GATEFILE needles lock the prose.
+
+**Command and output at the RED SHA `f100185`:**
+
+```
+$ pytest -q -p no:cacheprovider test_finalize_card.py -k "retry or gatefile"
+5 failed, 3 passed, 83 deselected, 7 subtests passed
+```
+
+The failed tests were `test_retry_rule_holds`, `test_mutant_retry_rule` (both GATEFILE subtests) and `test_gatefile_missing_path_is_a_named_trigger`, plus the walk. The walk failed only at its final `assert_holds(retry_rule_holds)`, with four GATEFILE needles missing. Every walk step before that passed, including "old rule: same GATEFILE reused fails identically".
+
+Green at: c0ece7e (60-08: the rebuild-once rule names a missing or empty `GATEFILE=` as a trigger. It re-runs the existing gate-input fence for a NEW `GATEFILE=`, writes the flags from the rebuilt `$COUNTS_JSON`, and never reuses an earlier attempt's or session's `GATEFILE=`. No second GATEFILE fence was added.)
+
+---
+
+### Gap-round red / green
+
+| Fixture | Pre-fix result (at `2f84d2e`) | Verdict | Green at |
+|---|---|---|---|
+| `TestProseRangeFence::test_gsd_route_fresh_shell_includes_committed_change` | fail | V10 | 2a63cb5 |
+| `TestProseRangeFence::test_incremental_route_fresh_shell_includes_committed_change` | fail | V10 | 2a63cb5 |
+| `TestProseRangeFence::test_unsubstituted_variable_halts_instead_of_narrowing` | fail (both "quoted, left unsubstituted" subtests) | V10 | 2a63cb5 |
+| `TestProseRangeFence::test_gsd_empty_phase_start_uses_head` | fail | V10 | 2a63cb5 |
+| `TestProseRangeFence::test_literal_substitution_sentence_present` | fail | V10 | 2a63cb5 |
+| `TestScopePhaseStartFence` (2 tests) | fail | V10 | 2a63cb5 |
+| `TestRangeSourceLines::test_every_line_is_fully_flagged` | fail (3 subtests) | V10, V11 | 2a63cb5 |
+| `TestProseRangeFence::test_fence_shape` | fail | V11 | 2a63cb5 |
+| `TestProseRangeFence::test_hostile_external_diff_config_changes_nothing` | fail | V11 | 2a63cb5 |
+| `TestProseRangeFence::test_diff_relative_from_subdirectory_changes_nothing` | fail | V11 | 2a63cb5 |
+| `TestHazards::test_suppress_blank_empty_context_is_context` | fail (default and -U10 subtests) | V11 | b878870 |
+| `TestRefusals::test_refuses_colored_diff` | fail | V11 | b878870 |
+| `TestRefusals::test_refuses_non_diff_text` | fail (error / stat / prose subtests) | V11 | b878870 |
+| `TestMutants::test_m20_` / `m21_` / `m22_` | fail (anchors absent) | V11 | b878870 |
+| `TestFinalizeFreshShellWalk::test_retry_mints_new_gatefile_after_gate_input_failure` | fail | V12 | c0ece7e |
+| `TestFinalizeFreshShellWalk::test_gatefile_missing_path_is_a_named_trigger` | fail | V12 | c0ece7e |
+| `TestGapRoundFinalize::test_retry_rule_holds` | fail | V12 | c0ece7e |
+| `TestGapRoundFinalize::test_mutant_retry_rule` | fail (both GATEFILE mutant subtests) | V12 | c0ece7e |
+
+`test_hostile_repo_config_does_not_change_ranges` and `test_colored_diff_exits_two_with_reason_only` (60-06) and `test_stale_earlier_attempt_file_does_not_govern` (60-08) also went red at their plans' RED SHAs. They were outside the reverse-run `-k` filter below, and they are counted in the full-file run.
+
+### Reverse run (gap round)
+
+The current tests were run against the production code at `2f84d2e`, from HEAD `2093f88` (the 60-09 record commit).
+
+- Worktree: `git worktree add --detach <scratchpad>/pre60gap 2f84d2e`. `git rev-parse --short HEAD` there printed `2f84d2e`. In that tree, `diff_ranges.py` has no suppressBlankEmpty or escape handling, the 30-collect-score.md GSD/pass-2+ rows end in `$PHASE_START` / `$LAST_REVIEWED_SHA`, and the 90-finalize.md rebuild rule re-mints only `BLOBFILE`.
+- Copied in from HEAD: `test_diff_ranges.py`, `test_finalize_card.py`, `test_decision_continuity.py`.
+- Afterwards: `git worktree remove --force <scratchpad>/pre60gap`, then `git worktree prune`. `git worktree list | grep -c pre60gap` printed `0`.
+
+```
+$ pytest -q -p no:cacheprovider -rf test_diff_ranges.py test_finalize_card.py -k "suppress_blank_empty or refuses_colored or refuses_non_diff or m20 or m21 or m22 or ProseRangeFence or ScopePhaseStart or RangeSourceLines or retry or gatefile"
+FAILED test_diff_ranges.py::TestMutants::test_m20_empty_body_line_is_context
+FAILED test_diff_ranges.py::TestMutants::test_m21_escape_refusal
+FAILED test_diff_ranges.py::TestMutants::test_m22_not_a_diff_refusal
+FAILED test_diff_ranges.py::TestProseRangeFence::test_diff_relative_from_subdirectory_changes_nothing
+FAILED test_diff_ranges.py::TestProseRangeFence::test_fence_shape
+FAILED test_diff_ranges.py::TestProseRangeFence::test_gsd_empty_phase_start_uses_head
+FAILED test_diff_ranges.py::TestProseRangeFence::test_gsd_route_fresh_shell_includes_committed_change
+FAILED test_diff_ranges.py::TestProseRangeFence::test_hostile_external_diff_config_changes_nothing
+FAILED test_diff_ranges.py::TestProseRangeFence::test_incremental_route_fresh_shell_includes_committed_change
+FAILED test_diff_ranges.py::TestProseRangeFence::test_literal_substitution_sentence_present
+FAILED test_diff_ranges.py::TestRefusals::test_refuses_colored_diff
+FAILED test_diff_ranges.py::TestScopePhaseStartFence::test_no_history_prints_empty_value
+FAILED test_diff_ranges.py::TestScopePhaseStartFence::test_prints_first_commit_touching_phase_dir
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_gatefile_missing_path_is_a_named_trigger
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_retry_mints_new_gatefile_after_gate_input_failure
+FAILED test_finalize_card.py::TestGapRoundFinalize::test_retry_rule_holds
+SUBFAILED(context='-U10') test_diff_ranges.py::TestHazards::test_suppress_blank_empty_context_is_context
+SUBFAILED(context='default') test_diff_ranges.py::TestHazards::test_suppress_blank_empty_context_is_context
+SUBFAILED(file='00-scope.md', line='Range source for 30-collect-score: `git diff $PHASE_START` (one diff, commit vs ') test_diff_ranges.py::TestRangeSourceLines::test_every_line_is_fully_flagged
+SUBFAILED(file='00-scope.md', line='Range source for 30-collect-score: `git diff HEAD` only (working-tree line numbe') test_diff_ranges.py::TestRangeSourceLines::test_every_line_is_fully_flagged
+SUBFAILED(file='05-state.md', line='Range source for 30-collect-score: `git diff $LAST_REVIEWED_SHA` (one diff, last') test_diff_ranges.py::TestRangeSourceLines::test_every_line_is_fully_flagged
+SUBFAILED(input='error') test_diff_ranges.py::TestRefusals::test_refuses_non_diff_text
+SUBFAILED(input='prose') test_diff_ranges.py::TestRefusals::test_refuses_non_diff_text
+SUBFAILED(input='stat') test_diff_ranges.py::TestRefusals::test_refuses_non_diff_text
+SUBFAILED(row='$LAST_REVIEWED_SHA', form='quoted, left unsubstituted') test_diff_ranges.py::TestProseRangeFence::test_unsubstituted_variable_halts_instead_of_narrowing
+SUBFAILED(row='$PHASE_START', form='quoted, left unsubstituted') test_diff_ranges.py::TestProseRangeFence::test_unsubstituted_variable_halts_instead_of_narrowing
+SUBFAILED[mutant: earlier attempt's GATEFILE may be reused] test_finalize_card.py::TestGapRoundFinalize::test_mutant_retry_rule
+SUBFAILED[mutant: rebuild does not re-mint GATEFILE] test_finalize_card.py::TestGapRoundFinalize::test_mutant_retry_rule
+28 failed, 14 passed, 159 deselected, 13 subtests passed in 2.33s
+
+$ pytest -p no:cacheprovider -v test_diff_ranges.py test_finalize_card.py -k "<the four controls>"
+test_diff_ranges.py::TestRefusals::test_binary_only_and_mode_only_diffs_are_empty PASSED
+test_diff_ranges.py::TestProseRangeFence::test_empty_diff_prints_empty_object PASSED
+test_finalize_card.py::TestFinalizeFreshShellWalk::test_malformed_gatefile_shows_only_stop_sentence PASSED
+test_finalize_card.py::TestFinalizeFreshShellWalk::test_retry_mints_new_blobfile_after_missing_path PASSED
+4 passed, 185 deselected, 3 subtests passed in 0.41s
+
+$ pytest -q -p no:cacheprovider test_diff_ranges.py test_finalize_card.py test_decision_continuity.py
+32 failed, 327 passed, 367 subtests passed in 12.75s
+```
+
+Every gap-round red fixture fails at `2f84d2e` (each V10, V11 and V12 fixture is in the list above), and all four controls pass there. Pre-fix, 60-06 (`test_diff_ranges.py` builder tests and M20-M22), 60-07 (`test_diff_ranges.py` prose and range-source tests) and 60-08 (`test_finalize_card.py` GATEFILE walk and locks) each have failing tests. The three-file run fails 32, against the 28 under the `-k` filter. A second worktree at `2f84d2e` (same recipe, removed and pruned afterwards; `git worktree list | grep -c pre60gap` printed `0`) itemised the 32 with `-rf`. They are the 28 above plus four more: `TestCli::test_colored_diff_exits_two_with_reason_only`, `TestHazards::test_hostile_repo_config_does_not_change_ranges` and `TestRefusals::test_reasons_are_fixed_text` (60-06), and `TestFinalizeFreshShellWalk::test_stale_earlier_attempt_file_does_not_govern` (60-08). Each of the four is listed as red in its plan's SUMMARY. Nothing in `test_decision_continuity.py` fails pre-fix, and no failure comes from outside the gap round's own additions.
+
+### Suite at gap-round close
+
+All runs are from `plugins/vibe-check/scripts` in the real checkout at HEAD `2093f88`.
+
+```
+$ pytest -q -p no:cacheprovider
+3786 passed, 4965 subtests passed in 174.70s (0:02:54)
+
+$ pytest -q -p no:cacheprovider test_replay.py
+64 passed, 10 subtests passed in 10.32s
+
+$ git diff --stat 2f84d2e HEAD -- plugins/vibe-check/scripts/replay.py plugins/vibe-check/scripts/test_replay.py plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/finalize_gate.py plugins/vibe-check/scripts/carry_state.py
+(empty)
+```
+
+- 0 failed.
+- **Replay deltas: none.** The gap round touched only `diff_ranges.py`, the review prose (`00-scope.md`, `05-state.md`, `30-collect-score.md`), `90-finalize.md` and three test files. `replay.py`, `score.py`, `finalize_gate.py` and `carry_state.py` are byte-identical to `2f84d2e`.
+
 ## Residuals
 
 None of these is fixed in Phase 60. Under D-10 the phase runs one bounded cycle, so no second review round is opened. None of them falls in the four qualifying classes (a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, a broken required workflow). Each is recorded with its rationale and the check that would reopen it.
@@ -375,4 +541,13 @@ None of these is fixed in Phase 60. Under D-10 the phase runs one bounded cycle,
 - **(R10) `--all` has no diff (V7).** It is an unsupported fixture, recorded by `TestRouteAll`. `--all` never gates on `in_diff` and never stamps `nearby_at`, because 05-state-all.md (ii) forces pass 1 with an empty carry-forward. Reopen only if `--all` starts to carry state forward.
 - **(R11) `replay.hunk_ranges` is intentionally context-inclusive and unchanged.** It reproduces the ranges archived B3 runs were scored with, is pinned by `TestReplayPin`, and Phase 61 GATE-02 depends on it. Do not change it.
 
-Silent keeps still open at close: none. MIXED-COORD was the one reproduced silent keep, and its probe passes at fb8b32b. The net-deletion boundary keep (V3) passes at 53fb637. The phase therefore closes on its own success criteria, with one named known limit: R6, the live PR fetch, which Phase 61 carries into the release record. No "reliability" claim beyond these tests is made.
+R12-R17 were added at the gap round (60-09). They cover the 60-REVIEW.md and 60-VERIFICATION.md items that the first close left out of this list. None is in the four qualifying classes, and none is fixed in the gap round.
+
+- **(R12) WR-05: Finalize temp files are never removed.** `BLOBFILE`, `GATEFILE` and `GATEFILE.err` stay under `$TMPDIR` after Finalize, and a retry leaves a second set. This is resource hygiene, not a functional break: each attempt mints fresh paths, and a stale file never governs a later attempt (`test_stale_earlier_attempt_file_does_not_govern`). Reopen if a run is shown to read or fill a stale temp file, or if `$TMPDIR` growth is ever observed to matter.
+- **(R13) IN-01: the commit-series (mbox) refusal recognises only SHA-1 `From <40-hex>` separators.** A SHA-256 repository's `--patch` series would not be refused by that check. SHA-256 repositories are not supported anywhere in the plugin, and the PR range source is `gh pr diff` (cumulative), not `--patch`. Reopen if SHA-256 repos come into scope.
+- **(R14) IN-02: `head_sha` from the state file becomes a git argument with no validation.** Since 60-07 it is substituted into a quoted placeholder (`"<last-reviewed-sha>"`), so an empty or garbled value makes git fail (exit 128) and the fence halts. A value that git can read as an option is not validated. This was not reproduced as a failure: the state file is written by `carry_state.py` from `git rev-parse`. Reopen with a reproduction of a hostile or corrupted `head_sha`.
+- **(R15) IN-03: the counts fence leaves its stderr uncaptured,** unlike the gate fence, which sends it to `<GATEFILE>.err`. When the counts helper refuses, the owner sees the helper's own fixed one-line refusal text and then the fence's stop sentence. No traceback is involved (`carry_state.py` refuses with fixed text). This is unchanged and not a functional break. Reopen if the counts helper is ever shown to emit a traceback to the owner.
+- **(R16) SA-01: the Write tool on a freshly minted, unread `mktemp` path.** It is not known whether the harness Write tool accepts a first write to the `BLOBFILE=` / `GATEFILE=` path that `mktemp` just created and the agent never Read. The same pattern is already used for ROWSFILE, SUGGESTFILE and REFSFILE. It cannot be exercised from pytest. It awaits the owner's live check (60-VERIFICATION human item 1). If the write is refused, both the attempt and its one retry fail at the same step.
+- **(R17) SA-02: the PR range source fails closed on PRs above GitHub's diff limits** (about 300+ files or 20k+ lines). `gh pr diff` errors, and the fence halts through `pipefail`. The reviewer judged this intended behaviour, not a defect. It awaits the owner's ruling on accepted limit vs fallback (60-VERIFICATION human item 2).
+
+Silent keeps still open at close: none. MIXED-COORD was the one reproduced silent keep of the first cycle, and its probe passes at fb8b32b. The net-deletion boundary keep (V3) passes at 53fb637. The gap round's silent keep, GSD-SHELL-VAR (V10, the committed change dropped from the GSD/pass-2+ ranges in a fresh shell), is closed at 2a63cb5. CONFIG-ALTERED-DIFF (V11) is closed at b878870 + 2a63cb5, and GATEFILE-RETRY (V12) at c0ece7e. EVID-03 and FINL-02 await re-verification after this gap round, and this file makes no claim about their status. The known limits named here are R6 (the live PR fetch, which Phase 61 carries into the release record) and the two owner rulings R16 and R17. No "reliability" claim beyond these tests is made.
