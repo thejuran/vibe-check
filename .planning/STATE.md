@@ -3,10 +3,11 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: planning
-last_updated: "2026-10-29T00:22:42.507Z"
+stopped_at: "Roadmap written (Phases 59–61); awaiting owner approval, then /bm:discuss-phase 59"
+last_updated: "2026-10-29T00:28:16Z"
 last_activity: 2026-10-29
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,19 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** v2.14 Decision reliability — defining requirements and roadmap (Lean orchestration follows; Reviewer efficiency conditional)
+**Current focus:** v2.14 Decision reliability — Phase 59 (stale decisions and lost deferrals) next; Phases 60–61 follow (Lean orchestration after release; Reviewer efficiency conditional)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 59 (Stale decisions and lost deferrals) — not started, planning
 Plan: —
-Status: Defining requirements
-Last activity: 2026-10-29 — Milestone v2.14 started
+Status: Roadmap written; Phase 59 ready to discuss
+Last activity: 2026-10-29 — v2.14 roadmap written (Phases 59–61, 16/16 requirements mapped)
 
 ## Operator Next Steps
 
-- v2.14 Decision reliability activated 2026-10-28 on branch `feat/v2.14-phase-59`; finish requirements + roadmap, then `/bm:discuss-phase 59`.
-- Start with current-code real-chain reproductions of 999.23; then exact diff evidence and Finalize path recovery (999.24–999.25).
+- v2.14 roadmap written (Phases 59–61) on branch `feat/v2.14-phase-59`; after owner approval, `/bm:discuss-phase 59`.
+- Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
 ## Deferred Items
@@ -52,7 +53,7 @@ Carried from earlier:
 
 | Kind | Item | Status |
 |------|------|--------|
-| Next milestone | 999.23–999.25 v2.13 known limits | Decision reliability; not activated; reproduce first |
+| Active milestone | 999.23–999.25 v2.13 known limits | v2.14 Phases 59 (999.23) and 60 (999.24–999.25); reproduce first |
 | Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
 | Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
 | Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
@@ -63,7 +64,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- No milestone is active. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.14 Decision reliability is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -71,13 +72,15 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): no active milestone; Decision reliability (999.23–999.25) → Lean orchestration (999.12 plus Finalize extraction) → conditional Reviewer efficiency; 999.26 deferred.
+- [Roadmap](ROADMAP.md): v2.14 Decision reliability active, Phases 59–61 (999.23–999.25) → Lean orchestration (999.12 plus Finalize extraction) → conditional Reviewer efficiency; 999.26 deferred.
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-28: v2.14 roadmap written: Phase 59 Stale decisions and lost deferrals (STALE-01..06, DEFR-01..02), Phase 60 Exact change evidence and reliable Finalize (EVID-01..03, FINL-01..02), Phase 61 Release gate (GATE-01..03). 16/16 mapped (REQUIREMENTS.md said 18; corrected — 16 IDs are defined). Awaiting owner approval; uncommitted.
 
 2026-10-28: Activated v2.14 Decision reliability via /bm:new-milestone (research skipped; scope = approved roadmap split). Branch feat/v2.14-phase-59 from main f2b6a36.
 

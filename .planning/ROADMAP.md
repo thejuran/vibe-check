@@ -1,32 +1,89 @@
 # Roadmap: vibe-check
 
-Updated 2026-10-28 (v2.13 shipped as 2.13.0; no active milestone — Decision reliability is next, followed by Lean orchestration and conditional Reviewer efficiency; none activated). Lower-value work stays archived. Each future phase begins by reproducing its failure on current code; a path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-10-28 (v2.14 Decision reliability active: Phases 59–61 mapped to its 16 requirements; Lean orchestration follows, Reviewer efficiency stays conditional; neither activated). Lower-value work stays archived. Each future phase begins by reproducing its failure on current code; a path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
 - ✅ v2.11 Quiet loop -- Phases 45–50 (2.11.0 and 2.11.1 shipped 2026-10-08)
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
 - ✅ v2.13 Reliable fix closure and recovery -- Phases 56–58 (shipped 2026-10-28 as 2.13.0; known limits in backlog 999.23–999.26) — [archive](milestones/v2.13-ROADMAP.md)
+- 🚧 v2.14 Decision reliability -- Phases 59–61 (in progress)
 
-No active milestone. The milestone sequence is scoped below; backlog records remain the evidence ledger until activation.
+Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestration and Reviewer efficiency are scoped below; backlog records remain the evidence ledger.
 
-## Next milestone: Decision reliability
+### 🚧 v2.14 Decision reliability (Phases 59–61, in progress)
 
 **Goal:** Close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy.
 
-**Status:** Prioritized on 2026-10-28; not activated. Version, phase numbers and requirements are assigned at activation. This is a bounded follow-up on 999.23–999.25, not a reopening of v2.13 or Phase 57's exhausted gap-closure rounds.
+- [ ] **Phase 59: Stale decisions and lost deferrals** - Reproduce CR-01/CR-02/CR-04 and the deferred-member loss on the real chain, then reopen changed decisions with the right reason and keep deferred obligations visible (999.23)
+- [ ] **Phase 60: Exact change evidence and reliable Finalize** - Nearby/in-diff ranges come from actual added/deleted lines on every route, and Finalize's blob-file path survives fresh Bash calls (999.24, 999.25)
+- [ ] **Phase 61: Release gate — decision reliability** - Regressions, offline suite, archived replay and mode/recovery checks pass on the candidate; residuals and validation gaps are stated; ship through the existing close workflow
 
-**Sequence:** Stale decisions are the main priority. The small Finalize path repair may land early; exact diff evidence supports the decision fixes. Release this milestone independently of cost attribution, refactoring or reviewer experiments. Estimated size: medium–large, with uncertainty concentrated in shared decision identity and evidence pooling.
+**Status:** Activated 2026-10-28 as v2.14 (scope owner-approved the same day; requirements STALE, DEFR, EVID, FINL, GATE in REQUIREMENTS.md). This is a bounded follow-up on 999.23–999.25, not a reopening of v2.13 or Phase 57's exhausted gap-closure rounds.
 
-1. [ ] **P0 — Stale decisions and lost deferrals (999.23).** Reproduce CR-01, CR-02 and CR-04 against current code through the real score → carry → card → finalize chain: identical sub-threshold copies, absorbed-member sidecars, and a removed guard beside a covered member. Include the valid `min_confidence=45` deferred-member loss. Pool evidence consistently by obligation/hash at the read boundary; do not fix only the latest representative row. Preserve deliberate dismissals when their evidence is unchanged. Investigate the unreproduced SA-02 reviewed-set case once; record and drop it if it does not reproduce. **Done when:** every reproduced wrong-keep reopens with the correct reason, deferred obligations survive filtering, unchanged/unrelated edits preserve decisions, and ordering/lead/split/merge permutations give the same result. Each fix has a failing-before/passing-after real-chain fixture and a mutation check. Stop after one bounded implementation/review cycle if the shared cause is still unresolved; record residuals and re-scope rather than silently repeat four gap rounds. Unresolved silent keeps block a reliability-complete claim.
+**Sequence:** Stale decisions are the main priority (Phase 59). Exact diff evidence supports the decision fixes, and the small Finalize path repair rides with it (Phase 60). Release this milestone independently of cost attribution, refactoring or reviewer experiments (Phase 61). Estimated size: medium–large, with uncertainty concentrated in shared decision identity and evidence pooling.
 
-2. [ ] **P1 — Exact change evidence and reliable Finalize (999.24, 999.25).** Build evidence ranges from actual additions/deletions, independently of human-readable diff context; test ordinary, deletion-only and insertion hunks, including relocated findings. Make Finalize's blob-file path explicit across fresh Bash calls using the established printed-path convention before broader extraction. **Done when:** edits at the intended five-line boundary reopen and edits outside it do not; default, GSD, range, PR and `--all` routes use correct evidence or explicitly report an unsupported fixture. A fresh-shell fence walk reaches counts/gate/report with a valid path and safely handles refusal/retry. Preserve snapshot freshness and no-write-on-failure behavior; do not weaken independent fix verification.
+**One-cycle stop rule:** Phase 59 stops after one bounded implementation/review cycle if the shared cause is still unresolved; record residuals and re-scope rather than silently repeat four gap rounds. Unresolved silent keeps block a reliability-complete claim.
 
-3. [ ] **Release gate — decision reliability.** Run targeted real-chain regressions, the full applicable offline suite, archived replay and mode/recovery integration checks against the candidate. Allow replay differences only for named, expected reopening/retention repairs; unrelated detection, filtering or closure changes block release. **Done when:** accepted-scope silent keeps and lost deferrals are resolved, independent fix verification and git/state protections remain intact, unchanged decisions stay stable, and fresh-shell Finalize succeeds or refuses safely. Report unsupported fixtures and residuals explicitly. Any required live checks need a bounded approved proposal; if unavailable, document the validation gap and obtain a release waiver rather than claim end-to-end model quality. Release through the existing milestone close workflow; do not wait for Lean orchestration.
+**No growth per round (owner, 2026-10-28):** a new review, gap or fix round is not a reason to add points to a task, plan, success criterion or acceptance list. A round may add work only for a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, or broken required workflow — with the reproduction cited. Everything else is carried with its rationale.
 
-**Out of scope:** Cost reporting, orchestration extraction, reviewer/model changes, scoring-formula changes and 999.26 title matching. The safe clarification behavior remains. A non-reproducing historical lead is documented and dropped; the one-cycle stopping rule in item 1 prevents another open-ended repair campaign.
+**Out of scope:** Cost reporting, orchestration extraction, reviewer/model changes, scoring-formula changes and 999.26 title matching. The safe clarification behavior remains. A non-reproducing historical lead is documented and dropped; the one-cycle stopping rule prevents another open-ended repair campaign.
 
-**Next action:** Activate Decision reliability with `$gsd-new-milestone`, assign version/phase IDs and requirements, then plan current-code reproductions of 999.23. This roadmap edit does not start implementation or paid runs.
+**Next action:** `/bm:discuss-phase 59` on branch `feat/v2.14-phase-59`. This roadmap does not authorize paid runs.
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 59. Stale decisions and lost deferrals | 0/TBD | Not started | - |
+| 60. Exact change evidence and reliable Finalize | 0/TBD | Not started | - |
+| 61. Release gate — decision reliability | 0/TBD | Not started | - |
+
+## Phase Details
+
+### Phase 59: Stale decisions and lost deferrals
+
+**Goal**: A decided finding whose evidence changed is asked again with the correct reason, a deliberate decision whose evidence did not change stays decided, and a deferred obligation never disappears without a card (999.23)
+**Depends on**: Nothing in v2.14 (first phase). Builds on Phase 57's shipped decision continuity (carried-by-hash index, `deferred_hashes`); do not rebuild it
+**Requirements**: STALE-01, STALE-02, STALE-03, STALE-04, STALE-05, STALE-06, DEFR-01, DEFR-02
+**Approved scope** (owner, 2026-10-28): Reproduce CR-01, CR-02 and CR-04 against current code through the real score → carry → card → finalize chain: identical sub-threshold copies, absorbed-member sidecars, and a removed guard beside a covered member. Include the valid `min_confidence=45` deferred-member loss. Pool evidence consistently by obligation/hash at the read boundary; do not fix only the latest representative row. Preserve deliberate dismissals when their evidence is unchanged. Investigate the unreproduced SA-02 reviewed-set case once; record and drop it if it does not reproduce. Each fix has a failing-before/passing-after real-chain fixture and a mutation check.
+**Success Criteria** (what must be TRUE):
+
+  1. Before any fix lands, CR-01, CR-02, CR-04, the `min_confidence=45` deferred-member loss and SA-02 each have a recorded verdict on current code — a failing real-chain fixture, or a "did not reproduce; dropped" note (SA-02 gets one attempt)
+  2. For every reproduced wrong-keep shape, the next run re-asks the decided finding and the card states the correct reopen reason; the result is the same whichever row is the representative and under reordering, lead change, split or merge
+  3. A deliberate dismiss/defer stays decided and is not re-asked when an edit leaves its existing decision-evidence fingerprint unchanged; the agreed five-line invalidation rule is preserved as-is (no new semantic "related/unrelated" classification)
+  4. A deferred covered member removed by a valid `min_confidence` (45) — and the SA-02 `--all` case if it reproduced — stays visible as an open deferred obligation instead of disappearing without a card
+  5. The phase ends after one bounded implementation/review cycle; any unresolved silent keep is recorded as a residual and blocks a "reliability complete" claim rather than starting another repair round
+
+**Plans**: TBD
+
+### Phase 60: Exact change evidence and reliable Finalize
+
+**Goal**: The nearby window is exactly what the decision rules say on every review route, and Finalize either completes from a fresh shell or stops safely without writing (999.24, 999.25)
+**Depends on**: Phase 59 (same score → carry → card chain; one branch/PR per phase from `main`)
+**Requirements**: EVID-01, EVID-02, EVID-03, FINL-01, FINL-02
+**Approved scope** (owner, 2026-10-28): Build evidence ranges from actual additions/deletions, independently of human-readable diff context; test ordinary, deletion-only and insertion hunks, including relocated findings. Make Finalize's blob-file path explicit across fresh Bash calls using the established printed-path convention before broader extraction. Preserve snapshot freshness and no-write-on-failure behavior; do not weaken independent fix verification.
+**Success Criteria** (what must be TRUE):
+
+  1. An edit at the intended five-line boundary reopens a decision and an edit just outside it does not, because ranges come only from added/deleted lines, not display context
+  2. Fixtures that run a real `git diff` produce correct ranges for ordinary, deletion-only and insertion hunks and for relocated findings
+  3. Default, GSD, range, PR and `--all` routes each use the exact ranges or explicitly report an unsupported fixture, and nothing else in the pipeline still assumes three lines of context
+  4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
+  5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
+
+**Plans**: TBD
+
+### Phase 61: Release gate — decision reliability
+
+**Goal**: The release candidate is proven against the accepted scope with nothing unrelated changed, its limits are stated plainly, and it ships through the existing close workflow without waiting for Lean orchestration
+**Depends on**: Phase 60
+**Requirements**: GATE-01, GATE-02, GATE-03
+**Approved scope** (owner, 2026-10-28): Run targeted real-chain regressions, the full applicable offline suite, archived replay and mode/recovery integration checks against the candidate. Allow replay differences only for named, expected reopening/retention repairs. Any required live checks need a bounded approved proposal; if unavailable, document the validation gap and obtain a release waiver rather than claim end-to-end model quality.
+**Success Criteria** (what must be TRUE):
+
+  1. On the release candidate, the targeted real-chain regressions, the full offline suite and the mode/recovery integration checks pass
+  2. Archived replay differs only in the named, expected reopen/retention repairs; any unrelated change in detection, filtering or closure blocks release
+  3. The release record states unsupported fixtures, residuals and any validation gap explicitly; live checks ran only under an approved bounded proposal, otherwise the gap is documented with an owner waiver, and the milestone ships through the existing close workflow
+
+**Plans**: TBD
 
 ## Following milestone: Lean orchestration
 
@@ -75,15 +132,15 @@ Phase 57 closed under the owner's D-19 hard stop with these reproduced defects c
 - **Over-ask to align under D-21:** an edit beside a NEW identical copy re-asks the decided copy at pass 3 (test_p4 locks the old behaviour); round-4 WR-01: a member that joined a deferred row after the deferral is kept open at the deferred row's band.
 - **Deferral loss (D-20 edges):** min_confidence (valid 1–49; repro must use ≤49, e.g. 45) removing a deferred covered member drops it without a card; SA-02 `--all` `not-in-reviewed-set` drop (not reproduced — reproduce first).
 
-Root-cause direction (from the review): pool `carried_by_hash` into `_kept_open_rows` and the member-sidecar path, and make carry_state's per-hash read merge records instead of keeping the first. Reproduce first; each fix needs a real-chain fixture and a mutant. Prioritized in Decision reliability item 1; not yet activated. Retain this record and its original evidence.
+Root-cause direction (from the review): pool `carried_by_hash` into `_kept_open_rows` and the member-sidecar path, and make carry_state's per-hash read merge records instead of keeping the first. Reproduce first; each fix needs a real-chain fixture and a mutant. Scheduled as v2.14 Phase 59 (Decision reliability); active. Retain this record and its original evidence.
 
 ### 999.24: Diff context widens the nearby window (Phase 57 SC-3 minor gap)
 
-`changed_line_ranges` are built from default-context diffs (`git diff`, `gh pr diff --patch`; 3 context lines), not `-U0`. So the effective nearby/in_diff window is ~8 lines instead of 5, and 30-collect-score.md's deletion-hunk rule never fires on real diffs. Fails toward asking (over-asks; never a silent keep); predates Phase 57. Acceptance (from `.planning/milestones/v2.13-phases/57-decision-continuity-within-closure/deferred-items.md`): (a) use `-U0` for every range-building diff, or build ranges from `+`/`-` markers; (b) check nothing else assumes 3-line context; (c) an end-to-end fixture that runs a real `git diff` through the documented hunk rule. Prioritized in Decision reliability item 2; not yet activated.
+`changed_line_ranges` are built from default-context diffs (`git diff`, `gh pr diff --patch`; 3 context lines), not `-U0`. So the effective nearby/in_diff window is ~8 lines instead of 5, and 30-collect-score.md's deletion-hunk rule never fires on real diffs. Fails toward asking (over-asks; never a silent keep); predates Phase 57. Acceptance (from `.planning/milestones/v2.13-phases/57-decision-continuity-within-closure/deferred-items.md`): (a) use `-U0` for every range-building diff, or build ranges from `+`/`-` markers; (b) check nothing else assumes 3-line context; (c) an end-to-end fixture that runs a real `git diff` through the documented hunk rule. Scheduled as v2.14 Phase 60 (Decision reliability); active.
 
 ### 999.25: Finalize `$BLOBFILE` relies on a shell variable across Bash calls (Phase 58 D-22)
 
-`90-finalize.md` builds `$BLOBFILE` in one fence and reuses it as `"$BLOBFILE"` in later fences without printing its path. Shell variables do not survive between Bash calls in Claude Code, so the counts/gate step can see an empty path. Fails safe: Finalize stops and writes nothing. It predates Phase 58; found by the 58-REVIEW-GAPS.md re-review. Fix: bring it under the printed-path rule Phase 58 applied to every other temp file (print `BLOBFILE=<path>`, reuse the literal), with a fence-walk test in a fresh shell and a mutant. Part of the remaining 999.13 reconciliation. Prioritized in Decision reliability item 2; not yet activated.
+`90-finalize.md` builds `$BLOBFILE` in one fence and reuses it as `"$BLOBFILE"` in later fences without printing its path. Shell variables do not survive between Bash calls in Claude Code, so the counts/gate step can see an empty path. Fails safe: Finalize stops and writes nothing. It predates Phase 58; found by the 58-REVIEW-GAPS.md re-review. Fix: bring it under the printed-path rule Phase 58 applied to every other temp file (print `BLOBFILE=<path>`, reuse the literal), with a fence-walk test in a fresh shell and a mutant. Part of the remaining 999.13 reconciliation. Scheduled as v2.14 Phase 60 (Decision reliability); active.
 
 ### 999.26: Plain-English title references: wordier phrasings ask (Phase 58 D-23 known limits)
 
@@ -97,7 +154,7 @@ Finish with a go/no-go recommendation for the smallest useful reporting change. 
 
 ## Planning boundaries
 
-- No milestone is active. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- v2.14 Decision reliability is the only active milestone. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.

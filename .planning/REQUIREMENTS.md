@@ -16,7 +16,7 @@
 - [ ] **STALE-01**: Each wrong-keep shape — CR-01 (identical sub-threshold copies), CR-02 (absorbed-member sidecars), CR-04 (a removed guard beside a covered member) — is reproduced on current code as a failing real-chain fixture before any fix; a shape that does not reproduce is recorded and dropped
 - [ ] **STALE-02**: A decided finding whose evidence changed is asked again on the next run, and the card states the correct reopen reason, for every reproduced shape
 - [ ] **STALE-03**: Evidence for a finding is pooled consistently by obligation/hash wherever it is read, so the outcome does not depend on which row happens to be the representative
-- [ ] **STALE-04**: A deliberate dismiss/defer whose evidence is unchanged, or whose only nearby edits are unrelated, stays decided and is not re-asked
+- [ ] **STALE-04**: A deliberate dismiss/defer stays decided and is not re-asked when an edit leaves its existing decision-evidence fingerprint unchanged; the agreed five-line invalidation rule is preserved as-is (no new semantic "related/unrelated" classification)
 - [ ] **STALE-05**: Reordering rows, changing the lead, or splitting/merging groups gives the same reopen/keep result
 - [ ] **STALE-06**: The work stops after one bounded implementation and review cycle; any unresolved silent keep is recorded as a residual and blocks a "reliability complete" claim instead of starting another repair round
 
@@ -34,7 +34,7 @@
 ### Reliable Finalize (FINL) — 999.25
 
 - [ ] **FINL-01**: Finalize's blob-file path is printed and reused literally, so a fresh-shell walk through every fence reaches counts → gate → report with a valid path
-- [ ] **FINL-02**: When the path is missing or a step is refused or retried, Finalize stops safely and writes nothing, keeping snapshot freshness and the no-write-on-failure behavior; independent fix verification is not weakened
+- [ ] **FINL-02**: When the path is missing or a step fails or is refused, that attempt stops safely and writes no final report; a later successful retry may complete after revalidating snapshot freshness. The no-write-on-failure behavior and independent fix verification are not weakened
 
 ### Release gate (GATE)
 
@@ -66,11 +66,28 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| STALE-01 | Phase 59 | Pending |
+| STALE-02 | Phase 59 | Pending |
+| STALE-03 | Phase 59 | Pending |
+| STALE-04 | Phase 59 | Pending |
+| STALE-05 | Phase 59 | Pending |
+| STALE-06 | Phase 59 | Pending |
+| DEFR-01 | Phase 59 | Pending |
+| DEFR-02 | Phase 59 | Pending |
+| EVID-01 | Phase 60 | Pending |
+| EVID-02 | Phase 60 | Pending |
+| EVID-03 | Phase 60 | Pending |
+| FINL-01 | Phase 60 | Pending |
+| FINL-02 | Phase 60 | Pending |
+| GATE-01 | Phase 61 | Pending |
+| GATE-02 | Phase 61 | Pending |
+| GATE-03 | Phase 61 | Pending |
 
 **Coverage:**
-- v2.14 requirements: 18 total
-- Mapped to phases: 0 (filled by roadmap)
+- v2.14 requirements: 16 total (header count corrected from 18 at roadmap creation; 6 STALE + 2 DEFR + 3 EVID + 2 FINL + 3 GATE)
+- Mapped to phases: 16
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-28*
-*Last updated: 2026-10-28 after initial definition*
+*Last updated: 2026-10-28 after roadmap creation (Phases 59–61)*

@@ -96,7 +96,7 @@ Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-
 
 ## Current State: v2.13 shipped (2026-10-28)
 
-**v2.13 shipped as plugin 2.13.0** (tag `v2.13`; one squash PR per phase into main, then a release PR). Reliable fix closure and recovery: an independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation (the six-row case incl. Codex-origin and tests-only fixes closes with no dismissal); owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence; "Fix all" names what it skips; inconclusive re-checks print per-reason recovery steps; clear plain-English card answers are acted on. Not B3-measured — v2.11 (5/18 · 15/15, MISS) remains the last measured result. Known limits in backlog 999.23–999.26. Next milestone: Decision reliability, then Lean orchestration; Reviewer efficiency conditional. None activated.
+**v2.13 shipped as plugin 2.13.0** (tag `v2.13`; one squash PR per phase into main, then a release PR). Reliable fix closure and recovery: an independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation (the six-row case incl. Codex-origin and tests-only fixes closes with no dismissal); owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence; "Fix all" names what it skips; inconclusive re-checks print per-reason recovery steps; clear plain-English card answers are acted on. Not B3-measured — v2.11 (5/18 · 15/15, MISS) remains the last measured result. Known limits in backlog 999.23–999.26. Current milestone: v2.14 Decision reliability (Phases 59–61); Lean orchestration follows; Reviewer efficiency conditional.
 
 ### Earlier: v2.12 shipped (2026-10-17)
 
