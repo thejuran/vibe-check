@@ -2,14 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: planning
-stopped_at: "Phase 59 context gathered (59-CONTEXT.md); next /bm:plan-phase 59"
-last_updated: "2026-10-29T00:36:12Z"
-last_activity: 2026-10-29
+status: ready_to_execute
+last_updated: "2026-10-29T01:21:09.000Z"
+last_activity: 2026-10-29 — Phase 59 planned: 6 plans in 6 sequential waves (research, pattern map, plan-checker PASSED with 3 non-blocking warnings)
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
@@ -25,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 ## Current Position
 
-Phase: 59 (Stale decisions and lost deferrals) — not started, planning
-Plan: —
-Status: Context gathered; Phase 59 ready to plan
-Last activity: 2026-10-29 — Phase 59 context gathered (D-01..D-09; .planning/phases/59-stale-decisions-and-lost-deferrals/59-CONTEXT.md)
+Phase: 59 (Stale decisions and lost deferrals) — planned, not started
+Plan: 0 of 6
+Status: Ready to execute
+Last activity: 2026-10-29 — Phase 59 planned: 6 plans in 6 sequential waves (research, pattern map, plan-checker PASSED with 3 non-blocking warnings)
 
 ## Operator Next Steps
 
-- Phase 59 context gathered on branch `feat/v2.14-phase-59`; next `/bm:plan-phase 59`.
+- Phase 59 planned on branch `feat/v2.14-phase-59` (59-01..59-06, sequential); next `/bm:execute-phase 59`. Per D-08: one code-review + verify-work after execution, one fix pass, no second round.
 - Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 

@@ -56,11 +56,28 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 **Plans**: 6 plans (6 sequential waves — every plan touches test_decision_continuity.py)
 
 Plans:
+**Wave 1**
+
 - [ ] 59-01-PLAN.md — Red real-chain fixtures for CR-01 (edit@33 + multi-pass), CR-02, CR-04, DEFR-01@45; SA-02 prose pin; REPRO_59; 59-REPRO.md ledger (no production edits)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 59-02-PLAN.md — score.py producers: kept-open pooling over carried_by_hash + per-occurrence rows (CR-01); row_nearby over carried copies + covered members (CR-04, D-21); p4 rewrite; mutants re-anchored
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 59-03-PLAN.md — DEFR-01 D-20 synthesis on the min_confidence branch (numbered reason); carry_state `_merge_nearby` read-side merge (CR-02); mutants
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 59-04-PLAN.md — Spot data: `nearby_spots` on snapshots (score.py), read-time copy spot + `carry_state.stale_spots` reader
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 59-05-PLAN.md — Card wording D-04/D-05/D-06 in batch_card + both prose files + prose-lock and real-chain card tests
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 59-06-PLAN.md — STALE-05 invariance scenarios; full suite + replay + reverse run; ledger green SHAs; residuals (D-02/D-03/D-07/D-09) to 59-REPRO.md and 999.23
 
 ### Phase 60: Exact change evidence and reliable Finalize
