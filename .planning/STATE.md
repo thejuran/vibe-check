@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.13
-milestone_name: Reliable fix closure and recovery
-status: Awaiting next milestone
-stopped_at: "v2.13 shipped as 2.13.0 (2026-10-28) — next: /bm:new-milestone"
-last_updated: "2026-10-28T20:00:00.000Z"
-last_activity: 2026-10-28 — Milestone v2.13 completed and archived
+milestone: v2.14
+milestone_name: Decision reliability
+status: planning
+last_updated: "2026-10-29T00:22:42.507Z"
+last_activity: 2026-10-29
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 52
-  completed_plans: 52
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,18 +20,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Planning the next milestone (not yet scoped)
+**Current focus:** v2.14 Decision reliability — defining requirements and roadmap (Lean orchestration follows; Reviewer efficiency conditional)
 
 ## Current Position
 
-Phase: Milestone v2.13 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-10-28 — v2.13 completed, archived and released as 2.13.0
+Status: Defining requirements
+Last activity: 2026-10-29 — Milestone v2.14 started
 
 ## Operator Next Steps
 
-- Start the next milestone with `/bm:new-milestone`. Candidates: backlog 999.23–999.26 (v2.13 known limits) and 999.12 (cost visibility feasibility, separate task).
+- v2.14 Decision reliability activated 2026-10-28 on branch `feat/v2.14-phase-59`; finish requirements + roadmap, then `/bm:discuss-phase 59`.
+- Start with current-code real-chain reproductions of 999.23; then exact diff evidence and Finalize path recovery (999.24–999.25).
+- Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
 ## Deferred Items
 
@@ -51,8 +52,10 @@ Carried from earlier:
 
 | Kind | Item | Status |
 |------|------|--------|
-| Backlog | 999.23–999.26 v2.13 known limits | Not scheduled; reproduce first |
-| Separate task | 999.12 cost visibility feasibility | Bounded local investigation |
+| Next milestone | 999.23–999.25 v2.13 known limits | Decision reliability; not activated; reproduce first |
+| Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
+| Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
+| Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
 | Archived | Broad duplicate reduction and reviewed-set behavior | Reopen on a current-version fixture outside closure scope |
 | Archived | 999.2 deterministic secret integration | Reopen on a concrete gap unmet by an existing scanner workflow |
 | Deferred | Phase 55 measurement and cancelled Phase 54 sweeps | No automatic restart; v2.12 outcome remains UNMET |
@@ -68,13 +71,19 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): no active milestone; backlog 999.12, 999.23–999.26.
+- [Roadmap](ROADMAP.md): no active milestone; Decision reliability (999.23–999.25) → Lean orchestration (999.12 plus Finalize extraction) → conditional Reviewer efficiency; 999.26 deferred.
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-28: Activated v2.14 Decision reliability via /bm:new-milestone (research skipped; scope = approved roadmap split). Branch feat/v2.14-phase-59 from main f2b6a36.
+
+2026-10-28: Owner approved splitting the proposed combined milestone: Decision reliability first, Lean orchestration next, Reviewer efficiency as a conditional follow-up. Each owns its release gate; cost/experiments cannot delay reliability. Lean orchestration starts with Finalize and permits at most one evidence-backed extension. No activation, version/phase assignment, runtime changes or paid runs.
+
+2026-10-28: Owner requested a prioritized reliability-and-cost release plan. Added the next-milestone scope to ROADMAP.md without activation or phase/version assignment: stale decisions → exact evidence/Finalize → bounded baseline → incremental orchestration extraction → optional measured efficiency experiments → release gates. Preserved shipped milestones, paid-run boundaries, archived work and the existing HANDOFF.json modification.
 
 2026-10-28: v2.13 closed. Audit tech_debt (14/14, integration 6/6, suite 3588/0). Six open artifacts acknowledged as deferred. Phase dirs moved to milestones/v2.13-phases/. Released as 2.13.0 via a release PR from feat/v2.13-release; tag v2.13. Next: /bm:new-milestone.
 
