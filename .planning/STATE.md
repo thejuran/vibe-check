@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: "Phase 60 verifying — all 5 plans executed, not merged"
-last_updated: "2026-10-29T21:30:00.000Z"
-last_activity: 2026-10-29 -- 60-05 complete (cycle closed; reverse run red at ce9f8b8, suite 3765 passed, replay no deltas; EVID-01..03 + FINL-01..02 complete)
+status: "Phase 60 verification gaps_found — 3 blocking gaps; gap closure next"
+last_updated: "2026-10-29T23:30:00.000Z"
+last_activity: 2026-10-29 -- Phase 60 verified gaps_found (3/6; 3 blocking gaps; code review 0C/6W/3I)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 11
   completed_plans: 11
   percent: 33
-stopped_at: "Completed 60-05-PLAN.md — Phase 60 executed (5/5); next phase verification, then PR for feat/v2.14-phase-60"
+stopped_at: "Phase 60 verification gaps_found (3 blocking: GSD/incremental range-source shell variable, git-config-altered diffs, Finalize retry does not rebuild GATEFILE) — next /bm:plan-phase 60 --gaps"
 ---
 
 # Project State

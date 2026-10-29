@@ -29,12 +29,12 @@
 
 - [x] **EVID-01**: Nearby/in-diff ranges come only from lines actually added or deleted, not the surrounding display context, so an edit at the intended five-line boundary reopens a decision and an edit outside it does not
 - [x] **EVID-02**: Ordinary, deletion-only and insertion hunks, and relocated findings, each produce correct ranges under a fixture that runs a real `git diff`
-- [x] **EVID-03**: Default, GSD, range, PR and `--all` routes each use the exact ranges or explicitly report an unsupported fixture, and nothing else in the pipeline still assumes three lines of context
+- [ ] **EVID-03**: Default, GSD, range, PR and `--all` routes each use the exact ranges or explicitly report an unsupported fixture, and nothing else in the pipeline still assumes three lines of context
 
 ### Reliable Finalize (FINL) — 999.25
 
 - [x] **FINL-01**: Finalize's blob-file path is printed and reused literally, so a fresh-shell walk through every fence reaches counts → gate → report with a valid path
-- [x] **FINL-02**: When the path is missing or a step fails or is refused, that attempt stops safely and writes no final report; a later successful retry may complete after revalidating snapshot freshness. The no-write-on-failure behavior and independent fix verification are not weakened
+- [ ] **FINL-02**: When the path is missing or a step fails or is refused, that attempt stops safely and writes no final report; a later successful retry may complete after revalidating snapshot freshness. The no-write-on-failure behavior and independent fix verification are not weakened
 
 ### Release gate (GATE)
 
@@ -76,9 +76,9 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 | DEFR-02 | Phase 59 | Complete |
 | EVID-01 | Phase 60 | Complete |
 | EVID-02 | Phase 60 | Complete |
-| EVID-03 | Phase 60 | Complete (known limit: live `gh pr diff` fetch not exercised, D-05; PR route proven on a checked-in real capture) |
+| EVID-03 | Phase 60 | Gaps found (60-VERIFICATION: GSD/incremental range source does not survive a fresh shell; git-config-altered diffs halt or fail open) |
 | FINL-01 | Phase 60 | Complete |
-| FINL-02 | Phase 60 | Complete |
+| FINL-02 | Phase 60 | Gaps found (60-VERIFICATION: Finalize retry never rebuilds GATEFILE) |
 | GATE-01 | Phase 61 | Pending |
 | GATE-02 | Phase 61 | Pending |
 | GATE-03 | Phase 61 | Pending |
@@ -90,4 +90,4 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 
 ---
 *Requirements defined: 2026-10-28*
-*Last updated: 2026-10-29 after Phase 60 close (EVID-01..03, FINL-01..02 complete; EVID-03 known limit D-05)*
+*Last updated: 2026-10-29 after Phase 60 verification (gaps_found: EVID-03, FINL-02 reopened; EVID-01, EVID-02, FINL-01 complete)*
