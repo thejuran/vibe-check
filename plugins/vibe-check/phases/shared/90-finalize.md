@@ -3,14 +3,23 @@
 > **Lazy-loaded.** Read from the command spine when Phase 0 printed `FINALIZE_MODE=1` (`--finalize` as a whole token), after Phase 0 and Phase 0.5 (and the unconditional Phase 0.6) have run. Never read on a review pass.
 > Shared: `/review` and `/deep-review` finalize through this one file.
 
-**Who owns what.** `scripts/finalize_gate.py` decides which way finalize goes: write, open the finalize card (`outstanding-to-phase-5` for undecided critical/warning or undecided Needs-verification items, `medium-ack-loop` for undecided medium — both enter the same ONE card), fall back, error, or refuse. This file computes the gate's inputs, renders every message, and writes REVIEW.md. The gate never produces REVIEW.md content and never prints a finding.
+**Who owns what.** `scripts/finalize_gate.py` decides which way finalize goes: write, open the finalize card (`outstanding-to-phase-5` for undecided critical/warning or undecided Needs-verification items, `medium-ack-loop` for undecided medium — both enter the same ONE card), fall back, error, or refuse. This file computes the gate's inputs and writes them to a printed file the gate reads, renders every message, and writes REVIEW.md. The gate never produces REVIEW.md content and never prints a finding.
 
 ## Finalize mode
 
 If Phase 0 printed `FINALIZE_MODE=1`:
 - Run Phase 0 and 0.5 to resolve scope and read state. Do NOT dispatch agents. Phase 0.5 binds `$STATE_FILE` to the Phase-53 location `statepath.py`'s `current_path` resolves — `.turingmind/state/format-53/` + the mode's key (GSD `<$PHASE_ID>.json`, other-modes `<repo>-<branch-slug>.json`, `--all` `by-mode/all/<scope-hash>.json`) — a path no 2.11.x plugin reads or writes; Finalize consumes that one variable and never re-derives a path of its own.
 - Read the three gate counts from `carry_state.py` — never by hand. When there is no state file all three counts are `0` and the helper is not run. Otherwise:
-  1. **HEAD fingerprints.** For every entry of root `fix_verdicts` whose `at_pass == state.passes[-1].pass_number`, find its finding in `state.passes[-1].findings` by `stable_hash`. That finding's `<file>` comes from the reviewed diff and may be attacker-authored, so validate it BEFORE any git call: it must match `^[A-Za-z0-9._/-]+$` (the PATH_RE pre-filter `agents/fix.md` step 0 uses) AND `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"` must exit 0 (`$GUARD_PY` from `$VC_ROOT/phases/shared/01-bootstrap.md`; branch on the EXIT CODE; an unresolved/empty `$GUARD_PY` refuses). A file failing either check is never passed to git and is OMITTED from `$BLOBFILE` (fail closed). For a validated `<file>`, run `git rev-parse "HEAD:<file>"`, `git diff --quiet HEAD -- <file>` and `git diff --cached --quiet -- <file>`. Serialize `{"<file>": "<blob>"}` to `$BLOBFILE` with the Write tool, including a file ONLY when all three exit 0. A file whose rev-parse fails, or whose working tree or index differs from HEAD, is OMITTED: the fix agent judged working-tree content, so HEAD's blob is evidence only while HEAD, index and working tree are identical. Omission is how this file tells the helper "unbound" — the helper fails closed for an absent file and never runs git itself. With no last-pass fix verdicts `$BLOBFILE` holds `{}` and is still passed. The helper honours a fix-obsolete verdict ONLY while HEAD's blob equals the verdict's recorded `verified_blob`, so any edit after the verdict re-opens the finding.
+  1. **HEAD fingerprints.** For every entry of root `fix_verdicts` whose `at_pass == state.passes[-1].pass_number`, find its finding in `state.passes[-1].findings` by `stable_hash`. That finding's `<file>` comes from the reviewed diff and may be attacker-authored, so validate it BEFORE any git call: it must match `^[A-Za-z0-9._/-]+$` (the PATH_RE pre-filter `agents/fix.md` step 0 uses) AND `python3 "$GUARD_PY" --root "$(git rev-parse --show-toplevel)" --path "<file>"` must exit 0 (`$GUARD_PY` from `$VC_ROOT/phases/shared/01-bootstrap.md`; branch on the EXIT CODE; an unresolved/empty `$GUARD_PY` refuses). A file failing either check is never passed to git and is OMITTED from `$BLOBFILE` (fail closed). For a validated `<file>`, run `git rev-parse "HEAD:<file>"`, `git diff --quiet HEAD -- <file>` and `git diff --cached --quiet -- <file>`. Create this attempt's blob file under bash:
+     ```bash
+     if BLOBFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX"); then
+       printf 'BLOBFILE=%s\n' "$BLOBFILE"
+     else
+       echo 'Finalize stopped — nothing was written or archived; run `--finalize` again.' >&2
+       exit 1
+     fi
+     ```
+     Serialize `{"<file>": "<blob>"}` with the Write tool to the path printed after `BLOBFILE=` by THIS attempt's fence above, including a file ONLY when all three exit 0. A file whose rev-parse fails, or whose working tree or index differs from HEAD, is OMITTED: the fix agent judged working-tree content, so HEAD's blob is evidence only while HEAD, index and working tree are identical. Omission is how this file tells the helper "unbound" — the helper fails closed for an absent file and never runs git itself. With no last-pass fix verdicts `$BLOBFILE` holds `{}` and is still passed. The helper honours a fix-obsolete verdict ONLY while HEAD's blob equals the verdict's recorded `verified_blob`, so any edit after the verdict re-opens the finding.
   2. **Counts.**
      ```bash
      if COUNTS_JSON=$(python3 "$VC_ROOT/scripts/carry_state.py" finalize-counts --head-blobs "$BLOBFILE" < "$STATE_FILE"); then
@@ -20,6 +29,7 @@ If Phase 0 printed `FINALIZE_MODE=1`:
        exit 1
      fi
      ```
+     `"$BLOBFILE"` here is the literal path printed after `BLOBFILE=` by this attempt's step 1 — substitute it; a shell variable does not survive into a separate Bash call.
      `outstanding_cw`, `unacknowledged_medium` and `undecided_nv` are read from `$COUNTS_JSON`; keep `$COUNTS_JSON` for the REVIEW.md fill below.
   What the helper counts (so nobody re-derives it by hand):
   - **Open** = the last pass's findings whose status is one of {new, persisted, needs-recheck}, PLUS every `members[].obligation` record those rows carry — a once-raised finding folded into a neighbour's row is its own obligation, deduplicated by its own `stable_hash`; a decision or fix-obsolete verdict on the LEAD row closes nothing for it — except a finding the decision recorded as covered at decision time (`covers`: same agent, file, title and code line), which stays decided when it later splits into its own row (D-09); a member that carries its own separately-owed obligation is never covered by the row decision (D-16); a covered finding that is now its own row reopens under the same rules as an own decision — nearby change, joined concern, lane-backed severity rise.
@@ -27,21 +37,34 @@ If Phase 0 printed `FINALIZE_MODE=1`:
   - `outstanding_cw` = open, not closed, band critical or warning; `unacknowledged_medium` = the same for medium. Lows never block.
   - `undecided_nv` = open, not closed, band needs-verification (a Needs-verification item the owner has not confirmed, dismissed or deferred). It closes only by an owner decision or a verified resolution, like any other obligation.
   An unresolved finding is counted on EVERY later pass with no expiry — a row the scorer marked `kept_open` (dropped by this pass's confidence/threshold filters) is as open as any other. The only exits are a verified resolution (`resolved[]` from score.py, or a last-pass fix-obsolete verdict whose code is unchanged) or an owner decision.
-- Compute the gate's inputs, then let `finalize_gate.py` pick the branch. Its input is ONE JSON object whose only key is `flags`, and `flags` holds exactly the seven keys below, built with a JSON encoder (booleans as JSON `true`/`false`, counts as JSON integers): `{"flags": {"state_file_present": true, "outstanding_cw": 0, "unacknowledged_medium": 0, "undecided_nv": 0, "noninteractive": false, "pr_mode": false, "range_mode": false}}`. A flags object missing `undecided_nv` (the six keys of an older finalize) is refused. Passing the seven keys bare, without the `flags` wrapper, is malformed input and the gate refuses it.
+- Compute the gate's inputs, write them to a printed file, then let `finalize_gate.py` pick the branch. Its input is ONE JSON object whose only key is `flags`, and `flags` holds exactly the seven keys below, built with a JSON encoder (booleans as JSON `true`/`false`, counts as JSON integers): `{"flags": {"state_file_present": true, "outstanding_cw": 0, "unacknowledged_medium": 0, "undecided_nv": 0, "noninteractive": false, "pr_mode": false, "range_mode": false}}`. A flags object missing `undecided_nv` (the six keys of an older finalize) is refused. Passing the seven keys bare, without the `flags` wrapper, is malformed input and the gate refuses it.
   - `state_file_present` — `[ -f "$STATE_FILE" ]`
   - `outstanding_cw`, `unacknowledged_medium` — the first two counts above (`0` when there is no state file)
   - `undecided_nv` — the `undecided_nv` count above (`0` when there is no state file)
   - `noninteractive` — `$TURINGMIND_NONINTERACTIVE` is set to a truthy value
   - `pr_mode`, `range_mode` — Phase 0 resolved PR mode / range mode
+  Create the gate's input file under bash:
   ```bash
-  if FINALIZE_GATE_JSON=$(printf '%s' "$FINALIZE_GATE_INPUT_JSON" | python3 "$VC_ROOT/scripts/finalize_gate.py"); then
+  if GATEFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX"); then
+    printf 'GATEFILE=%s\n' "$GATEFILE"
+  else
+    echo 'Finalize stopped — nothing was written or archived; run `--finalize` again.' >&2
+    exit 1
+  fi
+  ```
+  Write the one-key object above (`flags` holding the seven keys) to the printed `GATEFILE=` path with the Write tool (JSON encoder values as listed), then run the gate with that literal substituted for `"$GATEFILE"` (both places):
+  ```bash
+  if FINALIZE_GATE_JSON=$(python3 "$VC_ROOT/scripts/finalize_gate.py" < "$GATEFILE" 2>"$GATEFILE.err"); then
     printf '%s\n' "$FINALIZE_GATE_JSON"       # {"action": ..., "reason": ...}
   else
     echo "I'm uncertain about Finalize mode — finalize_gate.py failed; nothing was written or archived." >&2
     exit 1
   fi
   ```
+  The helper's own diagnostics are kept in `<GATEFILE>.err` and are not shown; the owner reads only the fence's sentence.
   Branch on `action`. A non-zero exit is the halt above; any other `action` value, or stdout that does not parse, is treated as `refuse`.
+
+  **One automatic rebuild, then stop (D-07/D-08).** If the `BLOBFILE=` path from step 1 is missing or the file is empty, or the counts fence or the gate fence exits non-zero, run step 1 again ONCE — a new mktemp fence printing a NEW `BLOBFILE=`, with the fingerprints rebuilt from the current HEAD, index and working tree (this rebuild is the snapshot-freshness revalidation) — and re-run the counts fence and the gate once with the new literal. Never reuse a `BLOBFILE=` printed by an earlier attempt or an earlier session: its blobs may predate a later edit and would let a fix-obsolete verdict close on changed code. A second failure stops. A step the owner refused (permission denied) is never retried and stops at once. The stop is exactly one sentence: "Finalize stopped — nothing was written or archived; run `--finalize` again." No REVIEW.md is written and no archive move is made before the gate returns `write`. The owner's validated card answers are recorded before that through the existing `carry_state.py record-decisions` fence and nothing else; a stopped attempt never reaches it, and its own refusal leaves the state unchanged.
 - `error` — the state file is absent: error "No prior review passes. Run `/review` first."
 - `outstanding-to-phase-5` or `medium-ack-loop` → **The finalize card** below: ONE card for every undecided obligation, critical/warning first, then Needs-verification items, then medium (D-05, D-11). `outstanding-to-phase-5` also covers undecided Needs-verification items: APPROVED is never written while `undecided_nv` is above 0. Do not print the plain list of the `fallback` bullet first — the card's own numbered list (inside the card) carries the same rows.
 - `fallback` with `outstanding_cw` non-empty, and the post-card stop in **After the answer** when undecided critical/warning remain:
@@ -74,7 +97,7 @@ If Phase 0 printed `FINALIZE_MODE=1`:
 
 <!-- LEGIBLE-03 / D-03: a NEUTRAL menu — no preferred-default tag, suffix or any other nudge on any option in this file. -->
 
-**Rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Reuse the `$BLOBFILE` built by the HEAD-fingerprints step above, so a verified fix-obsolete closure is honoured exactly as in the counts. Run under bash:
+**Rows.** The card's rows come from the helper, never from your own reading of the state — numbering is decided there once, so the list the owner reads and the parse of the owner's answer always agree. Reuse the blob file printed after `BLOBFILE=` by this attempt's HEAD-fingerprints step (substituted as the literal for `"$BLOBFILE"`), so a verified fix-obsolete closure is honoured exactly as in the counts. Run under bash:
 
 ```bash
 ROWSFILE=$(mktemp "${TMPDIR:-/tmp}/vc.XXXXXX")
@@ -246,7 +269,7 @@ Then write the completed refs to `$REFSFILE` with the Write tool — the same re
      fi
      ```
      Do NOT build or edit the list in prose. `fix_targets` holds only the hashes the owner chose; the fix-loop rows route an absorbed obligation (`absorbed_into` set) through its LEAD — after the fix the next pass re-scores it, so the member resolves, is re-absorbed, or re-emerges as its own row — and a lead you dismissed earlier in this same card stays dismissed while its member is fixed through it (the fix-loop row shows this). This covers "dismiss the lead, fix its member" in one card. Run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) — this card's answer files are consumed. Then **Read $VC_ROOT/phases/review/50-fix-loop.md** with the Read tool and enter "The fix-loop card" with `$SUBSETFILE` set — carry the literal path this fence printed after `SUBSETFILE=` into that card's subset fence (a shell variable does not survive into a later Bash call); that card consumes the file once and clears it before its automatic rerun. Do NOT write REVIEW.md or archive state — finalize stays blocked until a future invocation's gate returns `write`.
-  3. `fix` empty → run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) — this card's answer files are consumed. Then RE-RUN the counts step and the gate ONCE (same `$BLOBFILE`). `write` → the write above, whose summary message opens with `echo_text`. Still blocked → never re-show the card after recording; the stop message opens with `echo_text`, then:
+  3. `fix` empty → run `rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"` (the literal paths this card printed; omit any never printed, a missing file is fine) — this card's answer files are consumed. Then RE-RUN the counts step and the gate ONCE (the same `BLOBFILE=` literal this attempt printed). `write` → the write above, whose summary message opens with `echo_text`. Still blocked → never re-show the card after recording; the stop message opens with `echo_text`, then:
      - `outstanding_cw` non-empty → print the header and the list from the `fallback` bullet above (refer to them, do not restate them here), then "Finalize stays blocked — name each remaining critical/warning by number in Mixed… on the next `--finalize`, or fix it." and stop.
      - undecided needs-verification remain (and `outstanding_cw` is empty) → print the header and the list from the Needs-verification `fallback` bullet above, then "Finalize stays blocked — confirm (fix), dismiss or defer each Needs-verification item by number on the next `--finalize`." and stop.
      - only mediums remain → print each remaining medium as `{{file}}:{{line}} — {{title}}` (join rule above), then "These were left undecided by the card — run `--finalize` again to decide them." and stop.
