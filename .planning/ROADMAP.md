@@ -33,7 +33,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 59. Stale decisions and lost deferrals | 0/TBD | Not started | - |
+| 59. Stale decisions and lost deferrals | 0/6 | Planned | - |
 | 60. Exact change evidence and reliable Finalize | 0/TBD | Not started | - |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
@@ -53,7 +53,15 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
   4. A deferred covered member removed by a valid `min_confidence` (45) — and the SA-02 `--all` case if it reproduced — stays visible as an open deferred obligation instead of disappearing without a card
   5. The phase ends after one bounded implementation/review cycle; any unresolved silent keep is recorded as a residual and blocks a "reliability complete" claim rather than starting another repair round
 
-**Plans**: TBD
+**Plans**: 6 plans (6 sequential waves — every plan touches test_decision_continuity.py)
+
+Plans:
+- [ ] 59-01-PLAN.md — Red real-chain fixtures for CR-01 (edit@33 + multi-pass), CR-02, CR-04, DEFR-01@45; SA-02 prose pin; REPRO_59; 59-REPRO.md ledger (no production edits)
+- [ ] 59-02-PLAN.md — score.py producers: kept-open pooling over carried_by_hash + per-occurrence rows (CR-01); row_nearby over carried copies + covered members (CR-04, D-21); p4 rewrite; mutants re-anchored
+- [ ] 59-03-PLAN.md — DEFR-01 D-20 synthesis on the min_confidence branch (numbered reason); carry_state `_merge_nearby` read-side merge (CR-02); mutants
+- [ ] 59-04-PLAN.md — Spot data: `nearby_spots` on snapshots (score.py), read-time copy spot + `carry_state.stale_spots` reader
+- [ ] 59-05-PLAN.md — Card wording D-04/D-05/D-06 in batch_card + both prose files + prose-lock and real-chain card tests
+- [ ] 59-06-PLAN.md — STALE-05 invariance scenarios; full suite + replay + reverse run; ledger green SHAs; residuals (D-02/D-03/D-07/D-09) to 59-REPRO.md and 999.23
 
 ### Phase 60: Exact change evidence and reliable Finalize
 
