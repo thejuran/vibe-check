@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T19:20:47.000Z"
-last_activity: 2026-10-29 -- 60-01 complete (RED SHA ce9f8b8; 9 verdicts in 60-REPRO.md)
+last_updated: "2026-10-29T19:32:06.000Z"
+last_activity: 2026-10-29 -- 60-02 complete (diff_ranges.py exact-range builder; TestRealDiffRanges60 green at 53fb637)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
   percent: 33
-stopped_at: Completed 60-01-PLAN.md — next 60-02 (range builder) and 60-03 (Finalize)
+stopped_at: Completed 60-02-PLAN.md — next 60-03 (Finalize), then 60-04 (route wiring)
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Executing Phase 60
-Last activity: 2026-10-29 -- 60-01 complete (reproduction verdicts recorded at RED SHA ce9f8b8)
+Last activity: 2026-10-29 -- 60-02 complete (diff_ranges.py exact-range builder; TestRealDiffRanges60 green at 53fb637)
 
 ## Operator Next Steps
 
@@ -80,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 60-02 complete (617075f RED test module, 53fb637 builder). diff_ranges.py walks +/- markers against the header budgets: pure deletion [max(T,1),T+1], net-deletion replace +1 (D-02), and a -U0 `+T,0` new side numbered from the line before it (missed by the research snippet; 60-04 must call the helper, not re-derive it). Refuses commit series, @@@, short/long bodies, stray body lines with fixed reasons (CLI exit 2, empty stdout). Imports {json, re, sys}; 57 tests incl. 19 mutants, one per guard. TestRealDiffRanges60 green at 53fb637 without editing test_decision_continuity.py. Full suite: 5 failed (4 TestCoordinateSpaces60 probes -> 60-04, 1 Finalize walk -> 60-03) / 3722 passed. Next: 60-03.
 
 2026-10-29: 60-01 complete (43d1905, 2121c57, ce9f8b8 RED SHA, cda9220 60-REPRO.md). 999.24 reproduced on real git diffs: default-context header ranges are 3 lines wider each side (L+8 edit re-asks a decision), the +T,0 deletion rule never fires, IN-04 net-deletion replace is a boundary keep. Coordinate probes all reproduced -> fixed by 60-04: PR-SERIES (patch-series ranges miss the head line), MIXED-COORD (GSD/incremental concatenation silent keep), DEFAULT-STAGED (index-coordinate --staged section wrongly reopens). ALL-ROUTE recorded as unsupported fixture (TestRouteAll pending in 60-04). 999.25 reproduced: no fence prints BLOBFILE=, and the gate fence reads $FINALIZE_GATE_INPUT_JSON across calls. Full suite at ce9f8b8: 15 failed (exactly the named red set) / 3655 passed. Next: 60-02 and 60-03.
 

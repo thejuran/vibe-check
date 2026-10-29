@@ -34,7 +34,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
-| 60. Exact change evidence and reliable Finalize | 1/5 | In Progress|  |
+| 60. Exact change evidence and reliable Finalize | 2/5 | In Progress|  |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
 ## Phase Details
@@ -94,7 +94,7 @@ Plans:
   4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
   5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
 
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1**
@@ -103,7 +103,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 60-02-PLAN.md — diff_ranges.py marker-walk range builder (D-01/D-02) + test_diff_ranges.py with mutants and the replay.hunk_ranges pin
+- [x] 60-02-PLAN.md — diff_ranges.py marker-walk range builder (D-01/D-02) + test_diff_ranges.py with mutants and the replay.hunk_ranges pin
 - [ ] 60-03-PLAN.md — Finalize: printed BLOBFILE=/GATEFILE= fences, rebuild-once and refused-step rules, fresh-shell walk, widened printed-path lock
 
 **Wave 3** *(blocked on Wave 2 completion)*
