@@ -303,7 +303,7 @@ def _shape_finding(f):
     return out
 
 
-def _snapshot_for(row, pass_number, nearby=False, carried=False):
+def _snapshot_for(row, pass_number, nearby=False, carried=False, spots=None):
     """The decision snapshot for one emitted row: {at_pass, file, line,
     canonical_line_content, band} plus `nearby_at` when known.
 
@@ -339,6 +339,17 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
     exemption. Otherwise a prior `nearby_at` is carried on both the keep and
     the refresh branch, so one nearby edit re-asks once rather than every pass
     after it is forgotten; a snapshot that never had one stays without it.
+
+    `spots` (`_nearby_spots`) names the other lines — another copy of the
+    identity, or a finding grouped in the row — whose change caused the stamp,
+    so the card can say which spot changed (D-04/D-05; 999.23). It is recorded
+    as `nearby_spots` only on a fresh stamp and only when non-empty: a reopen
+    caused by the row's own line records none, so its snapshot keeps the plain
+    shape. A prior `nearby_spots` travels with the prior `nearby_at` on both the
+    keep and the refresh branch, so a quiet pass does not forget which spot it
+    was; a carried spot at this row's own line (a prior pooled from another
+    copy) is dropped. Agents cannot forge it: the ingress scrub strips `snapshot` from fresh
+    findings, so every `nearby_spots` was written here.
     Pure; never raises.
     """
     canonical = row.get("canonical_line_content")
@@ -352,8 +363,15 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
     prior = row.get("snapshot")
     if nearby and (isinstance(prior, dict) or carried) and cur["at_pass"] is not None:
         cur["nearby_at"] = cur["at_pass"]
+        if isinstance(spots, list) and spots:
+            cur["nearby_spots"] = spots
         return cur
     prior_nearby = _as_line(prior.get("nearby_at")) if isinstance(prior, dict) else None
+    # A prior pooled from another copy may name this row's own line; that is
+    # the row itself, not another spot.
+    prior_spots = [sp for sp in (_valid_spots(prior.get("nearby_spots"))
+                                 if prior_nearby is not None else None) or []
+                   if sp[0] != cur["line"]]
     if (isinstance(prior, dict) and _as_line(prior.get("at_pass")) is not None
             and all(k in prior and prior[k] == cur[k]
                     for k in ("file", "line", "canonical_line_content", "band"))):
@@ -362,9 +380,13 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
                 "band": cur["band"]}
         if prior_nearby is not None:
             kept["nearby_at"] = prior_nearby
+        if prior_spots:
+            kept["nearby_spots"] = prior_spots
         return kept
     if prior_nearby is not None:
         cur["nearby_at"] = prior_nearby
+    if prior_spots:
+        cur["nearby_spots"] = prior_spots
     return cur
 
 
@@ -410,7 +432,7 @@ def _covered_entry(m, cov, capped):
 
 
 def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
-                    changed_line_ranges):
+                    changed_line_ranges, carried_by_hash=None):
     """Kept-open obligation rows for carried records this pass's filters dropped.
 
     `dropped` lists (working record, reason) pairs collected by the
@@ -420,19 +442,26 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
     expanded members that entered scoring this pass.
 
     A row is emitted only while its obligation hash is not already visible (a
-    kept row's stable_hash, a kept row's member sidecar, or an earlier emitted
-    obligation row). It is the last row the owner saw — stored stable_hash,
+    kept row's stable_hash or a kept row's member sidecar), and once per
+    dropped working record: two copies of one identity dropped in the same
+    pass each get their own row, so no copy leaves
+    tracking (999.23 CR-01 multi-pass); carry_state reads them as one
+    decision. It is the last row the owner saw — stored stable_hash,
     orchestrator_score, band and attribution copied verbatim, never re-scored —
     with this pass's carry status, HEAD read, `kept_open` reason and snapshot.
     A lead row's members are its own record plus this pass's members of that
     lead that neither ride in a kept row nor become rows of their own, so a
     resolved or fixed member is never re-listed.
 
-    A covered member of a deferred row that fell sub-threshold (D-20; its
-    entry is marked `covered`, `_covered_entry`) has no prior snapshot of its
-    own, so `carried` is passed for it and the split pass's in-window edit
-    stamps it (D-17); every other kept-open row carries its stored snapshot
-    and is unaffected. Pure; never raises.
+    Evidence is pooled over every carried copy of the obligation hash in
+    `carried_by_hash` (the D-19 index, built before any filter; 999.23
+    CR-01): the prior is the pooled snapshot carrying the latest owed stamp
+    (every source passes the one hash gate), nearby is judged at every
+    copy's line, and the row counts as carried when any carried record
+    hashes to it — which includes a covered member of a deferred row that
+    fell sub-threshold (D-20, `_covered_entry`): it has no prior snapshot of
+    its own, so the split pass's in-window edit stamps it (D-17).
+    Pure; never raises.
     """
     visible = {s.get("stable_hash") for s in kept}
     kept_idents = set()
@@ -468,10 +497,21 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
         row["canonical_line_content"] = m.get("canonical_line_content")
         row.pop("kept_open", None)
         row["kept_open"] = reason
-        row["snapshot"] = obl.get("snapshot")
-        row_nearby = _nearby_changed(row, changed_line_ranges)
+        same = (carried_by_hash or {}).get(obl["stable_hash"], ())
+        candidates = [
+            o["snapshot"] for _, o in same
+            if o is not None
+            and o.get("stable_hash") == obl["stable_hash"]
+            and isinstance(o.get("snapshot"), dict)]
+        if isinstance(obl.get("snapshot"), dict):
+            candidates.append(obl["snapshot"])
+        row["snapshot"] = _pooled_prior(candidates)
+        row_nearby = _any_nearby([row] + [r for r, _ in same], changed_line_ranges)
+        row_spots = (_nearby_spots(_as_line(row.get("line")), [r for r, _ in same],
+                                   [], changed_line_ranges)
+                     if row_nearby else None)
         row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,
-                                        carried=bool(entry.get("covered")))
+                                        spots=row_spots, carried=bool(same))
         own = _member_ref(m)
         own["obligation"] = _refreshed_obligation(obl, m, pass_number, changed_line_ranges)
         members = [own]
@@ -486,7 +526,6 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
                         changed_line_ranges)
                 members.append(ref)
         row["members"] = members
-        visible.add(obl["stable_hash"])
         rows.append(row)
     return rows
 
@@ -607,6 +646,46 @@ def _any_nearby(records, changed_line_ranges):
     """True when this pass's change ranges reach any of `records` (each judged
     at its own line, _nearby_changed). Pure; never raises."""
     return any(_nearby_changed(r, changed_line_ranges) for r in records)
+
+
+_SPOT_KINDS = ("copy", "grouped")
+
+
+def _valid_spots(value):
+    """`value` as a list of [line, kind] pairs when every item is a 2-item
+    list or tuple of a line (a non-bool int >= 1) and a kind in _SPOT_KINDS,
+    else None. Pure; never raises."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for item in value:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            return None
+        line, kind = item
+        if _as_line(line) is None or line < 1 or kind not in _SPOT_KINDS:
+            return None
+        out.append([line, kind])
+    return out
+
+
+def _nearby_spots(own_line, copies, grouped, changed_line_ranges):
+    """The other spots whose change reached this row this pass: [line, kind]
+    pairs, "copy" for each record in `copies` (carried records of the row's
+    identity) and "grouped" for each record in `grouped` (covered members of
+    the row) whose own D-14 window this pass's change ranges reach
+    (`_nearby_changed`), skipping any record without a usable line and any at
+    `own_line`. De-duplicated by line (copies before grouped, the first kind
+    wins) and sorted by line, so the card's "first" spot is the lowest line
+    whatever the arrival order (D-05). Pure; never raises."""
+    seen = {}
+    for kind, records in (("copy", copies), ("grouped", grouped)):
+        for rec in records:
+            line = _as_line(rec.get("line"))
+            if (line is None or line < 1 or line == own_line or line in seen
+                    or not _nearby_changed(rec, changed_line_ranges)):
+                continue
+            seen[line] = kind
+    return [[line, seen[line]] for line in sorted(seen)]
 
 
 def _prior_rank(snapshot):
@@ -2516,7 +2595,17 @@ def run(envelope):
                     "title": m.get("title"),
                     "reason": "below-min-confidence",
                 })
-                if id(m) in carried_obligations:
+                # D-20 / D-06: a deferred finding never leaves the open set on
+                # a confidence floor either (999.23: a deferred covered member
+                # dropped at min_confidence 45 vanished without a card). It is
+                # kept open under its own hash, with the configured floor in
+                # the reason because Finalize has no config of its own to read
+                # it from. Score 0: no capped score exists before grouping.
+                if id(m) in deferred_covered and id(m) not in carried_obligations:
+                    carried_obligations[id(m)] = _covered_entry(m, deferred_covered[id(m)], 0)
+                    dropped.append((m, "below-min-confidence %d; deferred-by: %s"
+                                    % (min_confidence, deferred_covered[id(m)]["covering"])))
+                elif id(m) in carried_obligations:
                     dropped.append((m, "below-min-confidence"))
             else:
                 kept_working.append(m)
@@ -2738,9 +2827,22 @@ def run(envelope):
         # a copy a filter removed before grouping; an all-fresh row stays
         # uncarried (57-04).
         row_carried = bool(same_hash)
-        # Nearby is judged at every carried copy's line as well as the row's
-        # (D-19; 57-REVIEW-GAPS3.md CR-01).
-        row_nearby = _any_nearby([survivor] + [r for r, _ in same_hash], changed_line_ranges)
+        # Nearby is judged at every carried copy's line (D-19; 57-REVIEW-GAPS3.md
+        # CR-01) and at every covered member's line: a carried member without
+        # an obligation of its own is a finding the row decision covers (D-16),
+        # so a guard removed beside it re-asks the row (57-REVIEW-GAPS4.md
+        # CR-04). A carried survivor is already in `same_hash`; a FRESH
+        # survivor's own line is not judged — a new identical copy is not new
+        # evidence on the pass it is first raised (D-21 / D-01; 999.23 over-ask
+        # #1). Members carrying their own obligation stamp their own sidecar.
+        covered_m = [m for _, m, _, _, _ in scored_members
+                     if id(m) not in carried_obligations
+                     and m.get("status") in _CARRIED_STATUSES]
+        row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, changed_line_ranges)
+        row_spots = (_nearby_spots(_as_line(survivor.get("line")),
+                                   [r for r, _ in same_hash], covered_m,
+                                   changed_line_ranges)
+                     if row_nearby else None)
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
         # first, then the absorbed members in scored order, de-duplicated by
         # each member's lane-aware occurrence identity (never by (agent, title),
@@ -2790,13 +2892,13 @@ def run(envelope):
                 "title": loser.get("title"),
                 "reason": "absorbed-into: " + survivor["stable_hash"],
             })
-        survivors.append((survivor, surface_score, row_carried, row_nearby))
+        survivors.append((survivor, surface_score, row_carried, row_nearby, row_spots))
         survivor_sources.append(([m for _, m, _, _, _ in scored_members],
                                  {id(m): c for c, m, _, _, _ in scored_members}))
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
     kept = []
-    for (survivor, sc, carried, row_nearby), (sources, capped_by_id) in zip(
+    for (survivor, sc, carried, row_nearby, row_spots), (sources, capped_by_id) in zip(
             survivors, survivor_sources):
         if sc < threshold:
             filtered.append({
@@ -2818,11 +2920,11 @@ def run(envelope):
                  if id(m) in deferred_covered else "sub-threshold")
                 for m in sources if id(m) in carried_obligations)
             continue
-        # `carried` and `nearby` are the row properties pooled in the group
-        # loop over every carried record of this row's identity.
+        # `carried`, `nearby` and its spots are the row properties pooled in
+        # the group loop over every carried record of this row's identity.
         nearby = row_nearby
         survivor["snapshot"] = _snapshot_for(survivor, pass_number, nearby=nearby,
-                                             carried=carried)
+                                             carried=carried, spots=row_spots)
         kept.append(survivor)
 
     # --- Kept-open obligations (D-02, D-12) ----------------------------------- #
@@ -2832,7 +2934,8 @@ def run(envelope):
     # owner decision closes it. Appended after the threshold loop so the
     # sub-threshold drop never sees it.
     kept.extend(_kept_open_rows(dropped, kept, pass_number, carried_obligations,
-                                members_of, changed_line_ranges))
+                                members_of, changed_line_ranges,
+                                carried_by_hash=carried_by_hash))
 
     # --- Needs-verification rows (QUIET-06/07, R8) ----------------------------- #
     # Appended after the threshold loop, like the suppression rows, so no filter

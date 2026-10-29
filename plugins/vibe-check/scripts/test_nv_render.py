@@ -26,6 +26,7 @@ RENDER_ALL = os.path.join(PLUGIN_DIR, "phases", "review", "40-render-all.md")
 COLLECT = os.path.join(PLUGIN_DIR, "phases", "review", "30-collect-score.md")
 DISPATCH = os.path.join(PLUGIN_DIR, "phases", "review", "20-dispatch.md")
 STATE = os.path.join(PLUGIN_DIR, "phases", "review", "05-state.md")
+STATE_ALL = os.path.join(PLUGIN_DIR, "phases", "review", "05-state-all.md")
 
 
 def norm(text):
@@ -253,6 +254,24 @@ def deferred_binding_holds(text):
                    DEFERRED_BINDING_PHRASES)
 
 
+# --- 05-state-all.md: the --all carry-forward bypass ------------------------
+# `--all` forces a fresh snapshot and skips Phase 0.5 steps 2-5, so the step
+# that binds `$DEFERRED_HASHES` (05-state.md step 2, locked by
+# deferred_binding_holds) never runs: an `--all` envelope never carries a
+# record or a deferred hash, and a deferred member cannot be dropped as
+# not-in-reviewed-set on the real chain.
+
+ALL_BYPASS_PHRASES = (
+    "`$CARRYFORWARD = []`",
+    "SKIP Phase 0.5 steps 2-5",
+    "EVEN IF a `by-mode/all/<scope-hash>.json` file already exists",
+)
+
+
+def all_carryforward_bypass_holds(text):
+    return _all_in(text, ALL_BYPASS_PHRASES)
+
+
 # --- 30-collect-score.md step 4: the envelope key ---------------------------
 
 ENVELOPE_DEFERRED_START = "**Carry-forward verdict keys (CARRY-01).**"
@@ -324,6 +343,8 @@ CASES = (
      DEFERRED_BINDING_PHRASES),
     ("envelope_deferred_holds", envelope_deferred_holds, COLLECT,
      ENVELOPE_DEFERRED_PHRASES),
+    ("all_carryforward_bypass_holds", all_carryforward_bypass_holds,
+     STATE_ALL, ALL_BYPASS_PHRASES),
 )
 
 
@@ -364,6 +385,9 @@ class TestNvRenderLocks(unittest.TestCase):
 
     def test_deferred_binding_holds(self):
         self.assertTrue(deferred_binding_holds(_read(STATE)))
+
+    def test_all_carryforward_bypass_holds(self):
+        self.assertTrue(all_carryforward_bypass_holds(_read(STATE_ALL)))
 
     def test_deferred_binding_one_helper_call(self):
         self.assertEqual(_read(STATE).count('carry_state.py" deferred'), 1)
@@ -422,6 +446,9 @@ class TestNvRenderMutation(unittest.TestCase):
 
     def test_recheck_hint_deleting_mutant(self):
         self._deleting("nv_recheck_hint_holds")
+
+    def test_all_carryforward_bypass_deleting_mutant(self):
+        self._deleting("all_carryforward_bypass_holds")
 
     def _deleting_in_section(self, pred, path, start, end, phrases):
         """Delete each phrase inside the locked section only: a copy of the

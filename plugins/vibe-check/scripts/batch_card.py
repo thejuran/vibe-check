@@ -234,6 +234,15 @@ def _same_hash_stale(record, state):
         # test reads, so the card and the comparator cannot disagree.
         tag["covered"] = carry_state.covered_count(record, state)
         tag["joined"] = carry_state.newcomer_lanes(record, state)
+    if cause == "nearby":
+        # The other spot that changed comes from carry_state (the reader the
+        # comparator's data feeds), never recomputed here; a reopen caused by
+        # the record's own line has none and keeps the plain wording.
+        spots = carry_state.stale_spots(record, state)
+        if isinstance(spots, dict):
+            tag["spot_line"] = spots.get("line")
+            tag["spot_kind"] = spots.get("kind")
+            tag["other_spots"] = spots.get("others")
     return tag
 
 
@@ -259,6 +268,8 @@ def _row(record, state, lead_titles, pending_since):
         "lead_title": lead_titles.get(absorbed) if absorbed else None,
         "pending_since": pending_since.get(record["stable_hash"]),
         "stale": _same_hash_stale(record, state),
+        "kept_open": (record.get("kept_open")
+                      if isinstance(record.get("kept_open"), str) else None),
     }
 
 
@@ -516,11 +527,67 @@ def _joined_note(stale, compact):
     return "%s (your reason: %s); %s" % (head, reason, concern)
 
 
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+_SPOT_KIND_TEXT = {"copy": "another copy of this line",
+                   "grouped": "a finding grouped here"}
+
+
+def _spot_suffix(stale, compact):
+    """The nearby note naming the other spot whose change re-asks the row
+    (the lowest changed line, plus how many other spots changed too), or None
+    when the tag names no well-formed spot (the plain wording applies)."""
+    line = stale.get("spot_line")
+    kind_text = _SPOT_KIND_TEXT.get(stale.get("spot_kind"))
+    if not _is_int(line) or kind_text is None:
+        return None
+    at_pass = stale.get("at_pass")
+    others = stale.get("other_spots")
+    if _is_int(others) and others >= 1:
+        head = (" — code next to line %d and %d other %s changed since your "
+                "decision on pass %s" % (line, others,
+                                         "spot" if others == 1 else "spots",
+                                         at_pass))
+    else:
+        head = (" — code next to line %d (%s) changed since your decision on "
+                "pass %s" % (line, kind_text, at_pass))
+    return head if compact else "%s %s" % (head, _was(stale))
+
+
+# A deferred member kept open below the owner's min_confidence carries
+# `kept_open` "below-min-confidence[ <digits>]; deferred-by: <hash>". The match
+# is strict (ASCII digits only) and only those digits are ever rendered.
+_BELOW_MIN_HEAD = "below-min-confidence"
+_DEFERRED_BY = "; deferred-by: "
+
+
+def _deferred_below_min_note(row):
+    kept_open = row.get("kept_open")
+    if not (isinstance(kept_open, str)
+            and kept_open.startswith(_BELOW_MIN_HEAD)):
+        return ""
+    rest = kept_open[len(_BELOW_MIN_HEAD):]
+    if rest.startswith(_DEFERRED_BY):
+        return " — below your min_confidence; still deferred"
+    if not rest.startswith(" "):
+        return ""
+    digits, sep, _ = rest[1:].partition(_DEFERRED_BY)
+    if (not sep or not digits
+            or any(c not in "0123456789" for c in digits)):
+        return ""
+    return " — below your min_confidence (%s); still deferred" % digits
+
+
 def _stale_suffix(row, stale, compact):
     at_pass = stale.get("at_pass")
     cause = stale.get("cause")
     gained = _lanes(stale.get("gained"))
     if cause == "nearby":
+        spot = _spot_suffix(stale, compact)
+        if spot is not None:
+            return spot
         return (" — code next to it changed since your decision on pass %s"
                 % at_pass if compact else
                 " — code next to it changed since your decision on pass "
@@ -550,7 +617,7 @@ def _stale_suffix(row, stale, compact):
 
 def _suffixes(row, compact):
     """The suffixes after a row's first line, in the prose's order:
-    absorbed, pending, stale."""
+    absorbed, pending, stale, deferred-below-min_confidence."""
     out = []
     if row.get("absorbed_into"):
         out.append(" (absorbed)" if compact else
@@ -563,6 +630,7 @@ def _suffixes(row, compact):
     stale = row.get("stale")
     if isinstance(stale, dict):
         out.append(_stale_suffix(row, stale, compact))
+    out.append(_deferred_below_min_note(row))
     return "".join(out)
 
 

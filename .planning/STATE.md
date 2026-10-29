@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.13
-milestone_name: Reliable fix closure and recovery
-status: Awaiting next milestone
-stopped_at: "v2.13 shipped as 2.13.0 (2026-10-28) — next: /bm:new-milestone"
-last_updated: "2026-10-28T20:00:00.000Z"
-last_activity: 2026-10-28 — Milestone v2.13 completed and archived
+milestone: v2.14
+milestone_name: Decision reliability
+status: ready_to_plan
+last_updated: "2026-10-29T17:47:49.000Z"
+last_activity: 2026-10-29 -- Phase 60 context gathered (4 owner decisions: IN-04 folded in, Finalize rebuild-once, saved PR diff, Phase-59 cycle rule)
 progress:
   total_phases: 3
-  completed_phases: 3
-  total_plans: 52
-  completed_plans: 52
-  percent: 100
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 6
+  percent: 33
+stopped_at: Phase 60 context gathered — ready to plan
 ---
 
 # Project State
@@ -21,18 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Planning the next milestone (not yet scoped)
+**Current focus:** Phase 60 — exact change evidence and reliable finalize
 
 ## Current Position
 
-Phase: Milestone v2.13 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-10-28 — v2.13 completed, archived and released as 2.13.0
+Phase: 60
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-29
 
 ## Operator Next Steps
 
-- Start the next milestone with `/bm:new-milestone`. Candidates: backlog 999.23–999.26 (v2.13 known limits) and 999.12 (cost visibility feasibility, separate task).
+- Phase 59 executed + reviewed + verified (gaps parked to 999.23 by owner); its PR is not opened yet. Open/merge it, then branch `feat/v2.14-phase-60` from `main` before executing Phase 60.
+- Phase 60 context captured (60-CONTEXT.md); next `/bm:plan-phase 60`.
+- Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
+- Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
 ## Deferred Items
 
@@ -51,8 +54,10 @@ Carried from earlier:
 
 | Kind | Item | Status |
 |------|------|--------|
-| Backlog | 999.23–999.26 v2.13 known limits | Not scheduled; reproduce first |
-| Separate task | 999.12 cost visibility feasibility | Bounded local investigation |
+| Active milestone | 999.23–999.25 v2.13 known limits | v2.14 Phases 59 (999.23) and 60 (999.24–999.25); reproduce first |
+| Backlog | 999.26 title-reference known limits | Deferred; safe follow-up remains |
+| Following milestone | 999.12 cost visibility feasibility | Lean orchestration after reliability ships; bounded existing-record investigation |
+| Conditional follow-up | Reviewer efficiency | After both releases and an approved evidence-backed comparison proposal |
 | Archived | Broad duplicate reduction and reviewed-set behavior | Reopen on a current-version fixture outside closure scope |
 | Archived | 999.2 deterministic secret integration | Reopen on a concrete gap unmet by an existing scanner workflow |
 | Deferred | Phase 55 measurement and cancelled Phase 54 sweeps | No automatic restart; v2.12 outcome remains UNMET |
@@ -60,7 +65,7 @@ Carried from earlier:
 
 ## Standing Boundaries
 
-- No milestone is active. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
+- v2.14 Decision reliability is the only active milestone. Paid runs, new agents and publication need explicit owner approval (a completed milestone always publishes — standing directive).
 - One branch/PR per phase: `feat/<milestone>-phase-<N>` from `main`; delete each branch (local + GitHub) after its PR merges.
 - Any paid work needs a separately bounded proposal and explicit approval; estimates are not hard spending caps.
 - Reuse valid evidence for unchanged code. Keep closure and owner decisions tied to actual evidence; do not substitute automatic closure for verification.
@@ -68,13 +73,33 @@ Carried from earlier:
 
 ## Records
 
-- [Roadmap](ROADMAP.md): no active milestone; backlog 999.12, 999.23–999.26.
+- [Roadmap](ROADMAP.md): v2.14 Decision reliability active, Phases 59–61 (999.23–999.25) → Lean orchestration (999.12 plus Finalize extraction) → conditional Reviewer efficiency; 999.26 deferred.
 - [v2.13 archived roadmap](milestones/v2.13-ROADMAP.md), [requirements](milestones/v2.13-REQUIREMENTS.md), [audit](milestones/v2.13-MILESTONE-AUDIT.md), phase dirs in milestones/v2.13-phases/.
 - [Maintenance](backlog/MAINTENANCE.md): opportunistic cleanup and documented residuals.
 - [ROI archive](backlog/archive/2026-10-18/ROI-DEFERRED.md): lower-value work and reopening conditions.
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: Phase 60 context gathered. Owner decisions: ranges from actual +/- markers (gh pr diff has no -U0); 57 IN-04 net-deletion replace edge folded in (D-02); Finalize rebuilds HEAD fingerprints once then stops with a plain no-write message, refusals never auto-retried (D-07/D-08); PR route proven by a checked-in real patch, live fetch reported as not exercised (D-05); Phase-59 one-cycle rule (D-10). Next: /bm:plan-phase 60.
+
+2026-10-29: 59-05 complete (05bc268, aa1d83f, 5f6d4e1). batch_card's nearby tag carries spot_line/spot_kind/other_spots from carry_state.stale_spots; the card renders "code next to line N (another copy of this line|a finding grouped here)" and "code next to line N and K other spot(s)" (full + compact); same-spot wording byte-identical. A kept_open "below-min-confidence[ N]; deferred-by: " row gets " — below your min_confidence (N); still deferred" (strict string parse, no `re`: batch_card's import allowlist forbids it). Both prose files document all forms; TestProseMatchesHelper gains 4 entries + prose-drift mutant; seven test_cw59_ real-chain card tests incl. carry_state divergence mutant; spots-not-recorded mutant now trips cw59. Full suite 3642 passed, 0 failed; replay 64 passed; GOLDEN unmoved. STALE-02 + DEFR-01 marked complete. Next: 59-06.
+
+2026-10-29: 59-04 complete (f8b9055, 3e31654). score.py records `nearby_spots` ([line, "copy"|"grouped"], sorted, own line excluded) on a fresh nearby stamp only when another spot fired, and carries it with nearby_at on keep/refresh (own-line spots dropped on carry). carry_state: `_well_formed_spots` validator, `_merge_nearby` derives the lifted source copy's spot on the read copy (never persisted), `stale_spots(record, state)` -> {line, kind, others} is the card's single reader. Six test_sp59_ tests + TestSnapshotSpotsUnit + mutant test_spots_not_recorded_loses_the_other_copy_line; test_sp59_ joined _READ_MERGE_ONLY. Full suite 3630 passed, 0 failed; replay 64 passed; GOLDEN unmoved. Advisory: tie-broken pooled priors pick spots by carryforward order. STALE-02/05 stay pending until 59-05 wording. Next: 59-05.
+
+2026-10-29: 59-03 complete (1927508, a56b48c). DEFR-01 green at 1927508: the min_confidence branch keeps a deferred covered member open as kept_open 'below-min-confidence <N>; deferred-by: <hB>' (score 0). CR-02 green at a56b48c: carry_state._merge_nearby lifts the latest well-formed nearby_at per hash onto the representative, on copies, once in _check_state, so record_decisions stores the merged view. _EXPECTED_RED_UNTIL_59_03 removed. Full suite 3619 passed, 0 failed; replay 64 passed; GOLDEN unmoved. Decision: the merge also covers CR-01/p1 at read time, so two producer mutants now run with read_merge=False (each layer keeps its own lock). STALE-03/04 marked complete; STALE-02 and DEFR-01 wait for the card work in 59-04/05. Next: 59-04.
+
+2026-10-29: 59-02 complete (c46f4dc, 25ce414, 323c0d1). CR-01, CR-01 multi-pass green at c46f4dc; CR-04 green at 25ce414; full suite 2 failed / 3613 passed, the two red are the 59-03 fixtures (cr02_edit, dmc). Decisions: kept-open rows pool prior + nearby over carried_by_hash and emit one row per dropped record, carried=bool(same) (covered arm dropped); group-loop row_nearby = carried copies + carried members without their own obligation, a fresh survivor line is not judged (D-21; p4 rewritten); three decorative arms removed (emitted set, best_member arm, kept-open fallback) and every remaining arm mutation-locked (g59/k59/l59/m59/n59 + cr02 pooled). 59-03 must empty _EXPECTED_RED_UNTIL_59_03. Next: 59-03.
+
+2026-10-29: 59-01 complete (82ec58b red fixtures, ca9834d 59-REPRO.md). Five shapes red on the real chain (CR-01 edit@33, CR-01 multi-pass, CR-02, CR-04, DEFR-01 min_confidence=45); controls green; full suite 5 failed / 3594 passed. Decisions: RED SHA for the 59-06 reverse run is 82ec58b; SA-02 did not reproduce on the real chain and is dropped, pinned by test_nv_render.all_carryforward_bypass_holds + deleting mutant. STALE-01 and DEFR-02 marked complete; DEFR-01 waits for its fix (59-03). Next: 59-02.
+
+2026-10-28: v2.14 roadmap written: Phase 59 Stale decisions and lost deferrals (STALE-01..06, DEFR-01..02), Phase 60 Exact change evidence and reliable Finalize (EVID-01..03, FINL-01..02), Phase 61 Release gate (GATE-01..03). 16/16 mapped (REQUIREMENTS.md said 18; corrected — 16 IDs are defined). Awaiting owner approval; uncommitted.
+
+2026-10-28: Activated v2.14 Decision reliability via /bm:new-milestone (research skipped; scope = approved roadmap split). Branch feat/v2.14-phase-59 from main f2b6a36.
+
+2026-10-28: Owner approved splitting the proposed combined milestone: Decision reliability first, Lean orchestration next, Reviewer efficiency as a conditional follow-up. Each owns its release gate; cost/experiments cannot delay reliability. Lean orchestration starts with Finalize and permits at most one evidence-backed extension. No activation, version/phase assignment, runtime changes or paid runs.
+
+2026-10-28: Owner requested a prioritized reliability-and-cost release plan. Added the next-milestone scope to ROADMAP.md without activation or phase/version assignment: stale decisions → exact evidence/Finalize → bounded baseline → incremental orchestration extraction → optional measured efficiency experiments → release gates. Preserved shipped milestones, paid-run boundaries, archived work and the existing HANDOFF.json modification.
 
 2026-10-28: v2.13 closed. Audit tech_debt (14/14, integration 6/6, suite 3588/0). Six open artifacts acknowledged as deferred. Phase dirs moved to milestones/v2.13-phases/. Released as 2.13.0 via a release PR from feat/v2.13-release; tag v2.13. Next: /bm:new-milestone.
 

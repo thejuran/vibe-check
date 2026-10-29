@@ -61,6 +61,7 @@ import carry_state  # noqa: E402
 import score  # noqa: E402
 from test_carry_state import append_pass, e2e_gate  # noqa: E402
 from test_score import GOLDEN_DIGEST  # noqa: E402
+import test_nv_render  # noqa: E402
 
 
 F = "src/a.py"
@@ -984,6 +985,270 @@ def far_twin_scenario():
     return s2, r2, s3, hA
 
 
+def _two_copy_lines():
+    """`base_file()` with lines 10 and 30 both `return None`: one title hashes
+    identically at either line, and the two sites are far apart (separate
+    groups under the +-2 grouping, separate D-14 windows)."""
+    L0 = base_file()
+    L0[9] = L0[29] = "return None"
+    return L0
+
+
+def cr01_scenario(edit, quiet_first=False, order=(10, 30)):
+    """57-REVIEW-GAPS4.md CR-01 (zero-config, kept-open copies): one decided
+    identity at two lines, neither copy re-reported.
+
+    Pass 1: `bugs` reports the same title at lines 10 and 30 (both
+    `return None`, so one hash) at conf 60; the owner dismisses hA. With
+    `quiet_first`, a quiet pass follows with no findings and an empty diff.
+    The last pass has no findings and a diff naming line `edit`: line 33 is
+    inside line 30's D-14 window (25-35) and outside line 10's (5-15), so
+    the change beside the second copy must re-ask the decision; line 45 is
+    outside both windows and must not. `order` is the arrival order of the
+    two pass-1 copies.
+    -> (s, r, hA) for the last pass."""
+    L0 = _two_copy_lines()
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", n, L0, TITLE_A, conf=60)
+                       for n in order], 1,
+                      {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    if quiet_first:
+        s1, _ = run_pass(s1, L0, [], 2, {F: []})
+    n = s1["passes"][-1]["pass_number"] + 1
+    s, r = run_pass(s1, L0, [], n, {F: [[edit, edit]]})
+    return s, r, hA
+
+
+def cr01_three_copies_scenario():
+    """The CR-01 shape with three copies: `bugs` reports the same title at
+    lines 10, 30 and 50 (all `return None`, one hash) at conf 60; the owner
+    dismisses hA. Pass 2 has no findings and a diff naming lines 33 and 53,
+    inside the D-14 windows of the copies at 30 and 50 and outside line
+    10's. -> (s2, r2, hA)."""
+    L0 = _two_copy_lines()
+    L0[49] = "return None"
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", n, L0, TITLE_A, conf=60)
+                       for n in (10, 30, 50)], 1, {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    s2, r2 = run_pass(s1, L0, [], 2, {F: [[33, 33], [53, 53]]})
+    return s2, r2, hA
+
+
+def cr02_scenario(edit=33, confs=(95, 95)):
+    """57-REVIEW-GAPS4.md CR-02 (member sidecars): one decided identity at two
+    lines, both copies absorbed under new leads.
+
+    Pass 1: `bugs` reports the same title at lines 10 and 30 (one hash) at
+    conf 75; the owner dismisses hA. Pass 2: a critical `security` finding
+    leads at each line ("Injection X" at 10, "Injection Y" at 30), so each
+    carried copy becomes a member sidecar with its own obligation; the diff
+    names line `edit` (33: inside line 30's window only). The decision
+    binds the identity, so whichever sidecar carry_state reads, the change
+    beside the second copy must re-ask it. `confs` is (X conf, Y conf): the
+    higher one sorts its injection row, and its sidecar, first.
+    -> (s2, r2, hA)."""
+    L0 = _two_copy_lines()
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF),
+                       fresh("bugs", 30, L0, TITLE_A, conf=STABLE_CONF)], 1,
+                      {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    s2, r2 = run_pass(s1, L0,
+                      [fresh("security", 10, L0, "Injection X",
+                             conf=confs[0], severity="critical",
+                             category="injection"),
+                       fresh("security", 30, L0, "Injection Y",
+                             conf=confs[1], severity="critical",
+                             category="injection")],
+                      2, {F: [[edit, edit]]})
+    return s2, r2, hA
+
+
+def cr04_scenario(edit_line=6, ranges_line=6, lead="security"):
+    """57-REVIEW-GAPS4.md CR-04 (covered member's own window): a decided row
+    whose covered member sits at a different line from the lead.
+
+    Pass 1: `bugs` A at line 10 (conf 75) and a critical `security` B at
+    line 12 (conf 95) group into one row led by B (hash hB; A is covered
+    with no obligation of its own); the owner dismisses hB. Pass 2: line
+    `edit_line` is rewritten in place to `# guard removed` (no line shift),
+    A and B are re-reported unchanged, and the diff names `ranges_line`.
+    Line 6 is inside A@10's D-14 window (5-15) and outside B@12's (7-17),
+    so removing the guard beside the covered finding must re-ask the
+    decision; line 20 is outside both and must not.
+
+    `lead="bugs"` flips the lead: A is reported at conf 100 severity
+    "critical" and B at conf 60 severity "warning", so A leads the row and
+    the decision is taken on A's hash (returned in hB's place).
+    -> (s1, s2, r2, hB)."""
+    L0 = base_file()
+    if lead == "bugs":
+        a_kw = {"conf": 100, "severity": "critical"}
+        b_kw = {"conf": 60, "severity": "warning"}
+    else:
+        a_kw = {"conf": STABLE_CONF}
+        b_kw = {"conf": 95, "severity": "critical"}
+
+    def reports(lines):
+        return [fresh("bugs", 10, lines, TITLE_A, **a_kw),
+                fresh("security", 12, lines, "Injection at B",
+                      category="injection", **b_kw)]
+
+    s1, r1 = run_pass(empty_state(), L0, reports(L0), 1, {F: [[1, 200]]})
+    assert len(r1["findings"]) == 1, r1["findings"]
+    row1 = r1["findings"][0]
+    assert row1["agent"] == lead, row1
+    hB = row1["stable_hash"]
+    s1 = decide_on(s1, hB)
+    L1 = list(L0)
+    L1[edit_line - 1] = "# guard removed"
+    s2, r2 = run_pass(s1, L1, reports(L1), 2,
+                      {F: [[ranges_line, ranges_line]]})
+    return s1, s2, r2, hB
+
+
+def pooled_prior_scenario():
+    """A producer-level lock on the kept-open pooled prior (D-19 over the
+    CR-02 shape): two carried copies of one identity begin a pass with
+    DIFFERENT owed stamps, and the row read for the identity must carry the
+    latest.
+
+    Pass 1: `bugs` reports the same title at lines 10 and 30 (one hash hA)
+    at conf 60; the owner dismisses hA. Pass 2: a critical `security`
+    finding leads one line below each copy ("Injection X" at 11, "Injection
+    Y" at 31), so each copy becomes a member sidecar; the diff names line 33,
+    so only the @30 sidecar is stamped (nearby_at 2, judged at its own
+    line). Pass 3: lines 11 and 31 are rewritten, both injection rows are
+    resolved by re-check verdicts and the diff is empty, so both hA copies
+    split out below threshold and become kept-open rows whose only owed
+    stamp is the @30 sidecar's. -> (s3, r3, hA)."""
+    L0 = _two_copy_lines()
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=60),
+                       fresh("bugs", 30, L0, TITLE_A, conf=60)], 1,
+                      {F: [[1, 200]]})
+    hA = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hA)
+    s2, r2 = run_pass(s1, L0,
+                      [fresh("security", 11, L0, "Injection X", conf=95,
+                             severity="critical", category="injection"),
+                       fresh("security", 31, L0, "Injection Y", conf=95,
+                             severity="critical", category="injection")],
+                      2, {F: [[33, 33]]})
+    reqs, verdicts = [], []
+    for i, lead in enumerate(f for f in r2["findings"]
+                             if f["agent"] == "security"):
+        token = "T%d" % i
+        reqs.append({"token": token, "agents": [lead["agent"]],
+                     "stable_hash": lead["stable_hash"], "file": lead["file"],
+                     "line": lead["line"], "agent": lead["agent"],
+                     "title": lead["title"]})
+        verdicts.append({"source": "recheck", "token": token,
+                         "agent": lead["agent"], "verdict": "resolved",
+                         "reason": "line rewritten"})
+    assert len(reqs) == 2, r2["findings"]
+    L3 = list(L0)
+    L3[10] = "line_11 = 'fixed'"
+    L3[30] = "line_31 = 'fixed'"
+    s3, r3 = run_pass(s2, L3, [], 3, {F: []}, recheck_requests=reqs,
+                      verdicts=verdicts)
+    return s3, r3, hA
+
+
+def foreign_copy_scenario():
+    """The one hash gate at the kept-open pooling site (57-REVIEW-GAPS3.md
+    IN-01): a copy whose own line changed is a different finding and never
+    lends its stamp, even when the edit makes it hash to a decided identity.
+
+    Pass 1: `bugs` reports one title at line 10 (`return None`, hash hA) and
+    at line 30 (`return 0`, hash hB) at conf 60; the owner dismisses both.
+    Pass 2: quiet, the diff names line 33, so hB's kept-open row owes a
+    re-ask (nearby_at 2) and hA's does not. Pass 3: line 30 is rewritten to
+    `return None` with an empty diff; the @30 record now hashes to hA but
+    its stored obligation (hB, stamped) is a different finding.
+    -> (s2, s3, hA, hB)."""
+    L0 = base_file()
+    L0[9] = "return None"
+    L0[29] = "return 0"
+    s1, r1 = run_pass(empty_state(), L0,
+                      [fresh("bugs", 10, L0, TITLE_A, conf=60),
+                       fresh("bugs", 30, L0, TITLE_A, conf=60)], 1,
+                      {F: [[1, 200]]})
+    hA = score.stable_hash(F, "return None", TITLE_A)
+    hB = score.stable_hash(F, "return 0", TITLE_A)
+    assert sorted(f["stable_hash"] for f in r1["findings"]) == sorted([hA, hB])
+    s1 = decide_on(decide_on(s1, hA), hB)
+    s2, _ = run_pass(s1, L0, [], 2, {F: [[33, 33]]})
+    L3 = list(L0)
+    L3[29] = "return None"
+    s3, _ = run_pass(s2, L3, [], 3, {F: []})
+    return s2, s3, hA, hB
+
+
+def edited_kept_open_scenario(ranges3):
+    """edited_carried_lead_scenario at conf 75, where the re-hashed finding
+    scores below threshold and the old identity hA stays open as a kept-open
+    row whose working record now hashes elsewhere (so no carried copy is
+    indexed under hA). Pass 2 owes hA a re-ask (nearby_at 2); pass 3 edits
+    hA's own line with diff `ranges3`. -> (s3, hA)."""
+    L0 = base_file()
+    s1, hA = pass1(L0, conf=STABLE_CONF)
+    L2 = list(L0)
+    L2[10] = "line_11 = 'edited'"
+    s2, _ = run_pass(s1, L2, [], 2, {F: [[11, 11]]})
+    L3 = list(L2)
+    L3[9] = "line_10 = 'edited'"
+    s3, _ = run_pass(s2, L3, [], 3, {F: ranges3})
+    return s3, hA
+
+
+def covered_scope_scenario(own_obligation):
+    """Which members' lines a decided row is judged at (D-16 / D-21).
+
+    With `own_obligation`: pass 1 `bugs` A at line 10 is a row (hA,
+    dismissed); pass 2 a critical `security` B at line 12 leads the group,
+    so A rides as a member sidecar with its own obligation (row hB,
+    dismissed); pass 3 re-reports both and rewrites line 6 (inside A@10's
+    window, outside B@12's). A's own decision is re-asked through its
+    sidecar; the row decision hB is not.
+
+    Without: pass 1 is the CR-04 row (A covered under hB, dismissed); pass 2
+    re-reports A and B plus a FRESH same-lane `security` C at line 8
+    (warning, conf 70) and rewrites line 3 (inside C@8's window only). A
+    finding first raised this pass is not new evidence (D-21), so hB is not
+    re-asked by the change C was raised on. -> (s, r, hB) for the last pass."""
+    L0 = base_file()
+    b = lambda L: fresh("security", 12, L, "Injection at B", conf=95,
+                        severity="critical", category="injection")
+    a = lambda L: fresh("bugs", 10, L, TITLE_A, conf=STABLE_CONF)
+    if own_obligation:
+        s1, r1 = run_pass(empty_state(), L0, [a(L0)], 1, {F: [[1, 200]]})
+        s1 = decide_on(s1, r1["findings"][0]["stable_hash"])
+        s2, r2 = run_pass(s1, L0, [a(L0), b(L0)], 2, {F: [[1, 200]]})
+        hB = [f for f in r2["findings"] if f["agent"] == "security"][0]["stable_hash"]
+        s2 = decide_on(s2, hB)
+        L3 = list(L0)
+        L3[5] = "# guard removed"
+        s, r = run_pass(s2, L3, [a(L3), b(L3)], 3, {F: [[6, 6]]})
+        return s, r, hB
+    s1, r1 = run_pass(empty_state(), L0, [a(L0), b(L0)], 1, {F: [[1, 200]]})
+    hB = r1["findings"][0]["stable_hash"]
+    s1 = decide_on(s1, hB)
+    L2 = list(L0)
+    L2[2] = "# rewritten"
+    s, r = run_pass(s1, L2,
+                    [a(L2), b(L2),
+                     fresh("security", 8, L2, "Injection at C", conf=70,
+                           severity="warning", category="injection")],
+                    2, {F: [[3, 3]]})
+    return s, r, hB
+
+
 def deferred_covered_lines():
     """(L0, L1): the deferred_covered_sub_threshold_scenario file before and
     after the pass-2 edit of B's line."""
@@ -994,7 +1259,8 @@ def deferred_covered_lines():
     return L0, L1
 
 
-def deferred_covered_sub_threshold_scenario(kind, **over):
+def deferred_covered_sub_threshold_scenario(kind, member_conf=STABLE_CONF,
+                                            **over):
     """57-REVIEW-GAPS3.md WR-02 under D-20: a deferred finding may never leave
     the open set on a score; a dismissed one below threshold may drop.
 
@@ -1002,9 +1268,12 @@ def deferred_covered_sub_threshold_scenario(kind, **over):
     conf 75 (3-line current_code kept) and the owner's `kind` on the row led
     by the critical `security` B. Pass 2 resolves B and edits line 12, so A
     splits out below threshold; `over` is forwarded to pass 2's run_pass.
+    `member_conf` is A's agent confidence (the config accepts
+    `min_confidence` 0-49 only, so a min_confidence drop of A needs it
+    below STABLE_CONF).
     -> (s1, s2, r2, hA, hB)."""
     L0, L1 = deferred_covered_lines()
-    a = fresh("bugs", 10, L0, TITLE_A, conf=STABLE_CONF)
+    a = fresh("bugs", 10, L0, TITLE_A, conf=member_conf)
     a["current_code"] = "}\n" + L0[10] + "\n" + L0[11]
     b = fresh("security", 12, L0, "Injection at B", conf=95,
               severity="critical", category="injection")
@@ -1450,7 +1719,15 @@ class TestPooledEvidence(_Base):
         self.assertIn("kept_open", row, row.get("snapshot"))
         self._assert_reasked(s2, hA)
 
-    def test_p4_far_twin_latest_stamp_reaches_the_first_copy(self):
+    def test_p4_far_twin_new_copy_is_not_evidence(self):
+        """D-21 / D-01: a NEW identical copy is not new evidence on the pass it
+        is first raised. The line-30 copy arrives fresh at pass 2 with a diff
+        beside it; the change it is raised on is the code it is about, not a
+        change since the decision, so the decided identity stays current at
+        pass 2 and at the quiet pass 3. (The previous expectation here, a
+        pass-2 stamp from the fresh copy, was round-4 CR-03 — an over-ask,
+        not a defect.) Accepted residual (D-02): once the copy is carried
+        (pass 3+), a later edit beside it re-asks."""
         s2, r2, s3, hA = far_twin_scenario()
         rows2 = sorted((f for f in r2["findings"] if f["stable_hash"] == hA),
                        key=lambda f: f["line"])
@@ -1459,15 +1736,345 @@ class TestPooledEvidence(_Base):
                          [(10, "persisted"), (30, "new")],
                          [f.get("snapshot") for f in rows2])
         self.assertEqual(r2["filtered"], [])
-        self.assertEqual(rows2[1]["snapshot"].get("nearby_at"), 2,
-                         "line-30 copy not stamped: %r" % rows2[1]["snapshot"])
-        rows3 = [f for f in s3["passes"][-1]["findings"]
+        self.assertNotIn("nearby_at", rows2[1]["snapshot"],
+                         "fresh line-30 copy stamped: %r" % rows2[1]["snapshot"])
+        for s in (s2, s3):
+            rec = self._current(s, hA)
+            self.assertEqual(carry_state.decision_state(rec, s), "current",
+                             rec["snapshot"])
+            self.assertEqual(e2e_gate(s, {}), "write", rec["snapshot"])
+
+
+class TestStaleDecisions59(_Base):
+    """57-REVIEW-GAPS4.md CR-01 (edit beside the second kept-open copy, and
+    its multi-pass variant where the second copy is lost from tracking after
+    a quiet pass), CR-02 (edit beside the second member sidecar) and CR-04
+    (a removed guard beside a covered member): a change inside the D-14
+    window of ANY copy or covered finding of a decided identity re-asks it;
+    a change outside every window keeps it (STALE-04).
+
+    Expected on the unfixed scorer: test_cr01_*, test_cr02_edit_* and
+    test_cr04_* fail; the test_c59_* controls pass. test_cr02_pooled_* and
+    the test_g59_/k59_/l59_/m59_/n59_ fixtures lock the producer-side pooling
+    guards (each has a mutant in TestPhase57Mutants)."""
+
+    def _assert_reasked(self, state, hA, nearby_at):
+        rec = self._current(state, hA)
+        snap = rec["snapshot"]
+        self.assertEqual(snap.get("nearby_at"), nearby_at,
+                         "row snapshot has no owed nearby_at: %r" % snap)
+        self.assertEqual(carry_state.decision_state(rec, state), "stale",
+                         "snapshot %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, state), "nearby",
+                         "snapshot %r" % snap)
+        # The re-ask lands in the gate list of the record's own band: the
+        # CR-01 copies score medium (conf 60), the CR-04 row is critical.
+        key = ("unacknowledged_medium_hashes" if rec.get("band") == "medium"
+               else "outstanding_cw_hashes")
+        self.assertIn(hA, carry_state.finalize_counts(state, {})[key],
+                      "snapshot %r" % snap)
+        self.assertNotEqual(e2e_gate(state, {}), "write",
+                            "snapshot %r" % snap)
+        return rec
+
+    def test_cr01_edit_beside_the_second_copy_reasks(self):
+        s2, _, hA = cr01_scenario(33)
+        self._assert_reasked(s2, hA, 2)
+
+    def test_cr01_multipass_second_copy_stays_tracked(self):
+        s3, _, hA = cr01_scenario(33, quiet_first=True)
+        # Pass 2 was quiet: both copies of the decided identity stay tracked.
+        rows2 = [f for f in s3["passes"][-2]["findings"]
                  if f.get("stable_hash") == hA]
-        self.assertEqual(len(rows3), 2, [f.get("snapshot") for f in rows3])
+        self.assertEqual(sorted(f["line"] for f in rows2), [10, 30],
+                         "pass-2 kept-open rows %r"
+                         % [(f["line"], f.get("kept_open")) for f in rows2])
+        for f in rows2:
+            self.assertIn("kept_open", f, f.get("snapshot"))
+        self._assert_reasked(s3, hA, 3)
+
+    def test_c59_cr01_edit_at_45_keeps_decision(self):
+        s2, _, hA = cr01_scenario(45)
+        rec = self._current(s2, hA)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current",
+                         rec["snapshot"])
+        self.assertEqual(e2e_gate(s2, {}), "write", rec["snapshot"])
+
+    def test_cr02_edit_beside_the_second_sidecar_reasks(self):
+        s2, _, hA = cr02_scenario(33)
+        rec = self._current(s2, hA)
+        snap = rec.get("snapshot")
+        # The decision state itself, not only the gate: the gate is already
+        # outstanding because the two injection rows are undecided.
+        self.assertEqual(carry_state.decision_state(record_of(s2, hA), s2),
+                         "stale", "record %r" % snap)
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby",
+                         "record %r" % snap)
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"], "record %r" % snap)
+        # The representative is still the line-10 sidecar (rows first, array
+        # order); only its nearby stamp comes from the line-30 copy.
+        self.assertEqual((rec["line"], snap.get("line"), snap.get("nearby_at")),
+                         (10, 10, 2), "record %r" % snap)
+
+    def _sidecar_obligations(self, state, h):
+        """{line: obligation} of the stored member sidecars with hash `h`."""
+        return {m.get("line"): m["obligation"]
+                for f in state["passes"][-1]["findings"]
+                for m in f.get("members") or []
+                if isinstance(m.get("obligation"), dict)
+                and m["obligation"].get("stable_hash") == h}
+
+    def test_cr02_redecision_after_merge_reads_current(self):
+        """The single writer reads the merged view: re-deciding after the
+        re-ask stores the latest stamp, so the decision reads current."""
+        s2, _, hA = cr02_scenario(33)
+        s2b = decide_on(s2, hA)
+        self.assertEqual(s2b["decisions"][hA]["evidence"].get("nearby_at"), 2,
+                         s2b["decisions"][hA])
+        self.assertEqual(carry_state.decision_state(record_of(s2b, hA), s2b),
+                         "current", record_of(s2b, hA)["snapshot"])
+        self.assertNotIn(hA, carry_state.finalize_counts(
+            s2b, {})["outstanding_cw_hashes"])
+
+    def test_cr02_merge_does_not_mutate_state(self):
+        """The merge works on copies: reading the state leaves every stored
+        sidecar snapshot exactly as score.py wrote it."""
+        s2, _, hA = cr02_scenario(33)
+        before = json.dumps(s2, sort_keys=True)
+        obls = self._sidecar_obligations(s2, hA)
+        # Self-check: the line-10 copy is unstamped, the line-30 copy owes it.
+        self.assertEqual(sorted(obls), [10, 30], obls)
+        self.assertNotIn("nearby_at", obls[10]["snapshot"], obls[10])
+        self.assertEqual(obls[30]["snapshot"].get("nearby_at"), 2, obls[30])
+        carry_state.open_findings(s2)
+        carry_state.finalize_counts(s2, {})
+        carry_state.decision_state(record_of(s2, hA), s2)
+        self.assertNotIn("nearby_at",
+                         self._sidecar_obligations(s2, hA)[10]["snapshot"])
+        self.assertEqual(json.dumps(s2, sort_keys=True), before)
+
+    def test_cr02_pooled_prior_carries_the_latest_owed_stamp(self):
+        s3, r3, hA = pooled_prior_scenario()
+        rows = sorted((f for f in r3["findings"] if f["stable_hash"] == hA),
+                      key=lambda f: f["line"])
+        # Self-checks: both copies split out below threshold, kept open.
+        self.assertEqual([(f["line"], f.get("kept_open")) for f in rows],
+                         [(10, "sub-threshold"), (30, "sub-threshold")],
+                         [f.get("snapshot") for f in rows])
+        # The @10 copy's own obligation carries no stamp; the pooled prior
+        # took the @30 sidecar's pass-2 stamp.
+        self.assertEqual(rows[0]["snapshot"].get("nearby_at"), 2,
+                         "line-10 row lost the owed stamp: %r"
+                         % rows[0]["snapshot"])
+
+    def test_g59_kept_open_copy_from_another_identity_lends_no_stamp(self):
+        s2, s3, hA, hB = foreign_copy_scenario()
+        # Self-check: hB owed a re-ask before its line was edited, hA did not.
+        self.assertEqual(record_of(s2, hB)["snapshot"].get("nearby_at"), 2,
+                         record_of(s2, hB)["snapshot"])
+        self.assertNotIn("nearby_at", record_of(s2, hA)["snapshot"])
+        row = [f for f in s3["passes"][-1]["findings"]
+               if f.get("stable_hash") == hA and f.get("line") == 10]
+        self.assertEqual(len(row), 1, s3["passes"][-1]["findings"])
+        self.assertIn("kept_open", row[0], row[0].get("snapshot"))
+        self.assertNotIn("nearby_at", row[0]["snapshot"],
+                         "hA inherited hB's stamp: %r" % row[0]["snapshot"])
         rec = self._current(s3, hA)
-        # carry_state keeps the first row of a hash.
-        self.assertEqual(rec["line"], 10, rec["snapshot"])
-        self._assert_reasked(s3, hA)
+        self.assertEqual(carry_state.decision_state(rec, s3), "current",
+                         rec["snapshot"])
+
+    def test_k59_edited_kept_open_row_keeps_its_own_owed_stamp(self):
+        s3, hA = edited_kept_open_scenario([])
+        row = row_of(s3, hA)
+        self.assertIsNotNone(row, "no kept-open row for %s" % hA[:8])
+        self.assertIn("kept_open", row, row.get("snapshot"))
+        # Its own obligation is the only prior source: the owed re-ask stays.
+        self.assertEqual(row["snapshot"].get("nearby_at"), 2, row["snapshot"])
+
+    def test_l59_edited_kept_open_row_is_judged_at_its_own_line(self):
+        s3, hA = edited_kept_open_scenario([[13, 13]])
+        row = row_of(s3, hA)
+        self.assertIsNotNone(row, "no kept-open row for %s" % hA[:8])
+        self.assertIn("kept_open", row, row.get("snapshot"))
+        self.assertEqual(row["snapshot"].get("nearby_at"), 3, row["snapshot"])
+
+    def test_m59_member_with_own_obligation_reasks_itself_not_the_row(self):
+        s, r, hB = covered_scope_scenario(own_obligation=True)
+        row = row_of(s, hB)
+        self.assertIsNotNone(row, "no row for %s" % hB[:8])
+        side = [m for m in row["members"] if m.get("agent") == "bugs"]
+        # Self-check: A rides as a sidecar and its own decision is re-asked.
+        self.assertEqual(len(side), 1, row["members"])
+        self.assertEqual(side[0]["obligation"]["snapshot"].get("nearby_at"), 3,
+                         side[0]["obligation"])
+        self.assertNotIn("nearby_at", row["snapshot"],
+                         "row re-asked by a member with its own decision: %r"
+                         % row["snapshot"])
+
+    def test_n59_fresh_member_is_not_evidence_for_the_row(self):
+        s, r, hB = covered_scope_scenario(own_obligation=False)
+        row = row_of(s, hB)
+        self.assertIsNotNone(row, "no row for %s" % hB[:8])
+        # Self-check: the fresh C rides on the decided row.
+        self.assertIn(8, [m.get("line") for m in row["members"]],
+                      row["members"])
+        self.assertEqual(row["status"], "persisted", row["snapshot"])
+        self.assertNotIn("nearby_at", row["snapshot"],
+                         "fresh member's own line re-asked the row: %r"
+                         % row["snapshot"])
+
+    def test_cr04_removed_guard_beside_covered_member_reasks(self):
+        _, s2, _, hB = cr04_scenario(6, 6)
+        self._assert_reasked(s2, hB, 2)
+
+    def test_c59_cr04_edit_at_line_20_keeps_decision(self):
+        _, s2, _, hB = cr04_scenario(20, 20)
+        rec = self._current(s2, hB)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current",
+                         rec["snapshot"])
+        self.assertEqual(e2e_gate(s2, {}), "write", rec["snapshot"])
+
+    # D-04 / D-05: the spot the card names. `carry_state.stale_spots` is the
+    # one reader; same-spot reopens name none.
+    def _spots(self, state, h):
+        rec = self._current(state, h)
+        return carry_state.stale_spots(rec, state), rec["snapshot"]
+
+    def test_sp59_cr01_spot_is_the_other_copy(self):
+        s2, _, hA = cr01_scenario(33)
+        spots, snap = self._spots(s2, hA)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 0}, snap)
+        # The copy whose own line changed names no other spot.
+        rows = sorted((f for f in s2["passes"][-1]["findings"]
+                       if f.get("stable_hash") == hA), key=lambda f: f["line"])
+        self.assertEqual([f["line"] for f in rows], [10, 30])
+        self.assertNotIn("nearby_spots", rows[1]["snapshot"], rows[1]["snapshot"])
+
+    def test_sp59_cr04_spot_is_the_grouped_member(self):
+        _, s2, _, hB = cr04_scenario(6, 6)
+        spots, snap = self._spots(s2, hB)
+        self.assertEqual(spots, {"line": 10, "kind": "grouped", "others": 0}, snap)
+
+    def test_sp59_cr02_merged_stamp_names_the_other_sidecar(self):
+        s2, _, hA = cr02_scenario(33)
+        spots, snap = self._spots(s2, hA)
+        # The representative is the line-10 sidecar; the stamp and its spot
+        # come from the line-30 copy at read time.
+        self.assertEqual(snap.get("line"), 10, snap)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 0}, snap)
+        self.assertNotIn("nearby_spots", json.dumps(s2["passes"]),
+                         "the derived spot was persisted")
+
+    def test_sp59_three_copies_lowest_line_plus_count(self):
+        s2, _, hA = cr01_three_copies_scenario()
+        spots, snap = self._spots(s2, hA)
+        self.assertEqual(snap.get("line"), 10, snap)
+        self.assertEqual(snap.get("nearby_spots"), [[30, "copy"], [50, "copy"]], snap)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 1}, snap)
+
+    def test_sp59_quiet_pass_keeps_the_spots(self):
+        s2, _, hA = cr01_scenario(33)
+        s3, _ = run_pass(s2, _two_copy_lines(), [], 3, {F: []})
+        spots, snap = self._spots(s3, hA)
+        self.assertEqual(snap.get("nearby_at"), 2, snap)
+        self.assertEqual(snap.get("nearby_spots"), [[30, "copy"]], snap)
+        self.assertEqual(spots, {"line": 30, "kind": "copy", "others": 0}, snap)
+        # The line-30 row may pool the line-10 copy's prior; a carried spot
+        # at its own line is the row itself and is dropped.
+        row30 = [f for f in s3["passes"][-1]["findings"]
+                 if f.get("stable_hash") == hA and f.get("line") == 30]
+        self.assertEqual(len(row30), 1, s3["passes"][-1]["findings"])
+        self.assertNotIn([30, "copy"], row30[0]["snapshot"].get("nearby_spots") or [],
+                         row30[0]["snapshot"])
+
+    def test_sp59_malformed_spots_read_as_none(self):
+        wf = carry_state._well_formed_spots
+        for bad in ([[True, "copy"]], [["30", "copy"]], [[30, "elsewhere"]],
+                    "x", [[0, "copy"]], [[30]], [(30, "copy")], None):
+            self.assertIsNone(wf(bad), bad)
+        self.assertEqual(wf([[50, "copy"], [30, "grouped"]]),
+                         [[30, "grouped"], [50, "copy"]])
+        self.assertEqual(wf([]), [])
+        # A stale-by-nearby record whose stored spots are malformed reads as
+        # no spot (today's wording), never as a crafted line.
+        s2, _, hA = cr01_scenario(33)
+        rec = self._current(s2, hA)
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+        for bad in ([[True, "copy"]], [["30", "copy"]], [[30, "elsewhere"]],
+                    "x", []):
+            forged = dict(rec, snapshot=dict(rec["snapshot"], nearby_spots=bad))
+            self.assertIsNone(carry_state.stale_spots(forged, s2), bad)
+        # A record that is not stale names no spot, whatever it carries.
+        s45, _, h45 = cr01_scenario(45)
+        cur = self._current(s45, h45)
+        forged = dict(cur, snapshot=dict(cur["snapshot"], nearby_spots=[[30, "copy"]]))
+        self.assertIsNone(carry_state.stale_spots(forged, s45))
+
+    # D-04 / D-05 / D-06: the card states the reopen reason the scorer's own
+    # chain produced (score.py -> state -> carry_state -> batch_card).
+    _WAS = "(was: dismissed — "
+
+    def test_cw59_cr01_card_names_the_other_copy(self):
+        s2, _, _ = cr01_scenario(33)
+        text = card_text_full(s2)
+        self.assertIn("code next to line 30 (another copy of this line) "
+                      "changed since your decision on pass 1 " + self._WAS,
+                      text)
+        self.assertIn("code next to line 30 (another copy of this line) "
+                      "changed since your decision on pass 1",
+                      card_text_compact(s2))
+
+    def test_cw59_cr04_card_names_the_grouped_member(self):
+        _, s2, _, _ = cr04_scenario(6, 6)
+        text = card_text_full(s2)
+        self.assertIn("code next to line 10 (a finding grouped here) changed "
+                      "since your decision on pass 1 " + self._WAS, text)
+
+    def test_cw59_cr02_card_names_the_other_sidecar(self):
+        s2, _, _ = cr02_scenario(33)
+        self.assertIn("code next to line 30 (another copy of this line) "
+                      "changed since your decision on pass 1 " + self._WAS,
+                      card_text_full(s2))
+
+    def test_cw59_three_copies_card_names_lowest_line_and_count(self):
+        s2, _, _ = cr01_three_copies_scenario()
+        text = card_text_full(s2)
+        self.assertIn("code next to line 30 and 1 other spot changed since "
+                      "your decision on pass 1 " + self._WAS, text)
+        self.assertNotIn("(another copy of this line)", text)
+
+    def test_cw59_same_spot_reopen_keeps_the_plain_wording(self):
+        # Line 12 is inside the line-10 copy's own window only: the reopen is
+        # caused by the representative's own line, so no spot is named.
+        s2, _, _ = cr01_scenario(12)
+        text = card_text_full(s2)
+        self.assertIn("code next to it changed since your decision on pass 1 "
+                      + self._WAS, text)
+        self.assertNotIn("code next to line", text)
+
+    def test_cw59_dmc_card_keeps_the_deferred_member_visible(self):
+        _, s2, _, hA, _ = deferred_covered_sub_threshold_scenario(
+            "defer", min_confidence=45, member_conf=40)
+        text = card_text_full(s2)
+        self.assertIn(hA, [r["stable_hash"] for r in card_rows(s2)])
+        self.assertIn("— below your min_confidence (45); still deferred",
+                      text)
+        self.assertIn("below your min_confidence (45); still deferred",
+                      card_text_compact(s2))
+
+    def test_cw59_card_reads_spots_from_carry_state(self):
+        """Divergence mutant: with carry_state's spot reader silenced the
+        card falls back to the plain wording, so the card renders the
+        reader's data and never derives a spot of its own."""
+        from unittest import mock
+        s2, _, _ = cr01_scenario(33)
+        with mock.patch.object(carry_state, "stale_spots",
+                               lambda record, state: None):
+            text = card_text_full(s2)
+        self.assertIn("code next to it changed since your decision on pass 1",
+                      text)
+        self.assertNotIn("code next to line", text)
 
 
 class TestPriorGate(_Base):
@@ -1582,6 +2189,39 @@ class TestDeferredStaysOpen(_Base):
         self.assertIsNone(record_of(s2, hA), r2["filtered"])
         self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
 
+    def test_dmc_deferred_covered_member_below_min_confidence_stays_open(self):
+        """DEFR-01: a valid `min_confidence` (45) drops the deferred covered
+        member A (conf 40) before grouping; the deferral must keep it on the
+        owner's open list, exactly as the sub-threshold drop does."""
+        s1, s2, r2, hA, hB = deferred_covered_sub_threshold_scenario(
+            "defer", min_confidence=45, member_conf=40)
+        self.assertIn({"line": 10, "reason": "below-min-confidence"},
+                      [{k: f.get(k) for k in ("line", "reason")}
+                       for f in r2["filtered"]], r2["filtered"])
+        row = row_of(s2, hA)
+        self.assertIsNotNone(row, "no row for %s; filtered %r"
+                             % (hA[:8], r2["filtered"]))
+        # Exact shape, mirroring test_deferred_kept_open_row_shape: the
+        # member under its own hash, at the band the owner deferred it at,
+        # with the configured floor and the covering decision in the reason.
+        self.assertEqual(row["kept_open"],
+                         "below-min-confidence 45; deferred-by: " + hB)
+        self.assertEqual(row["stable_hash"], hA)
+        self.assertEqual(row["band"], row_of(s1, hB)["band"])
+        self.assertEqual(row["orchestrator_score"], 0)
+        self.assertNotIn("obligation", row)
+        self.assertIn(hA, carry_state.finalize_counts(
+            s2, {})["outstanding_cw_hashes"], r2["filtered"])
+        self.assertNotEqual(e2e_gate(s2, {}), "write", r2["filtered"])
+
+    def test_dmx_dismissed_covered_member_below_min_confidence_may_drop(self):
+        """D-20 control: a DISMISSED covered member dropped by
+        `min_confidence` may leave the open set."""
+        _, s2, r2, hA, _ = deferred_covered_sub_threshold_scenario(
+            "dismiss", min_confidence=45, member_conf=40)
+        self.assertIsNone(row_of(s2, hA), r2["filtered"])
+        self.assertEqual(e2e_gate(s2, {}), "write", r2["filtered"])
+
 
 # Which record leads: the carried copy (STABLE_CONF re-report, out-ranked by
 # the +15 persisted bonus), a fresh copy out-ranking it at the same band, or a
@@ -1667,12 +2307,46 @@ def _inv_min_confidence_dropped_twin(rereport, _sev, min_confidence):
                     in [f.get("reason") for f in r2["filtered"]])
 
 
+def _inv_cr01_kept_open_copies(order, _sev):
+    """CR-01 kept-open copies: the knob is the arrival order of the two
+    pass-1 copies; the marker is the line of the record carry_state reads
+    for the identity (the first kept-open copy), which follows the order."""
+    s2, _, hA = cr01_scenario(33, order=order)
+    return s2, hA, record_of(s2, hA)["line"]
+
+
+def _inv_cr02_sidecar_order(edit, confs):
+    """CR-02 member sidecars: the knobs are the edited line (beside the first
+    or the second copy) and the two injection confidences (which injection
+    row is critical). Rows sort by line, so the record carry_state reads is
+    always the line-10 sidecar; what moves is which sidecar holds the nearby
+    stamp and which row leads by band. The marker is (critical row lines,
+    line of the stamped sidecar)."""
+    s2, _, hA = cr02_scenario(edit, confs=confs)
+    rows = s2["passes"][-1]["findings"]
+    stamped = [f["line"] for f in rows for m in f.get("members", [])
+               if (m.get("obligation") or {}).get("stable_hash") == hA
+               and m["obligation"]["snapshot"].get("nearby_at")]
+    return s2, hA, (tuple(f["line"] for f in rows
+                          if f["band"] == "critical"), tuple(stamped))
+
+
+def _inv_cr04_lead_flip(lead, _sev):
+    """CR-04 covered member: the knob is which finding leads the row; the
+    decision is taken on the lead's hash and the marker is the row agent."""
+    _, s2, _, h = cr04_scenario(6, 6, lead=lead)
+    return s2, h, row_of(s2, h)["agent"]
+
+
 # name -> (build(<knobs unpacked>) -> (state, hA, lead marker),
 #          ((label, knobs, expected lead marker), ...),
 #          expected triple, or None for "whatever carried-leads yields")
 _SAME_LANE = {"carried-leads": "persisted", "fresh-leads-same-band": "new",
               "fresh-leads-higher-band": "new"}
 _REASK = ("stale", "nearby", True)
+# A medium-band identity re-asks through the medium gate list, not the
+# critical/warning one the triple's third element reads.
+_REASK_MEDIUM = ("stale", "nearby", False)
 
 
 def _same_lane_perms():
@@ -1722,6 +2396,31 @@ INVARIANCE_SCENARIOS = {
          ("fresh-leads-same-band", (95, "warning", None), ("new", False)),
          ("fresh-leads-twin-dropped", (95, "warning", 80), ("new", True))),
         _REASK),
+    # 999.23 CR-01: two kept-open copies (conf 60, medium band), edit beside
+    # the line-30 copy. The arrival order moves the representative record.
+    "cr01_kept_open_copies": (
+        _inv_cr01_kept_open_copies,
+        (("carried-leads", ((10, 30), None), 10),
+         ("reversed-arrival", ((30, 10), None), 30)),
+        _REASK_MEDIUM),
+    # 999.23 CR-02: both copies absorbed as member sidecars under critical
+    # leads. The stamp sits on the second sidecar (edit@33) or the first
+    # (edit@13), under either injection row leading by band.
+    "cr02_sidecar_order": (
+        _inv_cr02_sidecar_order,
+        (("carried-leads", (33, (95, 90)), ((10,), (30,))),
+         ("lead-flip", (33, (90, 95)), ((30,), (30,))),
+         ("stamp-on-first-sidecar", (13, (95, 90)), ((10,), (10,))),
+         ("stamp-on-first-sidecar-lead-flip", (13, (90, 95)),
+          ((30,), (10,)))),
+        _REASK),
+    # 999.23 CR-04: the removed guard at line 6 is beside A@10 only. Either
+    # the security finding leads (A is the covered member) or A leads.
+    "cr04_lead_flip": (
+        _inv_cr04_lead_flip,
+        (("carried-leads", ("security", None), "security"),
+         ("lead-flip", ("bugs", None), "bugs")),
+        _REASK),
 }
 
 
@@ -1735,7 +2434,12 @@ class TestLeadOrderInvariance(_Base):
 
     Expected on the unfixed scorer: the fresh-leads permutations of plain,
     inherited_split, absorbed_split and owed_quiet_same_lane fail (SUBFAILED);
-    every carried-leads baseline passes."""
+    every carried-leads baseline passes.
+
+    The Phase-59 shapes (999.23 CR-01 kept-open copies, CR-02 member
+    sidecars, CR-04 covered member) are cr01_kept_open_copies,
+    cr02_sidecar_order and cr04_lead_flip; the split and merge shapes are the
+    existing inherited_split and absorbed_split entries."""
 
     def _triple(self, state, hA):
         rec = self._current(state, hA)
@@ -1777,7 +2481,10 @@ class TestLeadOrderInvariance(_Base):
                           "different_lane_dup_57_04",
                           "different_line_same_hash_cross_lane",
                           "same_lane_arrival_order",
-                          "min_confidence_dropped_twin"})
+                          "min_confidence_dropped_twin",
+                          "cr01_kept_open_copies",
+                          "cr02_sidecar_order",
+                          "cr04_lead_flip"})
         self.assertEqual(len(LEAD_PERMUTATIONS), 3)
         self.assertEqual(LEAD_PERMUTATIONS[0][1][0], STABLE_CONF)
         for name, (_, perms, _) in INVARIANCE_SCENARIOS.items():
@@ -1889,6 +2596,92 @@ DID_NOT_REPRODUCE = (
      "probe_result": "both closed through a re-check on pass 2",
      "disposition": "no real lost-decision case; fixtures synthetic"},
 )
+
+
+# --------------------------------------------------------------------------- #
+# Reproduction verdicts for the wrong-keep and lost-deferral shapes, recorded
+# on the unfixed code before any fix. A reproduced shape names its failing
+# real-chain fixture; a shape that does not reproduce on the real chain is
+# recorded and dropped, backed by an executing pin.
+# --------------------------------------------------------------------------- #
+_DROPPED_59 = "did not reproduce on the real chain; dropped — no code change"
+REPRO_59 = (
+    {"id": "CR-01", "decision": "STALE-01",
+     "scenario": "one dismissed identity at lines 10 and 30 (bugs, conf 60), "
+                 "no re-report; the next pass edits line 33",
+     "probe_result": "edit@33 -> kept-open @10 only, nearby_at None, "
+                     "current, gate write",
+     "disposition": "reproduced; fixed by 59-02",
+     "fixture": "test_cr01_edit_beside_the_second_copy_reasks"},
+    {"id": "CR-01-multipass", "decision": "STALE-01",
+     "scenario": "same pass 1; pass 2 quiet; pass 3 edits line 33",
+     "probe_result": "pass 2 emits one kept-open row (@10), the @30 copy is "
+                     "gone from state; pass 3 -> current, gate write",
+     "disposition": "reproduced; fixed by 59-02",
+     "fixture": "test_cr01_multipass_second_copy_stays_tracked"},
+    {"id": "CR-02", "decision": "STALE-01",
+     "scenario": "same two copies at conf 75, dismissed; pass 2 critical "
+                 "security leads at 10 and 30 absorb both copies; edit@33",
+     "probe_result": "the record read is the @10 sidecar, nearby_at None -> "
+                     "current (the gate is outstanding only for the two "
+                     "undecided injection rows)",
+     "disposition": "reproduced; fixed by 59-03",
+     "fixture": "test_cr02_edit_beside_the_second_sidecar_reasks"},
+    {"id": "CR-04", "decision": "STALE-01",
+     "scenario": "bugs A@10 covered by critical security B@12 (row hB), "
+                 "dismissed; pass 2 removes the guard at line 6",
+     "probe_result": "hB @12 current, nearby_at None, gate write",
+     "disposition": "reproduced; fixed by 59-02",
+     "fixture": "test_cr04_removed_guard_beside_covered_member_reasks"},
+    {"id": "DEFR-01-min-confidence-45", "decision": "DEFR-01",
+     "scenario": "deferred covered member A at conf 40 split out on pass 2 "
+                 "with min_confidence 45",
+     "probe_result": "rows [], filtered below-min-confidence, no record, "
+                     "gate write",
+     "disposition": "reproduced; fixed by 59-03",
+     "fixture": "test_dmc_deferred_covered_member_below_min_confidence_"
+                "stays_open"},
+    {"id": "SA-02", "decision": "DEFR-02",
+     "scenario": "--all run: a deferred covered member outside the reviewed "
+                 "set",
+     "probe_result": "score-level probe drops the member not-in-reviewed-set "
+                     "with no kept-open row, but 05-state-all.md (ii) forces "
+                     "$CARRYFORWARD = [] and skips steps 2-5, so "
+                     "$DEFERRED_HASHES is never bound in --all",
+     "disposition": _DROPPED_59,
+     "fixture": "test_nv_render.all_carryforward_bypass_holds"},
+)
+
+
+class TestRepro59Record(unittest.TestCase):
+
+    def test_repro_59_record_is_complete(self):
+        by_id = {r["id"]: r for r in REPRO_59}
+        self.assertEqual(set(by_id), {"CR-01", "CR-01-multipass", "CR-02",
+                                      "CR-04", "DEFR-01-min-confidence-45",
+                                      "SA-02"})
+        for row in REPRO_59:
+            with self.subTest(id=row["id"]):
+                self.assertEqual(set(row), {"id", "decision", "scenario",
+                                            "probe_result", "disposition",
+                                            "fixture"})
+                self.assertTrue(row["scenario"].strip())
+                self.assertTrue(row["probe_result"].strip())
+        sa02 = by_id["SA-02"]
+        self.assertTrue(sa02["disposition"].startswith(
+            "did not reproduce on the real chain; dropped"))
+        self.assertEqual(sa02["fixture"],
+                         "test_nv_render.all_carryforward_bypass_holds")
+        self.assertTrue(callable(getattr(
+            test_nv_render, sa02["fixture"].split(".", 1)[1], None)))
+        for row in REPRO_59:
+            if row["id"] == "SA-02":
+                continue
+            with self.subTest(id=row["id"]):
+                self.assertTrue(row["disposition"].startswith("reproduced"))
+                fn = (getattr(TestStaleDecisions59, row["fixture"], None)
+                      or getattr(TestDeferredStaysOpen, row["fixture"], None))
+                self.assertTrue(callable(fn), row["fixture"])
 
 
 class TestDidNotReproduceRecord(unittest.TestCase):
@@ -2425,15 +3218,14 @@ class TestPhase57Mutants(_Base):
         """D-17 guard: the pooled prior — a row takes, as its prior, the
         pooled snapshot of the carried records under its own hash (here the
         lead member's own obligation), assigned by `survivor["snapshot"] =
-        prior`. Without the assignment the re-ask owed before the split (s3),
-        the one owed before a same-lane re-report (d) and the far twin's
-        stamp (p4) are lost; the carried arm still stamps the split edit (s1)
-        and the fresh-lead negative (s4) is unaffected."""
+        prior`. Without the assignment the re-ask owed before the split (s3)
+        and the one owed before a same-lane re-report (d) are lost; the
+        carried arm still stamps the split edit (s1) and the fresh-lead
+        negative (s4) is unaffected."""
         failed = self._run_mutant(
             "score_split_seed", 'survivor["snapshot"] = prior', "pass")
         self.assertIn("test_s3_", failed)
         self.assertIn("test_d_", failed)
-        self.assertIn("test_p4_", failed)
         self.assertNotIn("test_s1_", failed)
         self.assertNotIn("test_s4_", failed)
 
@@ -2461,18 +3253,63 @@ class TestPhase57Mutants(_Base):
         (TestPooledEvidence,
          "test_p3_min_confidence_dropped_twin_keeps_the_reask"),
         (TestPooledEvidence,
-         "test_p4_far_twin_latest_stamp_reaches_the_first_copy"),
+         "test_p4_far_twin_new_copy_is_not_evidence"),
         (TestPriorGate,
          "test_in01_edited_carried_lead_does_not_carry_its_stamp_onto_the_new_hash"),
         (TestDeferredStaysOpen,
          "test_deferred_covered_member_below_threshold_stays_open"),
         (TestDeferredStaysOpen,
          "test_dismissed_covered_member_below_threshold_may_drop"),
+        (TestDeferredStaysOpen,
+         "test_dmc_deferred_covered_member_below_min_confidence_stays_open"),
+        (TestDeferredStaysOpen,
+         "test_dmx_dismissed_covered_member_below_min_confidence_may_drop"),
+        (TestStaleDecisions59, "test_cr01_edit_beside_the_second_copy_reasks"),
+        (TestStaleDecisions59, "test_cr01_multipass_second_copy_stays_tracked"),
+        (TestStaleDecisions59, "test_c59_cr01_edit_at_45_keeps_decision"),
+        (TestStaleDecisions59,
+         "test_cr02_edit_beside_the_second_sidecar_reasks"),
+        (TestStaleDecisions59,
+         "test_cr02_redecision_after_merge_reads_current"),
+        (TestStaleDecisions59, "test_cr02_merge_does_not_mutate_state"),
+        (TestStaleDecisions59,
+         "test_cr02_pooled_prior_carries_the_latest_owed_stamp"),
+        (TestStaleDecisions59,
+         "test_cr04_removed_guard_beside_covered_member_reasks"),
+        (TestStaleDecisions59, "test_c59_cr04_edit_at_line_20_keeps_decision"),
+        (TestStaleDecisions59,
+         "test_g59_kept_open_copy_from_another_identity_lends_no_stamp"),
+        (TestStaleDecisions59,
+         "test_k59_edited_kept_open_row_keeps_its_own_owed_stamp"),
+        (TestStaleDecisions59,
+         "test_l59_edited_kept_open_row_is_judged_at_its_own_line"),
+        (TestStaleDecisions59,
+         "test_m59_member_with_own_obligation_reasks_itself_not_the_row"),
+        (TestStaleDecisions59, "test_n59_fresh_member_is_not_evidence_for_the_row"),
+        (TestStaleDecisions59, "test_sp59_cr01_spot_is_the_other_copy"),
+        (TestStaleDecisions59, "test_sp59_cr04_spot_is_the_grouped_member"),
+        (TestStaleDecisions59,
+         "test_sp59_cr02_merged_stamp_names_the_other_sidecar"),
+        (TestStaleDecisions59, "test_sp59_three_copies_lowest_line_plus_count"),
+        (TestStaleDecisions59, "test_sp59_quiet_pass_keeps_the_spots"),
+        (TestStaleDecisions59, "test_sp59_malformed_spots_read_as_none"),
+        (TestStaleDecisions59, "test_cw59_cr01_card_names_the_other_copy"),
+        (TestStaleDecisions59,
+         "test_cw59_cr04_card_names_the_grouped_member"),
+        (TestStaleDecisions59, "test_cw59_cr02_card_names_the_other_sidecar"),
+        (TestStaleDecisions59,
+         "test_cw59_three_copies_card_names_lowest_line_and_count"),
+        (TestStaleDecisions59,
+         "test_cw59_same_spot_reopen_keeps_the_plain_wording"),
+        (TestStaleDecisions59,
+         "test_cw59_dmc_card_keeps_the_deferred_member_visible"),
+        (TestStaleDecisions59, "test_cw59_card_reads_spots_from_carry_state"),
     )
 
     def _failures(self):
         """The _ROW_TESTS that fail, by short prefix (`test_s1_`, `test_b_`,
-        `test_w1_`, `test_control_`); an error (not a failure) fails here."""
+        `test_w1_`, `test_control_`) and by full name; an error (not a
+        failure) fails here."""
         failed = set()
         for cls, name in self._ROW_TESTS:
             res = unittest.TestResult()
@@ -2480,21 +3317,50 @@ class TestPhase57Mutants(_Base):
             self.assertEqual(res.errors, [], name)
             if res.failures:
                 failed.add(name[:name.index("_", len("test_")) + 1])
+                failed.add(name)
         return failed
 
-    def _run_mutant(self, name, old, new):
+    # The row tests that need carry_state's read-side merge (CR-02): red when
+    # it is off, whatever the scorer does.
+    _READ_MERGE_ONLY = frozenset((
+        "test_cr02_",
+        "test_cr02_edit_beside_the_second_sidecar_reasks",
+        "test_cr02_redecision_after_merge_reads_current",
+        "test_sp59_",
+        "test_sp59_cr02_merged_stamp_names_the_other_sidecar",
+        "test_cw59_",
+        "test_cw59_cr02_card_names_the_other_sidecar"))
+
+    def _run_mutant(self, name, old, new, read_merge=True):
         """Failures of _ROW_TESTS with the whole scorer run from `score.py`
         with `old` replaced by `new`; asserts `old` is unique and the row
-        tests are green unmutated."""
+        tests are green unmutated.
+
+        With `read_merge=False` both runs read the state without
+        carry_state's `_merge_nearby`, so a producer-side guard the read-side
+        merge would also cover is measured on its own (defense in depth: each
+        layer keeps its own lock). The baseline is then exactly
+        _READ_MERGE_ONLY, which is subtracted from the result."""
+        import contextlib
         from unittest import mock
-        from test_confirmed_fix import SCORE_PY, _mutant
+        from test_confirmed_fix import CARRY_STATE_PY, SCORE_PY, _mutant
         with open(SCORE_PY, "r", encoding="utf-8") as fh:
             src = fh.read()
         self.assertEqual(src.count(old), 1, "mutation target not unique")
         mod = _mutant(SCORE_PY, name, old, new)
-        self.assertEqual(self._failures(), set())
-        with mock.patch.object(score, "run", mod.run):
-            return self._failures()
+        if read_merge:
+            reader, baseline = contextlib.nullcontext(), set()
+        else:
+            no_merge = _mutant(CARRY_STATE_PY, "cs_no_merge_" + name,
+                               "records = _merge_nearby(records, rows + sidecars)",
+                               "records = list(records)")
+            reader = mock.patch.object(carry_state, "_check_state",
+                                       no_merge._check_state)
+            baseline = set(self._READ_MERGE_ONLY)
+        with reader:
+            self.assertEqual(self._failures(), baseline)
+            with mock.patch.object(score, "run", mod.run):
+                return self._failures() - baseline
 
     def test_deferral_kind_gate_keeps_a_dismissed_member_open(self):
         """D-20 / WR-02 kind gate: only a member covered by one of the
@@ -2514,21 +3380,73 @@ class TestPhase57Mutants(_Base):
         unaffected."""
         failed = self._run_mutant(
             "score_d20_no_entry",
-            "carried_obligations[id(m)] = _covered_entry(",
-            "pass  # (")
+            "carried_obligations[id(m)] = _covered_entry("
+            "m, deferred_covered[id(m)], capped_by_id[id(m)])",
+            "pass")
         self.assertIn("test_deferred_", failed)
         self.assertNotIn("test_dismissed_", failed)
         self.assertNotIn("test_s1_", failed)
 
+    def test_min_confidence_no_synthesized_entry_drops_the_deferred_member(
+            self):
+        """D-20 / D-06 (DEFR-01): without the synthesized entry on the
+        min_confidence branch, a deferred covered member below the floor has
+        no row and leaves the open set; the dismiss control, a registered
+        record's plain "below-min-confidence" row (p3) and the sub-threshold
+        deferral are unaffected."""
+        failed = self._run_mutant(
+            "score_d20_min_conf_no_entry",
+            "carried_obligations[id(m)] = _covered_entry("
+            "m, deferred_covered[id(m)], 0)",
+            # `continue` skips the paired append too: the member is filtered
+            # and nothing keeps it, exactly the pre-D-20 drop.
+            "continue")
+        self.assertIn("test_dmc_", failed)
+        self.assertNotIn("test_dmx_", failed)
+        self.assertNotIn("test_p3_", failed)
+        self.assertNotIn("test_deferred_", failed)
+
+    def test_spots_not_recorded_loses_the_other_copy_line(self):
+        """D-04 / D-05: without recording `nearby_spots` on the fresh stamp
+        the card can no longer name the other copy (cr01), the grouped
+        member (cr04), the lowest of several spots or the carried spot on a
+        quiet pass. The re-asks themselves are unaffected (spots are
+        presentation data), and so is CR-02's spot, which carry_state
+        derives at read time from the lifted stamp."""
+        failed = self._run_mutant(
+            "score_spots_not_recorded", 'cur["nearby_spots"] = spots', "pass")
+        self.assertIn("test_sp59_", failed)
+        for name in ("test_sp59_cr01_spot_is_the_other_copy",
+                     "test_sp59_cr04_spot_is_the_grouped_member",
+                     "test_sp59_three_copies_lowest_line_plus_count",
+                     "test_sp59_quiet_pass_keeps_the_spots"):
+            self.assertIn(name, failed)
+        self.assertNotIn("test_sp59_cr02_merged_stamp_names_the_other_sidecar",
+                         failed)
+        self.assertNotIn("test_sp59_malformed_spots_read_as_none", failed)
+        # The card can no longer name those spots either; CR-02's derived
+        # spot, the same-spot control and the deferred note are unaffected.
+        self.assertIn("test_cw59_", failed)
+        for name in ("test_cw59_cr01_card_names_the_other_copy",
+                     "test_cw59_cr04_card_names_the_grouped_member",
+                     "test_cw59_three_copies_card_names_lowest_line_and_count"):
+            self.assertIn(name, failed)
+        for name in ("test_cw59_cr02_card_names_the_other_sidecar",
+                     "test_cw59_same_spot_reopen_keeps_the_plain_wording",
+                     "test_cw59_dmc_card_keeps_the_deferred_member_visible"):
+            self.assertNotIn(name, failed)
+        self.assertNotIn("test_cr01_", failed)
+        self.assertNotIn("test_cr04_", failed)
+
     def test_kept_open_covered_row_without_carried_is_not_stamped(self):
         """D-20 with D-17: the kept-open row of a deferred covered member
-        has no prior snapshot, so only `carried` lets the split pass's edit
-        stamp it. Without it the row reads current, the deferral closes it
-        and it is not outstanding; the dismiss lock and a real obligation's
-        kept-open row (p3, prior snapshot) are unaffected."""
+        has no prior snapshot, so only `carried` (some carried record hashes
+        to the row; the covered member is itself one) lets the split pass's
+        edit stamp it. Without it the row reads current, the deferral closes
+        it and it is not outstanding; the dismiss lock and a real
+        obligation's kept-open row (p3, prior snapshot) are unaffected."""
         failed = self._run_mutant(
-            "score_d20_no_carried",
-            'carried=bool(entry.get("covered"))', "carried=False")
+            "score_d20_no_carried", "carried=bool(same))", "carried=False)")
         self.assertIn("test_deferred_", failed)
         self.assertNotIn("test_dismissed_", failed)
         self.assertNotIn("test_p3_", failed)
@@ -2594,18 +3512,20 @@ class TestPhase57Mutants(_Base):
         self.assertNotIn("test_s3_", failed)
 
     def test_nearby_judged_at_the_lead_only_loses_the_other_copy(self):
-        """CR-01 nearby at every copy: judging nearby at the row's own line
-        only loses the edit beside a carried same-hash copy at another line,
-        across lanes (p1) and in either same-lane arrival order (p2); the
-        control where the carried copy leads (q1) and the inherited split
-        (s1) are unaffected."""
+        """CR-01 / CR-04 nearby at every copy and covered member: judging
+        nearby at the row's lead line only loses the edit beside a carried
+        same-hash copy at another line across lanes (p1) and the removed
+        guard beside a covered member (cr04); the control where the carried
+        copy leads (q1) and the inherited split (s1) are unaffected. Measured
+        without the read-side merge, which also lifts p1's other-copy stamp."""
         failed = self._run_mutant(
             "score_nearby_lead_only",
-            "row_nearby = _any_nearby([survivor] + [r for r, _ in same_hash], "
+            "row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, "
             "changed_line_ranges)",
-            "row_nearby = _nearby_changed(survivor, changed_line_ranges)")
+            "row_nearby = _any_nearby([survivor], changed_line_ranges)",
+            read_merge=False)
         self.assertIn("test_p1_", failed)
-        self.assertIn("test_p2_", failed)
+        self.assertIn("test_cr04_", failed)
         self.assertNotIn("test_q1_", failed)
         self.assertNotIn("test_s1_", failed)
 
@@ -2625,19 +3545,213 @@ class TestPhase57Mutants(_Base):
 
     def test_prior_rank_first_wins_loses_the_latest_stamp(self):
         """D-19 latest stamp: the pooled prior is ranked, never positional.
-        In the far-twin fixture's pass 3 the line-10 row's candidates arrive
-        as [line-10 obligation (unstamped), line-30 obligation (nearby_at 2),
-        the lead's own line-10 snapshot (unstamped)], so taking the first
+        In the pooled-prior fixture's pass 3 the line-10 kept-open row's
+        candidates arrive as [line-10 sidecar (unstamped), line-30 sidecar
+        (nearby_at 2), its own obligation (unstamped)], so taking the first
         candidate hands the line-10 row — the record carry_state reads — no
-        stamp (p4); the dropped twin (p3) and the same-lane re-report (d) are
+        stamp; the dropped twin (p3) and the same-lane re-report (d) are
         unaffected."""
         failed = self._run_mutant(
             "score_prior_first_wins",
             "return min(candidates, key=_prior_rank)",
             "return candidates[0]")
-        self.assertIn("test_p4_", failed)
+        self.assertIn("test_cr02_pooled_prior_carries_the_latest_owed_stamp",
+                      failed)
         self.assertNotIn("test_p3_", failed)
         self.assertNotIn("test_d_", failed)
+
+    def test_kept_open_hash_dedup_loses_the_second_copy(self):
+        """CR-01 multi-pass: kept-open rows are emitted once per dropped
+        record, not once per hash. Marking each emitted hash visible again
+        keeps only the first copy, so the second copy leaves tracking after a
+        quiet pass (cr01); the deferred and dismissed kept-open locks are
+        unaffected."""
+        failed = self._run_mutant(
+            "score_ko_hash_dedup",
+            '        row["members"] = members\n        rows.append(row)\n',
+            '        row["members"] = members\n'
+            '        visible.add(obl["stable_hash"])\n        rows.append(row)\n')
+        self.assertIn("test_cr01_multipass_second_copy_stays_tracked", failed)
+        self.assertNotIn("test_deferred_", failed)
+        self.assertNotIn("test_dismissed_", failed)
+
+    def test_kept_open_own_line_only_loses_the_other_copy(self):
+        """CR-01: a kept-open row is judged at every carried copy's line.
+        Judging its own line only loses the edit beside the second copy
+        (cr01); the edit outside both windows (c59) is unaffected. Measured
+        without the read-side merge, which also lifts the line-30 row's
+        stamp onto the line-10 representative."""
+        failed = self._run_mutant(
+            "score_ko_own_line_only",
+            "_any_nearby([row] + [r for r, _ in same], changed_line_ranges)",
+            "_any_nearby([row], changed_line_ranges)", read_merge=False)
+        self.assertIn("test_cr01_edit_beside_the_second_copy_reasks", failed)
+        self.assertNotIn("test_c59_", failed)
+
+    def test_kept_open_copies_only_loses_an_edited_row_own_line(self):
+        """A kept-open row whose working record re-hashed elsewhere (its own
+        line was edited) has no carried copy under its hash; judging the
+        copies only loses the change beside its own line (l59)."""
+        failed = self._run_mutant(
+            "score_ko_copies_only",
+            "_any_nearby([row] + [r for r, _ in same], changed_line_ranges)",
+            "_any_nearby([r for r, _ in same], changed_line_ranges)")
+        self.assertIn("test_l59_", failed)
+        self.assertNotIn("test_cr01_", failed)
+
+    def test_kept_open_prior_not_pooled_loses_the_latest_stamp(self):
+        """D-19 at the kept-open site: the row's prior is pooled over every
+        carried copy. Reading its own obligation only loses the stamp owed
+        at the other copy's sidecar (cr02 pooled)."""
+        failed = self._run_mutant(
+            "score_ko_prior_not_pooled",
+            'row["snapshot"] = _pooled_prior(candidates)',
+            'row["snapshot"] = obl.get("snapshot")')
+        self.assertIn("test_cr02_pooled_prior_carries_the_latest_owed_stamp",
+                      failed)
+        self.assertNotIn("test_k59_", failed)
+
+    def test_kept_open_own_obligation_not_a_candidate_loses_its_stamp(self):
+        """The kept-open row's own obligation is always a prior candidate.
+        Without it, a row whose record re-hashed elsewhere (no carried copy
+        under its hash) loses the re-ask it already owed (k59)."""
+        failed = self._run_mutant(
+            "score_ko_own_not_candidate",
+            '        if isinstance(obl.get("snapshot"), dict):\n'
+            '            candidates.append(obl["snapshot"])\n',
+            "")
+        self.assertIn("test_k59_", failed)
+        self.assertNotIn("test_cr02_pooled_prior_carries_the_latest_owed_stamp",
+                         failed)
+
+    def test_kept_open_seed_without_hash_equality_inherits_a_foreign_stamp(self):
+        """IN-01 at the kept-open site: a copy whose own line was edited
+        into the row's identity is a different finding; without the one
+        hash gate its stored stamp reaches the decided row (g59); the
+        same-hash pooled prior (cr02 pooled) is unaffected."""
+        failed = self._run_mutant(
+            "score_ko_seed_no_hash",
+            'and o.get("stable_hash") == obl["stable_hash"]', "and True")
+        self.assertIn("test_g59_", failed)
+        self.assertNotIn("test_cr02_pooled_prior_carries_the_latest_owed_stamp",
+                         failed)
+
+    def test_covered_members_not_judged_loses_the_covered_guard(self):
+        """CR-04: a row is judged at its covered members' lines. Without them
+        the guard removed beside the covered finding is lost (cr04); the
+        fresh-lead negative (s4), the cross-lane copy (p1) and the far edit
+        (c59) are unaffected."""
+        failed = self._run_mutant(
+            "score_covered_not_judged",
+            "+ covered_m, changed_line_ranges)", "+ [], changed_line_ranges)")
+        self.assertIn("test_cr04_", failed)
+        self.assertNotIn("test_s4_", failed)
+        self.assertNotIn("test_p1_", failed)
+        self.assertNotIn("test_c59_", failed)
+
+    def test_covered_members_with_own_obligation_judged_reasks_the_row(self):
+        """D-16 scope: a member carrying its own obligation is re-asked
+        through its own sidecar, not through the row. Judging the row at it
+        too re-asks the row decision (m59); CR-04 is unaffected."""
+        failed = self._run_mutant(
+            "score_covered_with_obligation",
+            "if id(m) not in carried_obligations\n"
+            "                     and m.get(\"status\")",
+            "if True\n                     and m.get(\"status\")")
+        self.assertIn("test_m59_", failed)
+        self.assertNotIn("test_cr04_", failed)
+
+    def test_fresh_members_judged_reasks_on_first_raise(self):
+        """D-21 / D-01: a member first raised this pass is not new evidence.
+        Judging the row at fresh members re-asks a decided row by the change
+        the newcomer was raised on (n59); CR-04 is unaffected."""
+        failed = self._run_mutant(
+            "score_fresh_members_judged",
+            'and m.get("status") in _CARRIED_STATUSES]', "and True]")
+        self.assertIn("test_n59_", failed)
+        self.assertNotIn("test_cr04_", failed)
+
+    def test_survivor_own_line_judged_stamps_a_new_copy(self):
+        """D-21 / D-01 lock: a FRESH survivor's own line is not judged, so a
+        new identical copy raised beside a change does not re-ask the
+        decision (p4); the covered-member guard (cr04) is unaffected."""
+        failed = self._run_mutant(
+            "score_survivor_judged",
+            "_any_nearby([r for r, _ in same_hash] + covered_m",
+            "_any_nearby([survivor] + [r for r, _ in same_hash] + covered_m")
+        self.assertIn("test_p4_", failed)
+        self.assertNotIn("test_cr04_", failed)
+
+
+class TestPhase59CarryStateMutants(_Base):
+    """The read-side guard in carry_state: each mutant removes one link and
+    only the fixture it protects fails."""
+
+    def test_first_record_per_hash_wins_loses_the_sidecar_stamp(self):
+        """CR-02 / STALE-03: without `_merge_nearby` the first record per
+        hash (the line-10 sidecar) represents the decision alone and the
+        line-30 sidecar's stamp is lost, so the edit beside the second copy
+        reads current again. CR-01 and CR-04 are unaffected: their
+        representative row carries its own stamp."""
+        from unittest import mock
+        from test_confirmed_fix import CARRY_STATE_PY, _mutant
+        anchor = "records = _merge_nearby(records, rows + sidecars)"
+        with open(CARRY_STATE_PY, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count(anchor), 1, "mutation target not unique")
+        mod = _mutant(CARRY_STATE_PY, "cs_first_wins", anchor,
+                      "records = list(records)")
+        s2, _, hA = cr02_scenario(33)
+        s1c, _, h1 = cr01_scenario(33)
+        _, s4, _, h4 = cr04_scenario(6, 6)
+
+        def states():
+            return tuple(carry_state.decision_state(record_of(s, h), s)
+                         for s, h in ((s2, hA), (s1c, h1), (s4, h4)))
+
+        self.assertEqual(states(), ("stale", "stale", "stale"))
+        with mock.patch.object(carry_state, "_check_state", mod._check_state):
+            self.assertEqual(states(), ("current", "stale", "stale"))
+
+
+class TestSnapshotSpotsUnit(unittest.TestCase):
+    """score._snapshot_for carries a validated prior `nearby_spots` with the
+    prior `nearby_at` on the refresh branch (the keep branch is locked by
+    test_sp59_quiet_pass_keeps_the_spots), and never carries a malformed
+    list."""
+
+    _ROW = {"file": F, "line": 11, "canonical_line_content": "return None",
+            "band": "medium"}
+
+    def _prior(self, spots):
+        return {"at_pass": 2, "file": F, "line": 10,
+                "canonical_line_content": "return None", "band": "medium",
+                "nearby_at": 2, "nearby_spots": spots}
+
+    def test_refresh_branch_carries_the_spots(self):
+        snap = score._snapshot_for(dict(self._ROW, snapshot=self._prior([[30, "copy"]])), 3)
+        self.assertEqual((snap["at_pass"], snap.get("nearby_at"), snap.get("nearby_spots")),
+                         (3, 2, [[30, "copy"]]), snap)
+
+    def test_malformed_prior_spots_are_not_carried(self):
+        for bad in ([[True, "copy"]], [["30", "copy"]], [[30, "elsewhere"]],
+                    "x", [[0, "copy"]], [[30]], []):
+            snap = score._snapshot_for(dict(self._ROW, snapshot=self._prior(bad)), 3)
+            self.assertEqual(snap.get("nearby_at"), 2, snap)
+            self.assertNotIn("nearby_spots", snap, bad)
+
+    def test_spots_without_a_stamp_are_not_carried(self):
+        prior = self._prior([[30, "copy"]])
+        del prior["nearby_at"]
+        snap = score._snapshot_for(dict(self._ROW, snapshot=prior), 3)
+        self.assertNotIn("nearby_spots", snap, snap)
+
+    def test_nearby_spots_sorted_deduped_copies_first(self):
+        ranges = {F: [[33, 33], [53, 53], [8, 8]]}
+        recs = [{"file": F, "line": n} for n in (50, 30, 10)]
+        grouped = [{"file": F, "line": 30}, {"file": F, "line": 6}]
+        self.assertEqual(score._nearby_spots(10, recs, grouped, ranges),
+                         [[6, "grouped"], [30, "copy"], [50, "copy"]])
 
 
 class TestPooledPriorUnit(unittest.TestCase):

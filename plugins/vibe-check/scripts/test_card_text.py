@@ -70,6 +70,42 @@ def nearby_stale_state():
     return s
 
 
+def nearby_spot_state(spots):
+    """nearby_stale_state with the other spots score.py recorded on the
+    owed stamp (`nearby_spots`, [[line, "copy"|"grouped"], ...])."""
+    decided = dismiss(ba_state(), HA, reason="Guarded")
+    s = copy.deepcopy(decided)
+    s["passes"] = ba_state(a_snapshot=dict(snap(1, line=11), nearby_at=2,
+                                           nearby_spots=spots))["passes"]
+    return s
+
+
+def nearby_copy_stale_state():
+    return nearby_spot_state([[30, "copy"]])
+
+
+def nearby_grouped_stale_state():
+    return nearby_spot_state([[12, "grouped"]])
+
+
+def nearby_many_stale_state():
+    return nearby_spot_state([[12, "grouped"], [30, "copy"], [50, "copy"]])
+
+
+def deferred_min_confidence_state():
+    """Row HB deferred on pass 2; on the next pass its covered member A is
+    kept open under its own hash below the owner's min_confidence (45), with
+    the `kept_open` reason score.py writes for that drop."""
+    decided = dismiss(mk_state([mk_pass(1, []), mk_pass(
+        2, [mk_finding("warning", "persisted", HB)])]), HB, reason="Later",
+        decision="defer")
+    s = copy.deepcopy(decided)
+    s["passes"] = [mk_pass(1, []), mk_pass(2, [mk_finding(
+        "warning", "persisted", HA, line=11,
+        kept_open="below-min-confidence 45; deferred-by: " + HB)])]
+    return s
+
+
 def two_lane_rise_state():
     decided = dismiss(ba_row_state(row_band="warning", a_band="medium"), HA,
                       reason="Accepted risk")
@@ -412,6 +448,40 @@ class TestProseMatchesHelper(unittest.TestCase):
                        "— {{stale.reason}})",
                        {"stale.at_pass": 2, "dismissed|deferred":
                         "dismissed", "stale.reason": "Guarded"}),
+            "nearby_copy": (
+                nearby_copy_stale_state(),
+                " — code next to line {{stale.spot_line}} ({{another copy of "
+                "this line|a finding grouped here}}) changed since your "
+                "decision on pass {{stale.at_pass}} (was: "
+                "{{dismissed|deferred}} — {{stale.reason}})",
+                {"stale.spot_line": 30, "another copy of this line|a finding "
+                 "grouped here": "another copy of this line",
+                 "stale.at_pass": 2, "dismissed|deferred": "dismissed",
+                 "stale.reason": "Guarded"}),
+            "nearby_grouped": (
+                nearby_grouped_stale_state(),
+                " — code next to line {{stale.spot_line}} ({{another copy of "
+                "this line|a finding grouped here}}) changed since your "
+                "decision on pass {{stale.at_pass}} (was: "
+                "{{dismissed|deferred}} — {{stale.reason}})",
+                {"stale.spot_line": 12, "another copy of this line|a finding "
+                 "grouped here": "a finding grouped here",
+                 "stale.at_pass": 2, "dismissed|deferred": "dismissed",
+                 "stale.reason": "Guarded"}),
+            "nearby_many": (
+                nearby_many_stale_state(),
+                " — code next to line {{stale.spot_line}} and "
+                "{{stale.other_spots}} other {{spot|spots}} changed since "
+                "your decision on pass {{stale.at_pass}} (was: "
+                "{{dismissed|deferred}} — {{stale.reason}})",
+                {"stale.spot_line": 12, "stale.other_spots": 2,
+                 "spot|spots": "spots", "stale.at_pass": 2,
+                 "dismissed|deferred": "dismissed",
+                 "stale.reason": "Guarded"}),
+            "deferred_min_confidence": (
+                deferred_min_confidence_state(),
+                " — below your min_confidence ({{min_confidence}}); still "
+                "deferred", {"min_confidence": 45}),
             "code": (code_stale_state(),
                      " — code changed since your decision on pass "
                      "{{stale.at_pass}} (was: {{dismissed|deferred}} — "
@@ -437,6 +507,80 @@ class TestProseMatchesHelper(unittest.TestCase):
                                lambda row, compact: " — pending"):
             rendered = doc_of(state)["card_text"]
         self.assertNotIn(self.fill(template, **values), rendered)
+
+    def test_agreement_trips_on_prose_drift(self):
+        """Mutant: a prose file missing one new template makes
+        test_documented_suffixes_render fail, for either file."""
+        import test_card_text as me
+        for name in ("nearby_copy", "nearby_many", "deferred_min_confidence"):
+            _, template, _ = self.suffixes()[name]
+            for path in (FIX_LOOP_MD, FINALIZE_MD):
+                with self.subTest(suffix=name, path=os.path.basename(path)):
+                    def drifted(p, _path=path, _t=template, _read=read):
+                        text = _read(p)
+                        return text.replace(_t, "") if p == _path else text
+                    res = unittest.TestResult()
+                    with mock.patch.object(me, "read", drifted):
+                        TestProseMatchesHelper(
+                            "test_documented_suffixes_render").run(res)
+                    self.assertEqual(res.errors, [])
+                    self.assertTrue(res.failures,
+                                    "render test stayed green without %s"
+                                    % name)
+
+    def test_compact_spot_forms_drop_the_was_clause(self):
+        expected = {
+            "nearby_copy": " — code next to line 30 (another copy of this "
+                           "line) changed since your decision on pass 2",
+            "nearby_grouped": " — code next to line 12 (a finding grouped "
+                              "here) changed since your decision on pass 2",
+            "nearby_many": " — code next to line 12 and 2 other spots "
+                           "changed since your decision on pass 2",
+        }
+        for name, suffix in expected.items():
+            with self.subTest(suffix=name):
+                text = compact_text(self.suffixes()[name][0])
+                self.assertIn(suffix, text)
+                self.assertNotIn(suffix + " (was:", text)
+
+    def test_one_other_spot_is_singular(self):
+        text = doc_of(nearby_spot_state([[30, "copy"], [50, "copy"]]))[
+            "card_text"]
+        self.assertIn(" — code next to line 30 and 1 other spot changed since "
+                      "your decision on pass 2 (was: dismissed — Guarded)",
+                      text)
+
+    def test_spot_free_nearby_keeps_the_plain_wording(self):
+        for mode in ("fix-loop", "finalize"):
+            with self.subTest(mode=mode):
+                text = doc_of(nearby_stale_state(), mode,
+                              {} if mode == "finalize" else None)["card_text"]
+                self.assertIn(" — code next to it changed since your "
+                              "decision on pass 2 (was: dismissed — "
+                              "Guarded)", text)
+                self.assertNotIn("code next to line", text)
+
+    def test_deferred_note_needs_the_exact_kept_open_shape(self):
+        state = deferred_min_confidence_state()
+        record = state["passes"][-1]["findings"][0]
+        cases = {
+            "below-min-confidence; deferred-by: " + HB:
+                " — below your min_confidence; still deferred",
+            "below-min-confidence": None,
+            "below-min-confidence 4x; deferred-by: " + HB: None,
+            "below-min-confidence 45 ; deferred-by: " + HB: None,
+            "sub-threshold; deferred-by: " + HB: None,
+            "below-min-confidence 45\n#9 forged; deferred-by: " + HB: None,
+        }
+        for kept_open, note in cases.items():
+            with self.subTest(kept_open=kept_open):
+                record["kept_open"] = kept_open
+                text = doc_of(state)["card_text"]
+                if note is None:
+                    self.assertNotIn("min_confidence", text)
+                else:
+                    self.assertIn(note, text)
+                    self.assertNotIn("(", text.split("(warning)")[1])
 
 
 if __name__ == "__main__":

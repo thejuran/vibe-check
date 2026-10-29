@@ -16,9 +16,18 @@ Catch real defects in a developer's changes before they ship — with high cover
 low noise — so a reviewer who can't manually audit the code can trust the agent's output
 as their safety net.
 
-## Current Milestone: none (next not yet scoped)
+## Current Milestone: v2.14 Decision reliability
 
-Start with `/bm:new-milestone`. Candidates: backlog 999.23–999.26 (v2.13 known limits) and 999.12 (cost visibility feasibility).
+**Goal:** Close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable — without changing reviewer coverage or scoring policy.
+
+**Target features:**
+- Stale decisions and lost deferrals (999.23): reproduce CR-01, CR-02, CR-04 and the `min_confidence=45` deferred-member loss through the real score → carry → card → finalize chain; reopen with the correct reason when evidence changes, keep unchanged decisions stable; SA-02 reproduced once or recorded and dropped. One bounded implementation/review cycle, then record residuals and re-scope.
+- Exact change evidence and reliable Finalize (999.24, 999.25): nearby/in-diff ranges from actual additions/deletions, not display context; Finalize's blob-file path survives fresh Bash calls via the printed-path convention.
+- Release gate: targeted real-chain regressions, full offline suite, archived replay (only named reopen/retention differences allowed), mode/recovery checks; live checks only under a separately approved bounded proposal, else documented gap + waiver. Ships independently.
+
+**Progress:** Phase 59 complete (2026-10-29) — CR-01, CR-01 multi-pass, CR-02, CR-04 and the `min_confidence=45` deferral loss fixed with red-before/green-after real-chain fixtures; SA-02 did not reproduce (dropped, pinned). Card-wording residuals WR-01/WR-02 owner-parked to 999.23. Next: Phase 60.
+
+**Out of scope:** cost reporting, orchestration extraction, reviewer/model changes, scoring changes, 999.26. Lean orchestration (999.12 + Finalize extraction) follows; Reviewer efficiency stays conditional. Full scope: [Roadmap](ROADMAP.md).
 
 ## Last Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
 
@@ -89,7 +98,7 @@ Original noise design spec: `docs/superpowers/specs/2026-07-08-quiet-down-v2.10-
 
 ## Current State: v2.13 shipped (2026-10-28)
 
-**v2.13 shipped as plugin 2.13.0** (tag `v2.13`; one squash PR per phase into main, then a release PR). Reliable fix closure and recovery: an independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation (the six-row case incl. Codex-origin and tests-only fixes closes with no dismissal); owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence; "Fix all" names what it skips; inconclusive re-checks print per-reason recovery steps; clear plain-English card answers are acted on. Not B3-measured — v2.11 (5/18 · 15/15, MISS) remains the last measured result. Known limits in backlog 999.23–999.26. Next milestone: not scoped.
+**v2.13 shipped as plugin 2.13.0** (tag `v2.13`; one squash PR per phase into main, then a release PR). Reliable fix closure and recovery: an independent re-check closes a fixed finding on a later run with no dummy edit or repeated confirmation (the six-row case incl. Codex-origin and tests-only fixes closes with no dismissal); owner defer/dismiss decisions survive regrouping and unrelated edits and reopen on changed evidence; "Fix all" names what it skips; inconclusive re-checks print per-reason recovery steps; clear plain-English card answers are acted on. Not B3-measured — v2.11 (5/18 · 15/15, MISS) remains the last measured result. Known limits in backlog 999.23–999.26. Current milestone: v2.14 Decision reliability (Phases 59–61); Lean orchestration follows; Reviewer efficiency conditional.
 
 ### Earlier: v2.12 shipped (2026-10-17)
 
@@ -335,7 +344,12 @@ crash-proofed and built the test-sufficiency agent on top of.
 
 ### Active
 
-<!-- No active milestone. Next requirements are defined by /bm:new-milestone. -->
+<!-- v2.14 Decision reliability — full REQ-IDs in REQUIREMENTS.md. -->
+
+- [ ] Stale decisions reopen with the correct reason when evidence changes; deferred obligations survive filtering (999.23)
+- [ ] Nearby/in-diff evidence uses only actually changed lines (999.24)
+- [ ] Finalize works across fresh shell calls (999.25)
+- [ ] Release gate passes with only named replay differences
 
 (v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
 
@@ -452,4 +466,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-28 after v2.13 milestone*
+*Last updated: 2026-10-29 after Phase 59 (stale decisions and lost deferrals)*
