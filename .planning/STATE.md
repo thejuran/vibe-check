@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: executing
-last_updated: "2026-10-29T21:26:21.292Z"
-last_activity: 2026-10-29 -- 60-07 complete (literal-sha range sources + six fixed diff flags; RED b1bc970, GREEN 2a63cb5)
+status: verifying
+last_updated: "2026-10-29T21:33:45.169Z"
+last_activity: 2026-10-29 -- 60-09 complete (gap-round ledger; REPRO_60 at 12 rows; suite 3786 passed, 0 failed); Phase 60 awaiting re-verification
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 15
-  completed_plans: 14
+  completed_plans: 15
   percent: 33
 ---
 
@@ -26,12 +26,12 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
 Plan: 9 of 9
-Status: Executing Phase 60
-Last activity: 2026-10-29 -- 60-07 complete (RED b1bc970, GREEN 2a63cb5; suite 3786 passed)
+Status: Phase 60 gap plans executed; awaiting re-verification
+Last activity: 2026-10-29 -- 60-09 complete (gap-round ledger; REPRO_60 at 12 rows; suite 3786 passed, 0 failed); Phase 60 awaiting re-verification
 
 ## Operator Next Steps
 
-- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 planned (waves: 06∥08 → 07 → 09). Next: `/bm:execute-phase 60 --gaps-only`, then re-verification, then the Phase 60 PR from `feat/v2.14-phase-60`.
+- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Next: Phase 60 re-verification (EVID-03, FINL-02), then the Phase 60 PR from `feat/v2.14-phase-60`. Owner rulings pending: SA-01 live Write-tool check (R16), SA-02 PR size limit (R17).
 - Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R5 install resync before any manual check, replay deltas none.
 - Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
 - Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
