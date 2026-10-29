@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: executing
-last_updated: "2026-10-29T20:45:00.000Z"
-last_activity: 2026-10-29 -- 60-04 complete (every route pipes one range source through diff_ranges.py; full suite 3765 passed, 0 failed)
+status: "Phase 60 verifying — all 5 plans executed, not merged"
+last_updated: "2026-10-29T21:30:00.000Z"
+last_activity: 2026-10-29 -- 60-05 complete (cycle closed; reverse run red at ce9f8b8, suite 3765 passed, replay no deltas; EVID-01..03 + FINL-01..02 complete)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 33
-stopped_at: Completed 60-04-PLAN.md — next 60-05 (close the cycle)
+stopped_at: "Completed 60-05-PLAN.md — Phase 60 executed (5/5); next phase verification, then PR for feat/v2.14-phase-60"
 ---
 
 # Project State
@@ -25,15 +25,17 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 ## Current Position
 
-Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 5 of 5
-Status: Executing Phase 60
-Last activity: 2026-10-29 -- 60-04 complete (every route pipes one range source through diff_ranges.py; full suite 3765 passed, 0 failed)
+Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTED, AWAITING VERIFICATION
+Plan: 5 of 5 complete
+Status: Phase 60 verifying — all 5 plans executed, not merged
+Last activity: 2026-10-29 -- 60-05 complete (cycle closed; reverse run red at ce9f8b8, suite 3765 passed, replay no deltas; EVID-01..03 + FINL-01..02 complete)
 
 ## Operator Next Steps
 
+- Phase 60 executed (5/5 plans; ledger closed in 60-REPRO.md). Next: phase verification, then the Phase 60 PR from `feat/v2.14-phase-60`.
+- Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R5 install resync before any manual check, replay deltas none.
 - Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
-- Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close). Next `/bm:execute-phase 60`.
+- Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
 - Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
@@ -80,6 +82,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 60-05 complete (fc019b2 ledger, 9e0bb86 residuals/roadmap/requirements). Reverse run at RED SHA ce9f8b8 with current tests copied into a scratch worktree: all 15 60-01 red fixtures fail again (10 TestRealDiffRanges60, 4 TestCoordinateSpaces60 probes, Finalize walk), plus every 60-03 walk/lock and test_diff_ranges.py at collection; worktree removed. Suite at close 3765 passed, 0 failed; test_replay 64 passed; replay.py/test_replay.py/score.py/finalize_gate.py byte-unchanged since ce9f8b8 -> no replay deltas for GATE-02. Every verdict has a Green at: SHA. Residuals R1-R11 in 60-REPRO.md (R1 finalize_gate traceback helper-side only; R5 install resync before any manual check; R6 live gh pr diff fetch not exercised = EVID-03 known limit). No open silent keep; no second round (D-10). EVID-01..03, FINL-01..02 ticked. Next: Phase 60 verification, then PR.
 
 2026-10-29: 60-04 complete (66d63de prose, 39f6dbd route tests + PR fixture, fb8b32b probes + D-04 audit). 30-collect-score.md changed-line ranges: built only from +/- body lines by scripts/diff_ranges.py, never hunk headers; working-tree coordinate contract; one range source per route (default `git diff HEAD` alone, GSD `git diff $PHASE_START`, pass >= 2 `git diff $LAST_REVIEWED_SHA`, range `git diff <range>`, PR `gh pr diff <ref> --color never`, --all none) with fixed --no-color --no-ext-diff a/ b/ flags; set -o pipefail fence halts with "Review halted — the changed lines could not be read from the diff; nothing was scored.". All three coordinate arms shipped (PR-SERIES, MIXED-COORD, DEFAULT-STAGED reproduced); reviewer diff commands unchanged. PR fixture captured with gh (PR #5, 4 sections, 286 lines), cross-checked vs local f2b6a36..98f63aa. TestRoute* x6 + TestProseRangeFence (fence read from the file; pipefail mutation-checked). DEFAULT-STAGED Probe B recorded as coordinate disagreement (line 48 unchanged on disk). _REPRO_60_PENDING_FIXTURES emptied. Full suite 3765 passed, 0 failed. EVID-01/EVID-03 not ticked (60-05 closes them). Next: 60-05.
 
