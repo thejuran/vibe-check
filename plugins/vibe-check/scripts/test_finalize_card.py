@@ -1300,6 +1300,14 @@ class TestGapRoundFinalize(LockCase):
             self.assert_trips(retry_rule_holds, self._mutant(
                 "a new mktemp fence printing a NEW `BLOBFILE=`",
                 "the same `BLOBFILE=`"))
+        with self.subTest("mutant: earlier attempt's GATEFILE may be reused"):
+            self.assert_trips(retry_rule_holds, self._mutant(
+                "Never reuse a `GATEFILE=` printed by an earlier attempt "
+                "or an earlier session: "))
+        with self.subTest("mutant: rebuild does not re-mint GATEFILE"):
+            self.assert_trips(retry_rule_holds, self._mutant(
+                "run the gate-input fence again so it prints a NEW "
+                "`GATEFILE=`, "))
         with self.subTest("mutant: rebuild paragraph gone"):
             self.assert_trips(retry_rule_holds, self._mutant(RETRY_HEAD, ""))
 
@@ -1824,6 +1832,12 @@ RETRY_NEEDLES = (
     "this rebuild is the snapshot-freshness revalidation",
     "Never reuse a `BLOBFILE=` printed by an earlier attempt",
     "A second failure stops.",
+    "or the `GATEFILE=` path is missing or empty",
+    "run the gate-input fence again so it prints a NEW `GATEFILE=`",
+    "write the seven-key `flags` object from the REBUILT `$COUNTS_JSON` to "
+    "that new path",
+    "Never reuse a `GATEFILE=` printed by an earlier attempt or an earlier "
+    "session",
 )
 REFUSED_NEEDLES = (
     "A step the owner refused (permission denied) is never retried",
@@ -2170,6 +2184,57 @@ class TestFinalizeFreshShellWalk(LockCase):
         self.assertNotIn(ARCH_HASH, fresh["verified_obsolete_hashes"])
         self.assertIn(ARCH_HASH, fresh["outstanding_cw_hashes"])
         self.assert_holds(retry_rule_holds, self.text)
+
+    def test_retry_mints_new_gatefile_after_gate_input_failure(self):
+        """FINL-02 / D-07: attempt 1's gate input is empty (the Write failed)
+        -> the gate halts. Re-running the gate on that same GATEFILE fails
+        identically; the documented rebuild mints a NEW BLOBFILE=, re-counts,
+        mints a NEW GATEFILE=, writes the flags from the rebuilt counts, and
+        the gate returns `write`."""
+        state = self._write_route_state()
+        gate = gate_fence(self.text)
+
+        blob1 = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob1, {})
+        self._counts(blob1, state)
+        gate1 = self._mint("GATEFILE", state_file=state)
+        # the Write of the flags object failed: gate1 stays empty
+        self.assertEqual(os.path.getsize(gate1), 0)
+
+        def assert_halts(gatefile):
+            rc, out, err = self._walk(gate, {"GATEFILE": gatefile}, state)
+            self.assertEqual(rc, 1)
+            self.assertEqual(out, "")
+            self.assertEqual(err.splitlines(), [GATE_HALT])
+            with open(gatefile + ".err", encoding="utf-8") as fh:
+                self.assertIn("Traceback", fh.read())
+
+        assert_halts(gate1)
+        with self.subTest("old rule: same GATEFILE reused fails identically"):
+            assert_halts(gate1)
+
+        blob2 = self._mint("BLOBFILE", state_file=state)
+        self.assertNotEqual(blob1, blob2)
+        self._write_json(blob2, {})
+        counts2 = self._counts(blob2, state)
+        gate2 = self._mint("GATEFILE", state_file=state)
+        self.assertNotEqual(gate1, gate2)
+        self._write_json(gate2, self._flags(counts2, state))
+        rc, out, err = self._walk(gate, {"GATEFILE": gate2}, state)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["action"],
+                         "write")
+        self._assert_closed()
+        self.assert_holds(retry_rule_holds, self.text)
+
+    def test_gatefile_missing_path_is_a_named_trigger(self):
+        """The rebuild-once rule names a missing or empty GATEFILE= as a
+        trigger and keeps every earlier needle, the refused-step rule and
+        the write boundary."""
+        para = retry_paragraph(self.text)
+        self.assertIn("`GATEFILE=` path is missing or empty", para)
+        for needle in RETRY_NEEDLES[:5] + REFUSED_NEEDLES + (WRITE_BOUNDARY,):
+            self.assertIn(needle, para)
 
     def _gate_owner_view(self, text, content):
         """Problems with what the owner sees when the gate fence of `text`
