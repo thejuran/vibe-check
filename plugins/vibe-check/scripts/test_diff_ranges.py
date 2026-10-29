@@ -111,6 +111,11 @@ class _Repo(unittest.TestCase):
         """`git diff <prose flags> <args> HEAD` (working tree vs HEAD)."""
         return self.git("diff", *PROSE_FLAGS, *args, "HEAD").stdout
 
+    def diff_with_config(self, kv, *args):
+        """`git -c <kv> diff <prose flags> <args> HEAD`: one config setting
+        in force for this call only."""
+        return self.git("-c", kv, "diff", *PROSE_FLAGS, *args, "HEAD").stdout
+
     def three_contexts(self):
         return (self.diff(), self.diff("-U0"), self.diff("-U10"))
 
@@ -267,6 +272,8 @@ class TestHazards(_Repo):
 
     def test_hostile_repo_config_does_not_change_ranges(self):
         L = list(BASE)
+        L[10] = ""  # a blank line 11 next to the edit
+        self.commit_lines(L)
         L[11] = "twelve"
         self.write_lines(L)
         clean = [self.ranges(t) for t in self.three_contexts()]
@@ -274,14 +281,41 @@ class TestHazards(_Repo):
         self.git("config", "diff.mnemonicPrefix", "true")
         self.git("config", "diff.noprefix", "true")
         self.git("config", "diff.external", "false")
+        self.git("config", "diff.suppressBlankEmpty", "true")
         # The hostile config really changes git's own output...
         raw = self.git("diff", "--no-ext-diff", "HEAD").stdout
         self.assertIn("\x1b[", raw)
         self.assertNotIn("+++ b/f.txt", raw)
+        self.assertIn("\n\n", self.diff())  # blank context printed empty
         # ...but the prose flags restore the same ranges and keys.
         hostile = [self.ranges(t) for t in self.three_contexts()]
         self.assertEqual(hostile, clean)
         self.assertEqual(clean[0], {"f.txt": [[12, 12]]})
+
+    def test_suppress_blank_empty_context_is_context(self):
+        L = list(BASE)
+        L[13] = ""  # line 14 is blank
+        self.commit_lines(L)
+        L[14] = "fifteen"
+        self.write_lines(L)
+        kv = "diff.suppressBlankEmpty=true"
+        for label, args in (("default", ()), ("-U0", ("-U0",)),
+                            ("-U10", ("-U10",))):
+            with self.subTest(context=label):
+                suppressed = self.diff_with_config(kv, *args)
+                plain = self.diff(*args)
+                if label != "-U0":
+                    # The fixture holds what the test thinks: the blank
+                    # context line is a truly empty body line under the
+                    # setting and a lone space without it.
+                    body = suppressed[suppressed.index("\n@@"):]
+                    self.assertIn("\n\n", body)
+                    self.assertIn("", body.split("\n")[1:-1])
+                    self.assertIn("\n \n", plain)
+                    self.assertNotEqual(suppressed, plain)
+                self.assertEqual(self.ranges(suppressed), self.ranges(plain))
+                self.assertEqual(self.ranges(suppressed),
+                                 {"f.txt": [[15, 15]]})
 
     def test_form_feed_and_line_separator_do_not_desync(self):
         L = list(BASE)
@@ -391,12 +425,57 @@ class TestRefusals(_Repo):
         bad = text.replace("\n 8\n", "\nx8\n", 1)
         self.assertEqual(self._refusal(bad), self.dr.REASON_BAD_BODY_LINE)
 
+    def test_refuses_colored_diff(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.git("-c", "color.ui=always", "diff", "HEAD").stdout
+        self.assertIn("\x1b[", text)
+        self.assertTrue(any(ln.startswith("\x1b")
+                            for ln in text.split("\n")))
+        self.assertEqual(self._refusal(text), self.dr.REASON_ESCAPE)
+
+    def test_refuses_non_diff_text(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        stat = self.git("diff", "--stat", "HEAD").stdout
+        self.assertIn("f.txt", stat)
+        self.assertNotIn("@@", stat)
+        for label, text in (
+                ("error", "fatal: ambiguous argument '': unknown revision\n"),
+                ("stat", stat),
+                ("prose", "hello\nworld\n")):
+            with self.subTest(input=label):
+                self.assertEqual(self._refusal(text),
+                                 self.dr.REASON_NOT_A_DIFF)
+
+    def test_binary_only_and_mode_only_diffs_are_empty(self):
+        # Hunk-less diffs are real diffs: the not-a-diff rule must not
+        # refuse them.
+        gitfixture.write(self.repo, "b.bin", b"a\x00b\n")
+        self.git("add", "--", "b.bin")
+        self.git("commit", "-q", "-m", "binary")
+        gitfixture.write(self.repo, "b.bin", b"a\x00c\n")
+        binary = self.diff()
+        self.assertIn("Binary files", binary)
+        self.assertNotIn("@@", binary)
+        self.assertEqual(self.ranges(binary), {})
+        self.git("checkout", "--", "b.bin")
+        self.git("update-index", "--chmod=+x", "f.txt")
+        mode = self.git("diff", "--cached", *PROSE_FLAGS).stdout
+        self.assertIn("old mode", mode)
+        self.assertIn("new mode", mode)
+        self.assertNotIn("@@", mode)
+        self.assertEqual(self.ranges(mode), {})
+
     def test_reasons_are_fixed_text(self):
         self.assertEqual(
             self.dr.REASONS,
             (self.dr.REASON_MBOX, self.dr.REASON_COMBINED,
              self.dr.REASON_SHORT_BODY, self.dr.REASON_LONG_BODY,
-             self.dr.REASON_BAD_BODY_LINE))
+             self.dr.REASON_BAD_BODY_LINE, self.dr.REASON_ESCAPE,
+             self.dr.REASON_NOT_A_DIFF))
         self.assertTrue(issubclass(self.dr.RangeError, ValueError))
 
     def test_empty_diff_is_empty_result(self):
@@ -454,6 +533,18 @@ class TestCli(_Repo):
         self.assertEqual(proc.stdout, b"")
         self.assertEqual(proc.stderr.decode("utf-8"),
                          diff_ranges.REASON_MBOX + "\n")
+
+    def test_colored_diff_exits_two_with_reason_only(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.git("-c", "color.ui=always", "diff", "HEAD").stdout
+        self.assertIn("\x1b[", text)
+        proc = self.cli(text.encode("utf-8"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode("utf-8"),
+                         diff_ranges.REASON_ESCAPE + "\n")
 
     def test_any_argv_exits_two(self):
         for argv in (["--help"], ["x"]):
@@ -727,6 +818,27 @@ class TestMutants(unittest.TestCase):
             "for p in sorted(out)}",
             "for p in out}",
             TestShapesRealGit, "test_two_files_both_keys_sorted")
+
+    # M20: an empty body line is not read as a blank context line.
+    def test_m20_empty_body_line_is_context(self):
+        self.assert_trips(
+            'tag = body[:1] if body else " "',
+            "tag = body[:1]",
+            TestHazards, "test_suppress_blank_empty_context_is_context")
+
+    # M21: escaped (colored) text is not refused.
+    def test_m21_escape_refusal(self):
+        self.assert_trips(
+            '        if line.startswith("\\x1b"):\n',
+            "        if False:\n",
+            TestRefusals, "test_refuses_colored_diff")
+
+    # M22: text with no diff structure gives {} instead of a refusal.
+    def test_m22_not_a_diff_refusal(self):
+        self.assert_trips(
+            "        raise RangeError(REASON_NOT_A_DIFF)\n",
+            "        pass\n",
+            TestRefusals, "test_refuses_non_diff_text")
 
 
 
