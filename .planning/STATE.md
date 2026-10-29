@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T21:18:03.532Z"
-last_activity: 2026-10-29 -- 60-08 complete (Finalize rebuild re-mints GATEFILE; RED f100185, GREEN c0ece7e)
+last_updated: "2026-10-29T21:26:21.292Z"
+last_activity: 2026-10-29 -- 60-07 complete (literal-sha range sources + six fixed diff flags; RED b1bc970, GREEN 2a63cb5)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 33
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Executing Phase 60
-Last activity: 2026-10-29 -- 60-08 complete (Finalize rebuild re-mints GATEFILE; RED f100185, GREEN c0ece7e)
+Last activity: 2026-10-29 -- 60-07 complete (RED b1bc970, GREEN 2a63cb5; suite 3786 passed)
 
 ## Operator Next Steps
 
@@ -81,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 60-07 complete (b1bc970 red, 2a63cb5 green). GSD and pass >= 2 range sources in 30-collect-score.md now end in a quoted literal placeholder ("<phase-start-sha>" / "<last-reviewed-sha>") the agent substitutes; 00-scope.md's phase-range fence prints PHASE_START=<sha> (empty with no history -> HEAD). Every range-source command, including the abbreviated lines in 00-scope/05-state, carries --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/. Fresh-shell: literal sha gives {"f.txt": [[3, 3], [5, 5]]}; unset "$PHASE_START" halts rc 1 (the old unquoted form silently gave [[5, 5]] rc 0, kept as a documenting subtest). textconv, diff.relative, suppressBlankEmpty and color proven to change raw git output but not the fenced ranges. test_diff_ranges 100 passed; full suite 3786 passed. EVID-01/EVID-03/FINL-02 stay unchecked until 60-09 + re-verification. Next: 60-09.
 
 2026-10-29: 60-08 complete (f100185 red, c0ece7e green). Finalize's one automatic rebuild now names a missing or empty GATEFILE= as a trigger, re-runs the gate-input fence for a NEW GATEFILE=, writes the seven-key flags from the REBUILT COUNTS_JSON, and never reuses an earlier GATEFILE=. Fresh-shell walk: empty GATEFILE halts, reusing it halts identically, new BLOBFILE + new GATEFILE reaches `write`. test_finalize_card 89 passed; pause/nv/fix-loop locks 199 passed. FINL-02 stays unchecked until 60-09 + re-verification. Next: 60-07.
 
