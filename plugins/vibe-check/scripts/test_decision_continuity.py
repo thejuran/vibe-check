@@ -1997,6 +1997,71 @@ class TestStaleDecisions59(_Base):
         forged = dict(cur, snapshot=dict(cur["snapshot"], nearby_spots=[[30, "copy"]]))
         self.assertIsNone(carry_state.stale_spots(forged, s45))
 
+    # D-04 / D-05 / D-06: the card states the reopen reason the scorer's own
+    # chain produced (score.py -> state -> carry_state -> batch_card).
+    _WAS = "(was: dismissed — "
+
+    def test_cw59_cr01_card_names_the_other_copy(self):
+        s2, _, _ = cr01_scenario(33)
+        text = card_text_full(s2)
+        self.assertIn("code next to line 30 (another copy of this line) "
+                      "changed since your decision on pass 1 " + self._WAS,
+                      text)
+        self.assertIn("code next to line 30 (another copy of this line) "
+                      "changed since your decision on pass 1",
+                      card_text_compact(s2))
+
+    def test_cw59_cr04_card_names_the_grouped_member(self):
+        _, s2, _, _ = cr04_scenario(6, 6)
+        text = card_text_full(s2)
+        self.assertIn("code next to line 10 (a finding grouped here) changed "
+                      "since your decision on pass 1 " + self._WAS, text)
+
+    def test_cw59_cr02_card_names_the_other_sidecar(self):
+        s2, _, _ = cr02_scenario(33)
+        self.assertIn("code next to line 30 (another copy of this line) "
+                      "changed since your decision on pass 1 " + self._WAS,
+                      card_text_full(s2))
+
+    def test_cw59_three_copies_card_names_lowest_line_and_count(self):
+        s2, _, _ = cr01_three_copies_scenario()
+        text = card_text_full(s2)
+        self.assertIn("code next to line 30 and 1 other spot changed since "
+                      "your decision on pass 1 " + self._WAS, text)
+        self.assertNotIn("(another copy of this line)", text)
+
+    def test_cw59_same_spot_reopen_keeps_the_plain_wording(self):
+        # Line 12 is inside the line-10 copy's own window only: the reopen is
+        # caused by the representative's own line, so no spot is named.
+        s2, _, _ = cr01_scenario(12)
+        text = card_text_full(s2)
+        self.assertIn("code next to it changed since your decision on pass 1 "
+                      + self._WAS, text)
+        self.assertNotIn("code next to line", text)
+
+    def test_cw59_dmc_card_keeps_the_deferred_member_visible(self):
+        _, s2, _, hA, _ = deferred_covered_sub_threshold_scenario(
+            "defer", min_confidence=45, member_conf=40)
+        text = card_text_full(s2)
+        self.assertIn(hA, [r["stable_hash"] for r in card_rows(s2)])
+        self.assertIn("— below your min_confidence (45); still deferred",
+                      text)
+        self.assertIn("below your min_confidence (45); still deferred",
+                      card_text_compact(s2))
+
+    def test_cw59_card_reads_spots_from_carry_state(self):
+        """Divergence mutant: with carry_state's spot reader silenced the
+        card falls back to the plain wording, so the card renders the
+        reader's data and never derives a spot of its own."""
+        from unittest import mock
+        s2, _, _ = cr01_scenario(33)
+        with mock.patch.object(carry_state, "stale_spots",
+                               lambda record, state: None):
+            text = card_text_full(s2)
+        self.assertIn("code next to it changed since your decision on pass 1",
+                      text)
+        self.assertNotIn("code next to line", text)
+
 
 class TestPriorGate(_Base):
     """57-REVIEW-GAPS3.md IN-01: every prior source passes the one hash gate;
@@ -3147,6 +3212,17 @@ class TestPhase57Mutants(_Base):
         (TestStaleDecisions59, "test_sp59_three_copies_lowest_line_plus_count"),
         (TestStaleDecisions59, "test_sp59_quiet_pass_keeps_the_spots"),
         (TestStaleDecisions59, "test_sp59_malformed_spots_read_as_none"),
+        (TestStaleDecisions59, "test_cw59_cr01_card_names_the_other_copy"),
+        (TestStaleDecisions59,
+         "test_cw59_cr04_card_names_the_grouped_member"),
+        (TestStaleDecisions59, "test_cw59_cr02_card_names_the_other_sidecar"),
+        (TestStaleDecisions59,
+         "test_cw59_three_copies_card_names_lowest_line_and_count"),
+        (TestStaleDecisions59,
+         "test_cw59_same_spot_reopen_keeps_the_plain_wording"),
+        (TestStaleDecisions59,
+         "test_cw59_dmc_card_keeps_the_deferred_member_visible"),
+        (TestStaleDecisions59, "test_cw59_card_reads_spots_from_carry_state"),
     )
 
     def _failures(self):
@@ -3170,7 +3246,9 @@ class TestPhase57Mutants(_Base):
         "test_cr02_edit_beside_the_second_sidecar_reasks",
         "test_cr02_redecision_after_merge_reads_current",
         "test_sp59_",
-        "test_sp59_cr02_merged_stamp_names_the_other_sidecar"))
+        "test_sp59_cr02_merged_stamp_names_the_other_sidecar",
+        "test_cw59_",
+        "test_cw59_cr02_card_names_the_other_sidecar"))
 
     def _run_mutant(self, name, old, new, read_merge=True):
         """Failures of _ROW_TESTS with the whole scorer run from `score.py`
@@ -3265,6 +3343,17 @@ class TestPhase57Mutants(_Base):
         self.assertNotIn("test_sp59_cr02_merged_stamp_names_the_other_sidecar",
                          failed)
         self.assertNotIn("test_sp59_malformed_spots_read_as_none", failed)
+        # The card can no longer name those spots either; CR-02's derived
+        # spot, the same-spot control and the deferred note are unaffected.
+        self.assertIn("test_cw59_", failed)
+        for name in ("test_cw59_cr01_card_names_the_other_copy",
+                     "test_cw59_cr04_card_names_the_grouped_member",
+                     "test_cw59_three_copies_card_names_lowest_line_and_count"):
+            self.assertIn(name, failed)
+        for name in ("test_cw59_cr02_card_names_the_other_sidecar",
+                     "test_cw59_same_spot_reopen_keeps_the_plain_wording",
+                     "test_cw59_dmc_card_keeps_the_deferred_member_visible"):
+            self.assertNotIn(name, failed)
         self.assertNotIn("test_cr01_", failed)
         self.assertNotIn("test_cr04_", failed)
 
