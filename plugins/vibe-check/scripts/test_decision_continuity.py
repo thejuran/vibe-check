@@ -3993,6 +3993,21 @@ class TestRepro60Evidence(_RealChain):
             self.assertEqual(exact, {F: [[48, 48]]})
             self.assert_keeps(self._pass2(s1, L2, exact), hA, 40)
 
+    def test_net_deletion_keeps_under_header_rule_even_at_u0(self):
+        """IN-04: lines 32-34 replaced by one line moves the decided line to
+        38 (window 33..43). Even an exact `-U0` header `+32` covers only
+        line 32, so the change at the window's edge is a silent keep."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        L2 = base_file()
+        L2[31:34] = ["replaced = 0"]
+        repo.write(L2)
+        exact = repo.diff("-U0")
+        self.assertIn("@@ -32,3 +32 @@", exact)
+        ranges = header_rule_ranges(exact)
+        self.assertEqual(ranges, {F: [[32, 32]]})
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 38)
+
 
 class TestRealDiffRanges60(_RealChain):
     """EVID-01/EVID-02 (D-03): a real `git diff` of each hunk shape, fed
@@ -4204,6 +4219,149 @@ class TestCoordinateSpaces60(_RealChain):
         ranges = header_rule_ranges(head)
         self.assertEqual(ranges.get(F), [[1, 10], [55, 55]])
         self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+
+# --------------------------------------------------------------------------- #
+# Reproduction verdicts for the change-evidence and Finalize shapes, recorded
+# on the unfixed code before any fix. `fixture` names one or more tests or
+# test classes (joined by " + ") in this module or test_finalize_card.py.
+# --------------------------------------------------------------------------- #
+_REPRODUCED_60_04 = "reproduced; fixed by 60-04"
+_DROPPED_60 = "did not reproduce; dropped"
+REPRO_60 = (
+    {"id": "999.24-WIDEN", "decision": "EVID-01",
+     "scenario": "decision at line 40; pass 2 edits line 48 (8 lines away); "
+                 "ranges from the documented header rule on a real "
+                 "default-context git diff",
+     "probe_result": "header @@ -45,7 +45,7 @@ -> ranges [[45, 51]] -> "
+                     "stale/nearby, nearby_at 2, gate blocks; the -U0 header "
+                     "gives [[48, 48]] -> current",
+     "disposition": "reproduced; fixed by 60-02 + 60-04",
+     "fixture": "TestRepro60Evidence + TestRealDiffRanges60"},
+    {"id": "999.24-DELETION-RULE", "decision": "EVID-01",
+     "scenario": "line 34 of a 60-line file deleted, nothing else",
+     "probe_result": "default header @@ -31,7 +31,6 @@ -> [[31, 36]]; the "
+                     "+T,0 header (@@ -34 +33,0 @@) appears only under -U0 "
+                     "-> the deletion rule never fires on a default diff",
+     "disposition": "reproduced; fixed by 60-02",
+     "fixture": "test_rd60_deletion_reopens + test_rd60_deletion_keeps"},
+    {"id": "IN-04-NET-DELETION", "decision": "EVID-02",
+     "scenario": "decision at line 40; lines 32-34 replaced by one line "
+                 "(decided line moves to 38, window 33..43)",
+     "probe_result": "-U0 header @@ -32,3 +32 @@ -> header rule [[32, 32]] "
+                     "-> current (silent keep at the boundary); D-02 needs "
+                     "[[32, 33]] -> stale",
+     "disposition": "reproduced; fixed by 60-02",
+     "fixture": "test_rd60_net_deletion_reopens + "
+                "test_net_deletion_keeps_under_header_rule_even_at_u0"},
+    {"id": "PR-SERIES", "decision": "EVID-03",
+     "scenario": "commit A edits line 10, commit B inserts 5 lines at the "
+                 "top; ranges from the mbox commit series (format-patch "
+                 "--stdout, the shape gh pr diff --patch emits)",
+     "probe_result": "series ranges [[10, 10], [1, 5]]; a finding at the "
+                     "head line of the edit (15) is not in the diff (no +20); "
+                     "cumulative diff [[1, 5], [15, 15]] -> in the diff",
+     "disposition": _REPRODUCED_60_04,
+     "fixture": "test_cs60_pr_series_probe"},
+    {"id": "MIXED-COORD", "decision": "EVID-03",
+     "scenario": "decision at 40; committed edit at 35; uncommitted 10-line "
+                 "insertion at the top; GSD/incremental assembly "
+                 "<base>..HEAD + --staged + unstaged",
+     "probe_result": "ranges [[35, 35], [1, 10]] -> decision (now line 50) "
+                     "current, gate write: the edit now at 45 is missed "
+                     "(silent keep); git diff <base> -> [[1, 10], [45, 45]] "
+                     "-> stale",
+     "disposition": _REPRODUCED_60_04,
+     "fixture": "test_cs60_mixed_concat_probe"},
+    {"id": "DEFAULT-STAGED", "decision": "EVID-03",
+     "scenario": "decision at 40; staged edit at 48; unstaged 10-line "
+                 "insertion at the top; default assembly git diff HEAD + "
+                 "git diff --staged",
+     "probe_result": "Probe A: ranges [[1, 10], [58, 58], [48, 48]] -> "
+                     "decision (line 50) stale, a wrong reopen from the "
+                     "index-coordinate 48; Probe B: a finding at 48 under "
+                     "the git diff HEAD ranges [[1, 10], [58, 58]] is not in "
+                     "the diff; git diff HEAD alone -> current",
+     "disposition": _REPRODUCED_60_04,
+     "fixture": "test_cs60_default_staged_concat_probe + "
+                "test_cs60_default_staged_finding_probe"},
+    {"id": "ALL-ROUTE", "decision": "EVID-03",
+     "scenario": "--all review: 05-state-all.md (ii) forces pass 1 with an "
+                 "empty carry-forward on every run",
+     "probe_result": "unsupported fixture: there is no diff, in_diff never "
+                     "gates and nearby_at is never stamped; recorded, no fix",
+     "disposition": "unsupported fixture; recorded, no fix",
+     "fixture": "TestRouteAll"},
+    {"id": "999.25-BLOBFILE", "decision": "FINL-01",
+     "scenario": "fresh-shell walk over the 90-finalize.md fences: HEAD "
+                 "fingerprints -> counts -> gate -> card rows",
+     "probe_result": "no fence prints BLOBFILE=; the counts fence run fresh "
+                     "passes --head-blobs '' -> refused: head-blobs file is "
+                     "missing or not a JSON object (helper exit 2), fence "
+                     "halts 'carry_state.py failed' (exit 1)",
+     "disposition": "reproduced; fixed by 60-03",
+     "fixture": "test_walk_reaches_counts_gate_report + "
+                "test_counts_fence_without_literal_exits_two"},
+    {"id": "GATE-INPUT-CROSS-CALL", "decision": "FINL-01",
+     "scenario": "the gate fence run in a fresh shell",
+     "probe_result": "it pipes \"$FINALIZE_GATE_INPUT_JSON\" (set in an "
+                     "earlier call) -> empty stdin -> JSONDecodeError "
+                     "traceback, fence halts 'finalize_gate.py failed'",
+     "disposition": "reproduced; fixed by 60-03",
+     "fixture": "test_gate_fence_reads_cross_call_variable_today"},
+)
+# Fixtures a REPRO_60 row may name before the test exists.
+_REPRO_60_PENDING_FIXTURES = {"TestRouteAll"}
+
+
+def _suite_defines(name):
+    """True when `name` is a `def` or `class` in this module or in
+    test_finalize_card.py."""
+    pat = re.compile(r"^\s*(?:def|class) %s\b" % re.escape(name), re.M)
+    for mod in ("test_decision_continuity.py", "test_finalize_card.py"):
+        with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
+            if pat.search(fh.read()):
+                return True
+    return False
+
+
+class TestRepro60Record(unittest.TestCase):
+
+    def test_repro_60_record_is_complete(self):
+        by_id = {r["id"]: r for r in REPRO_60}
+        self.assertEqual(len(REPRO_60), 9)
+        self.assertEqual(set(by_id), {
+            "999.24-WIDEN", "999.24-DELETION-RULE", "IN-04-NET-DELETION",
+            "PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED", "ALL-ROUTE",
+            "999.25-BLOBFILE", "GATE-INPUT-CROSS-CALL"})
+        for row in REPRO_60:
+            with self.subTest(id=row["id"]):
+                self.assertEqual(set(row), {"id", "decision", "scenario",
+                                            "probe_result", "disposition",
+                                            "fixture"})
+                self.assertTrue(row["scenario"].strip())
+                self.assertTrue(row["probe_result"].strip())
+        for rid in ("PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED"):
+            with self.subTest(id=rid):
+                self.assertIn(by_id[rid]["disposition"],
+                              (_REPRODUCED_60_04, _DROPPED_60))
+        self.assertEqual(by_id["ALL-ROUTE"]["disposition"],
+                         "unsupported fixture; recorded, no fix")
+
+    def test_every_fixture_exists(self):
+        for row in REPRO_60:
+            for name in row["fixture"].split(" + "):
+                with self.subTest(id=row["id"], fixture=name):
+                    if name in _REPRO_60_PENDING_FIXTURES:
+                        self.assertFalse(_suite_defines(name),
+                                         "%s exists: drop it from "
+                                         "_REPRO_60_PENDING_FIXTURES" % name)
+                        continue
+                    self.assertTrue(_suite_defines(name), name)
+
+    def test_fixture_lookup_trips_on_a_missing_name(self):
+        self.assertFalse(_suite_defines("test_rd60_no_such_fixture"))
+        self.assertTrue(_suite_defines("test_rd60_ordinary_reopens"))
 
 
 if __name__ == "__main__":
