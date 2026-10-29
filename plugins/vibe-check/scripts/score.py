@@ -421,8 +421,8 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
 
     A row is emitted only while its obligation hash is not already visible (a
     kept row's stable_hash or a kept row's member sidecar), and once per
-    dropped occurrence (`_finding_identity`): two copies of one identity
-    dropped in the same pass each get their own row, so no copy leaves
+    dropped working record: two copies of one identity dropped in the same
+    pass each get their own row, so no copy leaves
     tracking (999.23 CR-01 multi-pass); carry_state reads them as one
     decision. It is the last row the owner saw — stored stable_hash,
     orchestrator_score, band and attribution copied verbatim, never re-scored —
@@ -454,14 +454,13 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
                    if carried_obligations[id(m)]["obligation"]["stable_hash"] not in visible}
     rows = []
     done = set()
-    emitted = set()
     for m, reason in dropped:
         if id(m) in done:
             continue
         done.add(id(m))
         entry = carried_obligations[id(m)]
         obl = entry["obligation"]
-        if obl["stable_hash"] in visible or _finding_identity(m) in emitted:
+        if obl["stable_hash"] in visible:
             continue
         row = {k: v for k, v in entry["record"].items() if k not in ("members", "obligation")}
         # The still-applies memory is this pass's guard output on the working
@@ -484,8 +483,7 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
             and isinstance(o.get("snapshot"), dict)]
         if isinstance(obl.get("snapshot"), dict):
             candidates.append(obl["snapshot"])
-        prior = _pooled_prior(candidates)
-        row["snapshot"] = prior if prior is not None else obl.get("snapshot")
+        row["snapshot"] = _pooled_prior(candidates)
         row_nearby = _any_nearby([row] + [r for r, _ in same], changed_line_ranges)
         row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,
                                         carried=bool(same))
@@ -503,7 +501,6 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
                         changed_line_ranges)
                 members.append(ref)
         row["members"] = members
-        emitted.add(_finding_identity(m))
         rows.append(row)
     return rows
 
@@ -2764,7 +2761,7 @@ def run(envelope):
         # evidence on the pass it is first raised (D-21 / D-01; 999.23 over-ask
         # #1). Members carrying their own obligation stamp their own sidecar.
         covered_m = [m for _, m, _, _, _ in scored_members
-                     if m is not best_member and id(m) not in carried_obligations
+                     if id(m) not in carried_obligations
                      and m.get("status") in _CARRIED_STATUSES]
         row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, changed_line_ranges)
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
