@@ -303,7 +303,7 @@ def _shape_finding(f):
     return out
 
 
-def _snapshot_for(row, pass_number, nearby=False, carried=False):
+def _snapshot_for(row, pass_number, nearby=False, carried=False, spots=None):
     """The decision snapshot for one emitted row: {at_pass, file, line,
     canonical_line_content, band} plus `nearby_at` when known.
 
@@ -339,6 +339,17 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
     exemption. Otherwise a prior `nearby_at` is carried on both the keep and
     the refresh branch, so one nearby edit re-asks once rather than every pass
     after it is forgotten; a snapshot that never had one stays without it.
+
+    `spots` (`_nearby_spots`) names the other lines — another copy of the
+    identity, or a finding grouped in the row — whose change caused the stamp,
+    so the card can say which spot changed (D-04/D-05; 999.23). It is recorded
+    as `nearby_spots` only on a fresh stamp and only when non-empty: a reopen
+    caused by the row's own line records none, so its snapshot keeps the plain
+    shape. A prior `nearby_spots` travels with the prior `nearby_at` on both the
+    keep and the refresh branch, so a quiet pass does not forget which spot it
+    was; a carried spot at this row's own line (a prior pooled from another
+    copy) is dropped. Agents cannot forge it: the ingress scrub strips `snapshot` from fresh
+    findings, so every `nearby_spots` was written here.
     Pure; never raises.
     """
     canonical = row.get("canonical_line_content")
@@ -352,8 +363,15 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
     prior = row.get("snapshot")
     if nearby and (isinstance(prior, dict) or carried) and cur["at_pass"] is not None:
         cur["nearby_at"] = cur["at_pass"]
+        if isinstance(spots, list) and spots:
+            cur["nearby_spots"] = spots
         return cur
     prior_nearby = _as_line(prior.get("nearby_at")) if isinstance(prior, dict) else None
+    # A prior pooled from another copy may name this row's own line; that is
+    # the row itself, not another spot.
+    prior_spots = [sp for sp in (_valid_spots(prior.get("nearby_spots"))
+                                 if prior_nearby is not None else None) or []
+                   if sp[0] != cur["line"]]
     if (isinstance(prior, dict) and _as_line(prior.get("at_pass")) is not None
             and all(k in prior and prior[k] == cur[k]
                     for k in ("file", "line", "canonical_line_content", "band"))):
@@ -362,9 +380,13 @@ def _snapshot_for(row, pass_number, nearby=False, carried=False):
                 "band": cur["band"]}
         if prior_nearby is not None:
             kept["nearby_at"] = prior_nearby
+        if prior_spots:
+            kept["nearby_spots"] = prior_spots
         return kept
     if prior_nearby is not None:
         cur["nearby_at"] = prior_nearby
+    if prior_spots:
+        cur["nearby_spots"] = prior_spots
     return cur
 
 
@@ -485,8 +507,11 @@ def _kept_open_rows(dropped, kept, pass_number, carried_obligations, members_of,
             candidates.append(obl["snapshot"])
         row["snapshot"] = _pooled_prior(candidates)
         row_nearby = _any_nearby([row] + [r for r, _ in same], changed_line_ranges)
+        row_spots = (_nearby_spots(_as_line(row.get("line")), [r for r, _ in same],
+                                   [], changed_line_ranges)
+                     if row_nearby else None)
         row["snapshot"] = _snapshot_for(row, pass_number, nearby=row_nearby,
-                                        carried=bool(same))
+                                        spots=row_spots, carried=bool(same))
         own = _member_ref(m)
         own["obligation"] = _refreshed_obligation(obl, m, pass_number, changed_line_ranges)
         members = [own]
@@ -621,6 +646,46 @@ def _any_nearby(records, changed_line_ranges):
     """True when this pass's change ranges reach any of `records` (each judged
     at its own line, _nearby_changed). Pure; never raises."""
     return any(_nearby_changed(r, changed_line_ranges) for r in records)
+
+
+_SPOT_KINDS = ("copy", "grouped")
+
+
+def _valid_spots(value):
+    """`value` as a list of [line, kind] pairs when every item is a 2-item
+    list or tuple of a line (a non-bool int >= 1) and a kind in _SPOT_KINDS,
+    else None. Pure; never raises."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for item in value:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            return None
+        line, kind = item
+        if _as_line(line) is None or line < 1 or kind not in _SPOT_KINDS:
+            return None
+        out.append([line, kind])
+    return out
+
+
+def _nearby_spots(own_line, copies, grouped, changed_line_ranges):
+    """The other spots whose change reached this row this pass: [line, kind]
+    pairs, "copy" for each record in `copies` (carried records of the row's
+    identity) and "grouped" for each record in `grouped` (covered members of
+    the row) whose own D-14 window this pass's change ranges reach
+    (`_nearby_changed`), skipping any record without a usable line and any at
+    `own_line`. De-duplicated by line (copies before grouped, the first kind
+    wins) and sorted by line, so the card's "first" spot is the lowest line
+    whatever the arrival order (D-05). Pure; never raises."""
+    seen = {}
+    for kind, records in (("copy", copies), ("grouped", grouped)):
+        for rec in records:
+            line = _as_line(rec.get("line"))
+            if (line is None or line < 1 or line == own_line or line in seen
+                    or not _nearby_changed(rec, changed_line_ranges)):
+                continue
+            seen[line] = kind
+    return [[line, seen[line]] for line in sorted(seen)]
 
 
 def _prior_rank(snapshot):
@@ -2774,6 +2839,10 @@ def run(envelope):
                      if id(m) not in carried_obligations
                      and m.get("status") in _CARRIED_STATUSES]
         row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, changed_line_ranges)
+        row_spots = (_nearby_spots(_as_line(survivor.get("line")),
+                                   [r for r, _ in same_hash], covered_m,
+                                   changed_line_ranges)
+                     if row_nearby else None)
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
         # first, then the absorbed members in scored order, de-duplicated by
         # each member's lane-aware occurrence identity (never by (agent, title),
@@ -2823,13 +2892,13 @@ def run(envelope):
                 "title": loser.get("title"),
                 "reason": "absorbed-into: " + survivor["stable_hash"],
             })
-        survivors.append((survivor, surface_score, row_carried, row_nearby))
+        survivors.append((survivor, surface_score, row_carried, row_nearby, row_spots))
         survivor_sources.append(([m for _, m, _, _, _ in scored_members],
                                  {id(m): c for c, m, _, _, _ in scored_members}))
 
     # --- Per-command threshold filter (scoring.md:57-64) --------------------- #
     kept = []
-    for (survivor, sc, carried, row_nearby), (sources, capped_by_id) in zip(
+    for (survivor, sc, carried, row_nearby, row_spots), (sources, capped_by_id) in zip(
             survivors, survivor_sources):
         if sc < threshold:
             filtered.append({
@@ -2851,11 +2920,11 @@ def run(envelope):
                  if id(m) in deferred_covered else "sub-threshold")
                 for m in sources if id(m) in carried_obligations)
             continue
-        # `carried` and `nearby` are the row properties pooled in the group
-        # loop over every carried record of this row's identity.
+        # `carried`, `nearby` and its spots are the row properties pooled in
+        # the group loop over every carried record of this row's identity.
         nearby = row_nearby
         survivor["snapshot"] = _snapshot_for(survivor, pass_number, nearby=nearby,
-                                             carried=carried)
+                                             carried=carried, spots=row_spots)
         kept.append(survivor)
 
     # --- Kept-open obligations (D-02, D-12) ----------------------------------- #
