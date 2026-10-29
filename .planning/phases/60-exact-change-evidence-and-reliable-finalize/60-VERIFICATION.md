@@ -2,104 +2,100 @@
 phase: 60-exact-change-evidence-and-reliable-finalize
 verified: 2026-10-29T00:00:00Z
 status: gaps_found
-score: 3/6 must-haves verified
+score: 4/6 must-haves verified
 has_blocking_gaps: true
 overrides_applied: 0
+re_verification:
+  previous_status: gaps_found
+  previous_score: 3/6
+  gaps_closed:
+    - "GSD/incremental range source survives into a fresh Bash call (GSD-SHELL-VAR) — fixed by 60-07, independently re-reproduced below"
+    - "Range builder halts on, or silently empties, an ordinary diff altered by a legitimate repo-local git setting (CONFIG-ALTERED-DIFF) — fixed by 60-06 + 60-07, independently re-reproduced below"
+    - "Finalize's automatic rebuild-once rule cannot complete a retry when the failure is in the gate's own input file (GATEFILE-RETRY) — fixed by 60-08, independently re-reproduced below"
+  gaps_remaining: []
+  regressions: []
 gaps:
-  - truth: "GSD/incremental range source survives into the fresh Bash call that runs 30-collect-score.md's range fence (part of EVID-03 / SC3)"
+  - truth: "Every route reliably uses the exact-range builder from a genuinely fresh Bash call, with no way to subvert the substituted value (EVID-03)"
     status: failed
     severity: blocking
     reason: >
-      30-collect-score.md's range-source table puts `$PHASE_START` and
-      `$LAST_REVIEWED_SHA` directly into the git-diff command for the GSD and
-      incremental routes, with no instruction to substitute the literal value
-      the way BLOBFILE/GATEFILE now require. 00-scope.md and 05-state.md bind
-      these variables in earlier bash fences, not by printing a path. A fresh
-      Bash call (the review's own established convention, and the exact
-      lesson this phase applied to Finalize) does not inherit the variable,
-      so `git diff $PHASE_START` silently becomes `git diff ` (index vs
-      working tree). Reproduced directly: a repo with a committed edit plus
-      an uncommitted edit, run through the literal row text in a fresh `bash
-      -c` shell with the variable unset, returned `{"f.txt": [[5, 5]]}` (rc 0)
-      instead of the correct `{"f.txt": [[3, 3], [5, 5]]}` — the committed
-      change silently disappears from the range, which can silently drop a
-      qualifying finding's +20 in_diff term or a nearby-change re-ask on
-      exactly the two routes (MIXED-COORD) this phase's own fix targeted.
-      TestRouteGSD/TestRouteIncremental only call `ranges_from_diff` with an
-      already-substituted SHA; TestProseRangeFence (the only test that
-      executes the real fence in a fresh shell) covers the default route
-      only. Not listed in 60-REPRO.md's Residuals.
+      The GSD-SHELL-VAR gap (silent narrowing when $PHASE_START/$LAST_REVIEWED_SHA
+      is left as an unresolved shell variable) is genuinely fixed by 60-07: a
+      literal substituted into the quoted placeholder gives the correct ranges,
+      and an unsubstituted quoted value now makes git exit 128 and halts through
+      pipefail (independently reproduced below). But the fix itself opened a new,
+      more severe hole, reported as CR-01 in 60-REVIEW.md (commit cfa473a) and
+      independently reproduced by me: 05-state.md step 2 binds
+      $LAST_REVIEWED_SHA = state.passes[-1].head_sha with no validation, and
+      30-collect-score.md's row has the agent paste that value, as-is, into
+      "<last-reviewed-sha>" inside a double-quoted git-diff argument. Double
+      quotes stop word-splitting but do not stop $(...) command substitution.
+      The state file lives at .turingmind/state/format-53/<key>.json inside the
+      reviewed repo; 07-first-run.md only PRINTS a suggestion to add
+      .turingmind/ to .gitignore and never auto-edits it (confirmed by reading
+      the file), so a contributor can commit a crafted state file with a
+      predictable key (GSD mode: <phase-dir-name>.json) and a poisoned
+      head_sha. I reproduced the exploit directly: substituting
+      "$(touch "$T/pwned")HEAD" for the placeholder in the exact flagged
+      command from 30-collect-score.md's row runs the injected command and
+      still exits 0 with valid-looking JSON output ({}) — a silent, successful
+      command execution with no indication anything happened. "Every route
+      reliably uses the exact-range builder" cannot be marked true while the
+      value that route substitutes can run arbitrary shell commands.
     artifacts:
-      - path: "plugins/vibe-check/phases/review/30-collect-score.md"
-        issue: "GSD/incremental range-source rows use $PHASE_START / $LAST_REVIEWED_SHA directly; no printed-literal substitution instruction"
-      - path: "plugins/vibe-check/phases/review/00-scope.md"
-        issue: "$PHASE_START bound by a raw bash assignment, never printed as a literal path the way BLOBFILE/GATEFILE are"
       - path: "plugins/vibe-check/phases/review/05-state.md"
-        issue: "$LAST_REVIEWED_SHA bound the same way, same gap"
+        issue: "step 2 binds $LAST_REVIEWED_SHA from the state JSON with no format validation before it is substituted into a shell command elsewhere"
+      - path: "plugins/vibe-check/phases/review/30-collect-score.md"
+        issue: "the pass >= 2 (and GSD) row instructs substituting the unvalidated literal into a double-quoted git-diff argument, which does not stop $(...) command substitution"
     missing:
-      - "An explicit instruction (and a fresh-shell TestProseRangeFence-style test) that the GSD/incremental range source is a literal SHA substituted by the agent, not a bash variable reference, before the range fence runs"
-  - truth: "The exact-range builder does not halt on, or silently empty ranges for, an ordinary diff altered by a legitimate repo-local git setting (part of the T-60-13 threat mitigation this phase's own plans committed to, and of the EVID-01/EVID-03 goal text 'ranges come from actual added/deleted lines on every route')"
+      - "Validate head_sha (and, for symmetry, the phase-start sha) against ^[0-9a-f]{40}([0-9a-f]{24})?$ where it is bound, and halt with a fixed message on any other value, before it is ever substituted into a command — per 60-REVIEW.md CR-01's fix"
+  - truth: "A failed or refused Finalize attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness (FINL-02)"
     status: failed
     severity: blocking
     reason: >
-      Reproduced directly: with `git -c diff.suppressBlankEmpty=true`, a
-      completely ordinary diff whose 3-line default context includes one
-      blank line (an extremely common shape — any edit near a blank line
-      separating functions) makes diff_ranges.py raise
-      REASON_BAD_BODY_LINE and the review-halted fence stop the ENTIRE pass,
-      every time, for as long as that setting is active. This is not a
-      malformed/attacker diff (the class the refusal exists for) — it is an
-      ordinary diff the parser cannot read because it assumes every context
-      line prints a leading space. None of the prose's fixed flags
-      (--no-color --no-ext-diff --src-prefix --dst-prefix) touch this
-      setting. A second, narrower issue in the same area: a colored or
-      textconv-altered diff that doesn't match `_HUNK`/`+++` patterns is
-      silently skipped and yields `{}` with exit 0 (fail-open), which
-      30-collect-score.md's own prose says must never happen ("fail closed —
-      a pass scored with missing ranges silently drops the in-diff term").
-      The primary fence in 30-collect-score.md does carry --no-color, which
-      defeats a plain color.ui=always repro; but the abbreviated "Range
-      source for 30-collect-score" lines added to 00-scope.md/05-state.md
-      give the bare command without those flags, and diff.suppressBlankEmpty
-      is not covered by any of the four fixed flags regardless. Neither
-      textconv nor diff.relative is mitigated at all. Not listed in
-      60-REPRO.md's Residuals; TestHazards only covers color.ui,
-      diff.noprefix and diff.mnemonicPrefix.
-    artifacts:
-      - path: "plugins/vibe-check/scripts/diff_ranges.py"
-        issue: "_walk_hunk requires every context line's first byte to be a literal space; diff.suppressBlankEmpty prints a true empty line for a blank context line, which the walker cannot distinguish from a malformed body line"
-    missing:
-      - "Treat an empty line inside a hunk body as a context line (tag defaults to ' ' when the line is ''), plus a diff.suppressBlankEmpty case in TestHazards; and/or pin diff.suppressBlankEmpty=false alongside the other fixed flags"
-  - truth: "Finalize's automatic rebuild-once rule can actually complete a retry when the failure is in the gate's own input file (part of FINL-02: 'a later successful retry may complete after revalidating snapshot freshness')"
-    status: failed
-    severity: blocking
-    reason: >
-      90-finalize.md's "One automatic rebuild, then stop" paragraph mints a
-      NEW BLOBFILE and rebuilds HEAD fingerprints on retry, then says to
-      "re-run the counts fence and the gate once with the new literal" — it
-      never instructs re-minting GATEFILE or rewriting it with the rebuilt
-      counts. GATEFILE is minted exactly once in the file (grep confirms a
-      single `GATEFILE=$(mktemp ...)` fence, outside any retry structure).
-      If the GATEFILE write itself is the point of failure (an empty or
-      stale GATEFILE causing the gate fence's non-zero exit — exactly the
-      trigger condition the rebuild rule names), the documented retry reuses
-      the same broken file and fails identically; the rebuilt, more-current
-      COUNTS_JSON never reaches the gate. No test in test_finalize_card.py
-      exercises a GATEFILE-specific failure-then-retry path (only
-      test_retry_mints_new_blobfile_after_missing_path, which is a
-      BLOBFILE-only scenario, and test_malformed_gatefile_shows_only_stop_sentence,
-      which checks the owner-visible message for ONE attempt, not recovery
-      across a retry). Not listed in 60-REPRO.md's Residuals.
+      The GATEFILE-RETRY gap (the one-rebuild-then-stop rule not recovering
+      from a GATEFILE-specific failure) is genuinely fixed by 60-08: the
+      rebuild-once paragraph now names the GATEFILE trigger and re-mint,
+      and the fresh-shell walk test passes (independently reproduced below
+      via the full test_finalize_card.py run, 89 passed). But a different,
+      adjacent code path in the SAME file is still broken, reported as WR-02
+      in 60-REVIEW.md: the "After the answer" step 3 "fix empty" branch says
+      only "Then RE-RUN the counts step and the gate ONCE (the same
+      BLOBFILE= literal this attempt printed)" — it names BLOBFILE reuse
+      explicitly but never says to rewrite GATEFILE's flags from the
+      recomputed $COUNTS_JSON before re-running finalize_gate.py, unlike the
+      rebuild-once paragraph 15 lines earlier, which spells this out in full
+      ("run the gate-input fence again so it prints a NEW GATEFILE=, write
+      the seven-key flags object from the REBUILT $COUNTS_JSON to that new
+      path"). I mechanically reproduced the consequence with the real
+      carry_state.py/finalize_gate.py helpers and the shipped six-row
+      fixture: the gate returns "outstanding-to-phase-5" on the stale,
+      pre-decision GATEFILE; after dismissing every open obligation through
+      carry_state.record_decisions, the recomputed counts are correctly
+      (0, 0, 0), yet re-running finalize_gate.py against the SAME,
+      unrewritten GATEFILE still returns "outstanding-to-phase-5" (not
+      "write") — only a freshly written GATEFILE from the recomputed counts
+      returns "write". No test in test_finalize_card.py walks this: the
+      test's own _gate() helper always mints a new GATEFILE with fresh
+      flags, so it proves the mechanics CAN work, not that the prose text
+      says to do this; test_answer_files (line ~649) checks only ordering,
+      per 60-REVIEW.md's own note. This breaks the file's explicit "Card
+      budget: Finalize costs one card" promise on the ordinary (non-failure)
+      card-answer path: the owner answers the card, every obligation is
+      dismissed, and Finalize can still report "stays blocked" instead of
+      writing, requiring a second `--finalize` invocation to actually close.
     artifacts:
       - path: "plugins/vibe-check/phases/shared/90-finalize.md"
-        issue: "Rebuild-once paragraph (the 'One automatic rebuild, then stop' text) names only BLOBFILE; GATEFILE is minted once outside the retry path"
+        issue: "step 3's \"fix empty\" branch (line ~272) re-runs the gate without instructing a GATEFILE rewrite from the recomputed COUNTS_JSON, unlike the rebuild-once paragraph which spells this out"
+      - path: "plugins/vibe-check/scripts/test_finalize_card.py"
+        issue: "test_card_route_records_then_writes exercises the re-run through its own _gate() helper, which always mints a fresh GATEFILE regardless of what the prose text instructs, so it does not catch this gap"
     missing:
-      - "An explicit instruction to re-mint GATEFILE and rewrite the seven-key flags object from the rebuilt COUNTS_JSON on the one retry, plus a test that a GATEFILE-specific failure actually recovers"
+      - "Step 3's \"fix empty\" branch must explicitly say to re-run the gate-input fence (new or rewritten GATEFILE) with flags built from the recomputed COUNTS_JSON before re-running finalize_gate.py, mirroring the rebuild-once paragraph's wording, plus a fresh-shell walk test that records decisions, recomputes counts to (0,0,0), and shows the stale GATEFILE still fails while a rewritten one succeeds"
 deferred: []
 human_verification:
-  - test: "Confirm whether Claude Code's Write tool refuses the first write to a path that `mktemp` just created but the agent never Read (SA-01 in 60-REVIEW.md)"
+  - test: "Confirm whether Claude Code's Write tool refuses the first write to a path that `mktemp` just created but the agent never Read (SA-01 in 60-REVIEW.md, carried as R16 in 60-REPRO.md)"
     expected: "Either the Write succeeds (the existing ROWSFILE/SUGGESTFILE/REFSFILE pattern already relies on this), or it is refused and every --finalize attempt (and its one retry) fails at the BLOBFILE/GATEFILE write step"
-    why_human: "Depends on live Claude Code harness Write-tool behavior that cannot be exercised from a pytest fixture; the reviewer explicitly set this aside as needing a ruling rather than asserting it reproduces"
+    why_human: "Depends on live Claude Code harness Write-tool behavior that cannot be exercised from a pytest fixture"
   - test: "Decide whether the PR route's hard failure on very large PRs (SA-02: gh pr diff over ~300 files / 20k lines) needs a fallback or is an accepted limit"
     expected: "An owner ruling, not a reproduction — the reviewer notes failing closed is the intended behavior here"
     why_human: "Product/scope decision, not a code defect"
@@ -107,10 +103,10 @@ human_verification:
 
 # Phase 60: Exact change evidence and reliable Finalize Verification Report
 
-**Phase Goal:** Nearby/in-diff ranges come from actual added/deleted lines on every review route, and Finalize's blob-file path survives fresh Bash calls (999.24, 999.25).
+**Phase Goal:** The nearby window is exactly what the decision rules say on every review route, and Finalize either completes from a fresh shell or stops safely without writing (999.24, 999.25)
 **Verified:** 2026-10-29
 **Status:** gaps_found
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — after the gap-closure round (plans 60-06, 60-07, 60-08, 60-09), re-verifying against the 3 gaps found at commit `2f84d2e`, plus the gap-round's own code review (`60-REVIEW.md`, commit `cfa473a`)
 
 ## Goal Achievement
 
@@ -118,89 +114,128 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | SC1/EVID-01 core: ranges are built only from a hunk's `+`/`-` body markers, not display context; an edit at the intended 5-line boundary reopens a decision and an edit just outside does not | ✓ VERIFIED | `diff_ranges.py` read in full; marker-walk, D-02 net-deletion `+1`, pure-deletion `[max(T,1), T+1]` all match the documented contract. `TestRealDiffRanges60` (10 tests, five boundary pairs) passes at HEAD. Full suite run by me: `3765 passed, 4930 subtests passed, 0 failed` (`plugins/vibe-check/scripts`, `pytest -q -p no:cacheprovider`). |
-| 2 | SC2/EVID-02: fixtures that run a real `git diff` produce correct ranges for ordinary, deletion-only, insertion and relocated-finding shapes | ✓ VERIFIED | Same full-suite evidence; `test_diff_ranges.py` (`TestShapesRealGit`, `TestMutants` — 19 mutants, each shown to trip only after the real module passes) read and confirmed present; `TestRepro60Evidence` documenting repros pass. |
-| 3 | SC3/EVID-03: every route (default, GSD, incremental, range, PR, `--all`) reliably uses the exact-range builder from a genuinely fresh Bash call | ✗ FAILED | GSD/incremental rows in `30-collect-score.md` reference `$PHASE_START`/`$LAST_REVIEWED_SHA` directly, bound in an earlier, separate bash fence (`00-scope.md`, `05-state.md`). Reproduced: run the literal row text in a fresh `bash -c` shell with the variable unset → silently returns a wrong, narrower range (`{"f.txt": [[5, 5]]}` instead of `{"f.txt": [[3, 3], [5, 5]]}`), rc 0, no halt. Default/range/PR/`--all` routes are unaffected (default is covered end-to-end by `TestProseRangeFence`, which substitutes a literal). |
-| 4 | Range mechanism fails closed (halts, never silently empties) when the diff text is altered by a legitimate repo-local git setting — the class of threat Phase 60's own T-60-13 mitigation commits to | ✗ FAILED | Reproduced: `git -c diff.suppressBlankEmpty=true diff <prose flags> HEAD \| python3 diff_ranges.py` on an ordinary diff with one blank context line raises `REASON_BAD_BODY_LINE`, halting every pass under that setting. Separately, `git -c color.ui=always diff HEAD` (no `--no-color`, i.e. the bare command the abbreviated "Range source" lines in `00-scope.md`/`05-state.md` show) through `diff_ranges.py` gives `{}` rc 0 — fail-open, contradicting the prose's own "fail closed" sentence. The fully-flagged fence actually executed from `30-collect-score.md`'s table does carry `--no-color`, which defeats the plain `color.ui` repro, but `diff.suppressBlankEmpty`/textconv/`diff.relative` are not covered by any of the four fixed flags. |
-| 5 | SC4/FINL-01: a fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused `BLOBFILE=` path | ✓ VERIFIED | `90-finalize.md` read: `BLOBFILE=$(mktemp ...)` / `printf 'BLOBFILE=%s\n'` fence present; counts fence substitutes the literal; gate reads a printed `GATEFILE=`, stderr to `<GATEFILE>.err`. `TestFinalizeFreshShellWalk` (7+ tests) passes in the full-suite run; reverse run in 60-REPRO.md shows the pre-fix walk failing at the RED SHA and the SUMMARY's green SHAs (`b8fb21a`, `fd8c1b9`) match commits present on this branch. |
-| 6 | SC5/FINL-02: a failed or refused attempt stops and writes nothing; a later retry may complete after revalidating freshness; no-write-on-failure and independent fix verification are unchanged | ✗ FAILED | The "no write before `write`" half is solid (`write_boundary_holds` + 3 mutants; stale-attempt walk proves independent fix verification unaffected). The "a later retry may complete" half is not: the rebuild-once paragraph re-mints only `BLOBFILE`; `GATEFILE` is minted exactly once in the file, outside any retry structure, and the rebuilt `COUNTS_JSON` is never shown to be rewritten into a fresh `GATEFILE` before the gate is re-run. No test exercises a GATEFILE-specific failure followed by a retry. |
+| 1 | SC1/EVID-01 core: ranges are built only from a hunk's `+`/`-` body markers, not display context | ✓ VERIFIED (regression-checked) | `diff_ranges.py` unchanged in its marker-walk core since the first close except the gap-round's additive fixes; `test_diff_ranges.py` full file: `100 passed, 75 subtests passed` (run by me just now). Unaffected by the gap round. |
+| 2 | SC2/EVID-02: fixtures that run a real `git diff` produce correct ranges for ordinary, deletion-only, insertion and relocated-finding shapes | ✓ VERIFIED (regression-checked) | Same run as above; `TestShapesRealGit`/`TestMutants` present and green, unaffected by the gap round. |
+| 3 | SC3/EVID-03: every route reliably uses the exact-range builder from a genuinely fresh Bash call, including the value substituted into it | ✗ FAILED | The original GSD-SHELL-VAR gap is fixed (see below), but the fix introduced CR-01 — a reproduced command-injection hole in the same substitution. See `gaps` above. |
+| 4 | Range mechanism fails closed (halts, never silently empties) when the diff text is altered by a legitimate repo-local git setting (T-60-13) | ✓ VERIFIED | Independently reproduced in a scratch repo: `diff.suppressBlankEmpty=true` on an ordinary edit next to a blank context line now gives `{"g.txt": [[14, 14]]}` rc 0 (no halt, correct range) instead of the pre-fix `RangeError`; `git -c color.ui=always diff HEAD` (no `--no-color`) now refuses with `colored or escaped diff` rc 2 instead of `{}` rc 0; `printf 'fatal: bad revision\n'` refuses with `not a unified diff` rc 2. All three match 60-06/07's claims exactly. WR-01 (`diff.submodule`, a narrower, not-previously-scoped edge case) is a carried residual in 60-REVIEW.md, not independently re-opened here. |
+| 5 | SC4/FINL-01: a fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused `BLOBFILE=` path | ✓ VERIFIED (regression-checked) | `test_finalize_card.py` full file: `89 passed, 132 subtests passed` (run by me just now). `TestFinalizeFreshShellWalk` unaffected by the gap round. |
+| 6 | SC5/FINL-02: a failed or refused attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness | ✗ FAILED | The GATEFILE-RETRY gap (failure-path retry) is fixed (rebuild-once paragraph now names GATEFILE, confirmed by reading the file and by the green test suite). But WR-02 — a stale-GATEFILE defect in the ordinary post-decision gate re-run (a different code path in the same file) — is reproduced mechanically below and is not fixed by any plan in this round. See `gaps` above. |
 
-**Score:** 3/6 truths verified
+**Score:** 4/6 truths verified (up from 3/6 at the prior close; both remaining failures are new findings on the fixed code, not the original three gaps, which are closed)
+
+### Independent re-reproduction of the three original gaps (all CLOSED)
+
+**GSD-SHELL-VAR (60-07).** Built a repo with a committed edit at line 3 and an uncommitted edit at line 5. Running the literal GSD row text from `30-collect-score.md` in a genuinely fresh `bash -c` shell:
+- With the base sha substituted for `"<phase-start-sha>"`: `{"f.txt": [[3, 3], [5, 5]]}` rc 0 — correct, includes the committed change.
+- With `"$PHASE_START"` left in place and unset: `fatal: ambiguous argument ''` → the pipeline exits 128 under `pipefail` — halts, does not silently narrow.
+Matches 60-07-SUMMARY.md and 60-REPRO.md V10 exactly.
+
+**CONFIG-ALTERED-DIFF (60-06 + 60-07).** In a scratch repo with a committed blank line and an adjacent edit: `git -c diff.suppressBlankEmpty=true diff <six flags> HEAD -- g.txt | python3 diff_ranges.py` → `{"g.txt": [[14, 14]]}` rc 0 (reads the empty body line as context, no halt). `git -c color.ui=always diff HEAD` (bare, no `--no-color`) → `colored or escaped diff` rc 2 (refuses, does not silently return `{}`). `printf 'fatal: bad revision\n' | diff_ranges.py` → `not a unified diff` rc 2. Matches 60-06-SUMMARY.md / 60-07-SUMMARY.md and 60-REPRO.md V11 exactly.
+
+**GATEFILE-RETRY (60-08).** Read `90-finalize.md`'s rebuild-once paragraph: it now names `GATEFILE=` missing/empty as a trigger, instructs re-running the gate-input fence for a NEW `GATEFILE=`, writing the seven-key flags from the REBUILT `$COUNTS_JSON`, and never reusing an earlier attempt's/session's `GATEFILE=`. `pytest -q test_finalize_card.py` → `89 passed, 132 subtests passed`, 0 failed, run by me just now. Matches 60-08-SUMMARY.md and 60-REPRO.md V12.
+
+### New findings on the fixed code (not covered by any 60-06..60-09 plan)
+
+**CR-01 — command injection via the unvalidated `head_sha` literal substitution (reported in 60-REVIEW.md, commit `cfa473a`; independently reproduced by me).**
+
+```bash
+# Exact flagged command from 30-collect-score.md's pass>=2 row, with the
+# placeholder filled from an attacker-controlled state-file value:
+set -o pipefail
+RANGES_JSON=$(git diff --no-color --no-ext-diff --no-textconv --no-relative \
+  --src-prefix=a/ --dst-prefix=b/ "$(touch "$T/pwned")HEAD" | python3 diff_ranges.py)
+# exit code: 0
+# output: {}
+# pwned file exists: YES   <-- the injected command ran
+```
+`05-state.md` step 2 binds `$LAST_REVIEWED_SHA = state.passes[-1].head_sha` straight from the state JSON with no format check, and `30-collect-score.md`'s row has the agent paste that value verbatim into a double-quoted git-diff argument — double quotes block word-splitting, not `$(...)`. I independently confirmed the attack surface is real, not theoretical: `07-first-run.md` only *prints* a tip to add `.turingmind/` to `.gitignore` and never auto-edits it, so a state file (key `<phase-dir-name>.json` in GSD mode, predictable) can be committed to a reviewed repo by a contributor.
+
+**WR-02 — Finalize's post-decision gate re-run can decide on stale, pre-decision flags (reported in 60-REVIEW.md; independently reproduced by me with the real helpers).**
+
+```
+Initial counts: 5 1 0
+First gate run (pre-decision): {"action": "outstanding-to-phase-5", ...}
+Hashes to dismiss: 6
+Recomputed counts after decisions: 0 0 0
+Second gate run reusing ORIGINAL GATEFILE (stale flags): {"action": "outstanding-to-phase-5", ...}   <-- still blocked
+Second gate run with a FRESH GATEFILE (recomputed flags): {"action": "write", ...}                    <-- correct
+```
+Using the shipped `fixtures/iplayarr45-six-row-state.json`, `carry_state.finalize_counts` and `finalize_gate.py` directly: dismissing every open obligation correctly zeroes the recomputed counts, but re-running the gate against the GATEFILE that was written *before* those decisions (exactly what `90-finalize.md` step 3's literal text instructs — it names reusing `BLOBFILE` explicitly and says nothing about GATEFILE) reproduces the stale "still blocked" outcome every time. Only writing a fresh GATEFILE from the recomputed counts (what the rebuild-once paragraph 15 lines earlier explicitly spells out, but step 3 does not) returns `write`.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `plugins/vibe-check/scripts/diff_ranges.py` | `ranges_from_diff`, `RangeError`, `REASON_*`, `run`, CLI shim, stdlib-only | ✓ VERIFIED | 219 lines, read in full; import set `{json, re, sys}` confirmed by direct `ast` walk in 60-02-SUMMARY and by code read |
-| `plugins/vibe-check/scripts/test_diff_ranges.py` | Contract tests, route classes, mutants | ✓ VERIFIED | 1110 lines; `TestRouteDefault/GSD/Incremental/Range/PR/All`, `TestProseRangeFence` all present (`grep -c "^class TestRoute"` = 6, confirmed in 60-04-SUMMARY and by reading) |
-| `plugins/vibe-check/scripts/fixtures/pr-cumulative.diff` | Real `gh pr diff` capture, provenance documented | ✓ VERIFIED | 286 lines, 4 `diff --git` sections, 0 mbox lines — confirmed directly (`wc -l`, `grep -c`) |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | Printed BLOBFILE/GATEFILE fences, rebuild-once/refused-step rules | ⚠️ PARTIAL | Printed-path fences correct and wired; the rebuild-once rule is incomplete for GATEFILE-specific failures (gap 3 above) |
-| `plugins/vibe-check/phases/review/30-collect-score.md` | One range source per route through `diff_ranges.py`, fail-closed fence | ⚠️ PARTIAL | Default/range/PR/`--all` rows are sound and fully flagged; GSD/incremental rows carry an unresolved cross-call variable (gap 1 above) |
-| `plugins/vibe-check/scripts/test_nv_render.py` | Retargeted prose lock | ✓ VERIFIED | Phrases/mutant loop confirmed passing in full suite |
-| `.planning/phases/.../60-REPRO.md` | Verdict ledger, reverse run, residuals | ✓ VERIFIED (as a ledger of what it tested) | Internally consistent, SHAs match `git log`; does not mention the three gaps above (not something the ledger could have caught — none of them were in the 60-01 reproduction set) |
+| `plugins/vibe-check/scripts/diff_ranges.py` | Exact-range builder; now also reads `diff.suppressBlankEmpty` context and refuses colored/non-diff text | ✓ VERIFIED | Read in full; `REASON_ESCAPE`, `REASON_NOT_A_DIFF` present; import set still `{json, re, sys}` |
+| `plugins/vibe-check/scripts/test_diff_ranges.py` | `TestHazards`, `TestRefusals`, `TestProseRangeFence`, `TestScopePhaseStartFence`, `TestRangeSourceLines`, M20–M22 | ✓ VERIFIED | 100 passed, 75 subtests passed (run by me) |
+| `plugins/vibe-check/phases/review/30-collect-score.md` | Literal quoted-sha rows, six fixed flags | ⚠️ PARTIAL | Rows are correct for fresh-shell survival and fixed flags, but the substituted literal is unvalidated — CR-01 |
+| `plugins/vibe-check/phases/review/00-scope.md` | Prints `PHASE_START=`; six-flag range-source line | ✓ VERIFIED | `printf 'PHASE_START=%s\n' "$PHASE_START"` present; confirmed by fence read and by direct fresh-shell reproduction |
+| `plugins/vibe-check/phases/review/05-state.md` | Six-flag incremental range-source line | ⚠️ PARTIAL | Flags correct; `$LAST_REVIEWED_SHA` binding has no validation before downstream substitution — CR-01 |
+| `plugins/vibe-check/phases/shared/90-finalize.md` | Rebuild-once rule re-mints GATEFILE; printed BLOBFILE/GATEFILE fences | ⚠️ PARTIAL | Rebuild-once (failure-retry) path is now correct; the separate post-decision re-run (step 3) is not — WR-02 |
+| `plugins/vibe-check/scripts/test_finalize_card.py` | GATEFILE retry walk + needles | ✓ VERIFIED for its own scope | 89 passed, 132 subtests passed; does not cover the step-3 post-decision re-run (WR-02 is outside what any 60-06..09 plan's must-haves asked for) |
+| `.planning/phases/.../60-REPRO.md` | V10–V12 ledger, residuals R12-R17 | ✓ VERIFIED (internally consistent) | Matches git history; does not (and could not, since 60-REVIEW.md post-dates it) cover CR-01/WR-02 |
+| `.planning/phases/.../60-REVIEW.md` | Gap-round code review | ✓ VERIFIED | Present at commit `cfa473a`; CR-01 and WR-02 independently re-reproduced by me above, not just taken on faith |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `test_decision_continuity.TestRealDiffRanges60._builder` | `diff_ranges.ranges_from_diff` | lazy import | ✓ WIRED | Confirmed green in full suite |
-| `30-collect-score.md` range fence | `scripts/diff_ranges.py` | `... \| python3 "$VC_ROOT/scripts/diff_ranges.py"` under `set -o pipefail` | ✓ WIRED (default/range/PR/`--all`) / ⚠️ fragile (GSD/incremental — see gap 1) | Confirmed by reading the fence and by direct reproduction of the GSD-route failure mode |
-| `90-finalize.md` counts/rows fences | `carry_state.py finalize-counts` | literal `"$BLOBFILE"` substitution | ✓ WIRED | Confirmed by code read + passing walk tests |
-| `90-finalize.md` gate fence | `finalize_gate.py` | `< "$GATEFILE"`, stderr to `<GATEFILE>.err` | ✓ WIRED (first attempt) / ✗ NOT RE-WIRED on retry | See gap 3 |
-
-### Data-Flow Trace (Level 4)
-
-Not applicable in the UI-rendering sense — this phase is a backend/CLI/prose mechanism, not a rendered component. The equivalent trace (range source → helper → score.py consumer) is covered by the Key Link table above and the gaps found therein.
+| `30-collect-score.md` GSD/pass≥2 rows | `scripts/diff_ranges.py` | fresh-shell pipe, literal substituted sha | ✓ WIRED for fresh-shell survival / ✗ UNSAFE for the substituted value | Fresh-shell correctness reproduced; injection also reproduced (CR-01) |
+| `00-scope.md` phase-range fence | `30-collect-score.md` GSD row | printed `PHASE_START=` literal | ✓ WIRED | Confirmed by reading and by fresh-shell reproduction |
+| `90-finalize.md` rebuild-once paragraph | gate-input fence + `finalize_gate.py` | re-mint GATEFILE, rewrite flags from rebuilt counts | ✓ WIRED (failure-retry path) | Confirmed by reading + green test suite |
+| `90-finalize.md` step 3 ("fix empty" branch) | `finalize_gate.py` | re-run the gate | ✗ NOT RE-WIRED (flags never rewritten from the recomputed counts) | WR-02, mechanically reproduced above |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Full test suite | `cd plugins/vibe-check/scripts && pytest -q -p no:cacheprovider` | `3765 passed, 4930 subtests passed in 180.14s, 0 failed` | ✓ PASS |
-| diff_ranges.py correct on ordinary edit | manual real-git repro in scratch dir | `{"f.txt": [[2, 2]]}` | ✓ PASS |
-| diff_ranges.py on colored diff without `--no-color` | `git -c color.ui=always diff HEAD \| diff_ranges.py` | `{}` rc 0 | ✗ FAIL (fail-open; mitigated on the primary fully-flagged fence only) |
-| diff_ranges.py with `--no-color` flag present | `git -c color.ui=always diff --no-color ... HEAD \| diff_ranges.py` | `{"f.txt": [[2,2]]}` | ✓ PASS (confirms the primary fence's flags work) |
-| diff_ranges.py under `diff.suppressBlankEmpty=true` on an ordinary diff with a blank context line | manual real-git repro | `unexpected line in hunk body`, rc 2 (halts) | ✗ FAIL |
-| GSD range-source row run literally in a fresh shell with `$PHASE_START` unset | manual real-git repro, two commits + working-tree edit | `{"f.txt": [[5, 5]]}` instead of `{"f.txt": [[3, 3], [5, 5]]}` | ✗ FAIL (silent, wrong, non-halting) |
-| TestRouteGSD / TestRouteIncremental / TestProseRangeFence | `pytest -q test_diff_ranges.py test_decision_continuity.py -k "TestRouteGSD or TestRouteIncremental or TestProseRangeFence"` | `11 passed, 2 subtests passed` | ✓ PASS (but does not exercise the fresh-shell cross-call scenario above — confirms the gap is untested, not refuted) |
-| GATEFILE-specific retry test existence | `grep -n "def test_retry\|GATEFILE" test_finalize_card.py` | only `test_retry_mints_new_blobfile_after_missing_path` (BLOBFILE-only) | ✗ FAIL (no coverage for the GATEFILE retry gap) |
+| `test_diff_ranges.py` full file | `pytest -q test_diff_ranges.py` | `100 passed, 75 subtests passed` | ✓ PASS |
+| `test_finalize_card.py` full file | `pytest -q test_finalize_card.py` | `89 passed, 132 subtests passed` | ✓ PASS |
+| GSD route, fresh shell, literal substituted | manual real-git repro | `{"f.txt": [[3, 3], [5, 5]]}` rc 0 | ✓ PASS |
+| GSD route, fresh shell, quoted var unsubstituted | manual real-git repro | git exit 128, pipeline halts | ✓ PASS |
+| `diff.suppressBlankEmpty=true` ordinary edit | manual real-git repro | `{"g.txt": [[14, 14]]}` rc 0, no halt | ✓ PASS |
+| Colored diff, no `--no-color` | manual real-git repro | `colored or escaped diff` rc 2 | ✓ PASS |
+| Non-diff text | manual repro | `not a unified diff` rc 2 | ✓ PASS |
+| CR-01 injection via quoted literal substitution | manual real-git repro (see above) | exit 0, `{}`, injected file created | ✗ FAIL (vulnerability confirmed) |
+| WR-02 stale-GATEFILE post-decision re-run | manual repro with `carry_state.py`/`finalize_gate.py` (see above) | stale GATEFILE → `outstanding-to-phase-5`; fresh GATEFILE from the same recomputed counts → `write` | ✗ FAIL (defect confirmed) |
 
 ### Probe Execution
 
-SKIPPED — no `scripts/*/tests/probe-*.sh` convention in this repo and none declared by the Phase 60 PLAN/SUMMARY files; verification used the project's own `pytest` suite and direct reproduction instead.
+SKIPPED — no `scripts/*/tests/probe-*.sh` convention in this repo and none declared by the Phase 60 PLAN/SUMMARY files; verification used the project's own `pytest` suite and direct reproduction (shown above) instead, per the prior verification's own approach.
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
-| EVID-01 | 60-01, 60-02, 60-04 | Ranges from added/deleted lines only, boundary-exact | ⚠️ Mostly satisfied — core math verified; robustness gap (diff.suppressBlankEmpty halt) found | Truths 1, 4 above |
-| EVID-02 | 60-01, 60-02 | Correct ranges for ordinary/deletion/insertion/relocated shapes via real git diff | ✓ SATISFIED | Truth 2 above |
-| EVID-03 | 60-04 | Every route uses exact ranges or reports unsupported fixture; nothing else assumes 3-line context | ✗ BLOCKED (GSD/incremental fresh-shell gap) | Truth 3 above |
-| FINL-01 | 60-03 | Printed BLOBFILE literal reused; fresh-shell walk reaches write/report | ✓ SATISFIED | Truth 5 above |
-| FINL-02 | 60-03, 60-05 | No-write-on-failure; retry completes after revalidating freshness; independent fix verification unchanged | ⚠️ PARTIALLY SATISFIED — no-write-on-failure and fix-verification halves solid; retry-completes half has a reproduced gap | Truth 6 above |
+| EVID-01 | 60-01, 60-02, 60-04, 60-06, 60-07 | Ranges from added/deleted lines only, boundary-exact, fails closed on hostile-but-legitimate config | ✓ SATISFIED | Truths 1, 4 |
+| EVID-02 | 60-01, 60-02 | Correct ranges for ordinary/deletion/insertion/relocated shapes via real git diff | ✓ SATISFIED | Truth 2 |
+| EVID-03 | 60-04, 60-07 | Every route uses exact ranges reliably from a fresh Bash call | ✗ BLOCKED | Truth 3; CR-01 |
+| FINL-01 | 60-03 | Printed BLOBFILE literal reused; fresh-shell walk reaches write/report | ✓ SATISFIED | Truth 5 |
+| FINL-02 | 60-03, 60-05, 60-08 | No-write-on-failure; a later retry/re-run may complete; independent fix verification unchanged | ✗ BLOCKED | Truth 6; WR-02 |
 
-No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID-03, FINL-01, FINL-02 to Phase 60, and all five appear in at least one plan's `requirements:` frontmatter (60-01, 60-02, 60-03, 60-04, 60-05).
+No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID-03, FINL-01, FINL-02 to Phase 60; all five appear in at least one plan's `requirements:` frontmatter across 60-01 through 60-09.
 
-**Note on REQUIREMENTS.md/ROADMAP.md claims:** both currently mark EVID-01/02/03 and FINL-01/02 as `Complete` (EVID-03 with one disclosed known limit — the live `gh pr diff` fetch, D-05/R6). That status is premature for EVID-03 and FINL-02 given gaps 1 and 3 above, and should be revisited — these two were not in 60-01's reproduction set and are not in 60-REPRO.md's Residuals, so the ledger's own internal consistency is not in question; its *coverage* is incomplete relative to what the advisory code review (60-REVIEW.md) and my own reproduction found afterward.
+**On REQUIREMENTS.md's current wording:** it correctly says EVID-03 and FINL-02 are "Gap closure landed... awaiting re-verification" (not Complete) — this re-verification finds that the landed gap closure is real but incomplete: the three originally-identified gaps are genuinely closed, and two new, independently-reproduced defects (one critical) remain in the same mechanisms. EVID-03 and FINL-02 should stay unchecked.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| — | — | No `TBD`/`FIXME`/`XXX` debt markers found in any file this phase modified | — | n/a (checked directly) |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | 15, 48 | `mktemp "..."` instances flagged by a naive grep for `XXX` are the `vc.XXXXXX` mktemp template, not a debt marker | info | false positive, confirmed by reading |
-| `plugins/vibe-check/scripts/diff_ranges.py` | 128-150 | Parser assumes every context line in a hunk body starts with a literal space | warning→blocking | WR-01 above (halts on `diff.suppressBlankEmpty`) |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | ~15-67 | Temp files (`BLOBFILE`, `GATEFILE`, `GATEFILE.err`, plus a second set on retry) are never `rm -f`'d | info/minor | matches 60-REVIEW.md WR-05; resource-hygiene, not a functional break; not in Residuals |
+| — | — | No `TBD`/`FIXME`/`XXX` debt markers in any file touched by 60-06..60-09 (`vc.XXXXXX` mktemp templates are not debt markers) | — | checked directly, none found |
+| `plugins/vibe-check/phases/review/05-state.md` / `30-collect-score.md` | step 2 / pass≥2 row | Unvalidated attacker-reachable value substituted into a shell command | 🛑 blocking | CR-01 — command injection, reproduced |
+| `plugins/vibe-check/phases/shared/90-finalize.md` | step 3 ("fix empty" branch) | Gate re-run omits the GATEFILE rewrite the analogous rebuild-once paragraph spells out | 🛑 blocking | WR-02 — stale decision, reproduced |
+| `plugins/vibe-check/phases/review/30-collect-score.md` | `diff.submodule` not neutralized | WR-01 (60-REVIEW.md, carried) | warning (not independently re-opened here; outside this verification's assigned scope) | false refusal / silent range loss on submodule-only or mixed changes |
+| `plugins/vibe-check/phases/shared/90-finalize.md` | temp files never `rm -f`'d | WR-03 (60-REVIEW.md, carried as R12) | info/minor | resource hygiene, not a functional break |
 
 ### Human Verification Required
 
-### 1. Write-tool refusal risk on freshly-minted temp files (SA-01)
+### 1. Write-tool refusal risk on freshly-minted temp files (SA-01, carried as R16)
 
 **Test:** Run a live `--finalize` in Claude Code and observe whether the Write tool accepts the first write to the path printed after `BLOBFILE=`/`GATEFILE=` (a file `mktemp` just created but the agent never `Read`).
-**Expected:** The write succeeds (consistent with the pre-existing ROWSFILE/SUGGESTFILE/REFSFILE pattern), or — if it is refused — every `--finalize` attempt and its one retry both fail at the same step.
-**Why human:** Harness Write-tool behavior cannot be exercised from a pytest fixture; 60-REVIEW.md itself set this aside as needing a ruling rather than asserting it reproduces.
+**Expected:** The write succeeds (consistent with the pre-existing ROWSFILE/SUGGESTFILE/REFSFILE pattern), or — if refused — every `--finalize` attempt and its one retry both fail at the same step.
+**Why human:** Harness Write-tool behavior cannot be exercised from a pytest fixture.
 
-### 2. PR size-limit fallback decision (SA-02)
+### 2. PR size-limit fallback decision (SA-02, carried as R17)
 
 **Test:** None — this is a scope/product decision.
 **Expected:** An explicit owner ruling on whether `gh pr diff` failing closed on very large PRs (~300+ files / 20k+ lines) is an accepted limit or needs a fallback.
@@ -208,17 +243,16 @@ No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID
 
 ### Gaps Summary
 
-The bulk of Phase 60's deliverable is solid and well-evidenced: the exact-range marker-walk algorithm (`diff_ranges.py`) is correct on every documented shape, mutation-tested, and matches real `git diff` output at every context width; the default/range/PR/`--all` review routes and the Finalize happy path (printed `BLOBFILE=`/`GATEFILE=`, fresh-shell walk to `write`) are genuinely fixed and tested — the full suite passes (3765 passed, 0 failed), and I independently reproduced the correct behavior for the non-gap cases.
+The gap-closure round did what it set out to do: all three gaps from the prior verification (`2f84d2e`) are genuinely fixed, and I independently re-reproduced each one's closure rather than trusting the SUMMARYs — the GSD/incremental fresh-shell range source is now correct and fails closed on an unsubstituted variable, the range builder now reads `diff.suppressBlankEmpty` context and refuses colored/non-diff text instead of silently emptying, and Finalize's one-rebuild retry now recovers from a GATEFILE-specific failure. The full targeted test suites (`test_diff_ranges.py`, `test_finalize_card.py`) are green with no regressions.
 
-Three gaps, each independently reproduced by me (not just taken from the advisory review), defeat specific parts of the stated goal and success criteria and were not caught by the phase's own reproduce-first fixtures or disclosed in 60-REPRO.md's Residuals:
+However, this phase cannot close yet. The gap round's own code review (`60-REVIEW.md`, committed at `cfa473a` — the current HEAD, after all gap-closure work) found two further problems in the exact mechanisms the gap round touched, and I independently reproduced both with working exploits/scripts, not just by reading the review's prose:
 
-1. **GSD/incremental routes use an unresolved shell variable as their range source** (`$PHASE_START`, `$LAST_REVIEWED_SHA`), reintroducing — in this phase's own new mechanism — the exact cross-call-variable defect class (999.25) that this same phase fixed for Finalize's `$BLOBFILE`. In a genuinely fresh shell this silently drops committed changes from the range (a silent loss of a qualifying finding), rather than halting.
-2. **The range builder halts on an ordinary diff** under the real, user-settable git config `diff.suppressBlankEmpty=true` (any diff with a blank context line — extremely common), and can silently return `{}` for diff text altered by settings the fixed flags don't cover (textconv, `diff.relative`), contradicting the prose's own stated fail-closed design.
-3. **Finalize's one-retry rebuild does not re-mint or refresh `GATEFILE`**, so a GATEFILE-specific failure (the exact trigger the rebuild rule is written to catch) is not actually recoverable by the documented retry.
+1. **CR-01 (critical).** The literal-substitution fix that closed GSD-SHELL-VAR introduced a command-injection path: an unvalidated `head_sha` from the (not-necessarily-gitignored) state file, substituted into a double-quoted git-diff argument, runs arbitrary shell commands via `$(...)`. I reproduced this with a working exploit (a `touch` payload that executed and left its marker file, with the overall command still exiting 0). This is a regression introduced by this phase's own 60-07 fix, not a pre-existing residual, and it directly contradicts the plan's own threat model, which claimed (incorrectly) that quoting already prevented this.
+2. **WR-02.** Finalize's post-decision gate re-run (a different code path from the one 60-08 fixed) can decide on stale, pre-decision GATEFILE flags, because the "fix empty" branch's text never says to rewrite GATEFILE from the recomputed counts — unlike the rebuild-once paragraph 15 lines above it, which spells this out in full. I reproduced the consequence mechanically with the real helpers: dismissing every open obligation correctly zeroes the recomputed counts, but the gate re-run against the stale file still reports "stays blocked." This breaks the file's own "Finalize costs one card" promise on the ordinary card-answer path, not just on a failure-retry.
 
-None of these were part of 60-01's reproduction set (they are new edge cases, not the ones 999.24/999.25 originally named), so 60-REPRO.md's internal red/green bookkeeping is not inconsistent — but the phase's closing claim ("Complete" for EVID-03 and FINL-02, with only the live-`gh`-fetch limit disclosed) overstates what was actually hardened. These are exactly the "broken required workflow" / "silent loss of a qualifying finding" classes the project's own working rule treats as requiring a fix rather than a carried residual.
+Both are concrete, reproduced, and fixable with a scoped follow-up (closing the same way 60-06/07/08 closed the first three): validate `head_sha`/`<phase-start-sha>` at the point of binding before any substitution (CR-01's own suggested fix), and extend step 3's "fix empty" branch to rewrite GATEFILE from the recomputed counts before re-running the gate, with a fresh-shell test that proves it (mirroring 60-08's own pattern for the rebuild-once paragraph).
 
-**This looks like it could be either fixed in a short follow-up or formally accepted as residuals.** If the owner judges these acceptable to carry (as `60-REPRO.md` already carries R1-R11), add overrides to this file's frontmatter citing each truth above; otherwise route to a follow-up plan before closing EVID-03/FINL-02 as Complete.
+**Recommendation:** route to a follow-up gap-closure plan before closing EVID-03/FINL-02 as Complete. These are not candidates for a waiver/override — CR-01 is a working remote-code-execution path in a review tool that processes untrusted repository content, and WR-02 breaks the core "Finalize completes" promise on an ordinary, non-adversarial usage path.
 
 ---
 
