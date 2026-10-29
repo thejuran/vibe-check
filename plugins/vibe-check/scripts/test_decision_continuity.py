@@ -4344,6 +4344,43 @@ REPRO_60 = (
                      "traceback, fence halts 'finalize_gate.py failed'",
      "disposition": "reproduced; fixed by 60-03",
      "fixture": "test_gate_fence_reads_cross_call_variable_today"},
+    {"id": "GSD-SHELL-VAR", "decision": "EVID-03",
+     "scenario": "committed edit at line 3, uncommitted edit at line 5; the "
+                 "GSD / pass >= 2 range-source row run in a fresh bash -s "
+                 "with $PHASE_START / $LAST_REVIEWED_SHA unset",
+     "probe_result": "unquoted variable -> git diff <flags> (index vs "
+                     "working tree) -> {\"f.txt\": [[5, 5]]} rc 0, the "
+                     "committed change silently dropped; quoted literal sha "
+                     "-> [[3, 3], [5, 5]]; quoted empty -> git exit 128 -> "
+                     "halt",
+     "disposition": "reproduced; fixed by 60-07",
+     "fixture": "test_gsd_route_fresh_shell_includes_committed_change + "
+                "test_incremental_route_fresh_shell_includes_committed_change"
+                " + test_unsubstituted_variable_halts_instead_of_narrowing + "
+                "TestScopePhaseStartFence"},
+    {"id": "CONFIG-ALTERED-DIFF", "decision": "EVID-01",
+     "scenario": "ordinary edit next to a blank context line under "
+                 "diff.suppressBlankEmpty=true; colored diff without "
+                 "--no-color; textconv driver; diff.relative from a "
+                 "subdirectory",
+     "probe_result": "suppressBlankEmpty -> 'unexpected line in hunk body' "
+                     "rc 2 (every pass halts); colored -> {} rc 0 "
+                     "(fail-open); textconv shifts the range ([[14, 14], "
+                     "[22, 23]] for [[12, 12], [20, 21]]); relative from "
+                     "sub/ drops it ({})",
+     "disposition": "reproduced; fixed by 60-06 + 60-07",
+     "fixture": "test_suppress_blank_empty_context_is_context + "
+                "test_refuses_colored_diff + test_refuses_non_diff_text + "
+                "test_diff_relative_from_subdirectory_changes_nothing"},
+    {"id": "GATEFILE-RETRY", "decision": "FINL-02",
+     "scenario": "attempt 1's GATEFILE write leaves an empty file; the gate "
+                 "fence halts; the documented retry re-mints only BLOBFILE",
+     "probe_result": "re-running the gate on the same GATEFILE halts "
+                     "identically ('finalize_gate.py failed', traceback in "
+                     ".err); retry_rule_holds lacked every GATEFILE needle",
+     "disposition": "reproduced; fixed by 60-08",
+     "fixture": "test_retry_mints_new_gatefile_after_gate_input_failure + "
+                "test_gatefile_missing_path_is_a_named_trigger"},
 )
 # Fixtures a REPRO_60 row may name before the test exists.
 _REPRO_60_PENDING_FIXTURES = set()
@@ -4365,11 +4402,12 @@ class TestRepro60Record(unittest.TestCase):
 
     def test_repro_60_record_is_complete(self):
         by_id = {r["id"]: r for r in REPRO_60}
-        self.assertEqual(len(REPRO_60), 9)
+        self.assertEqual(len(REPRO_60), 12)
         self.assertEqual(set(by_id), {
             "999.24-WIDEN", "999.24-DELETION-RULE", "IN-04-NET-DELETION",
             "PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED", "ALL-ROUTE",
-            "999.25-BLOBFILE", "GATE-INPUT-CROSS-CALL"})
+            "999.25-BLOBFILE", "GATE-INPUT-CROSS-CALL", "GSD-SHELL-VAR",
+            "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY"})
         for row in REPRO_60:
             with self.subTest(id=row["id"]):
                 self.assertEqual(set(row), {"id", "decision", "scenario",
@@ -4383,6 +4421,10 @@ class TestRepro60Record(unittest.TestCase):
                               (_REPRODUCED_60_04, _DROPPED_60))
         self.assertEqual(by_id["ALL-ROUTE"]["disposition"],
                          "unsupported fixture; recorded, no fix")
+        for rid in ("GSD-SHELL-VAR", "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY"):
+            with self.subTest(id=rid):
+                self.assertTrue(by_id[rid]["disposition"].startswith(
+                    "reproduced; fixed by 60-0"), by_id[rid]["disposition"])
 
     def test_every_fixture_exists(self):
         for row in REPRO_60:
