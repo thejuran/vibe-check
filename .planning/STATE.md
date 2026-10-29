@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T20:20:00.000Z"
-last_activity: 2026-10-29 -- 60-03 complete (Finalize printed BLOBFILE=/GATEFILE= paths; fresh-shell walk green at b8fb21a/fd8c1b9)
+last_updated: "2026-10-29T20:45:00.000Z"
+last_activity: 2026-10-29 -- 60-04 complete (every route pipes one range source through diff_ranges.py; full suite 3765 passed, 0 failed)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 33
-stopped_at: Completed 60-03-PLAN.md — next 60-04 (route wiring), then 60-05 (close)
+stopped_at: Completed 60-04-PLAN.md — next 60-05 (close the cycle)
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Executing Phase 60
-Last activity: 2026-10-29 -- 60-03 complete (Finalize printed BLOBFILE=/GATEFILE= paths; fresh-shell walk green at b8fb21a/fd8c1b9)
+Last activity: 2026-10-29 -- 60-04 complete (every route pipes one range source through diff_ranges.py; full suite 3765 passed, 0 failed)
 
 ## Operator Next Steps
 
@@ -80,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 60-04 complete (66d63de prose, 39f6dbd route tests + PR fixture, fb8b32b probes + D-04 audit). 30-collect-score.md changed-line ranges: built only from +/- body lines by scripts/diff_ranges.py, never hunk headers; working-tree coordinate contract; one range source per route (default `git diff HEAD` alone, GSD `git diff $PHASE_START`, pass >= 2 `git diff $LAST_REVIEWED_SHA`, range `git diff <range>`, PR `gh pr diff <ref> --color never`, --all none) with fixed --no-color --no-ext-diff a/ b/ flags; set -o pipefail fence halts with "Review halted — the changed lines could not be read from the diff; nothing was scored.". All three coordinate arms shipped (PR-SERIES, MIXED-COORD, DEFAULT-STAGED reproduced); reviewer diff commands unchanged. PR fixture captured with gh (PR #5, 4 sections, 286 lines), cross-checked vs local f2b6a36..98f63aa. TestRoute* x6 + TestProseRangeFence (fence read from the file; pipefail mutation-checked). DEFAULT-STAGED Probe B recorded as coordinate disagreement (line 48 unchanged on disk). _REPRO_60_PENDING_FIXTURES emptied. Full suite 3765 passed, 0 failed. EVID-01/EVID-03 not ticked (60-05 closes them). Next: 60-05.
 
 2026-10-29: 60-03 complete (b8fb21a prose, fd8c1b9 walks, 53b35ed locks). 90-finalize.md: step 1 mints and prints BLOBFILE=, counts/rows/step-3 re-run reuse that literal; the gate reads a printed GATEFILE= (helper stderr kept in <GATEFILE>.err, so a malformed input shows the owner one sentence, never a traceback); FINALIZE_GATE_INPUT_JSON gone; one rebuild with a NEW BLOBFILE= on a missing path or failed step, second failure or a refused step stops with "Finalize stopped — nothing was written or archived; run `--finalize` again."; no REVIEW.md/archive before gate `write`, record-decisions single writer unchanged. Fresh-shell walk green on the write route and the card route (rows -> parse -> DECFILE -> record-decisions -> recount same BLOBFILE -> write); retry, stale-earlier-attempt (Pitfall 5) and malformed-GATEFILE walks; check_printed_paths now whole-file; check_file_refs_created (PRIORROWSFILE exempt via its CARDROWSFILE= binding sentence); no_cross_call_gate_input; every lock mutation-tripped. finalize_gate.py unchanged (helper-side traceback = 60-05 residual R1 input). Full suite 4 failed (the TestCoordinateSpaces60 probes -> 60-04) / 3737 passed. FINL-01/02 not ticked (60-05 closes them). Next: 60-04.
 
