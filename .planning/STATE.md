@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: planning
-stopped_at: "Roadmap written (Phases 59–61); awaiting owner approval, then /bm:discuss-phase 59"
-last_updated: "2026-10-29T00:28:16Z"
+stopped_at: "Phase 59 context gathered (59-CONTEXT.md); next /bm:plan-phase 59"
+last_updated: "2026-10-29T00:36:12Z"
 last_activity: 2026-10-29
 progress:
   total_phases: 3
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 Phase: 59 (Stale decisions and lost deferrals) — not started, planning
 Plan: —
-Status: Roadmap written; Phase 59 ready to discuss
-Last activity: 2026-10-29 — v2.14 roadmap written (Phases 59–61, 16/16 requirements mapped)
+Status: Context gathered; Phase 59 ready to plan
+Last activity: 2026-10-29 — Phase 59 context gathered (D-01..D-09; .planning/phases/59-stale-decisions-and-lost-deferrals/59-CONTEXT.md)
 
 ## Operator Next Steps
 
-- v2.14 roadmap written (Phases 59–61) on branch `feat/v2.14-phase-59`; after owner approval, `/bm:discuss-phase 59`.
+- Phase 59 context gathered on branch `feat/v2.14-phase-59`; next `/bm:plan-phase 59`.
 - Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
