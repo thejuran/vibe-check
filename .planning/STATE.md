@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T01:30:26.000Z"
-last_activity: 2026-10-29 -- 59-01 complete (red fixtures at 82ec58b)
+last_updated: "2026-10-29T01:46:56.375Z"
+last_activity: 2026-10-29 -- 59-02 complete (producer-side pooling; CR-01/CR-04 green)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
-  percent: 17
+  completed_plans: 2
+  percent: 33
 ---
 
 # Project State
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 59 (stale-decisions-and-lost-deferrals) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Executing Phase 59
-Last activity: 2026-10-29 -- 59-01 complete (red fixtures at 82ec58b)
+Last activity: 2026-10-29 -- 59-02 complete (producer-side pooling; CR-01/CR-04 green)
 
 ## Operator Next Steps
 
@@ -78,6 +78,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 59-02 complete (c46f4dc, 25ce414, 323c0d1). CR-01, CR-01 multi-pass green at c46f4dc; CR-04 green at 25ce414; full suite 2 failed / 3613 passed, the two red are the 59-03 fixtures (cr02_edit, dmc). Decisions: kept-open rows pool prior + nearby over carried_by_hash and emit one row per dropped record, carried=bool(same) (covered arm dropped); group-loop row_nearby = carried copies + carried members without their own obligation, a fresh survivor line is not judged (D-21; p4 rewritten); three decorative arms removed (emitted set, best_member arm, kept-open fallback) and every remaining arm mutation-locked (g59/k59/l59/m59/n59 + cr02 pooled). 59-03 must empty _EXPECTED_RED_UNTIL_59_03. Next: 59-03.
 
 2026-10-29: 59-01 complete (82ec58b red fixtures, ca9834d 59-REPRO.md). Five shapes red on the real chain (CR-01 edit@33, CR-01 multi-pass, CR-02, CR-04, DEFR-01 min_confidence=45); controls green; full suite 5 failed / 3594 passed. Decisions: RED SHA for the 59-06 reverse run is 82ec58b; SA-02 did not reproduce on the real chain and is dropped, pinned by test_nv_render.all_carryforward_bypass_holds + deleting mutant. STALE-01 and DEFR-02 marked complete; DEFR-01 waits for its fix (59-03). Next: 59-02.
 
