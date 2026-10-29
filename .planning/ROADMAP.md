@@ -94,7 +94,14 @@ Plans:
   4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
   5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
 
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 60-01-PLAN.md — Reproduction verdicts: red real-diff/coordinate/Finalize-walk fixtures, REPRO_60, 60-REPRO.md (RED SHA)
+- [ ] 60-02-PLAN.md — diff_ranges.py marker-walk range builder (D-01/D-02) + test_diff_ranges.py with mutants and the replay.hunk_ranges pin
+- [ ] 60-03-PLAN.md — Finalize: printed BLOBFILE=/GATEFILE= fences, rebuild-once and refused-step rules, fresh-shell walk, widened printed-path lock
+- [ ] 60-04-PLAN.md — Route wiring: 30-collect-score range fence per route, PR cumulative fixture, route tests, --all record, D-04 audit, test_nv_render retarget
+- [ ] 60-05-PLAN.md — Close the cycle: full suite, replay, reverse run at the RED SHA, ledger green SHAs, residuals, ROADMAP/REQUIREMENTS
 
 ### Phase 61: Release gate — decision reliability
 
@@ -111,6 +118,8 @@ Plans:
 **Plans**: TBD
 
 ## Following milestone: Lean orchestration
+
+**Codex integration decision (owner, 2026-10-28):** Retain the existing optional OpenAI Codex plugin/companion integration. Lean orchestration simplifies vibe-check's own mechanics; it does not replace or vendor the companion, build a direct Codex adapter, or adopt model-gateway/agent-spawn routing. Keep the user's configured Codex default, not a pinned Astra model. Small dependency/setup, run/skip disclosure, model-label and update-compatibility improvements are captured in [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); they add no phase, requirement, acceptance criterion or release blocker to v2.14.
 
 **Goal:** Reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behavior delivered by Decision reliability.
 
@@ -183,6 +192,10 @@ After the CR-01 rollback (58-REVIEW-FINAL.md), a title reference names a row onl
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.
 
 Finish with a go/no-go recommendation for the smallest useful reporting change. Stop if reliable attribution is unavailable; document the limitation rather than build new accounting infrastructure. Existing chunk limits and estimates are not enforceable dollar caps. Scheduled as Lean orchestration item 1, after Decision reliability ships; not activated. This check does not block correctness repairs; missing attribution stops accounting work, not the reliability milestone. Budget-control implementation and cross-repo orchestration changes require their own scope.
+
+### Maintenance: Keep the Codex companion; improve setup and disclosure
+
+Owner decision 2026-10-28: retain the existing optional Codex plugin integration. Capture dependency/setup documentation, accurate joined/skipped outcomes, configured-default model labels and bounded compatibility checks after companion updates in [the maintenance record](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure). Outside v2.14; no new milestone or integration redesign. Preserve current review targeting, guards and optional native-only behavior.
 
 ## Planning boundaries
 
