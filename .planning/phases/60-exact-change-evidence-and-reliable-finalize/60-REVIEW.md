@@ -2,130 +2,146 @@
 phase: 60-exact-change-evidence-and-reliable-finalize
 reviewed: 2026-10-29T00:00:00Z
 depth: standard
-files_reviewed: 9
+files_reviewed: 8
 files_reviewed_list:
+  - plugins/vibe-check/scripts/diff_ranges.py
+  - plugins/vibe-check/scripts/test_diff_ranges.py
   - plugins/vibe-check/phases/review/00-scope.md
   - plugins/vibe-check/phases/review/05-state.md
   - plugins/vibe-check/phases/review/30-collect-score.md
   - plugins/vibe-check/phases/shared/90-finalize.md
-  - plugins/vibe-check/scripts/diff_ranges.py
-  - plugins/vibe-check/scripts/test_decision_continuity.py
-  - plugins/vibe-check/scripts/test_diff_ranges.py
   - plugins/vibe-check/scripts/test_finalize_card.py
-  - plugins/vibe-check/scripts/test_nv_render.py
+  - plugins/vibe-check/scripts/test_decision_continuity.py
 findings:
-  critical: 0
-  warning: 6
-  info: 3
+  critical: 1
+  warning: 3
+  info: 5
   total: 9
 status: issues_found
 ---
 
-# Phase 60: Code Review Report
+# Phase 60: Code Review Report (gap round 60-06..60-09)
 
 **Reviewed:** 2026-10-29
 **Depth:** standard
-**Files Reviewed:** 9
+**Files Reviewed:** 8
 **Status:** issues_found
+
+> This report replaces the f442464 review (range `98aa9cc..HEAD`) for the gap-round changes. Scope: `git diff 2f84d2e..HEAD` on the eight files listed above, plus the surrounding code those changes touch. Findings from the earlier review that are still open in the changed code are carried forward and marked "(carried)".
 
 ## Summary
 
-I reviewed `git diff 98aa9cc..HEAD` for the nine files. The core of `diff_ranges.py` (marker-driven ranges, budget accounting, pure-deletion pair, net-deletion extension, `\ No newline` handling, quoted/dev-null paths) is correct on every edge shape I traced, and the test suite pins those shapes against real git under three context widths.
+The gap round fixes what it set out to fix. Of the earlier findings, WR-01 (suppressBlankEmpty), WR-02 (colored or non-diff text gives `{}`), WR-03 (textconv / relative), WR-04 (GATEFILE not rebuilt) and WR-06 (cross-call shell variable) are closed. I checked each against real git in a scratch repo. Binary-only and mode-only diffs still give `{}` and are not falsely refused. The six flags are identical, in the same order, on every git range-source line in 00-scope, 05-state and the 30-collect-score table. The suite passes: `pytest -q test_diff_ranges.py test_finalize_card.py test_decision_continuity.py` gives 347 passed, 379 subtests passed.
 
-The defects sit at the edges, in what reaches the helper. Three git settings change the diff text even with the prose flags applied. One of them makes every review halt. Another silently shifts the ranges. A third input class, a colored or non-diff stream, gives `{}` with exit 0, which is fail-open. The range fence also relies on shell variables surviving across fresh shells, which is the same failure mode this phase fixes in Finalize. In Finalize, the new once-only rebuild does not rebuild the gate input file. The mktemp files are never cleaned up.
+Remaining problems:
 
-I reproduced every WARNING about the helper's input against real git in a scratch repo (commands in each finding).
+1. **The literal-sha fix opened a command-injection path (CR-01).** The agent now pastes `head_sha` from the state file into a double-quoted shell argument. Double quotes do not stop `$(...)`. I reproduced it: the fence ran the payload and still printed valid ranges with exit 0.
+2. **The six flags do not cover every setting that changes the diff (WR-01).** With `diff.submodule=log`, a change to a submodule alone is refused as "not a unified diff", so the review halts. When other files also change, the submodule's range is silently dropped.
+3. **The new GATEFILE rule is not applied to the post-answer gate re-run (WR-02).** The rebuild paragraph now says the gate must read flags written from fresh counts. The step-3 re-run after recording decisions never says so. If the agent reuses the earlier GATEFILE, the gate decides on counts from before the decisions.
+4. **Temp files are still never removed (WR-03, carried).** The rebuild now leaves even more of them behind.
+
+The new tests are mostly real guards: each new mutant (M20–M22) trips against the real module. Two are weaker than they look (IN-02, IN-03).
+
+## Critical Issues
+
+### CR-01: Substituting the literal `head_sha` into a double-quoted argument allows command execution
+
+**File:** `plugins/vibe-check/phases/review/05-state.md:52,86`; `plugins/vibe-check/phases/review/30-collect-score.md:72,77`
+**Issue:** 05-state step 2 binds `$LAST_REVIEWED_SHA` from `state.passes[-1].head_sha` in the state JSON. It does not validate the value. The pass ≥ 2 range-source row then has the agent paste that value as a literal into `"<last-reviewed-sha>"`. Double quotes stop word-splitting, but they do not stop `$(...)` or backtick command substitution.
+
+The state file lives at `.turingmind/state/format-53/<key>.json` inside the reviewed repo. Phase 0.7 only *suggests* adding `.turingmind/` to `.gitignore`. A contributor can therefore commit a state file with a predictable key: GSD mode uses `<phase-dir-name>.json`. Its last `head_sha` could be `$(curl … | sh)HEAD`. 90-finalize.md already treats state-derived file paths as possibly attacker-written and checks them with PATH_RE and guard.py before any git call. `head_sha` gets no such check.
+
+Before this round, the row used an unquoted `$LAST_REVIEWED_SHA` that was never bound in the fence's shell. Expanding a variable's value never re-runs `$()`, so the old exposure was option injection at most (earlier IN-02). Literal substitution turns it into command execution. The new paragraph at 30-collect-score.md:77 says the quotes make a bad value fail. That holds for empty and unsubstituted values, but not for this one.
+
+Reproduced in a scratch repo:
+```bash
+set -o pipefail
+RANGES_JSON=$(git diff --no-color --no-ext-diff --no-textconv --no-relative \
+  --src-prefix=a/ --dst-prefix=b/ "$(touch "$T/pwned")HEAD" | python3 diff_ranges.py)
+# -> exit 0, valid ranges printed, and $T/pwned was created
+```
+**Fix:** Validate the value where it is bound, and fail closed:
+```text
+05-state.md step 2: `$LAST_REVIEWED_SHA = state.passes[-1].head_sha` only when it
+matches ^[0-9a-f]{40}([0-9a-f]{24})?$ ; any other value (including null) halts the
+run with a fixed message — never substitute an unvalidated value into a command.
+```
+Also switch the placeholder to single quotes (`'<last-reviewed-sha>'`), or have the fence check it before use with `git rev-parse --verify --quiet --end-of-options '<sha>^{commit}'`. Add a test that substitutes `$(touch marker)HEAD` into the row as the prose directs and asserts the marker file is not created and the fence halts. `<phase-start-sha>` comes from `git log --format=%H`, so it is always hex. Applying the same check to it is cheap and keeps the two rows symmetric.
 
 ## Warnings
 
-### WR-01: `diff.suppressBlankEmpty=true` makes every review halt
+### WR-01: `diff.submodule` is not neutralized: a submodule-only change halts the review, and otherwise its range is silently dropped
 
-**File:** `plugins/vibe-check/scripts/diff_ranges.py:146-148`, `plugins/vibe-check/phases/review/30-collect-score.md:68-75`
-**Issue:** With the git config `diff.suppressBlankEmpty=true` (user-global or repo-local), git prints a blank context line as an empty line instead of `" "`. `_walk_hunk` reads tag `""` and raises `REASON_BAD_BODY_LINE`. Any diff whose hunk context holds a blank line gets this, which is nearly every real diff. Each pass halts with "Review halted — the changed lines could not be read". None of the prose flags (`--no-color --no-ext-diff --src-prefix --dst-prefix`) override this setting. Reproduced with `git -c diff.suppressBlankEmpty=true diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ HEAD | python3 diff_ranges.py`, which printed `unexpected line in hunk body` and exited 2. The same diff without the setting gives `{"f": [[3, 3]]}`. The effect is that a required workflow breaks for any user who has this common setting.
-**Fix:** Pin the setting in every range-source call, and/or accept an empty line inside a hunk as a context line (GNU patch does the same):
-```bash
-git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ HEAD
-```
-```python
-tag = body[:1]
-if body == "":          # diff.suppressBlankEmpty prints blank context as ""
-    tag = " "
-```
-Add `diff.suppressBlankEmpty` to `test_hostile_repo_config_does_not_change_ranges`.
+**File:** `plugins/vibe-check/phases/review/30-collect-score.md:66,70-73`; `plugins/vibe-check/scripts/diff_ranges.py:204-216`; `plugins/vibe-check/scripts/test_diff_ranges.py:74-76`
+**Issue:** 30-collect-score.md:66 says the six flags mean "a repo-local … setting cannot change the text the helper reads". `diff.submodule` (user-global or repo-local, values `log` or `diff`) still changes `git diff` output. With `log`, a submodule pointer change prints as `Submodule sub 366ee10..c6092ce:` / `  > c` with no `diff --` header. Reproduced in a scratch repo with the six flags:
+- **Only the submodule changed:** the helper sees no diff structure and raises `REASON_NOT_A_DIFF`, exit 2, so the review pass halts ("Review halted — the changed lines could not be read"). This is a false refusal introduced by this round's not-a-diff rule. Every pass halts for that user until they change their git config.
+- **Submodule plus other files:** exit 0, and the `sub: [[1, 1]]` range the default setting gives is silently dropped.
+- **`diff.submodule=diff`:** the submodule's inner diff is printed under keys such as `sub/f`, which is a different line space from the superproject.
+**Fix:** Add `--submodule=short` to the fixed flag set everywhere it appears: the three 00-scope/05-state lines, the 30-collect-score table and prose, the diff_ranges docstring CLI, and `PROSE_FLAGS`. Add `diff.submodule=log` to `test_hostile_repo_config_does_not_change_ranges`, using a fixture that contains a submodule change, and assert that the raw output really differs, as the other hostile cases do.
 
-### WR-02: Colored or non-diff input gives `{}` with exit 0 (fail-open); the per-route lines in 00-scope/05-state omit the mandatory flags
+### WR-02: The post-answer gate re-run does not rewrite GATEFILE, so the gate can decide on counts from before the decisions
 
-**File:** `plugins/vibe-check/scripts/diff_ranges.py:166-187`; `plugins/vibe-check/phases/review/00-scope.md:43,99`; `plugins/vibe-check/phases/review/05-state.md:86`; `plugins/vibe-check/phases/review/30-collect-score.md:87`
-**Issue:** `ranges_from_diff` skips every line it does not recognise outside a hunk. A colored diff (`\x1b[36m@@ …`) has no line that matches `_HUNK`, so the whole diff is skipped and the result is `{}` with exit 0. A diff from an external-diff driver or any other non-unified text does the same. 30-collect-score.md:87 says "An empty diff prints `{}` and is not a failure", so the pass scores with no in-diff term. That is exactly the silent loss the fence exists to prevent. Reproduced: `git -c color.ui=always diff HEAD | python3 diff_ranges.py` gave `{}` and `rc=0` on a diff with a real change.
+**File:** `plugins/vibe-check/phases/shared/90-finalize.md:272` (cf. `:55`, `:67`)
+**Issue:** After `record-decisions`, step 3 says: "RE-RUN the counts step and the gate ONCE (the same `BLOBFILE=` literal this attempt printed)". The gate reads only GATEFILE (line 57), and GATEFILE holds the counts written *before* the owner's answers. Step 3 never says to write the recounted `outstanding_cw` / `unacknowledged_medium` / `undecided_nv` into a GATEFILE.
 
-The new "Range source for 30-collect-score" lines at 00-scope.md:43/99 and 05-state.md:86 give the bare command (`git diff HEAD`, `git diff $PHASE_START`, `git diff $LAST_REVIEWED_SHA`) without the flags. An agent that copies the command from the phase it is reading gets this failure in any repo with `color.ui=always`.
-**Fix:** Make the helper refuse instead of returning empty. For example, add a new fixed reason when the input holds a `diff --git `/`+++ ` header line but no hunk was parsed for it, and when any line starts with `\x1b`. In the three prose lines, either give the full flagged command or write "the route's row in 30-collect-score.md step 2 (flags included)" instead of a bare command.
+This round's rebuild rule (line 67) says outright that a GATEFILE built from counts that may predate the current state must not be reused. But it covers only the failure rebuild, and this re-run is "this attempt", so the wording does not forbid reuse here. An agent that re-runs the gate fence as written gets the pre-decision verdict. The result is a "Finalize stays blocked" stop, and the list printed under it comes from the *new* counts, which may be empty. The owner then has to run `--finalize` a second time to get a close-out that should have finished in this turn. `test_finalize_card.py:649` checks only the ordering of this step; nothing walks the re-run against a GATEFILE.
+**Fix:** In step 3, write: "RE-RUN the counts step (the same `BLOBFILE=` literal), then run the gate-input fence again so it prints a NEW `GATEFILE=`, write the seven-key `flags` from the re-counted `$COUNTS_JSON` to it, and run the gate on that literal." Add a fresh-shell walk test in `TestFinalizeFreshShellWalk`: record decisions that close every row, run the gate on the attempt's original GATEFILE, and show it stays blocked. Then run it on a newly written GATEFILE and show it returns `write`. Add a needle or mutant on the new sentence.
 
-### WR-03: textconv (and `diff.relative`) still change the diff text, which silently shifts or drops ranges
+### WR-03 (carried, earlier WR-05): Finalize temp files are never removed; the rebuild now leaves twice as many
 
-**File:** `plugins/vibe-check/phases/review/30-collect-score.md:66,70-73`
-**Issue:** The prose says the flags make sure "a repo-local color, prefix or external-diff setting cannot change the text the helper reads". Porcelain `git diff` also applies textconv filters (`.gitattributes` `diff=<drv>` plus `diff.<drv>.textconv`). Line numbers then refer to the converted text, not the file, and the helper cannot detect it. Reproduced: with a textconv that prepends two lines, a change on line 3 came out as `{"f": [[5, 5]]}` with exit 0. Separately, with `diff.relative=true`, a fence run from a subdirectory prints `{}` for changes outside that subdirectory.
-**Fix:** Add `--no-textconv --no-relative` to every git row in the table, the prose claim and `PROSE_FLAGS` in the tests, and add a textconv case to the hostile-config test.
-
-### WR-04: The once-only rebuild does not rebuild the gate input, so a failed GATEFILE write fails again and stops
-
-**File:** `plugins/vibe-check/phases/shared/90-finalize.md:47-67`
-**Issue:** The rebuild rule (line 67) mints a new `BLOBFILE=` and then says "re-run the counts fence and the gate once with the new literal". The gate reads `GATEFILE`, and its contents come from the counts. The rule never says to create a new GATEFILE or rewrite it with the fresh counts. It also does not list a missing or empty `GATEFILE=` file as a trigger. Case 1: the GATEFILE Write failed (empty file, which is exactly the fresh-shell failure this phase targets). Then `finalize_gate.py` crashes on empty stdin (verified: `JSONDecodeError` traceback, rc=1), the rebuild runs the gate again on the same empty file, and Finalize stops even though nothing in the state is wrong. Case 2: the first counts fence failed and the agent reuses a GATEFILE written earlier. Then the gate decides on counts that do not match the rebuilt fingerprints.
-**Fix:** In line 67, say that the rebuild also runs the GATEFILE mktemp fence again (a new `GATEFILE=` printed), writes the flags from the rebuilt `$COUNTS_JSON` into it, and never reuses an earlier `GATEFILE=`. Add "the `GATEFILE=` path is missing or empty" to the trigger list, and lock this with a mutant in `TestFinalizeFreshShellWalk`.
-
-### WR-05: Finalize temp files are never removed; gate diagnostics go into an orphan `.err` file
-
-**File:** `plugins/vibe-check/phases/shared/90-finalize.md:15,48,57,64`
-**Issue:** Each Finalize attempt now creates `BLOBFILE`, `GATEFILE` and `GATEFILE.err` with mktemp, and a rebuild creates a second set. No `rm -f` anywhere in the finalize or fix-loop prose touches these files. The card files (`SUGGESTFILE`, `REFSFILE`, `RESOLVEFILE`) do get explicit cleanup. So every `--finalize` leaves 3 to 6 files in `$TMPDIR`. Stale `vc.*` BLOBFILEs from earlier attempts are exactly what line 67 warns must never be reused, and leaving them around makes that mistake more likely. `GATEFILE.err` captures the helper's traceback, but nothing ever reads, logs or names it, so the failure detail is lost to the owner and to any later debugging.
-**Fix:** After the gate's action is consumed (and on each stop path), run `rm -f "<BLOBFILE>" "<GATEFILE>" "<GATEFILE>.err"` with the literal paths, as the card cleanup does. On gate failure, print the `.err` path in the halt line (path only, not its contents), or keep the `.err` file only when the gate exits non-zero.
-
-### WR-06: Range fence relies on `$LAST_REVIEWED_SHA` / `$PHASE_START` across fresh shells; an empty variable silently gives an unstaged-only diff
-
-**File:** `plugins/vibe-check/phases/review/30-collect-score.md:71-72,77-86`
-**Issue:** The fence runs in a fresh shell. `$LAST_REVIEWED_SHA` is set by the agent from state JSON (05-state.md:52), and `$PHASE_START` by a separate 00-scope fence. Neither survives into this call. If the agent pastes the row as written, the unquoted empty variable disappears and the command becomes `git diff --no-color … ` with no revision. That compares the index with the working tree: it succeeds, and it leaves out every committed and staged change in the range. The helper returns a well-formed subset, so nothing halts and in-diff evidence is silently lost for those lines. This phase made the same point explicitly for `BLOBFILE`/`GATEFILE` ("a shell variable does not survive into a separate Bash call") but did not apply it here.
-**Fix:** Tell the agent to substitute the literal SHA, and guard it inside the fence:
-```bash
-set -o pipefail
-REV='<literal sha, or HEAD>'
-git rev-parse --verify --quiet "$REV^{commit}" >/dev/null || { echo "Review halted — the changed lines could not be read from the diff; nothing was scored." >&2; exit 1; }
-if RANGES_JSON=$(git diff --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$REV" | python3 "<VC_ROOT literal>/scripts/diff_ranges.py"); then …
-```
+**File:** `plugins/vibe-check/phases/shared/90-finalize.md:15-22,48-57,67`
+**Issue:** There is still no `rm -f` for `BLOBFILE`, `GATEFILE` or `<GATEFILE>.err`. Card files do get cleanup (lines 175, 243, 271-272). The new rule makes the rebuild mint a second GATEFILE as well as a second BLOBFILE, so a failed-then-rebuilt Finalize leaves up to six `vc.*` files. The same paragraph warns against reusing stale files from "an earlier attempt or an earlier session", and leaving them around invites exactly that. The traceback in `.err` is still never shown or named anywhere.
+**Fix:** As before: after the gate's action is consumed, and on each stop path, run `rm -f '<BLOBFILE>' '<GATEFILE>' '<GATEFILE>.err'` with the printed literals (for the rebuild, both attempts' files). Name the `.err` path in the halt sentence, or keep the file only when the gate exits non-zero.
 
 ## Info
 
-### IN-01: Commit-series refusal only recognises SHA-1 mbox separators
+### IN-01: "`{}` is printed only for a genuinely empty diff" is not true
 
-**File:** `plugins/vibe-check/scripts/diff_ranges.py:47`
-**Issue:** `^From [0-9a-f]{40} ` does not match a 64-hex SHA-256 `format-patch` separator. A series from a SHA-256 repo therefore gets past the mbox guard. If no later budget check trips, it gives merged per-commit coordinates, the exact case the guard is there to stop.
+**File:** `plugins/vibe-check/phases/review/30-collect-score.md:89`
+**Issue:** By the helper's own contract (diff_ranges.py:23-25, 33) and test (`test_binary_only_and_mode_only_diffs_are_empty`), binary-only, mode-only, deletion-only (`+++ /dev/null`) and C-quoted-path-only diffs also give `{}` with exit 0. The sentence could lead an agent to treat a `{}` from a non-empty diff as an anomaly, or to state that the diff was empty.
+**Fix:** "…so `{}` means no changed text lines the helper can range: an empty diff, or one that changes only binary files, modes, deleted files or C-quoted paths."
+
+### IN-02: The escape-refusal tests cover only fully colored diffs, so the fail-open case the rule exists for is not locked
+
+**File:** `plugins/vibe-check/scripts/test_diff_ranges.py:437-445,839-843`
+**Issue:** With `color.ui=always`, every line, including `diff --git`, starts with ESC. In that case the new not-a-diff rule refuses the text anyway. M21 (`if False:`) trips only because the expected *reason* changes from `REASON_ESCAPE` to `REASON_NOT_A_DIFF`. The case where the escape rule is the only protection is a partly colored diff, and no test covers it. Example: `color.diff.meta=normal`, so the headers are plain but `@@` is cyan. Reproduced: on that input, the M21 mutant returns `{}` with exit 0 (fail-open), while the real module refuses. A weakened rule, for example one that checks only the first line, would pass the current tests.
+**Fix:** Add a case using `git -c color.ui=always -c color.diff.meta=normal diff HEAD`. Assert that the plain `diff --git` line is present, that the `@@` line starts with ESC, and that the helper refuses with `REASON_ESCAPE`. Point M21 at it.
+
+### IN-03: Two new checks assert less than they claim
+
+**File:** `plugins/vibe-check/scripts/test_diff_ranges.py:1141-1152`; `plugins/vibe-check/scripts/test_finalize_card.py:2213-2214`
+**Issue:**
+- `literal_sha_rule_holds` checks that `"substitute"` appears *anywhere* in the range bullet. The word appears four or more times ("substitute it" in both rows, "the agent substitutes" in the new paragraph), and only the sentence mutant is exercised. Deleting the "substitute it" instruction from either row would not trip it.
+- The subtest "old rule: same GATEFILE reused fails identically" runs the same empty file twice and asserts the same halt. Nothing in it reads the prose, so it documents behaviour but guards no rule. The rule itself is guarded only by the RETRY_NEEDLES presence check.
+**Fix:** Assert "substitute" per row (on `prose_range_row(text, "GSD")` and `prose_range_row(text, "default or GSD")`), with a mutant for each. Rename the subtest to say it illustrates the old behaviour, or drop it.
+
+### IN-04 (carried, earlier IN-01): The commit-series refusal recognises only SHA-1 mbox separators
+
+**File:** `plugins/vibe-check/scripts/diff_ranges.py:52`
+**Issue:** `^From [0-9a-f]{40} ` does not match a 64-hex SHA-256 `format-patch` separator. This is unchanged in this round.
 **Fix:** `re.compile(r"^From (?:[0-9a-f]{40}|[0-9a-f]{64}) ")`, plus a mutant test.
 
-### IN-02: `head_sha` from the state file becomes a bare git argument with no validation
-
-**File:** `plugins/vibe-check/phases/review/05-state.md:52,86`; `plugins/vibe-check/phases/review/30-collect-score.md:72`
-**Issue:** The new range source `git diff … $LAST_REVIEWED_SHA` puts a value read from `.turingmind/state/…json` in option position. The state file lives inside the reviewed working tree, and nothing checks `head_sha` against a hex pattern. A crafted value like `--output=<path>` would be read as a git option (an earlier `..HEAD` form had the same exposure).
-**Fix:** Validate `^[0-9a-f]{40}([0-9a-f]{24})?$` when binding `$LAST_REVIEWED_SHA`, and resolve it with `git rev-parse --verify --end-of-options "<sha>^{commit}"` before the diff.
-
-### IN-03: Counts fence leaves stderr uncaptured, unlike the gate fence
+### IN-05 (carried, earlier IN-03): The counts fence leaves stderr uncaptured, unlike the gate fence
 
 **File:** `plugins/vibe-check/phases/shared/90-finalize.md:25`
-**Issue:** The gate fence now captures helper diagnostics (`2>"$GATEFILE.err"`) so only the stop sentence shows. The counts fence still passes `carry_state.py` stderr straight through, so an unexpected exception shows a Python traceback to the owner on the same path the rebuild rule covers.
-**Fix:** Redirect the counts fence's stderr the same way, to a printed file, and clean it up as in WR-05.
+**Issue:** This is unchanged in this round. The rebuild path now runs the counts fence up to twice, so a `carry_state.py` traceback can reach the owner twice.
+**Fix:** Redirect stderr to a printed file, as the gate fence does, and clean it up under WR-03.
 
 ## Set aside (needs ruling)
 
-### SA-01: Write tool on a mktemp-created (existing, unread) file
+### SA-01 (carried): The Write tool on a file mktemp has already created
 
-**Where:** `plugins/vibe-check/phases/shared/90-finalize.md:15-22,48-55`
-**Why excluded:** It depends on harness behaviour, not on code in the diff. The same pattern was already used for ROWSFILE/SUGGESTFILE/REFSFILE before this phase.
-**Effect if left as is:** In Claude Code, Write refuses to overwrite an existing file that has not been Read. mktemp creates the file, so the first Write to `BLOBFILE=`/`GATEFILE=` may be rejected. That attempt and the single rebuild would then both fail and stop.
-**Needs:** A ruling on whether to confirm with a live run (or add an explicit "Read the printed path first" instruction) before ship.
+**Where:** `plugins/vibe-check/phases/shared/90-finalize.md:15-22,48-55,67`
+**Why excluded:** This depends on how the harness behaves, not on code in the diff.
+**Effect if left as is:** If Write refuses to overwrite an existing file that has not been Read, both the first attempt and the single rebuild fail at the BLOBFILE/GATEFILE write, and Finalize stops. The rebuild now re-mints GATEFILE, so it would hit the same refusal a second time.
+**Needs:** A ruling on whether to confirm with a live run, or to add a "Read the printed path first" step.
 
-### SA-02: PR-mode range source hard-fails on PRs above GitHub's diff limits
+### SA-02 (carried): The PR-mode range source fails outright on PRs over GitHub's diff limits
 
 **Where:** `plugins/vibe-check/phases/review/30-collect-score.md:74`
-**Why excluded:** The limit is an external API constraint. Failing closed is the intended behaviour.
-**Effect if left as is:** Very large PRs (over about 300 files or 20k lines) make `gh pr diff --color never` fail, so every pass on them halts and cannot be scored.
-**Needs:** A ruling: accept the limit, or add a fallback (for example a local `git diff <base>...<head>` after fetching the PR refs).
+**Why excluded:** This is an external API limit, and failing closed is the intended behaviour.
+**Effect if left as is:** On very large PRs, every pass halts and nothing is scored.
+**Needs:** A ruling: accept the limit, or add a fallback (fetch the PR refs and run a local `git diff <base>...<head>`).
 
 ---
 
