@@ -50,7 +50,7 @@ E       ModuleNotFoundError: No module named 'diff_ranges'
 10 failed, 148 deselected in 1.11s
 ```
 
-Green at: `53fb637` (60-02 builder; `TestRealDiffRanges60` 10 passed) + `66d63de` (60-04: the `changed-line ranges` bullet now pipes one range source per route through `scripts/diff_ranges.py` and no longer reads hunk headers).
+Green at: 53fb637 (60-02 builder; `TestRealDiffRanges60` 10 passed) + `66d63de` (60-04: the `changed-line ranges` bullet now pipes one range source per route through `scripts/diff_ranges.py` and no longer reads hunk headers).
 
 ---
 
@@ -70,7 +70,7 @@ E       ModuleNotFoundError: No module named 'diff_ranges'
 2 failed, 156 deselected in 0.27s
 ```
 
-Green at: <pending — 60-02>
+Green at: 53fb637 (60-02 builder; `test_rd60_deletion_reopens` / `test_rd60_deletion_keeps` pass: a pure deletion gives `[max(T,1), T+1]` from the `-` markers at any context width) + 66d63de (60-04: every route reads its range source through the builder).
 
 ---
 
@@ -92,7 +92,7 @@ E       ModuleNotFoundError: No module named 'diff_ranges'
 2 failed, 156 deselected in 0.26s
 ```
 
-Green at: <pending — 60-02>
+Green at: 53fb637 (60-02 builder; `test_rd60_net_deletion_reopens` / `test_rd60_net_deletion_keeps` pass: a net-deletion replace also covers the line after it, D-02) + 66d63de (60-04 route wiring).
 
 ---
 
@@ -112,7 +112,7 @@ E       AssertionError: False is not true : the head-file line of commit A's edi
 1 failed, 157 deselected in 0.16s
 ```
 
-Green at: 60-04. Prose `66d63de` (PR range source `gh pr diff <ref> --color never`, never `--patch`); route tests `39f6dbd` (`TestRoutePR`: pinned real capture + series refused with `REASON_MBOX`); the probe reads the cumulative diff through the builder and passes in the 60-04 Task 3 commit (the old series reading stays in it as a documenting assertion).
+Green at: 66d63de (60-04 prose) + 39f6dbd (route tests) + fb8b32b (probe). Prose `66d63de` (PR range source `gh pr diff <ref> --color never`, never `--patch`); route tests `39f6dbd` (`TestRoutePR`: pinned real capture + series refused with `REASON_MBOX`); the probe reads the cumulative diff through the builder and passes in the 60-04 Task 3 commit (the old series reading stays in it as a documenting assertion).
 
 ---
 
@@ -132,7 +132,7 @@ E   AssertionError: 'current' != 'stale'
 1 failed, 157 deselected in 0.18s
 ```
 
-Green at: 60-04. Arm chosen: single-diff range source (reproduced) — GSD pass 1 `git diff $PHASE_START` (`git diff HEAD` when empty), any stateful route pass >= 2 `git diff $LAST_REVIEWED_SHA` (`66d63de`, 30-collect-score.md table, 00-scope.md mode 4, 05-state.md step 3). Route tests `39f6dbd` (`TestRouteGSD`, `TestRouteIncremental`); the probe now reads `git diff <base>` through the builder and passes in the 60-04 Task 3 commit, with the concatenated reading kept as a documenting assertion (silent keep).
+Green at: 66d63de (60-04 prose) + 39f6dbd (route tests) + fb8b32b (probe). Arm chosen: single-diff range source (reproduced) — GSD pass 1 `git diff $PHASE_START` (`git diff HEAD` when empty), any stateful route pass >= 2 `git diff $LAST_REVIEWED_SHA` (`66d63de`, 30-collect-score.md table, 00-scope.md mode 4, 05-state.md step 3). Route tests `39f6dbd` (`TestRouteGSD`, `TestRouteIncremental`); the probe now reads `git diff <base>` through the builder and passes in the 60-04 Task 3 commit, with the concatenated reading kept as a documenting assertion (silent keep).
 
 ---
 
@@ -158,7 +158,7 @@ E       AssertionError: False is not true : line 48 (the staged section's own nu
 1 failed, 157 deselected in 0.17s
 ```
 
-Green at: 60-04. Arm chosen: `git diff HEAD` alone as the range source (reproduced), with the explicit working-tree coordinate contract (`66d63de`); reviewers still receive all three default-route commands unchanged. Route tests `39f6dbd` (`TestRouteDefault`, literal working-tree ranges `[[1, 10], [58, 58]]`, staged with a real `git add`). Probe A now keeps through the builder on `git diff HEAD`; Probe B is recorded as what it is: coordinate disagreement between the two sections, not a lost changed line — the line it flags (48 on disk) is unchanged code, so under the contract it is correctly outside the ranges, and the staged edit's working-tree line 58 is inside them. Both pass in the 60-04 Task 3 commit.
+Green at: 66d63de (60-04 prose) + 39f6dbd (route tests) + fb8b32b (probes). Arm chosen: `git diff HEAD` alone as the range source (reproduced), with the explicit working-tree coordinate contract (`66d63de`); reviewers still receive all three default-route commands unchanged. Route tests `39f6dbd` (`TestRouteDefault`, literal working-tree ranges `[[1, 10], [58, 58]]`, staged with a real `git add`). Probe A now keeps through the builder on `git diff HEAD`; Probe B is recorded as what it is: coordinate disagreement between the two sections, not a lost changed line — the line it flags (48 on disk) is unchanged code, so under the contract it is correctly outside the ranges, and the staged edit's working-tree line 58 is inside them. Both pass in the 60-04 Task 3 commit.
 
 ---
 
@@ -177,7 +177,7 @@ $ pytest -q test_decision_continuity.py -k TestRepro60Record
 3 passed, 155 deselected, 26 subtests passed in 0.06s
 ```
 
-Green at: 60-04. `TestRouteAll` added in `39f6dbd` (test_diff_ranges.py: asserts 05-state-all.md (ii) still forces `$PASS_NUMBER = 1` and `$CARRYFORWARD = []`, `ranges_from_diff("") == {}`, and `score.run` with `all_mode=True, changed_line_ranges={}` keeps a reviewed-set finding). `_REPRO_60_PENDING_FIXTURES` emptied and the fixture lookup extended to test_diff_ranges.py in the 60-04 Task 3 commit.
+Green at: 39f6dbd (60-04; unsupported fixture recorded, nothing fixed) + fb8b32b (allowlist emptied). `TestRouteAll` added in `39f6dbd` (test_diff_ranges.py: asserts 05-state-all.md (ii) still forces `$PASS_NUMBER = 1` and `$CARRYFORWARD = []`, `ranges_from_diff("") == {}`, and `score.run` with `all_mode=True, changed_line_ranges={}` keeps a reviewed-set finding). `_REPRO_60_PENDING_FIXTURES` emptied and the fixture lookup extended to test_diff_ranges.py in the 60-04 Task 3 commit.
 
 ---
 
@@ -198,7 +198,7 @@ FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_walk_reaches_coun
 1 failed, 2 passed, 70 deselected in 0.14s
 ```
 
-Green at: <pending — 60-03>
+Green at: b8fb21a (60-03 prose: step 1 mints and prints `BLOBFILE=`, the gate reads a printed `GATEFILE=`; `test_walk_reaches_counts_gate_report` passes) + fd8c1b9 (walk green on both routes, retry and stale-attempt walks). `test_counts_fence_without_literal_exits_two` stays green as the D-09 mutant.
 
 ---
 
@@ -219,7 +219,7 @@ $ pytest -q test_finalize_card.py -k test_gate_fence_reads_cross_call_variable_t
  I'm uncertain about Finalize mode — finalize_gate.py failed; nothing was written or archived.)
 ```
 
-Green at: <pending — 60-03 (inverted)>
+Green at: fd8c1b9 (60-03: `test_gate_fence_reads_cross_call_variable_today` inverted to assert the gate fence reads the printed `GATEFILE=` literal, not `$FINALIZE_GATE_INPUT_JSON`) on the b8fb21a prose; 53b35ed adds the whole-file `no_cross_call_gate_input` lock.
 
 ---
 
@@ -260,11 +260,104 @@ D-05: the live `gh pr diff` fetch was not exercised; the PR route is proven on a
 
 ## Reverse run
 
-Filled by 60-05.
+The current tests were run against the production code from before any phase-60 fix. Run on 2026-10-29 from HEAD `ec0c9d8`.
+
+- Worktree: `git worktree add --detach <scratchpad>/pre60 ce9f8b8`. `git -C <scratchpad>/pre60 rev-parse --short HEAD` printed `ce9f8b8`, the RED SHA from 60-01-SUMMARY. In that tree `diff_ranges.py` does not exist, `30-collect-score.md` / `00-scope.md` / `05-state.md` still read hunk headers and concatenate diffs, and `90-finalize.md` still holds `$BLOBFILE` and `$FINALIZE_GATE_INPUT_JSON` across calls.
+- Copied in from HEAD `ec0c9d8`: `test_decision_continuity.py`, `test_finalize_card.py`, `test_diff_ranges.py`. (`fixtures/pr-cumulative.diff` was not copied; only `test_diff_ranges.py` reads it, and that file cannot collect there anyway.)
+- Afterwards: `git worktree remove --force <scratchpad>/pre60`, then `git worktree prune`. `git worktree list | grep -c pre60` printed `0`.
+
+```
+$ pytest -q -p no:cacheprovider test_decision_continuity.py -k "TestRealDiffRanges60 or TestCoordinateSpaces60 or TestRepro60"
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_deletion_keeps
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_deletion_reopens
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_insertion_keeps
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_insertion_reopens
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_net_deletion_keeps
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_net_deletion_reopens
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_ordinary_keeps
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_ordinary_reopens
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_relocated_keeps
+FAILED test_decision_continuity.py::TestRealDiffRanges60::test_rd60_relocated_reopens
+FAILED test_decision_continuity.py::TestCoordinateSpaces60::test_cs60_default_staged_concat_probe
+FAILED test_decision_continuity.py::TestCoordinateSpaces60::test_cs60_default_staged_finding_probe
+FAILED test_decision_continuity.py::TestCoordinateSpaces60::test_cs60_mixed_concat_probe
+FAILED test_decision_continuity.py::TestCoordinateSpaces60::test_cs60_pr_series_probe
+14 failed, 11 passed, 133 deselected, 27 subtests passed in 2.18s
+
+$ pytest -q -p no:cacheprovider -rf test_finalize_card.py -k "TestFinalizeFreshShellWalk or printed_paths or file_refs or cross_call or retry_rule or refused_rule"
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_card_route_records_then_writes
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_gate_fence_reads_cross_call_variable_today
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_retry_mints_new_blobfile_after_missing_path
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_stale_earlier_attempt_file_does_not_govern
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_walk_reaches_counts_gate_report
+FAILED test_finalize_card.py::TestGapRoundFinalize::test_file_refs_created_holds
+FAILED test_finalize_card.py::TestGapRoundFinalize::test_no_cross_call_gate_input_holds
+FAILED test_finalize_card.py::TestGapRoundFinalize::test_refused_rule_holds
+FAILED test_finalize_card.py::TestGapRoundFinalize::test_retry_rule_holds
+SUBFAILED[empty] test_finalize_card.py::TestFinalizeFreshShellWalk::test_malformed_gatefile_shows_only_stop_sentence
+SUBFAILED[not json] test_finalize_card.py::TestFinalizeFreshShellWalk::test_malformed_gatefile_shows_only_stop_sentence
+SUBFAILED[mutant: the .err redirect removed] test_finalize_card.py::TestFinalizeFreshShellWalk::test_malformed_gatefile_shows_only_stop_sentence
+SUBFAILED[mutant: BLOBFILE mktemp fence removed] test_finalize_card.py::TestGapRoundFinalize::test_mutant_file_refs_created
+SUBFAILED[mutant: BLOBFILE path not printed] test_finalize_card.py::TestGapRoundFinalize::test_mutant_printed_paths
+SUBFAILED[mutant: GATEFILE path not printed] test_finalize_card.py::TestGapRoundFinalize::test_mutant_printed_paths
+SUBFAILED[mutant: cross-call gate input restored] test_finalize_card.py::TestGapRoundFinalize::test_mutant_cross_call_gate_input
+SUBFAILED[mutant: earlier attempt's BLOBFILE may be reused] test_finalize_card.py::TestGapRoundFinalize::test_mutant_retry_rule
+SUBFAILED[mutant: rebuild paragraph gone] test_finalize_card.py::TestGapRoundFinalize::test_mutant_retry_rule
+SUBFAILED[mutant: rebuild reuses the old file] test_finalize_card.py::TestGapRoundFinalize::test_mutant_retry_rule
+SUBFAILED[mutant: refused step retried] test_finalize_card.py::TestGapRoundFinalize::test_mutant_refused_rule
+SUBFAILED[mutant: stop sentence dropped] test_finalize_card.py::TestGapRoundFinalize::test_mutant_refused_rule
+21 failed, 8 passed, 70 deselected, 3 subtests passed in 0.51s
+
+$ pytest -q -p no:cacheprovider test_diff_ranges.py
+E   ModuleNotFoundError: No module named 'diff_ranges'
+ERROR test_diff_ranges.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+```
+
+The 15 red fixtures from 60-01. Each fails again at `ce9f8b8` and passes at HEAD:
+
+| Fixture (60-01 red set, 15) | Pre-fix result | Verdict | Green at |
+|---|---|---|---|
+| `TestRealDiffRanges60`: the ten `test_rd60_<shape>_reopens` / `_keeps` pairs (ordinary, insertion, deletion, net_deletion, relocated) | fail (`No module named 'diff_ranges'` from the lazy `_builder()`) | V1, V2, V3 | 53fb637 |
+| `TestCoordinateSpaces60::test_cs60_pr_series_probe` | fail | V4 | fb8b32b (prose 66d63de) |
+| `TestCoordinateSpaces60::test_cs60_mixed_concat_probe` | fail | V5 | fb8b32b (prose 66d63de) |
+| `TestCoordinateSpaces60::test_cs60_default_staged_concat_probe` | fail | V6 | fb8b32b (prose 66d63de) |
+| `TestCoordinateSpaces60::test_cs60_default_staged_finding_probe` | fail | V6 | fb8b32b (prose 66d63de) |
+| `TestFinalizeFreshShellWalk::test_walk_reaches_counts_gate_report` | fail | V8 | b8fb21a |
+
+All 15 appear in the failure list above. No 60-01 red fixture passed pre-fix. The other red results are the later plans' own guards, which also fail on the pre-fix code:
+- `test_gate_fence_reads_cross_call_variable_today` (V9). It was inverted at fd8c1b9, so it now fails pre-fix, as it should.
+- The other four 60-03 walks and the four 60-03 prose "holds" locks.
+- The malformed-GATEFILE owner-view subtests.
+- The 60-03 mutant subtests. Pre-fix their anchor text is absent, so the mutation cannot apply.
+- All of `test_diff_ranges.py` fails at collection. That covers 60-02's contract tests and 60-04's route tests, including `TestRouteAll` for V7.
+
+The 11 + 8 tests that pass pre-fix are expected to:
+- The `TestRepro60Evidence` documenting tests. They assert the defect through `header_rule_ranges`, which lives in the test file.
+- The four `TestCoordinateSpaces60` controls, and `TestRepro60Record`.
+- `test_counts_fence_without_literal_exits_two`, the D-09 mutant. The unsubstituted counts fence exits non-zero both before and after the fix.
+- `test_printed_paths_holds`. Pre-fix there was no unprinted mktemp path to flag. The BLOBFILE defect was a missing fence, which `test_file_refs_created_holds` catches.
+- The parent tests of the mutant groups. Their failures show up as subtests.
 
 ## Suite at close
 
-Filled by 60-05.
+All runs are from `plugins/vibe-check/scripts` in the real checkout at HEAD `ec0c9d8`.
+
+```
+$ pytest -q -p no:cacheprovider
+3765 passed, 4930 subtests passed in 170.01s (0:02:50)
+
+$ pytest -q -p no:cacheprovider test_replay.py
+64 passed, 10 subtests passed in 9.98s
+```
+
+- 0 failed. At the RED SHA the same suite gave `15 failed, 3655 passed`, and the 15 are exactly the 60-01 red set above.
+- **Replay deltas for Phase 61 GATE-02: none observed.** `git diff --stat ce9f8b8 HEAD -- replay.py test_replay.py score.py finalize_gate.py` is empty, so:
+  - `replay.hunk_ranges` is unchanged. It is intentionally context-inclusive and pinned by `TestReplayPin`.
+  - No expected value in `test_replay.py` moved.
+  - `score.py` was not edited. Its consumers of `changed_line_ranges` are fixed by construction, because their input is now exact.
+  - Archived envelopes replay ranges as they were recorded, so the exact-range change cannot move them. If Phase 61 sees replay drift, no Phase-60 change explains it, and it must be treated as a finding.
+- GOLDEN_DIGEST is unchanged (`TestGolden` passes in the full run).
 
 ## Residuals
 
