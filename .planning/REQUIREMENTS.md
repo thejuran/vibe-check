@@ -76,9 +76,9 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 | DEFR-02 | Phase 59 | Complete |
 | EVID-01 | Phase 60 | Complete |
 | EVID-02 | Phase 60 | Complete |
-| EVID-03 | Phase 60 | Gaps found (60-VERIFICATION: GSD/incremental range source does not survive a fresh shell; git-config-altered diffs halt or fail open) |
+| EVID-03 | Phase 60 | Gap closure landed (60-06, 60-07: b878870, 2a63cb5); awaiting re-verification |
 | FINL-01 | Phase 60 | Complete |
-| FINL-02 | Phase 60 | Gaps found (60-VERIFICATION: Finalize retry never rebuilds GATEFILE) |
+| FINL-02 | Phase 60 | Gap closure landed (60-08: c0ece7e); awaiting re-verification |
 | GATE-01 | Phase 61 | Pending |
 | GATE-02 | Phase 61 | Pending |
 | GATE-03 | Phase 61 | Pending |
@@ -90,4 +90,4 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 
 ---
 *Requirements defined: 2026-10-28*
-*Last updated: 2026-10-29 after Phase 60 verification (gaps_found: EVID-03, FINL-02 reopened; EVID-01, EVID-02, FINL-01 complete)*
+*Last updated: 2026-10-29 after Phase 60 gap closure (EVID-03, FINL-02 landed, re-verification pending; EVID-01, EVID-02, FINL-01 complete)*
