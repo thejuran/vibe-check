@@ -1551,7 +1551,15 @@ class TestPooledEvidence(_Base):
         self.assertIn("kept_open", row, row.get("snapshot"))
         self._assert_reasked(s2, hA)
 
-    def test_p4_far_twin_latest_stamp_reaches_the_first_copy(self):
+    def test_p4_far_twin_new_copy_is_not_evidence(self):
+        """D-21 / D-01: a NEW identical copy is not new evidence on the pass it
+        is first raised. The line-30 copy arrives fresh at pass 2 with a diff
+        beside it; the change it is raised on is the code it is about, not a
+        change since the decision, so the decided identity stays current at
+        pass 2 and at the quiet pass 3. (The previous expectation here, a
+        pass-2 stamp from the fresh copy, was round-4 CR-03 — an over-ask,
+        not a defect.) Accepted residual (D-02): once the copy is carried
+        (pass 3+), a later edit beside it re-asks."""
         s2, r2, s3, hA = far_twin_scenario()
         rows2 = sorted((f for f in r2["findings"] if f["stable_hash"] == hA),
                        key=lambda f: f["line"])
@@ -1560,15 +1568,13 @@ class TestPooledEvidence(_Base):
                          [(10, "persisted"), (30, "new")],
                          [f.get("snapshot") for f in rows2])
         self.assertEqual(r2["filtered"], [])
-        self.assertEqual(rows2[1]["snapshot"].get("nearby_at"), 2,
-                         "line-30 copy not stamped: %r" % rows2[1]["snapshot"])
-        rows3 = [f for f in s3["passes"][-1]["findings"]
-                 if f.get("stable_hash") == hA]
-        self.assertEqual(len(rows3), 2, [f.get("snapshot") for f in rows3])
-        rec = self._current(s3, hA)
-        # carry_state keeps the first row of a hash.
-        self.assertEqual(rec["line"], 10, rec["snapshot"])
-        self._assert_reasked(s3, hA)
+        self.assertNotIn("nearby_at", rows2[1]["snapshot"],
+                         "fresh line-30 copy stamped: %r" % rows2[1]["snapshot"])
+        for s in (s2, s3):
+            rec = self._current(s, hA)
+            self.assertEqual(carry_state.decision_state(rec, s), "current",
+                             rec["snapshot"])
+            self.assertEqual(e2e_gate(s, {}), "write", rec["snapshot"])
 
 
 class TestStaleDecisions59(_Base):
@@ -2752,7 +2758,7 @@ class TestPhase57Mutants(_Base):
         (TestPooledEvidence,
          "test_p3_min_confidence_dropped_twin_keeps_the_reask"),
         (TestPooledEvidence,
-         "test_p4_far_twin_latest_stamp_reaches_the_first_copy"),
+         "test_p4_far_twin_new_copy_is_not_evidence"),
         (TestPriorGate,
          "test_in01_edited_carried_lead_does_not_carry_its_stamp_onto_the_new_hash"),
         (TestDeferredStaysOpen,

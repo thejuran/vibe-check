@@ -2755,9 +2755,18 @@ def run(envelope):
         # a copy a filter removed before grouping; an all-fresh row stays
         # uncarried (57-04).
         row_carried = bool(same_hash)
-        # Nearby is judged at every carried copy's line as well as the row's
-        # (D-19; 57-REVIEW-GAPS3.md CR-01).
-        row_nearby = _any_nearby([survivor] + [r for r, _ in same_hash], changed_line_ranges)
+        # Nearby is judged at every carried copy's line (D-19; 57-REVIEW-GAPS3.md
+        # CR-01) and at every covered member's line: a carried member without
+        # an obligation of its own is a finding the row decision covers (D-16),
+        # so a guard removed beside it re-asks the row (57-REVIEW-GAPS4.md
+        # CR-04). A carried survivor is already in `same_hash`; a FRESH
+        # survivor's own line is not judged — a new identical copy is not new
+        # evidence on the pass it is first raised (D-21 / D-01; 999.23 over-ask
+        # #1). Members carrying their own obligation stamp their own sidecar.
+        covered_m = [m for _, m, _, _, _ in scored_members
+                     if m is not best_member and id(m) not in carried_obligations
+                     and m.get("status") in _CARRIED_STATUSES]
+        row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, changed_line_ranges)
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
         # first, then the absorbed members in scored order, de-duplicated by
         # each member's lane-aware occurrence identity (never by (agent, title),
