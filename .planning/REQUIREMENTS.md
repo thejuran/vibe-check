@@ -15,8 +15,8 @@
 
 - [x] **STALE-01**: Each wrong-keep shape — CR-01 (identical sub-threshold copies), CR-02 (absorbed-member sidecars), CR-04 (a removed guard beside a covered member) — is reproduced on current code as a failing real-chain fixture before any fix; a shape that does not reproduce is recorded and dropped
 - [ ] **STALE-02**: A decided finding whose evidence changed is asked again on the next run, and the card states the correct reopen reason, for every reproduced shape
-- [ ] **STALE-03**: Evidence for a finding is pooled consistently by obligation/hash wherever it is read, so the outcome does not depend on which row happens to be the representative
-- [ ] **STALE-04**: A deliberate dismiss/defer stays decided and is not re-asked when an edit leaves its existing decision-evidence fingerprint unchanged; the agreed five-line invalidation rule is preserved as-is (no new semantic "related/unrelated" classification)
+- [x] **STALE-03**: Evidence for a finding is pooled consistently by obligation/hash wherever it is read, so the outcome does not depend on which row happens to be the representative
+- [x] **STALE-04**: A deliberate dismiss/defer stays decided and is not re-asked when an edit leaves its existing decision-evidence fingerprint unchanged; the agreed five-line invalidation rule is preserved as-is (no new semantic "related/unrelated" classification)
 - [ ] **STALE-05**: Reordering rows, changing the lead, or splitting/merging groups gives the same reopen/keep result
 - [ ] **STALE-06**: The work stops after one bounded implementation and review cycle; any unresolved silent keep is recorded as a residual and blocks a "reliability complete" claim instead of starting another repair round
 
@@ -68,8 +68,8 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 |-------------|-------|--------|
 | STALE-01 | Phase 59 | Complete |
 | STALE-02 | Phase 59 | Pending |
-| STALE-03 | Phase 59 | Pending |
-| STALE-04 | Phase 59 | Pending |
+| STALE-03 | Phase 59 | Complete |
+| STALE-04 | Phase 59 | Complete |
 | STALE-05 | Phase 59 | Pending |
 | STALE-06 | Phase 59 | Pending |
 | DEFR-01 | Phase 59 | Pending |
