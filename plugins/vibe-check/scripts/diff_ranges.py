@@ -19,19 +19,24 @@ result. Per contiguous change block starting at new-side line s:
 
 Hunk bodies are consumed against the header's old/new budgets, so a content
 line that prints as `--- x` or `+++ y` is never read as a file header. A
-`\\ No newline at end of file` line consumes no budget. Deleted files
+`\\ No newline at end of file` line consumes no budget. An empty line inside
+a hunk body is a blank context line (`diff.suppressBlankEmpty`). Deleted files
 (`+++ /dev/null`) and C-quoted paths (names git had to escape, which can
 never carry a finding) contribute no ranges. An empty diff gives `{}`.
 
 Structurally inconsistent input raises RangeError with one of the fixed
 REASONS (never text from the input): a commit series (mbox `From <sha>`
 separator), a combined `@@@` hunk, a body shorter or longer than its header,
-or a body line that is not ` `, `+`, `-` or `\\`.
+a body line that is not ` `, `+`, `-`, `\\` or empty, a line starting with
+an escape byte (a colored or escaped diff), or non-empty text with no diff
+structure at all (an error message, `--stat` output). A diff with file
+headers but no hunk (binary-only, mode-only) gives `{}`.
 
 Pure: no git, file or shell I/O; the caller runs git and pipes the text in.
 Imports exactly {json, re, sys}. CLI:
 
-    git diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ HEAD \\
+    git diff --no-color --no-ext-diff --no-textconv --no-relative \\
+      --src-prefix=a/ --dst-prefix=b/ HEAD \\
       | python3 diff_ranges.py
 
 Exit 0: the ranges as JSON (sorted keys) on stdout. Exit 2: a refusal reason
@@ -56,6 +61,8 @@ REASON_COMBINED = "combined diff"
 REASON_SHORT_BODY = "hunk body shorter than its header"
 REASON_LONG_BODY = "hunk body longer than its header"
 REASON_BAD_BODY_LINE = "unexpected line in hunk body"
+REASON_ESCAPE = "colored or escaped diff"
+REASON_NOT_A_DIFF = "not a unified diff"
 
 REASONS = (
     REASON_MBOX,
@@ -63,6 +70,8 @@ REASONS = (
     REASON_SHORT_BODY,
     REASON_LONG_BODY,
     REASON_BAD_BODY_LINE,
+    REASON_ESCAPE,
+    REASON_NOT_A_DIFF,
 )
 
 
@@ -125,7 +134,7 @@ def _walk_hunk(lines, i, match, path, out):
             raise RangeError(REASON_SHORT_BODY)
         body = lines[i]
         i += 1
-        tag = body[:1]
+        tag = body[:1] if body else " "
         if tag == "\\":
             continue
         if tag == " ":
@@ -175,11 +184,14 @@ def ranges_from_diff(text):
     out = {}
     path = None
     after_hunk = False
+    saw_diff = False
     lines = _split_lines(text)
     i = 0
     while i < len(lines):
         line = lines[i]
         i += 1
+        if line.startswith("\x1b"):
+            raise RangeError(REASON_ESCAPE)
         if _is_mbox(line):
             raise RangeError(REASON_MBOX)
         if line.startswith("@@@"):
@@ -189,14 +201,19 @@ def ranges_from_diff(text):
         if after_hunk and _is_stray_body_line(line):
             raise RangeError(REASON_LONG_BODY)
         after_hunk = False
+        if line.startswith(("diff --", "--- ", "+++ ")):
+            saw_diff = True
         if line.startswith("+++ "):
             path = _file_path(line)
             continue
         match = _HUNK.match(line)
         if match is None:
             continue
+        saw_diff = True
         i = _walk_hunk(lines, i, match, path, out)
         after_hunk = True
+    if not saw_diff and any(lines):
+        raise RangeError(REASON_NOT_A_DIFF)
     return {p: _merge(out[p]) for p in sorted(out)}
 
 
