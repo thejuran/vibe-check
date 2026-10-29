@@ -1980,7 +1980,7 @@ class TestDeferredStaysOpen(_Base):
         """DEFR-01: a valid `min_confidence` (45) drops the deferred covered
         member A (conf 40) before grouping; the deferral must keep it on the
         owner's open list, exactly as the sub-threshold drop does."""
-        _, s2, r2, hA, _ = deferred_covered_sub_threshold_scenario(
+        s1, s2, r2, hA, hB = deferred_covered_sub_threshold_scenario(
             "defer", min_confidence=45, member_conf=40)
         self.assertIn({"line": 10, "reason": "below-min-confidence"},
                       [{k: f.get(k) for k in ("line", "reason")}
@@ -1988,8 +1988,15 @@ class TestDeferredStaysOpen(_Base):
         row = row_of(s2, hA)
         self.assertIsNotNone(row, "no row for %s; filtered %r"
                              % (hA[:8], r2["filtered"]))
-        self.assertTrue(str(row.get("kept_open", "")).startswith(
-            "below-min-confidence"), "row %r" % row)
+        # Exact shape, mirroring test_deferred_kept_open_row_shape: the
+        # member under its own hash, at the band the owner deferred it at,
+        # with the configured floor and the covering decision in the reason.
+        self.assertEqual(row["kept_open"],
+                         "below-min-confidence 45; deferred-by: " + hB)
+        self.assertEqual(row["stable_hash"], hA)
+        self.assertEqual(row["band"], row_of(s1, hB)["band"])
+        self.assertEqual(row["orchestrator_score"], 0)
+        self.assertNotIn("obligation", row)
         self.assertIn(hA, carry_state.finalize_counts(
             s2, {})["outstanding_cw_hashes"], r2["filtered"])
         self.assertNotEqual(e2e_gate(s2, {}), "write", r2["filtered"])
@@ -2821,12 +2828,11 @@ class TestSameHashLeadKeepsNearbyStamp(_Base):
         self.assertNotEqual(e2e_gate(s3, {}), "write")
 
 
-# Row fixtures still red until 59-03's read-side merge (CR-02, DEFR-01).
+# Row fixtures still red until the read-side merge (CR-02).
 # TestPhase57Mutants._failures skips them so the mutant baselines stay green;
 # 59-03 empties this set (and every mutant then runs them too).
 _EXPECTED_RED_UNTIL_59_03 = frozenset((
     "test_cr02_edit_beside_the_second_sidecar_reasks",
-    "test_dmc_deferred_covered_member_below_min_confidence_stays_open",
 ))
 
 
@@ -3055,11 +3061,31 @@ class TestPhase57Mutants(_Base):
         unaffected."""
         failed = self._run_mutant(
             "score_d20_no_entry",
-            "carried_obligations[id(m)] = _covered_entry(",
-            "pass  # (")
+            "carried_obligations[id(m)] = _covered_entry("
+            "m, deferred_covered[id(m)], capped_by_id[id(m)])",
+            "pass")
         self.assertIn("test_deferred_", failed)
         self.assertNotIn("test_dismissed_", failed)
         self.assertNotIn("test_s1_", failed)
+
+    def test_min_confidence_no_synthesized_entry_drops_the_deferred_member(
+            self):
+        """D-20 / D-06 (DEFR-01): without the synthesized entry on the
+        min_confidence branch, a deferred covered member below the floor has
+        no row and leaves the open set; the dismiss control, a registered
+        record's plain "below-min-confidence" row (p3) and the sub-threshold
+        deferral are unaffected."""
+        failed = self._run_mutant(
+            "score_d20_min_conf_no_entry",
+            "carried_obligations[id(m)] = _covered_entry("
+            "m, deferred_covered[id(m)], 0)",
+            # `continue` skips the paired append too: the member is filtered
+            # and nothing keeps it, exactly the pre-D-20 drop.
+            "continue")
+        self.assertIn("test_dmc_", failed)
+        self.assertNotIn("test_dmx_", failed)
+        self.assertNotIn("test_p3_", failed)
+        self.assertNotIn("test_deferred_", failed)
 
     def test_kept_open_covered_row_without_carried_is_not_stamped(self):
         """D-20 with D-17: the kept-open row of a deferred covered member

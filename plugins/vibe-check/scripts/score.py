@@ -2530,7 +2530,17 @@ def run(envelope):
                     "title": m.get("title"),
                     "reason": "below-min-confidence",
                 })
-                if id(m) in carried_obligations:
+                # D-20 / D-06: a deferred finding never leaves the open set on
+                # a confidence floor either (999.23: a deferred covered member
+                # dropped at min_confidence 45 vanished without a card). It is
+                # kept open under its own hash, with the configured floor in
+                # the reason because Finalize has no config of its own to read
+                # it from. Score 0: no capped score exists before grouping.
+                if id(m) in deferred_covered and id(m) not in carried_obligations:
+                    carried_obligations[id(m)] = _covered_entry(m, deferred_covered[id(m)], 0)
+                    dropped.append((m, "below-min-confidence %d; deferred-by: %s"
+                                    % (min_confidence, deferred_covered[id(m)]["covering"])))
+                elif id(m) in carried_obligations:
                     dropped.append((m, "below-min-confidence"))
             else:
                 kept_working.append(m)
