@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: ready_to_plan
-last_updated: 2026-10-29T15:08:12.562Z
-last_activity: 2026-10-29 -- 59-05 complete (card names the other spot / several spots and the deferred-below-min_confidence note; STALE-02 + DEFR-01 complete; suite 3642 passed)
+last_updated: "2026-10-29T17:47:49.000Z"
+last_activity: 2026-10-29 -- Phase 60 context gathered (4 owner decisions: IN-04 folded in, Finalize rebuild-once, saved PR diff, Phase-59 cycle rule)
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
   completed_plans: 6
-  percent: 0
-stopped_at: Phase 59 complete (6/6) — ready to discuss Phase 60
+  percent: 33
+stopped_at: Phase 60 context gathered — ready to plan
 ---
 
 # Project State
@@ -32,7 +32,8 @@ Last activity: 2026-10-29
 
 ## Operator Next Steps
 
-- Phase 59 planned on branch `feat/v2.14-phase-59` (59-01..59-06, sequential); next `/bm:execute-phase 59`. Per D-08: one code-review + verify-work after execution, one fix pass, no second round.
+- Phase 59 executed + reviewed + verified (gaps parked to 999.23 by owner); its PR is not opened yet. Open/merge it, then branch `feat/v2.14-phase-60` from `main` before executing Phase 60.
+- Phase 60 context captured (60-CONTEXT.md); next `/bm:plan-phase 60`.
 - Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
@@ -79,6 +80,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: Phase 60 context gathered. Owner decisions: ranges from actual +/- markers (gh pr diff has no -U0); 57 IN-04 net-deletion replace edge folded in (D-02); Finalize rebuilds HEAD fingerprints once then stops with a plain no-write message, refusals never auto-retried (D-07/D-08); PR route proven by a checked-in real patch, live fetch reported as not exercised (D-05); Phase-59 one-cycle rule (D-10). Next: /bm:plan-phase 60.
 
 2026-10-29: 59-05 complete (05bc268, aa1d83f, 5f6d4e1). batch_card's nearby tag carries spot_line/spot_kind/other_spots from carry_state.stale_spots; the card renders "code next to line N (another copy of this line|a finding grouped here)" and "code next to line N and K other spot(s)" (full + compact); same-spot wording byte-identical. A kept_open "below-min-confidence[ N]; deferred-by: " row gets " — below your min_confidence (N); still deferred" (strict string parse, no `re`: batch_card's import allowlist forbids it). Both prose files document all forms; TestProseMatchesHelper gains 4 entries + prose-drift mutant; seven test_cw59_ real-chain card tests incl. carry_state divergence mutant; spots-not-recorded mutant now trips cw59. Full suite 3642 passed, 0 failed; replay 64 passed; GOLDEN unmoved. STALE-02 + DEFR-01 marked complete. Next: 59-06.
 
