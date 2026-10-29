@@ -40,7 +40,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    git diff --staged
    git status --short
    ```
-   Range source for 30-collect-score: `git diff HEAD` only (working-tree line numbers; the `--staged` view above is for reviewers and is not a range source).
+   Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ HEAD` only (working-tree line numbers; the `--staged` view above is for reviewers and is not a range source).
    If empty and Phase 0 printed `FINALIZE_MODE=0`: print "No changes to review." and stop — except on the fix loop's Rerun after Step B committed a fix (`50-fix-loop.md`, The Rerun): every fix is a commit, so an empty working tree is expected there; do NOT stop — continue to Phase 0.5, whose incremental diff (`$LAST_REVIEWED_SHA..HEAD` + staged + unstaged) holds the fix commits, so the rerun reviews them and rechecks the carried findings. On `FINALIZE_MODE=1` (e.g. Close out after a fix loop that committed every fix), an empty diff is expected: do NOT stop — continue to Phase 0.5, because Finalize reads `$STATE_FILE`, not the diff.
 
 2. **PR mode** — `$SCOPE_ARGS` matches `^[0-9]+$` or contains `/pull/`:
@@ -94,9 +94,10 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    else
      PHASE_RANGE="$PHASE_START..HEAD"
    fi
+   printf 'PHASE_START=%s\n' "$PHASE_START"
    ```
    Diff = `$PHASE_RANGE` (if non-empty) + staged + unstaged.
-   Range source for 30-collect-score: `git diff $PHASE_START` (one diff, commit vs working tree; `git diff HEAD` when `$PHASE_START` is empty).
+   Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ "<phase-start-sha>"` (the literal printed after `PHASE_START=` above — substitute it; a shell variable does not survive into a separate Bash call; `HEAD` when it is empty; one diff, commit vs working tree).
 
    Set `$PHASE_ID = $(basename "$PHASE_DIR")` for state and intent context — the directory *name*, layout-independent, so state files are identical whether the phase lives flat or milestone-nested. `$PHASE_DIR` (the full resolved path) is reused by Phase 1 (triage prompt) and Phase 1.5 (intent docs) — those phases must NOT re-derive it from `.planning/phases/`.
 
