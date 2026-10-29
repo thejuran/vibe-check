@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-29T02:03:38.599Z"
-last_activity: 2026-10-29 -- 59-04 complete (nearby_spots on stamped snapshots + carry_state.stale_spots reader; suite fully green)
+last_updated: "2026-10-29T02:12:32.780Z"
+last_activity: 2026-10-29 -- 59-05 complete (card names the other spot / several spots and the deferred-below-min_confidence note; STALE-02 + DEFR-01 complete; suite 3642 passed)
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
-  percent: 67
+  completed_plans: 5
+  percent: 83
 ---
 
 # Project State
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 59 (stale-decisions-and-lost-deferrals) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Executing Phase 59
-Last activity: 2026-10-29 -- 59-04 complete (nearby_spots on stamped snapshots + carry_state.stale_spots reader; suite fully green)
+Last activity: 2026-10-29 -- 59-05 complete (card names the other spot / several spots and the deferred-below-min_confidence note; STALE-02 + DEFR-01 complete; suite 3642 passed)
 
 ## Operator Next Steps
 
@@ -78,6 +78,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-29: 59-05 complete (05bc268, aa1d83f, 5f6d4e1). batch_card's nearby tag carries spot_line/spot_kind/other_spots from carry_state.stale_spots; the card renders "code next to line N (another copy of this line|a finding grouped here)" and "code next to line N and K other spot(s)" (full + compact); same-spot wording byte-identical. A kept_open "below-min-confidence[ N]; deferred-by: " row gets " — below your min_confidence (N); still deferred" (strict string parse, no `re`: batch_card's import allowlist forbids it). Both prose files document all forms; TestProseMatchesHelper gains 4 entries + prose-drift mutant; seven test_cw59_ real-chain card tests incl. carry_state divergence mutant; spots-not-recorded mutant now trips cw59. Full suite 3642 passed, 0 failed; replay 64 passed; GOLDEN unmoved. STALE-02 + DEFR-01 marked complete. Next: 59-06.
 
 2026-10-29: 59-04 complete (f8b9055, 3e31654). score.py records `nearby_spots` ([line, "copy"|"grouped"], sorted, own line excluded) on a fresh nearby stamp only when another spot fired, and carries it with nearby_at on keep/refresh (own-line spots dropped on carry). carry_state: `_well_formed_spots` validator, `_merge_nearby` derives the lifted source copy's spot on the read copy (never persisted), `stale_spots(record, state)` -> {line, kind, others} is the card's single reader. Six test_sp59_ tests + TestSnapshotSpotsUnit + mutant test_spots_not_recorded_loses_the_other_copy_line; test_sp59_ joined _READ_MERGE_ONLY. Full suite 3630 passed, 0 failed; replay 64 passed; GOLDEN unmoved. Advisory: tie-broken pooled priors pick spots by carryforward order. STALE-02/05 stay pending until 59-05 wording. Next: 59-05.
 

@@ -14,7 +14,7 @@
 ### Stale decisions (STALE) — 999.23
 
 - [x] **STALE-01**: Each wrong-keep shape — CR-01 (identical sub-threshold copies), CR-02 (absorbed-member sidecars), CR-04 (a removed guard beside a covered member) — is reproduced on current code as a failing real-chain fixture before any fix; a shape that does not reproduce is recorded and dropped
-- [ ] **STALE-02**: A decided finding whose evidence changed is asked again on the next run, and the card states the correct reopen reason, for every reproduced shape
+- [x] **STALE-02**: A decided finding whose evidence changed is asked again on the next run, and the card states the correct reopen reason, for every reproduced shape
 - [x] **STALE-03**: Evidence for a finding is pooled consistently by obligation/hash wherever it is read, so the outcome does not depend on which row happens to be the representative
 - [x] **STALE-04**: A deliberate dismiss/defer stays decided and is not re-asked when an edit leaves its existing decision-evidence fingerprint unchanged; the agreed five-line invalidation rule is preserved as-is (no new semantic "related/unrelated" classification)
 - [ ] **STALE-05**: Reordering rows, changing the lead, or splitting/merging groups gives the same reopen/keep result
@@ -22,7 +22,7 @@
 
 ### Deferred obligations (DEFR) — 999.23 D-20 edges
 
-- [ ] **DEFR-01**: A deferred covered member removed by a valid `min_confidence` (reproduced at 45) stays visible as an open deferred obligation instead of disappearing without a card
+- [x] **DEFR-01**: A deferred covered member removed by a valid `min_confidence` (reproduced at 45) stays visible as an open deferred obligation instead of disappearing without a card
 - [x] **DEFR-02**: The SA-02 `--all` "not in reviewed set" deferral drop gets one reproduction attempt on current code; it is fixed under DEFR-01's rule if it reproduces, otherwise recorded and dropped
 
 ### Exact change evidence (EVID) — 999.24
@@ -67,12 +67,12 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | STALE-01 | Phase 59 | Complete |
-| STALE-02 | Phase 59 | Pending |
+| STALE-02 | Phase 59 | Complete |
 | STALE-03 | Phase 59 | Complete |
 | STALE-04 | Phase 59 | Complete |
 | STALE-05 | Phase 59 | Pending |
 | STALE-06 | Phase 59 | Pending |
-| DEFR-01 | Phase 59 | Pending |
+| DEFR-01 | Phase 59 | Complete |
 | DEFR-02 | Phase 59 | Complete |
 | EVID-01 | Phase 60 | Pending |
 | EVID-02 | Phase 60 | Pending |
