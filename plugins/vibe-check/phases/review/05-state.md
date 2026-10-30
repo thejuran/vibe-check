@@ -49,7 +49,16 @@ After a copy, step 1 below sees "state file present" and the run continues as a 
 
 2. If present: parse it.
    - `$PASS_NUMBER = state.passes[-1].pass_number + 1`
-   - `$LAST_REVIEWED_SHA = state.passes[-1].head_sha` — read from the state JSON, not bound by a fence, so it is carried into 30-collect-score as a literal sha (it replaces the `<last-reviewed-sha>` placeholder there).
+   - `$LAST_REVIEWED_SHA` is the last pass's `head_sha`, bound ONLY through this fence:
+     ```bash
+     if LAST_REVIEWED_SHA=$(python3 "$VC_ROOT/scripts/carry_state.py" last-head-sha < "$STATE_FILE"); then
+       printf 'LAST_REVIEWED_SHA=%s\n' "$LAST_REVIEWED_SHA"
+     else
+       echo "Review halted — the state file's last-pass head_sha is not a commit sha; nothing was scored." >&2
+       exit 1
+     fi
+     ```
+     Any non-zero exit halts the run. The helper prints the last pass's `head_sha` only when it is a 40- or 64-hex commit id, so a crafted value (for example one carrying `$(...)`) is refused before it can reach a command (60-REVIEW.md CR-01). The value substituted for `<last-reviewed-sha>` in 30-collect-score.md, and the start of step 3's incremental range, is ONLY the literal printed after `LAST_REVIEWED_SHA=` by this fence — never a value copied from the state JSON by hand; a shell variable does not survive into a separate Bash call, so carry the printed literal.
    - `$CARRYFORWARD = state.passes[-1].findings` filtered to status in `["new", "persisted", "needs-recheck"]`. **Do NOT add `"audit"` to this allowlist (impact-01):** the synthetic bare-`// vibe-ignore` "suppression" finding `score.py` emits carries `status: "audit"` precisely so it is EXCLUDED here — it is REGENERATED fresh each pass from the live window scan, so carrying it forward would double-count it and (with its empty `current_code`) mis-classify it as `needs-recheck`/`fixed-since-last`. Its absence from this allowlist is what makes it regenerated-not-carried; it still renders (the Suppression audit section selects by `category == "suppression"`, not status) and still passes the Phase 3/4 structural gates (which key on band/orchestrator_score/stable_hash, not status).
      A carried row carrying `kept_open` (score.py re-emitted it after this pass's filters dropped it) is carried like any persisted/needs-recheck row — its status is one of those, so the allowlist above does not change.
    - `$FIX_VERDICTS_PREV` = every entry of the root `fix_verdicts` object (absent ⇒ none) whose `verdict` is `obsolete` AND `at_pass == state.passes[-1].pass_number`, plus every entry whose `verdict` is `applied` AND whose `stable_hash` names a finding of `state.passes[-1].findings` (the same join `head_blob` below needs) — an `applied` entry is forwarded whatever its `at_pass`: the independent re-check retries on every later pass that dispatches an eligible reviewer, and score.py binds it to the repaired blob, never to its age. Each is forwarded as `{stable_hash: <its key>, verdict, commit_sha, at_pass, head_sha, verified_blob, reason, head_blob}` — `verdict` is `obsolete` or `applied` (a confirmed fix of a Needs-verification item, the only kind that carries `commit_sha`; absent ⇒ null; an `applied` entry also triggers Phase 2's independent re-check, `20-dispatch.md` step 3, and Phase 3 re-reads its `head_blob` at collect time). `head_blob` is read NOW for the finding's `file` (joined from `state.passes[-1].findings` by `stable_hash`) as the output of `git rev-parse "HEAD:<file>"`, and is `null` when ANY of these holds:
@@ -83,7 +92,7 @@ After a copy, step 1 below sees "state file present" and the run continues as a 
      Any non-zero exit halts the run. Never bind `[]` on failure: an empty list lets a deferred finding that scores below threshold vanish from the open set. When there is no state file (pass 1), `$DEFERRED_HASHES` is `[]` and the helper is not run. `30-collect-score.md` step 4 forwards it as the envelope's `deferred_hashes`; the binding moves no finding and removes none.
 
 3. Narrow diff to incremental: `$LAST_REVIEWED_SHA..HEAD` + staged + unstaged.
-   Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ "<last-reviewed-sha>"` (the literal `head_sha` read in step 2 — substitute it; a shell variable does not survive into a separate Bash call; one diff, last reviewed commit vs working tree, so committed and uncommitted changes share working-tree line numbers).
+   Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ "<last-reviewed-sha>"` (the literal printed after `LAST_REVIEWED_SHA=` by the step-2 fence — substitute it; a shell variable does not survive into a separate Bash call; one diff, last reviewed commit vs working tree, so committed and uncommitted changes share working-tree line numbers).
 
 4. If incremental diff empty AND `$CARRYFORWARD` empty AND Phase 0 printed `FINALIZE_MODE=0`: print "No new changes since pass {{$PASS_NUMBER - 1}}." and stop. A `FINALIZE_MODE=1` run never stops here: it continues to Phase 0.6 and Finalize (the spine's finalize flow), which reads `$STATE_FILE`, not the diff.
 

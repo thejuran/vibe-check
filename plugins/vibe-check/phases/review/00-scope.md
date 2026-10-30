@@ -87,6 +87,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    Compute phase commit range (`$PHASE_DIR` is the path resolved above):
    ```bash
    PHASE_START=$(git log --reverse --format=%H -- "$PHASE_DIR" | head -1)
+   [[ -z "$PHASE_START" || "$PHASE_START" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] || { echo "Review halted — the phase-start commit id is not a commit sha; nothing was scored." >&2; exit 1; }
    if [ -z "$PHASE_START" ]; then
      echo "ℹ Phase dir '$PHASE_DIR' has no commit history yet — using staged + unstaged diff only for this pass."
      # Skip the $PHASE_START..HEAD portion below; fall back to staged + unstaged only.
@@ -96,7 +97,7 @@ ALL SIX downstream scope-parsing sites classify/validate/derive scope from `$SCO
    fi
    printf 'PHASE_START=%s\n' "$PHASE_START"
    ```
-   Diff = `$PHASE_RANGE` (if non-empty) + staged + unstaged.
+   Diff = `$PHASE_RANGE` (if non-empty) + staged + unstaged. A `PHASE_START=` value that is not a commit id halts the run before anything is printed, so what 30-collect-score.md substitutes is always a commit id git itself produced.
    Range source for 30-collect-score: `git diff --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/ "<phase-start-sha>"` (the literal printed after `PHASE_START=` above — substitute it; a shell variable does not survive into a separate Bash call; `HEAD` when it is empty; one diff, commit vs working tree).
 
    Set `$PHASE_ID = $(basename "$PHASE_DIR")` for state and intent context — the directory *name*, layout-independent, so state files are identical whether the phase lives flat or milestone-nested. `$PHASE_DIR` (the full resolved path) is reused by Phase 1 (triage prompt) and Phase 1.5 (intent docs) — those phases must NOT re-derive it from `.planning/phases/`.
