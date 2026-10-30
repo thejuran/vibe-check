@@ -29,7 +29,7 @@
 
 - [x] **EVID-01**: Nearby/in-diff ranges come only from lines actually added or deleted, not the surrounding display context, so an edit at the intended five-line boundary reopens a decision and an edit outside it does not
 - [x] **EVID-02**: Ordinary, deletion-only and insertion hunks, and relocated findings, each produce correct ranges under a fixture that runs a real `git diff`
-- [ ] **EVID-03**: Default, GSD, range, PR and `--all` routes each use the exact ranges or explicitly report an unsupported fixture, and nothing else in the pipeline still assumes three lines of context
+- [x] **EVID-03**: Default, GSD, range, PR and `--all` routes each use the exact ranges or explicitly report an unsupported fixture, and nothing else in the pipeline still assumes three lines of context
 
 ### Reliable Finalize (FINL) — 999.25
 

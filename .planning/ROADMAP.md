@@ -34,7 +34,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
-| 60. Exact change evidence and reliable Finalize | 11/13 | In Progress|  |
+| 60. Exact change evidence and reliable Finalize | 12/13 | In Progress|  |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
 ## Phase Details
@@ -94,7 +94,7 @@ Plans:
   4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
   5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
 
-**Plans:** 11/13 plans executed
+**Plans:** 12/13 plans executed
 
 Plans:
 **Wave 1**
@@ -124,7 +124,7 @@ Plans:
 **Gap closure, second round** *(60-VERIFICATION re-verification gaps_found at f2b58d1: CR-01, WR-02)*
 
 - [x] 60-10-PLAN.md — carry_state last-head-sha: the substituted head_sha is a validated 40/64-hex commit id (CR-01 helper)
-- [ ] 60-11-PLAN.md — head_sha and PHASE_START bound through validating fences; only printed literals are substituted (CR-01 prose)
+- [x] 60-11-PLAN.md — head_sha and PHASE_START bound through validating fences; only printed literals are substituted (CR-01 prose)
 - [x] 60-12-PLAN.md — Finalize step 3 re-mints GATEFILE from the recounted counts (WR-02)
 - [ ] 60-13-PLAN.md — second-round ledger, record and traceability
 

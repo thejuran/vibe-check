@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T18:19:02.000Z"
-last_activity: 2026-10-30 -- 60-12 complete (Finalize step 3 re-mints GATEFILE, WR-02); 60-11 still pending, then 60-13
+last_updated: "2026-10-30T18:26:00.000Z"
+last_activity: 2026-10-30 -- 60-11 complete (head_sha / PHASE_START bound through validating fences, CR-01 prose); 60-13 pending
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
   percent: 33
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 11 of 13 (60-01..60-10 and 60-12 done; 60-11, 60-13 pending)
+Plan: 12 of 13 (60-01..60-12 done; 60-13 pending)
 Status: Executing Phase 60
-Last activity: 2026-10-30 -- 60-12 complete (Finalize step 3 re-mints GATEFILE, WR-02); 60-11 still pending, then 60-13
+Last activity: 2026-10-30 -- 60-11 complete (head_sha / PHASE_START bound through validating fences, CR-01 prose); 60-13 pending
 
 ## Operator Next Steps
 
