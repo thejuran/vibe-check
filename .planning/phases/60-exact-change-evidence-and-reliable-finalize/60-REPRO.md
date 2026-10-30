@@ -6,7 +6,7 @@
 - **Scope of evidence:** no live or paid run; no network; the live `gh pr diff` fetch was not exercised (D-05). Every verdict below is a local pytest run. Range evidence comes from real `git diff` / `git format-patch` text in throwaway repos built with `gitfixture` (null global and system git config), fed through `header_rule_ranges` — an executable twin of the current `30-collect-score.md` "changed-line ranges" bullet — and then through the real `score.run -> append_pass -> carry_state -> finalize_gate` chain (`run_pass`, `pass1`, `e2e_gate`). Finalize evidence runs the real `90-finalize.md` fences in fresh `bash -s` shells with only PATH, VC_ROOT, TMPDIR and STATE_FILE (`fixtures/iplayarr45-six-row-state.json`). The PR series shape is reproduced with `git format-patch --stdout`, the same mbox commit-series shape `gh pr diff --patch` emits; no real PR was fetched.
 - **Rule applied:** reproduce first; work is added only for the four qualifying classes (reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, broken required workflow). A shape that reproduced is a failing fixture committed at `ce9f8b8` and mapped to the plan that fixes it; a shape that did not reproduce would be recorded and dropped (none of the three coordinate probes fell into that arm). The `--all` route has no diff and is recorded as an unsupported fixture.
 
-In-suite record: `test_decision_continuity.REPRO_60` (twelve rows since 60-09 added the three gap-round rows GSD-SHELL-VAR, CONFIG-ALTERED-DIFF and GATEFILE-RETRY; nine at first recording), locked by `TestRepro60Record` (exact twelve-id set, exact row keys, each gap-round row's disposition starting `reproduced; fixed by 60-0`, the three coordinate dispositions limited to `reproduced; fixed by 60-04` / `did not reproduce; dropped`, and every named fixture resolved by a `def` / `class` in `test_decision_continuity.py` or `test_finalize_card.py`; `TestRouteAll` is the one allowed forward reference, held in `_REPRO_60_PENDING_FIXTURES`, which 60-04 must empty).
+In-suite record: `test_decision_continuity.REPRO_60` (fourteen rows since 60-13 added the two second-round rows HEAD-SHA-INJECTION and STALE-GATEFILE-RERUN; twelve after 60-09 added GSD-SHELL-VAR, CONFIG-ALTERED-DIFF and GATEFILE-RETRY; nine at first recording), locked by `TestRepro60Record` (exact fourteen-id set, exact row keys, each first gap-round row's disposition starting `reproduced; fixed by 60-0` and each second-round row's starting `reproduced; fixed by 60-1`, the three coordinate dispositions limited to `reproduced; fixed by 60-04` / `did not reproduce; dropped`, and every named fixture resolved by a `def` / `class` in `test_decision_continuity.py`, `test_finalize_card.py`, `test_diff_ranges.py` or (since 60-13) `test_carry_state.py`; `TestRouteAll` is the one allowed forward reference, held in `_REPRO_60_PENDING_FIXTURES`, which 60-04 must empty).
 
 Full suite at `ce9f8b8` (from `plugins/vibe-check/scripts`): `pytest -q` -> `15 failed, 3655 passed, 4832 subtests passed in 172.55s (0:02:52)`. The 15 failures are exactly:
 
@@ -525,9 +525,179 @@ $ git diff --stat 2f84d2e HEAD -- plugins/vibe-check/scripts/replay.py plugins/v
 - 0 failed.
 - **Replay deltas: none.** The gap round touched only `diff_ranges.py`, the review prose (`00-scope.md`, `05-state.md`, `30-collect-score.md`), `90-finalize.md` and three test files. `replay.py`, `score.py`, `finalize_gate.py` and `carry_state.py` are byte-identical to `2f84d2e`.
 
+## Second gap round (60-VERIFICATION re-verification, 2026-10-29)
+
+The re-verification (60-VERIFICATION.md, committed at `f2b58d1`, "docs(60): re-verification gaps_found — 3 original gaps closed; CR-01, WR-02 blocking") confirmed that V10-V12 are closed and found two new blocking gaps on the fixed code. Both were first reported by the gap-round code review (60-REVIEW.md CR-01 and WR-02, commit `cfa473a`) and then independently reproduced by the re-verification. `f2b58d1` is the pre-round production base: the planning commits after it (`43ae166`, `65bb39d`) touch no file under `plugins/` (`git diff --stat f2b58d1 65bb39d -- plugins/` is empty), every gap below was reproduced there, and the reverse run below uses it. The same rule applies: reproduce first, and add work only for the four qualifying classes. Both qualify. CR-01 is a working command-execution path in a tool that reads untrusted repository content (a state file committed inside the reviewed repo): the safety of a required workflow is broken. WR-02 is a broken required workflow: "Finalize costs one card" fails, because a card answer that clears every obligation still ends in "Finalize stays blocked". CR-01 was fixed by two red -> green pairs (60-10 helper, 60-11 prose) and WR-02 by one (60-12). The pytest output below is copied from those plans' SUMMARYs, not retyped.
+
+## V13 — HEAD-SHA-INJECTION: a crafted `head_sha` in the state file runs a command on pass 2+ (EVID-03)
+
+**Verdict: REPRODUCED at `f2b58d1` -> fixed by 60-10 (helper) + 60-11 (prose).**
+
+**Failure as the owner would see it.** No error is shown. On pass 2 and later, 05-state.md step 2 read `head_sha` from the last pass of the state file, and 30-collect-score.md told the agent to substitute it into the double-quoted `"<last-reviewed-sha>"` placeholder of the range-source row. The state file can be committed inside the reviewed repo (the GSD key is `<phase-dir-name>.json`), so its content is untrusted. With `head_sha` set to `$(touch "$T/pwned")HEAD`, the row runs the payload: the marker file is created, the fence exits 0 and prints valid-looking ranges. Double quotes stop word-splitting, not `$(...)`. Anyone who can get a state file into a repo the owner reviews could run a command on the owner's machine.
+
+**Fixture.** `TestLastHeadSha` in `test_carry_state.py` (60-10: accept/refuse table incl. the exact payload, empty stdout on refusal, mutation test, sealed reason). In `test_diff_ranges.py` (60-11): `TestStateHeadShaFence` (the 05-state.md step-2 bind fence, run in a fresh shell with on-disk markers), `TestScopePhaseStartFence::test_non_sha_phase_start_halts_before_printing` and `test_mutant_without_the_check_prints_the_payload` (the 00-scope.md `PHASE_START` check), `TestSubstitutedValueProse` (the printed-literal rule and its mutants), `TestProseRangeFence::test_incremental_route_uses_the_printed_last_reviewed_sha`, and `TestProseRangeFence::test_injection_payload_in_the_row_executes_so_the_bind_fence_is_the_control` — the written reproduction: the payload substituted into the row still creates the marker with rc 0, on the old prose and the new, which is why the bind fence is the control.
+
+**Command and output at the RED SHAs:**
+
+```
+$ pytest -q -p no:cacheprovider test_carry_state.py -k TestLastHeadSha          # at 558bde3 (60-10 red)
+24 failed, 2 passed, 226 deselected
+
+$ pytest -q -p no:cacheprovider --tb=no test_diff_ranges.py -k "StateHeadSha or SubstitutedValue or ScopePhaseStart or printed_last_reviewed or injection_payload"   # at dfca59c (60-11 red)
+16 failed, 5 passed, 98 deselected, 1 subtests passed
+
+$ pytest -q -p no:cacheprovider test_diff_ranges.py -k injection_payload_in_the_row   # at dfca59c
+1 passed
+```
+
+At `558bde3` all eight `TestLastHeadSha` tests are red; the 2 "passed" are the parent entries of the two subtest-table tests, every subtest under which failed. At `dfca59c` the failures are all four `TestStateHeadShaFence` tests, all six `TestSubstitutedValueProse` tests, `test_non_sha_phase_start_halts_before_printing`, `test_mutant_without_the_check_prints_the_payload` and `test_incremental_route_uses_the_printed_last_reviewed_sha`. The last command is the CR-01 reproduction itself: the marker file is created and the row exits 0.
+
+Green at: ae560fe (60-10: `carry_state.py last-head-sha` prints the last pass's `head_sha` as one bare line only when it is exactly 40 or 64 lowercase hex characters; anything else, including the payload, is refused with a fixed reason on stderr, nothing on stdout, exit 2) + 5d81170 (60-11: 05-state.md step 2 binds `$LAST_REVIEWED_SHA` through that subcommand and halts with one sentence on refusal; 00-scope.md refuses a non-empty `PHASE_START` that is not a commit id before printing it; 30-collect-score.md says only the printed literal is ever substituted, and that quotes are not the protection). With the payload, the bind fence exits 1, prints no `LAST_REVIEWED_SHA=` line, and no marker is created.
+
+---
+
+## V14 — STALE-GATEFILE-RERUN: Finalize's post-answer gate re-run decides on the pre-answer flags (FINL-02)
+
+**Verdict: REPRODUCED at `f2b58d1` -> fixed by 60-12.**
+
+**Failure as the owner would see it.** The owner answers the Finalize card and dismisses every open obligation; `record-decisions` lands. Step 3 then said "RE-RUN the counts step and the gate ONCE (the same `BLOBFILE=` literal this attempt printed)". The gate reads only `GATEFILE=`, which still holds the flags written before the answers. On the six-row fixture the counts go from (5, 1, 0) to (0, 0, 0), but the gate on the stale GATEFILE still returns `outstanding-to-phase-5`. The owner sees "Finalize stays blocked" above an empty list and must run `--finalize` again: "Finalize costs one card" is broken.
+
+**Fixture.** `TestFinalizeFreshShellWalk::test_post_decision_rerun_decides_on_a_fresh_gatefile` (a fresh-shell walk over the real fences: the stale GATEFILE returns `outstanding-to-phase-5`; a re-minted GATEFILE written from the recounted counts returns `write`; the step-3 rule must hold), `TestGapRoundFinalize::test_step3_rerun_rule_holds` and `test_mutant_step3_rerun_rule` (one mutant per needle, scoped to the step-3 line), all in `test_finalize_card.py`.
+
+**Command and output at the RED SHA `2648f2d`:**
+
+```
+$ pytest -q -p no:cacheprovider test_finalize_card.py -k "step3 or post_decision or card_route or test_retry_rule_holds"
+8 failed, 4 passed, 87 deselected, 2 subtests passed
+```
+
+The failures are `test_step3_rerun_rule_holds`, all six `test_mutant_step3_rerun_rule` subtests and `test_post_decision_rerun_decides_on_a_fresh_gatefile`. The walk failed only at its final rule check; both of its walk subtests passed, which is the reproduction (stale -> `outstanding-to-phase-5`, fresh -> `write`).
+
+Green at: c112ca6 (60-12: step 3 re-counts on the same `BLOBFILE=` literal, runs the gate-input fence again for a NEW `GATEFILE=`, writes the seven-key `flags` object from the RE-COUNTED `$COUNTS_JSON` to it, and gates on that literal, never on the `GATEFILE=` the attempt's first gate run read. One line changed; the rebuild-once paragraph is byte-identical to `c0ece7e`.)
+
+---
+
+### Second-round red / green
+
+| Fixture | Pre-fix result (at `f2b58d1`) | Verdict | Green at |
+|---|---|---|---|
+| `TestLastHeadSha` (8 tests, `test_carry_state.py`) | fail (6 tests; every subtest of the 2 table tests) | V13 | ae560fe |
+| `TestStateHeadShaFence` (4 tests) | fail | V13 | 5d81170 |
+| `TestScopePhaseStartFence::test_non_sha_phase_start_halts_before_printing` | fail | V13 | 5d81170 |
+| `TestScopePhaseStartFence::test_mutant_without_the_check_prints_the_payload` | fail | V13 | 5d81170 |
+| `TestScopePhaseStartFence::test_sixty_four_hex_is_accepted` | pass (no check existed, so 64-hex was never refused) | V13 | 5d81170 |
+| `TestSubstitutedValueProse` (6 tests) | fail (`test_head_sha_mutants_trip` at its four subtests) | V13 | 5d81170 |
+| `TestProseRangeFence::test_incremental_route_uses_the_printed_last_reviewed_sha` | fail | V13 | 5d81170 |
+| `TestProseRangeFence::test_injection_payload_in_the_row_executes_so_the_bind_fence_is_the_control` | pass (the reproduction: the payload runs) | V13 | control |
+| `TestGapRoundFinalize::test_step3_rerun_rule_holds` | fail | V14 | c112ca6 |
+| `TestGapRoundFinalize::test_mutant_step3_rerun_rule` | fail (all six subtests) | V14 | c112ca6 |
+| `TestFinalizeFreshShellWalk::test_post_decision_rerun_decides_on_a_fresh_gatefile` | fail (at the final rule check) | V14 | c112ca6 |
+
+`test_step3_keeps_answer_files_anchor` (60-12) is a guard that the step-3 rewrite keeps the answer-files anchor; it passes before and after.
+
+### Reverse run (second round)
+
+The current tests were run against the production code at `f2b58d1`, from HEAD `84b5e27` (the 60-13 record commit).
+
+- Worktree: `git worktree add --detach <scratchpad>/pre60round2 f2b58d1`. In that tree, `carry_state.py` has no `last-head-sha` subcommand, 05-state.md step 2 has no bind fence, 00-scope.md has no `PHASE_START` check, and 90-finalize.md step 3 re-runs the gate on this attempt's GATEFILE.
+- Copied in from HEAD: `test_carry_state.py`, `test_diff_ranges.py`, `test_finalize_card.py`, `test_decision_continuity.py`.
+- Afterwards: `git worktree remove --force <scratchpad>/pre60round2`, then `git worktree prune`. `git worktree list | grep -c pre60round2` printed `0`. (The worktree was made twice with the same recipe, the second time to list the passing tests with `-rA`; both were removed and pruned, and the count was `0` after each.)
+
+```
+$ pytest -q -p no:cacheprovider -rf --tb=no test_carry_state.py test_diff_ranges.py test_finalize_card.py -k "LastHeadSha or StateHeadSha or SubstitutedValue or ScopePhaseStart or printed_last_reviewed or injection_payload or step3 or post_decision"
+FAILED test_carry_state.py::TestLastHeadSha::test_does_not_mutate_state - Att...
+FAILED test_carry_state.py::TestLastHeadSha::test_in_process_returns_none_on_refusal
+FAILED test_carry_state.py::TestLastHeadSha::test_malformed_state_refused_before_head_sha
+FAILED test_carry_state.py::TestLastHeadSha::test_mutant_validator_lets_the_payload_through
+SUBFAILED(value='50f9932e2a6efba17a6db77435bb5bf131039147') test_carry_state.py::TestLastHeadSha::test_prints_bare_sha_for_40_and_64_hex
+SUBFAILED(value='0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef') test_carry_state.py::TestLastHeadSha::test_prints_bare_sha_for_40_and_64_hex
+FAILED test_carry_state.py::TestLastHeadSha::test_reason_is_sealed - Assertio...
+SUBFAILED[cr01-injection] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[backtick] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[symbolic-HEAD] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[option-shaped] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[dash] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[empty] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[null] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[missing] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[hex39] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[hex41] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[hex63] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[hex65] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[uppercase40] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[hex40-trailing-newline] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[int] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+SUBFAILED[list] test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+FAILED test_carry_state.py::TestLastHeadSha::test_usage_and_subcommand_registered
+FAILED test_diff_ranges.py::TestProseRangeFence::test_incremental_route_uses_the_printed_last_reviewed_sha
+FAILED test_diff_ranges.py::TestScopePhaseStartFence::test_mutant_without_the_check_prints_the_payload
+FAILED test_diff_ranges.py::TestScopePhaseStartFence::test_non_sha_phase_start_halts_before_printing
+FAILED test_diff_ranges.py::TestStateHeadShaFence::test_injection_payload_halts_without_executing
+FAILED test_diff_ranges.py::TestStateHeadShaFence::test_missing_state_file_halts
+FAILED test_diff_ranges.py::TestStateHeadShaFence::test_other_non_sha_values_halt
+FAILED test_diff_ranges.py::TestStateHeadShaFence::test_prints_the_validated_sha
+FAILED test_diff_ranges.py::TestSubstitutedValueProse::test_head_sha_binding_holds
+SUBFAILED(removed='ONLY the literal printed after `LAST_REVIEWED_SHA=`') test_diff_ranges.py::TestSubstitutedValueProse::test_head_sha_mutants_trip
+SUBFAILED(removed='never a value copied from the state JSON by hand') test_diff_ranges.py::TestSubstitutedValueProse::test_head_sha_mutants_trip
+SUBFAILED(removed='refused before it can reach a command') test_diff_ranges.py::TestSubstitutedValueProse::test_head_sha_mutants_trip
+SUBFAILED(removed='printf \'LAST_REVIEWED_SHA=%s\\n\' "$LAST_REVIEWED_SHA"') test_diff_ranges.py::TestSubstitutedValueProse::test_head_sha_mutants_trip
+FAILED test_diff_ranges.py::TestSubstitutedValueProse::test_phase_start_check_holds
+FAILED test_diff_ranges.py::TestSubstitutedValueProse::test_phase_start_check_mutant_trips
+FAILED test_diff_ranges.py::TestSubstitutedValueProse::test_substituted_value_mutants_trip
+FAILED test_diff_ranges.py::TestSubstitutedValueProse::test_substituted_value_rule_holds
+SUBFAILED[mutant: step 3 drops RE-RUN the counts step ONCE (the same `BLOBFILE=` literal this attempt printed)] test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+SUBFAILED[mutant: step 3 drops run the gate-input fence again so it prints a NEW `GATEFILE=`] test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+SUBFAILED[mutant: step 3 drops write the seven-key `flags` object from the RE-COUNTED `$COUNTS_JSON` to that new path] test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+SUBFAILED[mutant: step 3 drops run the gate once on that literal] test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+SUBFAILED[mutant: step 3 drops never on the `GATEFILE=` this attempt's first gate run read] test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+SUBFAILED[mutant: step 3 re-runs the gate on the old GATEFILE again] test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+FAILED test_finalize_card.py::TestGapRoundFinalize::test_step3_rerun_rule_holds
+FAILED test_finalize_card.py::TestFinalizeFreshShellWalk::test_post_decision_rerun_decides_on_a_fresh_gatefile
+48 failed, 9 passed, 413 deselected, 3 subtests passed in 1.94s
+
+$ pytest -p no:cacheprovider --tb=no -rA <same files and -k>   # the 9 passed
+PASSED test_carry_state.py::TestLastHeadSha::test_prints_bare_sha_for_40_and_64_hex
+PASSED test_carry_state.py::TestLastHeadSha::test_refuses_every_non_sha_value
+PASSED test_diff_ranges.py::TestProseRangeFence::test_injection_payload_in_the_row_executes_so_the_bind_fence_is_the_control
+PASSED test_diff_ranges.py::TestScopePhaseStartFence::test_no_history_prints_empty_value
+PASSED test_diff_ranges.py::TestScopePhaseStartFence::test_prints_first_commit_touching_phase_dir
+PASSED test_diff_ranges.py::TestScopePhaseStartFence::test_sixty_four_hex_is_accepted
+PASSED test_diff_ranges.py::TestSubstitutedValueProse::test_head_sha_mutants_trip
+PASSED test_finalize_card.py::TestGapRoundFinalize::test_mutant_step3_rerun_rule
+PASSED test_finalize_card.py::TestGapRoundFinalize::test_step3_keeps_answer_files_anchor
+
+$ pytest -q -p no:cacheprovider --tb=no test_carry_state.py test_diff_ranges.py test_finalize_card.py -k "<the five controls>"
+5 passed, 437 deselected in 0.62s
+```
+
+Every second-round red fixture fails at `f2b58d1`: 60-10 (`test_carry_state.py`, `TestLastHeadSha`), 60-11 (`test_diff_ranges.py`, the bind fence, the `PHASE_START` check and the printed-literal prose) and 60-12 (`test_finalize_card.py`, the step-3 lock and the stale-vs-fresh walk) each have failing tests above. Of the 9 "passed", four are parent entries of subtest tables whose subtests failed (`test_prints_bare_sha_for_40_and_64_hex`, `test_refuses_every_non_sha_value`, `test_head_sha_mutants_trip`, `test_mutant_step3_rerun_rule`; each appears as SUBFAILED above), `test_sixty_four_hex_is_accepted` passes because the old 00-scope.md had no check to refuse it, and four are controls. The five controls all pass at `f2b58d1`: `test_injection_payload_in_the_row_executes_so_the_bind_fence_is_the_control` (the written reproduction, green on the old prose too), `test_step3_keeps_answer_files_anchor`, `test_prints_first_commit_touching_phase_dir`, `test_no_history_prints_empty_value` and `test_card_route_records_then_writes` (outside the `-k` filter above; run by name in the third command).
+
+### Suite at second-round close
+
+All runs are from `plugins/vibe-check/scripts` in the real checkout at HEAD `84b5e27`.
+
+```
+$ pytest -q -p no:cacheprovider
+3813 passed, 5014 subtests passed in 180.43s (0:03:00)
+
+$ pytest -q -p no:cacheprovider test_replay.py
+64 passed, 10 subtests passed in 10.38s
+
+$ git diff --stat f2b58d1 HEAD -- plugins/vibe-check/scripts/replay.py plugins/vibe-check/scripts/test_replay.py plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/finalize_gate.py
+(empty)
+
+$ git diff --stat f2b58d1 HEAD -- plugins/vibe-check/scripts/carry_state.py
+ plugins/vibe-check/scripts/carry_state.py | 44 +++++++++++++++++++++++++++++--
+ 1 file changed, 42 insertions(+), 2 deletions(-)
+```
+
+- 0 failed.
+- **Replay deltas: none.** `replay.py`, `test_replay.py`, `score.py` and `finalize_gate.py` are byte-identical to `f2b58d1`.
+- **`carry_state.py` did change, and this is the one helper this round touched.** 60-10 added one read-only subcommand, `last-head-sha` (with `_commit_sha`, `last_head_sha` and `REASON_HEAD_SHA` in the sealed reason set); no existing subcommand changed, and the full `test_carry_state.py` run is green. The replay check does not cover `carry_state.py` and never did, so the empty replay diff-stat says nothing about it; it is listed here rather than left out. The other files this round touched are review prose (`00-scope.md`, `05-state.md`, `30-collect-score.md`), `90-finalize.md` and four test files.
+
 ## Residuals
 
-None of these is fixed in Phase 60. Under D-10 the phase runs one bounded cycle, so no second review round is opened. None of them falls in the four qualifying classes (a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, a broken required workflow). Each is recorded with its rationale and the check that would reopen it.
+None of these is fixed in Phase 60, except R14, which the second gap round closed (V13). Under D-10 the phase runs one bounded cycle, so no second review round is opened. None of them falls in the four qualifying classes (a reproduced mandatory-gate failure, data loss, silent loss of a qualifying finding, a broken required workflow). Each is recorded with its rationale and the check that would reopen it.
 
 - **(R1) `finalize_gate.py` still prints a Python traceback on empty or malformed stdin.** Re-checked at HEAD `ec0c9d8`: `printf '' | python3 finalize_gate.py` exits 1, and stderr starts `Traceback (most recent call last):` and ends `json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)`. The helper itself is unchanged. 60-03's gate fence sends its stderr to `<GATEFILE>.err`, so the owner sees only the fence's one sentence, and `test_malformed_gatefile_shows_only_stop_sentence` locks that (the subtest that removes the redirect fails). This is helper-side only and never reaches the owner. Carried: if `finalize_gate.py` is ever called outside that fence, give it a fixed one-line refusal like `diff_ranges.py`'s.
 - **(R2) Coordinate-space shapes that did not reproduce: none.** All three probes reproduced at `ce9f8b8` and all three were fixed by 60-04, so nothing was dropped. The three are PR-SERIES (`series ranges [[10, 10], [1, 5]]`, the finding at head line 15 is not in the diff), MIXED-COORD (`[[35, 35], [1, 10]]`, the decision at line 50 stays `current`, a silent keep) and DEFAULT-STAGED (Probe A: `[[1, 10], [58, 58], [48, 48]]`, a wrong reopen from index line 48; Probe B: a finding at 48 is outside the `git diff HEAD` ranges). DEFAULT-STAGED sits alongside the other two: the default route now takes ranges from `git diff HEAD` alone, under the working-tree coordinate contract. Probe B is coordinate disagreement, not a lost changed line (V6).
@@ -541,13 +711,20 @@ None of these is fixed in Phase 60. Under D-10 the phase runs one bounded cycle,
 - **(R10) `--all` has no diff (V7).** It is an unsupported fixture, recorded by `TestRouteAll`. `--all` never gates on `in_diff` and never stamps `nearby_at`, because 05-state-all.md (ii) forces pass 1 with an empty carry-forward. Reopen only if `--all` starts to carry state forward.
 - **(R11) `replay.hunk_ranges` is intentionally context-inclusive and unchanged.** It reproduces the ranges archived B3 runs were scored with, is pinned by `TestReplayPin`, and Phase 61 GATE-02 depends on it. Do not change it.
 
-R12-R17 were added at the gap round (60-09). They cover the 60-REVIEW.md and 60-VERIFICATION.md items that the first close left out of this list. None is in the four qualifying classes, and none is fixed in the gap round.
+R12-R17 were added at the gap round (60-09). They cover the 60-REVIEW.md and 60-VERIFICATION.md items that the first close left out of this list. None is fixed in the gap round. R14 was later reproduced as command execution (gap-round review CR-01) and closed in the second gap round; the others stay out of the four qualifying classes. The parenthetical on each gives its number in the gap-round review.
 
-- **(R12) WR-05: Finalize temp files are never removed.** `BLOBFILE`, `GATEFILE` and `GATEFILE.err` stay under `$TMPDIR` after Finalize, and a retry leaves a second set. This is resource hygiene, not a functional break: each attempt mints fresh paths, and a stale file never governs a later attempt (`test_stale_earlier_attempt_file_does_not_govern`). Reopen if a run is shown to read or fill a stale temp file, or if `$TMPDIR` growth is ever observed to matter.
-- **(R13) IN-01: the commit-series (mbox) refusal recognises only SHA-1 `From <40-hex>` separators.** A SHA-256 repository's `--patch` series would not be refused by that check. SHA-256 repositories are not supported anywhere in the plugin, and the PR range source is `gh pr diff` (cumulative), not `--patch`. Reopen if SHA-256 repos come into scope.
-- **(R14) IN-02: `head_sha` from the state file becomes a git argument with no validation.** Since 60-07 it is substituted into a quoted placeholder (`"<last-reviewed-sha>"`), so an empty or garbled value makes git fail (exit 128) and the fence halts. A value that git can read as an option is not validated. This was not reproduced as a failure: the state file is written by `carry_state.py` from `git rev-parse`. Reopen with a reproduction of a hostile or corrupted `head_sha`.
-- **(R15) IN-03: the counts fence leaves its stderr uncaptured,** unlike the gate fence, which sends it to `<GATEFILE>.err`. When the counts helper refuses, the owner sees the helper's own fixed one-line refusal text and then the fence's stop sentence. No traceback is involved (`carry_state.py` refuses with fixed text). This is unchanged and not a functional break. Reopen if the counts helper is ever shown to emit a traceback to the owner.
-- **(R16) SA-01: the Write tool on a freshly minted, unread `mktemp` path.** It is not known whether the harness Write tool accepts a first write to the `BLOBFILE=` / `GATEFILE=` path that `mktemp` just created and the agent never Read. The same pattern is already used for ROWSFILE, SUGGESTFILE and REFSFILE. It cannot be exercised from pytest. It awaits the owner's live check (60-VERIFICATION human item 1). If the write is refused, both the attempt and its one retry fail at the same step.
-- **(R17) SA-02: the PR range source fails closed on PRs above GitHub's diff limits** (about 300+ files or 20k+ lines). `gh pr diff` errors, and the fence halts through `pipefail`. The reviewer judged this intended behaviour, not a defect. It awaits the owner's ruling on accepted limit vs fallback (60-VERIFICATION human item 2).
+- **(R12) WR-05 (gap-round review: WR-03): Finalize temp files are never removed.** `BLOBFILE`, `GATEFILE` and `GATEFILE.err` stay under `$TMPDIR` after Finalize, and a retry leaves a second set. This is resource hygiene, not a functional break: each attempt mints fresh paths, and a stale file never governs a later attempt (`test_stale_earlier_attempt_file_does_not_govern`). Reopen if a run is shown to read or fill a stale temp file, or if `$TMPDIR` growth is ever observed to matter.
+- **(R13) IN-01 (gap-round review: IN-04): the commit-series (mbox) refusal recognises only SHA-1 `From <40-hex>` separators.** A SHA-256 repository's `--patch` series would not be refused by that check. SHA-256 repositories are not supported anywhere in the plugin, and the PR range source is `gh pr diff` (cumulative), not `--patch`. Reopen if SHA-256 repos come into scope.
+- **(R14) IN-02 (first review) / CR-01 (gap-round review): `head_sha` from the state file reached a command unvalidated.** CLOSED at 5d81170: bound through `carry_state.py last-head-sha` (V13). The helper half landed at ae560fe (60-10) and the prose that binds through it at 5d81170 (60-11). The first close recorded this as not reproduced; the gap-round review then reproduced it as command execution (`$(...)` inside the double-quoted placeholder), so it was fixed in the second gap round.
+- **(R15) IN-03 (gap-round review: IN-05): the counts fence leaves its stderr uncaptured,** unlike the gate fence, which sends it to `<GATEFILE>.err`. When the counts helper refuses, the owner sees the helper's own fixed one-line refusal text and then the fence's stop sentence. No traceback is involved (`carry_state.py` refuses with fixed text). This is unchanged and not a functional break. Reopen if the counts helper is ever shown to emit a traceback to the owner.
+- **(R16) SA-01 (gap-round review: SA-01): the Write tool on a freshly minted, unread `mktemp` path.** It is not known whether the harness Write tool accepts a first write to the `BLOBFILE=` / `GATEFILE=` path that `mktemp` just created and the agent never Read. The same pattern is already used for ROWSFILE, SUGGESTFILE and REFSFILE. It cannot be exercised from pytest. It awaits the owner's live check (60-VERIFICATION human item 1). If the write is refused, both the attempt and its one retry fail at the same step.
+- **(R17) SA-02 (gap-round review: SA-02): the PR range source fails closed on PRs above GitHub's diff limits** (about 300+ files or 20k+ lines). `gh pr diff` errors, and the fence halts through `pipefail`. The reviewer judged this intended behaviour, not a defect. It awaits the owner's ruling on accepted limit vs fallback (60-VERIFICATION human item 2).
 
-Silent keeps still open at close: none. MIXED-COORD was the one reproduced silent keep of the first cycle, and its probe passes at fb8b32b. The net-deletion boundary keep (V3) passes at 53fb637. The gap round's silent keep, GSD-SHELL-VAR (V10, the committed change dropped from the GSD/pass-2+ ranges in a fresh shell), is closed at 2a63cb5. CONFIG-ALTERED-DIFF (V11) is closed at b878870 + 2a63cb5, and GATEFILE-RETRY (V12) at c0ece7e. EVID-03 and FINL-02 await re-verification after this gap round, and this file makes no claim about their status. The known limits named here are R6 (the live PR fetch, which Phase 61 carries into the release record) and the two owner rulings R16 and R17. No "reliability" claim beyond these tests is made.
+R18-R21 were added at the second gap round (60-13). They are the gap-round review's (60-REVIEW.md, `cfa473a`) new items other than CR-01 and WR-02, under that review's numbering. None is in the four qualifying classes as reproduced, and none is fixed in the second gap round.
+
+- **(R18) WR-01: `diff.submodule` is not neutralised.** With `diff.submodule=log`, a submodule pointer change prints as `Submodule sub a..b:` with no `diff --` header: a submodule-only change is refused as not-a-diff (the pass halts), and a mixed change silently drops the submodule's range; `diff.submodule=diff` prints the inner diff under superproject-looking keys. Carried: it was not reproduced as the loss of a qualifying finding on a real review, and no submodule is in scope for this plugin's own repos. Reopen with a reproduction on a repo that has a submodule (the review's fix is `--submodule=short` in the fixed flag set plus a hostile-config case with a real submodule change).
+- **(R19) IN-01: the "`{}` is printed only for a genuinely empty diff" sentence in 30-collect-score.md is imprecise.** Binary-only, mode-only, deletion-only and C-quoted-path-only diffs also give `{}` with exit 0, by the helper's own contract and test. This is wording, not a functional break: no finding can sit on those lines (R8). Reopen if an agent is seen treating such a `{}` as an anomaly or reporting the diff as empty.
+- **(R20) IN-02: the escape-refusal tests cover only fully coloured diffs.** In a fully coloured diff every header starts with ESC, so the not-a-diff rule refuses it anyway, and M21 trips only because the expected reason changes. The case the escape rule exists for, a partly coloured diff with plain headers (for example `color.diff.meta=normal`), has no test. The real module refuses it today (the review reproduced that M21's mutant returns `{}` there while the real module refuses), so the lock is weaker than it looks, not the behaviour. Reopen to add the partly coloured case and point M21 at it if `diff_ranges.py`'s escape rule is touched again.
+- **(R21) IN-03: two checks assert less than they claim.** `literal_sha_rule_holds` accepts "substitute" anywhere in the range bullet, and the "old rule: same GATEFILE reused fails identically" subtest in the GATEFILE retry walk reads no prose. These are documentation-strength checks. This round superseded part of the first: `substituted_value_rule_holds` (60-11) checks each row for its printed literal (`printed after `LAST_REVIEWED_SHA=`` / `printed after `PHASE_START=``) with a mutant per needle, and `step3_rerun_rule_holds` (60-12) locks the step-3 GATEFILE rule with per-needle mutants. What remains: `literal_sha_rule_holds` itself still checks "substitute" bullet-wide, and the "old rule" subtest still guards no rule (the retry rule is guarded by the RETRY_NEEDLES lock). Reopen if either check is relied on as the only guard of a rule.
+
+Silent keeps still open at close: none. MIXED-COORD was the one reproduced silent keep of the first cycle, and its probe passes at fb8b32b. The net-deletion boundary keep (V3) passes at 53fb637. The gap round's silent keep, GSD-SHELL-VAR (V10, the committed change dropped from the GSD/pass-2+ ranges in a fresh shell), is closed at 2a63cb5. CONFIG-ALTERED-DIFF (V11) is closed at b878870 + 2a63cb5, and GATEFILE-RETRY (V12) at c0ece7e. The second gap round's CR-01 (HEAD-SHA-INJECTION, V13) is closed at ae560fe + 5d81170, and WR-02 (STALE-GATEFILE-RERUN, V14) at c112ca6. EVID-03 and FINL-02 await re-verification after the second gap round, and this file makes no claim about their status. The known limits named here are R6 (the live PR fetch, which Phase 61 carries into the release record), the carried review items R18-R21, and the two owner rulings R16 and R17. No "reliability" claim beyond these tests is made.
