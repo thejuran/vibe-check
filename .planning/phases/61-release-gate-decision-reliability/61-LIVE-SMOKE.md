@@ -125,3 +125,21 @@ User impact: Close out now completes in a real session, and a decided finding is
 - tmux sessions `s61-1`, `s61-2` and `s61-3` were killed.
 - Snapshot removed with `chmod -R u+w` + `git worktree remove --force` + `git worktree prune`; `git worktree list` no longer shows `rel61-0d2be77`.
 - `CACHE_BAK` is kept at `~/.b3/vibe-check-2.13.0.bak-pre-phase61`. `$SMOKE` and the three memory parks are kept on disk as local evidence and are not committed.
+
+## Carry-over to candidate C2 (47978aa)
+
+The sessions above ran on 0d2be77. After the owner switched Decision 1 to B (2026-10-30, "Switch to B (Recommended)"), the release candidate became C2 = 47978aad41eccc13c594820a8ab8386904439f31, which changes only `README.md`. The sessions loaded the plugin from `<SNAP>/plugins/vibe-check`, and that tree is byte-identical in C2:
+
+```
+$ git diff --quiet 0d2be77 47978aa -- plugins/ ; echo $?
+0
+$ git diff --stat 0d2be77 47978aa -- plugins/
+(empty)
+$ git rev-parse 0d2be77:plugins 47978aa:plugins
+9387dcd3858160c44c0970fcb6a4621e223b7d4e
+9387dcd3858160c44c0970fcb6a4621e223b7d4e
+$ git diff --name-only 0d2be77 47978aa -- . ':(exclude).planning'
+README.md
+```
+
+The repo-root README sits outside the plugin directory the sessions loaded (`--plugin-dir <SNAP>/plugins/vibe-check`), and nothing under `plugins/vibe-check` reads it at review time (its `README` mentions are about the reviewed repo's files), so the verdict above (PASS, with C1-C5 carried) applies to C2 unchanged. No session was re-run and nothing was spent.

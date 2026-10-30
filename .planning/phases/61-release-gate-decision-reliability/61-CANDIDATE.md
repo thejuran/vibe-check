@@ -1,8 +1,35 @@
 # Phase 61 release candidate
-candidate: 0d2be7790577ea6d89e7eb563008e9ba8c5d7c6d
-parent: f4bba0a995fe71fcaa30d7f6e1e08d7f41bce86e
+candidate: 47978aad41eccc13c594820a8ab8386904439f31
+parent: 072bab8b3e5bc1fd8c76fab1a42c12e0fd1d0c32
 version: 2.14.0
 suite_on_edited_tree: 3821 passed, 0 failed
+supersedes: 0d2be7790577ea6d89e7eb563008e9ba8c5d7c6d
+
+## C2 (current candidate, 47978aa)
+
+**Why a new candidate:** the owner switched Decision 1 from A to B on 2026-10-30 (AskUserQuestion in the main session, verbatim selection: "Switch to B (Recommended)"). Verification (61-VERIFICATION.md, 61-REVIEW.md WR-01) found that the README in 0d2be77 contradicted known limit C1 (backlog 999.28): README:33 said the exact five-line window applies on the default route, README:38 said decisions stick "when you edit unrelated code", and "Known limitations (2.14)" omitted C1. C2 is a README-only correction. 0d2be77 is superseded and is not the release commit.
+
+C2 changes exactly `README.md` relative to its parent (`git show --stat C2`: `README.md | 5 +++--`, 3 insertions, 2 deletions). Relative to 0d2be77, the only path outside `.planning/` that differs is `README.md` (`git diff --name-only 0d2be77 C2 -- . ':(exclude).planning'`). The plugin tree is byte-identical: `git diff --quiet 0d2be77 C2 -- plugins/` exit 0, `git diff --stat 0d2be77 C2 -- plugins/` empty, and `git rev-parse 0d2be77:plugins C2:plugins` both print `9387dcd3858160c44c0970fcb6a4621e223b7d4e`. plugin.json still reads `"version": "2.14.0"` (unchanged). C2's parent is a planning-only commit (`072bab8`), because every commit after 0d2be77 touched only `.planning/`.
+
+Suite run from `plugins/vibe-check/scripts` on the edited working tree, before committing C2:
+- `pytest -q -p no:cacheprovider test_recovery_pairs.py test_gitguard.py` -> `185 passed, 708 subtests passed in 4.82s`
+- `pytest -q -p no:cacheprovider` -> `3821 passed, 5039 subtests passed in 191.83s (0:03:11)` (README's "3,821 passing at release" stays accurate; no test changed)
+
+### C2 README fact-check (new wording only)
+
+| README claim (short) | Evidence | Result |
+|---|---|---|
+| L33 added: "One exception: code you have not committed yet counts as changed again on every pass, so a decided finding in or next to it is asked again each time (see Limitations)." | 61-LIVE-SMOKE.md C1 + E1 (S1: deferral at pass 1 re-asked at pass 2 on a byte-identical tree). Mechanism in shipped code: `phases/review/30-collect-score.md` L72 (default or GSD, pass ≥ 2 ranges = `git diff "<last-reviewed-sha>"`, last reviewed commit vs working tree); `30-collect-score.md` L102 and `carry_state.py last_head_sha` (L1193) (the stored `head_sha` is HEAD at the last pass, so before any commit it is still HEAD); `score.py` `_snapshot_for` (L306, L365) re-stamps `nearby_at` for rows within the five-line window (`_NEARBY_LINES = 5`) of those ranges. "in or next to it" = the five-line window. | added |
+| L38 (v2.13 bullet) qualified: "...and when you edit unrelated code (but see Limitations for findings in code you have not committed yet)." | Same as above: C1 makes "edit unrelated code" false for a finding in or next to uncommitted code on every pass. The rest of the v2.13 bullet is unchanged and still true for committed code. | reworded (clause added) |
+| Known limitations (2.14), new first bullet: uncommitted code on the default review, or a GSD review that includes uncommitted changes; deferred or dismissed finding in or next to it asked again every pass even when nothing changed; card says the code next to it changed; nothing lost; Close out completes | Default route: live (61-LIVE-SMOKE.md S1, E1 card line "code next to it changed since your decision on pass 1"). GSD: by reading shipped code only, not run live: `30-collect-score.md` L72 uses the same pass ≥ 2 range source for default and GSD, and GSD mode diffs to the working tree (L71), so the same re-stamp follows. "Nothing is lost / Close out completes": S3 wrote REVIEW.md with both deferred findings listed (61-LIVE-SMOKE.md Verdict, E4). The bullet does not claim when the re-asks stop after a commit (the first pass after a commit still diffs from the pre-commit HEAD, so it can re-ask once more). | added |
+| "3,821 passing at release" | Full suite on the edited tree above: `3821 passed` | kept |
+| Release notes "Full list in the README" | The README list now carries C1 as its first bullet, so the notes' "(the first limit above is listed only in these notes)" parenthetical is dropped (61-RELEASE-NOTES.md) | matches |
+
+Not changed (owner scope rule, carried in 61-REVIEW.md): WR-02 (stale "this release" pointer in the v2.12 block), IN-01 (v2.11 "previous release" label), IN-02, IN-03 (2.13→2.12 downgrade note).
+
+## C (superseded by C2) — 0d2be77
+
+Superseded: 0d2be7790577ea6d89e7eb563008e9ba8c5d7c6d (parent f4bba0a995fe71fcaa30d7f6e1e08d7f41bce86e, version 2.14.0, suite on edited tree 3821 passed, 0 failed). Reason: owner option B on Decision 1 (2026-10-30), see above. History below is kept as written for 0d2be77.
 
 Suite run from `plugins/vibe-check/scripts` on the edited working tree (README holding the `N_PASSING` placeholder; only that number changed before commit):
 - `pytest -q -p no:cacheprovider test_recovery_pairs.py test_gitguard.py` -> `185 passed, 708 subtests passed in 4.93s`

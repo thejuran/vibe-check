@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: verifying
-stopped_at: Phase 61 signed off — next /bm:verify-work 61, then close per 61-CLOSE-RUNBOOK.md
-last_updated: "2026-10-30T22:28:15.791Z"
-last_activity: "2026-10-30 -- Phase 61 owner sign-off recorded (Decision 1 = A: ship with C1 as a known limit, backlog 999.28; waivers granted); nothing published"
+stopped_at: Phase 61 re-gated on candidate C2 47978aa (Decision 1 = B, README states C1); G1-G9 PASS — awaiting owner re-sign in 61-SIGNOFF.md
+last_updated: "2026-10-30T22:48:20.000Z"
+last_activity: "2026-10-30 -- Phase 61 option B: README-only candidate C2 47978aa supersedes 0d2be77 (plugins/ byte-identical); G1-G9 re-run PASS; live smoke carried over; awaiting owner re-sign; nothing published"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 ## Current Position
 
-Phase: 61 (release-gate-decision-reliability) — VERIFYING (all 5 plans done; signed off; not published)
+Phase: 61 (release-gate-decision-reliability) — VERIFYING (all 5 plans done; re-gated on C2; awaiting re-sign; not published)
 Plan: 5 of 5
-Status: Phase 61 signed off (owner, 2026-10-30) — next /bm:verify-work 61, then close per 61-CLOSE-RUNBOOK.md
-Last activity: 2026-10-30 -- Phase 61 owner sign-off recorded (Decision 1 = A: ship with C1 as a known limit, backlog 999.28; waivers granted); nothing published
+Status: Phase 61 awaiting owner re-sign on candidate C2 47978aa (Decision 1 switched A -> B, owner 2026-10-30); then /bm:verify-work 61 and close per 61-CLOSE-RUNBOOK.md
+Last activity: 2026-10-30 -- Phase 61 option B: README-only candidate C2 47978aa supersedes 0d2be77 (plugins/ byte-identical); G1-G9 re-run PASS; live smoke carried over; nothing published
 
 ## Operator Next Steps
 
@@ -82,6 +82,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 61 option B (owner switched Decision 1 from A to B after verification WR-01: "Switch to B (Recommended)"). New candidate C2 = 47978aad41eccc13c594820a8ab8386904439f31, README-only (qualifies README:33 and :38, adds C1 as first "Known limitations (2.14)" bullet); plugins/ byte-identical to 0d2be77 (tree 9387dcd). G1-G9 re-run on C2: all PASS (3821 / 193 / 520 / 64; replay 170 runs 0 diffs; guardrail 25/26, 0 regressed; PR #6, #4 identical; validate passed; stdlib-only; replay frozen). Live smoke carried over. 61-CANDIDATE/RELEASE-RECORD/RELEASE-NOTES/LIVE-SMOKE/SIGNOFF/CLOSE-RUNBOOK updated; 61-SIGNOFF.md Status: AWAITING RE-SIGN (owner). WR-02, IN-01..03 carried unfixed. Nothing pushed, tagged or published. Next: owner re-sign, then /bm:verify-work 61 and close per 61-CLOSE-RUNBOOK.md.
 
 2026-10-30: Phase 61 plan 05 Tasks 1-2 done (f29e9e7 record/notes/runbook; sign-off page commit follows). D-12 freshness assert passed (HEAD equals C 0d2be77 outside .planning). 61-SIGNOFF.md Status: AWAITING OWNER, with Decision 1 = C1 (A ship with known limit, recommended / B add to README → new candidate + all gates re-run / C fix round). Release notes carry C1 as Known limit 1; README at C does not mention C1. Backlog 999.28 to create at close. Nothing published. GATE-03 stays unticked until sign-off. Next: owner sign-off (61-05 Task 3), then /bm:verify-work 61 and close per 61-CLOSE-RUNBOOK.md.
 

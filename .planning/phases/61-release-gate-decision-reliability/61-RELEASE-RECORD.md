@@ -2,11 +2,33 @@
 
 This record proves the 2.14.0 release candidate against the scope Phases 59 and 60 delivered (decision continuity, exact-change ranges, reliable Close out). It adds no feature. Every gate below was re-run on the exact commit that will ship; results from earlier sessions are not carried forward.
 
-**Code under consideration:** candidate `0d2be77` (0d2be7790577ea6d89e7eb563008e9ba8c5d7c6d), plugin.json 2.14.0; gates ran on a checkout whose tree equals C outside .planning (D-12).
+**Code under consideration:** candidate C2 `47978aa` (47978aad41eccc13c594820a8ab8386904439f31), plugin.json 2.14.0. It supersedes `0d2be77` because the owner switched Decision 1 to B on 2026-10-30 ("Switch to B (Recommended)"): C2 adds the README correction for known limit C1 and changes nothing else (61-CANDIDATE.md). Gates ran on a checkout whose tree equals C2 outside .planning (D-12). The 0d2be77 gate run is kept below as history.
+
+## Gate results — C2 (47978aa), 2026-10-30
+
+Precondition (checked before any gate): `HEAD` = 47978aad41eccc13c594820a8ab8386904439f31 (C2 itself), `git diff --quiet 47978aa HEAD -- . ':(exclude).planning'` exit 0, `git status --porcelain -- plugins README.md` empty. After the runs, `git status --porcelain -- plugins` was still empty. All commands are the same as in the 0d2be77 run below (61-RESEARCH §Gate Commands); G5b used the run name `gate61c2`.
+
+| # | Gate | Requirement | Result on C2 | Verdict |
+|---|------|-------------|--------------|---------|
+| G1 | Full offline suite | GATE-01 | `3821 passed, 5039 subtests passed in 190.43s (0:03:10)`, equals README count in C2 ("3,821 passing at release") | PASS |
+| G2 | Targeted real-chain regressions | GATE-01 | `193 passed, 200 subtests passed in 14.32s` | PASS |
+| G3 | Mode/recovery integration | GATE-01, D-11 | `520 passed, 1062 subtests passed in 8.68s` | PASS |
+| G4 | Replay tests | GATE-02 | `64 passed, 10 subtests passed in 11.43s` | PASS |
+| G5a | Replay complete-output diff vs released 2.13 scorer (no `--allow`) | GATE-02 | exit 0; `runs compared: 170`, `runs differing: 0`, `runs with unallowed differences: 0`; `## Differences` `- none`; candidate score.py sha256 `a4a02a24…b71ee` (same as 0d2be77) | PASS |
+| G5b | Replay catch guardrail | GATE-02 | exit 0; `kept 25 / protected 26`, `REGRESSED 0`, `UNEVALUABLE 0`, `AMENDED 1` (standing amendment 008, `runs/triggarr-secret-in-logs/run-2`) | PASS |
+| G5c | Replay manifest integrity | GATE-02 | exit 0, no output | PASS |
+| G6 | D-03 live PR fetch (C2's `diff_ranges.py`) | GATE-03, D-03 | `PR #6: IDENTICAL (11255 diff lines)` `renames=0 binary=0`; `PR #4: IDENTICAL (1431 diff lines)` `renames=133 binary=0` | PASS |
+| G7 | Manifest validity | GATE-03 | `✔ Validation passed`, same 3 non-blocking directory warnings (ICON_MISSING, `.DS_Store`, `docs/.DS_Store`; `git ls-files plugins/vibe-check` has 0 `.DS_Store` entries) | PASS |
+| G8 | Stdlib-only runtime | D-10 | `32 shipped .py files; third-party imports: none`; no requirements.txt / pyproject.toml / package.json under plugins/vibe-check | PASS |
+| G9 | Frozen replay machinery | GATE-02 | `git diff --stat v2.13 47978aa -- plugins/vibe-check/scripts/replay.py plugins/vibe-check/scripts/test_replay.py` empty | PASS |
+
+0 failed in every pytest run. Dependabot re-checked the same day: `gh api repos/thejuran/vibe-check/dependabot/alerts?state=open` still returns HTTP 403 "Dependabot alerts are disabled for this repository"; `gh pr list --author app/dependabot` still needs the `admin:repo_hook` scope. No settings changed; the runtime is stdlib-only (G8).
+
+**Plugin tree identity, 0d2be77 → C2:** `git diff --quiet 0d2be77 47978aa -- plugins/` exit 0; `git diff --stat 0d2be77 47978aa -- plugins/` empty; `git rev-parse 0d2be77:plugins 47978aa:plugins` both `9387dcd3858160c44c0970fcb6a4621e223b7d4e`. The only path outside `.planning/` that differs is `README.md`.
+
+## Gate results — superseded candidate 0d2be77 (history)
 
 Precondition (checked before any gate, 2026-10-30): `git diff --quiet 0d2be77 HEAD -- . ':(exclude).planning'` exit 0 and `git status --porcelain -- plugins README.md` empty. Working HEAD was `9b8b909` (commits after C touch only `.planning/`), which is why the replay reports below print `head: 9b8b909…`.
-
-## Gate results
 
 | # | Gate | Requirement | Command | Result | Verdict |
 |---|------|-------------|---------|--------|---------|
@@ -101,6 +123,8 @@ Limits (stated, not new work — no-growth rule, D-07):
 
 Under the owner-approved proposal ([61-LIVE-SMOKE-PROPOSAL.md](61-LIVE-SMOKE-PROPOSAL.md), APPROVED 2026-10-30), three fresh Claude Code sessions ran on a sealed read-only snapshot of C, with the installed cache at content parity (restored afterwards with an empty diff). Only the default review route and `--finalize` were in scope (D-02). S1 reviewed an uncommitted SQL-injection plant and the finding was deferred. S2 ran after an edit 3 lines above the flagged line and re-asked the decision with the reopen reason "code next to it changed since your decision on pass 1". S3's `--finalize` carried its printed BLOBFILE=/GATEFILE= paths across steps and wrote REVIEW.md (APPROVED, both deferred findings listed) without the "Finalize stopped" sentence. Every plugin path in every transcript came from the snapshot, so all three sessions were VALID. **Caveat (C1):** S1 also re-asked the same decision on pass 2 with no code change at all. So S2's re-ask would have happened without the nearby edit, and the live run does not isolate the nearby-edit trigger. That trigger rests on the offline tests (59/60 real-chain regressions, G2).
 
+**Carry-over to C2:** the sessions ran on 0d2be77. The plugin tree they loaded is byte-identical in C2 (`git diff --quiet 0d2be77 47978aa -- plugins/` exit 0; both trees `9387dcd3…`; see the C2 gate section above), and the only other change is the repo-root README, which the plugin does not read. So the PASS verdict applies to C2 unchanged; no session was re-run and nothing was spent. Recorded in 61-LIVE-SMOKE.md §Carry-over to candidate C2.
+
 ## Unsupported fixtures and stated limits
 
 - `--all` carries no decisions between runs (60 R10; `test_diff_ranges.py::TestRouteAll`), so decision continuity does not apply to it. This is a recorded unsupported fixture.
@@ -111,7 +135,7 @@ Under the owner-approved proposal ([61-LIVE-SMOKE-PROPOSAL.md](61-LIVE-SMOKE-PRO
 - A finding in an untracked file is never re-asked after a nearby edit (60 R7).
 - After upgrading from 2.13, one extra re-ask can happen the next time code near a decided finding changes (60 R4).
 - With `diff.submodule=log` set, a change that touches only a submodule halts the pass (60 R18). It fails closed.
-- On the default route, a decision on uncommitted code is re-asked on every pass even when nothing changed (live smoke C1; see Carried). Pending the owner's ruling at sign-off.
+- On the default route, a decision on uncommitted code is re-asked on every pass even when nothing changed (live smoke C1; see Carried). The same pass ≥ 2 range source applies to a GSD review with uncommitted changes (read from `30-collect-score.md` L72, not run live). Stated in C2's README (first "Known limitations (2.14)" bullet) and in the release notes (first Known limit).
 
 ## Residuals (linked)
 
@@ -126,7 +150,7 @@ The full residual ledger is linked here, not restated (D-09). Total: 34 items, 8
 Each item was classified against the four qualifying classes: a mandatory gate failing, data loss, silent loss of a qualifying finding, or a broken required workflow. None qualifies. Each one is listed with the check that would reopen it.
 
 - `claude plugin validate` printed 3 plugin-directory warnings that do not change the result (`✔ Validation passed`): no plugin icon (`ICON_MISSING`), and `.DS_Store` / `docs/.DS_Store` on disk under `plugins/vibe-check`. `git ls-files` shows neither `.DS_Store` file is tracked, so neither ships. Not a qualifying class; carried, no action in this phase. **Reopens if:** `claude plugin validate` fails, or a `.DS_Store` becomes tracked.
-- **C1 — On the default route, a decision on uncommitted code is re-asked on every pass, with a false "code next to it changed" reason** (61-LIVE-SMOKE.md C1). On pass ≥ 2, the ranges come from `git diff <last-reviewed-sha>`. Before any commit that SHA is still HEAD, so the whole uncommitted block counts as changed on every pass. The effect is extra questions: a dismiss or defer holds only until the next pass, Close out still completes, and nothing is lost. The 2.13 default route also took its ranges from `git diff HEAD` on every pass, so this probably predates 2.14. That conclusion comes from reading the 2.13 instructions and has not been tested. Its rationale for carrying is that it fails toward asking. It contradicts the README's standing claim that a decision is kept "when you edit unrelated code" for findings in uncommitted code, and it touches the 2.14 headline promise. **Owner decision at sign-off (2026-10-30, Decision 1 = A, 61-SIGNOFF.md):** ship with C1 as a documented limit (first Known limit in the release notes; README unchanged); no fix round. **Reopens if:** the owner rules it qualifying, or a re-ask on unchanged committed code is reproduced, which would be a different and worse defect. **Backlog:** ROADMAP backlog entry 999.28 "Default route: decisions on uncommitted code re-asked every pass (false nearby reason)" added at sign-off (2026-10-30).
+- **C1 — On the default route, a decision on uncommitted code is re-asked on every pass, with a false "code next to it changed" reason** (61-LIVE-SMOKE.md C1). On pass ≥ 2, the ranges come from `git diff <last-reviewed-sha>`. Before any commit that SHA is still HEAD, so the whole uncommitted block counts as changed on every pass. The effect is extra questions: a dismiss or defer holds only until the next pass, Close out still completes, and nothing is lost. The 2.13 default route also took its ranges from `git diff HEAD` on every pass, so this probably predates 2.14. That conclusion comes from reading the 2.13 instructions and has not been tested. Its rationale for carrying is that it fails toward asking. It contradicts the README's standing claim that a decision is kept "when you edit unrelated code" for findings in uncommitted code, and it touches the 2.14 headline promise. **Owner decision at first sign-off (2026-10-30, Decision 1 = A, 61-SIGNOFF.md):** ship with C1 as a documented limit (first Known limit in the release notes; README unchanged); no fix round. **Superseded the same day by Decision 1 = B** ("Switch to B (Recommended)", owner, AskUserQuestion in the main session) after verification (61-VERIFICATION.md, 61-REVIEW.md WR-01) showed the README was not silent but contradicted C1: new candidate C2 (47978aa) qualifies README:33 and README:38 and adds C1 as the first "Known limitations (2.14)" bullet; still no fix round; awaiting re-sign. **Reopens if:** the owner rules it qualifying, or a re-ask on unchanged committed code is reproduced, which would be a different and worse defect. **Backlog:** ROADMAP backlog entry 999.28 "Default route: decisions on uncommitted code re-asked every pass (false nearby reason)" added at sign-off (2026-10-30).
 - **C2 — The band rose from warning to critical between passes with no code change** (61-LIVE-SMOKE.md C2). A second reviewer re-confirmed the finding. The severity-rise re-ask is designed behavior and never hides a finding, so there is no backlog entry. **Reopens if:** a band rise is reproduced with only one reviewer reporting.
 - **C3 — The row regrouped between passes** (61-LIVE-SMOKE.md C3). The lead changed, and the old lead became an absorbed member "decided on its own". Both rows carried their deferral and were re-asked, and REVIEW.md lists both. Regrouping is existing behavior that 2.13 covered, so there is no backlog entry. **Reopens if:** a regroup drops a decided member from the card or from REVIEW.md.
 - **C4 — In S2 the model did not take the protocol's Rerun after a typed defer** (61-LIVE-SMOKE.md C4). It stopped and listed choices. This is a model deviation that fails toward stopping: no spend, no loss, and the decisions were saved. It is user-visible (the user must say "continue"). **Backlog note:** fold into the 999.28 entry as a second observation, not a separate item. **Reopens if:** it recurs, or the stop loses a decision.
@@ -134,7 +158,7 @@ Each item was classified against the four qualifying classes: a mandatory gate f
 
 ## Validation gaps and waivers
 
-Everything below was not proven live for 2.14.0:
+Everything below was not proven live for 2.14.0. Each waiver was granted at the first sign-off on 0d2be77 and stands as granted for C2; the owner re-confirms them at re-sign.
 - GSD, range, PR, incremental pass 2+ and `--all` routes are proven offline only (D-02; G1-G3) — waiver: granted (owner, 2026-10-30)
 - The live PR diff fetch was checked once, on PR #6 and PR #4 only (G6, D-03); binary files and very large PRs remain untested — waiver: granted (owner, 2026-10-30)
 - The nearby-edit re-ask trigger is not isolated live: the live re-ask also happens without an edit (C1), so the trigger rests on offline tests — waiver: granted (owner, 2026-10-30)

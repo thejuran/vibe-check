@@ -1,6 +1,6 @@
 # Phase 61 close runbook — vibe-check 2.14.0
 
-Run these steps at milestone close, after the owner has signed off in 61-SIGNOFF.md (`Status: SIGNED OFF`). They are listed in order, and each one stops on failure. Run every fence through `bash -s <<'BASH' … BASH`, because the shell here is zsh. The candidate C is read from 61-CANDIDATE.md in every fence, never retyped. complete-milestone may move the phase directory under `.planning/milestones/`, so each fence looks in both places.
+Run these steps at milestone close, after the owner has signed off in 61-SIGNOFF.md (`Status: SIGNED OFF`). They are listed in order, and each one stops on failure. Run every fence through `bash -s <<'BASH' … BASH`, because the shell here is zsh. The candidate C is read from 61-CANDIDATE.md in every fence, never retyped. C is currently C2 = 47978aa (47978aad41eccc13c594820a8ab8386904439f31), which superseded 0d2be77 under Decision 1 = B; the sign-off gate is the re-sign on 47978aa. complete-milestone may move the phase directory under `.planning/milestones/`, so each fence looks in both places.
 
 The common preamble below is repeated at the top of each fence that needs C:
 
@@ -78,7 +78,7 @@ BODY=$(mktemp "${TMPDIR:-/tmp}/pr7.XXXXXX")
   printf -- '- Real-chain regressions 193 passed; mode/recovery checks 520 passed\n'
   printf -- '- Replay vs released 2.13: 170 runs, 0 differences; no previously caught defect lost\n'
   printf -- '- Live PR diff fetch (PR #6, PR #4): identical to local; manifest valid; stdlib-only runtime\n'
-  printf -- '- Live smoke (default review + Close out): PASS, with known limits listed in the release notes\n'
+  printf -- '- Live smoke (default review + Close out): PASS on 0d2be77, carried to this candidate (plugins/ byte-identical); known limits listed in the README and the release notes\n'
   printf '\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n'
 } > "$BODY"
 git push -u origin feat/v2.14-phase-61
