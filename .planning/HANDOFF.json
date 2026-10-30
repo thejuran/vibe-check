@@ -1,137 +1,21 @@
 {
   "version": "1.0",
-  "timestamp": "2026-10-29T00:21:40.816Z",
+  "timestamp": "2026-10-30T20:58:15.059Z",
   "source": "auto-postool",
   "partial": true,
-  "phase": "58",
-  "phase_name": "complete; v2.13 archived; no active phase",
-  "phase_dir": ".planning/milestones/v2.13-phases/58-clear-actions-recovery-and-answers-acted-on",
-  "plan": "—",
+  "phase": "61",
+  "phase_name": null,
+  "phase_dir": null,
+  "plan": null,
   "task": null,
-  "total_tasks": 23,
+  "total_tasks": null,
   "status": "auto-checkpoint",
-  "completed_tasks": [
-    {
-      "id": "01",
-      "name": "Task 1: RED — reproduce K2 and write the D-12 text == behavior lock",
-      "status": "done"
-    },
-    {
-      "id": "02",
-      "name": "Task 1: RED — test_recovery_pairs.py locks prose pairs to score.py constants",
-      "status": "done"
-    },
-    {
-      "id": "03",
-      "name": "Task 1: RED — eight-row iPlayarr fixture, V1 reproduction, resolve expectations",
-      "status": "done"
-    },
-    {
-      "id": "04",
-      "name": "Task 1: RED — prose locks for the translated ok-path, carried close-out, D-09 slot, D-11 option text, residue, decision-hold, budget, and the strengthened bug-C lock (mutant C)",
-      "status": "done"
-    },
-    {
-      "id": "05",
-      "name": "Task 1: RED — Finalize prose locks: option descriptions from the helper, header count, translated ok-path, reconciliation, D-09",
-      "status": "done"
-    },
-    {
-      "id": "06",
-      "name": "Task 1: Write 58-REPRO.md — verdicts V1–V5, bug C, inventory table, no live run",
-      "status": "done"
-    },
-    {
-      "id": "07",
-      "name": "Task 1: RED — TestCloseOutCarrier runs the real fence with the marker; spine prose lock; mutants M4-M6",
-      "status": "done"
-    },
-    {
-      "id": "08",
-      "name": "Task 1: RED — locks for follow-up, D-08 fallback, stale remap, D-17 routing, Rerun marker (append-once + never-carried), typed bottom line; carrier round-trip through the real fence",
-      "status": "done"
-    },
-    {
-      "id": "09",
-      "name": "Task 1: RED — Finalize locks for follow-up (Q2-aware), D-08 fallback, stale remap, budget",
-      "status": "done"
-    },
-    {
-      "id": "10",
-      "name": "Task 1: RED — reproduce WR-03, IN-03, SA-01/D-18 and pin WR-04 on the helper",
-      "status": "done"
-    },
-    {
-      "id": "11",
-      "name": "Task 1: RED — D-19 fixtures and CLI contract for `suggest`",
-      "status": "done"
-    },
-    {
-      "id": "12",
-      "name": "Task 1: RED — derive the NV suffix from the table; lock the verified-line separator",
-      "status": "done"
-    },
-    {
-      "id": "13",
-      "name": "Task 1: IN-04 — rebuild the close-out round-trip from a marker-carrying prior run; prove it with a strip mutant",
-      "status": "done"
-    },
-    {
-      "id": "14",
-      "name": "Task 1: RED — locks that reproduce WR-01, WR-02, WR-05, WR-06 and IN-05 on the fix-loop prose",
-      "status": "done"
-    },
-    {
-      "id": "15",
-      "name": "Task 1: RED — locks for the verbatim-title rule, the parser-refusal branch, count_needed and the suggest fence",
-      "status": "done"
-    },
-    {
-      "id": "16",
-      "name": "Task 1: RED — Finalize locks for printed paths, answer-file cleanup and the reachable stale source",
-      "status": "done"
-    },
-    {
-      "id": "17",
-      "name": "Task 1: RED — Finalize locks for the verbatim-title rule, parser-refusal branch, count_needed and the suggest fence",
-      "status": "done"
-    },
-    {
-      "id": "18",
-      "name": "Task 1: Gate — full suite, replay, golden, frozen files, mutant inventory",
-      "status": "done"
-    },
-    {
-      "id": "19",
-      "name": "Task 1: RED -- reproduce WR-03(b), WR-02, IN-05 with failing tests; rewrite the IN-03 s2 subtest",
-      "status": "done"
-    },
-    {
-      "id": "20",
-      "name": "Task 1: RED -- reproduce WR-01 in a fresh shell, re-point the locks, add final-round locks, mutants and the subset-dispatch fence walk",
-      "status": "done"
-    },
-    {
-      "id": "21",
-      "name": "Task 1: RED -- re-point the Finalize locks and add the final-round locks and mutants",
-      "status": "done"
-    },
-    {
-      "id": "22",
-      "name": "Task 1: Final-round gate and cross-file contract check",
-      "status": "done"
-    },
-    {
-      "id": "23",
-      "name": "Task 1: RED — CR-01 fixtures ask, never act",
-      "status": "done"
-    }
-  ],
+  "completed_tasks": [],
   "remaining_tasks": [],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [],
   "uncommitted_files": [],
-  "next_action": "Awaiting next milestone",
-  "context_notes": "Status: Awaiting next milestone\n\nStopped at: v2.13 shipped as 2.13.0 (2026-10-28) — Decision reliability next; Lean orchestration follows; neither activated"
+  "next_action": "Ready to plan",
+  "context_notes": "Status: Ready to plan\n\nStopped at: Phase 60 complete (16/16) — ready to discuss Phase 61"
 }

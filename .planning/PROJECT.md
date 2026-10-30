@@ -29,6 +29,8 @@ as their safety net.
 
 **Out of scope:** cost reporting, orchestration extraction, reviewer/model changes, scoring changes, 999.26. Lean orchestration (999.12 + Finalize extraction) follows; Reviewer efficiency stays conditional. Full scope: [Roadmap](ROADMAP.md).
 
+**Codex integration (owner, 2026-10-28):** Keep the existing optional OpenAI Codex plugin/companion and the user's configured Codex default. No bundled replacement, direct adapter or model-gateway routing is planned. Dependency/setup, run/skip and model-label clarity, plus bounded companion-update compatibility checks, belong to [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure), outside v2.14 and without expanding its requirements or release gates.
+
 ## Last Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
 
 **Goal (met, with owner-accepted known limits):** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable. 14/14 requirements (VFIX-01..06, DECN-01..03, RECV-01..02, ANSR-01..03); audit tech_debt; suite 3588/0. Not B3-measured. Known limits: 999.23 (wrong-keep shapes, D-19 hard stop), 999.24 (diff context), 999.25 ($BLOBFILE), 999.26 (wordier title references); live ref extraction unverified (D-15). Archive: `.planning/milestones/v2.13-ROADMAP.md`.
