@@ -17,7 +17,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 
 - [x] **Phase 59: Stale decisions and lost deferrals** - Reproduce CR-01/CR-02/CR-04 and the deferred-member loss on the real chain, then reopen changed decisions with the right reason and keep deferred obligations visible (999.23) (completed 2026-10-29)
 - [x] **Phase 60: Exact change evidence and reliable Finalize** - Nearby/in-diff ranges come from actual added/deleted lines on every route, and Finalize's blob-file path survives fresh Bash calls (999.24, 999.25) (completed 2026-10-30)
-- [ ] **Phase 61: Release gate — decision reliability** - Regressions, offline suite, archived replay and mode/recovery checks pass on the candidate; residuals and validation gaps are stated; ship through the existing close workflow
+- [x] **Phase 61: Release gate — decision reliability** - Regressions, offline suite, archived replay and mode/recovery checks pass on the candidate; residuals and validation gaps are stated; ship through the existing close workflow (completed 2026-10-30)
 
 **Status:** Activated 2026-10-28 as v2.14 (scope owner-approved the same day; requirements STALE, DEFR, EVID, FINL, GATE in REQUIREMENTS.md). This is a bounded follow-up on 999.23–999.25, not a reopening of v2.13 or Phase 57's exhausted gap-closure rounds.
 
@@ -35,7 +35,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
 | 60. Exact change evidence and reliable Finalize | 16/16 | Complete    | 2026-10-30 |
-| 61. Release gate — decision reliability | 4/5 | In Progress|  |
+| 61. Release gate — decision reliability | 5/5 | Complete   | 2026-10-30 |
 
 ## Phase Details
 
@@ -146,7 +146,7 @@ Plans:
   2. Archived replay differs only in the named, expected reopen/retention repairs; any unrelated change in detection, filtering or closure blocks release
   3. The release record states unsupported fixtures, residuals and any validation gap explicitly; live checks ran only under an approved bounded proposal, otherwise the gap is documented with an owner waiver, and the milestone ships through the existing close workflow
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -161,7 +161,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 61-05-PLAN.md — Release record, 2.14.0 notes (Known limits), close runbook with tree-identity check, one-page owner sign-off (publish pending close)
+- [x] 61-05-PLAN.md — Release record, 2.14.0 notes (Known limits), close runbook with tree-identity check, one-page owner sign-off (publish pending close)
 
 ## Following milestone: Lean orchestration
 

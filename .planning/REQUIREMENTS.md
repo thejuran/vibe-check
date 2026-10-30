@@ -40,7 +40,7 @@
 
 - [x] **GATE-01**: On the release candidate, the targeted real-chain regressions, full offline suite, and mode/recovery integration checks pass
 - [x] **GATE-02**: Archived replay differs only in the named, expected reopen/retention repairs; any unrelated change in detection, filtering or closure blocks release
-- [ ] **GATE-03**: The release record states the unsupported fixtures, residuals and any validation gap explicitly; live checks run only under an approved bounded proposal, otherwise the gap is documented and an owner waiver obtained, and the milestone ships through the existing close workflow without waiting for Lean orchestration
+- [x] **GATE-03**: The release record states the unsupported fixtures, residuals and any validation gap explicitly; live checks run only under an approved bounded proposal, otherwise the gap is documented and an owner waiver obtained, and the milestone ships through the existing close workflow without waiting for Lean orchestration
 
 ## Future Requirements
 
@@ -81,7 +81,7 @@ Scheduled as later milestones (ROADMAP.md), not this one:
 | FINL-02 | Phase 60 | Gap closure landed (60-08: c0ece7e; second round 60-12: c112ca6; third round 60-14, 60-15: 9b3f055, 07bb448); awaiting re-verification |
 | GATE-01 | Phase 61 | Complete on candidate 0d2be77 (61-03: G1 3821 / G2 193 / G3 520 passed); re-run required if the candidate changes |
 | GATE-02 | Phase 61 | Complete on candidate 0d2be77 (61-03: replay vs v2.13 170 runs, 0 differing, no allowances; REGRESSED 0); re-run required if the candidate changes |
-| GATE-03 | Phase 61 | Pending |
+| GATE-03 | Phase 61 | Complete through sign-off (61-05: record, notes, runbook; owner signed off 2026-10-30, Decision 1 = A, waivers granted); the "ships" clause is pending close per 61-CLOSE-RUNBOOK.md |
 
 **Coverage:**
 - v2.14 requirements: 16 total (header count corrected from 18 at roadmap creation; 6 STALE + 2 DEFR + 3 EVID + 2 FINL + 3 GATE)
