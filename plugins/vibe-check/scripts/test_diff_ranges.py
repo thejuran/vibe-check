@@ -68,6 +68,9 @@ STATE_ALL_MD = os.path.join(PLUGIN_ROOT, "phases", "review",
                             "05-state-all.md")
 SCOPE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "00-scope.md")
 STATE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "05-state.md")
+FINALIZE_MD = os.path.join(PLUGIN_ROOT, "phases", "shared", "90-finalize.md")
+SIX_ROW_FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures",
+                               "iplayarr45-six-row-state.json")
 PR_FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures", "pr-cumulative.diff")
 
 # The flags every range-building git call in the review prose passes.
@@ -1595,13 +1598,22 @@ class TestRangeSourceLines(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 HEAD_SHA_CALL = 'carry_state.py" last-head-sha < "$STATE_FILE"'
 HEAD_SHA_PRINT = "printf 'LAST_REVIEWED_SHA=%s\\n' \"$LAST_REVIEWED_SHA\""
-HEAD_SHA_HALT = ("Review halted — the state file's last-pass head_sha is not "
-                 "a commit sha; nothing was scored.")
+HEAD_SHA_HALT_OLD = ("Review halted — the state file's last-pass head_sha "
+                     "is not a commit sha; nothing was scored.")
+HEAD_SHA_HALT = (HEAD_SHA_HALT_OLD
+                 + " Set that pass's head_sha to the full 40-hex sha of the "
+                 "last reviewed commit (or restore the state file from git) "
+                 "and re-run; --finalize does not read this value and still "
+                 "works.")
 HEAD_SHA_OLD = "`$LAST_REVIEWED_SHA = state.passes[-1].head_sha`"
+FINALIZE_MODE_REF = '"$FINALIZE_MODE"'
+FINALIZE_SKIP_SENTENCE = "A `FINALIZE_MODE=1` run skips this binding"
+COUNTS_CALL = 'carry_state.py" finalize-counts --head-blobs "$BLOBFILE"'
 HEAD_SHA_NEEDLES = (
     "ONLY the literal printed after `LAST_REVIEWED_SHA=`",
     "never a value copied from the state JSON by hand",
     "refused before it can reach a command",
+    FINALIZE_SKIP_SENTENCE,
 )
 PHASE_START_HALT = ("Review halted — the phase-start commit id is not a "
                     "commit sha; nothing was scored.")
@@ -1652,6 +1664,12 @@ def head_sha_binding_holds(text):
         for needle in (HEAD_SHA_PRINT, HEAD_SHA_HALT, "exit 1"):
             if needle not in fence:
                 problems.append("bind fence lacks %r" % needle)
+        if FINALIZE_MODE_REF not in fence:
+            problems.append("bind fence does not branch on the printed "
+                            "FINALIZE_MODE literal")
+        if HEAD_SHA_HALT_OLD + '"' in fence:
+            problems.append("bind fence halt line is the bare pre-round "
+                            "sentence")
     region = _step_two(text)
     for needle in HEAD_SHA_NEEDLES:
         if needle not in region:
@@ -1757,6 +1775,86 @@ class TestStateHeadShaFence(_Repo):
         proc = self.run_bind(os.path.join(self._tmp.name, "absent.json"))
         self._assert_bind_halted(proc)
 
+    def _fence_in_mode(self, mode):
+        """The fence with the literal Phase 0 printed after `FINALIZE_MODE=`
+        substituted for `"$FINALIZE_MODE"`, as the prose directs."""
+        self.assertIn(FINALIZE_MODE_REF, self.fence)
+        return self.fence.replace(FINALIZE_MODE_REF, '"%s"' % mode)
+
+    def run_bind_in_mode(self, mode, state_path, extra_env=None):
+        return run_bind_fence(self._fence_in_mode(mode), self.repo,
+                              state_path, extra_env)
+
+    def test_finalize_mode_skips_the_bind_and_reaches_the_counts_step(self):
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["passes"][-1]["head_sha"] = "HEAD"
+        state = os.path.join(self._tmp.name, "state.json")
+        with open(state, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        with open(state, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["passes"][-1]["head_sha"], "HEAD")
+        proc = self.run_bind_in_mode("1", state)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), [])
+        self.assertEqual(proc.stderr, "")
+        # Finalize's own counts step, read from 90-finalize.md and run fresh
+        # (`finalize-counts --head-blobs`), works on this very state file.
+        with open(FINALIZE_MD, encoding="utf-8") as fh:
+            counts = _fence_holding(fh.read(), COUNTS_CALL)
+        self.assertIsNotNone(counts)
+        blob = os.path.join(self._tmp.name, "blob.json")
+        with open(blob, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        self.assertIn('"$BLOBFILE"', counts)
+        counts = counts.replace('"$BLOBFILE"', '"%s"' % blob)
+        cproc = run_bind_fence(counts, self.repo, state)
+        self.assertEqual(cproc.returncode, 0, cproc.stderr)
+        got = json.loads(cproc.stdout.splitlines()[0])
+        self.assertEqual(got["outstanding_cw"], 5)
+        self.assertEqual(got["unacknowledged_medium"], 1)
+        self.assertEqual(got["undecided_nv"], 0)
+
+    def test_finalize_mode_never_runs_the_payload(self):
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        proc = self.run_bind_in_mode("1", self._state(INJECTION_PAYLOAD),
+                                     {"T": marker_dir})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), [])
+        self.assertEqual(proc.stderr, "")
+        self.assertFalse(os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_review_mode_literal_zero_still_halts(self):
+        for head in (INJECTION_PAYLOAD, "HEAD", "A" * 40):
+            with self.subTest(head=head):
+                marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+                proc = self.run_bind_in_mode("0", self._state(head),
+                                             {"T": marker_dir})
+                self._assert_bind_halted(proc)
+                self.assertFalse(
+                    os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_unsubstituted_mode_fails_closed(self):
+        self.assertNotIn("FINALIZE_MODE", gitfixture.helper_env())
+        self._assert_bind_halted(self.run_bind(self._state("HEAD")))
+
+    def test_finalize_mode_still_prints_a_valid_sha_in_review_mode_only(self):
+        sha = self.git("rev-parse", "HEAD").stdout.strip()
+        proc = self.run_bind_in_mode("0", self._state(sha))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), ["LAST_REVIEWED_SHA=" + sha])
+        proc = self.run_bind_in_mode("1", self._state(sha))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), [])
+
+    def test_halt_names_a_remedy(self):
+        proc = self.run_bind(self._state("HEAD"))
+        last = proc.stderr.strip().splitlines()[-1]
+        self.assertEqual(last, HEAD_SHA_HALT)
+        self.assertIn("--finalize", last)
+        self.assertIn("restore the state file from git", last)
+        self.assertNotIn("\n", HEAD_SHA_HALT)
+
 
 class TestSubstitutedValueProse(unittest.TestCase):
 
@@ -1785,6 +1883,14 @@ class TestSubstitutedValueProse(unittest.TestCase):
             anchor = "2. If present: parse it."
             self.assertIn(anchor, text)
             mutant = text.replace(anchor, anchor + " " + HEAD_SHA_OLD, 1)
+            self.assertNotEqual(head_sha_binding_holds(mutant), [])
+        with self.subTest(removed=FINALIZE_MODE_REF):
+            self.assertIn(FINALIZE_MODE_REF, text)
+            mutant = text.replace(FINALIZE_MODE_REF, '"$UNRELATED"', 1)
+            self.assertNotEqual(head_sha_binding_holds(mutant), [])
+        with self.subTest(reinserted=HEAD_SHA_HALT_OLD):
+            self.assertIn(HEAD_SHA_HALT, text)
+            mutant = text.replace(HEAD_SHA_HALT, HEAD_SHA_HALT_OLD, 1)
             self.assertNotEqual(head_sha_binding_holds(mutant), [])
 
     def test_substituted_value_mutants_trip(self):
