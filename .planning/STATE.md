@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: "v2.14 complete and archived; 2.14.0 release in progress (unpublished)"
-stopped_at: "Milestone v2.14 archived (audit tech_debt 16/16); next: 61-CLOSE-RUNBOOK.md steps 2-10 (freshness, release PR, owner OK, merge, tag origin/main, GitHub release, install update)"
-last_updated: "2026-10-30T23:55:00Z"
-last_activity: 2026-10-30 -- v2.14 audited (tech_debt, 16/16) and archived to milestones/; 2.14.0 not yet published
+status: "Awaiting next milestone — v2.14 shipped as 2.14.0"
+stopped_at: "v2.14 shipped 2026-10-30 as 2.14.0 (PR #7 squash ecc3299, tag v2.14, GitHub release); next: /bm:new-milestone for Lean orchestration"
+last_updated: "2026-10-31T00:20:00Z"
+last_activity: 2026-10-30 -- 2.14.0 released (PR #7 merged, tag v2.14 on origin/main, GitHub release v2.14, plugin updated 2.13.0 -> 2.14.0)
 progress:
   total_phases: 3
   completed_phases: 3
@@ -21,20 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-30)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** 2.14.0 release per 61-CLOSE-RUNBOOK.md; Lean orchestration next via /bm:new-milestone
+**Current focus:** Between milestones — Lean orchestration next via /bm:new-milestone
 
 ## Current Position
 
-Phase: 61 (release-gate-decision-reliability) — COMPLETE; milestone archived; release in progress
+Phase: 61 (release-gate-decision-reliability) — SHIPPED (last phase of v2.14)
 Plan: 5 of 5
-Status: v2.14 complete and archived; 2.14.0 release in progress (not published)
+Status: Awaiting next milestone — v2.14 shipped as 2.14.0
 Last activity: 2026-10-30 -- milestone audit tech_debt 16/16 (integration 8/9, flows 5/5); archived to .planning/milestones/v2.14-*; no tag made
 
 ## Operator Next Steps
 
-- Run 61-CLOSE-RUNBOOK.md (now at .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/) steps 2-4: freshness assert, Dependabot note, push + open release PR; merge only on the owner's OK
-- Then steps 5-10: tree-identity check, tag v2.14 on origin/main, GitHub release, remote check, plugin update + relaunch, branch cleanup; flip ROADMAP/STATE to shipped and mark GATE-03 "ships" in milestones/v2.14-REQUIREMENTS.md
-- After 2.14.0 ships: /bm:new-milestone for Lean orchestration
+- Relaunch Claude Code fully so the installed vibe-check 2.14.0 (updated from 2.13.0) is loaded, then confirm the installed version and SHA match origin/main (61-CLOSE-RUNBOOK.md step 9)
+- /bm:new-milestone for Lean orchestration (999.12 feasibility, Finalize-first extraction)
 
 ## Deferred Items
 

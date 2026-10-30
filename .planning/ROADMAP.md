@@ -1,28 +1,27 @@
 # Roadmap: vibe-check
 
-Updated 2026-10-30. v2.14 Decision reliability is complete: all 3 phases are verified, the owner signed off candidate 47978aa, and the milestone is archived. The 2.14.0 release (PR, squash to main, tag, GitHub release) is in progress per 61-CLOSE-RUNBOOK.md. Lean orchestration is next and not yet activated, and Reviewer efficiency stays conditional. Each future phase begins by reproducing its failure on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
+Updated 2026-10-30. v2.14 Decision reliability shipped as 2.14.0 (PR #7, squash ecc3299, tag v2.14, GitHub release). Lean orchestration is next and not yet activated, and Reviewer efficiency stays conditional. Each future phase begins by reproducing its failure on current code. A path that does not reproduce is recorded and dropped, never replaced with invented work.
 
 ## Milestones
 
 - ✅ v2.11 Quiet loop -- Phases 45–50 (2.11.0 and 2.11.1 shipped 2026-10-08)
 - ✅ v2.12 Quiet without hiding -- Phases 51–54; Phase 55 measurement deferred, outcome UNMET under owner waiver (shipped 2026-10-17)
 - ✅ v2.13 Reliable fix closure and recovery -- Phases 56–58 (shipped 2026-10-28 as 2.13.0; known limits in backlog 999.23–999.26) — [archive](milestones/v2.13-ROADMAP.md)
-- 🚧 v2.14 Decision reliability -- Phases 59–61 (all phases complete and archived; 2.14.0 release in progress) — [archive](milestones/v2.14-ROADMAP.md)
+- ✅ v2.14 Decision reliability -- Phases 59–61 (shipped as 2.14.0; known limits 999.23 residuals, 999.26–999.28) — [archive](milestones/v2.14-ROADMAP.md) (shipped 2026-10-30)
 - 📋 Lean orchestration -- planned (activates via /bm:new-milestone after 2.14.0 ships)
 
-Active milestone: v2.14 Decision reliability, release step only. No phase work remains.
+No active milestone: awaiting the next one. Lean orchestration is agreed and starts with `/bm:new-milestone`.
 
-### 🚧 v2.14 Decision reliability (Phases 59–61, release in progress)
+<details>
+<summary>✅ v2.14 Decision reliability (Phases 59–61) — SHIPPED 2026-10-30</summary>
 
-**Goal:** Close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy.
+- [x] Phase 59: Stale decisions and lost deferrals (6/6 plans) — completed 2026-10-29
+- [x] Phase 60: Exact change evidence and reliable Finalize (16/16 plans) — completed 2026-10-30
+- [x] Phase 61: Release gate — decision reliability (5/5 plans) — completed 2026-10-30
 
-- [x] **Phase 59: Stale decisions and lost deferrals** - Reproduced CR-01/CR-02/CR-04 and the deferred-member loss on the real chain; changed decisions reopen and deferred obligations stay visible (999.23) (completed 2026-10-29)
-- [x] **Phase 60: Exact change evidence and reliable Finalize** - Nearby/in-diff ranges come from actual added/deleted lines on every route; Finalize's blob-file path survives fresh Bash calls (999.24, 999.25) (completed 2026-10-30)
-- [x] **Phase 61: Release gate — decision reliability** - G1–G9 pass on candidate 47978aa; residuals and validation gaps stated; owner re-signed (Decision 1 = B) (completed 2026-10-30)
+Shipped as 2.14.0 via release PR #7 (squash `ecc3299`, tag `v2.14`, GitHub release v2.14). Audit tech_debt 16/16 ([audit](milestones/v2.14-MILESTONE-AUDIT.md)). Details: [archive](milestones/v2.14-ROADMAP.md).
 
-**Audit:** tech_debt. 16/16 requirements, integration 8/9, flows 5/5 ([audit](milestones/v2.14-MILESTONE-AUDIT.md)). Full phase details, plans and decisions are in the [archive](milestones/v2.14-ROADMAP.md), the [requirements archive](milestones/v2.14-REQUIREMENTS.md) and `milestones/v2.14-phases/`.
-
-**Next action:** release steps 2–10 of `milestones/v2.14-phases/61-release-gate-decision-reliability/61-CLOSE-RUNBOOK.md`. These are the freshness check, the release PR (merge only on the owner's OK), the tree-identity check, the tag on origin/main, the GitHub release, and the install update. Then flip this milestone to ✅ shipped.
+</details>
 
 ## Next milestone: Lean orchestration
 
@@ -128,7 +127,7 @@ Owner decision 2026-10-28: retain the existing optional Codex plugin integration
 
 ## Planning boundaries
 
-- v2.14 Decision reliability is the only active milestone (release step only). Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
+- No milestone is active. Lean orchestration starts with /bm:new-milestone. Paid runs, new agents and publication require explicit owner approval; this roadmap does not authorize them.
 - v2.13 shipped as 2.13.0 with owner-accepted known limits (999.23–999.26); Phase 57 closed under the D-19 hard stop, Phase 58 with live ref extraction unverified (D-15).
 - v2.12 shipped as 2.12.0 under owner waiver; outcome remains **UNMET — measurement incomplete**. Phase 55 and cancelled Phase 54 sweeps remain deferred.
 - Reuse valid review evidence for unchanged code; scope new checks to changed code and affected callers. Any paid check requires an explicit bounded price proposal and owner approval.
