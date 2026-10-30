@@ -4381,6 +4381,40 @@ REPRO_60 = (
      "disposition": "reproduced; fixed by 60-08",
      "fixture": "test_retry_mints_new_gatefile_after_gate_input_failure + "
                 "test_gatefile_missing_path_is_a_named_trigger"},
+    {"id": "HEAD-SHA-INJECTION", "decision": "EVID-03",
+     "scenario": "a state file (committable inside the reviewed repo; GSD "
+                 "key <phase-dir-name>.json) whose last-pass head_sha is "
+                 "$(touch \"$T/pwned\")HEAD; the pass >= 2 range-source row "
+                 "run with that literal substituted into the double-quoted "
+                 "placeholder, as 05-state.md step 2 / 30-collect-score.md "
+                 "directed",
+     "probe_result": "the payload ran (marker file created), the fence "
+                     "exited 0 and printed valid-looking ranges -- double "
+                     "quotes stop word-splitting, not $(...); after the fix "
+                     "the last-head-sha fence refuses it (rc 2, nothing on "
+                     "stdout, fixed reason), 05-state halts with one sentence "
+                     "and no marker is created",
+     "disposition": "reproduced; fixed by 60-10 + 60-11",
+     "fixture": "TestLastHeadSha + TestStateHeadShaFence + "
+                "test_injection_payload_in_the_row_executes_so_the_bind_"
+                "fence_is_the_control + "
+                "test_mutant_without_the_check_prints_the_payload + "
+                "TestSubstitutedValueProse"},
+    {"id": "STALE-GATEFILE-RERUN", "decision": "FINL-02",
+     "scenario": "six-row fixture, counts (5, 1, 0), gate "
+                 "outstanding-to-phase-5; the owner's card answer dismisses "
+                 "every open obligation through record-decisions; step 3 "
+                 "re-runs the counts (0, 0, 0) and then the gate ONCE on this "
+                 "attempt's GATEFILE",
+     "probe_result": "the stale GATEFILE still returns "
+                     "outstanding-to-phase-5 (the owner sees 'Finalize stays "
+                     "blocked' against an empty list and must run --finalize "
+                     "again -- 'Finalize costs one card' broken); a fresh "
+                     "GATEFILE written from the recounted counts returns "
+                     "write",
+     "disposition": "reproduced; fixed by 60-12",
+     "fixture": "test_post_decision_rerun_decides_on_a_fresh_gatefile + "
+                "test_step3_rerun_rule_holds + test_mutant_step3_rerun_rule"},
 )
 # Fixtures a REPRO_60 row may name before the test exists.
 _REPRO_60_PENDING_FIXTURES = set()
@@ -4388,10 +4422,10 @@ _REPRO_60_PENDING_FIXTURES = set()
 
 def _suite_defines(name):
     """True when `name` is a `def` or `class` in this module,
-    test_finalize_card.py or test_diff_ranges.py."""
+    test_finalize_card.py, test_diff_ranges.py or test_carry_state.py."""
     pat = re.compile(r"^\s*(?:def|class) %s\b" % re.escape(name), re.M)
     for mod in ("test_decision_continuity.py", "test_finalize_card.py",
-                "test_diff_ranges.py"):
+                "test_diff_ranges.py", "test_carry_state.py"):
         with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
             if pat.search(fh.read()):
                 return True
@@ -4402,12 +4436,13 @@ class TestRepro60Record(unittest.TestCase):
 
     def test_repro_60_record_is_complete(self):
         by_id = {r["id"]: r for r in REPRO_60}
-        self.assertEqual(len(REPRO_60), 12)
+        self.assertEqual(len(REPRO_60), 14)
         self.assertEqual(set(by_id), {
             "999.24-WIDEN", "999.24-DELETION-RULE", "IN-04-NET-DELETION",
             "PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED", "ALL-ROUTE",
             "999.25-BLOBFILE", "GATE-INPUT-CROSS-CALL", "GSD-SHELL-VAR",
-            "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY"})
+            "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY", "HEAD-SHA-INJECTION",
+            "STALE-GATEFILE-RERUN"})
         for row in REPRO_60:
             with self.subTest(id=row["id"]):
                 self.assertEqual(set(row), {"id", "decision", "scenario",
@@ -4425,6 +4460,10 @@ class TestRepro60Record(unittest.TestCase):
             with self.subTest(id=rid):
                 self.assertTrue(by_id[rid]["disposition"].startswith(
                     "reproduced; fixed by 60-0"), by_id[rid]["disposition"])
+        for rid in ("HEAD-SHA-INJECTION", "STALE-GATEFILE-RERUN"):
+            with self.subTest(id=rid):
+                self.assertTrue(by_id[rid]["disposition"].startswith(
+                    "reproduced; fixed by 60-1"), by_id[rid]["disposition"])
 
     def test_every_fixture_exists(self):
         for row in REPRO_60:
