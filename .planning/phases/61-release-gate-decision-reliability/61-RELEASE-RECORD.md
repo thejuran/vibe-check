@@ -95,6 +95,53 @@ Limits (stated, not new work — no-growth rule, D-07):
 - Range route: one range-builder test (`TestRouteRange`).
 - Pause/resume: prose pins and a state round trip, but no end-to-end pause-then-resume walk. Resume is an ordinary next pass, which the carry tests cover.
 
+## Live smoke (D-01/D-02)
+
+**Verdict: PASS** (with carried item C1 below, which the owner rules on at sign-off). Full record: [61-LIVE-SMOKE.md](61-LIVE-SMOKE.md).
+
+Under the owner-approved proposal ([61-LIVE-SMOKE-PROPOSAL.md](61-LIVE-SMOKE-PROPOSAL.md), APPROVED 2026-10-30), three fresh Claude Code sessions ran on a sealed read-only snapshot of C, with the installed cache at content parity (restored afterwards with an empty diff). Only the default review route and `--finalize` were in scope (D-02). S1 reviewed an uncommitted SQL-injection plant and the finding was deferred. S2 ran after an edit 3 lines above the flagged line and re-asked the decision with the reopen reason "code next to it changed since your decision on pass 1". S3's `--finalize` carried its printed BLOBFILE=/GATEFILE= paths across steps and wrote REVIEW.md (APPROVED, both deferred findings listed) without the "Finalize stopped" sentence. Every plugin path in every transcript came from the snapshot, so all three sessions were VALID. **Caveat (C1):** S1 also re-asked the same decision on pass 2 with no code change at all. So S2's re-ask would have happened without the nearby edit, and the live run does not isolate the nearby-edit trigger. That trigger rests on the offline tests (59/60 real-chain regressions, G2).
+
+## Unsupported fixtures and stated limits
+
+- `--all` carries no decisions between runs (60 R10; `test_diff_ranges.py::TestRouteAll`), so decision continuity does not apply to it. This is a recorded unsupported fixture.
+- Range route: one range-builder test (`TestRouteRange::test_range_between_commits_matches_u0`).
+- Pause/resume: there is no end-to-end pause-then-resume walk, only prose pins and a state round trip.
+- Binary files in PRs: untested (neither PR #6 nor PR #4 contains one).
+- Very large PRs (about 300 files / 20,000 lines, GitHub's diff limit) fail closed: the review stops with an error (60 R17; owner-accepted limit, 60-HUMAN-UAT test 2).
+- A finding in an untracked file is never re-asked after a nearby edit (60 R7).
+- After upgrading from 2.13, one extra re-ask can happen the next time code near a decided finding changes (60 R4).
+- With `diff.submodule=log` set, a change that touches only a submodule halts the pass (60 R18). It fails closed.
+- On the default route, a decision on uncommitted code is re-asked on every pass even when nothing changed (live smoke C1; see Carried). Pending the owner's ruling at sign-off.
+
+## Residuals (linked)
+
+The full residual ledger is linked here, not restated (D-09). Total: 34 items, 8 + 26.
+- Phase 59: [59-REPRO.md §Residuals](../59-stale-decisions-and-lost-deferrals/59-REPRO.md) — R1-R8 (8 items).
+- Phase 60: [60-REPRO.md §Residuals](../60-exact-change-evidence-and-reliable-finalize/60-REPRO.md) — R1-R26 (26 items).
+- Owner rulings: [60-HUMAN-UAT.md](../60-exact-change-evidence-and-reliable-finalize/60-HUMAN-UAT.md). R16: the live Write-tool check passed. R17: accepted limit. R25: status quo, hardening deferred as backlog 999.27.
+- R6 (live `gh pr diff` never exercised) is now "checked once" by G6 above.
+
 ## Carried (D-07)
 
-- `claude plugin validate` printed 3 plugin-directory warnings that do not change the result (`✔ Validation passed`): no plugin icon (`ICON_MISSING`), and `.DS_Store` / `docs/.DS_Store` on disk under `plugins/vibe-check`. `git ls-files` shows neither `.DS_Store` file is tracked, so neither ships. Not a qualifying class; carried, no action in this phase.
+Each item was classified against the four qualifying classes: a mandatory gate failing, data loss, silent loss of a qualifying finding, or a broken required workflow. None qualifies. Each one is listed with the check that would reopen it.
+
+- `claude plugin validate` printed 3 plugin-directory warnings that do not change the result (`✔ Validation passed`): no plugin icon (`ICON_MISSING`), and `.DS_Store` / `docs/.DS_Store` on disk under `plugins/vibe-check`. `git ls-files` shows neither `.DS_Store` file is tracked, so neither ships. Not a qualifying class; carried, no action in this phase. **Reopens if:** `claude plugin validate` fails, or a `.DS_Store` becomes tracked.
+- **C1 — On the default route, a decision on uncommitted code is re-asked on every pass, with a false "code next to it changed" reason** (61-LIVE-SMOKE.md C1). On pass ≥ 2, the ranges come from `git diff <last-reviewed-sha>`. Before any commit that SHA is still HEAD, so the whole uncommitted block counts as changed on every pass. The effect is extra questions: a dismiss or defer holds only until the next pass, Close out still completes, and nothing is lost. The 2.13 default route also took its ranges from `git diff HEAD` on every pass, so this probably predates 2.14. That conclusion comes from reading the 2.13 instructions and has not been tested. Its rationale for carrying is that it fails toward asking. It contradicts the README's standing claim that a decision is kept "when you edit unrelated code" for findings in uncommitted code, and it touches the 2.14 headline promise. **Owner decision at sign-off:** ship with C1 as a documented limit, or rule it qualifying and open the one fix round (D-05). **Reopens if:** the owner rules it qualifying, or a re-ask on unchanged committed code is reproduced, which would be a different and worse defect. **Backlog note:** create ROADMAP backlog entry 999.28 "Default route: decisions on uncommitted code re-asked every pass (false nearby reason)" at close.
+- **C2 — The band rose from warning to critical between passes with no code change** (61-LIVE-SMOKE.md C2). A second reviewer re-confirmed the finding. The severity-rise re-ask is designed behavior and never hides a finding, so there is no backlog entry. **Reopens if:** a band rise is reproduced with only one reviewer reporting.
+- **C3 — The row regrouped between passes** (61-LIVE-SMOKE.md C3). The lead changed, and the old lead became an absorbed member "decided on its own". Both rows carried their deferral and were re-asked, and REVIEW.md lists both. Regrouping is existing behavior that 2.13 covered, so there is no backlog entry. **Reopens if:** a regroup drops a decided member from the card or from REVIEW.md.
+- **C4 — In S2 the model did not take the protocol's Rerun after a typed defer** (61-LIVE-SMOKE.md C4). It stopped and listed choices. This is a model deviation that fails toward stopping: no spend, no loss, and the decisions were saved. It is user-visible (the user must say "continue"). **Backlog note:** fold into the 999.28 entry as a second observation, not a separate item. **Reopens if:** it recurs, or the stop loses a decision.
+- **C5 — Harness retries** (61-LIVE-SMOKE.md C5). The first Write to a fresh `mktemp` file failed once and then succeeded after a Read. This is Claude Code's read-before-write rule, and the printed paths were still carried correctly. It is not user-visible beyond a retry line, so there is no backlog entry. **Reopens if:** the Write is refused outright (that is 60 R16's failure mode).
+
+## Validation gaps and waivers
+
+Everything below was not proven live for 2.14.0:
+- GSD, range, PR, incremental pass 2+ and `--all` routes are proven offline only (D-02; G1-G3) — waiver: pending owner sign-off (61-SIGNOFF.md)
+- The live PR diff fetch was checked once, on PR #6 and PR #4 only (G6, D-03); binary files and very large PRs remain untested — waiver: pending owner sign-off (61-SIGNOFF.md)
+- The nearby-edit re-ask trigger is not isolated live: the live re-ask also happens without an edit (C1), so the trigger rests on offline tests — waiver: pending owner sign-off (61-SIGNOFF.md)
+- Claude's live reading of plain-English (free-text) answers is not release-tested — waiver: pending owner sign-off (61-SIGNOFF.md)
+- No B3 or holdout measurement, so there are no v2.14 catch or false-alarm numbers; v2.11 remains the last measured result — waiver: pending owner sign-off (61-SIGNOFF.md)
+- Pause/resume has no end-to-end walk, live or offline — waiver: pending owner sign-off (61-SIGNOFF.md)
+
+## Publish status
+
+GATE-03 "ships through the existing close workflow": pending close — see [61-CLOSE-RUNBOOK.md](61-CLOSE-RUNBOOK.md). Nothing has been pushed, tagged, merged or released from this phase.
