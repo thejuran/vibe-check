@@ -1420,9 +1420,19 @@ class TestGapRoundFinalize(LockCase):
         with self.subTest("mutant: step 3 re-runs the gate on the old "
                           "GATEFILE again"):
             self.assert_trips(step3_rerun_rule_holds, self._step3_mutant(
-                STEP3_NEEDLES[0],
+                STEP3_NEEDLES[3],
                 STEP3_OLD + " (the same `BLOBFILE=` literal this attempt "
                 "printed)"))
+
+    def test_mutant_step3_reinserts_stale_fingerprint_claim(self):
+        """Every needle stays present; only the reinserted claim that the
+        pre-card fingerprints are still current can trip the lock."""
+        line = step3_line(self.text)
+        self.assertNotIn(STEP3_STALE_OLD, line)
+        mutant = self._mutant(
+            line, line + " — " + STEP3_STALE_OLD + ", only the decisions have")
+        self.assertTrue(all(n in step3_line(mutant) for n in STEP3_NEEDLES))
+        self.assert_trips(step3_rerun_rule_holds, mutant)
 
     def test_step3_keeps_answer_files_anchor(self):
         self.assertEqual(check_answer_files(self.text), [])
@@ -1921,8 +1931,10 @@ def write_boundary_holds(text):
 
 
 STEP3_NEEDLES = (
-    "RE-RUN the counts step ONCE (the same `BLOBFILE=` literal this attempt "
-    "printed)",
+    "run step 1 again",
+    "a new mktemp fence printing a NEW `BLOBFILE=`",
+    "fingerprints rebuilt from the current HEAD, index and working tree",
+    "RE-RUN the counts step ONCE with that NEW `BLOBFILE=` literal",
     "run the gate-input fence again so it prints a NEW `GATEFILE=`",
     "write the seven-key `flags` object from the RE-COUNTED `$COUNTS_JSON` "
     "to that new path",
@@ -1930,6 +1942,7 @@ STEP3_NEEDLES = (
     "never on the `GATEFILE=` this attempt's first gate run read",
 )
 STEP3_OLD = "RE-RUN the counts step and the gate ONCE"
+STEP3_STALE_OLD = "the fingerprints have not changed"
 
 
 def step3_line(text):
@@ -1941,7 +1954,9 @@ def step3_rerun_rule_holds(text):
     """FINL-02 / WR-02: after the owner's answers are recorded, step 3
     re-counts on this attempt's BLOBFILE, mints a NEW GATEFILE, writes the
     flags from the recounted counts and gates on that literal, never on the
-    attempt's first GATEFILE."""
+    attempt's first GATEFILE. Before that recount, step 3 re-mints BLOBFILE
+    (re-fingerprints HEAD), so an edit made while the owner answered the card
+    reopens a fix-obsolete verdict instead of being closed by it."""
     line = step3_line(text)
     if not line:
         return ["no step 3 line"]
@@ -1949,6 +1964,9 @@ def step3_rerun_rule_holds(text):
     if STEP3_OLD in line:
         problems.append("step 3 still says to re-run the gate on this "
                         "attempt's GATEFILE")
+    if STEP3_STALE_OLD in line:
+        problems.append("step 3 still claims the pre-card fingerprints are "
+                        "current")
     return problems
 
 
@@ -2357,6 +2375,110 @@ class TestFinalizeFreshShellWalk(LockCase):
             self.assertEqual(
                 json.loads(out.strip().splitlines()[-1])["action"], "write")
             self.assertTrue(self._report(state)["entries"])
+            self._assert_closed()
+
+        self.assert_holds(step3_rerun_rule_holds, self.text)
+
+    def test_post_decision_recount_refingerprints_head(self):
+        """FINL-02 / WR-01: the owner's card answer takes human time and the
+        working tree can change during it. A last-pass fix-obsolete verdict
+        whose verified_blob equals the pre-card BLOBFILE snapshot stays
+        honoured by a step-3 recount on that SAME BLOBFILE even after the
+        file changed; a NEW BLOBFILE re-fingerprinted from the edited HEAD
+        reopens it, and a NEW BLOBFILE with the unchanged blob keeps it
+        closed. Step 3 must say to re-fingerprint."""
+        ARCH_HASH = ("22d360d9c3d841748413b88d41e0840f"
+                     "d0898a854ee6fa5188f134846a8c7449")
+        ARCH_FILE = "src/utils/integrationDeadline.ts"
+        PRE = "blob-pre-card"
+        POST = "blob-post-card"
+        state = self._state_copy(SIX_ROW_FIXTURE)
+        with open(state, encoding="utf-8") as fh:
+            loaded = json.load(fh)
+        last = loaded["passes"][-1]
+        self.assertEqual(last["pass_number"], 3)
+        arch = [f for p in loaded["passes"] for f in p.get("findings", [])
+                if f.get("stable_hash") == ARCH_HASH]
+        self.assertEqual(len(arch), 1)
+        self.assertEqual(arch[0]["band"], "critical")
+        self.assertEqual(arch[0]["file"], ARCH_FILE)
+        self.assertNotIn("fix_verdicts", loaded)
+        loaded["fix_verdicts"] = {ARCH_HASH: {
+            "verdict": "obsolete", "agent": "fix",
+            "head_sha": last["head_sha"], "at_pass": 3,
+            "reason": "line rewritten", "verified_blob": PRE}}
+        self._write_json(state, loaded)
+
+        # Step 1, before the card: HEAD's blob is PRE.
+        gate = gate_fence(self.text)
+        blob1 = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob1, {ARCH_FILE: PRE})
+        counts1 = self._counts(blob1, state)
+        self.assertEqual((counts1["outstanding_cw"],
+                          counts1["unacknowledged_medium"],
+                          counts1["undecided_nv"]), (4, 1, 0))
+        self.assertEqual(counts1["verified_obsolete_hashes"], [ARCH_HASH])
+        gate1 = self._mint("GATEFILE", state_file=state)
+        self._write_json(gate1, self._flags(counts1, state))
+        rc, out, err = self._walk(gate, {"GATEFILE": gate1}, state)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["action"],
+                         "outstanding-to-phase-5")
+
+        # The card answer: every shown row dismissed, recorded.
+        rc, out, err = self._walk(_fence_holding(self.text, ROWS_CALL),
+                                  {"BLOBFILE": blob1}, state)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            rows = json.load(fh)
+        self.assertTrue(rows["rows"])
+        numbers = ",".join(str(r["n"]) for r in rows["rows"])
+        self._write_json(printed["ANSWERFILE"],
+                         {"q1": "dismiss %s -- walk" % numbers, "q2": None})
+        parsefile = self._mint("PARSEFILE",
+                               {"ROWSFILE": printed["ROWSFILE"],
+                                "ANSWERFILE": printed["ANSWERFILE"]}, state)
+        decfile = self._mint("DECFILE", {"PARSEFILE": parsefile}, state)
+        with open(state, encoding="utf-8") as fh:
+            before = fh.read()
+        rc, _, err = self._walk(_fence_holding(self.text, RECORD_CALL),
+                                {"DECFILE": decfile}, state)
+        self.assertEqual(rc, 0, err)
+        with open(state, encoding="utf-8") as fh:
+            self.assertNotEqual(fh.read(), before)
+
+        # During the wait the file was edited: HEAD's blob is now POST.
+        with self.subTest("stale: recount on the pre-card BLOBFILE after the "
+                          "file changed"):
+            counts_stale = self._counts(blob1, state)
+            self.assertEqual(counts_stale["outstanding_cw"], 0)
+            self.assertEqual(counts_stale["verified_obsolete_hashes"],
+                             [ARCH_HASH])
+
+        with self.subTest("fresh: a NEW BLOBFILE re-fingerprinted from the "
+                          "edited HEAD"):
+            blob2 = self._mint("BLOBFILE", state_file=state)
+            self.assertNotEqual(blob2, blob1)
+            self._write_json(blob2, {ARCH_FILE: POST})
+            counts_fresh = self._counts(blob2, state)
+            self.assertEqual(counts_fresh["outstanding_cw"], 1)
+            self.assertEqual(counts_fresh["outstanding_cw_hashes"],
+                             [ARCH_HASH])
+            self.assertEqual(counts_fresh["verified_obsolete_hashes"], [])
+            self.assertEqual(self._gate(counts_fresh, state)["action"],
+                             "outstanding-to-phase-5")
+
+        with self.subTest("control: a NEW BLOBFILE with the unchanged blob "
+                          "still honours the verdict"):
+            blob3 = self._mint("BLOBFILE", state_file=state)
+            self._write_json(blob3, {ARCH_FILE: PRE})
+            counts_same = self._counts(blob3, state)
+            self.assertEqual(counts_same["outstanding_cw"], 0)
+            self.assertEqual(counts_same["verified_obsolete_hashes"],
+                             [ARCH_HASH])
+            self.assertEqual(self._gate(counts_same, state)["action"],
+                             "write")
             self._assert_closed()
 
         self.assert_holds(step3_rerun_rule_holds, self.text)
