@@ -35,7 +35,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
 | 60. Exact change evidence and reliable Finalize | 16/16 | Complete    | 2026-10-30 |
-| 61. Release gate — decision reliability | 0/5 | Planned | - |
+| 61. Release gate — decision reliability | 1/5 | In Progress|  |
 
 ## Phase Details
 
@@ -146,12 +146,12 @@ Plans:
   2. Archived replay differs only in the named, expected reopen/retention repairs; any unrelated change in detection, filtering or closure blocks release
   3. The release record states unsupported fixtures, residuals and any validation gap explicitly; live checks ran only under an approved bounded proposal, otherwise the gap is documented with an owner waiver, and the milestone ships through the existing close workflow
 
-**Plans:** 5 plans (3 waves)
+**Plans:** 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 61-01-PLAN.md — Release candidate C: plugin 2.14.0 + fact-checked README release section; suite on the edited tree; candidate SHA recorded (D-12)
+- [x] 61-01-PLAN.md — Release candidate C: plugin 2.14.0 + fact-checked README release section; suite on the edited tree; candidate SHA recorded (D-12)
 - [ ] 61-02-PLAN.md — Bounded live-smoke proposal and owner approve/decline before any spend (D-01/D-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*

@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: ready_to_execute
-last_updated: "2026-10-30T21:38:33.000Z"
-last_activity: "2026-10-30 -- Phase 61 planned: 5 plans in 3 waves (plan-checker passed, 0 blockers)"
+status: executing
+last_updated: "2026-10-30T21:47:34.000Z"
+last_activity: 2026-10-30 -- Phase 61 plan 01 complete (candidate C 0d2be77)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 27
-  completed_plans: 22
+  completed_plans: 24
   percent: 67
-stopped_at: Phase 61 planned — next /bm:execute-phase 61
 ---
 
 # Project State
@@ -21,14 +20,14 @@ stopped_at: Phase 61 planned — next /bm:execute-phase 61
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 61 — release gate — decision reliability
+**Current focus:** Phase 61: release-gate-decision-reliability
 
 ## Current Position
 
-Phase: 61
-Plan: 0 of 5 (planned, not started)
-Status: Ready to execute (5 plans, 3 waves)
-Last activity: 2026-10-30 -- Phase 61 planned: 5 plans in 3 waves (plan-checker passed, 0 blockers)
+Phase: 61 (release-gate-decision-reliability) — EXECUTING
+Plan: 2 of 5
+Status: Executing Phase 61
+Last activity: 2026-10-30 -- Phase 61 plan 01 complete (candidate C 0d2be77)
 
 ## Operator Next Steps
 
@@ -82,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 61 plan 01 complete. Release candidate C = 0d2be7790577ea6d89e7eb563008e9ba8c5d7c6d (plugin 2.14.0 + README v2.14 release paragraph and Known limitations (2.14), fact-checked; suite on the edited tree 3821 passed, 0 failed). Recorded in 61-CANDIDATE.md (commit 2a337d3). Decision: the README live-check bullet states scope only; the live-smoke and D-03 PR-fetch outcomes go in the release notes (61-05), so the README does not change after C (D-12). Note for 61-03..05: the C-file-list check needs `LC_ALL=C sort`. GATE-01/GATE-03 stay Pending until the gates run on C. Next: 61-02 (smoke proposal, owner approve/decline).
 
 2026-10-30: Phase 61 context gathered. Owner decisions: one small live smoke (default route + --finalize, ~3 sessions, est. $20-30) under a bounded proposal for approval before any spend, assistant-driven via tmux (D-01/D-02/D-04); free live `gh pr diff` range check on PR #6 (D-03); one fix round on a qualifying gate failure, then stop, and a second round only with explicit owner go-ahead (D-05/D-06); non-qualifying finds carried as known limits (D-07); short Known limits section in the 2.14.0 release notes and a one-page plain-terms sign-off (D-08/D-09); Dependabot disabled noted, no action (D-10); all routes + recovery offline (D-11); gate runs on the final 2.14.0-bumped commit (D-12). Next: /bm:plan-phase 61.
 
