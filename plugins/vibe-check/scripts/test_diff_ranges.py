@@ -1180,13 +1180,15 @@ class TestProseRangeFence(_Repo):
         del L[20]  # line 21
         self.write_lines(L)
 
-    def run_fence(self, source, vc_root=PLUGIN_ROOT, cwd=None):
+    def run_fence(self, source, vc_root=PLUGIN_ROOT, cwd=None,
+                  env_extra=None):
         """Run the fence in a fresh `bash -s`: nothing bound by an earlier
         Bash call (PHASE_START, LAST_REVIEWED_SHA) survives into it."""
         self.assertIn("<range source>", self.fence)
         script = self.fence.replace("<range source>", source)
         env = gitfixture.helper_env()
         env["VC_ROOT"] = vc_root
+        env.update(env_extra or {})
         env.pop("PHASE_START", None)
         env.pop("LAST_REVIEWED_SHA", None)
         return subprocess.run(["bash", "-s"], input=script,
@@ -1246,6 +1248,43 @@ class TestProseRangeFence(_Repo):
 
     def test_incremental_route_fresh_shell_includes_committed_change(self):
         self._route_fresh_shell(self.incr_source, INCR_PLACEHOLDER)
+
+    def test_incremental_route_uses_the_printed_last_reviewed_sha(self):
+        """End to end: the 05-state.md bind fence prints the sha, that
+        printed literal is substituted into the pass >= 2 row, and the range
+        fence runs — all in fresh shells."""
+        sha0 = self._committed_then_uncommitted()
+        with open(STATE_MD, encoding="utf-8") as fh:
+            bind = _fence_holding(fh.read(), HEAD_SHA_CALL)
+        self.assertIsNotNone(bind)
+        state_path = _write_state(self._tmp.name, sha0)
+        proc = run_bind_fence(bind, self.repo, state_path)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        printed = [ln[len("LAST_REVIEWED_SHA="):]
+                   for ln in proc.stdout.splitlines()
+                   if ln.startswith("LAST_REVIEWED_SHA=")]
+        self.assertEqual(printed, [sha0])
+        self.assertIn(INCR_PLACEHOLDER, self.incr_source)
+        ranged = self.run_fence(
+            self.incr_source.replace(INCR_PLACEHOLDER, '"%s"' % printed[0]))
+        self.assertEqual(ranged.returncode, 0, ranged.stderr)
+        self.assertEqual(json.loads(ranged.stdout),
+                         {"f.txt": [[3, 3], [5, 5]]})
+
+    def test_injection_payload_in_the_row_executes_so_the_bind_fence_is_the_control(self):  # noqa: E501
+        """The written reproduction of CR-01: a crafted head_sha substituted
+        straight into the row runs its `$(...)` even inside double quotes.
+        The row cannot protect itself, so the value must be validated where
+        it is bound (05-state.md step 2, 00-scope.md PHASE_START)."""
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        marker = os.path.join(marker_dir, "pwned")
+        self.assertIn(INCR_PLACEHOLDER, self.incr_source)
+        proc = self.run_fence(
+            self.incr_source.replace(INCR_PLACEHOLDER,
+                                     '"%s"' % INJECTION_PAYLOAD),
+            env_extra={"T": marker_dir})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(os.path.exists(marker))
 
     def test_gsd_empty_phase_start_uses_head(self):
         cell = prose_range_row(self.text, "GSD")
@@ -1447,6 +1486,53 @@ class TestScopePhaseStartFence(_Repo):
             ["PHASE_START="])
         self.assertIn("has no commit history yet", proc.stdout)
 
+    def _fence_with_payload(self, payload):
+        """The fence with its `git log` assignment replaced by a single-quoted
+        literal (the assignment itself runs nothing)."""
+        lines = self.fence.split("\n")
+        hits = [i for i, ln in enumerate(lines) if self.NEEDLE in ln]
+        self.assertEqual(len(hits), 1)
+        indent = lines[hits[0]][:len(lines[hits[0]])
+                                - len(lines[hits[0]].lstrip())]
+        lines[hits[0]] = "%sPHASE_START='%s'" % (indent, payload)
+        return "\n".join(lines)
+
+    def _run_script(self, script, env_extra=None):
+        env = gitfixture.helper_env()
+        env["PHASE_DIR"] = ".planning/phases/01-x/"
+        env.pop("PHASE_START", None)
+        env.update(env_extra or {})
+        return subprocess.run(["bash", "-s"], input=script,
+                              cwd=self.repo, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=60)
+
+    def test_non_sha_phase_start_halts_before_printing(self):
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        proc = self._run_script(self._fence_with_payload(INJECTION_PAYLOAD),
+                                {"T": marker_dir})
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual([ln for ln in proc.stdout.splitlines()
+                          if ln.startswith("PHASE_START=")], [])
+        self.assertEqual(proc.stderr.strip(), PHASE_START_HALT)
+        self.assertFalse(os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_mutant_without_the_check_prints_the_payload(self):
+        script = self._fence_with_payload(INJECTION_PAYLOAD)
+        lines = script.split("\n")
+        kept = [ln for ln in lines if PHASE_START_HALT not in ln]
+        self.assertEqual(len(lines) - len(kept), 1)
+        proc = self._run_script("\n".join(kept))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PHASE_START=" + INJECTION_PAYLOAD,
+                      proc.stdout.splitlines())
+
+    def test_sixty_four_hex_is_accepted(self):
+        proc = self._run_script(self._fence_with_payload("a" * 64))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([ln for ln in proc.stdout.splitlines()
+                          if ln.startswith("PHASE_START=")],
+                         ["PHASE_START=" + "a" * 64])
+
 
 # --------------------------------------------------------------------------- #
 # Every abbreviated range-source line carries the full flagged command
@@ -1501,6 +1587,224 @@ class TestRangeSourceLines(unittest.TestCase):
                     + " ".join(PROSE_FLAGS) + " $PHASE_START` x"):
             with self.subTest(bad=bad):
                 self.assertNotEqual(range_source_line_problems(bad), [])
+
+
+
+# --------------------------------------------------------------------------- #
+# CR-01: the two substituted revisions are bound by fences that validate first
+# --------------------------------------------------------------------------- #
+HEAD_SHA_CALL = 'carry_state.py" last-head-sha < "$STATE_FILE"'
+HEAD_SHA_PRINT = "printf 'LAST_REVIEWED_SHA=%s\\n' \"$LAST_REVIEWED_SHA\""
+HEAD_SHA_HALT = ("Review halted — the state file's last-pass head_sha is not "
+                 "a commit sha; nothing was scored.")
+HEAD_SHA_OLD = "`$LAST_REVIEWED_SHA = state.passes[-1].head_sha`"
+HEAD_SHA_NEEDLES = (
+    "ONLY the literal printed after `LAST_REVIEWED_SHA=`",
+    "never a value copied from the state JSON by hand",
+    "refused before it can reach a command",
+)
+PHASE_START_HALT = ("Review halted — the phase-start commit id is not a "
+                    "commit sha; nothing was scored.")
+SUBSTITUTED_VALUE_SENTENCE = (
+    "Only a value printed after `PHASE_START=` or `LAST_REVIEWED_SHA=` by "
+    "those fences is ever substituted")
+QUOTES_ALONE_OLD = ("the quotes around it make an empty or unsubstituted "
+                    "value fail")
+INJECTION_PAYLOAD = '$(touch "$T/pwned")HEAD'
+PHASE_START_REGEX = "[0-9a-f]{40}([0-9a-f]{24})?"
+PHASE_START_PRINT = "printf 'PHASE_START=%s\\n'"
+
+
+def _write_state(tmp, head):
+    """`<tmp>/state.json` whose single (last) pass carries `head`."""
+    path = os.path.join(tmp, "state.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"passes": [{"pass_number": 1, "head_sha": head,
+                               "findings": []}]}, fh)
+    return path
+
+
+def run_bind_fence(fence, repo, state_path, env_extra=None):
+    """Run the 05-state.md step-2 bind fence in a fresh `bash -s` with
+    STATE_FILE set and no LAST_REVIEWED_SHA inherited."""
+    env = gitfixture.helper_env()
+    env["VC_ROOT"] = PLUGIN_ROOT
+    env["STATE_FILE"] = state_path
+    env.pop("LAST_REVIEWED_SHA", None)
+    env.update(env_extra or {})
+    return subprocess.run(["bash", "-s"], input=fence, cwd=repo, env=env,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, timeout=60)
+
+
+def _step_two(text):
+    start = text.index("2. If present: parse it.")
+    return text[start:text.index("3. Narrow diff", start)]
+
+
+def head_sha_binding_holds(text):
+    """Problems with the step-2 head_sha binding in 05-state.md."""
+    problems = []
+    fence = _fence_holding(text, HEAD_SHA_CALL)
+    if fence is None:
+        problems.append("no fence runs carry_state.py last-head-sha")
+    else:
+        for needle in (HEAD_SHA_PRINT, HEAD_SHA_HALT, "exit 1"):
+            if needle not in fence:
+                problems.append("bind fence lacks %r" % needle)
+    region = _step_two(text)
+    for needle in HEAD_SHA_NEEDLES:
+        if needle not in region:
+            problems.append("step 2 lacks %r" % needle)
+    if HEAD_SHA_OLD in region:
+        problems.append("step 2 still binds head_sha by hand from the JSON")
+    lines = [ln for ln in text.split("\n")
+             if ln.strip().startswith(RANGE_SOURCE_PREFIX)]
+    if len(lines) != 1 or \
+            "printed after `LAST_REVIEWED_SHA=`" not in lines[0]:
+        problems.append("step-3 range-source line does not name the printed "
+                        "LAST_REVIEWED_SHA= literal")
+    return problems
+
+
+def substituted_value_rule_holds(text):
+    """Problems with the printed-literal rule in 30-collect-score.md."""
+    problems = []
+    incr = prose_range_row(text, "default or GSD")
+    if "printed after `LAST_REVIEWED_SHA=`" not in incr:
+        problems.append("pass >= 2 row does not name the printed literal")
+    if "read in 05-state.md step 2; substitute it" in incr:
+        problems.append("pass >= 2 row keeps the hand-read wording")
+    if "printed after `PHASE_START=`" not in prose_range_row(text, "GSD"):
+        problems.append("GSD row does not name the printed literal")
+    bullet = _range_bullet(text)
+    if SUBSTITUTED_VALUE_SENTENCE not in bullet:
+        problems.append("range bullet lacks the printed-literal rule")
+    if QUOTES_ALONE_OLD in bullet:
+        problems.append("range bullet still claims the quotes protect it")
+    return problems
+
+
+def phase_start_check_holds(text):
+    """Problems with the PHASE_START commit-id check in 00-scope.md."""
+    fence = _fence_holding(text, TestScopePhaseStartFence.NEEDLE)
+    if fence is None:
+        return ["no phase-range fence"]
+    lines = fence.split("\n")
+    hits = [i for i, ln in enumerate(lines) if PHASE_START_HALT in ln]
+    if len(hits) != 1:
+        return ["expected one check line, got %d" % len(hits)]
+    problems = []
+    line = lines[hits[0]]
+    if PHASE_START_REGEX not in line or "exit 1" not in line:
+        problems.append("check line lacks the regex or exit 1")
+    prints = [i for i, ln in enumerate(lines) if PHASE_START_PRINT in ln]
+    if len(prints) != 1 or not hits[0] < prints[0]:
+        problems.append("check line does not precede the PHASE_START= print")
+    return problems
+
+
+class TestStateHeadShaFence(_Repo):
+    """The 05-state.md step-2 bind fence, read from the file and run in a
+    fresh `bash -s` against a state file."""
+
+    def setUp(self):
+        super().setUp()
+        with open(STATE_MD, encoding="utf-8") as fh:
+            text = fh.read()
+        self.fence = _fence_holding(text, HEAD_SHA_CALL)
+        self.assertIsNotNone(self.fence)
+
+    def _state(self, head):
+        return _write_state(self._tmp.name, head)
+
+    def run_bind(self, state_path, extra_env=None):
+        return run_bind_fence(self.fence, self.repo, state_path, extra_env)
+
+    def _printed(self, proc):
+        return [ln for ln in proc.stdout.splitlines()
+                if ln.startswith("LAST_REVIEWED_SHA=")]
+
+    def _assert_bind_halted(self, proc):
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(self._printed(proc), [])
+        self.assertEqual(proc.stderr.strip().splitlines()[-1], HEAD_SHA_HALT)
+
+    def test_prints_the_validated_sha(self):
+        sha = self.git("rev-parse", "HEAD").stdout.strip()
+        proc = self.run_bind(self._state(sha))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), ["LAST_REVIEWED_SHA=" + sha])
+        self.assertEqual(proc.stderr, "")
+
+    def test_injection_payload_halts_without_executing(self):
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        proc = self.run_bind(self._state(INJECTION_PAYLOAD),
+                             {"T": marker_dir})
+        self._assert_bind_halted(proc)
+        # The helper's own one-line reason, then the fence's halt sentence.
+        self.assertEqual(proc.stderr.strip().splitlines(),
+                         ["refused: last pass head_sha is not a commit sha",
+                          HEAD_SHA_HALT])
+        self.assertFalse(os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_other_non_sha_values_halt(self):
+        for head in ("HEAD", "", None, "A" * 40):
+            with self.subTest(head=head):
+                self._assert_bind_halted(self.run_bind(self._state(head)))
+
+    def test_missing_state_file_halts(self):
+        proc = self.run_bind(os.path.join(self._tmp.name, "absent.json"))
+        self._assert_bind_halted(proc)
+
+
+class TestSubstitutedValueProse(unittest.TestCase):
+
+    def _read(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_head_sha_binding_holds(self):
+        self.assertEqual(head_sha_binding_holds(self._read(STATE_MD)), [])
+
+    def test_substituted_value_rule_holds(self):
+        self.assertEqual(substituted_value_rule_holds(self._read(COLLECT_MD)),
+                         [])
+
+    def test_phase_start_check_holds(self):
+        self.assertEqual(phase_start_check_holds(self._read(SCOPE_MD)), [])
+
+    def test_head_sha_mutants_trip(self):
+        text = self._read(STATE_MD)
+        for needle in HEAD_SHA_NEEDLES + (HEAD_SHA_PRINT,):
+            with self.subTest(removed=needle):
+                self.assertIn(needle, text)
+                self.assertNotEqual(
+                    head_sha_binding_holds(text.replace(needle, "", 1)), [])
+        with self.subTest(reinserted=HEAD_SHA_OLD):
+            anchor = "2. If present: parse it."
+            self.assertIn(anchor, text)
+            mutant = text.replace(anchor, anchor + " " + HEAD_SHA_OLD, 1)
+            self.assertNotEqual(head_sha_binding_holds(mutant), [])
+
+    def test_substituted_value_mutants_trip(self):
+        text = self._read(COLLECT_MD)
+        self.assertIn(SUBSTITUTED_VALUE_SENTENCE, text)
+        with self.subTest(removed="rule sentence"):
+            self.assertNotEqual(substituted_value_rule_holds(
+                text.replace(SUBSTITUTED_VALUE_SENTENCE, "", 1)), [])
+        with self.subTest(reinserted="quotes-alone claim"):
+            mutant = text.replace(
+                SUBSTITUTED_VALUE_SENTENCE,
+                SUBSTITUTED_VALUE_SENTENCE + " " + QUOTES_ALONE_OLD, 1)
+            self.assertNotEqual(substituted_value_rule_holds(mutant), [])
+
+    def test_phase_start_check_mutant_trips(self):
+        text = self._read(SCOPE_MD)
+        lines = text.split("\n")
+        kept = [ln for ln in lines if PHASE_START_HALT not in ln]
+        self.assertEqual(len(lines) - len(kept), 1)
+        self.assertNotEqual(phase_start_check_holds("\n".join(kept)), [])
 
 
 if __name__ == "__main__":
