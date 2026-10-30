@@ -19,6 +19,10 @@ WHAT IT DECIDES
                    stale). Phase 0.5 binds it as `$DEFERRED_HASHES`; score.py
                    keeps a covered member of a deferred row open below
                    threshold (D-20).
+  last-head-sha    Read-only: the last pass's `head_sha` as one bare line,
+                   only when it is a 40- or 64-hex lowercase commit id;
+                   anything else is refused with nothing on stdout. Phase 0.5
+                   binds it as `$LAST_REVIEWED_SHA`.
   record-decisions     The ONLY write path for the root `decisions` family
                        (owner dismiss/defer, written by Finalize and by the
                        fix-loop card, 50-fix-loop.md).
@@ -168,7 +172,7 @@ BLOCKING_BANDS = ("critical", "warning", NV_BAND, "medium")
 _CW_BANDS = ("critical", "warning")
 
 SUBCOMMANDS = ("finalize-counts", "pending", "decided", "deferred",
-               "record-decisions", "record-fix-verdicts")
+               "last-head-sha", "record-decisions", "record-fix-verdicts")
 # The ONLY flags this CLI accepts. There is deliberately no flag that carries a
 # reason, a hash or a title: such text on a command line is expanded by the
 # shell before Python runs.
@@ -179,12 +183,13 @@ _FLAGS_BY_SUBCOMMAND = {
     "pending": ((), ()),
     "decided": ((), ()),
     "deferred": ((), ()),
+    "last-head-sha": ((), ()),
     "record-decisions": (("--decisions-file",), ()),
     "record-fix-verdicts": (("--verdicts-file",), ()),
 }
 
 USAGE = ("usage: carry_state.py finalize-counts [--head-blobs PATH] | pending"
-         " | decided | deferred"
+         " | decided | deferred | last-head-sha"
          " | record-decisions --decisions-file PATH"
          " | record-fix-verdicts --verdicts-file PATH  (state on stdin)\n")
 
@@ -204,6 +209,7 @@ REASON_VERDICTS_FILE = "refused: verdicts file is missing or not valid JSON\n"
 REASON_VERDICTS_PAYLOAD = "refused: malformed verdicts payload\n"
 REASON_NO_FINGERPRINT = "fix verdict skipped: no file fingerprint\n"
 REASON_NO_FIX_EVIDENCE = "fix verdict skipped: no verification evidence\n"
+REASON_HEAD_SHA = "refused: last pass head_sha is not a commit sha\n"
 
 REASONS = (
     REASON_STATE_JSON,
@@ -222,6 +228,7 @@ REASONS = (
     REASON_VERDICTS_PAYLOAD,
     REASON_NO_FINGERPRINT,
     REASON_NO_FIX_EVIDENCE,
+    REASON_HEAD_SHA,
 )
 
 
@@ -1174,6 +1181,32 @@ def deferred(state):
                   and rec.get("decision") == "defer")
 
 
+def _commit_sha(value):
+    """True iff `value` is a full git object id: a str of exactly 40 (SHA-1)
+    or 64 (SHA-256) lowercase hex characters, i.e.
+    `^[0-9a-f]{40}([0-9a-f]{24})?$` without `re`. Uppercase, abbreviated,
+    symbolic (`HEAD`), option-shaped or shell-active text is never a sha."""
+    return (isinstance(value, str) and len(value) in (40, 64)
+            and all(c in _HEX for c in value))
+
+
+def last_head_sha(state):
+    """The last pass's `head_sha` when it is a commit id, else None.
+    Read-only.
+
+    This is the ONLY value 05-state.md may substitute into a command (the
+    last-reviewed sha in `git diff`): the prose never copies `head_sha` out
+    of the JSON itself. The state file lives in the reviewed repo, so a
+    crafted value such as `$(...)HEAD` must never reach a shell; anything
+    that is not exactly a 40/64-hex id is refused here. None on a malformed
+    state as well."""
+    last, reason = _last_pass(state)
+    if reason is not None:
+        return None
+    value = last.get("head_sha")
+    return value if _commit_sha(value) else None
+
+
 # --------------------------------------------------------------------------- #
 # Writes. Each returns a NEW state object (the input is never mutated) and
 # writes exactly one root family; `passes` and `medium_acknowledgments` are
@@ -1492,6 +1525,13 @@ def run(argv, stdin_text):
         result = decided(state)
     elif sub == "deferred":
         result = deferred(state)
+    elif sub == "last-head-sha":
+        sha = last_head_sha(state)
+        if sha is None:
+            return _refuse(REASON_HEAD_SHA), ""
+        # A bare line, not JSON: the fence prints it after
+        # `LAST_REVIEWED_SHA=` and quotes would break the literal.
+        return 0, sha + "\n"
     elif sub == "record-decisions":
         payload = read_json_file(flags["--decisions-file"])
         if not isinstance(payload, dict):
