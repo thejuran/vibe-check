@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T21:47:34.000Z"
-last_activity: 2026-10-30 -- Phase 61 plan 01 complete (candidate C 0d2be77)
+last_updated: "2026-10-30T21:50:25.000Z"
+last_activity: 2026-10-30 -- Phase 61 plan 02 complete (owner APPROVED live smoke)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 27
-  completed_plans: 24
+  completed_plans: 25
   percent: 67
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 61 (release-gate-decision-reliability) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Executing Phase 61
-Last activity: 2026-10-30 -- Phase 61 plan 01 complete (candidate C 0d2be77)
+Last activity: 2026-10-30 -- Phase 61 plan 02 complete (owner APPROVED live smoke)
 
 ## Operator Next Steps
 
@@ -81,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 61 plan 02 complete (81069b0 proposal, a638f34 ruling). 61-LIVE-SMOKE-PROPOSAL.md reads `Status: APPROVED (owner, 2026-10-30)`: the owner's own AskUserQuestion selection "Approve (Recommended)" in the main session, no added conditions. Scope: three tmux sessions on candidate 0d2be77 (review + defer, nearby edit, re-review, --finalize), default route + Close out only, est. $20-30 (not a cap); a qualifying failure uses the one fix round (D-05), still failing = 2.14.0 does not ship. Nothing paid ran. GATE-03 stays Pending until 61-04 runs the smoke. Next: 61-03 (wave 2).
 
 2026-10-30: Phase 61 plan 01 complete. Release candidate C = 0d2be7790577ea6d89e7eb563008e9ba8c5d7c6d (plugin 2.14.0 + README v2.14 release paragraph and Known limitations (2.14), fact-checked; suite on the edited tree 3821 passed, 0 failed). Recorded in 61-CANDIDATE.md (commit 2a337d3). Decision: the README live-check bullet states scope only; the live-smoke and D-03 PR-fetch outcomes go in the release notes (61-05), so the README does not change after C (D-12). Note for 61-03..05: the C-file-list check needs `LC_ALL=C sort`. GATE-01/GATE-03 stay Pending until the gates run on C. Next: 61-02 (smoke proposal, owner approve/decline).
 
