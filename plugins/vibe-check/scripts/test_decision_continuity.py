@@ -4415,6 +4415,49 @@ REPRO_60 = (
      "disposition": "reproduced; fixed by 60-12",
      "fixture": "test_post_decision_rerun_decides_on_a_fresh_gatefile + "
                 "test_step3_rerun_rule_holds + test_mutant_step3_rerun_rule"},
+    {"id": "STALE-BLOBFILE-RECOUNT", "decision": "FINL-02",
+     "scenario": "six-row fixture with a last-pass (pass 3) fix_verdicts "
+                 "obsolete entry for the critical "
+                 "src/utils/integrationDeadline.ts record whose verified_blob "
+                 "equals the blob fingerprinted into step 1's BLOBFILE before "
+                 "the card; the owner answers the card (dismiss the rest); "
+                 "the file's HEAD blob changes during the card wait; step 3 "
+                 "recounts ONCE on 'the same BLOBFILE= literal this attempt "
+                 "printed -- the fingerprints have not changed'",
+     "probe_result": "the stale recount keeps outstanding_cw 0 and "
+                     "verified_obsolete_hashes [that hash] -- the verdict is "
+                     "honoured and the gate would return write over code "
+                     "nothing re-verified; a recount on a NEW BLOBFILE "
+                     "carrying the post-edit blob flips outstanding_cw to 1 "
+                     "(reopened) and the gate stays outstanding-to-phase-5; a "
+                     "NEW BLOBFILE with the unchanged blob still returns "
+                     "write (control)",
+     "disposition": "reproduced; fixed by 60-14",
+     "fixture": "test_post_decision_recount_refingerprints_head + "
+                "test_step3_rerun_rule_holds + test_mutant_step3_rerun_rule + "
+                "test_mutant_step3_reinserts_stale_fingerprint_claim"},
+    {"id": "FINALIZE-HEAD-SHA-WEDGE", "decision": "FINL-02",
+     "scenario": "a state file whose last-pass head_sha is the literal HEAD "
+                 "(written unvalidated by 45-persist.md's \"<current HEAD>\" "
+                 "template; the schema has no format check); --finalize runs "
+                 "Phase 0.5 step 2, whose last-head-sha bind fence (added for "
+                 "CR-01) has no finalize-mode branch",
+     "probe_result": "the fence halts with 'Review halted -- the state "
+                     "file's last-pass head_sha is not a commit sha; nothing "
+                     "was scored.' and no remedy, so Finalize -- which never "
+                     "reads $LAST_REVIEWED_SHA -- can never complete; after "
+                     "the fix the fence with the printed FINALIZE_MODE=1 "
+                     "literal substituted exits 0, prints no "
+                     "LAST_REVIEWED_SHA= line, and the real counts fence "
+                     "returns (5, 1, 0) on that state; in review mode (0, or "
+                     "unsubstituted) the CR-01 payload and HEAD still halt "
+                     "with the remedy-bearing line and no marker file",
+     "disposition": "reproduced; fixed by 60-15",
+     "fixture": "test_finalize_mode_skips_the_bind_and_reaches_the_counts_"
+                "step + test_finalize_mode_never_runs_the_payload + "
+                "test_review_mode_literal_zero_still_halts + "
+                "test_unsubstituted_mode_fails_closed + "
+                "test_halt_names_a_remedy"},
 )
 # Fixtures a REPRO_60 row may name before the test exists.
 _REPRO_60_PENDING_FIXTURES = set()
@@ -4436,13 +4479,14 @@ class TestRepro60Record(unittest.TestCase):
 
     def test_repro_60_record_is_complete(self):
         by_id = {r["id"]: r for r in REPRO_60}
-        self.assertEqual(len(REPRO_60), 14)
+        self.assertEqual(len(REPRO_60), 16)
         self.assertEqual(set(by_id), {
             "999.24-WIDEN", "999.24-DELETION-RULE", "IN-04-NET-DELETION",
             "PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED", "ALL-ROUTE",
             "999.25-BLOBFILE", "GATE-INPUT-CROSS-CALL", "GSD-SHELL-VAR",
             "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY", "HEAD-SHA-INJECTION",
-            "STALE-GATEFILE-RERUN"})
+            "STALE-GATEFILE-RERUN", "STALE-BLOBFILE-RECOUNT",
+            "FINALIZE-HEAD-SHA-WEDGE"})
         for row in REPRO_60:
             with self.subTest(id=row["id"]):
                 self.assertEqual(set(row), {"id", "decision", "scenario",
@@ -4460,7 +4504,8 @@ class TestRepro60Record(unittest.TestCase):
             with self.subTest(id=rid):
                 self.assertTrue(by_id[rid]["disposition"].startswith(
                     "reproduced; fixed by 60-0"), by_id[rid]["disposition"])
-        for rid in ("HEAD-SHA-INJECTION", "STALE-GATEFILE-RERUN"):
+        for rid in ("HEAD-SHA-INJECTION", "STALE-GATEFILE-RERUN",
+                    "STALE-BLOBFILE-RECOUNT", "FINALIZE-HEAD-SHA-WEDGE"):
             with self.subTest(id=rid):
                 self.assertTrue(by_id[rid]["disposition"].startswith(
                     "reproduced; fixed by 60-1"), by_id[rid]["disposition"])
