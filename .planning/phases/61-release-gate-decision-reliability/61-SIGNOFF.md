@@ -60,9 +60,9 @@ You granted these at the first sign-off. They stand as granted for 47978aa, and 
 
 ## Owner sign-off
 
-Status: AWAITING RE-SIGN (owner)
+Status: SIGNED OFF (owner, 2026-10-30)
 
-Re-sign on candidate 47978aa: _(not yet recorded)_. Approval means "proceed", not code review; the evidence is the test and live-smoke results. After re-sign, this phase is release-ready, and publishing happens at milestone close from [61-CLOSE-RUNBOOK.md](61-CLOSE-RUNBOOK.md).
+Re-sign on candidate 47978aa: owner's words, verbatim: "Sign off (Recommended)". Given by the owner directly in the main session (AskUserQuestion, 2026-10-30), with no added conditions. The owner was shown the exact new README limitation text, including the GSD mention (inferred from code, not seen live), and approved it as worded; the six waivers above are re-confirmed. **Decision 1 = B.** Approval means "proceed", not code review; the evidence is the test and live-smoke results. After re-sign, this phase is release-ready, and publishing happens at milestone close from [61-CLOSE-RUNBOOK.md](61-CLOSE-RUNBOOK.md).
 
 ### History — first sign-off on 0d2be77 (superseded)
 

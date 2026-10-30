@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: verifying
-stopped_at: Phase 61 re-gated on candidate C2 47978aa (Decision 1 = B, README states C1); G1-G9 PASS — awaiting owner re-sign in 61-SIGNOFF.md
-last_updated: "2026-10-30T22:48:20.000Z"
-last_activity: "2026-10-30 -- Phase 61 option B: README-only candidate C2 47978aa supersedes 0d2be77 (plugins/ byte-identical); G1-G9 re-run PASS; live smoke carried over; awaiting owner re-sign; nothing published"
+status: phase_complete
+stopped_at: Phase 61 complete — owner re-signed candidate 47978aa (Decision 1 = B); next: Phase 61 PR to main, then milestone close via 61-CLOSE-RUNBOOK.md
+last_updated: "2026-10-30T22:49:46.000Z"
+last_activity: "2026-10-30 -- Phase 61 verified (passed) and owner re-signed 2.14.0 candidate 47978aa; nothing published"
 progress:
   total_phases: 3
   completed_phases: 3

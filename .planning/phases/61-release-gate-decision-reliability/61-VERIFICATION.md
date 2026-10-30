@@ -1,7 +1,7 @@
 ---
 phase: 61-release-gate-decision-reliability
 verified: 2026-10-30T23:10:00Z
-status: human_needed
+status: passed
 score: 10/10 must-haves verified (1 warning needs an owner decision)
 has_blocking_gaps: false
 overrides_applied: 0
@@ -128,3 +128,8 @@ There are no blocking gaps. The candidate is proven: the gates pass on C, replay
 
 _Verified: 2026-10-30T23:10:00Z_
 _Verifier: Claude (bm-verifier)_
+
+
+## Owner resolution (2026-10-30)
+
+WR-01 human-verification item resolved: owner switched Decision 1 to B; README-only candidate 47978aa (plugins/ byte-identical to 0d2be77, tree 9387dcd) re-gated G1-G9 PASS; owner re-signed. Status updated human_needed → passed. See 61-HUMAN-UAT.md and 61-SIGNOFF.md.
