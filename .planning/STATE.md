@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T18:30:59.000Z"
-last_activity: 2026-10-30 -- 60-13 complete (second gap round close-out: REPRO_60 at 14 rows, 60-REPRO.md V13-V14, reverse run at f2b58d1); Phase 60 awaits re-verification
+last_updated: "2026-10-30T19:00:00.000Z"
+last_activity: 2026-10-30 -- Phase 60 re-verification (round 2) gaps_found 5/6: CR-01 + stale-GATEFILE closed; new blocking WR-01 (stale BLOBFILE recount can APPROVE unverified code) + WR-02 (head_sha check wedges --finalize) on FINL-02
 progress:
   total_phases: 3
   completed_phases: 1
@@ -31,7 +31,7 @@ Last activity: 2026-10-30 -- 60-13 complete (second gap round close-out: REPRO_6
 
 ## Operator Next Steps
 
-- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Re-verification at f2b58d1 found CR-01 and WR-02; second-round plans 60-10..60-13 all executed 2026-10-30 (60-REPRO.md V13-V14, R14 closed, R18-R21 carried). Next: Phase 60 re-verification (EVID-03, FINL-02), then the Phase 60 PR from `feat/v2.14-phase-60`. Owner rulings pending: SA-01 live Write-tool check (R16), SA-02 PR size limit (R17).
+- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Re-verification at f2b58d1 found CR-01 and WR-02; second-round plans 60-10..60-13 all executed 2026-10-30 (60-REPRO.md V13-V14, R14 closed, R18-R21 carried). Re-verification round 2 (60-VERIFICATION.md, review e90c6a7) = gaps_found 5/6: CR-01 and the stale-GATEFILE re-run are closed; two new blocking FINL-02 gaps from the round-2 review — WR-01 (step-3 recount reuses the pre-card BLOBFILE, so a mid-card edit can let a stale fix verdict close a finding and Finalize writes APPROVED) and WR-02 (head_sha bind fence runs on --finalize and can wedge it with no remedy). Next: `/bm:plan-phase 60 --gaps` (third gap round), then re-verify, then the Phase 60 PR. EVID-03 is verifier-cleared for Complete. Owner rulings pending: SA-01 live Write-tool check (R16), SA-02 PR size limit (R17), SA-01(review) whether state-file head_sha may narrow review scope.
 - Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R5 install resync before any manual check, replay deltas none.
 - Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
 - Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
