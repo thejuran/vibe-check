@@ -1,93 +1,17 @@
 ---
 phase: 60-exact-change-evidence-and-reliable-finalize
-verified: 2026-10-30T18:47:39Z
-status: gaps_found
-score: 5/6 must-haves verified
-has_blocking_gaps: true
+verified: 2026-10-30T20:40:00Z
+status: human_needed
+score: 6/6 must-haves verified
+has_blocking_gaps: false
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
-  previous_score: 4/6
+  previous_score: 5/6
   gaps_closed:
-    - "Every route reliably uses the exact-range builder from a genuinely fresh Bash call, with no way to subvert the substituted value (EVID-03) — CR-01 head_sha command injection, closed by 60-10 + 60-11, independently re-reproduced below (fresh-shell fence halts, marker never created)"
-    - "A failed or refused Finalize attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness (FINL-02) — the original stale-GATEFILE post-decision re-run, closed by 60-12, independently re-reproduced below"
+    - "A failed or refused Finalize attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness (FINL-02) — both third-round regressions closed and independently re-reproduced below: WR-01 (step 3's post-decision recount now re-fingerprints HEAD into a NEW BLOBFILE instead of reusing the pre-card snapshot, fixed by 60-14) and WR-02 (the head_sha bind fence now skips on the printed FINALIZE_MODE=1 literal instead of wedging --finalize, fixed by 60-15)"
   gaps_remaining: []
-  regressions:
-    - "WR-01 (90-finalize.md step 3, reported in the fresh gap-round-2 review 60-REVIEW.md, commit e90c6a7): the post-decision recount that 60-12's own fix made load-bearing reuses the pre-card BLOBFILE instead of re-fingerprinting HEAD, so a fix-obsolete verdict can still close over code edited during the human-length card-answer wait, and Finalize can write REVIEW.md APPROVED over code nothing re-verified. Independently reproduced with the real `carry_state.finalize_counts` helper below — this is a NEW defect, introduced by 60-12's fix, not one of the two gaps this round closed."
-    - "WR-02 (05-state.md step 2 / carry_state.py last-head-sha, review's numbering, same commit): the validating head_sha bind fence that 60-10 + 60-11 added to close CR-01 runs unconditionally whenever a state file is present, including every `--finalize` run — even though Finalize never reads `$LAST_REVIEWED_SHA`. A pre-existing non-sha `head_sha` (unvalidated at write time in 45-persist.md) now wedges Finalize permanently with no stated remedy. Independently confirmed by code tracing below — also a NEW defect, introduced by 60-10/60-11's fix."
-gaps:
-  - truth: "A failed or refused Finalize attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness (FINL-02)"
-    status: failed
-    severity: blocking
-    reason: >
-      The original gap this field tracked (the post-decision gate re-run deciding
-      on a stale GATEFILE) is genuinely fixed by 60-12 — independently
-      re-reproduced below. But the fresh gap-round-2 code review (60-REVIEW.md,
-      commit e90c6a7) found two further, NEW defects in the exact mechanisms
-      this round's own fixes touched, and I independently reproduced both —
-      not just read the review's prose.
-
-      WR-01: step 3's "fix empty" branch (the line 60-12 rewrote) now says
-      verbatim "RE-RUN the counts step ONCE (the same `BLOBFILE=` literal this
-      attempt printed) — the fingerprints have not changed, only the decisions
-      have". That claim is false whenever time passes between the card being
-      shown and the owner answering it: BLOBFILE is minted and fingerprinted in
-      step 1, BEFORE the card is rendered, and the owner's read-and-answer wait
-      is a human-length gap during which the working tree can change. Before
-      60-12 this was harmless, because step 3 always gated on the stale
-      GATEFILE and could never return `write`. Now that 60-12 made the
-      post-decision gate decide on the recounted counts (the whole point of its
-      fix), the stale BLOBFILE becomes load-bearing: a fix-obsolete verdict
-      whose file is edited during the card wait is still honoured, because the
-      step-3 recount reads the SAME pre-card blob snapshot instead of
-      re-fingerprinting HEAD the way the separate rebuild-once (failure-retry)
-      paragraph already does 15 lines above. I reproduced this directly against
-      the real `carry_state.finalize_counts` helper (not a mock): with a
-      `fix_verdicts` "obsolete" entry whose `verified_blob` matches the stale
-      BLOBFILE snapshot, `outstanding_cw` stays 0 (closed) even when the
-      simulated real HEAD blob has since changed to a value the stale snapshot
-      never saw; re-fingerprinting at step 3 correctly flips it back to 1
-      (reopened). The new walk test `test_post_decision_rerun_decides_on_a_fresh_gatefile`
-      cannot see this because it writes `{}` to BLOBFILE (no fix_verdicts in
-      play), so the gap is real and untested.
-
-      WR-02 (review's numbering — distinct from the ORIGINAL WR-02 this gap
-      used to track, which is now closed): the `LAST_REVIEWED_SHA` bind fence
-      05-state.md step 2 gained in this round (to close CR-01) has no
-      `FINALIZE_MODE` conditional, and step 2 itself is not conditioned on
-      finalize mode — it is part of "2. If present: parse it.", which runs
-      whenever a state file exists. I confirmed by reading the command spine
-      (`commands/review.md`/`deep-review.md`) that only Phase 0.5's ROUTING
-      (steps 1/4/5's branch target) is skipped on `--finalize`; step 2's
-      bindings are not exempted. I confirmed by grepping `90-finalize.md` that
-      it never references `LAST_REVIEWED_SHA`, `CARRYFORWARD` or `PASS_NUMBER`
-      at all — Finalize genuinely never needs the value the fence computes.
-      `future-schema.json` requires the `head_sha` key but imposes no format
-      check, and `45-persist.md` has the agent fill it from the literal
-      template `"<current HEAD>"` with no write-time validation, so a short
-      sha, a literal `HEAD`, or any other slip is a plausible way for an
-      existing state file to end up with a non-sha `head_sha`. On the next
-      `--finalize` (or even the next plain review pass, which hits the same
-      fence), the run now hard-stops with "Review halted — the state file's
-      last-pass head_sha is not a commit sha; nothing was scored." with no
-      named remedy — before this round, this exact value was bound unchecked
-      and simply ignored by Finalize, so this stop did not exist. The owner's
-      only paths out are to hand-edit internal JSON they are not told about,
-      or discard the state file (losing every recorded decision) — a broken
-      required workflow by this project's own standing rule for what counts as
-      in-scope (data loss / broken required workflow), introduced by this
-      round's own CR-01 fix.
-    artifacts:
-      - path: "plugins/vibe-check/phases/shared/90-finalize.md"
-        issue: "step 3's rewritten line (60-12) asserts the pre-card BLOBFILE's fingerprints 'have not changed' without re-verifying that, unlike the rebuild-once paragraph which explicitly re-fingerprints"
-      - path: "plugins/vibe-check/phases/review/05-state.md"
-        issue: "step 2's head_sha bind fence (60-10/60-11) has no FINALIZE_MODE=1 exemption, so a stored head_sha's format can hard-stop a --finalize run that never consumes the value it validates"
-      - path: "plugins/vibe-check/scripts/test_finalize_card.py"
-        issue: "test_post_decision_rerun_decides_on_a_fresh_gatefile writes {} to BLOBFILE, so it cannot exercise the fix-obsolete / stale-blob path WR-01 describes"
-    missing:
-      - "Step 3 must re-fingerprint HEAD into a NEW BLOBFILE before its recount (mirroring the rebuild-once paragraph's wording exactly), plus a fresh-shell walk test with a fix-obsolete verdict whose file is edited between the card being minted and step 3 running, proving the edit reopens the finding instead of silently closing it"
-      - "05-state.md step 2's head_sha bind fence must be skipped (or made non-fatal) on a FINALIZE_MODE=1 run, since Finalize never reads $LAST_REVIEWED_SHA, with a fence test proving a finalize-mode run with a non-sha head_sha (e.g. the literal \"HEAD\") still reaches the counts/gate step; the halt sentence (for the remaining review-mode case) should also name a remedy instead of a bare refusal"
-deferred: []
+  regressions: []
 human_verification:
   - test: "Confirm whether Claude Code's Write tool refuses the first write to a path that `mktemp` just created but the agent never Read (SA-01, carried as R16 in 60-REPRO.md)"
     expected: "Either the Write succeeds (the existing ROWSFILE/SUGGESTFILE/REFSFILE pattern already relies on this), or it is refused and every --finalize attempt (and its one retry) fails at the BLOBFILE/GATEFILE write step"
@@ -104,8 +28,8 @@ human_verification:
 
 **Phase Goal:** The nearby window is exactly what the decision rules say on every review route, and Finalize either completes from a fresh shell or stops safely without writing (999.24, 999.25)
 **Verified:** 2026-10-30
-**Status:** gaps_found
-**Re-verification:** Yes — after the second gap-closure round (plans 60-10, 60-11, 60-12, 60-13), re-verifying against the 2 blocking gaps found at the prior re-verification (`f2b58d1`), plus the second round's own code review (`60-REVIEW.md`, commit `e90c6a7`)
+**Status:** human_needed
+**Re-verification:** Yes — after the THIRD gap-closure round (plans 60-14, 60-15, 60-16), re-verifying against the 2 blocking gaps found at the prior re-verification (`2de0fc9`), plus the third round's own code review (`60-REVIEW.md`, commit `af37636`)
 
 ## Goal Achievement
 
@@ -113,124 +37,131 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | SC1/EVID-01 core: ranges are built only from a hunk's `+`/`-` body markers, not display context | ✓ VERIFIED (regression-checked) | `diff_ranges.py`'s marker-walk core is untouched by this round; `pytest -q test_diff_ranges.py` full file (run by me just now): `115 passed, 86 subtests passed`, 0 failed |
-| 2 | SC2/EVID-02: fixtures that run a real `git diff` produce correct ranges for ordinary, deletion-only, insertion and relocated-finding shapes | ✓ VERIFIED (regression-checked) | Same run as above; unaffected by this round |
-| 3 | SC3/EVID-03: every route reliably uses the exact-range builder from a genuinely fresh Bash call, including the value substituted into it | ✓ VERIFIED | CR-01 (head_sha command injection) is closed. I independently re-ran the EXACT 05-state.md step-2 fence in a genuinely fresh `bash -s`, with the state's last `head_sha` set to the CR-01 payload `$(touch "$T/pwned")HEAD`: it halted (rc 1), printed no `LAST_REVIEWED_SHA=` line, and the marker file was never created. `carry_state.py last-head-sha` accepts only 40/64 lowercase hex (confirmed by reading `_commit_sha`); 00-scope.md's `PHASE_START` fence has the symmetric check. No EVID-03-specific defect remains (see Gaps for a side effect of this fix that lands on FINL-02 instead). |
-| 4 | Range mechanism fails closed (halts, never silently empties) when the diff text is altered by a legitimate repo-local git setting (T-60-13) | ✓ VERIFIED (regression-checked) | `TestHazards`/`TestRefusals`/`TestMutants` M20-M22 are unaffected by this round and green in the full-file run above |
-| 5 | SC4/FINL-01: a fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused `BLOBFILE=` path | ✓ VERIFIED (regression-checked) | `pytest -q test_finalize_card.py` full file (run by me just now): `93 passed, 140 subtests passed`, 0 failed. `TestFinalizeFreshShellWalk`'s own first-attempt walk is unaffected by this round. (WR-01 below is a distinct, newly-reproduced staleness bug in a LATER step — step 3's post-decision re-run — not in this truth's first-attempt path.) |
-| 6 | SC5/FINL-02: a failed or refused attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness | ✗ FAILED | The gap this truth tracked at the prior re-verification (the stale-GATEFILE post-decision re-run) is genuinely fixed by 60-12 — independently re-reproduced below. But the fresh gap-round-2 review (`60-REVIEW.md`, `e90c6a7`) found two NEW defects in the same mechanisms, and I independently reproduced both with working code, not by reading the review's prose: WR-01 (stale pre-card BLOBFILE can let a fix-obsolete verdict close over code edited during the card wait) and WR-02/review (the new head_sha bind fence wedges `--finalize` with no remedy, even though Finalize never reads that value). See `gaps` above. |
+| 1 | SC1/EVID-01 core: ranges are built only from a hunk's `+`/`-` body markers, not display context | ✓ VERIFIED (regression-checked) | Untouched by this round. Full-suite run at `af37636` (below) includes `test_diff_ranges.py` green with 0 failures |
+| 2 | SC2/EVID-02: fixtures that run a real `git diff` produce correct ranges for ordinary, deletion-only, insertion and relocated-finding shapes | ✓ VERIFIED (regression-checked) | Same, unaffected by this round |
+| 3 | SC3/EVID-03: every route reliably uses the exact-range builder from a genuinely fresh Bash call, including the value substituted into it | ✓ VERIFIED | Unchanged from the prior re-verification (CR-01 closed). The round-3 review's new finding (its own "WR-01") concerns Finalize's interaction with 05-state.md step 3, not a review-route range-builder defect — it does not touch this truth (see "New findings" below) |
+| 4 | Range mechanism fails closed (halts, never silently empties) when the diff text is altered by a legitimate repo-local git setting (T-60-13) | ✓ VERIFIED (regression-checked) | Unaffected by this round; green in the full-suite run |
+| 5 | SC4/FINL-01: a fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused `BLOBFILE=` path | ✓ VERIFIED (regression-checked) | Unaffected by this round; `test_finalize_card.py` green in the full-suite run |
+| 6 | SC5/FINL-02: a failed or refused attempt stops and writes nothing; a later successful retry or re-run may complete after revalidating freshness | ✓ VERIFIED | Both gaps from the prior re-verification are closed and independently re-reproduced below with working code, not SUMMARY prose: WR-01 (stale pre-card BLOBFILE) by 60-14, WR-02 (head_sha bind fence wedge) by 60-15. See "Independent re-reproduction" below. |
 
-**Score:** 5/6 truths verified (up from 4/6 at the prior re-verification; both original blocking gaps — CR-01 and the stale-GATEFILE re-run — are genuinely closed, but the round's own fixes opened two new, independently-reproduced defects, both landing on truth 6)
+**Score:** 6/6 truths verified (up from 5/6 at the prior re-verification; both third-round gaps — the stale BLOBFILE recount and the head_sha finalize-wedge — are genuinely closed)
 
-### Independent re-reproduction of the two prior-round gaps (both CLOSED)
+### Independent re-reproduction of the two third-round gaps (both CLOSED)
 
-**CR-01 — head_sha command injection (60-10 + 60-11).** I built a scratch repo and ran the EXACT text of 05-state.md's step-2 fence in a genuinely fresh `bash -s`, with `STATE_FILE` holding `{"passes":[{"pass_number":1,"head_sha":"$(touch \"$T/pwned\")HEAD","findings":[]}]}`:
+**WR-01 — step-3 stale BLOBFILE recount (60-14).** I built a scratch state file from the real `fixtures/iplayarr45-six-row-state.json` (confirmed: last pass `pass_number == 3`; exactly one finding with `stable_hash` `22d360d9…` has `band == "critical"` and `file == "src/utils/integrationDeadline.ts"`; no pre-existing `fix_verdicts` key), added a pass-3 `fix_verdicts` "obsolete" entry for that hash with `verified_blob: "blob-pre-card"`, and ran the REAL `carry_state.py finalize-counts --head-blobs` CLI directly (not the test file's internals):
+
 ```
-refused: last pass head_sha is not a commit sha
-Review halted — the state file's last-pass head_sha is not a commit sha; nothing was scored.
-rc=1
-marker exists: NO
+step1 (pre-card) blob={"...":"blob-pre-card"}:
+  outstanding_cw=4, verified_obsolete_hashes=["22d360d9…"]   (verdict honoured, matches blob)
+step3-OLD-BEHAVIOR: reuse the SAME stale blob after the real file changed:
+  outstanding_cw=4, verified_obsolete_hashes=["22d360d9…"]   (still honoured — WRONG: the real file changed, this snapshot never saw it)
+step3-NEW-BEHAVIOR (60-14 fix): re-mint BLOBFILE, re-fingerprint the now-changed file ("blob-post-card"):
+  outstanding_cw=5, verified_obsolete_hashes=[]              (correctly REOPENED)
 ```
-The payload did not execute, no `LAST_REVIEWED_SHA=` line was printed, and the fence halted. I also read `carry_state.py`'s `_commit_sha` (accepts only `str` of length 40/64, every char in `_HEX` — the lowercase-hex-only form of `^[0-9a-f]{40}([0-9a-f]{24})?$` without `re`, since the import set is sealed) and `last_head_sha`/`run()`'s `last-head-sha` branch, which refuses with nothing on stdout on any other value. Matches 60-10-SUMMARY.md and 60-11-SUMMARY.md.
 
-**Stale-GATEFILE post-decision re-run (60-12).** Read 90-finalize.md step 3's current text: it now says to re-count on the SAME BLOBFILE, then run the gate-input fence again for a NEW `GATEFILE=`, write the seven-key flags from the RE-COUNTED `$COUNTS_JSON` to that new path, and gate on that literal — "never on the GATEFILE= this attempt's first gate run read." `git diff c0ece7e -- plugins/vibe-check/phases/shared/90-finalize.md` shows exactly one line changed (the step-3 line); the rebuild-once (failure-retry) paragraph 15 lines above is byte-identical to the 60-08 close. `pytest -q test_finalize_card.py -k "step3 or post_decision"` (run by me): `4 passed, 89 deselected, 8 subtests passed`, 0 failed — including `test_post_decision_rerun_decides_on_a_fresh_gatefile`, which walks the real fences and shows the stale-GATEFILE-still-blocked / fresh-GATEFILE-writes contrast. Matches 60-12-SUMMARY.md and 60-REPRO.md V14.
+This reproduces the exact causal mechanism WR-01 named: a stale pre-card blob snapshot lets a fix-obsolete verdict survive a real edit made during the card-answer wait; re-fingerprinting HEAD (what 90-finalize.md step 3 now says to do) catches it. I also confirmed the prose directly: `grep -c "the fingerprints have not changed" 90-finalize.md` → 0; `grep -cF 'BLOBFILE=$(mktemp'` → 1 and `grep -cF 'GATEFILE=$(mktemp'` → 1 (no duplicate fence was added — step 3 re-runs step 1's existing fence, as the plan required). Ran the plan's own test classes fresh: `pytest -q test_finalize_card.py -k "step3 or post_decision or refingerprint"` → `6 passed, 89 deselected, 14 subtests passed`, 0 failed. Matches 60-14-SUMMARY.md.
 
-### New findings on the fixed code (60-REVIEW.md, commit `e90c6a7`; independently reproduced by me)
+**WR-02 — head_sha bind fence wedges `--finalize` (60-15).** I ran the EXACT fence text from 05-state.md step 2 in a genuinely fresh `bash -s`, with the state file's last-pass `head_sha` set to the literal `HEAD` (a plausible unvalidated write by 45-persist.md) and `FINALIZE_MODE` substituted as the literal `"1"` (simulating Phase 0's printed value):
 
-**WR-01 — step 3's post-decision recount reuses the pre-card BLOBFILE, so a fix-obsolete verdict can close over code edited during the card wait.**
-
-I reproduced this directly against the real `carry_state.finalize_counts` helper (not a mock or a narrative description):
 ```
-step1 (pre-card) outstanding_cw: 0
-step3 (post-card, STALE BLOBFILE) outstanding_cw: 0
-  -> treated as CLOSED (fix-obsolete honoured) even though real HEAD blob is now BLOB_NEW, never fingerprinted
-step3 (post-card, FRESH re-fingerprint) outstanding_cw: 1
-  -> correctly REOPENED: the edit after the verdict's snapshot is caught
+FINALIZE_MODE substituted as literal 1
+rc_after_step2=0
+(fence printed nothing to stdout or stderr — the skip branch ran)
 ```
-With a `fix_verdicts` "obsolete" entry whose `verified_blob` equals the file's blob at the time BLOBFILE was minted (step 1, before the card is shown), reusing that SAME BLOBFILE at step 3 (exactly as 90-finalize.md's current text instructs: "the fingerprints have not changed, only the decisions have") keeps the finding closed even when the file changed in between. Only re-fingerprinting HEAD at step 3 — the way the separate rebuild-once (failure-retry) paragraph already does — correctly reopens it. Before 60-12, this was harmless because step 3 always stayed blocked regardless of the recount; 60-12's own fix is what made this staleness load-bearing. I confirmed the new walk test cannot see this: `test_post_decision_rerun_decides_on_a_fresh_gatefile` writes `{}` to BLOBFILE (no `fix_verdicts` in play), so no fixture exercises the fix-obsolete path.
 
-**WR-02 (review's numbering) — the new head_sha bind fence also runs on `--finalize` and wedges it with no remedy.**
+Then I ran 90-finalize.md's REAL counts fence (`carry_state.py finalize-counts --head-blobs`) on the SAME state file, fresh:
 
-I confirmed this by code tracing, not by taking the review's narrative at face value:
-- `05-state.md` step 2 ("If present: parse it.") has no `FINALIZE_MODE` conditional of its own; the fence binding `$LAST_REVIEWED_SHA` via `carry_state.py last-head-sha` sits inside it unconditionally.
-- `commands/review.md`/`commands/deep-review.md` say Finalize mode runs "Phase 0.5 — which binds `$STATE_FILE` and reads the state; its routing into Phase 0.7, Phase 1 or the carry-forward steps does not apply here" — only the ROUTING (steps 1/4/5's branch target) is exempted, not step 2's bindings.
-- `grep -n "DECIDED_HASHES\|CARRYFORWARD\|LAST_REVIEWED_SHA\|PASS_NUMBER" plugins/vibe-check/phases/shared/90-finalize.md` returns nothing: Finalize genuinely never consumes the value this fence computes and validates.
-- `fixtures/future-schema.json` requires the `head_sha` key but has no format constraint on it, and `45-persist.md` has the agent fill it from the literal template `"<current HEAD>"` with no write-time check — a plausible slip (short sha, the literal string `HEAD`, etc.) that the schema does not catch.
+```
+{"outstanding_cw": 5, "unacknowledged_medium": 1, "undecided_nv": 0, ...}
+```
 
-The net effect: an existing state file with a non-sha `head_sha` (however it got there) now hard-stops every subsequent `--finalize` (and every subsequent plain review pass, which hits the same fence) with "Review halted — the state file's last-pass head_sha is not a commit sha; nothing was scored." and no stated remedy — before this round, the same value was bound unchecked and simply never read by Finalize, so this stop could not happen. The owner's only ways out are an undocumented hand-edit of internal JSON, or discarding the state file and losing every recorded decision.
+This directly confirms: a state file whose `head_sha` would have halted every `--finalize` before this fix now lets Finalize reach its own counts step and complete, without the bind fence ever consuming (or needing) `$LAST_REVIEWED_SHA`. Ran the plan's own test classes fresh: `pytest -q test_diff_ranges.py -k "StateHeadSha or SubstitutedValue"` → `16 passed, 105 deselected, 17 subtests passed`, 0 failed. Matches 60-15-SUMMARY.md.
+
+**Ledger and record.** `pytest -q test_decision_continuity.py -k TestRepro60Record` → `3 passed, 155 deselected, 67 subtests passed` (REPRO_60 at 16 rows, both new rows resolve through `_suite_defines`). `git diff --stat 2de0fc9 HEAD -- plugins/vibe-check/scripts/replay.py plugins/vibe-check/scripts/score.py plugins/vibe-check/scripts/finalize_gate.py plugins/vibe-check/scripts/carry_state.py` is empty — no production helper changed this round, only the two prose files and three test files, confirmed by `git diff --stat 2de0fc9 HEAD -- plugins/` (exactly `05-state.md`, `90-finalize.md`, `test_decision_continuity.py`, `test_diff_ranges.py`, `test_finalize_card.py`). Full offline suite, run by me from `plugins/vibe-check/scripts`: `pytest -q -p no:cacheprovider` → `3821 passed, 5039 subtests passed in 170.92s`, 0 failed — matches the orchestrator's own close-of-round run cited in 60-16-SUMMARY.md (`3821 passed, 5039 subtests passed in 174.64s`).
+
+### Independent assessment of the fresh round-3 code review's new WR-01 (its own numbering — distinct from the now-closed WR-01 above)
+
+The round-3 code review (`60-REVIEW.md`, commit `af37636`, reviewed AFTER 60-16 landed) found a new WARNING: the 60-15 fix makes 05-state.md step 2 print no `LAST_REVIEWED_SHA=` line on `FINALIZE_MODE=1`, but step 3 ("Narrow diff to incremental … substitute [the literal printed after `LAST_REVIEWED_SHA=`]") has no explicit `FINALIZE_MODE=1` exemption of its own, unlike step 2 and step 4. The review asks: does a live `--finalize` run actually reach step 3 and get stuck, or is step 3 already unreachable/irrelevant on finalize?
+
+**I independently reproduced the REAL, reachable path and refute the blocking interpretation:**
+1. `90-finalize.md`'s own "Finalize mode" section — the file Finalize actually reads, right after Phase 0.5 — states exactly what it needs from Phase 0.5 in finalize mode: "Run Phase 0 and 0.5 to resolve scope and read state… Phase 0.5 binds `$STATE_FILE`… Finalize consumes that one variable." It never mentions step 3's incremental diff.
+2. Step 3's own text names its consumer explicitly: "Range source **for 30-collect-score**." `30-collect-score.md` is Phase 3 (confirmed: `commands/review.md`/`deep-review.md`'s phase table lists `30-collect-score.md` as `3`), and BOTH command spines explicitly exclude Phase 3 from the finalize flow ("Do NOT run Phases 0.2, 0.3, 0.7, 1, 1.5, 2, **3**, 4 or 4.5"). Step 3's sole downstream consumer never runs on `--finalize`.
+3. I ran the actual reachable path fresh, end to end, with the SAME hostile input (`head_sha: "HEAD"`, `FINALIZE_MODE=1`): step 2's fence exits 0 printing nothing (confirmed above), and 90-finalize.md's step 1 → counts fence runs immediately after and returns real counts — `{"outstanding_cw": 5, ...}` — without step 3 of 05-state.md ever being invoked. Nothing stops, nothing is stuck, nothing is misled.
+
+Per the owner's scope rule (new work only for a *reproduced* mandatory-gate failure, data loss, silent finding loss, or broken required workflow), I could not reproduce a failure here — the opposite: I reproduced that Finalize completes cleanly along the path its own governing files describe. I therefore agree with the reviewer's own WARNING (not BLOCKER) grade, but go further: the "ambiguity" is in a paragraph of 05-state.md that a `--finalize` run never has reason to execute, given the command spine's Phase-3 exclusion and 90-finalize.md's self-contained recap. This is a real prose clarity gap worth a cheap one-line fix (mirroring step 2/step 4's explicit `FINALIZE_MODE=1` language) in a future housekeeping pass, but it is not a blocking defect against FINL-02 and does not reopen truth 6. The review's other three findings (IN-01: the halt remedy's "restore from git" clause is misleading when `.turingmind/` is gitignored per convention; IN-02: a Finalize-routed fix-loop Rerun could theoretically carry a stale `FINALIZE_MODE=1` literal into a genuine review pass; IN-03: the new walk test proves the helper, not literally a live agent's HEAD re-fingerprint) are all graded Info by the reviewer, and I independently agree none meet the reproduced-failure bar — they are legitimate carries for the ledger, not gaps.
+
+**Recommendation for the next housekeeping touch (non-blocking):** add one sentence to 05-state.md step 3 exempting `FINALIZE_MODE=1` (as the review's suggested fix shows), add the `.turingmind/`-is-gitignored caveat to the halt remedy, and tie `FINALIZE_MODE` substitution in step 2 explicitly to "this pass's" printed literal. None of this blocks the phase goal.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `plugins/vibe-check/scripts/carry_state.py` | `last-head-sha` subcommand, `_commit_sha` validator, `REASON_HEAD_SHA` sealed, no `re` import | ✓ VERIFIED | Read in full; `SUBCOMMANDS`, `_FLAGS_BY_SUBCOMMAND`, `USAGE`, `REASONS` all updated; `run()` branches to `last_head_sha` and refuses with nothing on stdout |
-| `plugins/vibe-check/scripts/test_carry_state.py` | `TestLastHeadSha` (accept/refuse table incl. CR-01 payload, mutation subtest) | ✓ VERIFIED | `pytest -q test_carry_state.py -k TestLastHeadSha` → 8 passed, 18 subtests passed (run by me); full file 234 passed, 318 subtests, 0 failed |
-| `plugins/vibe-check/phases/review/05-state.md` | step-2 fence binds `$LAST_REVIEWED_SHA` through the validated subcommand; halts on refusal | ⚠️ PARTIAL | Fence present and correct for review-mode halting (confirmed by fresh-shell repro above); unconditionally also runs on `--finalize`, which Finalize never needs — WR-02 (review) |
-| `plugins/vibe-check/phases/review/00-scope.md` | `PHASE_START` fence refuses a non-commit-id value before printing | ✓ VERIFIED | Check line present, confirmed by `sed`/`grep`, precedes the `printf 'PHASE_START=%s\n'` line |
-| `plugins/vibe-check/phases/review/30-collect-score.md` | Rows name only the printed `PHASE_START=`/`LAST_REVIEWED_SHA=` literals; quotes-alone claim removed | ✓ VERIFIED | Read in full; paragraph now correctly says quotes stop word-splitting, not `$(...)` |
-| `plugins/vibe-check/scripts/test_diff_ranges.py` | `TestStateHeadShaFence`, `TestSubstitutedValueProse`, `TestScopePhaseStartFence` additions | ✓ VERIFIED | `pytest -q test_diff_ranges.py -k "StateHeadSha or SubstitutedValue or ScopePhaseStart or printed_last_reviewed or injection_payload"` → 17 passed, 11 subtests passed (run by me); full file 115 passed, 86 subtests, 0 failed |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | Step 3 re-mints GATEFILE from recounted counts | ⚠️ PARTIAL | GATEFILE re-mint fix (60-12) confirmed correct and matches the exact diff recorded in 60-12-SUMMARY.md (`git diff <RED>` 1 line changed); the SAME line's BLOBFILE-reuse assumption is false under a mid-card edit — WR-01 |
-| `plugins/vibe-check/scripts/test_finalize_card.py` | `step3_rerun_rule_holds`, `test_post_decision_rerun_decides_on_a_fresh_gatefile` | ✓ VERIFIED for its own scope | `pytest -q test_finalize_card.py -k "step3 or post_decision"` → 4 passed, 8 subtests passed (run by me); full file 93 passed, 140 subtests, 0 failed. Does not cover the fix-obsolete/stale-blob path (WR-01 is outside this plan's own must-haves) |
-| `plugins/vibe-check/scripts/test_decision_continuity.py` | `REPRO_60` at 14 rows, `_suite_defines` covers `test_carry_state.py` | ✓ VERIFIED | `pytest -q test_decision_continuity.py -k TestRepro60Record` → 3 passed, 54 subtests passed (run by me) |
-| `.planning/phases/.../60-REPRO.md` | V13/V14 ledger, reverse run at `f2b58d1`, suite at close, R14 closed | ✓ VERIFIED (internally consistent) | Matches git history; predates the fresh review `e90c6a7`, so it does not (and could not) cover WR-01/WR-02 (review) — these are new findings this verification surfaces |
-| `.planning/phases/.../60-REVIEW.md` | Second gap-round code review | ✓ VERIFIED | Present at commit `e90c6a7`; WR-01 and WR-02 independently re-reproduced by me above, CR-01-closure confirmation also independently re-checked, not taken on faith |
-| `.planning/REQUIREMENTS.md` / `.planning/ROADMAP.md` | EVID-03/FINL-02 marked "awaiting re-verification", not Complete; no orphaned requirement IDs | ✓ VERIFIED | Both checkboxes unchecked, traceability rows match 60-13's claims exactly; EVID-01/EVID-02/FINL-01 are Complete; all 5 of EVID-01, EVID-02, EVID-03, FINL-01, FINL-02 appear in at least one plan's `requirements:` frontmatter (60-01..60-13) |
+| `plugins/vibe-check/phases/shared/90-finalize.md` | step 3 re-fingerprints HEAD into a NEW BLOBFILE before the post-answer recount (not a stale reuse) | ✓ VERIFIED | Read in full; `grep -c "the fingerprints have not changed"` → 0; the step-3 line now says "run step 1 again — a new mktemp fence printing a NEW `BLOBFILE=`, with the fingerprints rebuilt from the current HEAD, index and working tree… RE-RUN the counts step ONCE with that NEW `BLOBFILE=` literal"; exactly 1 BLOBFILE mktemp fence and 1 GATEFILE mktemp fence (no duplicate) |
+| `plugins/vibe-check/scripts/test_finalize_card.py` | `test_post_decision_recount_refingerprints_head`, `test_mutant_step3_reinserts_stale_fingerprint_claim`, 8 `STEP3_NEEDLES` | ✓ VERIFIED | Present; `pytest -q -k "step3 or post_decision or refingerprint"` → 6 passed, 14 subtests, 0 failed (run by me) |
+| `plugins/vibe-check/phases/review/05-state.md` | step-2 fence skips the `last-head-sha` validation on `FINALIZE_MODE=1`; halt line names a remedy | ✓ VERIFIED | Read in full; `grep -c 'if \[ "\$FINALIZE_MODE" = "1" \]'` → 1; `grep -c "restore the state file from git"` → 1; `grep -c 'A \`FINALIZE_MODE=1\` run skips this binding'` → 1; fresh-shell repro above confirms behavior (skip prints nothing, rc 0) |
+| `plugins/vibe-check/scripts/test_diff_ranges.py` | `TestStateHeadShaFence` finalize-mode tests, `test_halt_names_a_remedy`, mutants for the new needles | ✓ VERIFIED | Present; `pytest -q -k "StateHeadSha or SubstitutedValue"` → 16 passed, 17 subtests, 0 failed (run by me) |
+| `plugins/vibe-check/scripts/test_decision_continuity.py` | `REPRO_60` at 16 rows (STALE-BLOBFILE-RECOUNT, FINALIZE-HEAD-SHA-WEDGE); `TestRepro60Record` locks 16 | ✓ VERIFIED | `pytest -q -k TestRepro60Record` → 3 passed, 67 subtests, 0 failed (run by me); `len(REPRO_60) == 16` confirmed via the SUMMARY's python check, re-derivable from the test module |
+| `.planning/phases/.../60-REPRO.md` | Third gap-round section with V15/V16, red/green table, reverse run at `2de0fc9`, suite at close, R22-R26 | ✓ VERIFIED (internally consistent and checked against git) | Read in full; `git cat-file -e` checked on the cited SHAs (7796476, 9b3f055, 3c7814e, 07bb448, 2de0fc9, c112ca6 all resolve — spot-checked below); residuals R22-R26 present and match 60-REVIEW.md's "Carried" section verbatim in substance |
+| `.planning/phases/.../60-REVIEW.md` | Fresh third-round code review | ✓ VERIFIED | Present at `af37636`; 0 critical, 1 warning, 3 info; the warning independently assessed above (non-blocking) |
+| `.planning/REQUIREMENTS.md` | EVID-03 Complete; FINL-02 traceability row cites third round, stays "awaiting re-verification" (this verification now settles it) | ✓ VERIFIED | `[x] EVID-03` with the 2026-10-30 citation; `[ ] FINL-02` row cites 60-14/60-15 GREEN SHAs and says "awaiting re-verification" — this verification supplies that re-verification and FINDS FINL-02 now holds (see Requirements Coverage below) |
+| `.planning/ROADMAP.md` | Phase 60 plans 16/16, third-round sub-heading checked, 999.24/999.25 paragraphs updated | ✓ VERIFIED | `**Plans:** 16/16 plans executed`; all `60-14`/`60-15`/`60-16` entries checked; 999.25 paragraph names V15/V16 |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| `05-state.md` step-2 fence | `carry_state.py last-head-sha` | `if LAST_REVIEWED_SHA=$(python3 ... last-head-sha < "$STATE_FILE")` | ✓ WIRED (review mode) / ⚠️ OVER-WIRED (also gates finalize mode, which never reads the value) | Fresh-shell repro confirms the halt; WR-02 (review) is the over-wiring |
-| `00-scope.md` phase-range fence | `30-collect-score.md` GSD row | printed `PHASE_START=` literal, check before print | ✓ WIRED | Confirmed by reading and line-order check |
-| `90-finalize.md` step 1 (HEAD fingerprints) | `90-finalize.md` step 3 recount | reuse of `BLOBFILE=` literal, asserted (not re-verified) unchanged | ✗ UNSAFE | WR-01: the reuse is correct for the no-time-elapsed case the new walk test covers, but not for a mid-card edit to a fix-obsolete-verified file |
-| `90-finalize.md` step 3 | gate-input fence + `finalize_gate.py` | NEW `GATEFILE=` built from the RE-COUNTED `$COUNTS_JSON` | ✓ WIRED | Confirmed by reading + green test suite; this is the part 60-12 fixed correctly |
-| `05-state.md` step 2 | `90-finalize.md` entry | unconditional (no `FINALIZE_MODE` gate on step 2 itself) | ✗ NOT EXEMPTED | WR-02 (review): Finalize is reachable only after step 2's validation passes, even though Finalize's own file never reads what step 2 validates |
+| `90-finalize.md` step 3 ("fix empty") | `90-finalize.md` step 1 (HEAD fingerprints) | "run step 1 again — a new mktemp fence printing a NEW `BLOBFILE=`" | ✓ WIRED | Fresh CLI repro above: stale blob wrongly honours a fix-obsolete verdict over an edited file; re-minted blob correctly reopens it |
+| `05-state.md` step-2 fence | `carry_state.py last-head-sha` | `elif LAST_REVIEWED_SHA=$(... last-head-sha ...)` — now gated by `if [ "$FINALIZE_MODE" = "1" ]` | ✓ WIRED (both modes) | Fresh-shell repro: `FINALIZE_MODE=1` → skip, rc 0, nothing printed; `0`/unsubstituted → validates as before (review-mode CR-01 protection intact) |
+| `05-state.md` step 2 | `90-finalize.md` entry (counts fence) | FINALIZE_MODE=1 skip → Finalize proceeds without `$LAST_REVIEWED_SHA` | ✓ WIRED | Fresh-shell repro: the real counts fence runs immediately after the skip and returns real counts on a state file whose `head_sha` would have halted the run before 60-15 |
+| `05-state.md` step 3 (incremental diff) | `30-collect-score.md` (Phase 3) | "Range source for 30-collect-score" | ✓ CONFIRMED UNREACHABLE ON FINALIZE | Phase 3 is explicitly excluded from the finalize flow by both command spines; step 3's sole consumer never runs on `--finalize` — the round-3 review's new WARNING is about unclear prose in a branch that is never actually exercised by Finalize, not a broken link |
+
+### Data-Flow Trace (Level 4)
+
+Not applicable in the dynamic-rendering sense (this phase changes prose procedures and their test harnesses, not a UI/data-rendering component). The equivalent trace — does the fixed prose's literal reuse rule actually feed real recomputed counts into the gate, rather than a static/stale value — is covered above (WR-01/WR-02 fresh-shell reproductions) and is FLOWING in both cases: the post-fix path recomputes from a freshly re-fingerprinted BLOBFILE and reaches `finalize_gate.py` with those real counts.
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| `test_diff_ranges.py` full file | `pytest -q test_diff_ranges.py` | `115 passed, 86 subtests passed` | ✓ PASS |
-| `test_finalize_card.py` full file | `pytest -q test_finalize_card.py` | `93 passed, 140 subtests passed` | ✓ PASS |
-| `test_carry_state.py` full file | `pytest -q test_carry_state.py` | `234 passed, 318 subtests passed` | ✓ PASS |
-| `test_carry_state.py -k TestLastHeadSha` | `pytest -q test_carry_state.py -k TestLastHeadSha` | `8 passed, 18 subtests passed` | ✓ PASS |
-| `test_diff_ranges.py` CR-01 classes | `pytest -q test_diff_ranges.py -k "StateHeadSha or SubstitutedValue or ScopePhaseStart or printed_last_reviewed or injection_payload"` | `17 passed, 11 subtests passed` | ✓ PASS |
-| `test_finalize_card.py` step3/post-decision classes | `pytest -q test_finalize_card.py -k "step3 or post_decision"` | `4 passed, 8 subtests passed` | ✓ PASS |
-| `test_decision_continuity.py -k TestRepro60Record` | `pytest -q test_decision_continuity.py -k TestRepro60Record` | `3 passed, 54 subtests passed` | ✓ PASS |
-| CR-01 payload, genuinely fresh `bash -s`, real 05-state.md fence text | manual real-shell repro (shown above) | rc 1, no `LAST_REVIEWED_SHA=` line, marker never created | ✓ PASS (fix holds) |
-| WR-01 stale-vs-fresh BLOBFILE, real `carry_state.finalize_counts` helper | manual repro (shown above) | stale blob → `outstanding_cw` 0 (wrongly closed); fresh blob → 1 (correctly reopened) | ✗ FAIL (defect confirmed, real) |
-| WR-02 (review) finalize-wedge, code trace of 05-state.md / 90-finalize.md / command spine | manual trace (shown above) | step 2's bind fence is unconditional; 90-finalize.md never reads `LAST_REVIEWED_SHA`/`CARRYFORWARD`/`PASS_NUMBER` | ✗ FAIL (defect confirmed, real) |
-| Full repo suite at HEAD `e90c6a7` | `pytest -q` (plugins/vibe-check/scripts) | `3813 passed, 0 failed` (orchestrator-run, cited per the "run the full suite at most once" constraint — not re-run by me) | ✓ PASS |
+| WR-01 fix: stale vs. fresh BLOBFILE against the real `carry_state.py` CLI (not a mock) | manual repro (shown above) | stale reuse → verdict wrongly honoured (`outstanding_cw` unchanged, verdict closed); fresh re-mint → correctly reopened | ✓ PASS |
+| WR-02 fix: `head_sha: "HEAD"` + `FINALIZE_MODE=1`, genuinely fresh `bash -s`, real 05-state.md fence text | manual repro (shown above) | rc 0, nothing printed, no halt | ✓ PASS |
+| WR-02 fix reaches Finalize's real counts step | manual repro (shown above), `carry_state.py finalize-counts` | `{"outstanding_cw": 5, "unacknowledged_medium": 1, "undecided_nv": 0, ...}` | ✓ PASS |
+| `test_finalize_card.py` WR-01 classes | `pytest -q test_finalize_card.py -k "step3 or post_decision or refingerprint"` | `6 passed, 89 deselected, 14 subtests passed` | ✓ PASS |
+| `test_diff_ranges.py` WR-02 classes | `pytest -q test_diff_ranges.py -k "StateHeadSha or SubstitutedValue"` | `16 passed, 105 deselected, 17 subtests passed` | ✓ PASS |
+| `test_decision_continuity.py` ledger lock | `pytest -q test_decision_continuity.py -k TestRepro60Record` | `3 passed, 155 deselected, 67 subtests passed` | ✓ PASS |
+| No production helper changed this round | `git diff --stat 2de0fc9 HEAD -- replay.py score.py finalize_gate.py carry_state.py` | empty | ✓ PASS |
+| `plugins/` diff-stat matches the claimed 5 files | `git diff --stat 2de0fc9 HEAD -- plugins/` | `05-state.md, 90-finalize.md, test_decision_continuity.py, test_diff_ranges.py, test_finalize_card.py` | ✓ PASS |
+| Full offline suite at `af37636` | `pytest -q -p no:cacheprovider` (plugins/vibe-check/scripts) | `3821 passed, 5039 subtests passed in 170.92s`, 0 failed (run by me, once) | ✓ PASS |
+| Round-3 review's new WR-01: does `--finalize` actually reach/get stuck at 05-state.md step 3? | fresh-shell repro of the REAL reachable path (step 2 skip → 90-finalize.md step 1/counts) | step 3 never invoked; counts fence returns real data | ✓ PASS (refutes the blocking interpretation) |
 
 ### Probe Execution
 
-SKIPPED — no `scripts/*/tests/probe-*.sh` convention in this repo and none declared by the Phase 60 PLAN/SUMMARY files; verification used the project's own `pytest` suite and direct reproduction (shown above) instead, consistent with the prior verification's approach.
+SKIPPED — no `scripts/*/tests/probe-*.sh` convention in this repo and none declared by the Phase 60 PLAN/SUMMARY files; verification used the project's own `pytest` suite and direct fresh-shell/CLI reproduction instead, consistent with the prior verifications' approach.
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |---|---|---|---|---|
-| EVID-01 | 60-01, 60-02, 60-04, 60-06, 60-07 | Ranges from added/deleted lines only, boundary-exact, fails closed on hostile-but-legitimate config | ✓ SATISFIED | Truths 1, 4 |
-| EVID-02 | 60-01, 60-02 | Correct ranges for ordinary/deletion/insertion/relocated shapes via real git diff | ✓ SATISFIED | Truth 2 |
-| EVID-03 | 60-04, 60-07, 60-10, 60-11 | Every route uses exact ranges reliably from a fresh Bash call, with no way to subvert the substituted value | ✓ SATISFIED | Truth 3 (CR-01 closed; the side effect of its fix lands on FINL-02, not EVID-03) |
-| FINL-01 | 60-03 | Printed BLOBFILE literal reused; fresh-shell walk reaches write/report | ✓ SATISFIED | Truth 5 |
-| FINL-02 | 60-03, 60-05, 60-08, 60-12 | No-write-on-failure; a later retry/re-run may complete; revalidates freshness | ✗ BLOCKED | Truth 6; WR-01, WR-02 (review) |
+| EVID-01 | 60-01, 60-02, 60-04, 60-06, 60-07 | Ranges from added/deleted lines only, boundary-exact, fails closed on hostile-but-legitimate config | ✓ SATISFIED | Truths 1, 4 (regression-checked; unaffected by this round) |
+| EVID-02 | 60-01, 60-02 | Correct ranges for ordinary/deletion/insertion/relocated shapes via real git diff | ✓ SATISFIED | Truth 2 (regression-checked) |
+| EVID-03 | 60-04, 60-07, 60-10, 60-11 | Every route uses exact ranges reliably from a fresh Bash call, with no way to subvert the substituted value | ✓ SATISFIED | Truth 3; already marked Complete in REQUIREMENTS.md citing the prior re-verification, reconfirmed here |
+| FINL-01 | 60-03 | Printed BLOBFILE literal reused; fresh-shell walk reaches write/report | ✓ SATISFIED | Truth 5 (regression-checked) |
+| FINL-02 | 60-03, 60-05, 60-08, 60-12, 60-14, 60-15 | No-write-on-failure; a later retry/re-run may complete; revalidates freshness | ✓ SATISFIED | Truth 6; both third-round regressions (WR-01, WR-02) independently re-reproduced as closed above. **This verification finds FINL-02 now holds and may be marked Complete in REQUIREMENTS.md.** |
 
-No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID-03, FINL-01, FINL-02 to Phase 60; all five appear in at least one plan's `requirements:` frontmatter across 60-01 through 60-13.
+No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID-03, FINL-01, FINL-02 to Phase 60; all five appear in at least one plan's `requirements:` frontmatter across 60-01 through 60-16.
 
-**On REQUIREMENTS.md's current wording:** it correctly says EVID-03 and FINL-02 are "Gap closure landed... awaiting re-verification" (not Complete). This re-verification finds EVID-03 now holds (the gap it tracked is closed and no EVID-03-specific defect remains), so EVID-03 can move to Complete. FINL-02 cannot: the gap it originally tracked is closed, but two new, independently-reproduced defects in the very mechanisms this round touched (WR-01, WR-02/review) keep it open. FINL-02 should stay unchecked.
+**On REQUIREMENTS.md's current wording:** it correctly leaves FINL-02 unchecked, noting "third round 60-14, 60-15 … awaiting re-verification." This re-verification supplies that re-verification and finds FINL-02 satisfied: both regressions the prior re-verification found blocking are closed, independently reproduced against real code (not SUMMARY prose), the full offline suite is green (3821 passed, 0 failed), and no production helper changed. FINL-02 can now move to Complete.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| — | — | No `TBD`/`FIXME`/`XXX` debt markers in any file touched by 60-10..60-13 (`vc.XXXXXX` mktemp templates are not debt markers) | — | checked directly, none found |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | step 3 ("fix empty" branch) | Recount asserts fingerprint freshness ("the fingerprints have not changed") without re-verifying it | 🛑 blocking | WR-01 — stale-evidence approval, reproduced |
-| `plugins/vibe-check/phases/review/05-state.md` | step 2 bind fence | No `FINALIZE_MODE` exemption on a validation Finalize never consumes | 🛑 blocking | WR-02 (review) — finalize-wedge with no remedy, reproduced |
-| `plugins/vibe-check/scripts/test_finalize_card.py` | `test_mutant_step3_rerun_rule` (`IN-01` in 60-REVIEW.md) | A mutant check that trips on a missing needle regardless of whether the branch it names exists | ℹ️ info | documentation-strength test, carried per the review; not independently re-scored here |
-| `plugins/vibe-check/phases/review/05-state.md` | bind-fence halt sentence (`IN-02` in 60-REVIEW.md) | One sentence used for several distinct causes (missing state file, bad JSON, empty passes, bad head_sha) | ℹ️ info | misleading diagnostics, not a functional break; carried |
-| `plugins/vibe-check/phases/shared/90-finalize.md` | step 3 (`IN-03` in 60-REVIEW.md) | No stated behavior if the post-decision recount/gate itself fails after decisions were already recorded | ℹ️ info | the generic "nothing was written" stop sentence would be misleading there; carried |
-| `plugins/vibe-check/phases/review/05-state.md` / `carry_state.py` | `SA-01` in 60-REVIEW.md (new, scope question) | A well-formed 40/64-hex `head_sha` committed into the reviewed repo can still narrow the incremental range | — (owner ruling) | moved to Human Verification below; not a code defect |
+| — | — | No `TBD`/`FIXME`/`XXX` debt markers in any file touched by 60-14..60-16 (`vc.XXXXXX` mktemp templates are not debt markers; ROADMAP.md's `TBD` hits are for the unrelated, not-yet-started Phase 61) | — | checked directly, none found |
+| `plugins/vibe-check/phases/review/05-state.md` | step 3 ("Narrow diff to incremental") | New this round (60-REVIEW.md WR-01, `af37636`): no explicit `FINALIZE_MODE=1` exemption, unlike step 2 and step 4 | ⚠️ warning (non-blocking) | Independently assessed above: step 3's only consumer (`30-collect-score.md`/Phase 3) never runs on `--finalize`, and 90-finalize.md's own recap of what it needs from Phase 0.5 never calls for it. Fresh-shell repro of the real reachable path shows no stuck/misled state. Recommend a cheap follow-up (one sentence, mirroring step 2/4's style) but not a phase-blocking gap |
+| `plugins/vibe-check/phases/review/05-state.md` | halt remedy line (`IN-01` in 60-REVIEW.md) | "restore the state file from git" is misleading when `.turingmind/` is gitignored per the project's own first-run guidance | ℹ️ info | Carried; the primary remedy (hand-set `head_sha` to `git rev-parse <sha>`) remains valid regardless |
+| `plugins/vibe-check/phases/review/05-state.md` | `"$FINALIZE_MODE"` substitution (`IN-02` in 60-REVIEW.md) | A Finalize-routed fix-loop Rerun could theoretically carry a stale `FINALIZE_MODE=1` literal into a genuine review pass that does need the diff | ℹ️ info | Carried; same risk class as every other printed-literal rule in this file; fails closed on empty/unsubstituted, so the risk is narrow |
+| `plugins/vibe-check/scripts/test_finalize_card.py` | `test_post_decision_recount_refingerprints_head` (`IN-03` in 60-REVIEW.md) | Proves the `finalize_counts` helper's behavior on hand-written blob maps, not literally a live agent's `git rev-parse`/`git diff --quiet` re-fingerprint | ℹ️ info | Carried; the reviewer notes "Fix: None required for this round" |
+| `plugins/vibe-check/phases/review/05-state.md` / `carry_state.py` | `SA-01` (second round) | A well-formed 40/64-hex `head_sha` committed into the reviewed repo can still narrow the incremental range | — (owner ruling) | Carried in Human Verification below; not a code defect |
 | `plugins/vibe-check/phases/review/30-collect-score.md` | `diff.submodule` not neutralized (60-REPRO.md R18, carried) | not independently re-opened here; outside this verification's assigned scope | warning | false refusal / silent range loss on submodule-only or mixed changes |
 | `plugins/vibe-check/phases/shared/90-finalize.md` | temp files never `rm -f`'d (60-REPRO.md R12, carried) | not independently re-opened here | info/minor | resource hygiene, not a functional break |
 
@@ -240,7 +171,7 @@ No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID
 
 **Test:** Run a live `--finalize` in Claude Code and observe whether the Write tool accepts the first write to the path printed after `BLOBFILE=`/`GATEFILE=` (a file `mktemp` just created but the agent never `Read`).
 **Expected:** The write succeeds (consistent with the pre-existing ROWSFILE/SUGGESTFILE/REFSFILE pattern), or — if refused — every `--finalize` attempt and its one retry both fail at the same step.
-**Why human:** Harness Write-tool behavior cannot be exercised from a pytest fixture.
+**Why human:** Harness Write-tool behavior cannot be exercised from a pytest fixture. Now that both third-round regressions are closed, this is the main remaining way `--finalize` could still fail in a live session — worth checking in the same pass as the owner's next live run.
 
 ### 2. PR size-limit fallback decision (SA-02, carried as R17)
 
@@ -248,7 +179,7 @@ No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID
 **Expected:** An explicit owner ruling on whether `gh pr diff` failing closed on very large PRs (~300+ files / 20k+ lines) is an accepted limit or needs a fallback.
 **Why human:** Not a code defect; the reviewer calls the current fail-closed behavior intended.
 
-### 3. State-file `head_sha` trust boundary for scope (60-REVIEW.md second-round SA-01, new)
+### 3. State-file `head_sha` trust boundary for scope (60-REVIEW.md second-round SA-01, carried as R25)
 
 **Test:** None — this is a scope/product/trust-boundary decision.
 **Expected:** An explicit owner ruling: is a committed state file's `head_sha` trusted to scope the incremental range (accept the status quo), or should scope binding be hardened against a well-formed-but-crafted value that narrows review coverage without telling the owner (plan as a hardening item)?
@@ -256,16 +187,14 @@ No orphaned requirement IDs: REQUIREMENTS.md maps exactly EVID-01, EVID-02, EVID
 
 ### Gaps Summary
 
-This second gap round did what it set out to do for the two gaps it targeted: I independently re-reproduced both closures rather than trusting the SUMMARYs. CR-01 (the head_sha command-injection hole the first re-verification found) is genuinely closed — a fresh-shell run of the exact 05-state.md fence with the exact payload halts, prints nothing, and leaves no marker file. The original stale-GATEFILE post-decision re-run is also genuinely closed — 90-finalize.md step 3 now re-mints GATEFILE from the recounted counts, confirmed by reading the one changed line and by a green, fence-driven walk test.
+No gaps remain. The third gap round closed both blocking defects the prior re-verification found:
 
-However, the phase cannot close yet. The round's own fresh code review (`60-REVIEW.md`, commit `e90c6a7` — the current HEAD) found two further problems in the exact mechanisms this round touched, and I independently reproduced both with working code and direct tracing, not by reading the review's prose:
+1. **WR-01 (closed by 60-14).** Step 3's post-decision recount now re-fingerprints HEAD into a NEW `BLOBFILE=` before recounting, instead of reusing the pre-card snapshot. I independently reproduced the mechanism against the real `carry_state.py` CLI: a stale blob wrongly keeps a fix-obsolete verdict honoured after a real edit; a freshly re-minted blob correctly reopens it.
+2. **WR-02 (closed by 60-15).** The `head_sha` bind fence now skips validation on the printed `FINALIZE_MODE=1` literal. I independently reproduced this in a genuinely fresh `bash -s`: a state file with `head_sha: "HEAD"` (which would have halted every `--finalize` before this fix) now lets the run reach and complete the real counts fence, while review mode (`0`/unsubstituted) still validates and refuses the CR-01 payload exactly as before.
 
-1. **WR-01.** 60-12's fix made the step-3 post-decision recount decide the gate's outcome — correctly, for the GATEFILE half. But the recount still reads the SAME BLOBFILE minted before the card was ever shown, on the unverified assumption that "the fingerprints have not changed, only the decisions have." I reproduced with the real `carry_state.finalize_counts` helper that a fix-obsolete verdict stays "closed" against a stale blob even when the real HEAD blob has since changed, while re-fingerprinting (as the separate rebuild-once paragraph already does) correctly reopens it. This is a regression introduced by this round's own 60-12 fix, not a pre-existing residual: before 60-12, step 3 could never reach `write`, so the staleness was inert.
-2. **WR-02 (review's numbering).** The validating head_sha bind fence 60-10/60-11 added to close CR-01 has no exemption for `FINALIZE_MODE=1`, even though I confirmed by reading 90-finalize.md end to end that Finalize never consumes the value the fence validates. A pre-existing non-sha `head_sha` — plausible, since nothing validates the field's format when it is written — now wedges every subsequent `--finalize` (and every subsequent review pass) with no stated remedy, where before this round the same value was silently bound and ignored.
+The fresh round-3 code review (`60-REVIEW.md`, `af37636`) surfaced one new WARNING and three new INFO items, all found in the exact mechanisms this round touched. I independently assessed the WARNING (step 3 of 05-state.md has no explicit `FINALIZE_MODE=1` exemption) rather than taking either the review's or the SUMMARYs' word for it: I traced that step 3's only consumer (Phase 3 / `30-collect-score.md`) is explicitly excluded from the finalize flow by both command spines, that `90-finalize.md`'s own self-contained "Finalize mode" section never calls for step 3's output, and I reproduced the actual reachable path end to end in a fresh shell — it never touches step 3 and completes cleanly. Per the owner's scope rule (new work only for a reproduced mandatory-gate failure, data loss, silent finding loss, or broken required workflow), this does not qualify: it is a legitimate prose-clarity residual, not a blocker, and I agree with the reviewer's own WARNING-not-BLOCKER grade. The three INFO items are test-coverage/wording nits already correctly graded non-blocking by the reviewer.
 
-Both are concrete, independently reproduced with working code against the real helpers and real prose (not assumed from the review's narrative), and both are fixable with a scoped follow-up in the same shape as 60-10/60-11/60-12's own closures: re-fingerprint HEAD at step 3 before the recount (mirroring the rebuild-once paragraph), and exempt (or make non-fatal) the head_sha bind fence on a `FINALIZE_MODE=1` run.
-
-**Recommendation:** route to a follow-up gap-closure round before closing FINL-02 as Complete. EVID-03 can move to Complete now (CR-01 is closed and no EVID-03-specific defect remains). These are not candidates for a waiver/override: WR-01 is a path to Finalize silently writing REVIEW.md APPROVED over code nothing re-verified, and WR-02 is a broken required workflow (Finalize permanently unable to complete) introduced by this round's own fix — exactly the class of defect this phase exists to close.
+**Recommendation:** The phase goal is achieved. EVID-03 and FINL-02 can both be recorded Complete in REQUIREMENTS.md. The round-3 review's new findings (its WR-01, IN-01, IN-02, IN-03) should be added to 60-REPRO.md's residuals (e.g., R27-R30) by whatever plan or close-out touches that file next — they do not require a fourth gap-closure round. Three human-verification items remain open (Write-tool refusal, PR size-limit ruling, head_sha scope-trust ruling) and are carried forward unchanged; none block the phase goal, which is a code-level claim these items do not contradict.
 
 ---
 
