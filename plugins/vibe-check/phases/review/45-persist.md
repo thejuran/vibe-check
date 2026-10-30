@@ -5,7 +5,7 @@
 
 Use the stable_hash the script already computed — consume the `stable_hash` field `scripts/score.py` returned on each survivor finding in Phase 3, and do NOT recompute the sha256 by hand. `scripts/score.py` is the single writer of the scored fields (`orchestrator_score`/`band`/`status`/`stable_hash`/`attribution`), preserving single-writer (ROBUST-01); reintroducing a by-hand hash here would create a second writer and risk drift that silently breaks `medium_acknowledgments[stable_hash]` lookups. The pass-entry build below and the `findings: [...]` slot consume the script's enriched output unchanged — no field is renamed or dropped, so the finding shape stays byte-shape-identical (Finalize's band ∈ {critical,warning} reads and the `medium_acknowledgments[stable_hash]` lookup keep working). Each finding's `snapshot` and the pass-level `resolved` array are likewise script outputs, copied verbatim.
 
-Build pass entry. **This is the pass-entry key set, stated ONCE** — Phase 4.5 is the single writer of the pass entry (W1). Its machine copy is `scripts/fixtures/future-schema.json`, which `scripts/state_shape.py --schema future` enforces: the nine keys below are all REQUIRED in every pass; `resolved` is the one OPTIONAL key (omitted ENTIRELY when score.py returned none — never written as `[]`); the three `--all` keys are the only additions an `--all` run may make; no other key is allowed. Where this prose and that schema ever disagree, the schema wins.
+Build pass entry. **This is the pass-entry key set, stated ONCE** — Phase 4.5 is the single writer of the pass entry (W1). Its machine copy is `scripts/fixtures/future-schema.json`, which `scripts/state_shape.py --schema future` enforces: the nine keys below are all REQUIRED in every pass; `resolved` and `reviewed_tree` are the two OPTIONAL keys (`resolved` omitted ENTIRELY when score.py returned none — never written as `[]`; `reviewed_tree` omitted ENTIRELY when Phase 3 printed no value); the three `--all` keys are the only additions an `--all` run may make; no other key is allowed. Where this prose and that schema ever disagree, the schema wins.
 
 ````json
 {
@@ -18,6 +18,7 @@ Build pass entry. **This is the pass-entry key set, stated ONCE** — Phase 4.5 
   "findings": [...],
   "filtered": [...],
   // OPTIONAL — present ONLY when scripts/score.py returned a non-empty resolved array: "resolved": [...]
+  // OPTIONAL — default and GSD routes, present ONLY when Phase 3's worktree_snap.py call printed a non-empty `REVIEWED_TREE=`: "reviewed_tree": "<that printed literal>"
   "codex": {"status": "<joined|skipped|off>", "reason": <slug|null>, "verdict": <"approve"|"needs-attention"|null>, "findings": <int>}
   // --all ONLY (omit these three keys ENTIRELY in diff mode — diff-mode pass-entry shape is byte-unchanged):
   //   "cap_applied": $K_OR_NULL,        // K, or null on a Run-full run; $K_OR_NULL/$N are bound only inside the --all Phase 0.3 gate
@@ -35,6 +36,7 @@ Build pass entry. **This is the pass-entry key set, stated ONCE** — Phase 4.5 
 | `findings` | `scripts/score.py`'s returned `findings` array, unchanged | JSON array |
 | `filtered` | `scripts/score.py`'s returned `filtered` array (`{file,line,title,reason}` each), unchanged — `[]` when nothing was filtered | JSON array |
 | `resolved` | `scripts/score.py`'s returned `resolved` array, unchanged — omitted when the script returned none | JSON array |
+| `reviewed_tree` | the literal Phase 3 printed after `REVIEWED_TREE=` (`scripts/worktree_snap.py collect`, 30-collect-score.md) — the tree of the working tree this pass reviewed; the next pass diffs against it so an owner decision reopens only when code next to it changed since (999.28). Copy the printed value; never compute or edit it. Omitted when the printed value was empty, and on the PR, range and `--all` routes | JSON string (40 or 64 lowercase hex) |
 | `codex.status` | `joined` — Codex ran and its translated response joined the agent-response set at Phase 3 entry (a zero-finding `approve` counts as joined); `skipped` — Codex was in play but did not join (a `scripts/codex_gate.py` skip, or the collection-time `timeout`); `off` — Codex was not in play: `/review` never runs it, and `/deep-review` with `$CONFIG_CODEX` resolved to `off` | JSON string, exactly one of the three |
 | `codex.reason` | `skipped` → the slug that decided the skip, one of `scripts/codex_gate.py`'s `SLUGS` (`not-installed`, `unauthenticated`, `unavailable`, `whole-repo-non-representable`, `phase-diff-has-uncommitted-tail`, `range-not-identical`, `head-not-at-target`, `no-timeout-binary`, `focus-unreadable`, `timeout`); `joined` / `off` → null | a lowercase hyphenated slug string, or `null` — never free text |
 | `codex.verdict` | `joined` → Codex's own `verdict` (`approve` or `needs-attention`); `skipped` / `off` → null | JSON string or `null` |

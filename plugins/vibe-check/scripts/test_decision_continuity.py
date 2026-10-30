@@ -3525,8 +3525,8 @@ class TestPhase57Mutants(_Base):
         failed = self._run_mutant(
             "score_nearby_lead_only",
             "row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, "
-            "changed_line_ranges)",
-            "row_nearby = _any_nearby([survivor], changed_line_ranges)",
+            "stamp_ranges)",
+            "row_nearby = _any_nearby([survivor], stamp_ranges)",
             read_merge=False)
         self.assertIn("test_p1_", failed)
         self.assertIn("test_cr04_", failed)
@@ -3647,7 +3647,7 @@ class TestPhase57Mutants(_Base):
         (c59) are unaffected."""
         failed = self._run_mutant(
             "score_covered_not_judged",
-            "+ covered_m, changed_line_ranges)", "+ [], changed_line_ranges)")
+            "+ covered_m, stamp_ranges)", "+ [], stamp_ranges)")
         self.assertIn("test_cr04_", failed)
         self.assertNotIn("test_s4_", failed)
         self.assertNotIn("test_p1_", failed)

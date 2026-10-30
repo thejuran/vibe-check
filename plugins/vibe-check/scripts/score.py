@@ -1551,6 +1551,31 @@ def _independent_trigger(record, touched, changed_line_ranges):
     return _nearby_changed(record, changed_line_ranges)
 
 
+def _stamp_ranges(nearby_line_ranges, changed_line_ranges):
+    """The ranges the decision stamp reads (999.28).
+
+    `nearby_line_ranges` is the envelope's optional "changed since the working
+    tree the last pass reviewed" map (`worktree_snap.py collect`). It is used
+    only when it is well formed: an object whose keys are non-empty strings
+    and whose values are lists of [start, end] int pairs with
+    1 <= start <= end. Anything else (absent, null, a malformed entry)
+    returns `changed_line_ranges`, the pre-999.28 input, so a bad value can
+    only re-ask, never keep a decision silently. `{}` is well formed (nothing
+    changed). Pure; never raises."""
+    if not isinstance(nearby_line_ranges, dict):
+        return changed_line_ranges
+    for path, ranges in nearby_line_ranges.items():
+        if not _nonempty_str(path) or not isinstance(ranges, list):
+            return changed_line_ranges
+        for pair in ranges:
+            if not isinstance(pair, list) or len(pair) != 2:
+                return changed_line_ranges
+            start, end = _as_line(pair[0]), _as_line(pair[1])
+            if start is None or end is None or not 1 <= start <= end:
+                return changed_line_ranges
+    return nearby_line_ranges
+
+
 def _nearby_changed(record, changed_line_ranges):
     """True when this pass's change ranges reach `record`'s line or the
     `_NEARBY_LINES` lines above or below it in its file (D-14; clipped at line
@@ -2109,6 +2134,11 @@ def run(envelope):
     command = envelope.get("command", "review")
     all_mode = bool(envelope.get("all_mode", False))
     changed_line_ranges = envelope.get("changed_line_ranges", {}) or {}
+    # 999.28: the decision stamp (`snapshot.nearby_at`) reads the lines changed
+    # since the working tree the last pass reviewed, when the orchestrator
+    # supplied them; in_diff and the re-check trigger keep changed_line_ranges.
+    stamp_ranges = _stamp_ranges(envelope.get("nearby_line_ranges"),
+                                 changed_line_ranges)
     reviewed_union = set(envelope.get("reviewed_union", []) or [])
     file_line_totals = envelope.get("file_line_totals", {}) or {}
     # v2.8 config knob (D-02, CONFIG-04): optional band-floor override. No `or {}` —
@@ -2838,10 +2868,10 @@ def run(envelope):
         covered_m = [m for _, m, _, _, _ in scored_members
                      if id(m) not in carried_obligations
                      and m.get("status") in _CARRIED_STATUSES]
-        row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, changed_line_ranges)
+        row_nearby = _any_nearby([r for r, _ in same_hash] + covered_m, stamp_ranges)
         row_spots = (_nearby_spots(_as_line(survivor.get("line")),
                                    [r for r, _ in same_hash], covered_m,
-                                   changed_line_ranges)
+                                   stamp_ranges)
                      if row_nearby else None)
         # H-LANE (D-14): every lane's own record rides on the row — the survivor
         # first, then the absorbed members in scored order, de-duplicated by
@@ -2865,7 +2895,7 @@ def run(envelope):
                         != survivor["stable_hash"]):
                     ref_kept["obligation"] = _refreshed_obligation(
                         carried_obligations[id(m)]["obligation"], m, pass_number,
-                        changed_line_ranges)
+                        stamp_ranges)
                 continue
             ref = _member_ref(m)
             # An absorbed record that was once a row keeps its obligation
@@ -2874,7 +2904,7 @@ def run(envelope):
                 obl = carried_obligations[id(m)]["obligation"]
                 ref["obligation"] = _refreshed_obligation(
                     obl, m, pass_number,
-                    changed_line_ranges)
+                    stamp_ranges)
             members.append(ref)
             kept_by_ident[ident] = ref
         survivor["members"] = members
@@ -2934,7 +2964,7 @@ def run(envelope):
     # owner decision closes it. Appended after the threshold loop so the
     # sub-threshold drop never sees it.
     kept.extend(_kept_open_rows(dropped, kept, pass_number, carried_obligations,
-                                members_of, changed_line_ranges,
+                                members_of, stamp_ranges,
                                 carried_by_hash=carried_by_hash))
 
     # --- Needs-verification rows (QUIET-06/07, R8) ----------------------------- #
