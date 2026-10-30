@@ -34,7 +34,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
-| 60. Exact change evidence and reliable Finalize | 13/16 | In Progress|  |
+| 60. Exact change evidence and reliable Finalize | 14/16 | In Progress|  |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
 ## Phase Details
@@ -94,7 +94,7 @@ Plans:
   4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
   5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
 
-**Plans:** 13/16 plans executed (third gap round 60-14..60-16 planned)
+**Plans:** 14/16 plans executed
 
 Plans:
 **Wave 1**
@@ -130,7 +130,7 @@ Plans:
 
 **Gap closure, third round** *(60-VERIFICATION re-verification round 2 gaps_found at 2de0fc9: WR-01, WR-02 on FINL-02)*
 
-- [ ] 60-14-PLAN.md — Finalize step 3 re-fingerprints HEAD into a NEW BLOBFILE before the post-answer recount (WR-01)
+- [x] 60-14-PLAN.md — Finalize step 3 re-fingerprints HEAD into a NEW BLOBFILE before the post-answer recount (WR-01)
 - [ ] 60-15-PLAN.md — head_sha bind fence skips on the printed FINALIZE_MODE=1 literal and names a remedy on halt (WR-02)
 - [ ] 60-16-PLAN.md — third-round ledger, record and traceability
 

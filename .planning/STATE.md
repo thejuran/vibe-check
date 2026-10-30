@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T20:00:00.000Z"
-last_activity: 2026-10-30 -- Phase 60 re-verification (round 2) gaps_found 5/6: CR-01 + stale-GATEFILE closed; new blocking WR-01 (stale BLOBFILE recount can APPROVE unverified code) + WR-02 (head_sha check wedges --finalize) on FINL-02
+last_updated: "2026-10-30T19:18:03.992Z"
+last_activity: 2026-10-30 -- 60-14 complete (WR-01: step 3 re-fingerprints HEAD into a NEW BLOBFILE before the post-answer recount; RED 7796476, GREEN 9b3f055)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 22
-  completed_plans: 19
+  completed_plans: 20
   percent: 33
 ---
 
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 13 of 16 (60-01..60-13 done; third gap round 60-14..60-16 planned, not executed)
+Plan: 15 of 16 (60-01..60-14 done; 60-15, 60-16 remaining)
 Status: Executing Phase 60
-Last activity: 2026-10-30 -- 60-13 complete (second gap round close-out: REPRO_60 at 14 rows, 60-REPRO.md V13-V14, reverse run at f2b58d1); Phase 60 awaits re-verification
+Last activity: 2026-10-30 -- 60-14 complete (WR-01 closed in prose + locks; RED 7796476, GREEN 9b3f055)
 
 ## Operator Next Steps
 
@@ -81,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: 60-14 complete (7796476 red, 9b3f055 green). Finalize step 3 now runs step 1 again for a NEW BLOBFILE= (fingerprints rebuilt from current HEAD, index and working tree) and recounts on that literal before the GATEFILE re-mint; "the fingerprints have not changed" removed. STEP3_NEEDLES 5 -> 8 + STEP3_STALE_OLD with an isolated append-mutant; fresh-shell walk: stale BLOBFILE keeps an edited fix-obsolete finding closed (defect), a re-minted BLOBFILE reopens it, unchanged blob is the control (write). One line of 90-finalize.md changed. test_finalize_card 95 passed; pause/nv/fix-loop/carry_state 433 passed. FINL-02 stays unchecked until 60-16 + re-verification. Next: 60-15.
 
 2026-10-29: 60-07 complete (b1bc970 red, 2a63cb5 green). GSD and pass >= 2 range sources in 30-collect-score.md now end in a quoted literal placeholder ("<phase-start-sha>" / "<last-reviewed-sha>") the agent substitutes; 00-scope.md's phase-range fence prints PHASE_START=<sha> (empty with no history -> HEAD). Every range-source command, including the abbreviated lines in 00-scope/05-state, carries --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/. Fresh-shell: literal sha gives {"f.txt": [[3, 3], [5, 5]]}; unset "$PHASE_START" halts rc 1 (the old unquoted form silently gave [[5, 5]] rc 0, kept as a documenting subtest). textconv, diff.relative, suppressBlankEmpty and color proven to change raw git output but not the fenced ranges. test_diff_ranges 100 passed; full suite 3786 passed. EVID-01/EVID-03/FINL-02 stay unchecked until 60-09 + re-verification. Next: 60-09.
 
