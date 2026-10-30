@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: verifying
-last_updated: "2026-10-29T21:33:45.169Z"
-last_activity: 2026-10-29 -- 60-09 complete (gap-round ledger; REPRO_60 at 12 rows; suite 3786 passed, 0 failed); Phase 60 awaiting re-verification
+status: ready_to_execute
+last_updated: "2026-10-30T18:15:00.000Z"
+last_activity: 2026-10-30 -- re-verification gaps_found (CR-01, WR-02); gap round 2 planned (60-10..60-13), plan-checker passed
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 15
+  total_plans: 19
   completed_plans: 15
   percent: 33
 ---
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 9 of 9
-Status: Phase 60 gap plans executed; awaiting re-verification
-Last activity: 2026-10-29 -- 60-09 complete (gap-round ledger; REPRO_60 at 12 rows; suite 3786 passed, 0 failed); Phase 60 awaiting re-verification
+Plan: 9 of 13
+Status: Ready to execute — gap round 2 (60-10..60-13) closes CR-01 (EVID-03) and WR-02 (FINL-02)
+Last activity: 2026-10-30 -- re-verification gaps_found (CR-01, WR-02); gap round 2 planned (60-10..60-13), plan-checker passed
 
 ## Operator Next Steps
 
