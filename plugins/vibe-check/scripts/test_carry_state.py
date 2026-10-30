@@ -875,6 +875,119 @@ class TestDeferred(TempDirCase):
                          sorted([HB, HC_DECIDED]))
 
 
+HEAD_SHA_REASON = "refused: last pass head_sha is not a commit sha\n"
+# The exact CR-01 payload: inside a double-quoted shell argument `$(...)`
+# still runs, so a crafted state could execute code on the next pass.
+INJECTION_PAYLOAD = '$(touch "$T/pwned")HEAD'
+BACKTICK_PAYLOAD = "`touch pwned`HEAD"
+_MISSING = object()
+
+
+def _state_with_head(value):
+    """The phase-45 fixture with the last pass's `head_sha` replaced by
+    `value`, or removed when `value is _MISSING`."""
+    s = load_fixture()
+    if value is _MISSING:
+        s["passes"][-1].pop("head_sha", None)
+    else:
+        s["passes"][-1]["head_sha"] = value
+    return s
+
+
+class TestLastHeadSha(TempDirCase):
+    """`last-head-sha`: the only value the prose substitutes into a command
+    on pass >= 2 (`git diff "<last-reviewed-sha>"`). Accepted shape: exactly
+    40 or 64 lowercase hex characters, nothing else."""
+
+    def test_prints_bare_sha_for_40_and_64_hex(self):
+        real = load_fixture()["passes"][-1]["head_sha"]
+        self.assertEqual(len(real), 40)
+        for value in (real, "0123456789abcdef" * 4):
+            with self.subTest(value=value):
+                proc = run_cli(["last-head-sha"],
+                               json.dumps(_state_with_head(value)).encode())
+                self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+                self.assertEqual(proc.stdout, (value + "\n").encode())
+                self.assertEqual(proc.stderr, b"")
+
+    def test_refuses_every_non_sha_value(self):
+        cases = {
+            "cr01-injection": INJECTION_PAYLOAD,
+            "backtick": BACKTICK_PAYLOAD,
+            "symbolic-HEAD": "HEAD",
+            "option-shaped": "--output=/tmp/x",
+            "dash": "-",
+            "empty": "",
+            "null": None,
+            "missing": _MISSING,
+            "hex39": "a" * 39,
+            "hex41": "a" * 41,
+            "hex63": "a" * 63,
+            "hex65": "a" * 65,
+            "uppercase40": "A" * 40,
+            "hex40-trailing-newline": "a" * 40 + "\n",
+            "int": 12345,
+            "list": ["a" * 40],
+        }
+        for name, value in cases.items():
+            with self.subTest(name):
+                proc = run_cli(["last-head-sha"],
+                               json.dumps(_state_with_head(value)).encode())
+                self.assertEqual(proc.returncode, 2)
+                # Nothing on stdout: a capture must never bind a value.
+                self.assertEqual(proc.stdout, b"")
+                self.assertEqual(proc.stderr.decode(), HEAD_SHA_REASON)
+
+    def test_reason_is_sealed(self):
+        self.assertIn(HEAD_SHA_REASON, carry_state.REASONS)
+        self.assertEqual(carry_state.REASON_HEAD_SHA, HEAD_SHA_REASON)
+
+    def test_usage_and_subcommand_registered(self):
+        self.assertIn("last-head-sha", carry_state.SUBCOMMANDS)
+        self.assertEqual(carry_state._FLAGS_BY_SUBCOMMAND["last-head-sha"],
+                         ((), ()))
+        self.assertIn("last-head-sha", carry_state.USAGE)
+        proc = run_cli(["last-head-sha", "--head-blobs", "x"],
+                       json.dumps(load_fixture()).encode())
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode(), carry_state.USAGE)
+
+    def test_does_not_mutate_state(self):
+        s = load_fixture()
+        before = copy.deepcopy(s)
+        carry_state.last_head_sha(s)
+        self.assertEqual(s, before)
+        s = _state_with_head(INJECTION_PAYLOAD)
+        before = copy.deepcopy(s)
+        carry_state.last_head_sha(s)
+        self.assertEqual(s, before)
+
+    def test_in_process_returns_none_on_refusal(self):
+        self.assertIsNone(
+            carry_state.last_head_sha(_state_with_head(INJECTION_PAYLOAD)))
+        fixture = load_fixture()
+        self.assertEqual(carry_state.last_head_sha(fixture),
+                         fixture["passes"][-1]["head_sha"])
+
+    def test_mutant_validator_lets_the_payload_through(self):
+        text = json.dumps(_state_with_head(INJECTION_PAYLOAD))
+        with mock.patch.object(carry_state, "_commit_sha",
+                               lambda v: isinstance(v, str)):
+            self.assertEqual(carry_state.run(["last-head-sha"], text),
+                             (0, INJECTION_PAYLOAD + "\n"))
+        with mock.patch.object(sys, "stderr"):
+            self.assertEqual(carry_state.run(["last-head-sha"], text),
+                             (2, ""))
+
+    def test_malformed_state_refused_before_head_sha(self):
+        proc = run_cli(["last-head-sha"],
+                       json.dumps({"passes": []}).encode())
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode(), carry_state.REASON_PASSES)
+
+
 class TestReasonsSealed(unittest.TestCase):
     def test_reasons_are_fixed_lines(self):
         self.assertIsInstance(carry_state.REASONS, tuple)
