@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: ready_to_plan
-last_updated: 2026-10-30T20:59:39.000Z
-last_activity: 2026-10-30 -- Phase 60 shipped as PR #6 (awaiting merge)
+last_updated: "2026-10-30T21:30:00.000Z"
+last_activity: "2026-10-30 -- Phase 61 context gathered (PR #6 merged; branch feat/v2.14-phase-61)"
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 22
   completed_plans: 22
   percent: 67
-stopped_at: Phase 60 shipped as PR #6 (awaiting merge) — then discuss Phase 61
+stopped_at: Phase 61 context gathered — next /bm:plan-phase 61
 ---
 
 # Project State
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 Phase: 61
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-30 -- Phase 60 shipped as PR #6 https://github.com/thejuran/vibe-check/pull/6 (awaiting merge; then delete feat/v2.14-phase-60 local + remote)
+Status: Ready to plan (context gathered)
+Last activity: 2026-10-30 -- Phase 61 context gathered (61-CONTEXT.md). PR #6 merged as d587c72; feat/v2.14-phase-60 deleted; branch feat/v2.14-phase-61 cut from main
 
 ## Operator Next Steps
 
@@ -82,6 +82,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 61 context gathered. Owner decisions: one small live smoke (default route + --finalize, ~3 sessions, est. $20-30) under a bounded proposal for approval before any spend, assistant-driven via tmux (D-01/D-02/D-04); free live `gh pr diff` range check on PR #6 (D-03); one fix round on a qualifying gate failure, then stop, and a second round only with explicit owner go-ahead (D-05/D-06); non-qualifying finds carried as known limits (D-07); short Known limits section in the 2.14.0 release notes and a one-page plain-terms sign-off (D-08/D-09); Dependabot disabled noted, no action (D-10); all routes + recovery offline (D-11); gate runs on the final 2.14.0-bumped commit (D-12). Next: /bm:plan-phase 61.
 
 2026-10-30: Phase 60 complete. /bm:verify-work 60 resolved the 3 human items in 60-HUMAN-UAT.md (3/3): R16 Write tool accepted a first write to a fresh unread $TMPDIR mktemp path (live check, bypass mode); R17 accepted known limit; R25 deferred as backlog 999.27. 60-VERIFICATION.md status -> passed. Next: Phase 60 PR, then Phase 61.
 
