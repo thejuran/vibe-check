@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T19:27:00.000Z"
-last_activity: 2026-10-30 -- 60-15 complete (WR-02: head_sha bind fence skips on printed FINALIZE_MODE=1 and names a remedy on halt; RED 3c7814e, GREEN 07bb448)
+last_updated: "2026-10-30T19:35:00.000Z"
+last_activity: 2026-10-30 -- 60-16 complete (third gap round close-out: REPRO_60 at 16 rows, V15-V16, reverse run at 2de0fc9, suite 3821 passed; EVID-03 Complete; FINL-02 awaits re-verification)
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
   percent: 33
 ---
 
@@ -25,13 +25,13 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 16 of 16 (60-01..60-15 done; 60-16 remaining)
-Status: Executing Phase 60
-Last activity: 2026-10-30 -- 60-15 complete (WR-02 closed in prose + locks; RED 3c7814e, GREEN 07bb448)
+Plan: 16 of 16 (60-01..60-16 done; awaiting re-verification)
+Status: Phase 60 plans complete; ready for re-verification
+Last activity: 2026-10-30 -- 60-16 complete (third gap round close-out; EVID-03 Complete per re-verification; FINL-02 awaits re-verification)
 
 ## Operator Next Steps
 
-- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Re-verification at f2b58d1 found CR-01 and WR-02; second-round plans 60-10..60-13 all executed 2026-10-30 (60-REPRO.md V13-V14, R14 closed, R18-R21 carried). Re-verification round 2 (60-VERIFICATION.md, review e90c6a7) = gaps_found 5/6: CR-01 and the stale-GATEFILE re-run are closed; two new blocking FINL-02 gaps from the round-2 review — WR-01 (step-3 recount reuses the pre-card BLOBFILE, so a mid-card edit can let a stale fix verdict close a finding and Finalize writes APPROVED) and WR-02 (head_sha bind fence runs on --finalize and can wedge it with no remedy). Next: `/bm:plan-phase 60 --gaps` (third gap round), then re-verify, then the Phase 60 PR. EVID-03 is verifier-cleared for Complete. Owner rulings pending: SA-01 live Write-tool check (R16), SA-02 PR size limit (R17), SA-01(review) whether state-file head_sha may narrow review scope.
+- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Re-verification at f2b58d1 found CR-01 and WR-02; second-round plans 60-10..60-13 all executed 2026-10-30 (60-REPRO.md V13-V14, R14 closed, R18-R21 carried). Re-verification round 2 (60-VERIFICATION.md, review e90c6a7) = gaps_found 5/6: CR-01 and the stale-GATEFILE re-run are closed; two new blocking FINL-02 gaps from the round-2 review — WR-01 (step-3 recount reuses the pre-card BLOBFILE, so a mid-card edit can let a stale fix verdict close a finding and Finalize writes APPROVED) and WR-02 (head_sha bind fence runs on --finalize and can wedge it with no remedy). Third gap round 60-14..60-16 executed 2026-10-30 (WR-01 green 9b3f055, WR-02 green 07bb448; 60-REPRO.md V15-V16, R22-R26 carried; full suite 3821 passed at cef9a1e). EVID-03 marked Complete. Next: re-verify Phase 60 (FINL-02), then the Phase 60 PR. Owner rulings pending: SA-01 live Write-tool check (R16), SA-02 PR size limit (R17), SA-01(review) whether state-file head_sha may narrow review scope.
 - Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R5 install resync before any manual check, replay deltas none.
 - Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
 - Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
@@ -81,6 +81,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: 60-16 complete (cef9a1e record, 0d06540 ledger, 48a95e0 requirements/roadmap). REPRO_60 at 16 rows (STALE-BLOBFILE-RECOUNT, FINALIZE-HEAD-SHA-WEDGE), lock mutation-tested (disposition / fixture typo / row removal each trip). Reverse run at 2de0fc9: 27 failed, six controls pass; worktree pruned. Full suite 3821 passed, replay 64 passed, no helper changed since 2de0fc9. Residuals R22-R25 (gap-round-2 IN-01..03, SA-01 owner ruling) + R26 (45-persist head_sha write-side check). EVID-03 Complete; FINL-02 unchecked pending re-verification. Next: re-verify Phase 60.
 
 2026-10-30: 60-14 complete (7796476 red, 9b3f055 green). Finalize step 3 now runs step 1 again for a NEW BLOBFILE= (fingerprints rebuilt from current HEAD, index and working tree) and recounts on that literal before the GATEFILE re-mint; "the fingerprints have not changed" removed. STEP3_NEEDLES 5 -> 8 + STEP3_STALE_OLD with an isolated append-mutant; fresh-shell walk: stale BLOBFILE keeps an edited fix-obsolete finding closed (defect), a re-minted BLOBFILE reopens it, unchanged blob is the control (write). One line of 90-finalize.md changed. test_finalize_card 95 passed; pause/nv/fix-loop/carry_state 433 passed. FINL-02 stays unchecked until 60-16 + re-verification. Next: 60-15.
 
