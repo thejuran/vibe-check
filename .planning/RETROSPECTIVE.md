@@ -285,6 +285,45 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 
 ---
 
+## Milestone: v2.14 — Decision reliability
+
+**Completed:** 2026-10-30 (2.14.0 signed off on 47978aa; release in progress; not B3-measured)
+**Phases:** 59–61 | **Plans:** 27 (6 + 16 + 5)
+
+### What Was Built
+- Stale decisions are re-asked when their evidence changes. CR-01, CR-02 and CR-04 were each reproduced and fixed, and evidence is now pooled by obligation/hash, so row order, lead and grouping no longer change the outcome.
+- Deferred members dropped by `min_confidence` stay open. The `--all` deferral drop did not reproduce, so it was recorded and dropped.
+- Nearby/in-diff ranges come only from changed lines of a real `git diff` on every route.
+- Finalize reuses printed paths, writes nothing on failure, and revalidates freshness before a retry.
+- The release gate ran G1–G9 plus a bounded live smoke. The smoke found C1, which went into the README through Decision 1 = B.
+
+### What Worked
+- Both owner rules held. The one-cycle stop (STALE-06) closed Phase 59 in one cycle and parked WR-01/WR-02. No growth per round meant each of Phase 60's three gap rounds was tied to a reproduced FINL-02 failure.
+- Putting real-git-diff fixtures through the real scorer proved the Phase 60 → 59 wiring on every route except PR.
+- The live smoke found a real user-visible defect (C1) that all offline gates missed.
+- The README-only re-candidate (plugins/ byte-identical) let C1 be disclosed without re-running the live smoke.
+
+### What Was Inefficient
+- Phase 60 needed three gap rounds (16 plans for 5 requirements). Each review round found a new Finalize failure path (stale blob recount, the head_sha wedge on `--finalize`).
+- The first sign-off described option A as "README silent on C1" when the README actually contradicted it. The verifier caught this and forced a re-sign.
+- The traceability table went stale (FINL-02 still said "awaiting re-verification") and was corrected only at the audit.
+
+### Patterns Established
+- Tag origin/main after a tree-identity check against the gated candidate, never the branch tip. Squash merges orphan branch commits.
+- A disclosure-only change re-gates as a new candidate, with live evidence carried over only when the shipped plugin is byte-identical.
+- The audit records structurally narrow gates (replay is single-pass) so nobody assumes they cover more than they do.
+
+### Key Lessons
+- Offline suites prove the logic. Only a live run on uncommitted code exposed C1, so keep a bounded live smoke in every release gate that touches decision flow.
+- Sign-off pages must quote what the README actually says, not summarise it.
+- Finalize keeps producing failure paths at its shell boundaries, which supports Lean orchestration's Finalize-first extraction.
+
+### Cost Observations
+- One owner-approved bounded live smoke. Otherwise all evidence was local (pytest 3821, mutants, replay of 170 runs).
+- Notable: as in v2.13, review-driven gap rounds dominated session time (Phase 60).
+
+---
+
 ## Cross-Milestone Trends
 
 | Milestone | Phases | Plans | Shipped | Efficacy |
@@ -293,6 +332,7 @@ The scorer's confidence-driven banding produced live FPs during this milestone's
 | v2.2 Codex adversarial reviewer | 3 (4-6) | 6 | 2026-06-21 | EFF-01/EFF-02 PASS (2 cross-confirms, de-auth degraded) |
 | v2.5 Sharper, more legible reviews | 4 (19-22) | 8 | 2026-06-28 | CLOSE-01 PASS (`--all` self-dogfood, owner sign-off, 2 self-defects caught + fixed) |
 | v2.13 Reliable fix closure and recovery | 3 (56-58) | 52 | 2026-10-28 | Not measured (regression fixtures + replay 0 regressed; known limits 999.23–999.26) |
+| v2.14 Decision reliability | 3 (59-61) | 27 | 2026-10-30 (release in progress) | Not measured (suite 3821/0, replay 170 runs 0 differing, live smoke PASS with C1 disclosed; known limits 999.23 residuals, 999.26–999.28) |
 
 **Recurring pattern:** every milestone closes with an efficacy test + owner sign-off as the human
 bar — the right verification shape for a prompt-only review plugin where coverage, not unit tests, is

@@ -1,5 +1,31 @@
 # Milestones
 
+## v2.14 Decision reliability (Shipped: 2026-10-30)
+
+**Phases:** 59–61 (59: 6/6 plans, 60: 16/16 incl. three gap rounds, 61: 5/5 incl. option-B regate) · **Tasks:** 92 · **Release:** 2.14.0, candidate `47978aa` (release PR, squash to main, tag `v2.14` on origin/main per 61-CLOSE-RUNBOOK.md) · **Git:** f2b6a36..47978aa, plugin + README 18 files, +6,000/−108 · **Timeline:** 2026-10-28 → 2026-10-30 · **Suite:** 3821 passed, 0 failed; real-chain 193, mode/recovery 520; replay vs 2.13: 170 runs, 0 differing · **Audit:** tech_debt, 16/16 requirements, integration 8/9, flows 5/5 (`milestones/v2.14-MILESTONE-AUDIT.md`)
+
+**Not measured.** There was no B3 or holdout run. This is a reliability release, judged by reproduced-failure fixtures, mutation checks, replay, and a live smoke of the default review and Close out (owner-approved bounded proposal). v2.11 (5/18 · 15/15, MISS) remains the last measured result.
+
+**Key accomplishments:**
+
+- **Stale decisions re-asked (P59, 999.23):** the wrong-keep shapes CR-01, CR-02 and CR-04 were each reproduced on the real chain and fixed. Evidence is now pooled by obligation/hash, so the reopen/keep result does not depend on row order, the lead, or how rows are split or merged. A deferred member dropped by `min_confidence` stays open. The `--all` deferral-drop path did not reproduce, so it was recorded and dropped.
+- **Exact change evidence (P60, 999.24):** nearby/in-diff ranges now come only from added or deleted lines of a real `git diff`, on the default, GSD, range, PR, incremental and `--all` routes. The 3-line-context assumption is gone, except in replay's archival copy.
+- **Reliable Finalize (P60, 999.25):** the BLOBFILE/GATEFILE paths are printed and reused literally. A failed or refused attempt writes no report, and a retry revalidates freshness first. This took three gap rounds, which closed the stale-blob recount (WR-01) and the `--finalize` head_sha wedge (WR-02).
+- **Release gate (P61):** G1–G9 passed on the candidate, and a live smoke ran under a bounded proposal. Its finding C1 (uncommitted code re-asked) was disclosed in the README under owner Decision 1 = B and re-gated on 47978aa.
+- **Integration check:** Phase 60's ranges feed Phase 59's reopen logic through cross-route real-diff fixtures. Finalize's recount reuses Phase 59's `decision_state` and does not recompute it separately.
+
+### Known limits (owner-accepted)
+
+- **999.23 residuals:** the card omits the row's own line when a single edit reaches both it and another spot (WR-01). The "still deferred" note drops from pass 3 onward (WR-02). Both fail toward asking.
+- **999.26:** wordier plain-English title references ask instead of resolving (fails safe).
+- **999.27:** a committed state file's `head_sha` can narrow the pass ≥ 2 range (hardening deferred).
+- **999.28 / C1:** the default route re-asks decisions on uncommitted code every pass, with a false "nearby" reason. This is listed first in the README known limits.
+- **PR route:** fails closed above GitHub's diff limits (R17). Range extraction and reopen behaviour are each tested but never chained in one fixture. Only the default review and Close out had a live check.
+
+Known deferred items at close: 4 (see STATE.md Deferred Items)
+
+---
+
 ## v2.13 Reliable fix closure and recovery (Shipped: 2026-10-28)
 
 **Phases:** 56–58 (56: 6/6 plans, 57: 23/23 incl. four gap rounds, 58: 23/23 incl. two review rounds + a rollback) · **Release:** 2.13.0 (tag `v2.13`; one squash PR per phase into main, then a release PR) · **Git:** a6c1a24..8e70383 = 4 commits on main (3 squashed phase PRs), 172 files, +40,104/−1,603; plugin 35 files, +15,290/−262 · **Timeline:** 2026-10-18 → 2026-10-28 · **Suite:** 3588 passed, 0 failed · **Audit:** tech_debt, 14/14 requirements (`milestones/v2.13-MILESTONE-AUDIT.md`)
