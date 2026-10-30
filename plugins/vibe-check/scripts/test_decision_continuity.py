@@ -50,7 +50,9 @@ adds to carry_state are read with getattr so this module always imports.
 
 import json
 import os
+import re
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,6 +60,8 @@ sys.path.insert(0, HERE)
 
 import batch_card  # noqa: E402
 import carry_state  # noqa: E402
+import gitfixture  # noqa: E402
+import replay  # noqa: E402
 import score  # noqa: E402
 from test_carry_state import append_pass, e2e_gate  # noqa: E402
 from test_score import GOLDEN_DIGEST  # noqa: E402
@@ -3789,6 +3793,737 @@ class TestPooledPriorUnit(unittest.TestCase):
                      {"nearby_at": True, "at_pass": 1.5}, None, []):
             with self.subTest(snap=snap):
                 score._prior_rank(snap)
+
+
+# --------------------------------------------------------------------------- #
+# Exact change evidence: real `git diff` text through the range rules.
+#
+# Every diff here comes from a throwaway repo the test builds with
+# gitfixture (null global/system git config), so the developer's own
+# `diff.noprefix`, colour or external-diff settings never reach the text.
+# --------------------------------------------------------------------------- #
+RANGE_GIT_FLAGS = ("--no-color", "--no-ext-diff", "--src-prefix=a/",
+                   "--dst-prefix=b/")
+_HEADER_RULE_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+# A pass-1 confidence at which a lone `bugs` finding is kept both inside and
+# outside the changed ranges (90 vs 70), so the +20 in-diff term shows as a
+# score difference instead of a keep/drop.
+IN_DIFF_CONF = 80
+
+
+def header_rule_ranges(text):
+    """The changed-line ranges the 30-collect-score.md "changed-line ranges"
+    bullet builds today, as an executable twin: per `+++ b/<path>` file, each
+    hunk header `@@ ... +start[,count] @@` (no count means 1) gives
+    `[start, start + count - 1]` when count >= 1, and the deletion-point pair
+    `[max(start, 1), start + 1]` when count == 0. Only the headers are read,
+    so git's unchanged context lines are inside every range.
+
+    Kept as the 999.24 evidence: on a default-context diff the ranges are
+    three lines wider on each side than the edit, and a pure deletion never
+    produces a `+T,0` header, so the deletion rule never fires.
+    """
+    out = {}
+    cur = None
+    for ln in (text or "").split("\n"):
+        if ln.startswith("+++ "):
+            path = ln[4:].rstrip("\t").strip()
+            if path == "/dev/null":
+                cur = None
+            else:
+                cur = path[2:] if path.startswith("b/") else path
+            continue
+        m = _HEADER_RULE_HUNK_RE.match(ln)
+        if m and cur:
+            start = int(m.group(1))
+            count = 1 if m.group(2) is None else int(m.group(2))
+            if count >= 1:
+                rng = [start, start + count - 1]
+            else:
+                rng = [max(start, 1), start + 1]
+            out.setdefault(cur, []).append(rng)
+    return out
+
+
+class RealDiffRepo:
+    """A temp git repo holding `src/a.py`, removed when the test ends."""
+
+    def __init__(self, test, lines):
+        tmp = tempfile.TemporaryDirectory()
+        test.addCleanup(tmp.cleanup)
+        self.repo = gitfixture.make_repo(tmp.name)
+        self.write(lines)
+        self.stage(F)
+        self.commit("base")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    @classmethod
+    def make(cls, test, lines):
+        """Commit `lines` as `src/a.py` in a fresh repo."""
+        return cls(test, lines)
+
+    def git(self, *args):
+        return gitfixture.git(self.repo, *args)
+
+    def write(self, lines):
+        gitfixture.write(self.repo, F, "\n".join(lines) + "\n")
+
+    def read(self):
+        with open(os.path.join(self.repo, F), encoding="utf-8") as fh:
+            return fh.read().split("\n")[:-1]
+
+    def stage(self, rel=F):
+        self.git("add", rel)
+
+    def commit(self, msg):
+        self.git("commit", "-q", "-a", "-m", msg)
+
+    def diff(self, *extra):
+        """`git diff <RANGE_GIT_FLAGS> <extra> HEAD` (working tree vs HEAD)."""
+        return self.git("diff", *RANGE_GIT_FLAGS, *extra, "HEAD").stdout
+
+
+def _builder():
+    """The exact-range builder, `diff_ranges.ranges_from_diff`.
+
+    Imported here, not at module top, on purpose: until the builder exists
+    only the tests that call this helper fail (No module named
+    'diff_ranges'), while the rest of this module still imports and runs.
+    """
+    import diff_ranges
+    return diff_ranges.ranges_from_diff
+
+
+def scored_in_diff(lines, line, ranges):
+    """Whether the real scorer counts a fresh finding at `line` as in the
+    diff under `ranges`: its score with `ranges` minus its score with no
+    ranges is either the +20 in-diff term or nothing."""
+    def score_with(r):
+        _, res = run_pass(empty_state(), lines,
+                          [fresh("bugs", line, lines, TITLE_A,
+                                 conf=IN_DIFF_CONF)], 1, r)
+        assert len(res["findings"]) == 1, res["filtered"]
+        return res["findings"][0]["orchestrator_score"]
+    delta = score_with(ranges) - score_with({})
+    assert delta in (0, 20), delta
+    return delta == 20
+
+
+def _edited(lines, at):
+    out = list(lines)
+    out[at - 1] = "line_%02d = 'edited'" % at
+    return out
+
+
+TOP_TEN = ["top_%d = 0" % i for i in range(10)]
+
+
+class _RealChain(_Base):
+    """A decision at line 40 driven through pass 2 on real diff ranges."""
+
+    def _decide40(self):
+        L0 = base_file()
+        s1, hA = pass1(L0, conf=STABLE_CONF, line=40)
+        self._assert_band(s1, hA, "warning")
+        return L0, s1, hA
+
+    def _pass2(self, s1, L2, ranges):
+        s2, _ = run_pass(s1, L2, [], 2, ranges, decided=target_decided(s1))
+        return s2
+
+    def assert_reopens(self, s2, hA, line):
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["line"], line)
+        self.assertEqual(carry_state.decision_state(rec, s2), "stale")
+        self.assertEqual(carry_state.stale_cause(rec, s2), "nearby")
+        self.assertEqual(row_of(s2, hA)["snapshot"].get("nearby_at"), 2)
+        self.assertNotEqual(e2e_gate(s2, {}), "write")
+
+    def assert_keeps(self, s2, hA, line):
+        rec = self._current(s2, hA)
+        self.assertEqual(rec["line"], line)
+        self.assertEqual(carry_state.decision_state(rec, s2), "current")
+        self.assertNotIn("nearby_at", row_of(s2, hA)["snapshot"])
+        self.assertEqual(e2e_gate(s2, {}), "write")
+
+
+class TestRepro60Evidence(_RealChain):
+    """999.24 as it is today: the ranges the documented header rule builds
+    from a real default-context `git diff`."""
+
+    def test_header_rule_twin_agrees_with_replay_except_deletion_headers(self):
+        synthetic = ("diff --git a/src/a.py b/src/a.py\n"
+                     "--- a/src/a.py\n+++ b/src/a.py\n"
+                     "@@ -3,2 +3,4 @@\n x\n+y\n+z\n x\n"
+                     "@@ -10 +12 @@\n-a\n+b\n"
+                     "@@ -20,2 +21,0 @@\n-c\n-d\n")
+        self.assertEqual(replay.hunk_ranges(synthetic),
+                         {F: [[3, 6], [12, 12]]})
+        self.assertEqual(header_rule_ranges(synthetic),
+                         {F: [[3, 6], [12, 12], [21, 22]]})
+
+    def test_default_context_widens_and_deletion_rule_never_fires(self):
+        repo = RealDiffRepo.make(self, base_file())
+        L2 = base_file()
+        del L2[33]  # line 34 deleted, nothing else
+        repo.write(L2)
+        default, exact = repo.diff(), repo.diff("-U0")
+        self.assertIn("@@ -31,7 +31,6 @@", default)
+        self.assertIn("@@ -34 +33,0 @@", exact)
+        self.assertEqual(header_rule_ranges(default), {F: [[31, 36]]})
+        self.assertEqual(header_rule_ranges(exact), {F: [[33, 34]]})
+        self.assertIsNone(re.search(r"^@@ .* \+\d+,0 @@", default, re.M),
+                          "a default-context diff printed a deletion header")
+
+    def test_edit_eight_beneath_reopens_through_default_context(self):
+        """The owner-visible over-ask: an edit 8 lines from a decision (well
+        outside the 5-line window) re-asks it, because the default diff's
+        header covers lines 45-51."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        L2 = _edited(L0, 48)
+        repo.write(L2)
+        default = repo.diff()
+        self.assertIn("@@ -45,7 +45,7 @@", default)
+        ranges = header_rule_ranges(default)
+        self.assertEqual(ranges, {F: [[45, 51]]})
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 40)
+        with self.subTest("the same edit read from its own line keeps"):
+            exact = header_rule_ranges(repo.diff("-U0"))
+            self.assertEqual(exact, {F: [[48, 48]]})
+            self.assert_keeps(self._pass2(s1, L2, exact), hA, 40)
+
+    def test_net_deletion_keeps_under_header_rule_even_at_u0(self):
+        """IN-04: lines 32-34 replaced by one line moves the decided line to
+        38 (window 33..43). Even an exact `-U0` header `+32` covers only
+        line 32, so the change at the window's edge is a silent keep."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        L2 = base_file()
+        L2[31:34] = ["replaced = 0"]
+        repo.write(L2)
+        exact = repo.diff("-U0")
+        self.assertIn("@@ -32,3 +32 @@", exact)
+        ranges = header_rule_ranges(exact)
+        self.assertEqual(ranges, {F: [[32, 32]]})
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 38)
+
+
+class TestRealDiffRanges60(_RealChain):
+    """EVID-01/EVID-02 (D-03): a real `git diff` of each hunk shape, fed
+    through the exact-range builder, reopens a decision at the 5-line
+    boundary and keeps it one line further out. The ranges always come from
+    the builder; none is written by hand here."""
+
+    def _case(self, L2, want):
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        repo.write(L2)
+        build = _builder()
+        ranges = build(repo.diff())
+        self.assertEqual(ranges.get(F), want)
+        for ctx in ("-U0", "-U10"):
+            with self.subTest(context=ctx):
+                self.assertEqual(build(repo.diff(ctx)), ranges)
+        return self._pass2(s1, L2, ranges), hA
+
+    def test_rd60_ordinary_reopens(self):
+        s2, hA = self._case(_edited(base_file(), 45), [[45, 45]])
+        self.assert_reopens(s2, hA, 40)
+
+    def test_rd60_ordinary_keeps(self):
+        s2, hA = self._case(_edited(base_file(), 46), [[46, 46]])
+        self.assert_keeps(s2, hA, 40)
+
+    def test_rd60_deletion_reopens(self):
+        L2 = base_file()
+        del L2[33]  # line 34; the decided line moves to 39 (window 34..44)
+        s2, hA = self._case(L2, [[33, 34]])
+        self.assert_reopens(s2, hA, 39)
+
+    def test_rd60_deletion_keeps(self):
+        L2 = base_file()
+        del L2[32]  # line 33
+        s2, hA = self._case(L2, [[32, 33]])
+        self.assert_keeps(s2, hA, 39)
+
+    def test_rd60_insertion_reopens(self):
+        L2 = base_file()
+        L2.insert(44, "inserted = 0")  # new line 45
+        s2, hA = self._case(L2, [[45, 45]])
+        self.assert_reopens(s2, hA, 40)
+
+    def test_rd60_insertion_keeps(self):
+        L2 = base_file()
+        L2.insert(45, "inserted = 0")  # new line 46
+        s2, hA = self._case(L2, [[46, 46]])
+        self.assert_keeps(s2, hA, 40)
+
+    def test_rd60_net_deletion_reopens(self):
+        """D-02: lines 32-34 replaced by one line. The replacement is line
+        32; the hunk also covers line 33 (the line after it, as a pure
+        deletion's T + 1 does), which is inside the window of the decided
+        line, now 38 (33..43)."""
+        L2 = base_file()
+        L2[31:34] = ["replaced = 0"]
+        s2, hA = self._case(L2, [[32, 33]])
+        self.assert_reopens(s2, hA, 38)
+
+    def test_rd60_net_deletion_keeps(self):
+        L2 = base_file()
+        L2[30:33] = ["replaced = 0"]  # lines 31-33 -> one line
+        s2, hA = self._case(L2, [[31, 32]])
+        self.assert_keeps(s2, hA, 38)
+
+    def test_rd60_relocated_keeps(self):
+        """D-01: ten lines inserted at the top; the decision follows its
+        code to line 50 and nothing near it changed."""
+        s2, hA = self._case(TOP_TEN + base_file(), [[1, 10]])
+        self.assert_keeps(s2, hA, 50)
+
+    def test_rd60_relocated_reopens(self):
+        """The same shift plus an edit to old line 45 (now 55): the edit is
+        read in the shifted coordinates and reopens the moved decision."""
+        L2 = TOP_TEN + _edited(base_file(), 45)
+        s2, hA = self._case(L2, [[1, 10], [55, 55]])
+        self.assert_reopens(s2, hA, 50)
+
+
+PR_TOP_FIVE = ["pr_top_%d = 0" % i for i in range(5)]
+
+
+class TestCoordinateSpaces60(_RealChain):
+    """Coordinate-space probes: diff text whose sections number lines in
+    different files (each commit of a PR patch series; HEAD vs index vs
+    working tree in a concatenated diff). Every diff here is `-U0` so the
+    documented header rule yields exact ranges and each probe isolates the
+    coordinate question from the context-width question.
+
+    Each shape reproduced on the unfixed code. A `_probe` test now reads the
+    change the way the review prose does since the fix (one range source per
+    route, through the exact-range builder) and asserts the right outcome;
+    the old reading (the commit series, or the concatenated assembly) stays in
+    the same test as a documenting assertion of the wrong ranges it gave. A
+    `_control` test reads the same change from one diff in one coordinate
+    space under the header rule."""
+
+    def _u0(self, repo, *args):
+        return repo.git("diff", *RANGE_GIT_FLAGS, "-U0", *args).stdout
+
+    def _pr_repo(self):
+        """Commit A edits line 10; commit B inserts 5 lines at the top, so
+        the edit sits at line 15 of the head file."""
+        L0 = base_file()
+        repo = RealDiffRepo.make(self, L0)
+        LA = _edited(L0, 10)
+        repo.write(LA)
+        repo.commit("A: edit line 10")
+        LB = PR_TOP_FIVE + LA
+        repo.write(LB)
+        repo.commit("B: insert five lines at the top")
+        return repo, LB
+
+    def test_cs60_pr_series_probe(self):
+        """`gh pr diff --patch` emits the commit series (mbox), like
+        `git format-patch --stdout`: each commit's hunks are numbered in that
+        commit's own file, so commit A's edit is read at line 10, not 15.
+        The PR range source is now the cumulative diff, and the builder
+        refuses a series, so the edit is read at its head line."""
+        import diff_ranges
+        repo, LB = self._pr_repo()
+        series = repo.git("format-patch", "--stdout", "-U0",
+                          *RANGE_GIT_FLAGS, "%s..HEAD" % repo.base).stdout
+        self.assertEqual(len(re.findall(r"^From [0-9a-f]{40} ", series,
+                                        re.M)), 2)
+        # The old reading: per-commit line numbers, the edit missed at 15.
+        old = header_rule_ranges(series)
+        self.assertEqual(old.get(F), [[10, 10], [1, 5]])
+        self.assertFalse(scored_in_diff(LB, 15, old))
+        # The builder refuses the series (fail closed) ...
+        with self.assertRaises(diff_ranges.RangeError) as cm:
+            _builder()(series)
+        self.assertEqual(str(cm.exception), diff_ranges.REASON_MBOX)
+        # ... and the cumulative range source reads the edit at line 15.
+        ranges = _builder()(repo.git("diff", *RANGE_GIT_FLAGS, repo.base,
+                                     "HEAD").stdout)
+        self.assertEqual(ranges.get(F), [[1, 5], [15, 15]])
+        self.assertTrue(scored_in_diff(LB, 15, ranges),
+                        "the head-file line of commit A's edit (15) is not "
+                        "in the cumulative ranges")
+
+    def test_cs60_pr_cumulative_control(self):
+        repo, LB = self._pr_repo()
+        ranges = header_rule_ranges(self._u0(repo, repo.base, "HEAD"))
+        self.assertEqual(ranges.get(F), [[1, 5], [15, 15]])
+        self.assertTrue(scored_in_diff(LB, 15, ranges))
+
+    def _mixed_repo(self):
+        """Decision at 40; a COMMITTED edit at line 35, then an UNCOMMITTED
+        insertion of 10 lines at the top: on disk the decided line is 50 and
+        the edit is at 45 (inside 45..55)."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        repo.write(_edited(L0, 35))
+        repo.commit("edit line 35")
+        L2 = TOP_TEN + _edited(L0, 35)
+        repo.write(L2)
+        return repo, L2, s1, hA
+
+    def test_cs60_mixed_concat_probe(self):
+        """The old GSD / incremental assembly: `<base>..HEAD` + `--staged` +
+        unstaged, concatenated. The committed edit keeps its HEAD line (35)
+        while the decision is read on the working tree (50), a silent keep.
+        The range source is now the single `git diff <base>` (commit vs
+        working tree), read by the builder."""
+        repo, L2, s1, hA = self._mixed_repo()
+        concat = (self._u0(repo, "%s..HEAD" % repo.base)
+                  + self._u0(repo, "--staged") + self._u0(repo))
+        old = header_rule_ranges(concat)
+        self.assertEqual(old.get(F), [[35, 35], [1, 10]])
+        self.assert_keeps(self._pass2(s1, L2, old), hA, 50)
+        ranges = _builder()(repo.git("diff", *RANGE_GIT_FLAGS,
+                                     repo.base).stdout)
+        self.assertEqual(ranges.get(F), [[1, 10], [45, 45]])
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_cs60_single_diff_control(self):
+        repo, L2, s1, hA = self._mixed_repo()
+        ranges = header_rule_ranges(self._u0(repo, repo.base))
+        self.assertEqual(ranges.get(F), [[1, 10], [45, 45]])
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+    def _staged_repo(self, at):
+        """Decision at 40; an edit at line `at` is STAGED, then 10 lines are
+        inserted at the top WITHOUT staging. On disk the decided line is 50
+        and the staged edit is at `at + 10`. `git diff HEAD` numbers lines
+        in the working tree; `git diff --staged` numbers them in the index,
+        where the staged edit is still at `at`."""
+        L0, s1, hA = self._decide40()
+        repo = RealDiffRepo.make(self, L0)
+        repo.write(_edited(L0, at))
+        repo.git("add", F)
+        L2 = TOP_TEN + _edited(L0, at)
+        repo.write(L2)
+        head, staged = self._u0(repo, "HEAD"), self._u0(repo, "--staged")
+        return L2, s1, hA, head, staged
+
+    def test_cs60_default_staged_concat_probe(self):
+        """Probe A (wrong reopen): the old default assembly was `git diff
+        HEAD` + `git diff --staged`. The edit at 48 is outside the decided
+        line's window (35..45, on disk 45..55 with the edit at 58), so the
+        decision should be kept; the staged section adds the index line 48,
+        which falls inside the shifted window. The range source is now
+        `git diff HEAD` alone, read by the builder."""
+        L2, s1, hA, head, staged = self._staged_repo(48)
+        self.assertEqual(header_rule_ranges(staged).get(F), [[48, 48]])
+        old = header_rule_ranges(head + staged)
+        self.assertEqual(old.get(F), [[1, 10], [58, 58], [48, 48]])
+        self.assert_reopens(self._pass2(s1, L2, old), hA, 50)
+        ranges = _builder()(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_cs60_default_staged_finding_probe(self):
+        """Probe B (coordinate disagreement): the `--staged` section numbers
+        the staged edit 48, the working tree numbers it 58. On disk line 48
+        is unchanged code (old line 38), so it is correctly outside the
+        working-tree ranges; what the probe showed is that the two sections
+        disagree on numbering, not that a changed line was lost. The fix is
+        the coordinate contract: findings and ranges both use working-tree
+        line numbers (the file as it is on disk), where the staged edit is
+        at 58 and in the diff."""
+        L2, _, _, head, _ = self._staged_repo(48)
+        ranges = _builder()(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
+        self.assertEqual(L2[47], base_file()[37])
+        self.assertFalse(scored_in_diff(L2, 48, ranges))
+        self.assertEqual(L2[57], "line_48 = 'edited'")
+        self.assertTrue(scored_in_diff(L2, 58, ranges),
+                        "the staged edit's working-tree line (58) is not in "
+                        "the working-tree ranges")
+
+    def test_cs60_default_head_only_control(self):
+        L2, s1, hA, head, _ = self._staged_repo(48)
+        ranges = header_rule_ranges(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [58, 58]])
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_cs60_default_head_only_boundary_control(self):
+        L2, s1, hA, head, _ = self._staged_repo(45)
+        ranges = header_rule_ranges(head)
+        self.assertEqual(ranges.get(F), [[1, 10], [55, 55]])
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+
+# --------------------------------------------------------------------------- #
+# Reproduction verdicts for the change-evidence and Finalize shapes, recorded
+# on the unfixed code before any fix. `fixture` names one or more tests or
+# test classes (joined by " + ") in this module, test_finalize_card.py or
+# test_diff_ranges.py.
+# --------------------------------------------------------------------------- #
+_REPRODUCED_60_04 = "reproduced; fixed by 60-04"
+_DROPPED_60 = "did not reproduce; dropped"
+REPRO_60 = (
+    {"id": "999.24-WIDEN", "decision": "EVID-01",
+     "scenario": "decision at line 40; pass 2 edits line 48 (8 lines away); "
+                 "ranges from the documented header rule on a real "
+                 "default-context git diff",
+     "probe_result": "header @@ -45,7 +45,7 @@ -> ranges [[45, 51]] -> "
+                     "stale/nearby, nearby_at 2, gate blocks; the -U0 header "
+                     "gives [[48, 48]] -> current",
+     "disposition": "reproduced; fixed by 60-02 + 60-04",
+     "fixture": "TestRepro60Evidence + TestRealDiffRanges60"},
+    {"id": "999.24-DELETION-RULE", "decision": "EVID-01",
+     "scenario": "line 34 of a 60-line file deleted, nothing else",
+     "probe_result": "default header @@ -31,7 +31,6 @@ -> [[31, 36]]; the "
+                     "+T,0 header (@@ -34 +33,0 @@) appears only under -U0 "
+                     "-> the deletion rule never fires on a default diff",
+     "disposition": "reproduced; fixed by 60-02",
+     "fixture": "test_rd60_deletion_reopens + test_rd60_deletion_keeps"},
+    {"id": "IN-04-NET-DELETION", "decision": "EVID-02",
+     "scenario": "decision at line 40; lines 32-34 replaced by one line "
+                 "(decided line moves to 38, window 33..43)",
+     "probe_result": "-U0 header @@ -32,3 +32 @@ -> header rule [[32, 32]] "
+                     "-> current (silent keep at the boundary); D-02 needs "
+                     "[[32, 33]] -> stale",
+     "disposition": "reproduced; fixed by 60-02",
+     "fixture": "test_rd60_net_deletion_reopens + "
+                "test_net_deletion_keeps_under_header_rule_even_at_u0"},
+    {"id": "PR-SERIES", "decision": "EVID-03",
+     "scenario": "commit A edits line 10, commit B inserts 5 lines at the "
+                 "top; ranges from the mbox commit series (format-patch "
+                 "--stdout, the shape gh pr diff --patch emits)",
+     "probe_result": "series ranges [[10, 10], [1, 5]]; a finding at the "
+                     "head line of the edit (15) is not in the diff (no +20); "
+                     "cumulative diff [[1, 5], [15, 15]] -> in the diff",
+     "disposition": _REPRODUCED_60_04,
+     "fixture": "test_cs60_pr_series_probe"},
+    {"id": "MIXED-COORD", "decision": "EVID-03",
+     "scenario": "decision at 40; committed edit at 35; uncommitted 10-line "
+                 "insertion at the top; GSD/incremental assembly "
+                 "<base>..HEAD + --staged + unstaged",
+     "probe_result": "ranges [[35, 35], [1, 10]] -> decision (now line 50) "
+                     "current, gate write: the edit now at 45 is missed "
+                     "(silent keep); git diff <base> -> [[1, 10], [45, 45]] "
+                     "-> stale",
+     "disposition": _REPRODUCED_60_04,
+     "fixture": "test_cs60_mixed_concat_probe"},
+    {"id": "DEFAULT-STAGED", "decision": "EVID-03",
+     "scenario": "decision at 40; staged edit at 48; unstaged 10-line "
+                 "insertion at the top; default assembly git diff HEAD + "
+                 "git diff --staged",
+     "probe_result": "Probe A: ranges [[1, 10], [58, 58], [48, 48]] -> "
+                     "decision (line 50) stale, a wrong reopen from the "
+                     "index-coordinate 48; Probe B: a finding at 48 under "
+                     "the git diff HEAD ranges [[1, 10], [58, 58]] is not in "
+                     "the diff; git diff HEAD alone -> current",
+     "disposition": _REPRODUCED_60_04,
+     "fixture": "test_cs60_default_staged_concat_probe + "
+                "test_cs60_default_staged_finding_probe"},
+    {"id": "ALL-ROUTE", "decision": "EVID-03",
+     "scenario": "--all review: 05-state-all.md (ii) forces pass 1 with an "
+                 "empty carry-forward on every run",
+     "probe_result": "unsupported fixture: there is no diff, in_diff never "
+                     "gates and nearby_at is never stamped; recorded, no fix",
+     "disposition": "unsupported fixture; recorded, no fix",
+     "fixture": "TestRouteAll"},
+    {"id": "999.25-BLOBFILE", "decision": "FINL-01",
+     "scenario": "fresh-shell walk over the 90-finalize.md fences: HEAD "
+                 "fingerprints -> counts -> gate -> card rows",
+     "probe_result": "no fence prints BLOBFILE=; the counts fence run fresh "
+                     "passes --head-blobs '' -> refused: head-blobs file is "
+                     "missing or not a JSON object (helper exit 2), fence "
+                     "halts 'carry_state.py failed' (exit 1)",
+     "disposition": "reproduced; fixed by 60-03",
+     "fixture": "test_walk_reaches_counts_gate_report + "
+                "test_counts_fence_without_literal_exits_two"},
+    {"id": "GATE-INPUT-CROSS-CALL", "decision": "FINL-01",
+     "scenario": "the gate fence run in a fresh shell",
+     "probe_result": "it pipes \"$FINALIZE_GATE_INPUT_JSON\" (set in an "
+                     "earlier call) -> empty stdin -> JSONDecodeError "
+                     "traceback, fence halts 'finalize_gate.py failed'",
+     "disposition": "reproduced; fixed by 60-03",
+     "fixture": "test_gate_fence_reads_cross_call_variable_today"},
+    {"id": "GSD-SHELL-VAR", "decision": "EVID-03",
+     "scenario": "committed edit at line 3, uncommitted edit at line 5; the "
+                 "GSD / pass >= 2 range-source row run in a fresh bash -s "
+                 "with $PHASE_START / $LAST_REVIEWED_SHA unset",
+     "probe_result": "unquoted variable -> git diff <flags> (index vs "
+                     "working tree) -> {\"f.txt\": [[5, 5]]} rc 0, the "
+                     "committed change silently dropped; quoted literal sha "
+                     "-> [[3, 3], [5, 5]]; quoted empty -> git exit 128 -> "
+                     "halt",
+     "disposition": "reproduced; fixed by 60-07",
+     "fixture": "test_gsd_route_fresh_shell_includes_committed_change + "
+                "test_incremental_route_fresh_shell_includes_committed_change"
+                " + test_unsubstituted_variable_halts_instead_of_narrowing + "
+                "TestScopePhaseStartFence"},
+    {"id": "CONFIG-ALTERED-DIFF", "decision": "EVID-01",
+     "scenario": "ordinary edit next to a blank context line under "
+                 "diff.suppressBlankEmpty=true; colored diff without "
+                 "--no-color; textconv driver; diff.relative from a "
+                 "subdirectory",
+     "probe_result": "suppressBlankEmpty -> 'unexpected line in hunk body' "
+                     "rc 2 (every pass halts); colored -> {} rc 0 "
+                     "(fail-open); textconv shifts the range ([[14, 14], "
+                     "[22, 23]] for [[12, 12], [20, 21]]); relative from "
+                     "sub/ drops it ({})",
+     "disposition": "reproduced; fixed by 60-06 + 60-07",
+     "fixture": "test_suppress_blank_empty_context_is_context + "
+                "test_refuses_colored_diff + test_refuses_non_diff_text + "
+                "test_diff_relative_from_subdirectory_changes_nothing"},
+    {"id": "GATEFILE-RETRY", "decision": "FINL-02",
+     "scenario": "attempt 1's GATEFILE write leaves an empty file; the gate "
+                 "fence halts; the documented retry re-mints only BLOBFILE",
+     "probe_result": "re-running the gate on the same GATEFILE halts "
+                     "identically ('finalize_gate.py failed', traceback in "
+                     ".err); retry_rule_holds lacked every GATEFILE needle",
+     "disposition": "reproduced; fixed by 60-08",
+     "fixture": "test_retry_mints_new_gatefile_after_gate_input_failure + "
+                "test_gatefile_missing_path_is_a_named_trigger"},
+    {"id": "HEAD-SHA-INJECTION", "decision": "EVID-03",
+     "scenario": "a state file (committable inside the reviewed repo; GSD "
+                 "key <phase-dir-name>.json) whose last-pass head_sha is "
+                 "$(touch \"$T/pwned\")HEAD; the pass >= 2 range-source row "
+                 "run with that literal substituted into the double-quoted "
+                 "placeholder, as 05-state.md step 2 / 30-collect-score.md "
+                 "directed",
+     "probe_result": "the payload ran (marker file created), the fence "
+                     "exited 0 and printed valid-looking ranges -- double "
+                     "quotes stop word-splitting, not $(...); after the fix "
+                     "the last-head-sha fence refuses it (rc 2, nothing on "
+                     "stdout, fixed reason), 05-state halts with one sentence "
+                     "and no marker is created",
+     "disposition": "reproduced; fixed by 60-10 + 60-11",
+     "fixture": "TestLastHeadSha + TestStateHeadShaFence + "
+                "test_injection_payload_in_the_row_executes_so_the_bind_"
+                "fence_is_the_control + "
+                "test_mutant_without_the_check_prints_the_payload + "
+                "TestSubstitutedValueProse"},
+    {"id": "STALE-GATEFILE-RERUN", "decision": "FINL-02",
+     "scenario": "six-row fixture, counts (5, 1, 0), gate "
+                 "outstanding-to-phase-5; the owner's card answer dismisses "
+                 "every open obligation through record-decisions; step 3 "
+                 "re-runs the counts (0, 0, 0) and then the gate ONCE on this "
+                 "attempt's GATEFILE",
+     "probe_result": "the stale GATEFILE still returns "
+                     "outstanding-to-phase-5 (the owner sees 'Finalize stays "
+                     "blocked' against an empty list and must run --finalize "
+                     "again -- 'Finalize costs one card' broken); a fresh "
+                     "GATEFILE written from the recounted counts returns "
+                     "write",
+     "disposition": "reproduced; fixed by 60-12",
+     "fixture": "test_post_decision_rerun_decides_on_a_fresh_gatefile + "
+                "test_step3_rerun_rule_holds + test_mutant_step3_rerun_rule"},
+    {"id": "STALE-BLOBFILE-RECOUNT", "decision": "FINL-02",
+     "scenario": "six-row fixture with a last-pass (pass 3) fix_verdicts "
+                 "obsolete entry for the critical "
+                 "src/utils/integrationDeadline.ts record whose verified_blob "
+                 "equals the blob fingerprinted into step 1's BLOBFILE before "
+                 "the card; the owner answers the card (dismiss the rest); "
+                 "the file's HEAD blob changes during the card wait; step 3 "
+                 "recounts ONCE on 'the same BLOBFILE= literal this attempt "
+                 "printed -- the fingerprints have not changed'",
+     "probe_result": "the stale recount keeps outstanding_cw 0 and "
+                     "verified_obsolete_hashes [that hash] -- the verdict is "
+                     "honoured and the gate would return write over code "
+                     "nothing re-verified; a recount on a NEW BLOBFILE "
+                     "carrying the post-edit blob flips outstanding_cw to 1 "
+                     "(reopened) and the gate stays outstanding-to-phase-5; a "
+                     "NEW BLOBFILE with the unchanged blob still returns "
+                     "write (control)",
+     "disposition": "reproduced; fixed by 60-14",
+     "fixture": "test_post_decision_recount_refingerprints_head + "
+                "test_step3_rerun_rule_holds + test_mutant_step3_rerun_rule + "
+                "test_mutant_step3_reinserts_stale_fingerprint_claim"},
+    {"id": "FINALIZE-HEAD-SHA-WEDGE", "decision": "FINL-02",
+     "scenario": "a state file whose last-pass head_sha is the literal HEAD "
+                 "(written unvalidated by 45-persist.md's \"<current HEAD>\" "
+                 "template; the schema has no format check); --finalize runs "
+                 "Phase 0.5 step 2, whose last-head-sha bind fence (added for "
+                 "CR-01) has no finalize-mode branch",
+     "probe_result": "the fence halts with 'Review halted -- the state "
+                     "file's last-pass head_sha is not a commit sha; nothing "
+                     "was scored.' and no remedy, so Finalize -- which never "
+                     "reads $LAST_REVIEWED_SHA -- can never complete; after "
+                     "the fix the fence with the printed FINALIZE_MODE=1 "
+                     "literal substituted exits 0, prints no "
+                     "LAST_REVIEWED_SHA= line, and the real counts fence "
+                     "returns (5, 1, 0) on that state; in review mode (0, or "
+                     "unsubstituted) the CR-01 payload and HEAD still halt "
+                     "with the remedy-bearing line and no marker file",
+     "disposition": "reproduced; fixed by 60-15",
+     "fixture": "test_finalize_mode_skips_the_bind_and_reaches_the_counts_"
+                "step + test_finalize_mode_never_runs_the_payload + "
+                "test_review_mode_literal_zero_still_halts + "
+                "test_unsubstituted_mode_fails_closed + "
+                "test_halt_names_a_remedy"},
+)
+# Fixtures a REPRO_60 row may name before the test exists.
+_REPRO_60_PENDING_FIXTURES = set()
+
+
+def _suite_defines(name):
+    """True when `name` is a `def` or `class` in this module,
+    test_finalize_card.py, test_diff_ranges.py or test_carry_state.py."""
+    pat = re.compile(r"^\s*(?:def|class) %s\b" % re.escape(name), re.M)
+    for mod in ("test_decision_continuity.py", "test_finalize_card.py",
+                "test_diff_ranges.py", "test_carry_state.py"):
+        with open(os.path.join(HERE, mod), encoding="utf-8") as fh:
+            if pat.search(fh.read()):
+                return True
+    return False
+
+
+class TestRepro60Record(unittest.TestCase):
+
+    def test_repro_60_record_is_complete(self):
+        by_id = {r["id"]: r for r in REPRO_60}
+        self.assertEqual(len(REPRO_60), 16)
+        self.assertEqual(set(by_id), {
+            "999.24-WIDEN", "999.24-DELETION-RULE", "IN-04-NET-DELETION",
+            "PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED", "ALL-ROUTE",
+            "999.25-BLOBFILE", "GATE-INPUT-CROSS-CALL", "GSD-SHELL-VAR",
+            "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY", "HEAD-SHA-INJECTION",
+            "STALE-GATEFILE-RERUN", "STALE-BLOBFILE-RECOUNT",
+            "FINALIZE-HEAD-SHA-WEDGE"})
+        for row in REPRO_60:
+            with self.subTest(id=row["id"]):
+                self.assertEqual(set(row), {"id", "decision", "scenario",
+                                            "probe_result", "disposition",
+                                            "fixture"})
+                self.assertTrue(row["scenario"].strip())
+                self.assertTrue(row["probe_result"].strip())
+        for rid in ("PR-SERIES", "MIXED-COORD", "DEFAULT-STAGED"):
+            with self.subTest(id=rid):
+                self.assertIn(by_id[rid]["disposition"],
+                              (_REPRODUCED_60_04, _DROPPED_60))
+        self.assertEqual(by_id["ALL-ROUTE"]["disposition"],
+                         "unsupported fixture; recorded, no fix")
+        for rid in ("GSD-SHELL-VAR", "CONFIG-ALTERED-DIFF", "GATEFILE-RETRY"):
+            with self.subTest(id=rid):
+                self.assertTrue(by_id[rid]["disposition"].startswith(
+                    "reproduced; fixed by 60-0"), by_id[rid]["disposition"])
+        for rid in ("HEAD-SHA-INJECTION", "STALE-GATEFILE-RERUN",
+                    "STALE-BLOBFILE-RECOUNT", "FINALIZE-HEAD-SHA-WEDGE"):
+            with self.subTest(id=rid):
+                self.assertTrue(by_id[rid]["disposition"].startswith(
+                    "reproduced; fixed by 60-1"), by_id[rid]["disposition"])
+
+    def test_every_fixture_exists(self):
+        for row in REPRO_60:
+            for name in row["fixture"].split(" + "):
+                with self.subTest(id=row["id"], fixture=name):
+                    if name in _REPRO_60_PENDING_FIXTURES:
+                        self.assertFalse(_suite_defines(name),
+                                         "%s exists: drop it from "
+                                         "_REPRO_60_PENDING_FIXTURES" % name)
+                        continue
+                    self.assertTrue(_suite_defines(name), name)
+
+    def test_fixture_lookup_trips_on_a_missing_name(self):
+        self.assertFalse(_suite_defines("test_rd60_no_such_fixture"))
+        self.assertTrue(_suite_defines("test_rd60_ordinary_reopens"))
 
 
 if __name__ == "__main__":

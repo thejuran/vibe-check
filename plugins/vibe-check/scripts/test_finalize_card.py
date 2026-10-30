@@ -6,14 +6,27 @@ for every undecided finding. The rows, the parse of the answer, the
 record-decisions payload and the fix subset all come from `batch_card.py`;
 the prose only renders and routes. These tests pin that shape.
 
+The Finalize path itself is locked too: every temp path any fence creates is
+printed (`check_printed_paths`, whole file) and every path a fence reads was
+created by a fence (`check_file_refs_created`); the gate reads a printed
+GATEFILE, never a cross-call variable (`no_cross_call_gate_input`); the
+rebuild-once, refused-step and write-boundary rules (`retry_rule_holds`,
+`refused_rule_holds`, `write_boundary_holds`); and a fresh-shell walk runs the
+real fences on both routes (`TestFinalizeFreshShellWalk`).
+
 Every lock is a check function that returns a list of problems. Each one is
 applied to the real text (must return []) AND to a mutant of it (must return
 something), so no lock is decorative: a check that cannot trip fails here.
 """
 
+import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+import textwrap
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -23,6 +36,8 @@ import batch_parse  # noqa: E402  (sibling module: the card labels)
 import carry_state  # noqa: E402  (sibling module: KNOWN_FLAGS)
 import finalize_gate  # noqa: E402  (sibling module: FLAGS, the REVIEW.md stamp)
 from test_batch_card import HB, successor_state  # noqa: E402
+from test_carry_state import (ARCH_FILE, ARCH_HASH, load_fixture,  # noqa: E402
+                              obsolete_verdict)
 from test_pause_batching import FINALIZE_MD, PINS  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -514,11 +529,13 @@ PATH_CONVENTION = ("a path printed after `NAME=` is reused in a later fence "
 
 
 def check_printed_paths(text):
-    """Every temp file the card creates prints its path in the same fence,
-    and one sentence says a printed path is reused only as that literal."""
+    """Every temp file ANY Finalize fence creates prints its path in the same
+    fence (the whole file: a card-section-only scan is how 999.25 slipped,
+    58 SA-01), and one card sentence says a printed path is reused only as
+    that literal."""
     section = card_section(text)
     problems = []
-    for body in bash_fences(section):
+    for body in bash_fences(text):
         for name in MKTEMP_RE.findall(body):
             printf = "printf '%s=%%s\\n' \"$%s\"" % (name, name)
             if printf not in body:
@@ -528,6 +545,48 @@ def check_printed_paths(text):
         problems.append("path convention sentence appears %d times" % count)
     return problems
 
+
+# Paths a Finalize fence may read without creating them in this file:
+# STATE_FILE is bound by Phase 0.5; PRIORROWSFILE is bound to the path the
+# fix-loop card's rows fence printed after `CARDROWSFILE=` (50-fix-loop.md).
+EXTERNAL_FILE_REFS = {
+    "STATE_FILE": None,
+    "PRIORROWSFILE": ("bind `$PRIORROWSFILE` to the path the fix-loop card's "
+                      "rows fence printed after `CARDROWSFILE=`"),
+}
+
+
+def check_file_refs_created(text):
+    """Every `"$NAME"` a fence reads is created by a `NAME=$(mktemp` fence of
+    this file, except the externally bound paths, whose binding sentence
+    must be present."""
+    fences = bash_fences(text)
+    made = set()
+    for body in fences:
+        made |= set(MKTEMP_RE.findall(body))
+    reads = set()
+    for body in fences:
+        reads |= set(_FILE_REF_RE.findall(body))
+    problems = []
+    for name in sorted(reads - made):
+        if name not in EXTERNAL_FILE_REFS:
+            problems.append("%s read but never created by a fence" % name)
+        elif (EXTERNAL_FILE_REFS[name] is not None
+              and EXTERNAL_FILE_REFS[name] not in text):
+            problems.append("%s read with no binding sentence" % name)
+    return problems
+
+
+def no_cross_call_gate_input(text):
+    """Pitfall 6: the gate reads the printed GATEFILE, never a variable set
+    in an earlier Bash call."""
+    problems = []
+    if "FINALIZE_GATE_INPUT_JSON" in text:
+        problems.append("the cross-call gate variable is back")
+    if not any('finalize_gate.py" < "$GATEFILE"' in body
+               for body in bash_fences(text)):
+        problems.append("the gate fence does not read < \"$GATEFILE\"")
+    return problems
 
 ANSWER_FILES_CLEAR = 'rm -f "$SUGGESTFILE" "$REFSFILE" "$RESOLVEFILE"'
 TRANSLATION_FILES_CLEAR = 'rm -f "$REFSFILE" "$RESOLVEFILE"'
@@ -1219,9 +1278,91 @@ class TestGapRoundFinalize(LockCase):
         with self.subTest("mutant: RESOLVEFILE path not printed"):
             self.assert_trips(check_printed_paths, self._mutant(
                 "printf 'RESOLVEFILE=%s\\n' \"$RESOLVEFILE\"\n"))
+        with self.subTest("mutant: BLOBFILE path not printed"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                "printf 'BLOBFILE=%s\\n' \"$BLOBFILE\"\n"))
+        with self.subTest("mutant: GATEFILE path not printed"):
+            self.assert_trips(check_printed_paths, self._mutant(
+                "printf 'GATEFILE=%s\\n' \"$GATEFILE\"\n"))
         with self.subTest("mutant: convention sentence dropped"):
             self.assert_trips(check_printed_paths, self._mutant(
                 PATH_CONVENTION, "a path is reused"))
+
+    def test_retry_rule_holds(self):
+        self.assert_holds(retry_rule_holds, self.text)
+
+    def test_mutant_retry_rule(self):
+        with self.subTest("mutant: earlier attempt's BLOBFILE may be reused"):
+            self.assert_trips(retry_rule_holds, self._mutant(
+                "Never reuse a `BLOBFILE=` printed by an earlier attempt "
+                "or an earlier session: "))
+        with self.subTest("mutant: rebuild reuses the old file"):
+            self.assert_trips(retry_rule_holds, self._mutant(
+                "a new mktemp fence printing a NEW `BLOBFILE=`",
+                "the same `BLOBFILE=`"))
+        with self.subTest("mutant: earlier attempt's GATEFILE may be reused"):
+            self.assert_trips(retry_rule_holds, self._mutant(
+                "Never reuse a `GATEFILE=` printed by an earlier attempt "
+                "or an earlier session: "))
+        with self.subTest("mutant: rebuild does not re-mint GATEFILE"):
+            self.assert_trips(retry_rule_holds, self._mutant(
+                "run the gate-input fence again so it prints a NEW "
+                "`GATEFILE=`, "))
+        with self.subTest("mutant: rebuild paragraph gone"):
+            self.assert_trips(retry_rule_holds, self._mutant(RETRY_HEAD, ""))
+
+    def test_refused_rule_holds(self):
+        self.assert_holds(refused_rule_holds, self.text)
+
+    def test_mutant_refused_rule(self):
+        with self.subTest("mutant: refused step retried"):
+            self.assert_trips(refused_rule_holds, self._mutant(
+                "A step the owner refused (permission denied) is never "
+                "retried and stops at once. "))
+        with self.subTest("mutant: stop sentence dropped"):
+            self.assert_trips(refused_rule_holds, self._mutant(
+                'The stop is exactly one sentence: "' + STOP_SENTENCE + '"',
+                "The attempt stops."))
+
+    def test_write_boundary_holds(self):
+        self.assert_holds(write_boundary_holds, self.text)
+
+    def test_mutant_write_boundary(self):
+        with self.subTest("mutant (a): REVIEW.md/archive prohibition deleted"):
+            self.assert_trips(write_boundary_holds,
+                              self._mutant(WRITE_BOUNDARY + " "))
+        with self.subTest("mutant (b): blanket record-decisions ban re-added"):
+            self.assert_trips(write_boundary_holds, self._mutant(
+                WRITE_BOUNDARY, WRITE_BOUNDARY + " Before that: no REVIEW.md, "
+                "no archive, no `record-decisions` call."))
+        with self.subTest("mutant (c): the record-decisions fence deleted"):
+            fence = _fence_holding(self.text, RECORD_CALL)
+            self.assert_trips(write_boundary_holds, self._mutant(fence, ""))
+
+    def test_file_refs_created_holds(self):
+        self.assert_holds(check_file_refs_created, self.text)
+
+    def test_mutant_file_refs_created(self):
+        with self.subTest("mutant: BLOBFILE mktemp fence removed"):
+            fence = blobfile_fence(self.text)
+            self.assertIsNotNone(fence)
+            mutant = self._mutant("```bash\n" + fence + "```", "")
+            self.assert_trips(check_file_refs_created, mutant)
+            # the walk's extractor finds no BLOBFILE= fence to run either
+            self.assertIsNone(blobfile_fence(mutant))
+        with self.subTest("mutant: PRIORROWSFILE binding sentence dropped"):
+            self.assert_trips(check_file_refs_created, self._mutant(
+                EXTERNAL_FILE_REFS["PRIORROWSFILE"], "use a prior rows file"))
+
+    def test_no_cross_call_gate_input_holds(self):
+        self.assert_holds(no_cross_call_gate_input, self.text)
+
+    def test_mutant_cross_call_gate_input(self):
+        with self.subTest("mutant: cross-call gate input restored"):
+            self.assert_trips(no_cross_call_gate_input, self._mutant(
+                'python3 "$VC_ROOT/scripts/finalize_gate.py" < "$GATEFILE"',
+                'printf \'%s\' "$FINALIZE_GATE_INPUT_JSON" | '
+                'python3 "$VC_ROOT/scripts/finalize_gate.py"'))
 
     def test_answer_files_holds(self):
         self.assert_holds(check_answer_files, self.text)
@@ -1259,6 +1400,42 @@ class TestGapRoundFinalize(LockCase):
         with self.subTest("mutant: no-path fallback dropped"):
             self.assert_trips(check_stale, self._mutant(
                 "no longer available", "gone"))
+
+
+    def _step3_mutant(self, old, new=""):
+        """Replace `old` inside the step-3 line only (the rebuild-once
+        paragraph carries similar wording)."""
+        line = step3_line(self.text)
+        self.assertIn(old, line)
+        return self._mutant(line, line.replace(old, new, 1))
+
+    def test_step3_rerun_rule_holds(self):
+        self.assert_holds(step3_rerun_rule_holds, self.text)
+
+    def test_mutant_step3_rerun_rule(self):
+        for needle in STEP3_NEEDLES:
+            with self.subTest("mutant: step 3 drops " + needle):
+                self.assert_trips(step3_rerun_rule_holds,
+                                  self._step3_mutant(needle))
+        with self.subTest("mutant: step 3 re-runs the gate on the old "
+                          "GATEFILE again"):
+            self.assert_trips(step3_rerun_rule_holds, self._step3_mutant(
+                STEP3_NEEDLES[3],
+                STEP3_OLD + " (the same `BLOBFILE=` literal this attempt "
+                "printed)"))
+
+    def test_mutant_step3_reinserts_stale_fingerprint_claim(self):
+        """Every needle stays present; only the reinserted claim that the
+        pre-card fingerprints are still current can trip the lock."""
+        line = step3_line(self.text)
+        self.assertNotIn(STEP3_STALE_OLD, line)
+        mutant = self._mutant(
+            line, line + " — " + STEP3_STALE_OLD + ", only the decisions have")
+        self.assertTrue(all(n in step3_line(mutant) for n in STEP3_NEEDLES))
+        self.assert_trips(step3_rerun_rule_holds, mutant)
+
+    def test_step3_keeps_answer_files_anchor(self):
+        self.assertEqual(check_answer_files(self.text), [])
 
 
 class TestGapRoundFinalizeTranslate(LockCase):
@@ -1621,6 +1798,741 @@ class TestNeedsVerificationFinalizeProse(LockCase):
         self.assertIn("`.turingmind/state/format-53/`", self.text)
         self.assertIn("format-53/", self.schema)
 
+
+# --------------------------------------------------------------------------- #
+# Fresh-shell walk over the Finalize fences. Each fence runs in its own
+# `bash -s` with only PATH, VC_ROOT, TMPDIR and STATE_FILE, the way separate
+# Bash calls run: a temp path survives from one fence to the next only as a
+# printed `NAME=<path>` literal substituted for `"$NAME"`.
+# --------------------------------------------------------------------------- #
+SIX_ROW_FIXTURE = os.path.join(HERE, "fixtures",
+                               "iplayarr45-six-row-state.json")
+_PRINTED_RE = re.compile(r"^([A-Z_]+FILE)=(.+)$", re.M)
+_FILE_REF_RE = re.compile(r'"\$([A-Z_]+FILE)"')
+
+COUNTS_CALL = 'carry_state.py" finalize-counts --head-blobs "$BLOBFILE"'
+GATE_CALL = 'scripts/finalize_gate.py"'
+GATE_INPUT_VAR = '"$FINALIZE_GATE_INPUT_JSON"'
+COUNTS_HALT = "carry_state.py failed; nothing was written or archived"
+
+
+def _printed(stdout):
+    """{NAME: path} for every `NAME=path` line a fence printed."""
+    return dict(_PRINTED_RE.findall(stdout))
+
+
+def _fence_after(text, anchor):
+    """Body of the first ```bash fence after `anchor` (None if absent)."""
+    if anchor not in text:
+        return None
+    start = text.find("```bash\n", text.index(anchor))
+    if start < 0:
+        return None
+    start += len("```bash\n")
+    return text[start:text.index("```", start)]
+
+
+def _fence_holding(text, needle):
+    """Body of the ```bash fence that holds `needle` (None if absent)."""
+    if needle not in text:
+        return None
+    at = text.index(needle)
+    start = text.rindex("```bash\n", 0, at) + len("```bash\n")
+    return text[start:text.index("```", at)]
+
+
+def _print_line(name):
+    return "printf '%s=%%s\\n' \"$%s\"" % (name, name)
+
+
+def blobfile_fence(text):
+    """The fence that creates the HEAD-fingerprints file and prints
+    `BLOBFILE=<path>`, or None."""
+    return _fence_holding(text, _print_line("BLOBFILE"))
+
+
+def gate_fence(text):
+    """The fence that runs finalize_gate.py on the gate input."""
+    return _fence_holding(text, GATE_CALL)
+
+
+GATE_HALT = ("I'm uncertain about Finalize mode — finalize_gate.py failed; "
+             "nothing was written or archived.")
+GATE_ERR_REDIRECT = ' 2>"$GATEFILE.err"'
+STOP_SENTENCE = ("Finalize stopped — nothing was written or archived; run "
+                 "`--finalize` again.")
+RETRY_HEAD = "**One automatic rebuild, then stop (D-07/D-08).**"
+RETRY_NEEDLES = (
+    "run step 1 again ONCE",
+    "a new mktemp fence printing a NEW `BLOBFILE=`",
+    "this rebuild is the snapshot-freshness revalidation",
+    "Never reuse a `BLOBFILE=` printed by an earlier attempt",
+    "A second failure stops.",
+    "or the `GATEFILE=` path is missing or empty",
+    "run the gate-input fence again so it prints a NEW `GATEFILE=`",
+    "write the seven-key `flags` object from the REBUILT `$COUNTS_JSON` to "
+    "that new path",
+    "Never reuse a `GATEFILE=` printed by an earlier attempt or an earlier "
+    "session",
+)
+REFUSED_NEEDLES = (
+    "A step the owner refused (permission denied) is never retried",
+    'The stop is exactly one sentence: "' + STOP_SENTENCE + '"',
+)
+WRITE_BOUNDARY = ("No REVIEW.md is written and no archive move is made before "
+                  "the gate returns `write`.")
+WRITE_BOUNDARY_FORBIDDEN = ("no `record-decisions` call", "no `record-decisions`")
+ONLY_STATE_WRITE = ("Finalize's only state write is the `record-decisions` "
+                    "step above")
+
+
+def retry_paragraph(text):
+    """The rebuild-once paragraph (one line), or ""."""
+    if RETRY_HEAD not in text:
+        return ""
+    at = text.index(RETRY_HEAD)
+    end = text.find("\n", at)
+    return text[at:end if end >= 0 else len(text)]
+
+
+def retry_rule_holds(text):
+    """D-07 / Pitfall 5: one rebuild into a NEW blob file, never an earlier
+    attempt's file, then stop."""
+    para = retry_paragraph(text)
+    if not para:
+        return ["no rebuild-once paragraph"]
+    return ["rebuild rule lacks: " + n for n in RETRY_NEEDLES if n not in para]
+
+
+def refused_rule_holds(text):
+    """D-08: a refused step is never retried and stops with the one plain
+    sentence."""
+    para = retry_paragraph(text)
+    if not para:
+        return ["no rebuild-once paragraph"]
+    return ["refused-step rule lacks: " + n
+            for n in REFUSED_NEEDLES if n not in para]
+
+
+def write_boundary_holds(text):
+    """No REVIEW.md or archive before the gate's `write`, while the validated
+    `record-decisions` single writer (the card route's pre-`write` state
+    change) stays allowed and present."""
+    problems = []
+    if WRITE_BOUNDARY not in retry_paragraph(text):
+        problems.append("no REVIEW.md / archive boundary sentence")
+    problems += ["forbids record-decisions before write: %r" % n
+                 for n in WRITE_BOUNDARY_FORBIDDEN if n in text]
+    if _fence_holding(text, RECORD_CALL) is None:
+        problems.append("the record-decisions fence is gone")
+    if ONLY_STATE_WRITE not in text:
+        problems.append("the only-state-write sentence is gone")
+    return problems
+
+
+STEP3_NEEDLES = (
+    "run step 1 again",
+    "a new mktemp fence printing a NEW `BLOBFILE=`",
+    "fingerprints rebuilt from the current HEAD, index and working tree",
+    "RE-RUN the counts step ONCE with that NEW `BLOBFILE=` literal",
+    "run the gate-input fence again so it prints a NEW `GATEFILE=`",
+    "write the seven-key `flags` object from the RE-COUNTED `$COUNTS_JSON` "
+    "to that new path",
+    "run the gate once on that literal",
+    "never on the `GATEFILE=` this attempt's first gate run read",
+)
+STEP3_OLD = "RE-RUN the counts step and the gate ONCE"
+STEP3_STALE_OLD = "the fingerprints have not changed"
+
+
+def step3_line(text):
+    """The After-the-answer step-3 list item (one line), or ""."""
+    return _line_starting(card_section(text), STEP3_HEAD)
+
+
+def step3_rerun_rule_holds(text):
+    """FINL-02 / WR-02: after the owner's answers are recorded, step 3
+    re-counts on this attempt's BLOBFILE, mints a NEW GATEFILE, writes the
+    flags from the recounted counts and gates on that literal, never on the
+    attempt's first GATEFILE. Before that recount, step 3 re-mints BLOBFILE
+    (re-fingerprints HEAD), so an edit made while the owner answered the card
+    reopens a fix-obsolete verdict instead of being closed by it."""
+    line = step3_line(text)
+    if not line:
+        return ["no step 3 line"]
+    problems = ["step 3 lacks: " + n for n in STEP3_NEEDLES if n not in line]
+    if STEP3_OLD in line:
+        problems.append("step 3 still says to re-run the gate on this "
+                        "attempt's GATEFILE")
+    if STEP3_STALE_OLD in line:
+        problems.append("step 3 still claims the pre-card fingerprints are "
+                        "current")
+    return problems
+
+
+class TestFinalizeFreshShellWalk(LockCase):
+    """FINL-01 / FINL-02 / D-09: every Finalize fence, run in a fresh shell
+    with the printed paths carried as literals, reaches counts -> gate ->
+    write/report, and on the card route counts -> gate -> rows -> parse ->
+    record-decisions -> counts again -> gate -> write.
+
+    ## Finalize fresh-shell walk
+
+    Each fence runs in its own `bash -s` with exactly PATH, VC_ROOT, TMPDIR
+    and STATE_FILE, in a scratch cwd. The Write tool is simulated by writing
+    JSON to the printed path. finalize_gate.py itself still prints a Python
+    traceback on empty or malformed stdin (unchanged here); the gate fence
+    sends the helper's stderr to `<GATEFILE>.err`, so the owner-visible output
+    is one sentence. 60-05 records the helper-side traceback as a residual,
+    not an owner-facing one.
+    """
+
+    def setUp(self):
+        self.text = read_prose(FINALIZE_MD)
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.walked = []
+
+    def _run_fresh(self, script, state_file=SIX_ROW_FIXTURE):
+        """(returncode, stdout, stderr) of `script` in a fresh bash."""
+        tmpdir = tempfile.mkdtemp(dir=self.tmp)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "VC_ROOT": PLUGIN_DIR, "TMPDIR": tmpdir,
+               "STATE_FILE": state_file}
+        proc = subprocess.run(["bash", "-s"], input=textwrap.dedent(script),
+                              env=env, cwd=tmpdir, capture_output=True,
+                              text=True, timeout=60)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def _literal(self, fence, subs):
+        """`fence` with each printed path substituted for `"$NAME"` (and for
+        `"$NAME.<suffix>"`, e.g. the gate's `"$GATEFILE.err"`)."""
+        for name, path in subs.items():
+            ref = '"$%s"' % name
+            self.assertIn(ref, fence, "fence does not read " + ref)
+            fence = fence.replace(ref, '"%s"' % path)
+            fence = fence.replace('"$%s.' % name, '"%s.' % path)
+        return fence
+
+    def _walk(self, fence, subs=None, state_file=SIX_ROW_FIXTURE):
+        """Run a prose fence fresh with literals; remember it for the
+        closure check."""
+        self.assertIsNotNone(fence)
+        self.walked.append(fence)
+        return self._run_fresh(self._literal(fence, subs or {}), state_file)
+
+    def _mint(self, name, subs=None, state_file=SIX_ROW_FIXTURE):
+        """Run the fence that prints `NAME=` fresh; return the printed path."""
+        fence = _fence_holding(self.text, _print_line(name))
+        self.assertIsNotNone(fence, "no Finalize fence prints %s=" % name)
+        rc, out, err = self._walk(fence, subs, state_file)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        self.assertIn(name, printed)
+        return printed[name]
+
+    @staticmethod
+    def _write_json(path, obj):
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(obj, fh)
+
+    def _state_copy(self, source):
+        path = os.path.join(self.tmp, "state.json")
+        shutil.copyfile(source, path)
+        return path
+
+    def _counts(self, blob, state_file):
+        rc, out, err = self._walk(_fence_holding(self.text, COUNTS_CALL),
+                                  {"BLOBFILE": blob}, state_file)
+        self.assertEqual(rc, 0, err)
+        counts = json.loads(out.strip().splitlines()[0])
+        for key in ("outstanding_cw", "unacknowledged_medium",
+                    "undecided_nv", "verified_obsolete_hashes"):
+            self.assertIn(key, counts)
+        return counts
+
+    def _flags(self, counts, state_file):
+        """The gate input, each key from its real source."""
+        flags = {
+            # [ -f "$STATE_FILE" ]
+            "state_file_present": os.path.isfile(state_file),
+            # the three counts, copied from COUNTS_JSON
+            "outstanding_cw": counts["outstanding_cw"],
+            "unacknowledged_medium": counts["unacknowledged_medium"],
+            "undecided_nv": counts["undecided_nv"],
+            # $TURINGMIND_NONINTERACTIVE is not in the walk env
+            "noninteractive": False,
+            # Phase 0 resolved the default route: neither PR nor range mode
+            "pr_mode": False, "range_mode": False,
+        }
+        self.assertEqual(set(flags), set(finalize_gate.FLAGS))
+        return {"flags": flags}
+
+    def _gate(self, counts, state_file):
+        gate = gate_fence(self.text)
+        self.assertNotIn(GATE_INPUT_VAR, gate)
+        gatefile = self._mint("GATEFILE", state_file=state_file)
+        self._write_json(gatefile, self._flags(counts, state_file))
+        rc, out, err = self._walk(gate, {"GATEFILE": gatefile}, state_file)
+        self.assertEqual(rc, 0, err)
+        with open(gatefile + ".err", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "")
+        return json.loads(out.strip().splitlines()[-1])
+
+    def _report(self, state_file):
+        rc, out, err = self._walk(_fence_holding(self.text, REPORT_CALL),
+                                  {}, state_file)
+        self.assertEqual(rc, 0, err)
+        report = json.loads(out.strip().splitlines()[0])
+        return report
+
+    def _assert_closed(self):
+        """Every path a walked fence reads was made by a walked fence."""
+        reads, made = set(), set()
+        for fence in self.walked:
+            reads |= set(_FILE_REF_RE.findall(fence))
+            made |= set(MKTEMP_RE.findall(fence))
+            self.assertNotIn(GATE_INPUT_VAR, fence)
+        self.assertEqual(reads - made - {"STATE_FILE"}, set())
+
+    def _write_route_state(self):
+        """The phase-45 loop state with every open finding dismissed through
+        carry_state's own record_decisions (a state the helpers accept and
+        whose gate outcome is `write`)."""
+        state = load_fixture()
+        counts = carry_state.finalize_counts(state)
+        hashes = (counts["outstanding_cw_hashes"]
+                  + counts["unacknowledged_medium_hashes"]
+                  + counts["undecided_nv_hashes"])
+        self.assertTrue(hashes)
+        state = carry_state.record_decisions(state, {
+            "at_pass": state["passes"][-1]["pass_number"],
+            "decisions": [{"stable_hash": h, "decision": "dismiss",
+                           "reason": "walk"} for h in hashes]})
+        self.assertIsNotNone(state)
+        path = os.path.join(self.tmp, "write-route.json")
+        self._write_json(path, state)
+        return path
+
+    def test_walk_reaches_counts_gate_report(self):
+        self.assertIsNotNone(
+            blobfile_fence(self.text),
+            "no Finalize fence prints BLOBFILE= (D-09): the counts and rows "
+            "fences read \"$BLOBFILE\", which no fresh shell holds, so "
+            "carry_state.py refuses the empty path and Finalize stops")
+        state = self._write_route_state()
+        blob = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob, {})
+        counts = self._counts(blob, state)
+        decision = self._gate(counts, state)
+        self.assertEqual(decision["action"], "write")
+        self.assertIn('"action": "write"', json.dumps(decision))
+        self.assertTrue(self._report(state)["entries"])
+        self._assert_closed()
+
+    def test_card_route_records_then_writes(self):
+        """The card route end to end: the gate opens the card, the owner's
+        answer goes through parse and the record-decisions fence (the one
+        pre-`write` state write), and the re-run counts step (same BLOBFILE
+        literal) and the gate then return `write`."""
+        state = self._state_copy(SIX_ROW_FIXTURE)
+        blob = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob, {})
+        counts = self._counts(blob, state)
+        decision = self._gate(counts, state)
+        self.assertIn(decision["action"],
+                      ("outstanding-to-phase-5", "medium-ack-loop"))
+        self.assertEqual(decision["action"], "outstanding-to-phase-5")
+
+        rc, out, err = self._walk(_fence_holding(self.text, ROWS_CALL),
+                                  {"BLOBFILE": blob}, state)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            rows = json.load(fh)
+        self.assertTrue(rows["rows"])
+
+        # The owner answers the card (the Write tool fills ANSWERFILE).
+        numbers = ",".join(str(r["n"]) for r in rows["rows"])
+        self._write_json(printed["ANSWERFILE"],
+                         {"q1": "dismiss %s -- walk" % numbers, "q2": None})
+        parsefile = self._mint("PARSEFILE",
+                               {"ROWSFILE": printed["ROWSFILE"],
+                                "ANSWERFILE": printed["ANSWERFILE"]}, state)
+        decfile = self._mint("DECFILE", {"PARSEFILE": parsefile}, state)
+        with open(decfile, encoding="utf-8") as fh:
+            payload = json.load(fh)
+        self.assertEqual(sorted(d["stable_hash"] for d in payload["decisions"]),
+                         sorted(r["stable_hash"] for r in rows["rows"]))
+
+        with open(state, encoding="utf-8") as fh:
+            before = fh.read()
+        record = _fence_holding(self.text, RECORD_CALL)
+        rc, _, err = self._walk(record, {"DECFILE": decfile}, state)
+        self.assertEqual(rc, 0, err)
+        with open(state, encoding="utf-8") as fh:
+            self.assertNotEqual(fh.read(), before)
+
+        # Step 3: the same attempt's BLOBFILE literal, not a new mint.
+        counts_fence = _fence_holding(self.text, COUNTS_CALL)
+        recount_subs = {"BLOBFILE": blob}
+        self.assertEqual(recount_subs["BLOBFILE"], blob)
+        rc, out, err = self._walk(counts_fence, recount_subs, state)
+        self.assertEqual(rc, 0, err)
+        counts = json.loads(out.strip().splitlines()[0])
+        self.assertEqual((counts["outstanding_cw"],
+                          counts["unacknowledged_medium"],
+                          counts["undecided_nv"]), (0, 0, 0))
+        decision = self._gate(counts, state)
+        self.assertEqual(decision["action"], "write")
+        self.assertTrue(self._report(state)["entries"])
+        self._assert_closed()
+
+    def test_counts_fence_without_literal_exits_two(self):
+        """999.25 as the owner sees it: the counts fence run in a fresh shell
+        with "$BLOBFILE" left as a variable. The helper refuses the empty
+        path (exit 2, REASON_HEAD_BLOBS) and the fence halts with its
+        uncertain sentence."""
+        counts_fence = _fence_holding(self.text, COUNTS_CALL)
+        self.assertIsNotNone(counts_fence)
+        rc, out, err = self._run_fresh(counts_fence)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out, "")
+        self.assertIn(carry_state.REASON_HEAD_BLOBS.strip(), err)
+        self.assertIn(COUNTS_HALT, err)
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            helper = subprocess.run(
+                [sys.executable,
+                 os.path.join(PLUGIN_DIR, "scripts", "carry_state.py"),
+                 "finalize-counts", "--head-blobs", ""],
+                stdin=fh, capture_output=True, text=True, timeout=60)
+        self.assertEqual(helper.returncode, 2, helper.stderr)
+        self.assertEqual(helper.stderr, carry_state.REASON_HEAD_BLOBS)
+
+    def test_gate_fence_reads_cross_call_variable_today(self):
+        """Pitfall 6, inverted: the gate input is no longer a variable set
+        in an earlier Bash call; the gate reads the printed GATEFILE path.
+        Left unsubstituted in a fresh shell it still halts as uncertain."""
+        gate = gate_fence(self.text)
+        self.assertIsNotNone(gate)
+        self.assertNotIn(GATE_INPUT_VAR.strip('"'), self.text)
+        self.assertIn('< "$GATEFILE"', gate)
+        rc, _, err = self._run_fresh(gate)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("finalize_gate.py failed", err)
+
+    def test_retry_mints_new_blobfile_after_missing_path(self):
+        """D-07: attempt 1's blob file is gone -> the counts fence refuses
+        and prints nothing; the rebuild mints a NEW BLOBFILE= and succeeds."""
+        state = self._state_copy(SIX_ROW_FIXTURE)
+        path1 = self._mint("BLOBFILE", state_file=state)
+        os.remove(path1)
+        rc, out, err = self._walk(_fence_holding(self.text, COUNTS_CALL),
+                                  {"BLOBFILE": path1}, state)
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(out, "")
+        self.assertIn(carry_state.REASON_HEAD_BLOBS.strip(), err)
+        path2 = self._mint("BLOBFILE", state_file=state)
+        self.assertNotEqual(path1, path2)
+        self._write_json(path2, {})
+        self._counts(path2, state)
+
+    def test_stale_earlier_attempt_file_does_not_govern(self):
+        """Pitfall 5 / T-60-09: a last-pass fix-obsolete verdict verified
+        against blob B_old. An earlier attempt's file still says B_old and
+        would close it; the retry's fresh file reads the changed code (B_new)
+        and keeps it open."""
+        b_old, b_new = "b" * 40, "c" * 40
+        s = load_fixture()
+        s["fix_verdicts"] = {ARCH_HASH: obsolete_verdict(blob=b_old)}
+        state = os.path.join(self.tmp, "verdict.json")
+        self._write_json(state, s)
+
+        attempt1 = self._mint("BLOBFILE", state_file=state)
+        self._write_json(attempt1, {ARCH_FILE: b_old})
+        attempt2 = self._mint("BLOBFILE", state_file=state)
+        self._write_json(attempt2, {ARCH_FILE: b_new})
+        self.assertNotEqual(attempt1, attempt2)
+
+        stale = self._counts(attempt1, state)
+        self.assertIn(ARCH_HASH, stale["verified_obsolete_hashes"])
+        fresh = self._counts(attempt2, state)
+        self.assertNotIn(ARCH_HASH, fresh["verified_obsolete_hashes"])
+        self.assertIn(ARCH_HASH, fresh["outstanding_cw_hashes"])
+        self.assert_holds(retry_rule_holds, self.text)
+
+    def test_retry_mints_new_gatefile_after_gate_input_failure(self):
+        """FINL-02 / D-07: attempt 1's gate input is empty (the Write failed)
+        -> the gate halts. Re-running the gate on that same GATEFILE fails
+        identically; the documented rebuild mints a NEW BLOBFILE=, re-counts,
+        mints a NEW GATEFILE=, writes the flags from the rebuilt counts, and
+        the gate returns `write`."""
+        state = self._write_route_state()
+        gate = gate_fence(self.text)
+
+        blob1 = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob1, {})
+        self._counts(blob1, state)
+        gate1 = self._mint("GATEFILE", state_file=state)
+        # the Write of the flags object failed: gate1 stays empty
+        self.assertEqual(os.path.getsize(gate1), 0)
+
+        def assert_halts(gatefile):
+            rc, out, err = self._walk(gate, {"GATEFILE": gatefile}, state)
+            self.assertEqual(rc, 1)
+            self.assertEqual(out, "")
+            self.assertEqual(err.splitlines(), [GATE_HALT])
+            with open(gatefile + ".err", encoding="utf-8") as fh:
+                self.assertIn("Traceback", fh.read())
+
+        assert_halts(gate1)
+        with self.subTest("old rule: same GATEFILE reused fails identically"):
+            assert_halts(gate1)
+
+        blob2 = self._mint("BLOBFILE", state_file=state)
+        self.assertNotEqual(blob1, blob2)
+        self._write_json(blob2, {})
+        counts2 = self._counts(blob2, state)
+        gate2 = self._mint("GATEFILE", state_file=state)
+        self.assertNotEqual(gate1, gate2)
+        self._write_json(gate2, self._flags(counts2, state))
+        rc, out, err = self._walk(gate, {"GATEFILE": gate2}, state)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["action"],
+                         "write")
+        self._assert_closed()
+        self.assert_holds(retry_rule_holds, self.text)
+
+    def test_post_decision_rerun_decides_on_a_fresh_gatefile(self):
+        """FINL-02 / WR-02: after the card answer is recorded and the recount
+        is (0, 0, 0), re-running the gate on this attempt's first GATEFILE
+        still decides on the pre-answer counts and stays blocked; a NEW
+        GATEFILE written from the recounted counts returns `write`. Step 3
+        must say to do the second."""
+        state = self._state_copy(SIX_ROW_FIXTURE)
+        gate = gate_fence(self.text)
+        blob = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob, {})
+        counts1 = self._counts(blob, state)
+        self.assertEqual((counts1["outstanding_cw"],
+                          counts1["unacknowledged_medium"],
+                          counts1["undecided_nv"]), (5, 1, 0))
+        gate1 = self._mint("GATEFILE", state_file=state)
+        flags1 = self._flags(counts1, state)
+        self._write_json(gate1, flags1)
+        rc, out, err = self._walk(gate, {"GATEFILE": gate1}, state)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["action"],
+                         "outstanding-to-phase-5")
+
+        rc, out, err = self._walk(_fence_holding(self.text, ROWS_CALL),
+                                  {"BLOBFILE": blob}, state)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            rows = json.load(fh)
+        self.assertTrue(rows["rows"])
+        numbers = ",".join(str(r["n"]) for r in rows["rows"])
+        self._write_json(printed["ANSWERFILE"],
+                         {"q1": "dismiss %s -- walk" % numbers, "q2": None})
+        parsefile = self._mint("PARSEFILE",
+                               {"ROWSFILE": printed["ROWSFILE"],
+                                "ANSWERFILE": printed["ANSWERFILE"]}, state)
+        decfile = self._mint("DECFILE", {"PARSEFILE": parsefile}, state)
+        with open(state, encoding="utf-8") as fh:
+            before = fh.read()
+        rc, _, err = self._walk(_fence_holding(self.text, RECORD_CALL),
+                                {"DECFILE": decfile}, state)
+        self.assertEqual(rc, 0, err)
+        with open(state, encoding="utf-8") as fh:
+            self.assertNotEqual(fh.read(), before)
+
+        # Step 3 recount: the same attempt's BLOBFILE literal.
+        counts2 = self._counts(blob, state)
+        self.assertEqual((counts2["outstanding_cw"],
+                          counts2["unacknowledged_medium"],
+                          counts2["undecided_nv"]), (0, 0, 0))
+
+        with self.subTest("stale: the gate re-run on this attempt's first "
+                          "GATEFILE"):
+            rc, out, err = self._walk(gate, {"GATEFILE": gate1}, state)
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(
+                json.loads(out.strip().splitlines()[-1])["action"],
+                "outstanding-to-phase-5")
+            with open(gate1, encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh), flags1)
+
+        with self.subTest("fresh: a new GATEFILE written from the recounted "
+                          "counts"):
+            gate2 = self._mint("GATEFILE", state_file=state)
+            self.assertNotEqual(gate2, gate1)
+            self._write_json(gate2, self._flags(counts2, state))
+            rc, out, err = self._walk(gate, {"GATEFILE": gate2}, state)
+            self.assertEqual(rc, 0, err)
+            with open(gate2 + ".err", encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "")
+            self.assertEqual(
+                json.loads(out.strip().splitlines()[-1])["action"], "write")
+            self.assertTrue(self._report(state)["entries"])
+            self._assert_closed()
+
+        self.assert_holds(step3_rerun_rule_holds, self.text)
+
+    def test_post_decision_recount_refingerprints_head(self):
+        """FINL-02 / WR-01: the owner's card answer takes human time and the
+        working tree can change during it. A last-pass fix-obsolete verdict
+        whose verified_blob equals the pre-card BLOBFILE snapshot stays
+        honoured by a step-3 recount on that SAME BLOBFILE even after the
+        file changed; a NEW BLOBFILE re-fingerprinted from the edited HEAD
+        reopens it, and a NEW BLOBFILE with the unchanged blob keeps it
+        closed. Step 3 must say to re-fingerprint."""
+        ARCH_HASH = ("22d360d9c3d841748413b88d41e0840f"
+                     "d0898a854ee6fa5188f134846a8c7449")
+        ARCH_FILE = "src/utils/integrationDeadline.ts"
+        PRE = "blob-pre-card"
+        POST = "blob-post-card"
+        state = self._state_copy(SIX_ROW_FIXTURE)
+        with open(state, encoding="utf-8") as fh:
+            loaded = json.load(fh)
+        last = loaded["passes"][-1]
+        self.assertEqual(last["pass_number"], 3)
+        arch = [f for p in loaded["passes"] for f in p.get("findings", [])
+                if f.get("stable_hash") == ARCH_HASH]
+        self.assertEqual(len(arch), 1)
+        self.assertEqual(arch[0]["band"], "critical")
+        self.assertEqual(arch[0]["file"], ARCH_FILE)
+        self.assertNotIn("fix_verdicts", loaded)
+        loaded["fix_verdicts"] = {ARCH_HASH: {
+            "verdict": "obsolete", "agent": "fix",
+            "head_sha": last["head_sha"], "at_pass": 3,
+            "reason": "line rewritten", "verified_blob": PRE}}
+        self._write_json(state, loaded)
+
+        # Step 1, before the card: HEAD's blob is PRE.
+        gate = gate_fence(self.text)
+        blob1 = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob1, {ARCH_FILE: PRE})
+        counts1 = self._counts(blob1, state)
+        self.assertEqual((counts1["outstanding_cw"],
+                          counts1["unacknowledged_medium"],
+                          counts1["undecided_nv"]), (4, 1, 0))
+        self.assertEqual(counts1["verified_obsolete_hashes"], [ARCH_HASH])
+        gate1 = self._mint("GATEFILE", state_file=state)
+        self._write_json(gate1, self._flags(counts1, state))
+        rc, out, err = self._walk(gate, {"GATEFILE": gate1}, state)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["action"],
+                         "outstanding-to-phase-5")
+
+        # The card answer: every shown row dismissed, recorded.
+        rc, out, err = self._walk(_fence_holding(self.text, ROWS_CALL),
+                                  {"BLOBFILE": blob1}, state)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            rows = json.load(fh)
+        self.assertTrue(rows["rows"])
+        numbers = ",".join(str(r["n"]) for r in rows["rows"])
+        self._write_json(printed["ANSWERFILE"],
+                         {"q1": "dismiss %s -- walk" % numbers, "q2": None})
+        parsefile = self._mint("PARSEFILE",
+                               {"ROWSFILE": printed["ROWSFILE"],
+                                "ANSWERFILE": printed["ANSWERFILE"]}, state)
+        decfile = self._mint("DECFILE", {"PARSEFILE": parsefile}, state)
+        with open(state, encoding="utf-8") as fh:
+            before = fh.read()
+        rc, _, err = self._walk(_fence_holding(self.text, RECORD_CALL),
+                                {"DECFILE": decfile}, state)
+        self.assertEqual(rc, 0, err)
+        with open(state, encoding="utf-8") as fh:
+            self.assertNotEqual(fh.read(), before)
+
+        # During the wait the file was edited: HEAD's blob is now POST.
+        with self.subTest("stale: recount on the pre-card BLOBFILE after the "
+                          "file changed"):
+            counts_stale = self._counts(blob1, state)
+            self.assertEqual(counts_stale["outstanding_cw"], 0)
+            self.assertEqual(counts_stale["verified_obsolete_hashes"],
+                             [ARCH_HASH])
+
+        with self.subTest("fresh: a NEW BLOBFILE re-fingerprinted from the "
+                          "edited HEAD"):
+            blob2 = self._mint("BLOBFILE", state_file=state)
+            self.assertNotEqual(blob2, blob1)
+            self._write_json(blob2, {ARCH_FILE: POST})
+            counts_fresh = self._counts(blob2, state)
+            self.assertEqual(counts_fresh["outstanding_cw"], 1)
+            self.assertEqual(counts_fresh["outstanding_cw_hashes"],
+                             [ARCH_HASH])
+            self.assertEqual(counts_fresh["verified_obsolete_hashes"], [])
+            self.assertEqual(self._gate(counts_fresh, state)["action"],
+                             "outstanding-to-phase-5")
+
+        with self.subTest("control: a NEW BLOBFILE with the unchanged blob "
+                          "still honours the verdict"):
+            blob3 = self._mint("BLOBFILE", state_file=state)
+            self._write_json(blob3, {ARCH_FILE: PRE})
+            counts_same = self._counts(blob3, state)
+            self.assertEqual(counts_same["outstanding_cw"], 0)
+            self.assertEqual(counts_same["verified_obsolete_hashes"],
+                             [ARCH_HASH])
+            self.assertEqual(self._gate(counts_same, state)["action"],
+                             "write")
+            self._assert_closed()
+
+        self.assert_holds(step3_rerun_rule_holds, self.text)
+
+    def test_gatefile_missing_path_is_a_named_trigger(self):
+        """The rebuild-once rule names a missing or empty GATEFILE= as a
+        trigger and keeps every earlier needle, the refused-step rule and
+        the write boundary."""
+        para = retry_paragraph(self.text)
+        self.assertIn("`GATEFILE=` path is missing or empty", para)
+        for needle in RETRY_NEEDLES[:5] + REFUSED_NEEDLES + (WRITE_BOUNDARY,):
+            self.assertIn(needle, para)
+
+    def _gate_owner_view(self, text, content):
+        """Problems with what the owner sees when the gate fence of `text`
+        reads a GATEFILE holding `content`: exactly the halt sentence, no
+        traceback, details kept in `<GATEFILE>.err`."""
+        gatefile = self._mint("GATEFILE")
+        with open(gatefile, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        rc, out, err = self._run_fresh(
+            self._literal(gate_fence(text), {"GATEFILE": gatefile}))
+        problems = []
+        if rc != 1:
+            problems.append("exit %d, not 1" % rc)
+        if out != "":
+            problems.append("stdout not empty: %r" % out)
+        if err.splitlines() != [GATE_HALT]:
+            problems.append("stderr is not exactly the halt sentence: %r" % err)
+        for word in ("Traceback", "json"):
+            if word in out or word in err:
+                problems.append("%r shown to the owner" % word)
+        errlog = gatefile + ".err"
+        if not os.path.isfile(errlog):
+            problems.append("no <GATEFILE>.err")
+        else:
+            with open(errlog, encoding="utf-8") as fh:
+                if "Traceback" not in fh.read():
+                    problems.append("<GATEFILE>.err holds no traceback")
+        return problems
+
+    def test_malformed_gatefile_shows_only_stop_sentence(self):
+        """T-60-11: an empty or malformed gate input shows the owner one
+        plain sentence; the helper's traceback stays in <GATEFILE>.err."""
+        for label, content in (("empty", ""), ("not json", "not json")):
+            with self.subTest(label):
+                self.assertEqual(self._gate_owner_view(self.text, content), [])
+        with self.subTest("mutant: the .err redirect removed"):
+            self.assertIn(GATE_ERR_REDIRECT, self.text)
+            mutant = self.text.replace(GATE_ERR_REDIRECT, "", 1)
+            self.assertNotEqual(mutant, self.text)
+            problems = self._gate_owner_view(mutant, "")
+            self.assertNotEqual(problems, [])
+            self.assertTrue(any("Traceback" in p for p in problems), problems)
 
 if __name__ == "__main__":
     unittest.main()

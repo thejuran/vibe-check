@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: ready_to_plan
-last_updated: "2026-10-29T17:47:49.000Z"
-last_activity: 2026-10-29 -- Phase 60 context gathered (4 owner decisions: IN-04 folded in, Finalize rebuild-once, saved PR diff, Phase-59 cycle rule)
+last_updated: 2026-10-30T20:59:39.000Z
+last_activity: 2026-10-30 -- Phase 60 shipped as PR #6 (awaiting merge)
 progress:
   total_phases: 3
-  completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 33
-stopped_at: Phase 60 context gathered — ready to plan
+  completed_phases: 2
+  total_plans: 22
+  completed_plans: 22
+  percent: 67
+stopped_at: Phase 60 shipped as PR #6 (awaiting merge) — then discuss Phase 61
 ---
 
 # Project State
@@ -21,19 +21,21 @@ stopped_at: Phase 60 context gathered — ready to plan
 See: .planning/PROJECT.md (updated 2026-10-28)
 
 **Core value:** Catch real defects in a developer's changes before they ship — with high coverage and low noise — so a reviewer who can't manually audit the code can trust the agent's output as their safety net.
-**Current focus:** Phase 60 — exact change evidence and reliable finalize
+**Current focus:** Phase 61 — release gate — decision reliability
 
 ## Current Position
 
-Phase: 60
+Phase: 61
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-29
+Last activity: 2026-10-30 -- Phase 60 shipped as PR #6 https://github.com/thejuran/vibe-check/pull/6 (awaiting merge; then delete feat/v2.14-phase-60 local + remote)
 
 ## Operator Next Steps
 
-- Phase 59 executed + reviewed + verified (gaps parked to 999.23 by owner); its PR is not opened yet. Open/merge it, then branch `feat/v2.14-phase-60` from `main` before executing Phase 60.
-- Phase 60 context captured (60-CONTEXT.md); next `/bm:plan-phase 60`.
+- Phase 60 verification (2f84d2e) found 3 blocking gaps; gap plans 60-06..60-09 all executed 2026-10-29 (60-REPRO.md V10-V12, R12-R17). Re-verification at f2b58d1 found CR-01 and WR-02; second-round plans 60-10..60-13 all executed 2026-10-30 (60-REPRO.md V13-V14, R14 closed, R18-R21 carried). Re-verification round 2 (60-VERIFICATION.md, review e90c6a7) = gaps_found 5/6: CR-01 and the stale-GATEFILE re-run are closed; two new blocking FINL-02 gaps from the round-2 review — WR-01 (step-3 recount reuses the pre-card BLOBFILE, so a mid-card edit can let a stale fix verdict close a finding and Finalize writes APPROVED) and WR-02 (head_sha bind fence runs on --finalize and can wedge it with no remedy). Third gap round 60-14..60-16 executed 2026-10-30 (WR-01 green 9b3f055, WR-02 green 07bb448; 60-REPRO.md V15-V16, R22-R26 carried; full suite 3821 passed at cef9a1e). EVID-03 marked Complete. Re-verification round 3 = human_needed 6/6; 60-HUMAN-UAT.md 3/3 on 2026-10-30 (R16 live Write-tool check passed; R17 PR size limit accepted as a known limit; R25 status quo accepted, hardening deferred as 999.27). Phase 60 COMPLETE; FINL-02 Complete. Next: Phase 60 PR (merge feat/v2.14-phase-60, delete branch), then Phase 61.
+- Phase 61 inputs from Phase 60: R6 live `gh pr diff` fetch not exercised (EVID-03 known limit), R17 PR-size fail-closed limit (owner-accepted), R5 install resync before any manual check, replay deltas none.
+- Phase 59 merged to `main` via PR #5 (squash 6dfac64, 2026-10-29); branch deleted. Phase 60 works on `feat/v2.14-phase-60` from that `main`.
+- Phase 60 planned: 5 plans in 4 waves (60-01 reproduce → 60-02 range builder ∥ 60-03 Finalize → 60-04 route wiring → 60-05 close); all five executed 2026-10-29.
 - Phase 59 starts with current-code real-chain reproductions of 999.23; Phase 60 = exact diff evidence and Finalize path recovery (999.24–999.25); Phase 61 = release gate.
 - Ship Decision reliability before Lean orchestration; start the latter with bounded usage feasibility and Finalize-only extraction. Reviewer efficiency remains conditional.
 
@@ -80,6 +82,28 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 60 complete. /bm:verify-work 60 resolved the 3 human items in 60-HUMAN-UAT.md (3/3): R16 Write tool accepted a first write to a fresh unread $TMPDIR mktemp path (live check, bypass mode); R17 accepted known limit; R25 deferred as backlog 999.27. 60-VERIFICATION.md status -> passed. Next: Phase 60 PR, then Phase 61.
+
+2026-10-30: 60-16 complete (cef9a1e record, 0d06540 ledger, 48a95e0 requirements/roadmap). REPRO_60 at 16 rows (STALE-BLOBFILE-RECOUNT, FINALIZE-HEAD-SHA-WEDGE), lock mutation-tested (disposition / fixture typo / row removal each trip). Reverse run at 2de0fc9: 27 failed, six controls pass; worktree pruned. Full suite 3821 passed, replay 64 passed, no helper changed since 2de0fc9. Residuals R22-R25 (gap-round-2 IN-01..03, SA-01 owner ruling) + R26 (45-persist head_sha write-side check). EVID-03 Complete; FINL-02 unchecked pending re-verification. Next: re-verify Phase 60.
+
+2026-10-30: 60-14 complete (7796476 red, 9b3f055 green). Finalize step 3 now runs step 1 again for a NEW BLOBFILE= (fingerprints rebuilt from current HEAD, index and working tree) and recounts on that literal before the GATEFILE re-mint; "the fingerprints have not changed" removed. STEP3_NEEDLES 5 -> 8 + STEP3_STALE_OLD with an isolated append-mutant; fresh-shell walk: stale BLOBFILE keeps an edited fix-obsolete finding closed (defect), a re-minted BLOBFILE reopens it, unchanged blob is the control (write). One line of 90-finalize.md changed. test_finalize_card 95 passed; pause/nv/fix-loop/carry_state 433 passed. FINL-02 stays unchecked until 60-16 + re-verification. Next: 60-15.
+
+2026-10-30: 60-15 complete (3c7814e red, 07bb448 green). 05-state.md step-2 bind fence now branches first on the substituted FINALIZE_MODE literal: `1` binds and prints nothing (Finalize never reads LAST_REVIEWED_SHA); `0`, empty or unsubstituted validates via last-head-sha (fail closed). The halt line names the remedy (set head_sha to the full 40-hex sha or restore the state file from git; --finalize unaffected). 6 new fresh-shell tests, incl. a finalize-mode run with head_sha HEAD that reaches the real 90-finalize.md counts fence (5,1,0); 2 new prose-lock mutants; an extra fail-open mutant (`!= "0"`) trips 5 tests. test_diff_ranges 121 passed; all 11 modules naming 05-state.md 0 failed. Residual for the 60-16 ledger: 45-persist.md has no write-time head_sha format check. FINL-02 stays unchecked until 60-16 + re-verification. Next: 60-16.
+
+2026-10-29: 60-07 complete (b1bc970 red, 2a63cb5 green). GSD and pass >= 2 range sources in 30-collect-score.md now end in a quoted literal placeholder ("<phase-start-sha>" / "<last-reviewed-sha>") the agent substitutes; 00-scope.md's phase-range fence prints PHASE_START=<sha> (empty with no history -> HEAD). Every range-source command, including the abbreviated lines in 00-scope/05-state, carries --no-color --no-ext-diff --no-textconv --no-relative --src-prefix=a/ --dst-prefix=b/. Fresh-shell: literal sha gives {"f.txt": [[3, 3], [5, 5]]}; unset "$PHASE_START" halts rc 1 (the old unquoted form silently gave [[5, 5]] rc 0, kept as a documenting subtest). textconv, diff.relative, suppressBlankEmpty and color proven to change raw git output but not the fenced ranges. test_diff_ranges 100 passed; full suite 3786 passed. EVID-01/EVID-03/FINL-02 stay unchecked until 60-09 + re-verification. Next: 60-09.
+
+2026-10-29: 60-08 complete (f100185 red, c0ece7e green). Finalize's one automatic rebuild now names a missing or empty GATEFILE= as a trigger, re-runs the gate-input fence for a NEW GATEFILE=, writes the seven-key flags from the REBUILT COUNTS_JSON, and never reuses an earlier GATEFILE=. Fresh-shell walk: empty GATEFILE halts, reusing it halts identically, new BLOBFILE + new GATEFILE reaches `write`. test_finalize_card 89 passed; pause/nv/fix-loop locks 199 passed. FINL-02 stays unchecked until 60-09 + re-verification. Next: 60-07.
+
+2026-10-29: 60-05 complete (fc019b2 ledger, 9e0bb86 residuals/roadmap/requirements). Reverse run at RED SHA ce9f8b8 with current tests copied into a scratch worktree: all 15 60-01 red fixtures fail again (10 TestRealDiffRanges60, 4 TestCoordinateSpaces60 probes, Finalize walk), plus every 60-03 walk/lock and test_diff_ranges.py at collection; worktree removed. Suite at close 3765 passed, 0 failed; test_replay 64 passed; replay.py/test_replay.py/score.py/finalize_gate.py byte-unchanged since ce9f8b8 -> no replay deltas for GATE-02. Every verdict has a Green at: SHA. Residuals R1-R11 in 60-REPRO.md (R1 finalize_gate traceback helper-side only; R5 install resync before any manual check; R6 live gh pr diff fetch not exercised = EVID-03 known limit). No open silent keep; no second round (D-10). EVID-01..03, FINL-01..02 ticked. Next: Phase 60 verification, then PR.
+
+2026-10-29: 60-04 complete (66d63de prose, 39f6dbd route tests + PR fixture, fb8b32b probes + D-04 audit). 30-collect-score.md changed-line ranges: built only from +/- body lines by scripts/diff_ranges.py, never hunk headers; working-tree coordinate contract; one range source per route (default `git diff HEAD` alone, GSD `git diff $PHASE_START`, pass >= 2 `git diff $LAST_REVIEWED_SHA`, range `git diff <range>`, PR `gh pr diff <ref> --color never`, --all none) with fixed --no-color --no-ext-diff a/ b/ flags; set -o pipefail fence halts with "Review halted — the changed lines could not be read from the diff; nothing was scored.". All three coordinate arms shipped (PR-SERIES, MIXED-COORD, DEFAULT-STAGED reproduced); reviewer diff commands unchanged. PR fixture captured with gh (PR #5, 4 sections, 286 lines), cross-checked vs local f2b6a36..98f63aa. TestRoute* x6 + TestProseRangeFence (fence read from the file; pipefail mutation-checked). DEFAULT-STAGED Probe B recorded as coordinate disagreement (line 48 unchanged on disk). _REPRO_60_PENDING_FIXTURES emptied. Full suite 3765 passed, 0 failed. EVID-01/EVID-03 not ticked (60-05 closes them). Next: 60-05.
+
+2026-10-29: 60-03 complete (b8fb21a prose, fd8c1b9 walks, 53b35ed locks). 90-finalize.md: step 1 mints and prints BLOBFILE=, counts/rows/step-3 re-run reuse that literal; the gate reads a printed GATEFILE= (helper stderr kept in <GATEFILE>.err, so a malformed input shows the owner one sentence, never a traceback); FINALIZE_GATE_INPUT_JSON gone; one rebuild with a NEW BLOBFILE= on a missing path or failed step, second failure or a refused step stops with "Finalize stopped — nothing was written or archived; run `--finalize` again."; no REVIEW.md/archive before gate `write`, record-decisions single writer unchanged. Fresh-shell walk green on the write route and the card route (rows -> parse -> DECFILE -> record-decisions -> recount same BLOBFILE -> write); retry, stale-earlier-attempt (Pitfall 5) and malformed-GATEFILE walks; check_printed_paths now whole-file; check_file_refs_created (PRIORROWSFILE exempt via its CARDROWSFILE= binding sentence); no_cross_call_gate_input; every lock mutation-tripped. finalize_gate.py unchanged (helper-side traceback = 60-05 residual R1 input). Full suite 4 failed (the TestCoordinateSpaces60 probes -> 60-04) / 3737 passed. FINL-01/02 not ticked (60-05 closes them). Next: 60-04.
+
+2026-10-29: 60-02 complete (617075f RED test module, 53fb637 builder). diff_ranges.py walks +/- markers against the header budgets: pure deletion [max(T,1),T+1], net-deletion replace +1 (D-02), and a -U0 `+T,0` new side numbered from the line before it (missed by the research snippet; 60-04 must call the helper, not re-derive it). Refuses commit series, @@@, short/long bodies, stray body lines with fixed reasons (CLI exit 2, empty stdout). Imports {json, re, sys}; 57 tests incl. 19 mutants, one per guard. TestRealDiffRanges60 green at 53fb637 without editing test_decision_continuity.py. Full suite: 5 failed (4 TestCoordinateSpaces60 probes -> 60-04, 1 Finalize walk -> 60-03) / 3722 passed. Next: 60-03.
+
+2026-10-29: 60-01 complete (43d1905, 2121c57, ce9f8b8 RED SHA, cda9220 60-REPRO.md). 999.24 reproduced on real git diffs: default-context header ranges are 3 lines wider each side (L+8 edit re-asks a decision), the +T,0 deletion rule never fires, IN-04 net-deletion replace is a boundary keep. Coordinate probes all reproduced -> fixed by 60-04: PR-SERIES (patch-series ranges miss the head line), MIXED-COORD (GSD/incremental concatenation silent keep), DEFAULT-STAGED (index-coordinate --staged section wrongly reopens). ALL-ROUTE recorded as unsupported fixture (TestRouteAll pending in 60-04). 999.25 reproduced: no fence prints BLOBFILE=, and the gate fence reads $FINALIZE_GATE_INPUT_JSON across calls. Full suite at ce9f8b8: 15 failed (exactly the named red set) / 3655 passed. Next: 60-02 and 60-03.
 
 2026-10-29: Phase 60 context gathered. Owner decisions: ranges from actual +/- markers (gh pr diff has no -U0); 57 IN-04 net-deletion replace edge folded in (D-02); Finalize rebuilds HEAD fingerprints once then stops with a plain no-write message, refusals never auto-retried (D-07/D-08); PR route proven by a checked-in real patch, live fetch reported as not exercised (D-05); Phase-59 one-cycle rule (D-10). Next: /bm:plan-phase 60.
 

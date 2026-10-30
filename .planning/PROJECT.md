@@ -29,6 +29,8 @@ as their safety net.
 
 **Out of scope:** cost reporting, orchestration extraction, reviewer/model changes, scoring changes, 999.26. Lean orchestration (999.12 + Finalize extraction) follows; Reviewer efficiency stays conditional. Full scope: [Roadmap](ROADMAP.md).
 
+**Codex integration (owner, 2026-10-28):** Keep the existing optional OpenAI Codex plugin/companion and the user's configured Codex default. No bundled replacement, direct adapter or model-gateway routing is planned. Dependency/setup, run/skip and model-label clarity, plus bounded companion-update compatibility checks, belong to [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure), outside v2.14 and without expanding its requirements or release gates.
+
 ## Last Milestone: v2.13 Reliable fix closure and recovery (SHIPPED 2026-10-28 as 2.13.0)
 
 **Goal (met, with owner-accepted known limits):** Let independently verified fixes close reliably, preserve owner decisions, and make recovery from an inconclusive check understandable. 14/14 requirements (VFIX-01..06, DECN-01..03, RECV-01..02, ANSR-01..03); audit tech_debt; suite 3588/0. Not B3-measured. Known limits: 999.23 (wrong-keep shapes, D-19 hard stop), 999.24 (diff context), 999.25 ($BLOBFILE), 999.26 (wordier title references); live ref extraction unverified (D-15). Archive: `.planning/milestones/v2.13-ROADMAP.md`.
@@ -347,8 +349,8 @@ crash-proofed and built the test-sufficiency agent on top of.
 <!-- v2.14 Decision reliability — full REQ-IDs in REQUIREMENTS.md. -->
 
 - [ ] Stale decisions reopen with the correct reason when evidence changes; deferred obligations survive filtering (999.23)
-- [ ] Nearby/in-diff evidence uses only actually changed lines (999.24)
-- [ ] Finalize works across fresh shell calls (999.25)
+- [ ] Nearby/in-diff evidence uses only actually changed lines (999.24) — Phase 60 complete 2026-10-30, ships with v2.14; known limits R6 (live PR fetch unexercised) and R17 (PRs over GitHub's diff limits fail closed, owner-accepted)
+- [ ] Finalize works across fresh shell calls (999.25) — Phase 60 complete 2026-10-30, ships with v2.14; state-file scope trust deferred as 999.27
 - [ ] Release gate passes with only named replay differences
 
 (v2.13 Active items shipped — see Validated; v2.12 items shipped or were deferred as recorded in MILESTONES.md; measurement remains UNMET/deferred.)
@@ -466,4 +468,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-29 after Phase 59 (stale decisions and lost deferrals)*
+*Last updated: 2026-10-30 after Phase 60 (exact change evidence and reliable Finalize)*

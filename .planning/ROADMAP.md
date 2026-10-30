@@ -16,7 +16,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 **Goal:** Close stale-decision escape paths, preserve deferred obligations, and make Finalize dependable without changing reviewer coverage or scoring policy.
 
 - [x] **Phase 59: Stale decisions and lost deferrals** - Reproduce CR-01/CR-02/CR-04 and the deferred-member loss on the real chain, then reopen changed decisions with the right reason and keep deferred obligations visible (999.23) (completed 2026-10-29)
-- [ ] **Phase 60: Exact change evidence and reliable Finalize** - Nearby/in-diff ranges come from actual added/deleted lines on every route, and Finalize's blob-file path survives fresh Bash calls (999.24, 999.25)
+- [x] **Phase 60: Exact change evidence and reliable Finalize** - Nearby/in-diff ranges come from actual added/deleted lines on every route, and Finalize's blob-file path survives fresh Bash calls (999.24, 999.25) (completed 2026-10-30)
 - [ ] **Phase 61: Release gate — decision reliability** - Regressions, offline suite, archived replay and mode/recovery checks pass on the candidate; residuals and validation gaps are stated; ship through the existing close workflow
 
 **Status:** Activated 2026-10-28 as v2.14 (scope owner-approved the same day; requirements STALE, DEFR, EVID, FINL, GATE in REQUIREMENTS.md). This is a bounded follow-up on 999.23–999.25, not a reopening of v2.13 or Phase 57's exhausted gap-closure rounds.
@@ -34,7 +34,7 @@ Active milestone: v2.14 Decision reliability (Phases 59–61). Lean orchestratio
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 59. Stale decisions and lost deferrals | 6/6 | Complete    | 2026-10-29 |
-| 60. Exact change evidence and reliable Finalize | 0/TBD | Not started | - |
+| 60. Exact change evidence and reliable Finalize | 16/16 | Complete    | 2026-10-30 |
 | 61. Release gate — decision reliability | 0/TBD | Not started | - |
 
 ## Phase Details
@@ -94,7 +94,45 @@ Plans:
   4. A fresh-shell walk through every Finalize fence reaches counts → gate → report using the printed, literally reused blob-file path
   5. A failed or refused attempt (including a missing path) stops and writes no final report; a successful retry may complete after revalidating snapshot freshness; no-write-on-failure and independent fix verification are unchanged
 
-**Plans**: TBD
+**Plans:** 16/16 plans complete
+
+Plans:
+**Wave 1**
+
+- [x] 60-01-PLAN.md — Reproduction verdicts: red real-diff/coordinate/Finalize-walk fixtures, REPRO_60, 60-REPRO.md (RED SHA)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 60-02-PLAN.md — diff_ranges.py marker-walk range builder (D-01/D-02) + test_diff_ranges.py with mutants and the replay.hunk_ranges pin
+- [x] 60-03-PLAN.md — Finalize: printed BLOBFILE=/GATEFILE= fences, rebuild-once and refused-step rules, fresh-shell walk, widened printed-path lock
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 60-04-PLAN.md — Route wiring: 30-collect-score range fence per route, PR cumulative fixture, route tests, --all record, D-04 audit, test_nv_render retarget
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 60-05-PLAN.md — Close the cycle: full suite, replay, reverse run at the RED SHA, ledger green SHAs, residuals, ROADMAP/REQUIREMENTS
+
+**Gap closure** *(60-VERIFICATION gaps_found at 2f84d2e)*
+
+- [x] 60-06-PLAN.md — diff_ranges reads suppressBlankEmpty context, refuses colored/non-diff text
+- [x] 60-07-PLAN.md — GSD/incremental range source as a quoted literal sha; PHASE_START= printed; six fixed diff flags
+- [x] 60-08-PLAN.md — Finalize rebuild re-mints GATEFILE from the rebuilt counts
+- [x] 60-09-PLAN.md — gap-round ledger, record and traceability
+
+**Gap closure, second round** *(60-VERIFICATION re-verification gaps_found at f2b58d1: CR-01, WR-02)*
+
+- [x] 60-10-PLAN.md — carry_state last-head-sha: the substituted head_sha is a validated 40/64-hex commit id (CR-01 helper)
+- [x] 60-11-PLAN.md — head_sha and PHASE_START bound through validating fences; only printed literals are substituted (CR-01 prose)
+- [x] 60-12-PLAN.md — Finalize step 3 re-mints GATEFILE from the recounted counts (WR-02)
+- [x] 60-13-PLAN.md — second-round ledger, record and traceability
+
+**Gap closure, third round** *(60-VERIFICATION re-verification round 2 gaps_found at 2de0fc9: WR-01, WR-02 on FINL-02)*
+
+- [x] 60-14-PLAN.md — Finalize step 3 re-fingerprints HEAD into a NEW BLOBFILE before the post-answer recount (WR-01)
+- [x] 60-15-PLAN.md — head_sha bind fence skips on the printed FINALIZE_MODE=1 literal and names a remedy on halt (WR-02)
+- [x] 60-16-PLAN.md — third-round ledger, record and traceability
 
 ### Phase 61: Release gate — decision reliability
 
@@ -111,6 +149,8 @@ Plans:
 **Plans**: TBD
 
 ## Following milestone: Lean orchestration
+
+**Codex integration decision (owner, 2026-10-28):** Retain the existing optional OpenAI Codex plugin/companion integration. Lean orchestration simplifies vibe-check's own mechanics; it does not replace or vendor the companion, build a direct Codex adapter, or adopt model-gateway/agent-spawn routing. Keep the user's configured Codex default, not a pinned Astra model. Small dependency/setup, run/skip disclosure, model-label and update-compatibility improvements are captured in [maintenance](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure); they add no phase, requirement, acceptance criterion or release blocker to v2.14.
 
 **Goal:** Reduce model-interpreted mechanical instructions and fragile handoffs while preserving the behavior delivered by Decision reliability.
 
@@ -160,6 +200,7 @@ Phase 57 closed under the owner's D-19 hard stop with these reproduced defects c
 Root-cause direction (from the review): pool `carried_by_hash` into `_kept_open_rows` and the member-sidecar path, and make carry_state's per-hash read merge records instead of keeping the first. Reproduce first; each fix needs a real-chain fixture and a mutant. Scheduled as v2.14 Phase 59 (Decision reliability); active. Retain this record and its original evidence.
 
 **Carried from Phase 59 (2026-10-28):** CR-01, CR-01 multi-pass, CR-02, CR-04 and the min_confidence=45 deferral loss were fixed in Phase 59 (fixtures in test_decision_continuity.TestStaleDecisions59 / TestDeferredStaysOpen; ledger 59-REPRO.md). Still carried, each with its acceptance repro:
+
 - D-01 later-pass over-ask (D-02): pass 1 decide hA (`bugs` @10); pass 2 a NEW identical copy at line 30 (fresh) with no nearby edit; pass 3 edit@33 -> stale/nearby. Fails toward asking; a fix needs a per-copy origin marker (snapshot `since_pass` compared to the decision's `at_pass`).
 - WR-01 over-ask #2 (D-03): a member that joined a deferred row after the deferral is kept open at the row's band (repro in 57-REVIEW-GAPS4.md).
 - SA-02 `--all` drop (D-07): did not reproduce on the real chain; dropped, pinned by `test_nv_render.all_carryforward_bypass_holds`; reopen only if `05-state-all.md` (ii) changes.
@@ -170,19 +211,40 @@ Root-cause direction (from the review): pool `carried_by_hash` into `_kept_open_
 
 `changed_line_ranges` are built from default-context diffs (`git diff`, `gh pr diff --patch`; 3 context lines), not `-U0`. So the effective nearby/in_diff window is ~8 lines instead of 5, and 30-collect-score.md's deletion-hunk rule never fires on real diffs. Fails toward asking (over-asks; never a silent keep); predates Phase 57. Acceptance (from `.planning/milestones/v2.13-phases/57-decision-continuity-within-closure/deferred-items.md`): (a) use `-U0` for every range-building diff, or build ranges from `+`/`-` markers; (b) check nothing else assumes 3-line context; (c) an end-to-end fixture that runs a real `git diff` through the documented hunk rule. Scheduled as v2.14 Phase 60 (Decision reliability); active.
 
+**Carried from Phase 60 (2026-10-29):** These shapes reproduced at the RED SHA `ce9f8b8` and were fixed in Phase 60: the ~8-line widening, the deletion rule that never fired, the net-deletion boundary keep, the PR commit-series numbering, the GSD/incremental mixed-coordinate concatenation (a silent keep) and the default route's staged index numbering. Ranges are now built only from `+`/`-` body lines by `scripts/diff_ranges.py` (53fb637). Each route has one range source through that builder (66d63de), and route tests cover default, GSD, incremental, range, PR (on a real `gh pr diff` capture) and `--all` (39f6dbd, fb8b32b). The reverse run at `ce9f8b8` fails all 14 range fixtures. At close the full suite passes and replay shows no deltas (60-REPRO.md). The verification gap round (60-06/60-07) then fixed the GSD/incremental fresh-shell range source (now a quoted literal sha, b1bc970 -> 2a63cb5) and config-altered diffs (suppressBlankEmpty, color, textconv, relative; 11d2b76 -> b878870 + 2a63cb5), 60-REPRO.md V10-V11; EVID-03 awaits re-verification. The re-verification's second gap round (60-10/60-11) closed CR-01: the GSD / pass ≥ 2 revision is bound through fences that refuse anything but a commit id, so a crafted `head_sha` in a committed state file can no longer run a command (ae560fe + 5d81170, 60-REPRO.md V13); EVID-03 awaits re-verification. EVID-03 was verified Complete on 2026-10-30. Still carried, each with its rationale in 60-REPRO.md §Residuals:
+
+- R6 known limit: the live `gh pr diff` fetch was not exercised (D-05); the PR route is proven on a checked-in capture only. Phase 61 names it in the release record.
+- R5: the installed plugin cache runs the old prose until resync and relaunch. Phase 61 checks the install (or `--plugin-dir`) before any manual check.
+- R3: the agents' diff views are unchanged (PR reviewers still read `--patch`); only the range source changed. Whether reviewers number lines from commit coordinates is not reproduced; reproduce first.
+- R17 owner-accepted known limit (2026-10-30, 60-HUMAN-UAT test 2): the PR route fails closed on PRs above GitHub's diff limits (about 300+ files or 20k+ lines). No fallback; Phase 61 names it in the release record.
+- R4: old `nearby_at` stamps from wider ranges are not migrated (fails toward asking). R7: untracked files have no ranges (unchanged). R8: C-quoted paths give no ranges (cannot carry a finding under `PATH_RE`). R10: `--all` has no diff (an unsupported fixture, `TestRouteAll`). R11: `replay.hunk_ranges` stays context-inclusive on purpose (`TestReplayPin`, GATE-02).
+
 ### 999.25: Finalize `$BLOBFILE` relies on a shell variable across Bash calls (Phase 58 D-22)
 
 `90-finalize.md` builds `$BLOBFILE` in one fence and reuses it as `"$BLOBFILE"` in later fences without printing its path. Shell variables do not survive between Bash calls in Claude Code, so the counts/gate step can see an empty path. Fails safe: Finalize stops and writes nothing. It predates Phase 58; found by the 58-REVIEW-GAPS.md re-review. Fix: bring it under the printed-path rule Phase 58 applied to every other temp file (print `BLOBFILE=<path>`, reuse the literal), with a fence-walk test in a fresh shell and a mutant. Part of the remaining 999.13 reconciliation. Scheduled as v2.14 Phase 60 (Decision reliability); active.
 
+**Carried from Phase 60 (2026-10-29):** These defects reproduced at `ce9f8b8` and were fixed in Phase 60: the cross-call `$BLOBFILE` and the gate fence's cross-call `$FINALIZE_GATE_INPUT_JSON`. Step 1 now prints `BLOBFILE=`, the gate reads a printed `GATEFILE=`, and every later fence reuses the literal. A missing path or a failed step gets one rebuild with a new blob file, then stops with one sentence and writes nothing. A refused step is never retried (b8fb21a). Fresh-shell walks over the real fences reach `write` and the decisions report on both routes, with retry, stale-attempt and malformed-GATEFILE walks (fd8c1b9). The printed-path, created-before-read and no-cross-call locks have mutants (53b35ed). The reverse run at `ce9f8b8` fails the walk and every 60-03 lock. The write boundary and independent fix verification are unchanged (`write_boundary_holds`; `test_fix_loop_card.py` green). The verification gap round (60-08) made the one rebuild re-mint GATEFILE and write the flags from the rebuilt counts (f100185 -> c0ece7e), 60-REPRO.md V12; FINL-02 awaits re-verification. The second gap round (60-12) made the post-answer gate re-run write a new GATEFILE from the recounted counts, so a card answer that dismisses every obligation finalizes in the same turn (c112ca6, 60-REPRO.md V14); FINL-02 awaits re-verification. The third gap round (60-14, 60-15) made the post-answer recount re-fingerprint HEAD into a NEW BLOBFILE, so a file edited while the card was open reopens its fix-obsolete finding instead of being approved over (9b3f055, 60-REPRO.md V15), and exempted `--finalize` from the head_sha bind fence it never consumes while naming a remedy on the review-mode halt (07bb448, V16); FINL-02 awaits re-verification. Still carried:
+
+- R1: `finalize_gate.py` itself still prints a Python traceback on empty or malformed stdin (helper unchanged). The fence keeps it in `<GATEFILE>.err`, so the owner sees only the stop sentence (`test_malformed_gatefile_shows_only_stop_sentence`). This is helper-side only. If the helper is ever called outside that fence, give it a fixed one-line refusal.
+- R5: as for 999.24, the installed plugin cache runs the old Finalize prose until resync and relaunch.
+
 ### 999.26: Plain-English title references: wordier phrasings ask (Phase 58 D-23 known limits)
 
 After the CR-01 rollback (58-REVIEW-FINAL.md), a title reference names a row only when that row's title holds every word the owner used, filler aside. Wordier but clear phrasings ("the retry budget warning", "the Browse recovery issue from earlier", inflections like "retries budget") get one follow-up question with the likely row as a button. This fails safe: nothing is acted on wrongly. The best-unique-match attempt (58-19) was rolled back because it dismissed a row the owner meant to fix. Safer design from the reviewer: act only when the best row contains ALL of the owner's non-filler words (treat small words like on/and/in as filler); otherwise offer the best partial row as a one-click choice in the follow-up. Also carried: tie candidates capped at 4 (a 5th tied row may not appear as a button); on a carried-close-out pass the Close out text points at that pass's card file rather than "the card the owner read"; the fallback note after the subset-file refusal has no specified wording; the "How many" follow-up offers single-row buttons; no Unicode normalization of titles. Reproduce first; any matcher change needs adversarial fixtures that put the target's key word next to two words from another title. Not scheduled.
+
+### 999.27: Committed state file's `head_sha` can narrow the pass >= 2 review range (Phase 60 R25)
+
+A well-formed but crafted 40- or 64-hex `head_sha` committed into the reviewed repo's state file passes `carry_state.py last-head-sha` and can narrow the incremental (pass >= 2) range without telling the owner. Phase 60's CR-01 fix closed command injection, not scope trust. Owner ruling 2026-10-30 (60-HUMAN-UAT test 3): status quo accepted for v2.14; hardening deferred. Candidate direction: require the stored sha to be an ancestor of HEAD and state the narrowed range on the card. Also consider R26 (no write-side format check on `head_sha`). Reproduce on a real review first. Needs exploitation by someone who can commit to the repo. Not scheduled.
 
 ### 999.12: Narrow: Cost visibility feasibility — Lean orchestration
 
 Inspect existing local usage records to determine whether a review's usage can be attributed reliably. Report available fields, missing data, pricing assumptions and the distinction between estimated, measured and billed cost. Do not start paid reviews to generate a baseline or invent per-agent usage.
 
 Finish with a go/no-go recommendation for the smallest useful reporting change. Stop if reliable attribution is unavailable; document the limitation rather than build new accounting infrastructure. Existing chunk limits and estimates are not enforceable dollar caps. Scheduled as Lean orchestration item 1, after Decision reliability ships; not activated. This check does not block correctness repairs; missing attribution stops accounting work, not the reliability milestone. Budget-control implementation and cross-repo orchestration changes require their own scope.
+
+### Maintenance: Keep the Codex companion; improve setup and disclosure
+
+Owner decision 2026-10-28: retain the existing optional Codex plugin integration. Capture dependency/setup documentation, accurate joined/skipped outcomes, configured-default model labels and bounded compatibility checks after companion updates in [the maintenance record](backlog/MAINTENANCE.md#codex-dependency-setup-and-model-disclosure). Outside v2.14; no new milestone or integration redesign. Preserve current review targeting, guards and optional native-only behavior.
 
 ## Planning boundaries
 

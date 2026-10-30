@@ -191,20 +191,24 @@ def decided_relocation_holds(text):
             and _all_in(text, DECIDED_CONTEXT_PHRASES))
 
 
-# The step-2 `changed-line ranges` bullet: an ordinary hunk maps to its
-# new-side lines, and a hunk that only deletes (new-side count 0) still maps to
-# a range, the two new-side lines around the deletion point. Checked inside
-# that bullet only. test_decision_continuity's
-# `deletion_hunk_ranges` mirrors this mapping.
+# The step-2 `changed-line ranges` bullet: the ranges come from
+# scripts/diff_ranges.py walking each hunk's `+`/`-` lines, never from the hunk
+# headers; a hunk that only deletes maps to the two new-side lines around the
+# deletion point; a net-deletion replace also covers the line after it; and
+# the PR range source is the cumulative `gh pr diff --color never`, not the
+# `--patch` commit series. Checked inside that bullet only.
 DELETION_RANGE_START = "**changed-line ranges**"
 DELETION_RANGE_END = "\n   - **"
 
 DELETION_RANGE_PHRASES = (
-    "`[start, start + count - 1]`",
+    "scripts/diff_ranges.py",
+    "never read the ranges from hunk headers",
     "A hunk that only deletes",
     "header `+T,0`",
     "`[max(T, 1), T + 1]`",
     "either side of the deletion point",
+    "removes more lines than it adds",
+    "--color never",
 )
 
 
@@ -533,11 +537,13 @@ class TestDeletionRangeLock(unittest.TestCase):
 
     SYNTHETIC = (
         "2. Raw facts:\n"
-        "   - **changed-line ranges** — pass `changed_line_ranges`. A hunk "
-        "with new-side lines maps to `[start, start + count - 1]`. A hunk "
-        "that only deletes (unified-diff header `+T,0`) maps to "
-        "`[max(T, 1), T + 1]`: the new-side lines on either side of the "
-        "deletion point.\n"
+        "   - **changed-line ranges** — pass `changed_line_ranges`. The "
+        "ranges come from scripts/diff_ranges.py; the orchestrator must "
+        "never read the ranges from hunk headers. A hunk that only deletes "
+        "(unified-diff header `+T,0`) maps to `[max(T, 1), T + 1]`: the "
+        "new-side lines on either side of the deletion point; a replace "
+        "that removes more lines than it adds covers one more line. PR "
+        "source: `gh pr diff <ref> --color never`.\n"
         "   - **±2 source window** — pass each finding's `source_window`.\n")
 
     def test_deletion_range_rule_locked(self):

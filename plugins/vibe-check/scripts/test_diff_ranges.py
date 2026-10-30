@@ -1,0 +1,1917 @@
+"""Tests for diff_ranges.py — exact changed-line ranges from a unified diff.
+
+Contract under test: `ranges_from_diff(text)` walks each hunk body by its `+`
+and `-` markers (never by the header's display-context counts) and returns
+`{path: [[start, end], ...]}` in new-side line numbers, sorted and merged per
+file:
+
+- an added line counts as changed;
+- a pure deletion counts the two lines either side of the deletion point,
+  `[max(T, 1), T + 1]` where T is the last new-side line before it;
+- a replace block that removes more lines than it adds also covers the one
+  new-side line just after it (net deletion);
+- the same change gives the same ranges under `git diff`, `-U0` and `-U10`.
+
+Structurally inconsistent input (a commit series, a combined `@@@` hunk, a
+body shorter or longer than its header, an unexpected body line) raises
+`RangeError` with a fixed reason; the CLI turns that into exit 2 with the
+reason on stderr and nothing on stdout.
+
+Every diff here is produced by real git in a throwaway repo built with
+gitfixture (null global and system git config). Tests reach the module
+through `self.dr` so the mutant tests can rerun a named test against a
+mutated copy of the module.
+
+Route coverage (the TestRoute* classes and TestProseRangeFence) runs each
+review route's range source through the same builder: default, GSD,
+incremental and range on temp repos, the PR route on a checked-in capture,
+and `--all` as an asserted unsupported-fixture record (it has no diff).
+
+PR fixture provenance (`fixtures/pr-cumulative.diff`): captured from `gh`
+(not a fallback) on 2026-10-29 with `gh pr diff 5 --color never`, PR #5 of
+this repo ("v2.14 Phase 59: stale decisions and lost deferrals"; base
+f2b6a3674d0d0dc62ab6dca3a00816c070943884, head
+98f63aa7834af6a04c5a38d925d8b1ca457111bc, squash-merged as the single-parent
+commit 6dfac6436427cc385fe1937f73ed841fef6c8ffb). Cut rule: four whole file
+sections taken verbatim at `diff --git` boundaries (50-fix-loop.md,
+90-finalize.md, batch_card.py, carry_state.py; capture lines 4897-5182).
+At capture time the same four paths read locally with `git diff --no-color
+--no-ext-diff --src-prefix=a/ --dst-prefix=b/ f2b6a36 98f63aa` (f2b6a36 is
+the merge base) gave the identical ranges. No test fetches anything.
+
+Run with bare `pytest` from plugins/vibe-check/scripts.
+"""
+
+import ast
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPTS_DIR)
+
+import diff_ranges  # noqa: E402  (module under test)
+import gitfixture  # noqa: E402  (shared temp-repo helper)
+import replay  # noqa: E402  (pinned header-based reader)
+import score  # noqa: E402  (the real scorer, for the --all record)
+import test_decision_continuity as tdc  # noqa: E402  (real-chain helpers)
+
+DIFF_RANGES_PY = os.path.join(SCRIPTS_DIR, "diff_ranges.py")
+PLUGIN_ROOT = os.path.dirname(SCRIPTS_DIR)
+COLLECT_MD = os.path.join(PLUGIN_ROOT, "phases", "review",
+                          "30-collect-score.md")
+STATE_ALL_MD = os.path.join(PLUGIN_ROOT, "phases", "review",
+                            "05-state-all.md")
+SCOPE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "00-scope.md")
+STATE_MD = os.path.join(PLUGIN_ROOT, "phases", "review", "05-state.md")
+FINALIZE_MD = os.path.join(PLUGIN_ROOT, "phases", "shared", "90-finalize.md")
+SIX_ROW_FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures",
+                               "iplayarr45-six-row-state.json")
+PR_FIXTURE = os.path.join(SCRIPTS_DIR, "fixtures", "pr-cumulative.diff")
+
+# The flags every range-building git call in the review prose passes.
+PROSE_FLAGS = ("--no-color", "--no-ext-diff",
+               "--no-textconv", "--no-relative",
+               "--src-prefix=a/", "--dst-prefix=b/")
+
+# The quoted literal placeholders the GSD and pass >= 2 rows carry; the agent
+# substitutes the printed sha (a shell variable does not survive into a
+# separate Bash call).
+GSD_PLACEHOLDER = '"<phase-start-sha>"'
+INCR_PLACEHOLDER = '"<last-reviewed-sha>"'
+
+BASE = [str(n) for n in range(1, 31)]
+
+
+def _is_mbox_line(line):
+    """A real mbox separator: `From`, a 40-hex sha, then the date text."""
+    parts = line.split(" ")
+    return (len(parts) > 2 and parts[0] == "From" and len(parts[1]) == 40
+            and all(c in "0123456789abcdef" for c in parts[1]))
+
+
+class _Repo(unittest.TestCase):
+    """Base: a temp repo with `f.txt` = lines "1".."30" committed."""
+
+    dr = diff_ranges
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = gitfixture.make_repo(os.path.realpath(self._tmp.name))
+        self.commit_lines(BASE)
+
+    # ------------------------------------------------------------ helpers
+
+    def git(self, *args, check=True):
+        return gitfixture.git(self.repo, *args, check=check)
+
+    def write_lines(self, lines, rel="f.txt", newline=True):
+        text = "\n".join(lines) + ("\n" if newline else "")
+        gitfixture.write(self.repo, rel, text)
+
+    def commit_lines(self, lines, rel="f.txt", newline=True):
+        self.write_lines(lines, rel, newline)
+        self.git("add", "--", rel)
+        self.git("commit", "-q", "-m", "commit %s" % rel)
+
+    def diff(self, *args):
+        """`git diff <prose flags> <args> HEAD` (working tree vs HEAD)."""
+        return self.git("diff", *PROSE_FLAGS, *args, "HEAD").stdout
+
+    def diff_with_config(self, kv, *args):
+        """`git -c <kv> diff <prose flags> <args> HEAD`: one config setting
+        in force for this call only."""
+        return self.git("-c", kv, "diff", *PROSE_FLAGS, *args, "HEAD").stdout
+
+    def three_contexts(self):
+        return (self.diff(), self.diff("-U0"), self.diff("-U10"))
+
+    def ranges(self, text):
+        return self.dr.ranges_from_diff(text)
+
+    def assert_all_contexts(self, want):
+        """Ranges are identical under default, -U0 and -U10 and equal `want`."""
+        for label, text in zip(("default", "-U0", "-U10"),
+                               self.three_contexts()):
+            with self.subTest(context=label):
+                self.assertEqual(self.ranges(text), want)
+
+
+# --------------------------------------------------------------------------- #
+# The shape table: real git, three display contexts, one expected answer
+# --------------------------------------------------------------------------- #
+class TestShapesRealGit(_Repo):
+
+    def test_delete_one_line(self):
+        L = list(BASE)
+        del L[8]  # line 9
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[8, 9]]})
+
+    def test_replace_one_line(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[10, 10]]})
+
+    def test_insert_one_line(self):
+        L = list(BASE)
+        L.insert(15, "new")  # after line 15
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[16, 16]]})
+
+    def test_delete_three_lines(self):
+        L = list(BASE)
+        del L[9:12]  # lines 10-12
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[9, 10]]})
+
+    def test_net_deletion_replace_extends_one_line(self):
+        L = list(BASE)
+        L[9:12] = ["one"]  # lines 10-12 become one line
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[10, 11]]})
+
+    def test_two_edits_in_one_default_hunk_stay_separate(self):
+        L = list(BASE)
+        L[4] = "five"
+        L[9] = "ten"
+        self.write_lines(L)
+        default = self.diff()
+        # The fixture holds what it claims: git merges both edits into ONE
+        # default-context hunk, yet the ranges keep them apart.
+        self.assertIn("@@ -2,12 +2,12 @@", default)
+        self.assertEqual(default.count("\n@@ "), 1)
+        self.assert_all_contexts({"f.txt": [[5, 5], [10, 10]]})
+
+    def test_delete_first_line(self):
+        L = list(BASE)
+        del L[0]
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[1, 1]]})
+
+    def test_delete_last_two_lines(self):
+        L = list(BASE)
+        del L[28:30]  # lines 29-30; the cursor lands past EOF, harmless
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[28, 29]]})
+
+    def test_relocated_block(self):
+        L = list(BASE)
+        moved = L[2:4]  # lines 3-4
+        del L[2:4]
+        L[18:18] = moved  # re-inserted after old line 20
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[2, 3], [19, 20]]})
+
+    def test_adjacent_blocks_merge(self):
+        L = list(BASE)
+        del L[10]  # line 11
+        del L[8]   # line 9; the two deletion pairs [8, 9] and [9, 10] touch
+        self.write_lines(L)
+        self.assert_all_contexts({"f.txt": [[8, 10]]})
+
+    def test_new_file(self):
+        self.write_lines(["a", "b", "c"], rel="g.txt")
+        self.git("add", "--", "g.txt")
+        self.assert_all_contexts({"g.txt": [[1, 3]]})
+
+    def test_deleted_file_has_no_key(self):
+        os.remove(os.path.join(self.repo, "f.txt"))
+        self.assertIn("+++ /dev/null", self.diff())
+        self.assert_all_contexts({})
+
+    def test_two_files_both_keys_sorted(self):
+        L = list(BASE)
+        L[2] = "three"
+        self.write_lines(L)
+        self.write_lines(["z1", "z2"], rel="z.txt")
+        self.git("add", "--", "z.txt")
+        want = {"f.txt": [[3, 3]], "z.txt": [[1, 2]]}
+        self.assert_all_contexts(want)
+        # Feed the files in reverse order: the keys still come out sorted.
+        text = self.diff()
+        cut = text.index("diff --git a/z.txt")
+        reordered = text[cut:] + text[:cut]
+        got = self.ranges(reordered)
+        self.assertEqual(got, want)
+        self.assertEqual(list(got), ["f.txt", "z.txt"])
+
+
+# --------------------------------------------------------------------------- #
+# Diff-text hazards
+# --------------------------------------------------------------------------- #
+class TestHazards(_Repo):
+
+    def test_content_lines_that_look_like_file_headers(self):
+        L = list(BASE)
+        L[4] = "-- x"
+        self.commit_lines(L)
+        L[4] = "++ y"
+        L[24] = "twenty-five"
+        self.write_lines(L)
+        default = self.diff()
+        # Inside the hunk body the edit prints as `--- x` / `+++ y`.
+        self.assertIn("\n--- x\n", default)
+        self.assertIn("\n+++ y\n", default)
+        for label, text in zip(("default", "-U0", "-U10"),
+                               self.three_contexts()):
+            with self.subTest(context=label):
+                got = self.ranges(text)
+                self.assertNotIn("y", got)
+                self.assertEqual(got, {"f.txt": [[5, 5], [25, 25]]})
+
+    def test_path_with_space_trailing_tab(self):
+        self.commit_lines(BASE, rel="a b.txt")
+        L = list(BASE)
+        L[6] = "seven"
+        self.write_lines(L, rel="a b.txt")
+        self.assertIn("+++ b/a b.txt\t\n", self.diff())
+        self.assert_all_contexts({"a b.txt": [[7, 7]]})
+
+    def test_no_newline_marker_consumes_no_budget(self):
+        self.commit_lines(BASE, newline=False)
+        L = list(BASE)
+        L[29] = "thirty"
+        self.write_lines(L, newline=False)
+        self.assertIn("\\ No newline at end of file", self.diff())
+        self.assert_all_contexts({"f.txt": [[30, 30]]})
+
+    def test_hostile_repo_config_does_not_change_ranges(self):
+        L = list(BASE)
+        L[10] = ""  # a blank line 11 next to the edit
+        self.commit_lines(L)
+        L[11] = "twelve"
+        self.write_lines(L)
+        clean = [self.ranges(t) for t in self.three_contexts()]
+        self.git("config", "color.ui", "always")
+        self.git("config", "diff.mnemonicPrefix", "true")
+        self.git("config", "diff.noprefix", "true")
+        self.git("config", "diff.external", "false")
+        self.git("config", "diff.suppressBlankEmpty", "true")
+        # The hostile config really changes git's own output...
+        raw = self.git("diff", "--no-ext-diff", "HEAD").stdout
+        self.assertIn("\x1b[", raw)
+        self.assertNotIn("+++ b/f.txt", raw)
+        self.assertIn("\n\n", self.diff())  # blank context printed empty
+        # ...but the prose flags restore the same ranges and keys.
+        hostile = [self.ranges(t) for t in self.three_contexts()]
+        self.assertEqual(hostile, clean)
+        self.assertEqual(clean[0], {"f.txt": [[12, 12]]})
+
+    def test_suppress_blank_empty_context_is_context(self):
+        L = list(BASE)
+        L[13] = ""  # line 14 is blank
+        self.commit_lines(L)
+        L[14] = "fifteen"
+        self.write_lines(L)
+        kv = "diff.suppressBlankEmpty=true"
+        for label, args in (("default", ()), ("-U0", ("-U0",)),
+                            ("-U10", ("-U10",))):
+            with self.subTest(context=label):
+                suppressed = self.diff_with_config(kv, *args)
+                plain = self.diff(*args)
+                if label != "-U0":
+                    # The fixture holds what the test thinks: the blank
+                    # context line is a truly empty body line under the
+                    # setting and a lone space without it.
+                    body = suppressed[suppressed.index("\n@@"):]
+                    self.assertIn("\n\n", body)
+                    self.assertIn("", body.split("\n")[1:-1])
+                    self.assertIn("\n \n", plain)
+                    self.assertNotEqual(suppressed, plain)
+                self.assertEqual(self.ranges(suppressed), self.ranges(plain))
+                self.assertEqual(self.ranges(suppressed),
+                                 {"f.txt": [[15, 15]]})
+
+    def test_form_feed_and_line_separator_do_not_desync(self):
+        L = list(BASE)
+        L[6] = "a\x0cb"
+        L[7] = "c d"
+        self.commit_lines(L)
+        L[9] = "ten"
+        self.write_lines(L)
+        self.assertIn("\x0c", self.diff())
+        self.assertIn(" ", self.diff())
+        self.assert_all_contexts({"f.txt": [[10, 10]]})
+
+    def test_quoted_path_is_skipped(self):
+        # git C-quotes a non-ASCII name; such a path can never carry a
+        # finding, so its hunks are skipped instead of keyed by quoted text.
+        self.commit_lines(BASE, rel="é.txt")
+        L = list(BASE)
+        L[3] = "four"
+        self.write_lines(L, rel="é.txt")
+        self.assertIn('+++ "b/', self.diff())
+        self.assert_all_contexts({})
+
+
+# --------------------------------------------------------------------------- #
+# Refusals: fixed reasons, never input text
+# --------------------------------------------------------------------------- #
+class TestRefusals(_Repo):
+
+    def _refusal(self, text):
+        with self.assertRaises(self.dr.RangeError) as cm:
+            self.ranges(text)
+        reason = str(cm.exception)
+        self.assertIn(reason, self.dr.REASONS)
+        self.assertNotIn("f.txt", reason)
+        return reason
+
+    def _series(self):
+        root = self.git("rev-parse", "HEAD").stdout.strip()
+        for n in (3, 20):
+            L = list(BASE)
+            L[n] = "edit%d" % n
+            self.commit_lines(L)
+        text = self.git("format-patch", "--stdout", "%s..HEAD" % root).stdout
+        heads = [ln for ln in text.split("\n") if _is_mbox_line(ln)]
+        self.assertEqual(len(heads), 2)  # a real two-commit series
+        return text
+
+    def test_refuses_commit_series(self):
+        self.assertEqual(self._refusal(self._series()), self.dr.REASON_MBOX)
+
+    def test_refuses_combined_diff(self):
+        self.git("checkout", "-q", "-b", "side")
+        L = list(BASE)
+        L[4] = "side"
+        self.commit_lines(L)
+        self.git("checkout", "-q", "main")
+        L[4] = "main"
+        self.commit_lines(L)
+        self.git("merge", "-q", "side", check=False)  # conflicts on line 5
+        text = self.git("diff", *PROSE_FLAGS).stdout
+        self.assertIn("@@@ ", text)
+        self.assertEqual(self._refusal(text), self.dr.REASON_COMBINED)
+
+    def test_refuses_short_body(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.diff().rstrip("\n")
+        cut = text[:text.rindex("\n")]  # drop the last body line
+        self.assertEqual(self._refusal(cut + "\n"),
+                         self.dr.REASON_SHORT_BODY)
+
+    def test_refuses_long_body(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.diff("-U0")
+        self.assertTrue(text.endswith("+ten\n"))
+        self.assertEqual(self._refusal(text + "+extra\n"),
+                         self.dr.REASON_LONG_BODY)
+
+    def test_refuses_extra_deleted_line_inside_budget(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.diff("-U0")
+        self.assertIn("\n-10\n+ten\n", text)
+        bad = text.replace("\n-10\n", "\n-10\n-extra\n", 1)
+        self.assertEqual(self._refusal(bad), self.dr.REASON_LONG_BODY)
+
+    def test_refuses_long_body_after_no_newline_marker(self):
+        self.commit_lines(BASE, newline=False)
+        L = list(BASE)
+        L[29] = "thirty"
+        self.write_lines(L, newline=False)
+        text = self.diff("-U0")
+        self.assertTrue(text.endswith("\\ No newline at end of file\n"))
+        self.assertEqual(self._refusal(text + "+extra\n"),
+                         self.dr.REASON_LONG_BODY)
+
+    def test_refuses_unexpected_body_line(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.diff()
+        self.assertIn("\n 8\n", text)
+        bad = text.replace("\n 8\n", "\nx8\n", 1)
+        self.assertEqual(self._refusal(bad), self.dr.REASON_BAD_BODY_LINE)
+
+    def test_refuses_colored_diff(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.git("-c", "color.ui=always", "diff", "HEAD").stdout
+        self.assertIn("\x1b[", text)
+        self.assertTrue(any(ln.startswith("\x1b")
+                            for ln in text.split("\n")))
+        self.assertEqual(self._refusal(text), self.dr.REASON_ESCAPE)
+
+    def test_refuses_non_diff_text(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        stat = self.git("diff", "--stat", "HEAD").stdout
+        self.assertIn("f.txt", stat)
+        self.assertNotIn("@@", stat)
+        for label, text in (
+                ("error", "fatal: ambiguous argument '': unknown revision\n"),
+                ("stat", stat),
+                ("prose", "hello\nworld\n")):
+            with self.subTest(input=label):
+                self.assertEqual(self._refusal(text),
+                                 self.dr.REASON_NOT_A_DIFF)
+
+    def test_binary_only_and_mode_only_diffs_are_empty(self):
+        # Hunk-less diffs are real diffs: the not-a-diff rule must not
+        # refuse them.
+        gitfixture.write(self.repo, "b.bin", b"a\x00b\n")
+        self.git("add", "--", "b.bin")
+        self.git("commit", "-q", "-m", "binary")
+        gitfixture.write(self.repo, "b.bin", b"a\x00c\n")
+        binary = self.diff()
+        self.assertIn("Binary files", binary)
+        self.assertNotIn("@@", binary)
+        self.assertEqual(self.ranges(binary), {})
+        self.git("checkout", "--", "b.bin")
+        self.git("update-index", "--chmod=+x", "f.txt")
+        mode = self.git("diff", "--cached", *PROSE_FLAGS).stdout
+        self.assertIn("old mode", mode)
+        self.assertIn("new mode", mode)
+        self.assertNotIn("@@", mode)
+        self.assertEqual(self.ranges(mode), {})
+
+    def test_reasons_are_fixed_text(self):
+        self.assertEqual(
+            self.dr.REASONS,
+            (self.dr.REASON_MBOX, self.dr.REASON_COMBINED,
+             self.dr.REASON_SHORT_BODY, self.dr.REASON_LONG_BODY,
+             self.dr.REASON_BAD_BODY_LINE, self.dr.REASON_ESCAPE,
+             self.dr.REASON_NOT_A_DIFF))
+        self.assertTrue(issubclass(self.dr.RangeError, ValueError))
+
+    def test_empty_diff_is_empty_result(self):
+        self.assertEqual(self.diff(), "")
+        self.assertEqual(self.ranges(""), {})
+        self.assertEqual(self.ranges("\n"), {})
+
+
+# --------------------------------------------------------------------------- #
+# CLI shim
+# --------------------------------------------------------------------------- #
+class TestCli(_Repo):
+
+    def cli(self, data, *argv):
+        return subprocess.run(
+            [sys.executable, DIFF_RANGES_PY, *argv], input=data,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
+            env=gitfixture.helper_env())
+
+    def _two_file_diff(self):
+        L = list(BASE)
+        L[2] = "three"
+        self.write_lines(L)
+        self.write_lines(["z1"], rel="z.txt")
+        self.git("add", "--", "z.txt")
+        text = self.diff()
+        cut = text.index("diff --git a/z.txt")
+        return text[cut:] + text[:cut]  # z.txt first on input
+
+    def test_valid_diff_prints_sorted_json(self):
+        text = self._two_file_diff()
+        proc = self.cli(text.encode("utf-8"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        want = diff_ranges.ranges_from_diff(text)
+        self.assertEqual(json.loads(proc.stdout), want)
+        self.assertEqual(proc.stdout.decode("utf-8"),
+                         json.dumps(want, sort_keys=True) + "\n")
+        self.assertTrue(proc.stdout.startswith(b'{"f.txt"'))
+
+    def test_empty_stdin_prints_empty_object(self):
+        proc = self.cli(b"")
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, b"{}\n")
+        self.assertEqual(proc.stderr, b"")
+
+    def test_series_exits_two_with_reason_only(self):
+        root = self.git("rev-parse", "HEAD").stdout.strip()
+        L = list(BASE)
+        L[3] = "four"
+        self.commit_lines(L)
+        series = self.git("format-patch", "--stdout",
+                          "%s..HEAD" % root).stdout
+        proc = self.cli(series.encode("utf-8"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode("utf-8"),
+                         diff_ranges.REASON_MBOX + "\n")
+
+    def test_colored_diff_exits_two_with_reason_only(self):
+        L = list(BASE)
+        L[9] = "ten"
+        self.write_lines(L)
+        text = self.git("-c", "color.ui=always", "diff", "HEAD").stdout
+        self.assertIn("\x1b[", text)
+        proc = self.cli(text.encode("utf-8"))
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, b"")
+        self.assertEqual(proc.stderr.decode("utf-8"),
+                         diff_ranges.REASON_ESCAPE + "\n")
+
+    def test_any_argv_exits_two(self):
+        for argv in (["--help"], ["x"]):
+            with self.subTest(argv=argv):
+                proc = self.cli(b"", *argv)
+                self.assertEqual(proc.returncode, 2)
+                self.assertEqual(proc.stdout, b"")
+
+    def test_undecodable_bytes_in_content(self):
+        gitfixture.write(self.repo, "f.txt",
+                         b"\n".join(x.encode() for x in BASE[:5])
+                         + b"\n\xff\xfe\n"
+                         + b"\n".join(x.encode() for x in BASE[6:]) + b"\n")
+        raw = subprocess.run(
+            ["git", "diff", *PROSE_FLAGS, "--text", "HEAD"], cwd=self.repo,
+            stdout=subprocess.PIPE, env=gitfixture.helper_env(),
+            timeout=60, check=True).stdout
+        self.assertIn(b"\xff", raw)
+        proc = self.cli(raw)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"f.txt": [[6, 6]]})
+
+
+# --------------------------------------------------------------------------- #
+# Import lock: a pure parser — no git, file or shell I/O
+# --------------------------------------------------------------------------- #
+class TestImportLock(unittest.TestCase):
+
+    def _source(self):
+        with open(DIFF_RANGES_PY, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_import_set_is_exact(self):
+        imported = set()
+        for node in ast.walk(ast.parse(self._source())):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                imported.add((node.module or "").split(".")[0])
+        self.assertEqual(imported, {"json", "re", "sys"})
+
+    def test_no_forbidden_names(self):
+        banned = {"os", "subprocess", "open", "eval", "exec", "compile",
+                  "__import__", "shutil", "pathlib"}
+        for node in ast.walk(ast.parse(self._source())):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, banned)
+
+    def test_no_forbidden_text(self):
+        src = self._source()
+        self.assertNotIn("subprocess", src)
+        self.assertNotIn("open(", src)
+        self.assertNotIn("splitlines", src)
+
+
+# --------------------------------------------------------------------------- #
+# replay.hunk_ranges stays header-based (pinned)
+# --------------------------------------------------------------------------- #
+DELETE_LINE_9_DEFAULT = """\
+diff --git a/f.txt b/f.txt
+index 0000000..1111111 100644
+--- a/f.txt
++++ b/f.txt
+@@ -6,7 +6,6 @@
+ 6
+ 7
+ 8
+-9
+ 10
+ 11
+ 12
+"""
+
+
+class TestReplayPin(unittest.TestCase):
+    """replay.hunk_ranges rebuilds the envelopes of recorded runs, whose
+    ranges were read from hunk headers with git's context lines included.
+    The replay gate compares against those recordings, so this reader must
+    keep returning the header-based (context-included) range and must not be
+    switched to the exact builder."""
+
+    def test_replay_keeps_context_in_ranges(self):
+        self.assertEqual(replay.hunk_ranges(DELETE_LINE_9_DEFAULT),
+                         {"f.txt": [[6, 11]]})
+
+    def test_builder_differs_on_the_same_text(self):
+        self.assertEqual(diff_ranges.ranges_from_diff(DELETE_LINE_9_DEFAULT),
+                         {"f.txt": [[8, 9]]})
+
+
+# --------------------------------------------------------------------------- #
+# Mutants: every guard is load-bearing
+# --------------------------------------------------------------------------- #
+with open(DIFF_RANGES_PY, "r", encoding="utf-8") as _fh:
+    SOURCE = _fh.read()
+
+
+class TestMutants(unittest.TestCase):
+    """Each mutant swaps one exact piece of diff_ranges.py source (asserted
+    present exactly once, so a refactor cannot leave a mutant that changes
+    nothing), executes the swapped copy as a module, and reruns a named test
+    against it through `dr`. The named test must pass on the real module and
+    fail on the mutant."""
+
+    def mutant(self, old, new):
+        self.assertEqual(SOURCE.count(old), 1, "mutant anchor not unique: %r"
+                         % old)
+        mod = types.ModuleType("diff_ranges_mutant")
+        mod.__file__ = DIFF_RANGES_PY
+        code = compile(SOURCE.replace(old, new), "<diff_ranges mutant>",
+                       "exec")
+        exec(code, mod.__dict__)  # our own source, one token swapped
+        return mod
+
+    @staticmethod
+    def _passes(cls, name, mod):
+        case = cls(name)
+        case.dr = mod
+        result = unittest.TestResult()
+        case.run(result)
+        return result.wasSuccessful()
+
+    def assert_trips(self, old, new, cls, name):
+        mod = self.mutant(old, new)
+        self.assertTrue(self._passes(cls, name, diff_ranges),
+                        "%s.%s fails on the real module" % (cls.__name__, name))
+        self.assertFalse(self._passes(cls, name, mod),
+                         "mutant survives %s.%s" % (cls.__name__, name))
+        return mod
+
+    # M1: read the header counts instead of walking the markers.
+    def test_m1_header_count_reader(self):
+        mod = self.assert_trips(
+            "    _close_block(out, path, block)\n    return i\n",
+            "    out.setdefault(path, []).append(\n"
+            "        [new_start, new_start + new_count - 1])\n    return i\n",
+            TestShapesRealGit, "test_delete_one_line")
+        self.assertEqual(mod.ranges_from_diff(DELETE_LINE_9_DEFAULT),
+                         {"f.txt": [[6, 11]]})
+
+    # M2: drop the net-deletion extension (D-02).
+    def test_m2_net_deletion_extension(self):
+        mod = self.assert_trips(
+            "            if deleted > added:\n",
+            "            if False:\n",
+            TestShapesRealGit, "test_net_deletion_replace_extends_one_line")
+        text = ("diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n"
+                "@@ -10,3 +10 @@\n-10\n-11\n-12\n+one\n")
+        self.assertEqual(mod.ranges_from_diff(text), {"f.txt": [[10, 10]]})
+        self.assertEqual(diff_ranges.ranges_from_diff(text),
+                         {"f.txt": [[10, 11]]})
+
+    # M3: stop the body at a `+++ ` line instead of consuming the budget.
+    def test_m3_budget_consumption(self):
+        self.assert_trips(
+            "        body = lines[i]\n",
+            "        body = lines[i]\n"
+            "        if body.startswith(\"+++ \"):\n"
+            "            break\n",
+            TestHazards, "test_content_lines_that_look_like_file_headers")
+
+    # M4: drop the commit-series refusal.
+    def test_m4_mbox_refusal(self):
+        self.assert_trips(
+            "        if _is_mbox(line):\n",
+            "        if False:\n",
+            TestRefusals, "test_refuses_commit_series")
+
+    # M5: universal line splitting instead of "\n" only.
+    def test_m5_split_on_newline_only(self):
+        self.assert_trips(
+            'lines = text.split("\\n")',
+            "lines = (text.splitlines() or [\"\"])",
+            TestHazards, "test_form_feed_and_line_separator_do_not_desync")
+
+    # M6: a pure deletion covers only one line.
+    def test_m6_pure_deletion_pair(self):
+        self.assert_trips(
+            "[max(start - 1, 1), start]",
+            "[start, start]",
+            TestShapesRealGit, "test_delete_one_line")
+
+    # M7: ignore that an empty new side is numbered by the line before it.
+    def test_m7_zero_count_cursor(self):
+        self.assert_trips(
+            "cursor = new_start + 1 if new_count == 0 else new_start",
+            "cursor = new_start",
+            TestShapesRealGit, "test_delete_one_line")
+
+    # M8: drop the combined-diff refusal.
+    def test_m8_combined_refusal(self):
+        self.assert_trips(
+            '        if line.startswith("@@@"):\n',
+            "        if False:\n",
+            TestRefusals, "test_refuses_combined_diff")
+
+    # M9: a short body ends quietly instead of refusing.
+    def test_m9_short_body_refusal(self):
+        self.assert_trips(
+            "            raise RangeError(REASON_SHORT_BODY)\n",
+            "            break\n",
+            TestRefusals, "test_refuses_short_body")
+
+    # M10: no overflow check inside the hunk.
+    def test_m10_budget_overflow_refusal(self):
+        self.assert_trips(
+            "        if old_left < 0 or new_left < 0:\n",
+            "        if False:\n",
+            TestRefusals, "test_refuses_extra_deleted_line_inside_budget")
+
+    # M11: no check for body lines left over after the hunk.
+    def test_m11_leftover_body_refusal(self):
+        self.assert_trips(
+            "        if after_hunk and _is_stray_body_line(line):\n",
+            "        if False:\n",
+            TestRefusals, "test_refuses_long_body")
+
+    # M12: an unexpected body line is skipped instead of refused.
+    def test_m12_bad_body_line_refusal(self):
+        self.assert_trips(
+            "        else:\n            raise RangeError(REASON_BAD_BODY_LINE)\n",
+            "        else:\n            continue\n",
+            TestRefusals, "test_refuses_unexpected_body_line")
+
+    # M13: a `\` marker inside the body is not skipped.
+    def test_m13_no_newline_marker_in_body(self):
+        self.assert_trips(
+            '        if tag == "\\\\":\n            continue\n',
+            "",
+            TestHazards, "test_no_newline_marker_consumes_no_budget")
+
+    # M14: a `\` marker after the hunk resets the leftover-line check.
+    def test_m14_no_newline_marker_after_hunk(self):
+        self.assert_trips(
+            '        if line.startswith("\\\\"):\n            continue\n',
+            "",
+            TestRefusals, "test_refuses_long_body_after_no_newline_marker")
+
+    # M15: keep git's trailing tab on a path with a space.
+    def test_m15_trailing_tab(self):
+        self.assert_trips(
+            '    if path.endswith("\\t"):\n',
+            "    if False:\n",
+            TestHazards, "test_path_with_space_trailing_tab")
+
+    # M16: key a C-quoted path by its quoted text.
+    def test_m16_quoted_path(self):
+        self.assert_trips(
+            " or path.startswith('\"')",
+            "",
+            TestHazards, "test_quoted_path_is_skipped")
+
+    # M17: treat `/dev/null` as a file.
+    def test_m17_dev_null(self):
+        self.assert_trips(
+            'path == "/dev/null" or ',
+            "",
+            TestShapesRealGit, "test_deleted_file_has_no_key")
+
+    # M18: never merge touching ranges.
+    def test_m18_merge(self):
+        self.assert_trips(
+            "        if merged and start <= merged[-1][1] + 1:\n",
+            "        if False:\n",
+            TestShapesRealGit, "test_adjacent_blocks_merge")
+
+    # M19: keys in input order instead of sorted.
+    def test_m19_sorted_keys(self):
+        self.assert_trips(
+            "for p in sorted(out)}",
+            "for p in out}",
+            TestShapesRealGit, "test_two_files_both_keys_sorted")
+
+    # M20: an empty body line is not read as a blank context line.
+    def test_m20_empty_body_line_is_context(self):
+        self.assert_trips(
+            'tag = body[:1] if body else " "',
+            "tag = body[:1]",
+            TestHazards, "test_suppress_blank_empty_context_is_context")
+
+    # M21: escaped (colored) text is not refused.
+    def test_m21_escape_refusal(self):
+        self.assert_trips(
+            '        if line.startswith("\\x1b"):\n',
+            "        if False:\n",
+            TestRefusals, "test_refuses_colored_diff")
+
+    # M22: text with no diff structure gives {} instead of a refusal.
+    def test_m22_not_a_diff_refusal(self):
+        self.assert_trips(
+            "        raise RangeError(REASON_NOT_A_DIFF)\n",
+            "        pass\n",
+            TestRefusals, "test_refuses_non_diff_text")
+
+
+
+# --------------------------------------------------------------------------- #
+# Route coverage: every review route's range source through the builder
+# --------------------------------------------------------------------------- #
+F = tdc.F
+
+
+def _git_diff(repo, *args):
+    """`git diff <prose flags> <args>` in a RealDiffRepo."""
+    return repo.git("diff", *PROSE_FLAGS, *args).stdout
+
+
+class TestRouteDefault(tdc._RealChain):
+    """Default route: the range source is `git diff HEAD` alone, in
+    working-tree line numbers. A decision at 40; an edit at line `at` is
+    staged with a real `git add`, then ten lines are inserted at the top
+    without staging, so on disk the decided line is 50 and the staged edit
+    is at `at + 10`."""
+
+    def _staged(self, at):
+        L0, s1, hA = self._decide40()
+        repo = tdc.RealDiffRepo.make(self, L0)
+        repo.write(tdc._edited(L0, at))
+        repo.git("add", F)
+        L2 = tdc.TOP_TEN + tdc._edited(L0, at)
+        repo.write(L2)
+        return repo, L2, s1, hA
+
+    def test_head_alone_covers_staged_and_unstaged_and_keeps(self):
+        repo, L2, s1, hA = self._staged(48)
+        ranges = diff_ranges.ranges_from_diff(_git_diff(repo, "HEAD"))
+        # Both the unstaged insertion (1-10) and the staged edit (now 58).
+        self.assertEqual(ranges, {F: [[1, 10], [58, 58]]})
+        self.assertEqual(
+            ranges, diff_ranges.ranges_from_diff(_git_diff(repo, "-U0",
+                                                           "HEAD")))
+        self.assert_keeps(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_appending_the_staged_section_wrongly_reopens(self):
+        """Documenting assertion: the old HEAD + `--staged` assembly adds
+        the index-coordinate line 48, which reopens the decision."""
+        repo, L2, s1, hA = self._staged(48)
+        staged = _git_diff(repo, "--staged")
+        self.assertEqual(diff_ranges.ranges_from_diff(staged), {F: [[48, 48]]})
+        concat = diff_ranges.ranges_from_diff(_git_diff(repo, "HEAD") + staged)
+        self.assertEqual(concat, {F: [[1, 10], [48, 48], [58, 58]]})
+        self.assert_reopens(self._pass2(s1, L2, concat), hA, 50)
+
+    def test_boundary_staged_edit_at_45_reopens(self):
+        repo, L2, s1, hA = self._staged(45)
+        ranges = diff_ranges.ranges_from_diff(_git_diff(repo, "HEAD"))
+        self.assertEqual(ranges, {F: [[1, 10], [55, 55]]})
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+
+    def test_findings_and_ranges_share_working_tree_lines(self):
+        """The staged-section probe: line 48 is the staged edit only in the
+        index's numbering; on disk it is unchanged code (old line 38), so it
+        is correctly outside the ranges, and the staged edit's working-tree
+        line 58 is inside them."""
+        repo, L2, _, _ = self._staged(48)
+        ranges = diff_ranges.ranges_from_diff(_git_diff(repo, "HEAD"))
+        self.assertEqual(L2[47], tdc.base_file()[37])
+        self.assertTrue(tdc.scored_in_diff(L2, 58, ranges))
+        self.assertFalse(tdc.scored_in_diff(L2, 48, ranges))
+
+
+class _CommittedThenUncommitted(tdc._RealChain):
+    """A decision at 40; a COMMITTED edit at line 35 after `base`, then an
+    uncommitted ten-line insertion at the top: on disk the decided line is
+    50 and the committed edit is at 45 (inside 45..55)."""
+
+    def _repo(self):
+        L0, s1, hA = self._decide40()
+        repo = tdc.RealDiffRepo.make(self, L0)
+        repo.write(tdc._edited(L0, 35))
+        repo.commit("edit line 35")
+        L2 = tdc.TOP_TEN + tdc._edited(L0, 35)
+        repo.write(L2)
+        return repo, L2, s1, hA
+
+    def _check(self, base):
+        repo, L2, s1, hA = self._repo()
+        sha = base(repo)
+        ranges = diff_ranges.ranges_from_diff(_git_diff(repo, sha))
+        # The committed edit lands at its working-tree line, 45.
+        self.assertEqual(ranges, {F: [[1, 10], [45, 45]]})
+        self.assert_reopens(self._pass2(s1, L2, ranges), hA, 50)
+        with self.subTest("old three-part assembly: silent keep"):
+            concat = (_git_diff(repo, "%s..HEAD" % sha)
+                      + _git_diff(repo, "--staged") + _git_diff(repo))
+            old = diff_ranges.ranges_from_diff(concat)
+            self.assertEqual(old, {F: [[1, 10], [35, 35]]})
+            self.assert_keeps(self._pass2(s1, L2, old), hA, 50)
+
+
+class TestRouteGSD(_CommittedThenUncommitted):
+    """GSD route, pass 1: `git diff $PHASE_START` (commit vs working tree);
+    `git diff HEAD` when `$PHASE_START` is empty."""
+
+    def test_phase_start_single_diff_uses_working_tree_lines(self):
+        self._check(lambda repo: repo.base)
+
+    def test_empty_phase_start_falls_back_to_head(self):
+        repo, L2, s1, hA = self._repo()
+        ranges = diff_ranges.ranges_from_diff(_git_diff(repo, "HEAD"))
+        self.assertEqual(ranges, {F: [[1, 10]]})
+
+
+class TestRouteIncremental(_CommittedThenUncommitted):
+    """Any stateful route, pass >= 2: `git diff $LAST_REVIEWED_SHA`."""
+
+    def test_last_reviewed_sha_single_diff_uses_working_tree_lines(self):
+        self._check(lambda repo: repo.base)
+
+    def test_last_reviewed_sha_after_more_commits(self):
+        L0, s1, hA = self._decide40()
+        repo = tdc.RealDiffRepo.make(self, L0)
+        repo.write(tdc._edited(L0, 20))
+        repo.commit("reviewed on pass 1")
+        last = repo.git("rev-parse", "HEAD").stdout.strip()
+        L1 = tdc._edited(tdc._edited(L0, 20), 35)
+        repo.write(L1)
+        repo.commit("edit line 35 after the review")
+        L2 = tdc.TOP_TEN + L1
+        repo.write(L2)
+        ranges = diff_ranges.ranges_from_diff(_git_diff(repo, last))
+        self.assertEqual(ranges, {F: [[1, 10], [45, 45]]})
+
+
+class TestRouteRange(_Repo):
+    """Range route: `git diff <range>` between two commits."""
+
+    def test_range_between_commits_matches_u0(self):
+        a = self.git("rev-parse", "HEAD").stdout.strip()
+        L = list(BASE)
+        L[4] = "five"
+        del L[19]  # line 20
+        L.insert(25, "new")  # new line 26 (after the deletion)
+        self.commit_lines(L)
+        b = self.git("rev-parse", "HEAD").stdout.strip()
+        rng = "%s..%s" % (a, b)
+        default = self.git("diff", *PROSE_FLAGS, rng).stdout
+        exact = self.git("diff", *PROSE_FLAGS, "-U0", rng).stdout
+        want = {"f.txt": [[5, 5], [19, 20], [26, 26]]}
+        self.assertEqual(self.ranges(default), want)
+        self.assertEqual(self.ranges(exact), want)
+
+
+# Ranges of fixtures/pr-cumulative.diff, pinned when it was captured.
+PR_FIXTURE_RANGES = {
+    "plugins/vibe-check/phases/review/50-fix-loop.md": [[62, 62]],
+    "plugins/vibe-check/phases/shared/90-finalize.md": [[110, 111],
+                                                        [114, 114]],
+    "plugins/vibe-check/scripts/batch_card.py": [
+        [237, 245], [271, 272], [530, 582], [588, 590], [620, 620],
+        [633, 633]],
+    "plugins/vibe-check/scripts/carry_state.py": [
+        [308, 400], [402, 406], [445, 445], [840, 856]],
+}
+
+
+class TestRoutePR(_Repo):
+    """PR route: the cumulative `gh pr diff <ref> --color never`, proven on a
+    checked-in capture; the `--patch` commit series is refused."""
+
+    def _fixture(self):
+        with open(PR_FIXTURE, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_fixture_is_a_single_cumulative_diff(self):
+        text = self._fixture()
+        self.assertTrue(text.strip())
+        lines = text.split("\n")
+        self.assertFalse([ln for ln in lines if _is_mbox_line(ln)])
+        self.assertGreaterEqual(
+            sum(1 for ln in lines if ln.startswith("diff --git ")), 2)
+        self.assertLessEqual(len(lines), 401)
+
+    def test_fixture_ranges_are_pinned(self):
+        self.assertEqual(self.ranges(self._fixture()), PR_FIXTURE_RANGES)
+
+    def test_every_key_is_a_new_side_path(self):
+        text = self._fixture()
+        paths = {ln[len("+++ b/"):] for ln in text.split("\n")
+                 if ln.startswith("+++ b/")}
+        self.assertEqual(set(self.ranges(text)), paths)
+
+    def _two_commit_pr(self):
+        """Commit A edits line 10; commit B inserts five lines at the top."""
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        LA = list(BASE)
+        LA[9] = "ten"
+        self.commit_lines(LA)
+        self.commit_lines(["top%d" % i for i in range(5)] + LA)
+        return base
+
+    def test_cumulative_diff_gives_head_lines(self):
+        base = self._two_commit_pr()
+        text = self.git("diff", *PROSE_FLAGS, base, "HEAD").stdout
+        self.assertEqual(self.ranges(text), {"f.txt": [[1, 5], [15, 15]]})
+
+    def test_commit_series_is_refused(self):
+        """Regression guard: a `--patch`-style series (format-patch mbox)
+        fails closed instead of yielding per-commit line numbers."""
+        base = self._two_commit_pr()
+        series = self.git("format-patch", "--stdout", *PROSE_FLAGS,
+                          "%s..HEAD" % base).stdout
+        self.assertEqual(
+            sum(1 for ln in series.split("\n") if _is_mbox_line(ln)), 2)
+        with self.assertRaises(self.dr.RangeError) as cm:
+            self.ranges(series)
+        self.assertEqual(str(cm.exception), self.dr.REASON_MBOX)
+
+
+class TestRouteAll(unittest.TestCase):
+    """Unsupported fixture: --all has no diff on any pass; recorded per D-06,
+    not a gap. 05-state-all.md (ii) forces a fresh pass 1 with no
+    carry-forward, the empty diff gives no ranges, and the scorer keeps a
+    reviewed-set finding without any in-diff term."""
+
+    def test_state_all_still_forces_a_fresh_pass(self):
+        with open(STATE_ALL_MD, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("$PASS_NUMBER = 1", text)
+        self.assertIn("$CARRYFORWARD = []", text)
+
+    def test_no_diff_gives_no_ranges(self):
+        self.assertEqual(diff_ranges.ranges_from_diff(""), {})
+
+    def test_reviewed_set_finding_kept_without_ranges(self):
+        lines = tdc.base_file()
+        finding = tdc.fresh("bugs", 40, lines, tdc.TITLE_A, conf=85,
+                            severity="critical")
+        envelope = {"command": "deep-review", "all_mode": True,
+                    "pass_number": 1, "reviewed_union": [F],
+                    "file_line_totals": {F: len(lines)},
+                    "changed_line_ranges": {}, "carryforward": [],
+                    "findings": [finding]}
+        result = score.run(envelope)
+        self.assertEqual([f["id"] for f in result["findings"]],
+                         [finding["id"]])
+        with self.subTest("outside the reviewed set it is dropped"):
+            envelope["reviewed_union"] = ["src/other.py"]
+            self.assertEqual(score.run(envelope)["findings"], [])
+
+
+HALT_SENTENCE = ("Review halted — the changed lines could not be read from "
+                 "the diff; nothing was scored.")
+
+
+def _collect_text():
+    with open(COLLECT_MD, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _range_bullet(text):
+    start = text.index("**changed-line ranges**")
+    end = text.find("\n   - **", start)
+    return text[start:] if end < 0 else text[start:end]
+
+
+def prose_range_fence(text):
+    """The bash fence inside the `changed-line ranges` bullet of
+    30-collect-score.md, dedented (exactly one fence in the bullet)."""
+    bullet = _range_bullet(text)
+    opens = bullet.count("```bash\n")
+    if opens != 1:
+        raise AssertionError("expected one bash fence in the bullet, got %d"
+                             % opens)
+    body_start = bullet.index("```bash\n") + len("```bash\n")
+    body = bullet[body_start:bullet.index("```", body_start)]
+    return "\n".join(ln.strip() for ln in body.split("\n"))
+
+
+def prose_range_row(text, route):
+    """The range-source cell (column 2) of the table row whose route cell
+    starts with `route`."""
+    for ln in _range_bullet(text).split("\n"):
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) >= 2 and cells[0].startswith(route):
+            return cells[1]
+    raise AssertionError("no range-source row for %r" % route)
+
+
+LITERAL_SHA_SENTENCE = ("a shell variable does not survive into a separate "
+                        "Bash call")
+
+
+def literal_sha_rule_holds(text):
+    """Problems with the literal-substitution rule in the range bullet of
+    30-collect-score.md ([] when it holds)."""
+    bullet = _range_bullet(text)
+    problems = []
+    if LITERAL_SHA_SENTENCE not in bullet:
+        problems.append("range bullet does not say a shell variable does not "
+                        "survive into a separate Bash call")
+    if "substitute" not in bullet:
+        problems.append("range bullet does not tell the agent to substitute "
+                        "the literal sha")
+    return problems
+
+
+def prose_range_source(text, route):
+    """The first backticked command in the range-source table row whose
+    route cell starts with `route`."""
+    for ln in _range_bullet(text).split("\n"):
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) >= 2 and cells[0].startswith(route):
+            m = cells[1].split("`")
+            if len(m) >= 3:
+                return m[1]
+    raise AssertionError("no range-source row for %r" % route)
+
+
+class TestProseRangeFence(_Repo):
+    """The fence in 30-collect-score.md, read from the file (never retyped),
+    run in a fresh `bash -s` inside a temp repo."""
+
+    def setUp(self):
+        super().setUp()
+        self.text = _collect_text()
+        self.fence = prose_range_fence(self.text)
+        self.default_source = prose_range_source(self.text, "default")
+        self.gsd_source = prose_range_source(self.text, "GSD")
+        self.incr_source = prose_range_source(self.text, "default or GSD")
+        L = list(BASE)
+        L[11] = "twelve"
+        del L[20]  # line 21
+        self.write_lines(L)
+
+    def run_fence(self, source, vc_root=PLUGIN_ROOT, cwd=None,
+                  env_extra=None):
+        """Run the fence in a fresh `bash -s`: nothing bound by an earlier
+        Bash call (PHASE_START, LAST_REVIEWED_SHA) survives into it."""
+        self.assertIn("<range source>", self.fence)
+        script = self.fence.replace("<range source>", source)
+        env = gitfixture.helper_env()
+        env["VC_ROOT"] = vc_root
+        env.update(env_extra or {})
+        env.pop("PHASE_START", None)
+        env.pop("LAST_REVIEWED_SHA", None)
+        return subprocess.run(["bash", "-s"], input=script,
+                              cwd=cwd or self.repo, env=env,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=60)
+
+    def test_fence_shape(self):
+        self.assertIn("set -o pipefail", self.fence)
+        self.assertIn('python3 "$VC_ROOT/scripts/diff_ranges.py"', self.fence)
+        flags = " ".join(PROSE_FLAGS)
+        self.assertEqual(
+            self.default_source,
+            "git diff --no-color --no-ext-diff --no-textconv --no-relative "
+            "--src-prefix=a/ --dst-prefix=b/ HEAD")
+        self.assertEqual(self.gsd_source,
+                         "git diff %s %s" % (flags, GSD_PLACEHOLDER))
+        self.assertNotIn("$", self.gsd_source)
+        self.assertEqual(self.incr_source,
+                         "git diff %s %s" % (flags, INCR_PLACEHOLDER))
+        self.assertNotIn("$", self.incr_source)
+        self.assertEqual(prose_range_source(self.text, "range"),
+                         "git diff %s <range>" % flags)
+        self.assertEqual(prose_range_source(self.text, "PR"),
+                         "gh pr diff <ref> --color never")
+
+    # ------------------------------------------------ GSD / pass >= 2 rows
+
+    def _committed_then_uncommitted(self):
+        """BASE committed (returned sha), then a committed edit at line 3,
+        then an uncommitted edit at line 5 — the 60-VERIFICATION repro."""
+        self.git("checkout", "--", "f.txt")
+        sha0 = self.git("rev-parse", "HEAD").stdout.strip()
+        L = list(BASE)
+        L[2] = "three"
+        self.commit_lines(L)
+        L[4] = "five"
+        self.write_lines(L)
+        # The fixture holds what the test thinks: HEAD alone sees only the
+        # uncommitted edit; the base sha sees both.
+        self.assertEqual(self.ranges(self.diff()), {"f.txt": [[5, 5]]})
+        self.assertEqual(
+            self.ranges(self.git("diff", *PROSE_FLAGS, sha0).stdout),
+            {"f.txt": [[3, 3], [5, 5]]})
+        return sha0
+
+    def _route_fresh_shell(self, source, placeholder):
+        sha0 = self._committed_then_uncommitted()
+        self.assertIn(placeholder, source)
+        proc = self.run_fence(source.replace(placeholder, '"%s"' % sha0))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout),
+                         {"f.txt": [[3, 3], [5, 5]]})
+
+    def test_gsd_route_fresh_shell_includes_committed_change(self):
+        self._route_fresh_shell(self.gsd_source, GSD_PLACEHOLDER)
+
+    def test_incremental_route_fresh_shell_includes_committed_change(self):
+        self._route_fresh_shell(self.incr_source, INCR_PLACEHOLDER)
+
+    def test_incremental_route_uses_the_printed_last_reviewed_sha(self):
+        """End to end: the 05-state.md bind fence prints the sha, that
+        printed literal is substituted into the pass >= 2 row, and the range
+        fence runs — all in fresh shells."""
+        sha0 = self._committed_then_uncommitted()
+        with open(STATE_MD, encoding="utf-8") as fh:
+            bind = _fence_holding(fh.read(), HEAD_SHA_CALL)
+        self.assertIsNotNone(bind)
+        state_path = _write_state(self._tmp.name, sha0)
+        proc = run_bind_fence(bind, self.repo, state_path)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        printed = [ln[len("LAST_REVIEWED_SHA="):]
+                   for ln in proc.stdout.splitlines()
+                   if ln.startswith("LAST_REVIEWED_SHA=")]
+        self.assertEqual(printed, [sha0])
+        self.assertIn(INCR_PLACEHOLDER, self.incr_source)
+        ranged = self.run_fence(
+            self.incr_source.replace(INCR_PLACEHOLDER, '"%s"' % printed[0]))
+        self.assertEqual(ranged.returncode, 0, ranged.stderr)
+        self.assertEqual(json.loads(ranged.stdout),
+                         {"f.txt": [[3, 3], [5, 5]]})
+
+    def test_injection_payload_in_the_row_executes_so_the_bind_fence_is_the_control(self):  # noqa: E501
+        """The written reproduction of CR-01: a crafted head_sha substituted
+        straight into the row runs its `$(...)` even inside double quotes.
+        The row cannot protect itself, so the value must be validated where
+        it is bound (05-state.md step 2, 00-scope.md PHASE_START)."""
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        marker = os.path.join(marker_dir, "pwned")
+        self.assertIn(INCR_PLACEHOLDER, self.incr_source)
+        proc = self.run_fence(
+            self.incr_source.replace(INCR_PLACEHOLDER,
+                                     '"%s"' % INJECTION_PAYLOAD),
+            env_extra={"T": marker_dir})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(os.path.exists(marker))
+
+    def test_gsd_empty_phase_start_uses_head(self):
+        cell = prose_range_row(self.text, "GSD")
+        self.assertIn("PHASE_START=", cell)
+        self.assertIn("HEAD", cell)
+        self._committed_then_uncommitted()
+        self.assertIn(GSD_PLACEHOLDER, self.gsd_source)
+        proc = self.run_fence(self.gsd_source.replace(GSD_PLACEHOLDER,
+                                                      "HEAD"))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"f.txt": [[5, 5]]})
+
+    def test_unsubstituted_variable_halts_instead_of_narrowing(self):
+        self._committed_then_uncommitted()
+        for source, placeholder, var in (
+                (self.gsd_source, GSD_PLACEHOLDER, "$PHASE_START"),
+                (self.incr_source, INCR_PLACEHOLDER, "$LAST_REVIEWED_SHA")):
+            token = placeholder.strip('"')
+            with self.subTest(row=var, form="quoted, left unsubstituted"):
+                self.assertIn(placeholder, source)
+                quoted = source.replace(token, var)
+                self.assertIn('"%s"' % var, quoted)
+                self._assert_halted(self.run_fence(quoted))
+            with self.subTest(row=var, form="old unquoted variable"):
+                # Why the quotes matter: the unquoted variable vanishes in a
+                # fresh shell, `git diff <flags>` diffs index vs working
+                # tree, and the committed edit at line 3 silently drops out.
+                unquoted = source.replace(placeholder, var)
+                proc = self.run_fence(unquoted)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout),
+                                 {"f.txt": [[5, 5]]})
+
+    def test_literal_substitution_sentence_present(self):
+        self.assertEqual(literal_sha_rule_holds(self.text), [])
+        mutant = self.text.replace(LITERAL_SHA_SENTENCE, "")
+        self.assertNotEqual(literal_sha_rule_holds(mutant), [])
+
+    def test_default_route_matches_in_process(self):
+        proc = self.run_fence(self.default_source)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        want = self.ranges(self.diff())
+        self.assertEqual(want, {"f.txt": [[12, 12], [20, 21]]})
+        self.assertEqual(json.loads(proc.stdout), want)
+
+    def test_hostile_external_diff_config_changes_nothing(self):
+        L = list(BASE)
+        L[10] = ""  # a committed blank line 11 directly above the edit
+        self.commit_lines(L)
+        L[11] = "twelve"
+        del L[20]  # line 21
+        self.write_lines(L)
+        clean = self.run_fence(self.default_source)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        self.assertEqual(json.loads(clean.stdout),
+                         {"f.txt": [[12, 12], [20, 21]]})
+        old_flags = ("--no-color", "--no-ext-diff", "--src-prefix=a/",
+                     "--dst-prefix=b/")
+        before = self.git("diff", *old_flags, "HEAD").stdout
+        self.git("config", "diff.external", "false")
+        self.git("config", "color.ui", "always")
+        self.git("config", "diff.noprefix", "true")
+        self.git("config", "diff.suppressBlankEmpty", "true")
+        gitfixture.write(self.repo, ".gitattributes", "f.txt diff=pre\n")
+        self.git("config", "diff.pre.textconv",
+                 "sh -c 'printf \"x\\ny\\n\"; cat \"$1\"' --")
+        # Each hostile setting really changes git's own output...
+        raw = self.git("diff", "--no-ext-diff", "HEAD").stdout
+        self.assertIn("\x1b[", raw)
+        self.assertNotIn("+++ b/f.txt", raw)
+        after = self.git("diff", *old_flags, "HEAD").stdout
+        self.assertNotEqual(after, before)
+        self.assertIn("\n\n", after)  # blank context printed empty
+        # textconv prepends two lines: the edit moves two lines down
+        self.assertEqual(self.ranges(after),
+                         {"f.txt": [[14, 14], [22, 23]]})
+        # ...but the fenced ranges are unchanged.
+        hostile = self.run_fence(self.default_source)
+        self.assertEqual(hostile.returncode, 0, hostile.stderr)
+        self.assertEqual(hostile.stdout, clean.stdout)
+
+    def test_diff_relative_from_subdirectory_changes_nothing(self):
+        want = self.ranges(self.diff())
+        self.assertEqual(want, {"f.txt": [[12, 12], [20, 21]]})
+        self.git("config", "diff.relative", "true")
+        sub = os.path.join(self.repo, "sub")
+        os.makedirs(sub)
+        # The fixture holds what the test thinks: from sub/, git diff under
+        # diff.relative hides the root-level f.txt edit entirely.
+        raw = subprocess.run(
+            ["git", "diff", "--no-color", "--no-ext-diff", "HEAD"], cwd=sub,
+            env=gitfixture.helper_env(), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, timeout=60)
+        self.assertEqual(raw.returncode, 0, raw.stderr)
+        self.assertEqual(raw.stdout, "")
+        proc = self.run_fence(self.default_source, cwd=sub)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), want)
+
+    def test_empty_diff_prints_empty_object(self):
+        self.git("checkout", "--", "f.txt")
+        proc = self.run_fence(self.default_source)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {})
+
+    def _assert_halted(self, proc):
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn(HALT_SENTENCE, proc.stderr)
+
+    def test_helper_failure_halts(self):
+        fake = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(fake))
+        os.makedirs(os.path.join(fake, "scripts"))
+        with open(os.path.join(fake, "scripts", "diff_ranges.py"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("import sys\nsys.exit(2)\n")
+        self._assert_halted(self.run_fence(self.default_source, vc_root=fake))
+
+    def test_commit_series_halts(self):
+        self.git("commit", "-q", "-a", "-m", "second")
+        series = ("git format-patch --stdout --no-color --src-prefix=a/ "
+                  "--dst-prefix=b/ HEAD~1..HEAD")
+        self._assert_halted(self.run_fence(series))
+
+    def test_failing_range_source_halts_through_pipefail(self):
+        """The helper reads empty stdin and prints `{}` with exit 0; only
+        pipefail turns the failed git call into a halt."""
+        source = self.default_source.replace("HEAD", "no-such-rev")
+        self._assert_halted(self.run_fence(source))
+        unguarded = self.fence.replace("set -o pipefail", "")
+        script = unguarded.replace("<range source>", source)
+        env = gitfixture.helper_env()
+        env["VC_ROOT"] = PLUGIN_ROOT
+        proc = subprocess.run(["bash", "-s"], input=script, cwd=self.repo,
+                              env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(json.loads(proc.stdout), {})
+
+
+
+# --------------------------------------------------------------------------- #
+# 00-scope.md prints PHASE_START= so a later Bash call can carry the literal
+# --------------------------------------------------------------------------- #
+def _fence_holding(text, needle):
+    """Body of the ```bash fence that holds `needle` (None if absent)."""
+    if needle not in text:
+        return None
+    at = text.index(needle)
+    start = text.rindex("```bash\n", 0, at) + len("```bash\n")
+    return text[start:text.index("```", at)]
+
+
+class TestScopePhaseStartFence(_Repo):
+    """The phase-range fence in 00-scope.md, read from the file and run in a
+    fresh `bash -s` with PHASE_DIR set."""
+
+    NEEDLE = "PHASE_START=$(git log"
+
+    def setUp(self):
+        super().setUp()
+        with open(SCOPE_MD, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertEqual(text.count(self.NEEDLE), 1)
+        self.fence = _fence_holding(text, self.NEEDLE)
+        self.assertIsNotNone(self.fence)
+
+    def run_scope(self, phase_dir):
+        env = gitfixture.helper_env()
+        env["PHASE_DIR"] = phase_dir
+        env.pop("PHASE_START", None)
+        return subprocess.run(["bash", "-s"], input=self.fence,
+                              cwd=self.repo, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=60)
+
+    def test_prints_first_commit_touching_phase_dir(self):
+        gitfixture.write(self.repo, ".planning/phases/01-x/a.md", "a\n")
+        self.git("add", "--", ".planning/phases/01-x/a.md")
+        self.git("commit", "-q", "-m", "phase dir")
+        first = self.git("rev-parse", "HEAD").stdout.strip()
+        gitfixture.write(self.repo, ".planning/phases/01-x/b.md", "b\n")
+        self.git("add", "--", ".planning/phases/01-x/b.md")
+        self.git("commit", "-q", "-m", "phase dir again")
+        proc = self.run_scope(".planning/phases/01-x/")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = proc.stdout.splitlines()
+        printed = [ln for ln in lines if ln.startswith("PHASE_START=")]
+        self.assertEqual(printed, ["PHASE_START=" + first])
+        self.assertEqual(len(first), 40)
+
+    def test_no_history_prints_empty_value(self):
+        proc = self.run_scope(".planning/phases/02-y/")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        lines = proc.stdout.splitlines()
+        self.assertIn("PHASE_START=", lines)
+        self.assertEqual(
+            [ln for ln in lines if ln.startswith("PHASE_START=")],
+            ["PHASE_START="])
+        self.assertIn("has no commit history yet", proc.stdout)
+
+    def _fence_with_payload(self, payload):
+        """The fence with its `git log` assignment replaced by a single-quoted
+        literal (the assignment itself runs nothing)."""
+        lines = self.fence.split("\n")
+        hits = [i for i, ln in enumerate(lines) if self.NEEDLE in ln]
+        self.assertEqual(len(hits), 1)
+        indent = lines[hits[0]][:len(lines[hits[0]])
+                                - len(lines[hits[0]].lstrip())]
+        lines[hits[0]] = "%sPHASE_START='%s'" % (indent, payload)
+        return "\n".join(lines)
+
+    def _run_script(self, script, env_extra=None):
+        env = gitfixture.helper_env()
+        env["PHASE_DIR"] = ".planning/phases/01-x/"
+        env.pop("PHASE_START", None)
+        env.update(env_extra or {})
+        return subprocess.run(["bash", "-s"], input=script,
+                              cwd=self.repo, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, timeout=60)
+
+    def test_non_sha_phase_start_halts_before_printing(self):
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        proc = self._run_script(self._fence_with_payload(INJECTION_PAYLOAD),
+                                {"T": marker_dir})
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual([ln for ln in proc.stdout.splitlines()
+                          if ln.startswith("PHASE_START=")], [])
+        self.assertEqual(proc.stderr.strip(), PHASE_START_HALT)
+        self.assertFalse(os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_mutant_without_the_check_prints_the_payload(self):
+        script = self._fence_with_payload(INJECTION_PAYLOAD)
+        lines = script.split("\n")
+        kept = [ln for ln in lines if PHASE_START_HALT not in ln]
+        self.assertEqual(len(lines) - len(kept), 1)
+        proc = self._run_script("\n".join(kept))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("PHASE_START=" + INJECTION_PAYLOAD,
+                      proc.stdout.splitlines())
+
+    def test_sixty_four_hex_is_accepted(self):
+        proc = self._run_script(self._fence_with_payload("a" * 64))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([ln for ln in proc.stdout.splitlines()
+                          if ln.startswith("PHASE_START=")],
+                         ["PHASE_START=" + "a" * 64])
+
+
+# --------------------------------------------------------------------------- #
+# Every abbreviated range-source line carries the full flagged command
+# --------------------------------------------------------------------------- #
+RANGE_SOURCE_PREFIX = "Range source for 30-collect-score:"
+
+
+def range_source_lines(paths=(SCOPE_MD, STATE_MD)):
+    """(path, line) for every `Range source for 30-collect-score:` line."""
+    out = []
+    for path in paths:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh.read().split("\n"):
+                if ln.strip().startswith(RANGE_SOURCE_PREFIX):
+                    out.append((os.path.basename(path), ln.strip()))
+    return out
+
+
+def range_source_line_problems(line):
+    """Problems with one range-source line's first backticked command."""
+    parts = line.split("`")
+    if len(parts) < 3:
+        return ["no backticked command"]
+    cmd = parts[1]
+    if cmd.startswith("gh pr diff"):
+        return []
+    problems = []
+    tokens = cmd.split(" ")
+    if tokens[:2] != ["git", "diff"]:
+        problems.append("not a git diff command: %r" % cmd)
+    elif tuple(tokens[2:2 + len(PROSE_FLAGS)]) != PROSE_FLAGS:
+        problems.append("missing the fixed flags in order: %r" % cmd)
+    if "$" in cmd:
+        problems.append("shell variable in the command: %r" % cmd)
+    return problems
+
+
+class TestRangeSourceLines(unittest.TestCase):
+
+    def test_exactly_four_lines(self):
+        names = [name for name, _ in range_source_lines()]
+        self.assertEqual(names, ["00-scope.md"] * 3 + ["05-state.md"])
+
+    def test_every_line_is_fully_flagged(self):
+        for name, line in range_source_lines():
+            with self.subTest(file=name, line=line[:80]):
+                self.assertEqual(range_source_line_problems(line), [])
+
+    def test_check_trips_on_bare_command(self):
+        for bad in ("Range source for 30-collect-score: `git diff HEAD` x",
+                    "Range source for 30-collect-score: `git diff "
+                    + " ".join(PROSE_FLAGS) + " $PHASE_START` x"):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(range_source_line_problems(bad), [])
+
+
+
+# --------------------------------------------------------------------------- #
+# CR-01: the two substituted revisions are bound by fences that validate first
+# --------------------------------------------------------------------------- #
+HEAD_SHA_CALL = 'carry_state.py" last-head-sha < "$STATE_FILE"'
+HEAD_SHA_PRINT = "printf 'LAST_REVIEWED_SHA=%s\\n' \"$LAST_REVIEWED_SHA\""
+HEAD_SHA_HALT_OLD = ("Review halted — the state file's last-pass head_sha "
+                     "is not a commit sha; nothing was scored.")
+HEAD_SHA_HALT = (HEAD_SHA_HALT_OLD
+                 + " Set that pass's head_sha to the full 40-hex sha of the "
+                 "last reviewed commit (or restore the state file from git) "
+                 "and re-run; --finalize does not read this value and still "
+                 "works.")
+HEAD_SHA_OLD = "`$LAST_REVIEWED_SHA = state.passes[-1].head_sha`"
+FINALIZE_MODE_REF = '"$FINALIZE_MODE"'
+FINALIZE_SKIP_SENTENCE = "A `FINALIZE_MODE=1` run skips this binding"
+COUNTS_CALL = 'carry_state.py" finalize-counts --head-blobs "$BLOBFILE"'
+HEAD_SHA_NEEDLES = (
+    "ONLY the literal printed after `LAST_REVIEWED_SHA=`",
+    "never a value copied from the state JSON by hand",
+    "refused before it can reach a command",
+    FINALIZE_SKIP_SENTENCE,
+)
+PHASE_START_HALT = ("Review halted — the phase-start commit id is not a "
+                    "commit sha; nothing was scored.")
+SUBSTITUTED_VALUE_SENTENCE = (
+    "Only a value printed after `PHASE_START=` or `LAST_REVIEWED_SHA=` by "
+    "those fences is ever substituted")
+QUOTES_ALONE_OLD = ("the quotes around it make an empty or unsubstituted "
+                    "value fail")
+INJECTION_PAYLOAD = '$(touch "$T/pwned")HEAD'
+PHASE_START_REGEX = "[0-9a-f]{40}([0-9a-f]{24})?"
+PHASE_START_PRINT = "printf 'PHASE_START=%s\\n'"
+
+
+def _write_state(tmp, head):
+    """`<tmp>/state.json` whose single (last) pass carries `head`."""
+    path = os.path.join(tmp, "state.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"passes": [{"pass_number": 1, "head_sha": head,
+                               "findings": []}]}, fh)
+    return path
+
+
+def run_bind_fence(fence, repo, state_path, env_extra=None):
+    """Run the 05-state.md step-2 bind fence in a fresh `bash -s` with
+    STATE_FILE set and no LAST_REVIEWED_SHA inherited."""
+    env = gitfixture.helper_env()
+    env["VC_ROOT"] = PLUGIN_ROOT
+    env["STATE_FILE"] = state_path
+    env.pop("LAST_REVIEWED_SHA", None)
+    env.update(env_extra or {})
+    return subprocess.run(["bash", "-s"], input=fence, cwd=repo, env=env,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, timeout=60)
+
+
+def _step_two(text):
+    start = text.index("2. If present: parse it.")
+    return text[start:text.index("3. Narrow diff", start)]
+
+
+def head_sha_binding_holds(text):
+    """Problems with the step-2 head_sha binding in 05-state.md."""
+    problems = []
+    fence = _fence_holding(text, HEAD_SHA_CALL)
+    if fence is None:
+        problems.append("no fence runs carry_state.py last-head-sha")
+    else:
+        for needle in (HEAD_SHA_PRINT, HEAD_SHA_HALT, "exit 1"):
+            if needle not in fence:
+                problems.append("bind fence lacks %r" % needle)
+        if FINALIZE_MODE_REF not in fence:
+            problems.append("bind fence does not branch on the printed "
+                            "FINALIZE_MODE literal")
+        if HEAD_SHA_HALT_OLD + '"' in fence:
+            problems.append("bind fence halt line is the bare pre-round "
+                            "sentence")
+    region = _step_two(text)
+    for needle in HEAD_SHA_NEEDLES:
+        if needle not in region:
+            problems.append("step 2 lacks %r" % needle)
+    if HEAD_SHA_OLD in region:
+        problems.append("step 2 still binds head_sha by hand from the JSON")
+    lines = [ln for ln in text.split("\n")
+             if ln.strip().startswith(RANGE_SOURCE_PREFIX)]
+    if len(lines) != 1 or \
+            "printed after `LAST_REVIEWED_SHA=`" not in lines[0]:
+        problems.append("step-3 range-source line does not name the printed "
+                        "LAST_REVIEWED_SHA= literal")
+    return problems
+
+
+def substituted_value_rule_holds(text):
+    """Problems with the printed-literal rule in 30-collect-score.md."""
+    problems = []
+    incr = prose_range_row(text, "default or GSD")
+    if "printed after `LAST_REVIEWED_SHA=`" not in incr:
+        problems.append("pass >= 2 row does not name the printed literal")
+    if "read in 05-state.md step 2; substitute it" in incr:
+        problems.append("pass >= 2 row keeps the hand-read wording")
+    if "printed after `PHASE_START=`" not in prose_range_row(text, "GSD"):
+        problems.append("GSD row does not name the printed literal")
+    bullet = _range_bullet(text)
+    if SUBSTITUTED_VALUE_SENTENCE not in bullet:
+        problems.append("range bullet lacks the printed-literal rule")
+    if QUOTES_ALONE_OLD in bullet:
+        problems.append("range bullet still claims the quotes protect it")
+    return problems
+
+
+def phase_start_check_holds(text):
+    """Problems with the PHASE_START commit-id check in 00-scope.md."""
+    fence = _fence_holding(text, TestScopePhaseStartFence.NEEDLE)
+    if fence is None:
+        return ["no phase-range fence"]
+    lines = fence.split("\n")
+    hits = [i for i, ln in enumerate(lines) if PHASE_START_HALT in ln]
+    if len(hits) != 1:
+        return ["expected one check line, got %d" % len(hits)]
+    problems = []
+    line = lines[hits[0]]
+    if PHASE_START_REGEX not in line or "exit 1" not in line:
+        problems.append("check line lacks the regex or exit 1")
+    prints = [i for i, ln in enumerate(lines) if PHASE_START_PRINT in ln]
+    if len(prints) != 1 or not hits[0] < prints[0]:
+        problems.append("check line does not precede the PHASE_START= print")
+    return problems
+
+
+class TestStateHeadShaFence(_Repo):
+    """The 05-state.md step-2 bind fence, read from the file and run in a
+    fresh `bash -s` against a state file."""
+
+    def setUp(self):
+        super().setUp()
+        with open(STATE_MD, encoding="utf-8") as fh:
+            text = fh.read()
+        self.fence = _fence_holding(text, HEAD_SHA_CALL)
+        self.assertIsNotNone(self.fence)
+
+    def _state(self, head):
+        return _write_state(self._tmp.name, head)
+
+    def run_bind(self, state_path, extra_env=None):
+        return run_bind_fence(self.fence, self.repo, state_path, extra_env)
+
+    def _printed(self, proc):
+        return [ln for ln in proc.stdout.splitlines()
+                if ln.startswith("LAST_REVIEWED_SHA=")]
+
+    def _assert_bind_halted(self, proc):
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(self._printed(proc), [])
+        self.assertEqual(proc.stderr.strip().splitlines()[-1], HEAD_SHA_HALT)
+
+    def test_prints_the_validated_sha(self):
+        sha = self.git("rev-parse", "HEAD").stdout.strip()
+        proc = self.run_bind(self._state(sha))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), ["LAST_REVIEWED_SHA=" + sha])
+        self.assertEqual(proc.stderr, "")
+
+    def test_injection_payload_halts_without_executing(self):
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        proc = self.run_bind(self._state(INJECTION_PAYLOAD),
+                             {"T": marker_dir})
+        self._assert_bind_halted(proc)
+        # The helper's own one-line reason, then the fence's halt sentence.
+        self.assertEqual(proc.stderr.strip().splitlines(),
+                         ["refused: last pass head_sha is not a commit sha",
+                          HEAD_SHA_HALT])
+        self.assertFalse(os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_other_non_sha_values_halt(self):
+        for head in ("HEAD", "", None, "A" * 40):
+            with self.subTest(head=head):
+                self._assert_bind_halted(self.run_bind(self._state(head)))
+
+    def test_missing_state_file_halts(self):
+        proc = self.run_bind(os.path.join(self._tmp.name, "absent.json"))
+        self._assert_bind_halted(proc)
+
+    def _fence_in_mode(self, mode):
+        """The fence with the literal Phase 0 printed after `FINALIZE_MODE=`
+        substituted for `"$FINALIZE_MODE"`, as the prose directs."""
+        self.assertIn(FINALIZE_MODE_REF, self.fence)
+        return self.fence.replace(FINALIZE_MODE_REF, '"%s"' % mode)
+
+    def run_bind_in_mode(self, mode, state_path, extra_env=None):
+        return run_bind_fence(self._fence_in_mode(mode), self.repo,
+                              state_path, extra_env)
+
+    def test_finalize_mode_skips_the_bind_and_reaches_the_counts_step(self):
+        with open(SIX_ROW_FIXTURE, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data["passes"][-1]["head_sha"] = "HEAD"
+        state = os.path.join(self._tmp.name, "state.json")
+        with open(state, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        with open(state, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["passes"][-1]["head_sha"], "HEAD")
+        proc = self.run_bind_in_mode("1", state)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), [])
+        self.assertEqual(proc.stderr, "")
+        # Finalize's own counts step, read from 90-finalize.md and run fresh
+        # (`finalize-counts --head-blobs`), works on this very state file.
+        with open(FINALIZE_MD, encoding="utf-8") as fh:
+            counts = _fence_holding(fh.read(), COUNTS_CALL)
+        self.assertIsNotNone(counts)
+        blob = os.path.join(self._tmp.name, "blob.json")
+        with open(blob, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        self.assertIn('"$BLOBFILE"', counts)
+        counts = counts.replace('"$BLOBFILE"', '"%s"' % blob)
+        cproc = run_bind_fence(counts, self.repo, state)
+        self.assertEqual(cproc.returncode, 0, cproc.stderr)
+        got = json.loads(cproc.stdout.splitlines()[0])
+        self.assertEqual(got["outstanding_cw"], 5)
+        self.assertEqual(got["unacknowledged_medium"], 1)
+        self.assertEqual(got["undecided_nv"], 0)
+
+    def test_finalize_mode_never_runs_the_payload(self):
+        marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+        proc = self.run_bind_in_mode("1", self._state(INJECTION_PAYLOAD),
+                                     {"T": marker_dir})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), [])
+        self.assertEqual(proc.stderr, "")
+        self.assertFalse(os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_review_mode_literal_zero_still_halts(self):
+        for head in (INJECTION_PAYLOAD, "HEAD", "A" * 40):
+            with self.subTest(head=head):
+                marker_dir = tempfile.mkdtemp(dir=self._tmp.name)
+                proc = self.run_bind_in_mode("0", self._state(head),
+                                             {"T": marker_dir})
+                self._assert_bind_halted(proc)
+                self.assertFalse(
+                    os.path.exists(os.path.join(marker_dir, "pwned")))
+
+    def test_unsubstituted_mode_fails_closed(self):
+        self.assertNotIn("FINALIZE_MODE", gitfixture.helper_env())
+        self._assert_bind_halted(self.run_bind(self._state("HEAD")))
+
+    def test_finalize_mode_still_prints_a_valid_sha_in_review_mode_only(self):
+        sha = self.git("rev-parse", "HEAD").stdout.strip()
+        proc = self.run_bind_in_mode("0", self._state(sha))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), ["LAST_REVIEWED_SHA=" + sha])
+        proc = self.run_bind_in_mode("1", self._state(sha))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self._printed(proc), [])
+
+    def test_halt_names_a_remedy(self):
+        proc = self.run_bind(self._state("HEAD"))
+        last = proc.stderr.strip().splitlines()[-1]
+        self.assertEqual(last, HEAD_SHA_HALT)
+        self.assertIn("--finalize", last)
+        self.assertIn("restore the state file from git", last)
+        self.assertNotIn("\n", HEAD_SHA_HALT)
+
+
+class TestSubstitutedValueProse(unittest.TestCase):
+
+    def _read(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_head_sha_binding_holds(self):
+        self.assertEqual(head_sha_binding_holds(self._read(STATE_MD)), [])
+
+    def test_substituted_value_rule_holds(self):
+        self.assertEqual(substituted_value_rule_holds(self._read(COLLECT_MD)),
+                         [])
+
+    def test_phase_start_check_holds(self):
+        self.assertEqual(phase_start_check_holds(self._read(SCOPE_MD)), [])
+
+    def test_head_sha_mutants_trip(self):
+        text = self._read(STATE_MD)
+        for needle in HEAD_SHA_NEEDLES + (HEAD_SHA_PRINT,):
+            with self.subTest(removed=needle):
+                self.assertIn(needle, text)
+                self.assertNotEqual(
+                    head_sha_binding_holds(text.replace(needle, "", 1)), [])
+        with self.subTest(reinserted=HEAD_SHA_OLD):
+            anchor = "2. If present: parse it."
+            self.assertIn(anchor, text)
+            mutant = text.replace(anchor, anchor + " " + HEAD_SHA_OLD, 1)
+            self.assertNotEqual(head_sha_binding_holds(mutant), [])
+        with self.subTest(removed=FINALIZE_MODE_REF):
+            self.assertIn(FINALIZE_MODE_REF, text)
+            mutant = text.replace(FINALIZE_MODE_REF, '"$UNRELATED"', 1)
+            self.assertNotEqual(head_sha_binding_holds(mutant), [])
+        with self.subTest(reinserted=HEAD_SHA_HALT_OLD):
+            self.assertIn(HEAD_SHA_HALT, text)
+            mutant = text.replace(HEAD_SHA_HALT, HEAD_SHA_HALT_OLD, 1)
+            self.assertNotEqual(head_sha_binding_holds(mutant), [])
+
+    def test_substituted_value_mutants_trip(self):
+        text = self._read(COLLECT_MD)
+        self.assertIn(SUBSTITUTED_VALUE_SENTENCE, text)
+        with self.subTest(removed="rule sentence"):
+            self.assertNotEqual(substituted_value_rule_holds(
+                text.replace(SUBSTITUTED_VALUE_SENTENCE, "", 1)), [])
+        with self.subTest(reinserted="quotes-alone claim"):
+            mutant = text.replace(
+                SUBSTITUTED_VALUE_SENTENCE,
+                SUBSTITUTED_VALUE_SENTENCE + " " + QUOTES_ALONE_OLD, 1)
+            self.assertNotEqual(substituted_value_rule_holds(mutant), [])
+
+    def test_phase_start_check_mutant_trips(self):
+        text = self._read(SCOPE_MD)
+        lines = text.split("\n")
+        kept = [ln for ln in lines if PHASE_START_HALT not in ln]
+        self.assertEqual(len(lines) - len(kept), 1)
+        self.assertNotEqual(phase_start_check_holds("\n".join(kept)), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

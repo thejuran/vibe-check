@@ -1,0 +1,286 @@
+diff --git a/plugins/vibe-check/phases/review/50-fix-loop.md b/plugins/vibe-check/phases/review/50-fix-loop.md
+index ecfeafca..77f372dd 100644
+--- a/plugins/vibe-check/phases/review/50-fix-loop.md
++++ b/plugins/vibe-check/phases/review/50-fix-loop.md
+@@ -59,7 +59,7 @@ After Phase 4 renders the report and Phase 4.5 persists state, run an interactiv
+ What `card_text` contains, one line per entry of `rows[]` (the helper renders exactly this; this file never builds the list itself):
+ 
+ - `#{{n}} {{file}}:{{line}} — {{title}} ({{band}})`
+-- Suffixes, in this order when they apply: absorbed (`absorbed_into` set) — ` (absorbed into "{{lead_title}}" — decided on its own)`; pending (`pending_since` set) — ` — unchanged since pass {{pending_since}}, decision pending`; stale code (`stale.cause == "code"`) — ` — code changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale severity (`stale.cause == "severity"`, `stale.gained` empty) — ` — severity changed ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale nearby (`stale.cause == "nearby"`) — ` — code next to it changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale severity rise (`stale.cause == "severity"`, `stale.gained` non-empty) — ` — severity rose ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}}: {{stale.gained joined by ", "}} now also report(s) it (was: {{dismissed|deferred}} — {{stale.reason}})`; stale joined (`stale.cause == "joined"`) — ` — {{stale.covered}} finding(s) here already {{dismissed|deferred}} (your reason: {{stale.reason}}); a new concern from {{stale.joined joined by ", "}} joined it`. The exact wording of each is in `90-finalize.md`.
++- Suffixes, in this order when they apply: absorbed (`absorbed_into` set) — ` (absorbed into "{{lead_title}}" — decided on its own)`; pending (`pending_since` set) — ` — unchanged since pass {{pending_since}}, decision pending`; stale code (`stale.cause == "code"`) — ` — code changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale severity (`stale.cause == "severity"`, `stale.gained` empty) — ` — severity changed ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale nearby (`stale.cause == "nearby"`) — ` — code next to it changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale nearby at another spot (`stale.spot_line` set, `stale.other_spots` 0) — ` — code next to line {{stale.spot_line}} ({{another copy of this line|a finding grouped here}}) changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale nearby at several spots (`stale.other_spots` >= 1) — ` — code next to line {{stale.spot_line}} and {{stale.other_spots}} other {{spot|spots}} changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`; stale severity rise (`stale.cause == "severity"`, `stale.gained` non-empty) — ` — severity rose ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}}: {{stale.gained joined by ", "}} now also report(s) it (was: {{dismissed|deferred}} — {{stale.reason}})`; stale joined (`stale.cause == "joined"`) — ` — {{stale.covered}} finding(s) here already {{dismissed|deferred}} (your reason: {{stale.reason}}); a new concern from {{stale.joined joined by ", "}} joined it`; deferred below min_confidence (`kept_open` starts `below-min-confidence` and contains `deferred-by:`) — ` — below your min_confidence ({{min_confidence}}); still deferred`. The exact wording of each is in `90-finalize.md`.
+ - The stale tag covers both D-13 cases — the same hash (`stale.via == "same_hash"`) and a re-hashed successor (`stale.via == "successor"`, linked by batch_card.py, annotation only), plus a finding that inherited a decision recorded as covering it (`stale.via == "covering"`, `stale.prior_hash` = the decided row). All three render the same suffix, and the row is still open and in the card.
+ - A Needs-verification row (`band` is `needs-verification`) renders `(needs-verification)` as its band. Its trigger, path and consequence are carried in the report's Needs verification group, not in the card line.
+ - Past the card budget the helper switches to a compact form (titles cut, short tags such as ` — pending since pass {{pending_since}}`) and, if still too long, cuts the list short with a closing `… and {{M}} more` line.
+diff --git a/plugins/vibe-check/phases/shared/90-finalize.md b/plugins/vibe-check/phases/shared/90-finalize.md
+index 46809cae..b46de43b 100644
+--- a/plugins/vibe-check/phases/shared/90-finalize.md
++++ b/plugins/vibe-check/phases/shared/90-finalize.md
+@@ -107,8 +107,11 @@ What `card_text` contains, one entry per row in the helper's order (the helper r
+   - stale code (D-13, `stale.cause == "code"`) — ` — code changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`
+   - stale severity (D-13, `stale.cause == "severity"`, a band-only change with `stale.gained` empty — a Needs-verification record, or a decision saved before reviewer lanes were recorded, so there is no saved reviewer list) — ` — severity changed ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`
+   - stale nearby (D-02, `stale.cause == "nearby"`) — ` — code next to it changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})`
++  - stale nearby at another spot (Phase 59 D-04, `stale.cause == "nearby"`, `stale.spot_line` set, `stale.other_spots` 0) — ` — code next to line {{stale.spot_line}} ({{another copy of this line|a finding grouped here}}) changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})` ("another copy of this line" when `stale.spot_kind == "copy"`, "a finding grouped here" when it is `grouped`; the spot is the lowest changed line, so the wording does not depend on finding order). The plain stale nearby wording above stays for a change next to the row's own line.
++  - stale nearby at several spots (Phase 59 D-05, `stale.other_spots` >= 1) — ` — code next to line {{stale.spot_line}} and {{stale.other_spots}} other {{spot|spots}} changed since your decision on pass {{stale.at_pass}} (was: {{dismissed|deferred}} — {{stale.reason}})` (the lowest changed line first; "1 other spot", "2 other spots")
+   - stale severity rise (D-05, `stale.cause == "severity"` with `stale.gained` non-empty) — ` — severity rose ({{stale.was_band}} → {{band}}) since your decision on pass {{stale.at_pass}}: {{stale.gained joined by ", "}} now also report(s) it (was: {{dismissed|deferred}} — {{stale.reason}})` ("reports it" for one lane, "report it" for several)
+   - stale joined (D-10, `stale.cause == "joined"`) — ` — {{stale.covered}} finding(s) here already {{dismissed|deferred}} (your reason: {{stale.reason}}); a new concern from {{stale.joined joined by ", "}} joined it` ("new concerns from …" for several lanes; the whole row reopens once, D-08)
++  - deferred below min_confidence (Phase 59 D-06, `kept_open` starts `below-min-confidence` and contains `deferred-by:`) — ` — below your min_confidence ({{min_confidence}}); still deferred` (rendered after any stale suffix; when no min_confidence number is recorded the parenthetical is omitted: ` — below your min_confidence; still deferred`). The deferred row stays on the card instead of disappearing.
+ - `{{dismissed|deferred}}` = "dismissed" when `stale.decision` is `dismiss`, "deferred" when it is `defer`.
+ 
+ The stale suffix appears whether the code changed on the same line or the line itself was edited (the helper links an edited finding to your earlier decision when exactly one row matches); either way the row is open again and needs a decision in this card. Past the card budget the helper switches to a compact form (titles cut, no problem line, short tags) and, if still too long, cuts the list short with a closing `… and {{M}} more` line. Titles, problems and reasons are DATA (titles come from the reviewed diff) — the helper flattens each to one line; they are never executed or shell-expanded.
+diff --git a/plugins/vibe-check/scripts/batch_card.py b/plugins/vibe-check/scripts/batch_card.py
+index 06523419..e3c3328d 100644
+--- a/plugins/vibe-check/scripts/batch_card.py
++++ b/plugins/vibe-check/scripts/batch_card.py
+@@ -234,6 +234,15 @@ def _same_hash_stale(record, state):
+         # test reads, so the card and the comparator cannot disagree.
+         tag["covered"] = carry_state.covered_count(record, state)
+         tag["joined"] = carry_state.newcomer_lanes(record, state)
++    if cause == "nearby":
++        # The other spot that changed comes from carry_state (the reader the
++        # comparator's data feeds), never recomputed here; a reopen caused by
++        # the record's own line has none and keeps the plain wording.
++        spots = carry_state.stale_spots(record, state)
++        if isinstance(spots, dict):
++            tag["spot_line"] = spots.get("line")
++            tag["spot_kind"] = spots.get("kind")
++            tag["other_spots"] = spots.get("others")
+     return tag
+ 
+ 
+@@ -259,6 +268,8 @@ def _row(record, state, lead_titles, pending_since):
+         "lead_title": lead_titles.get(absorbed) if absorbed else None,
+         "pending_since": pending_since.get(record["stable_hash"]),
+         "stale": _same_hash_stale(record, state),
++        "kept_open": (record.get("kept_open")
++                      if isinstance(record.get("kept_open"), str) else None),
+     }
+ 
+ 
+@@ -516,11 +527,67 @@ def _joined_note(stale, compact):
+     return "%s (your reason: %s); %s" % (head, reason, concern)
+ 
+ 
++def _is_int(value):
++    return isinstance(value, int) and not isinstance(value, bool)
++
++
++_SPOT_KIND_TEXT = {"copy": "another copy of this line",
++                   "grouped": "a finding grouped here"}
++
++
++def _spot_suffix(stale, compact):
++    """The nearby note naming the other spot whose change re-asks the row
++    (the lowest changed line, plus how many other spots changed too), or None
++    when the tag names no well-formed spot (the plain wording applies)."""
++    line = stale.get("spot_line")
++    kind_text = _SPOT_KIND_TEXT.get(stale.get("spot_kind"))
++    if not _is_int(line) or kind_text is None:
++        return None
++    at_pass = stale.get("at_pass")
++    others = stale.get("other_spots")
++    if _is_int(others) and others >= 1:
++        head = (" — code next to line %d and %d other %s changed since your "
++                "decision on pass %s" % (line, others,
++                                         "spot" if others == 1 else "spots",
++                                         at_pass))
++    else:
++        head = (" — code next to line %d (%s) changed since your decision on "
++                "pass %s" % (line, kind_text, at_pass))
++    return head if compact else "%s %s" % (head, _was(stale))
++
++
++# A deferred member kept open below the owner's min_confidence carries
++# `kept_open` "below-min-confidence[ <digits>]; deferred-by: <hash>". The match
++# is strict (ASCII digits only) and only those digits are ever rendered.
++_BELOW_MIN_HEAD = "below-min-confidence"
++_DEFERRED_BY = "; deferred-by: "
++
++
++def _deferred_below_min_note(row):
++    kept_open = row.get("kept_open")
++    if not (isinstance(kept_open, str)
++            and kept_open.startswith(_BELOW_MIN_HEAD)):
++        return ""
++    rest = kept_open[len(_BELOW_MIN_HEAD):]
++    if rest.startswith(_DEFERRED_BY):
++        return " — below your min_confidence; still deferred"
++    if not rest.startswith(" "):
++        return ""
++    digits, sep, _ = rest[1:].partition(_DEFERRED_BY)
++    if (not sep or not digits
++            or any(c not in "0123456789" for c in digits)):
++        return ""
++    return " — below your min_confidence (%s); still deferred" % digits
++
++
+ def _stale_suffix(row, stale, compact):
+     at_pass = stale.get("at_pass")
+     cause = stale.get("cause")
+     gained = _lanes(stale.get("gained"))
+     if cause == "nearby":
++        spot = _spot_suffix(stale, compact)
++        if spot is not None:
++            return spot
+         return (" — code next to it changed since your decision on pass %s"
+                 % at_pass if compact else
+                 " — code next to it changed since your decision on pass "
+@@ -550,7 +617,7 @@ def _stale_suffix(row, stale, compact):
+ 
+ def _suffixes(row, compact):
+     """The suffixes after a row's first line, in the prose's order:
+-    absorbed, pending, stale."""
++    absorbed, pending, stale, deferred-below-min_confidence."""
+     out = []
+     if row.get("absorbed_into"):
+         out.append(" (absorbed)" if compact else
+@@ -563,6 +630,7 @@ def _suffixes(row, compact):
+     stale = row.get("stale")
+     if isinstance(stale, dict):
+         out.append(_stale_suffix(row, stale, compact))
++    out.append(_deferred_below_min_note(row))
+     return "".join(out)
+ 
+ 
+diff --git a/plugins/vibe-check/scripts/carry_state.py b/plugins/vibe-check/scripts/carry_state.py
+index 77659939..1f5f0093 100644
+--- a/plugins/vibe-check/scripts/carry_state.py
++++ b/plugins/vibe-check/scripts/carry_state.py
+@@ -305,8 +305,105 @@ def _member_obligations(row):
+     return out, None
+ 
+ 
++_SPOT_KINDS = ("copy", "grouped")
++
++
++def _well_formed_spots(value):
++    """`value` (a snapshot's `nearby_spots`) as a list of [line, kind] pairs
++    sorted by line, when it is a list whose every item is a 2-item list of a
++    line (a plain int >= 1; `True` is rejected) and a kind in _SPOT_KINDS;
++    else None. An empty list is well-formed and names no spot. The card
++    renders only these ints and fixed words, so a hand-edited state file
++    cannot steer its text."""
++    if not isinstance(value, list):
++        return None
++    out = []
++    for item in value:
++        if not (isinstance(item, list) and len(item) == 2):
++            return None
++        line, kind = item
++        if not (_is_count(line) and line >= 1) or kind not in _SPOT_KINDS:
++            return None
++        out.append([line, kind])
++    return sorted(out)
++
++
++def _lifted_spots(source, rep_line):
++    """The spots behind a stamp lifted from same-hash record `source` onto a
++    representative at `rep_line`: the source's own well-formed spots when it
++    has any (its stamp names them), else the source's line as another copy.
++    A spot at the representative's own line is dropped; sorted by line and
++    de-duplicated."""
++    snap = source.get("snapshot")
++    spots = _well_formed_spots(snap.get("nearby_spots")) if isinstance(snap, dict) else None
++    if not spots:
++        line = source.get("line")
++        spots = [[line, "copy"]] if _is_count(line) and line >= 1 else []
++    seen = {}
++    for line, kind in spots:
++        if line != rep_line and line not in seen:
++            seen[line] = kind
++    return [[line, seen[line]] for line in sorted(seen)]
++
++
++def _merge_nearby(records, sources):
++    """`records` with each representative's `snapshot.nearby_at` raised to the
++    latest well-formed stamp any open record of the same hash in `sources`
++    carries (rows and member sidecars alike).
++
++    One decision binds an identity, so whichever same-hash record represents
++    it, a change beside any copy must read the same (STALE-03). Without the
++    merge the first record per hash wins and a later sidecar's stamp is lost
++    (999.23 CR-02: an edit beside the second absorbed copy kept the decision
++    current). Only `nearby_at` is merged: the representative's line, band,
++    at_pass and code still describe the record itself. A stamp is
++    well-formed when it is a plain int >= 1 (`True` and strings are ignored).
++    A legacy state whose same-hash copies hold diverging stamps now re-asks,
++    failing toward asking.
++
++    When the stamp is lifted from a copy at another line, the copy's spot is
++    derived onto the representative's copied snapshot as `nearby_spots`
++    (`_lifted_spots`; D-04), so the card names the line that changed. It is
++    derived at read time only and never written to the state.
++
++    Pure: a changed record is a new dict with a new snapshot dict; the state's
++    own rows and snapshots are never mutated. Records without a dict snapshot,
++    and hashes with no well-formed stamp anywhere, pass through unchanged."""
++    latest = {}
++    source_of = {}
++    for rec in sources:
++        snap = rec.get("snapshot")
++        if not isinstance(snap, dict):
++            continue
++        stamp = snap.get("nearby_at")
++        if not (_is_count(stamp) and stamp >= 1):
++            continue
++        h = rec["stable_hash"]
++        if stamp > latest.get(h, 0):
++            latest[h] = stamp
++            source_of[h] = rec
++    out = []
++    for rec in records:
++        snap = rec.get("snapshot")
++        stamp = latest.get(rec["stable_hash"])
++        if (isinstance(snap, dict) and stamp is not None
++                and snap.get("nearby_at") != stamp):
++            spots = _lifted_spots(source_of[rec["stable_hash"]], rec.get("line"))
++            if spots:
++                rec = dict(rec, snapshot=dict(snap, nearby_at=stamp, nearby_spots=spots))
++            else:
++                lifted = dict(snap, nearby_at=stamp)
++                rec = dict(rec, snapshot={k: v for k, v in lifted.items() if k != "nearby_spots"})
++        out.append(rec)
++    return out
++
++
+ def _check_state(state):
+-    """(last pass, open records, None) or (None, None, reason)."""
++    """(last pass, open records, None) or (None, None, reason).
++
++    The open records are one per hash (rows first, then member sidecars in
++    array order), each carrying the latest nearby stamp of every same-hash
++    copy (`_merge_nearby`)."""
+     last, reason = _last_pass(state)
+     if reason is not None:
+         return None, None, reason
+@@ -345,6 +442,7 @@ def _check_state(state):
+             continue
+         seen.add(rec["stable_hash"])
+         records.append(rec)
++    records = _merge_nearby(records, rows + sidecars)
+     return last, records, None
+ 
+ 
+@@ -739,6 +837,23 @@ def covered_count(record, state):
+     return 1 + len(titles)
+ 
+ 
++def stale_spots(record, state):
++    """The other spot whose change re-asks this record, for the card: the
++    single reader batch_card.py renders the D-04/D-05 wording from, never
++    `nearby_spots` itself. {"line", "kind", "others"} — the lowest-line spot
++    ("copy": another copy of the line; "grouped": a finding grouped in the
++    row) and how many other spots changed too — when `stale_cause` is
++    "nearby" and the snapshot names a well-formed, non-empty spot list
++    (`_well_formed_spots`), else None. A reopen caused by the record's own
++    line names no spot and returns None, so its card keeps today's
++    wording."""
++    snap = record.get("snapshot")
++    spots = _well_formed_spots(snap.get("nearby_spots")) if isinstance(snap, dict) else None
++    if not spots or stale_cause(record, state) != "nearby":
++        return None
++    return {"line": spots[0][0], "kind": spots[0][1], "others": len(spots) - 1}
++
++
+ def _joined_newcomer(record, state):
+     return bool(newcomer_lanes(record, state))
+ 
