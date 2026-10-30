@@ -59,8 +59,8 @@ Approving the release also waives these:
 
 ## Owner sign-off
 
-Status: AWAITING OWNER
+Status: SIGNED OFF (owner, 2026-10-30)
 
-Reply with "approved" plus your Decision 1 choice (A, B or C), or tell me what to change. Your approval means "proceed", not code review; the evidence is the test and live-smoke results. After sign-off, this phase is release-ready, and publishing happens at milestone close from [61-CLOSE-RUNBOOK.md](61-CLOSE-RUNBOOK.md).
+Owner's words, verbatim: "A: Ship, known limit (Recommended)". Given by the owner directly in the main session (AskUserQuestion, 2026-10-30), with no added conditions. **Decision 1 = A:** ship now; C1 is the first Known limit in the GitHub release notes and goes on the backlog as 999.28; the README stays unchanged. The waivers listed above are granted. Approval means "proceed", not code review; the evidence is the test and live-smoke results. After sign-off, this phase is release-ready, and publishing happens at milestone close from [61-CLOSE-RUNBOOK.md](61-CLOSE-RUNBOOK.md).
 
 Full record: [61-RELEASE-RECORD.md](61-RELEASE-RECORD.md) · live smoke: [61-LIVE-SMOKE.md](61-LIVE-SMOKE.md) · residual ledgers (34 items, linked, not walked): [59-REPRO.md](../59-stale-decisions-and-lost-deferrals/59-REPRO.md), [60-REPRO.md](../60-exact-change-evidence-and-reliable-finalize/60-REPRO.md), [60-HUMAN-UAT.md](../60-exact-change-evidence-and-reliable-finalize/60-HUMAN-UAT.md).

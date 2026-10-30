@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: executing (Phase 61 awaiting owner sign-off)
-stopped_at: Phase 61 awaiting owner sign-off (61-SIGNOFF.md)
-last_updated: "2026-10-30T22:25:30Z"
-last_activity: 2026-10-30 -- Phase 61 plan 05 sign-off page ready (record, notes, close runbook committed); awaiting owner sign-off and the C1 ruling
+status: executing (Phase 61 signed off; verify-work 61 next)
+stopped_at: Phase 61 signed off — next /bm:verify-work 61, then close per 61-CLOSE-RUNBOOK.md
+last_updated: "2026-10-30T22:27:22Z"
+last_activity: 2026-10-30 -- Phase 61 owner sign-off recorded (Decision 1 = A: ship with C1 as a known limit, backlog 999.28; waivers granted); nothing published
 progress:
   total_phases: 3
   completed_phases: 2
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 Phase: 61 (release-gate-decision-reliability) — EXECUTING
 Plan: 5 of 5
-Status: Executing Phase 61 — awaiting owner sign-off (61-SIGNOFF.md)
-Last activity: 2026-10-30 -- Phase 61 plan 05 sign-off page ready (record, notes, close runbook committed); awaiting owner sign-off and the C1 ruling
+Status: Phase 61 signed off (owner, 2026-10-30) — next /bm:verify-work 61, then close per 61-CLOSE-RUNBOOK.md
+Last activity: 2026-10-30 -- Phase 61 owner sign-off recorded (Decision 1 = A: ship with C1 as a known limit, backlog 999.28; waivers granted); nothing published
 
 ## Operator Next Steps
 
