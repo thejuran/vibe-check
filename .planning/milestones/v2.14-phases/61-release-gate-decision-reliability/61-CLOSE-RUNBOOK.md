@@ -2,12 +2,12 @@
 
 Run these steps at milestone close, after the owner has signed off in 61-SIGNOFF.md (`Status: SIGNED OFF`). They are listed in order, and each one stops on failure. Run every fence through `bash -s <<'BASH' … BASH`, because the shell here is zsh. The candidate C is read from 61-CANDIDATE.md in every fence, never retyped. C is currently C2 = 47978aa (47978aad41eccc13c594820a8ab8386904439f31), which superseded 0d2be77 under Decision 1 = B; the sign-off gate is the re-sign on 47978aa. complete-milestone may move the phase directory under `.planning/milestones/`, so each fence looks in both places.
 
-The common preamble below is repeated at the top of each fence that needs C:
+Each lookup tolerates the missing path (`|| true`): under `set -o pipefail`, `ls` exiting 1 for the path that no longer exists otherwise aborts the fence silently (hit at close 2026-10-30). The common preamble below is repeated at the top of each fence that needs C:
 
 ```bash
 cd /Users/julianamacbook/turingmind-code-review
-CAND=$(ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
-          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null | head -1)
+CAND=$( { ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
+          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null || true; } | head -1)
 test -n "$CAND" || { echo "61-CANDIDATE.md NOT FOUND — STOPPING"; exit 1; }
 C=$(sed -n 's/^candidate: //p' "$CAND")
 [[ "$C" =~ ^[0-9a-f]{40}$ ]] || { echo "CANDIDATE SHA INVALID — STOPPING"; exit 1; }
@@ -38,8 +38,8 @@ BASH
 bash -s <<'BASH'
 set -euo pipefail
 cd /Users/julianamacbook/turingmind-code-review
-CAND=$(ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
-          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null | head -1)
+CAND=$( { ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
+          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null || true; } | head -1)
 test -n "$CAND" || { echo "61-CANDIDATE.md NOT FOUND — STOPPING"; exit 1; }
 C=$(sed -n 's/^candidate: //p' "$CAND")
 [[ "$C" =~ ^[0-9a-f]{40}$ ]] || { echo "CANDIDATE SHA INVALID — STOPPING"; exit 1; }
@@ -65,8 +65,8 @@ Re-state in the close summary: Dependabot alerts are disabled on thejuran/vibe-c
 bash -s <<'BASH'
 set -euo pipefail
 cd /Users/julianamacbook/turingmind-code-review
-CAND=$(ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
-          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null | head -1)
+CAND=$( { ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
+          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null || true; } | head -1)
 C=$(sed -n 's/^candidate: //p' "$CAND")
 [[ "$C" =~ ^[0-9a-f]{40}$ ]] || { echo "CANDIDATE SHA INVALID — STOPPING"; exit 1; }
 test "$(git branch --show-current)" = "feat/v2.14-phase-61" || { echo "WRONG BRANCH — STOPPING"; exit 1; }
@@ -105,8 +105,8 @@ BASH
 bash -s <<'BASH'
 set -euo pipefail
 cd /Users/julianamacbook/turingmind-code-review
-CAND=$(ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
-          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null | head -1)
+CAND=$( { ls .planning/phases/61-release-gate-decision-reliability/61-CANDIDATE.md \
+          .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-CANDIDATE.md 2>/dev/null || true; } | head -1)
 C=$(sed -n 's/^candidate: //p' "$CAND")
 [[ "$C" =~ ^[0-9a-f]{40}$ ]] || { echo "CANDIDATE SHA INVALID — STOPPING"; exit 1; }
 git fetch origin
@@ -139,8 +139,8 @@ BASH
 bash -s <<'BASH'
 set -euo pipefail
 cd /Users/julianamacbook/turingmind-code-review
-NOTES=$(ls .planning/phases/61-release-gate-decision-reliability/61-RELEASE-NOTES.md \
-           .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-RELEASE-NOTES.md 2>/dev/null | head -1)
+NOTES=$( { ls .planning/phases/61-release-gate-decision-reliability/61-RELEASE-NOTES.md \
+           .planning/milestones/v2.14-phases/61-release-gate-decision-reliability/61-RELEASE-NOTES.md 2>/dev/null || true; } | head -1)
 test -n "$NOTES" || { echo "61-RELEASE-NOTES.md NOT FOUND — STOPPING"; exit 1; }
 gh release create v2.14 --verify-tag --latest --title "v2.14 — Decision reliability" --notes-file "$NOTES"
 BASH
