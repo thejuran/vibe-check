@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: executing
-last_updated: "2026-10-30T19:00:00.000Z"
+last_updated: "2026-10-30T20:00:00.000Z"
 last_activity: 2026-10-30 -- Phase 60 re-verification (round 2) gaps_found 5/6: CR-01 + stale-GATEFILE closed; new blocking WR-01 (stale BLOBFILE recount can APPROVE unverified code) + WR-02 (head_sha check wedges --finalize) on FINL-02
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 19
+  total_plans: 22
   completed_plans: 19
   percent: 33
 ---
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 ## Current Position
 
 Phase: 60 (exact-change-evidence-and-reliable-finalize) — EXECUTING
-Plan: 13 of 13 (60-01..60-13 done; re-verification pending)
+Plan: 13 of 16 (60-01..60-13 done; third gap round 60-14..60-16 planned, not executed)
 Status: Executing Phase 60
 Last activity: 2026-10-30 -- 60-13 complete (second gap round close-out: REPRO_60 at 14 rows, 60-REPRO.md V13-V14, reverse run at f2b58d1); Phase 60 awaits re-verification
 
