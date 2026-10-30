@@ -406,14 +406,14 @@ BASH
 | A4 | A nearby edit 2–4 lines from the flagged line yields the "code next to it changed" wording rather than "code changed" | Live Smoke | Card wording differs. Still a correct reopen (D-07 territory, not a failure) |
 | A5 | 2.14 state fields make an untested 2.14→2.13 downgrade re-ask rather than lose data | Release notes | Wording of one README bullet |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where does GATE-03's "ships" clause get verified?**
+1. **Where does GATE-03's "ships" clause get verified?** RESOLVED: adopted in 61-05 (ships clause pending close; steps in 61-CLOSE-RUNBOOK.md).
    - Known: `complete-milestone` refuses until all phases are complete, so it cannot run inside Phase 61.
    - Recommendation: Phase 61 verification marks the publish step human_needed/pending-close. The milestone audit and close then complete it, as in the v2.13 audit pattern. The planner should not put `complete-milestone` inside a Phase 61 plan.
-2. **Does the README need the gated suite count ("N passing at release")?**
+2. **Does the README need the gated suite count ("N passing at release")?** RESOLVED: adopted in 61-01 Task 2 (count from G1 on the edited tree) and re-asserted on C in 61-03.
    - The v2.13 README cites 3,588. If the count goes in README, it must be the G1 count on `C`, and it is the same number on main because the trees are identical. Recommendation: fill it in from G1, and re-run G1 after any README edit, because README is test-coupled.
-3. **Defer vs dismiss in smoke S1.** Both are deliberate decisions under STALE rules. Recommendation: defer, because it also exercises deferred-obligation visibility at Finalize (REVIEW.md "Findings deferred" list).
+3. **Defer vs dismiss in smoke S1.** RESOLVED: adopted in 61-04 Task 2 step 1 (defer). Both are deliberate decisions under STALE rules. Recommendation: defer, because it also exercises deferred-obligation visibility at Finalize (REVIEW.md "Findings deferred" list).
 
 ## Environment Availability
 
