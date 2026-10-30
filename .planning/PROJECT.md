@@ -25,7 +25,7 @@ as their safety net.
 - Exact change evidence and reliable Finalize (999.24, 999.25): nearby/in-diff ranges from actual additions/deletions, not display context; Finalize's blob-file path survives fresh Bash calls via the printed-path convention.
 - Release gate: targeted real-chain regressions, full offline suite, archived replay (only named reopen/retention differences allowed), mode/recovery checks; live checks only under a separately approved bounded proposal, else documented gap + waiver. Ships independently.
 
-**Progress:** Phase 59 complete (2026-10-29) — CR-01, CR-01 multi-pass, CR-02, CR-04 and the `min_confidence=45` deferral loss fixed with red-before/green-after real-chain fixtures; SA-02 did not reproduce (dropped, pinned). Card-wording residuals WR-01/WR-02 owner-parked to 999.23. Next: Phase 60.
+**Progress:** Phases 59–61 complete (2026-10-30). Phase 61 release gate: candidate 47978aa (2.14.0) passed G1–G9 and the approved live smoke; owner re-signed with C1 (decisions on uncommitted code re-asked each pass) stated as a known limit in README and release notes (999.28). Next: Phase 61 PR, then milestone close via 61-CLOSE-RUNBOOK.md.
 
 **Out of scope:** cost reporting, orchestration extraction, reviewer/model changes, scoring changes, 999.26. Lean orchestration (999.12 + Finalize extraction) follows; Reviewer efficiency stays conditional. Full scope: [Roadmap](ROADMAP.md).
 
@@ -468,4 +468,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-30 after Phase 60 (exact change evidence and reliable Finalize)*
+*Last updated: 2026-10-30 after Phase 61 (release gate — decision reliability)*
