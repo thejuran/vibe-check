@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
-status: executing
-last_updated: "2026-10-30T22:19:59.095Z"
-last_activity: 2026-10-30 -- Phase 61 plan 04 complete (live smoke PASS on candidate 0d2be77)
+status: executing (Phase 61 awaiting owner sign-off)
+stopped_at: Phase 61 awaiting owner sign-off (61-SIGNOFF.md)
+last_updated: "2026-10-30T22:25:30Z"
+last_activity: 2026-10-30 -- Phase 61 plan 05 sign-off page ready (record, notes, close runbook committed); awaiting owner sign-off and the C1 ruling
 progress:
   total_phases: 3
   completed_phases: 2
@@ -26,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 
 Phase: 61 (release-gate-decision-reliability) — EXECUTING
 Plan: 5 of 5
-Status: Executing Phase 61
-Last activity: 2026-10-30 -- Phase 61 plan 04 complete (live smoke PASS on candidate 0d2be77)
+Status: Executing Phase 61 — awaiting owner sign-off (61-SIGNOFF.md)
+Last activity: 2026-10-30 -- Phase 61 plan 05 sign-off page ready (record, notes, close runbook committed); awaiting owner sign-off and the C1 ruling
 
 ## Operator Next Steps
 
@@ -81,6 +82,8 @@ Carried from earlier:
 - [v2.12 archived roadmap](milestones/v2.12-ROADMAP.md): shipped scope and incomplete measurement.
 
 ## Session Continuity
+
+2026-10-30: Phase 61 plan 05 Tasks 1-2 done (f29e9e7 record/notes/runbook; sign-off page commit follows). D-12 freshness assert passed (HEAD equals C 0d2be77 outside .planning). 61-SIGNOFF.md Status: AWAITING OWNER, with Decision 1 = C1 (A ship with known limit, recommended / B add to README → new candidate + all gates re-run / C fix round). Release notes carry C1 as Known limit 1; README at C does not mention C1. Backlog 999.28 to create at close. Nothing published. GATE-03 stays unticked until sign-off. Next: owner sign-off (61-05 Task 3), then /bm:verify-work 61 and close per 61-CLOSE-RUNBOOK.md.
 
 2026-10-30: Phase 61 plan 04 complete (0866858 setup, 5784b37 result). Live smoke of candidate 0d2be77 = PASS (61-LIVE-SMOKE.md): S1 review+defer, S2 re-asked after a nearby edit with "code next to it changed since your decision on pass 1", S3 --finalize carried the printed BLOBFILE=/GATEFILE= paths and wrote .turingmind/REVIEW.md (no "Finalize stopped"); provenance 100% snapshot; installed 2.13.0 cache restored (empty diff), snapshot removed. Carried D-07 C1 (owner-relevant, raise at 61-05 sign-off): on the default route a decision on uncommitted code is re-asked every pass with no change (pass>=2 ranges = git diff HEAD until a commit), card wording claims a nearby change. C2-C5 minor. GATE-03 stays Pending until 61-05. Next: 61-05.
 
