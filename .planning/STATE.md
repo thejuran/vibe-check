@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.14
 milestone_name: Decision reliability
 status: ready_to_plan
-last_updated: 2026-10-30T20:55:14.559Z
-last_activity: 2026-10-30 -- Phase 60 complete (re-verification 6/6 + human UAT 3/3; FINL-02 Complete)
+last_updated: 2026-10-30T20:59:39.000Z
+last_activity: 2026-10-30 -- Phase 60 shipped as PR #6 (awaiting merge)
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 22
   completed_plans: 22
   percent: 67
-stopped_at: Phase 60 complete (16/16) — ready to discuss Phase 61
+stopped_at: Phase 60 shipped as PR #6 (awaiting merge) — then discuss Phase 61
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-28)
 Phase: 61
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-10-30 -- Phase 60 complete (60-HUMAN-UAT 3/3: R16 Write-tool live check pass; R17 accepted limit; R25 deferred to 999.27)
+Last activity: 2026-10-30 -- Phase 60 shipped as PR #6 https://github.com/thejuran/vibe-check/pull/6 (awaiting merge; then delete feat/v2.14-phase-60 local + remote)
 
 ## Operator Next Steps
 
