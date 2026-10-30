@@ -1402,6 +1402,32 @@ class TestGapRoundFinalize(LockCase):
                 "no longer available", "gone"))
 
 
+    def _step3_mutant(self, old, new=""):
+        """Replace `old` inside the step-3 line only (the rebuild-once
+        paragraph carries similar wording)."""
+        line = step3_line(self.text)
+        self.assertIn(old, line)
+        return self._mutant(line, line.replace(old, new, 1))
+
+    def test_step3_rerun_rule_holds(self):
+        self.assert_holds(step3_rerun_rule_holds, self.text)
+
+    def test_mutant_step3_rerun_rule(self):
+        for needle in STEP3_NEEDLES:
+            with self.subTest("mutant: step 3 drops " + needle):
+                self.assert_trips(step3_rerun_rule_holds,
+                                  self._step3_mutant(needle))
+        with self.subTest("mutant: step 3 re-runs the gate on the old "
+                          "GATEFILE again"):
+            self.assert_trips(step3_rerun_rule_holds, self._step3_mutant(
+                STEP3_NEEDLES[0],
+                STEP3_OLD + " (the same `BLOBFILE=` literal this attempt "
+                "printed)"))
+
+    def test_step3_keeps_answer_files_anchor(self):
+        self.assertEqual(check_answer_files(self.text), [])
+
+
 class TestGapRoundFinalizeTranslate(LockCase):
     """Finalize's Translate, Ask and Bottom line match the helper the same
     way the fix-loop card does: verbatim title words, the parser-refusal
@@ -1894,6 +1920,38 @@ def write_boundary_holds(text):
     return problems
 
 
+STEP3_NEEDLES = (
+    "RE-RUN the counts step ONCE (the same `BLOBFILE=` literal this attempt "
+    "printed)",
+    "run the gate-input fence again so it prints a NEW `GATEFILE=`",
+    "write the seven-key `flags` object from the RE-COUNTED `$COUNTS_JSON` "
+    "to that new path",
+    "run the gate once on that literal",
+    "never on the `GATEFILE=` this attempt's first gate run read",
+)
+STEP3_OLD = "RE-RUN the counts step and the gate ONCE"
+
+
+def step3_line(text):
+    """The After-the-answer step-3 list item (one line), or ""."""
+    return _line_starting(card_section(text), STEP3_HEAD)
+
+
+def step3_rerun_rule_holds(text):
+    """FINL-02 / WR-02: after the owner's answers are recorded, step 3
+    re-counts on this attempt's BLOBFILE, mints a NEW GATEFILE, writes the
+    flags from the recounted counts and gates on that literal, never on the
+    attempt's first GATEFILE."""
+    line = step3_line(text)
+    if not line:
+        return ["no step 3 line"]
+    problems = ["step 3 lacks: " + n for n in STEP3_NEEDLES if n not in line]
+    if STEP3_OLD in line:
+        problems.append("step 3 still says to re-run the gate on this "
+                        "attempt's GATEFILE")
+    return problems
+
+
 class TestFinalizeFreshShellWalk(LockCase):
     """FINL-01 / FINL-02 / D-09: every Finalize fence, run in a fresh shell
     with the printed paths carried as literals, reaches counts -> gate ->
@@ -2226,6 +2284,82 @@ class TestFinalizeFreshShellWalk(LockCase):
                          "write")
         self._assert_closed()
         self.assert_holds(retry_rule_holds, self.text)
+
+    def test_post_decision_rerun_decides_on_a_fresh_gatefile(self):
+        """FINL-02 / WR-02: after the card answer is recorded and the recount
+        is (0, 0, 0), re-running the gate on this attempt's first GATEFILE
+        still decides on the pre-answer counts and stays blocked; a NEW
+        GATEFILE written from the recounted counts returns `write`. Step 3
+        must say to do the second."""
+        state = self._state_copy(SIX_ROW_FIXTURE)
+        gate = gate_fence(self.text)
+        blob = self._mint("BLOBFILE", state_file=state)
+        self._write_json(blob, {})
+        counts1 = self._counts(blob, state)
+        self.assertEqual((counts1["outstanding_cw"],
+                          counts1["unacknowledged_medium"],
+                          counts1["undecided_nv"]), (5, 1, 0))
+        gate1 = self._mint("GATEFILE", state_file=state)
+        flags1 = self._flags(counts1, state)
+        self._write_json(gate1, flags1)
+        rc, out, err = self._walk(gate, {"GATEFILE": gate1}, state)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["action"],
+                         "outstanding-to-phase-5")
+
+        rc, out, err = self._walk(_fence_holding(self.text, ROWS_CALL),
+                                  {"BLOBFILE": blob}, state)
+        self.assertEqual(rc, 0, err)
+        printed = _printed(out)
+        with open(printed["ROWSFILE"], encoding="utf-8") as fh:
+            rows = json.load(fh)
+        self.assertTrue(rows["rows"])
+        numbers = ",".join(str(r["n"]) for r in rows["rows"])
+        self._write_json(printed["ANSWERFILE"],
+                         {"q1": "dismiss %s -- walk" % numbers, "q2": None})
+        parsefile = self._mint("PARSEFILE",
+                               {"ROWSFILE": printed["ROWSFILE"],
+                                "ANSWERFILE": printed["ANSWERFILE"]}, state)
+        decfile = self._mint("DECFILE", {"PARSEFILE": parsefile}, state)
+        with open(state, encoding="utf-8") as fh:
+            before = fh.read()
+        rc, _, err = self._walk(_fence_holding(self.text, RECORD_CALL),
+                                {"DECFILE": decfile}, state)
+        self.assertEqual(rc, 0, err)
+        with open(state, encoding="utf-8") as fh:
+            self.assertNotEqual(fh.read(), before)
+
+        # Step 3 recount: the same attempt's BLOBFILE literal.
+        counts2 = self._counts(blob, state)
+        self.assertEqual((counts2["outstanding_cw"],
+                          counts2["unacknowledged_medium"],
+                          counts2["undecided_nv"]), (0, 0, 0))
+
+        with self.subTest("stale: the gate re-run on this attempt's first "
+                          "GATEFILE"):
+            rc, out, err = self._walk(gate, {"GATEFILE": gate1}, state)
+            self.assertEqual(rc, 0, err)
+            self.assertEqual(
+                json.loads(out.strip().splitlines()[-1])["action"],
+                "outstanding-to-phase-5")
+            with open(gate1, encoding="utf-8") as fh:
+                self.assertEqual(json.load(fh), flags1)
+
+        with self.subTest("fresh: a new GATEFILE written from the recounted "
+                          "counts"):
+            gate2 = self._mint("GATEFILE", state_file=state)
+            self.assertNotEqual(gate2, gate1)
+            self._write_json(gate2, self._flags(counts2, state))
+            rc, out, err = self._walk(gate, {"GATEFILE": gate2}, state)
+            self.assertEqual(rc, 0, err)
+            with open(gate2 + ".err", encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "")
+            self.assertEqual(
+                json.loads(out.strip().splitlines()[-1])["action"], "write")
+            self.assertTrue(self._report(state)["entries"])
+            self._assert_closed()
+
+        self.assert_holds(step3_rerun_rule_holds, self.text)
 
     def test_gatefile_missing_path_is_a_named_trigger(self):
         """The rebuild-once rule names a missing or empty GATEFILE= as a
