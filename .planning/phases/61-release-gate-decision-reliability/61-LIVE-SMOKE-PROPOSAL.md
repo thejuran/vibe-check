@@ -1,6 +1,6 @@
-# Proposal: Phase 61 live smoke of the 2.14.0 candidate (NOT APPROVED)
+# Proposal: Phase 61 live smoke of the 2.14.0 candidate (APPROVED)
 
-Status: PROPOSED
+Status: APPROVED (owner, 2026-10-30)
 
 Written 2026-10-30. Nothing runs and nothing is spent until the owner explicitly approves this proposal. This proposal does not authorize publishing.
 
@@ -71,3 +71,14 @@ Assumption: a default `/vibe-check:review` costs at or below the measured deep-r
 ## If declined
 
 The smoke does not run and nothing is spent. The release record states the gap plainly: the repaired Close-out path is proven only by offline fresh-shell walks, not by a real session. At sign-off the owner is asked to waive the live check (GATE-03), and the release notes say that no live check was run.
+
+## Owner ruling
+
+- **Ruling:** APPROVED, 2026-10-30.
+- **Channel:** the owner's own selection in the main orchestrator session (AskUserQuestion), not relayed from another agent.
+- **Question asked:** spend an estimated $20–30 (estimate, not a cap) on the live smoke of candidate `0d2be77` — about 3 real Claude Code sessions (review, nearby edit, re-review, Close out) — or decline and waive the live check at sign-off.
+- **Selection, verbatim:** "Approve (Recommended)"
+- **Description shown with the selection, verbatim:** "~$20–30 plus my session time. Shows Close out and re-asking work in real use before shipping. A serious failure uses the phase's one fix round; if it still fails after that, 2.14.0 doesn't ship."
+- **Conditions:** no additional conditions beyond the proposal as written.
+
+This ruling authorizes the smoke described above (plan 61-04) and nothing else: no publish, no other live routes, no second fix round.
